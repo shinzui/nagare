@@ -1,4 +1,4 @@
--- EP-202 M1 reference fixture: the ClickHouse 26.8 statements for one app database.
+-- EP-202 M1 reference fixture, extended by EP-204 M1: the ClickHouse 26.8 statements for one app database.
 --
 -- App database "alpha-ch" on server "smoke-ch", logical databases "alpha" and
 -- "alpha_ledger", users "alpha_runtime" and "alpha_migration". Proven by hand against
@@ -33,17 +33,103 @@ CREATE USER alpha_runtime IDENTIFIED WITH sha256_hash BY 'CCC85116A7D5E75E1446E5
 -- one is refused, and an existing archive cannot be overwritten.
 ALTER USER alpha_migration HOST ANY;
 GRANT WRITE ON FILE TO alpha_migration;
+REVOKE SELECT ON system.parts FROM alpha_migration;
+REVOKE SELECT ON system.mutations FROM alpha_migration;
+REVOKE SELECT ON system.disks FROM alpha_migration;
+REVOKE SELECT ON system.storage_policies FROM alpha_migration;
+REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_migration;
+ALTER USER alpha_migration SETTINGS NONE;
 
 -- operation: user-access alpha_migration off
 -- HOST NONE refuses every login. Databases, data and Secrets are kept.
 ALTER USER alpha_migration HOST NONE;
 REVOKE WRITE ON FILE FROM alpha_migration;
+REVOKE SELECT ON system.parts FROM alpha_migration;
+REVOKE SELECT ON system.mutations FROM alpha_migration;
+REVOKE SELECT ON system.disks FROM alpha_migration;
+REVOKE SELECT ON system.storage_policies FROM alpha_migration;
+REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_migration;
+ALTER USER alpha_migration SETTINGS NONE;
 
 -- operation: user-access alpha_runtime on
 ALTER USER alpha_runtime HOST ANY;
+REVOKE SELECT ON system.parts FROM alpha_runtime;
+REVOKE SELECT ON system.mutations FROM alpha_runtime;
+REVOKE SELECT ON system.disks FROM alpha_runtime;
+REVOKE SELECT ON system.storage_policies FROM alpha_runtime;
+REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_runtime;
+ALTER USER alpha_runtime SETTINGS NONE;
 
 -- operation: user-access alpha_runtime off
 ALTER USER alpha_runtime HOST NONE;
+REVOKE SELECT ON system.parts FROM alpha_runtime;
+REVOKE SELECT ON system.mutations FROM alpha_runtime;
+REVOKE SELECT ON system.disks FROM alpha_runtime;
+REVOKE SELECT ON system.storage_policies FROM alpha_runtime;
+REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_runtime;
+ALTER USER alpha_runtime SETTINGS NONE;
+
+-- operation: user-access alpha_runtime on with declared access
+-- EP-204 M1. Every allow-listed exception is granted when declared and revoked otherwise,
+-- so the rendering depends only on the declaration and a retry needs no history. Revoking
+-- a grant the user does not hold succeeds and leaves no partial-revoke row. system.grants
+-- reports the four system tables as table-level SELECT rows on database "system" and the
+-- temporary-table privilege as one global row; no implied privilege rows appear.
+--   SELECT on system.parts and system.mutations shows only the rows of tables the user can
+--   SHOW: alpha_runtime saw alpha's parts and mutations and none of beta's.
+--   CREATE ARBITRARY TEMPORARY TABLE allows ENGINE = Join(ANY, LEFT, k) and Memory; without
+--   it both are refused (497, CREATE [ARBITRARY] TEMPORARY TABLE ON *.*). With it a
+--   temporary table on URL(...), File(...) or S3(...) is still refused with 497 (TABLE
+--   ENGINE ON URL / File / S3).
+-- The one SETTINGS statement replaces the user's whole settings list (a second ALTER USER
+-- ... SETTINGS leaves only its own elements; SETTINGS NONE leaves none). Each ceiling is
+-- also the default, so an app that sets nothing gets it:
+--   SET max_memory_usage = 134217728 is accepted; = 536870912 is refused (452, "shouldn't
+--   be greater than 268435456"); = 0, max_execution_time = 0 and
+--   max_concurrent_queries_for_user = 0 are each refused (452, "shouldn't be less than 1"),
+--   also as a per-query SETTINGS clause. enable_analyzer, async_insert and mutations_sync
+--   stay settable.
+--   Enforcement, alpha_runtime against beta_runtime on the same server:
+--   SELECT sum(cityHash64(number)) FROM numbers(100000000000) SETTINGS max_threads = 1
+--   stops at 5000 ms (159, TIMEOUT_EXCEEDED); beta ran it until its own per-query 7 s cap.
+--   SELECT length(groupArray(number)) FROM numbers(30000000) is refused (241,
+--   MEMORY_LIMIT_EXCEEDED, "would use 384.62 MiB"); beta completed it with a 512.14 MiB peak
+--   in system.query_log. The third concurrent SELECT sleep(3) is refused (202, "Too many
+--   simultaneous queries for user alpha_runtime"); beta ran three.
+ALTER USER alpha_runtime HOST ANY;
+GRANT SELECT ON system.parts TO alpha_runtime;
+GRANT SELECT ON system.mutations TO alpha_runtime;
+GRANT SELECT ON system.disks TO alpha_runtime;
+GRANT SELECT ON system.storage_policies TO alpha_runtime;
+GRANT CREATE ARBITRARY TEMPORARY TABLE ON *.* TO alpha_runtime;
+ALTER USER alpha_runtime SETTINGS max_memory_usage = 268435456 MIN 1 MAX 268435456, max_execution_time = 5 MIN 1 MAX 5, max_concurrent_queries_for_user = 2 MIN 1 MAX 2;
+
+-- operation: user-access alpha_runtime off with declared access
+-- Retirement revokes the exceptions with the other server grants; the limits follow the
+-- declaration whether or not the user can log in.
+ALTER USER alpha_runtime HOST NONE;
+REVOKE SELECT ON system.parts FROM alpha_runtime;
+REVOKE SELECT ON system.mutations FROM alpha_runtime;
+REVOKE SELECT ON system.disks FROM alpha_runtime;
+REVOKE SELECT ON system.storage_policies FROM alpha_runtime;
+REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_runtime;
+ALTER USER alpha_runtime SETTINGS max_memory_usage = 268435456 MIN 1 MAX 268435456, max_execution_time = 5 MIN 1 MAX 5, max_concurrent_queries_for_user = 2 MIN 1 MAX 2;
+
+-- operation: user-access alpha_migration on with declared access
+-- The scheduled backup is one BACKUP query as the migration user, so its ceilings bound it:
+-- with max_execution_time = 1 a 3.8 GiB BACKUP failed with 159 (BACKUP_FAILED in
+-- system.backups; the check fired after 22 s, not at 1 s), and with two sleep(3) queries
+-- running a BACKUP was refused with 202 under max_concurrent_queries_for_user = 2. Its
+-- tracked memory stayed at 5.49 MiB, so max_memory_usage = 268435456 did not stop the same
+-- backup (it completed in 76 s).
+ALTER USER alpha_migration HOST ANY;
+GRANT WRITE ON FILE TO alpha_migration;
+REVOKE SELECT ON system.parts FROM alpha_migration;
+REVOKE SELECT ON system.mutations FROM alpha_migration;
+GRANT SELECT ON system.disks TO alpha_migration;
+GRANT SELECT ON system.storage_policies TO alpha_migration;
+REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_migration;
+ALTER USER alpha_migration SETTINGS max_memory_usage = 1073741824 MIN 1 MAX 1073741824, max_execution_time = 600 MIN 1 MAX 600;
 
 -- operation: create-database alpha
 -- Empty databases only; registration never creates tables. The migration user can also
@@ -76,10 +162,13 @@ ALTER USER alpha_runtime IDENTIFIED WITH sha256_hash BY 'BBC56EF6B104E2377EFF73C
 -- operation: observe
 -- One JSONEachRow row per fact, each tagged with its kind. Grants cover the app's users
 -- anywhere and any user on the app's databases, so a grant to another app's user on
--- these databases is observed too.
+-- these databases is observed too. Settings rows (EP-204) are the user's own settings
+-- elements: a declared ceiling is value = min-of-1 = max with no writability; an inherited
+-- profile is a row with only inherit_profile set; a CONST setting has writability CONST.
 SELECT 'user' AS kind, name, toString(id) AS physical, host_ip, host_names, host_names_regexp, host_names_like, default_database FROM system.users WHERE name IN ('alpha_migration', 'alpha_runtime') ORDER BY name FORMAT JSONEachRow;
 SELECT 'grant' AS kind, user_name, access_type, database, table, column, is_partial_revoke, grant_option FROM system.grants WHERE user_name IN ('alpha_migration', 'alpha_runtime') OR database IN ('alpha', 'alpha_ledger') ORDER BY ALL FORMAT JSONEachRow;
 SELECT 'role' AS kind, user_name, granted_role_name FROM system.role_grants WHERE user_name IN ('alpha_migration', 'alpha_runtime') ORDER BY ALL FORMAT JSONEachRow;
+SELECT 'setting' AS kind, user_name, setting_name, value, min, max, writability, inherit_profile FROM system.settings_profile_elements WHERE user_name IN ('alpha_migration', 'alpha_runtime') ORDER BY ALL FORMAT JSONEachRow;
 SELECT 'database' AS kind, name, toString(uuid) AS physical, engine FROM system.databases WHERE name IN ('alpha', 'alpha_ledger') ORDER BY name FORMAT JSONEachRow;
 
 -- operation: backup

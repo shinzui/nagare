@@ -25,13 +25,14 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
-import Data.List (sortOn)
+import Data.List (sort, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Dsl.AppDatabase (noUserAccess)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Access (TeamKey, mkTeamKey, teamKeyText)
 import Nagare.Resource.Canonical (canonicalValue)
@@ -365,18 +366,49 @@ instance ToJSON Executor where toJSON = genericToJSON options
 
 instance FromJSON Executor where parseJSON = genericParseJSON options
 
+-- | The app-database specs are written by hand: their EP-204 extension is a
+-- trailing element written only when it is not empty, so an app database
+-- without reviewed access keeps the exact v0.7 bytes and digests, and v0.7
+-- records decode with an empty extension. Every other alternative is generic.
 instance ToJSON DesiredSpec where
-  toJSON =
-    genericToJSON options . \case
-      StatefulSet count templates digest -> StatefulSet count (sortOn nameText templates) digest
-      HelmRelease objects digest -> HelmRelease (NE.sort objects) digest
-      BackendMapSpec entries -> BackendMapSpec (sortOn (nameText . first3) entries)
-      CloudflareRulesSpec intents -> CloudflareRulesSpec (sortOn (nameText . cacheHost) intents)
-      other -> other
+  toJSON = \case
+    DatabaseUserSpec engine role on digest access ->
+      tagged "DatabaseUserSpec" ([toJSON engine, toJSON role, toJSON on, toJSON digest] <> [toJSON access | access /= noUserAccess])
+    LogicalDatabase engine migration runtime on digest monitoring ->
+      tagged "LogicalDatabase" ([toJSON engine, toJSON migration, toJSON runtime, toJSON on, toJSON digest] <> [toJSON monitoring | not (null monitoring)])
+    spec ->
+      genericToJSON options $ case spec of
+        StatefulSet count templates digest -> StatefulSet count (sortOn nameText templates) digest
+        HelmRelease objects digest -> HelmRelease (NE.sort objects) digest
+        BackendMapSpec entries -> BackendMapSpec (sortOn (nameText . first3) entries)
+        CloudflareRulesSpec intents -> CloudflareRulesSpec (sortOn (nameText . cacheHost) intents)
+        other -> other
     where
       first3 (name, _, _) = name
+      tagged tag contents = object ["tag" .= String tag, "contents" .= contents]
 
-instance FromJSON DesiredSpec where parseJSON = genericParseJSON options
+instance FromJSON DesiredSpec where
+  parseJSON value = case value of
+    Object o
+      | Just (String "DatabaseUserSpec") <- KM.lookup "tag" o -> appDatabaseContents o $ \case
+          [engine, role, on, digest] -> DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON on <*> parseJSON digest <*> pure noUserAccess
+          [engine, role, on, digest, access] -> do
+            access' <- parseJSON access
+            when (access' == noUserAccess) (fail "an empty app-database user extension is written by omission")
+            DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON on <*> parseJSON digest <*> pure access'
+          _ -> fail "DatabaseUserSpec has four or five elements"
+      | Just (String "LogicalDatabase") <- KM.lookup "tag" o -> appDatabaseContents o $ \case
+          [engine, migration, runtime, on, digest] -> LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> pure []
+          [engine, migration, runtime, on, digest, monitoring] -> do
+            monitoring' <- parseJSON monitoring
+            when (null monitoring') (fail "an empty monitoring-role list is written by omission")
+            LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> pure monitoring'
+          _ -> fail "LogicalDatabase has five or six elements"
+    _ -> genericParseJSON options value
+    where
+      appDatabaseContents o parse = do
+        unless (sort (KM.keys o) == ["contents", "tag"]) (fail "an app-database spec has exactly tag and contents")
+        o .: "contents" >>= parse
 
 instance ToJSON CloudflareCacheIntent where toJSON = genericToJSON options
 

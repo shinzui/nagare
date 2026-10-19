@@ -12,17 +12,20 @@ module Nagare.Database.AppDatabase.Catalog
   , CatalogUser (..)
   , CatalogDatabase (..)
   , CatalogGrant (..)
+  , CatalogSetting (..)
   , LoginState (..)
   , emptyCatalog
   , parsePostgresCatalog
   , parseClickHouseCatalog
   , MemberState (..)
+  , UserDeclaration (..)
   , classifyUser
   , classifyDatabase
+  , exceptionGrantToken
   )
 where
 
-import Data.Aeson (FromJSON (parseJSON), Value, eitherDecodeStrict, withObject, (.:), (.:?))
+import Data.Aeson (FromJSON (parseJSON), Value, eitherDecodeStrict, withObject, (.!=), (.:), (.:?))
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
@@ -32,8 +35,8 @@ import Data.List (nub, sort, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..))
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), clickHouseCeilings, postgresTimeout)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), GrantException, UserAccess, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant, monitoringRoleToken)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 
@@ -49,13 +52,33 @@ data CatalogGrant = CatalogGrant
   }
   deriving stock (Generic, Eq, Ord, Show)
 
+-- | One element of a ClickHouse user's own settings list.
+data CatalogSetting = CatalogSetting
+  { name :: !Text
+  , value :: !(Maybe Text)
+  , minimum :: !(Maybe Text)
+  , maximum :: !(Maybe Text)
+  , writability :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Ord, Show)
+
 data CatalogUser = CatalogUser
   { physical :: !Text
   , login :: !LoginState
   , serverGrants :: ![Text]
+  -- ^ global privileges, and an allow-listed system-table grant as
+  -- @SELECT ON system.parts@
   , anomalies :: ![Text]
   -- ^ facts that are drift by themselves: an elevated attribute, a role
   -- membership, a grant option, a grant on another database
+  , settings :: ![CatalogSetting]
+  -- ^ ClickHouse: the user's own settings elements
+  , inheritedProfiles :: ![Text]
+  -- ^ ClickHouse: settings profiles the user's settings inherit
+  , connectionLimit :: !(Maybe Int)
+  -- ^ PostgreSQL: @rolconnlimit@, -1 for none
+  , roleSettings :: ![Text]
+  -- ^ PostgreSQL: server-wide role settings, as @statement_timeout=30s@
   }
   deriving stock (Generic, Eq, Show)
 
@@ -98,7 +121,8 @@ parsePostgresCatalog serverBytes databaseBytes = do
 
 serverParser :: Map Text ByteString -> Value -> Parser (Catalog, Map Text ByteString)
 serverParser databaseBytes = withObject "server" $ \o -> do
-  roles <- o .: "roles" >>= traverse (withObject "role" (\r -> (,,,) <$> r .: "name" <*> r .: "oid" <*> r .: "login" <*> r .: "elevated"))
+  -- Observations captured before EP-204 carry no connection limit or settings.
+  roles <- o .: "roles" >>= traverse (withObject "role" (\r -> (,,,,,) <$> r .: "name" <*> r .: "oid" <*> r .: "login" <*> r .: "elevated" <*> r .:? "connectionLimit" .!= (-1) <*> r .:? "settings" .!= []))
   memberships <- o .: "memberships" >>= traverse (withObject "membership" (\m -> (,) <$> m .: "role" <*> m .: "member"))
   dbs <- o .: "databases" >>= traverse (withObject "database" (\d -> (,,,) <$> d .: "name" <*> d .: "oid" <*> d .: "owner" <*> d .: "grants"))
   publicAccess <- o .: "publicSystemAccess"
@@ -114,8 +138,12 @@ serverParser databaseBytes = withObject "server" $ \o -> do
                     <> ["membership " <> role <> " > " <> member | (role, member) <- memberships :: [(Text, Text)], name `elem` [role, member]]
                     <> ["access to database " <> db | entry <- foreign' :: [Text], Just db <- [T.stripPrefix (name <> " on ") entry]]
                 )
+                []
+                []
+                (Just connectionLimit')
+                roleSettings'
             )
-          | (name, oid, canLogin, elevated) <- roles :: [(Text, Text, Bool, [Text])]
+          | (name, oid, canLogin, elevated, connectionLimit', roleSettings') <- roles :: [(Text, Text, Bool, [Text], Int, [Text])]
           ]
       databaseMap =
         Map.fromList
@@ -174,6 +202,7 @@ data ChRow
   = ChUser !Text !Text ![Text] !Bool
   | ChGrant !Text !Text !(Maybe Text) !Bool
   | ChRole !Text !Text
+  | ChSetting !Text !(Maybe CatalogSetting) !(Maybe Text)
   | ChDatabase !Text !Text
 
 instance FromJSON ChRow where
@@ -183,11 +212,26 @@ instance FromJSON ChRow where
         names <- concat <$> traverse (o .:) ["host_names", "host_names_regexp", "host_names_like"]
         ChUser <$> o .: "name" <*> o .: "physical" <*> o .: "host_ip" <*> pure (null (names :: [Text]))
       "grant" -> do
-        tableLevel <- (\t c -> isJust (t :: Maybe Text) || isJust (c :: Maybe Text)) <$> o .:? "table" <*> o .:? "column"
+        table <- o .:? "table"
+        column <- o .:? "column" :: Parser (Maybe Text)
         partial <- (/= (0 :: Int)) <$> o .: "is_partial_revoke"
         option <- (/= (0 :: Int)) <$> o .: "grant_option"
-        ChGrant <$> o .: "user_name" <*> o .: "access_type" <*> o .:? "database" <*> pure (tableLevel || partial || option)
+        who <- o .: "user_name"
+        privilege' <- o .: "access_type"
+        db <- o .:? "database"
+        -- An allow-listed system-table SELECT is a server-wide grant token;
+        -- whether it is declared is classification's decision.
+        pure $ case (db, table) of
+          (Just "system", Just t)
+            | isNothing column && not partial && not option
+            , token : _ <- [exceptionGrantToken e | e <- [minBound .. maxBound], grantExceptionGrant e == (privilege', "system." <> t)] ->
+                ChGrant who token Nothing False
+          _ -> ChGrant who privilege' db (isJust table || isJust column || partial || option)
       "role" -> ChRole <$> o .: "user_name" <*> o .: "granted_role_name"
+      "setting" -> do
+        settingName <- o .:? "setting_name"
+        settingElement <- traverse (\n -> CatalogSetting n <$> o .:? "value" <*> o .:? "min" <*> o .:? "max" <*> o .:? "writability") settingName
+        ChSetting <$> o .: "user_name" <*> pure settingElement <*> o .:? "inherit_profile"
       "database" -> ChDatabase <$> o .: "name" <*> o .: "physical"
       other -> fail ("unknown observation row " <> T.unpack other)
 
@@ -198,7 +242,17 @@ parseClickHouseCatalog ourUsers ourDatabases bytes = do
   rows <- traverse (\line -> decodeValue "ClickHouse observation" line >>= first T.pack . parseEither parseJSON) (filter (not . BC.null) (BC.lines bytes))
   let userMap =
         Map.fromList
-          [ (name, CatalogUser ("clickhouse-user:" <> physical') (loginOf hosts noNames) [privilege' | ChGrant who privilege' Nothing False <- rows, who == name] (userAnomalies name))
+          [ ( name
+            , CatalogUser
+                ("clickhouse-user:" <> physical')
+                (loginOf hosts noNames)
+                [privilege' | ChGrant who privilege' Nothing False <- rows, who == name]
+                (userAnomalies name)
+                [element' | ChSetting who (Just element') _ <- rows, who == name]
+                [profile | ChSetting who _ (Just profile) <- rows, who == name]
+                Nothing
+                []
+            )
           | ChUser name physical' hosts noNames <- rows
           ]
       userAnomalies name =
@@ -239,25 +293,81 @@ data MemberState
     MemberDrift !Text
   deriving stock (Eq, Show)
 
+-- | What a user member declares: its role, whether it may log in, and its
+-- reviewed access as desired now and as accepted (EP-204). The accepted
+-- access is what the last reviewed plan declared; an item it names that the
+-- desired access no longer does is revoked or reset by review, not drift.
+data UserDeclaration = UserDeclaration
+  { role :: !AppDatabaseRole
+  , enabled :: !Bool
+  , desired :: !UserAccess
+  , accepted :: !UserAccess
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | The server-grant token observation reports for an exception: the bare
+-- privilege for a global grant, @SELECT ON system.parts@ for a table.
+exceptionGrantToken :: GrantException -> Text
+exceptionGrantToken exception = case grantExceptionGrant exception of
+  (privilege', "*.*") -> privilege'
+  (privilege', object') -> privilege' <> " ON " <> object'
+
 -- | The user's own logical databases are given so that access to their
 -- scratch restores (@<db>_restore_<id>@, granted by @db app-database restore@)
 -- is not drift; access to any other database still is.
-classifyUser :: Engine -> AppDatabaseRole -> Bool -> Text -> [Text] -> Catalog -> MemberState
-classifyUser engine role enabled name own catalog = case Map.lookup name (catalog ^. #users) of
+--
+-- Each item of the user's reviewed access follows one rule: equal to the
+-- desired declaration is complete; equal to the accepted declaration but not
+-- the desired one is incomplete (the update revokes or resets it); anything
+-- else is drift; a desired item that is absent is incomplete (the update
+-- restores it). A disabled user holds no exception, and keeps its limits.
+classifyUser :: Engine -> UserDeclaration -> Text -> [Text] -> Catalog -> MemberState
+classifyUser engine declaration name own catalog = case Map.lookup name (catalog ^. #users) of
   Nothing -> MemberAbsent
   Just user
     | not (null (anomaliesOf user)) -> MemberDrift (name <> ": " <> T.intercalate "; " (anomaliesOf user))
     | user ^. #login == LoginRestricted -> MemberDrift (name <> ": login is restricted to particular hosts")
-    | not (null extra) -> MemberDrift (name <> ": server-wide " <> T.intercalate ", " extra)
-    | user ^. #login /= wantedLogin -> MemberIncomplete (user ^. #physical) (name <> (if enabled then ": cannot log in" else ": can still log in"))
-    | enabled && not (null missing) -> MemberIncomplete (user ^. #physical) (name <> ": lacks server-wide " <> T.intercalate ", " missing)
-    | not enabled && not (null (user ^. #serverGrants)) -> MemberIncomplete (user ^. #physical) (name <> ": keeps server-wide grants")
+    | not (null drifts) -> MemberDrift (name <> ": " <> T.intercalate "; " drifts)
+    | user ^. #login /= wantedLogin -> MemberIncomplete (user ^. #physical) (name <> (if enabled' then ": cannot log in" else ": can still log in"))
+    | not (null pending) -> MemberIncomplete (user ^. #physical) (name <> ": " <> T.intercalate "; " pending)
     | otherwise -> MemberComplete (user ^. #physical)
     where
-      declared = concatMap (^. #privileges) (appDatabaseServerGrants engine role)
-      extra = nub (user ^. #serverGrants) \\ declared
-      missing = declared \\ (user ^. #serverGrants)
-      wantedLogin = if enabled then LoginOn else LoginOff
+      role' = declaration ^. #role
+      enabled' = declaration ^. #enabled
+      fixed = concatMap (^. #privileges) (appDatabaseServerGrants engine role')
+      exceptionsOf access = map exceptionGrantToken (access ^. #exceptions)
+      -- What the user should hold now, and what review may still take away.
+      wantedGrants = if enabled' then fixed <> exceptionsOf (declaration ^. #desired) else []
+      revocableGrants = fixed <> exceptionsOf (declaration ^. #desired) <> exceptionsOf (declaration ^. #accepted)
+      wantedSettings = settingsOf (declaration ^. #desired)
+      revocableSettings = settingsOf (declaration ^. #accepted)
+      wantedRoleSettings = roleSettingsOf (declaration ^. #desired)
+      revocableRoleSettings = roleSettingsOf (declaration ^. #accepted)
+      drifts =
+        ["server-wide " <> T.intercalate ", " extra | let extra = filter (`notElem` revocableGrants) (nub (user ^. #serverGrants)), not (null extra)]
+          <> ["setting " <> describeSetting s | s <- user ^. #settings, s `notElem` wantedSettings, s `notElem` revocableSettings]
+          <> ["inherits settings profile " <> p | p <- user ^. #inheritedProfiles]
+          <> [ "connection limit " <> T.show limit
+             | Just limit <- [user ^. #connectionLimit]
+             , limit /= -1
+             , Just limit /= declaredConnectionLimit (declaration ^. #desired)
+             , Just limit /= declaredConnectionLimit (declaration ^. #accepted)
+             ]
+          <> ["role setting " <> entry | entry <- user ^. #roleSettings, entry `notElem` wantedRoleSettings, entry `notElem` revocableRoleSettings]
+      pending =
+        ["lacks server-wide " <> T.intercalate ", " missing | let missing = wantedGrants \\ user ^. #serverGrants, not (null missing)]
+          <> ["keeps server-wide " <> T.intercalate ", " kept | let kept = filter (`notElem` wantedGrants) (nub (user ^. #serverGrants)), not (null kept)]
+          <> ["lacks setting " <> describeSetting s | s <- wantedSettings, s `notElem` user ^. #settings]
+          <> ["keeps setting " <> describeSetting s | s <- user ^. #settings, s `notElem` wantedSettings]
+          <> [ "connection limit is " <> T.show observed <> ", declared " <> T.show wanted
+             | engine == Postgres
+             , let wanted = fromMaybe (-1) (declaredConnectionLimit (declaration ^. #desired))
+             , let observed = fromMaybe (-1) (user ^. #connectionLimit)
+             , observed /= wanted
+             ]
+          <> ["lacks role setting " <> entry | entry <- wantedRoleSettings, entry `notElem` user ^. #roleSettings]
+          <> ["keeps role setting " <> entry | entry <- user ^. #roleSettings, entry `notElem` wantedRoleSettings]
+      wantedLogin = if enabled' then LoginOn else LoginOff
       anomaliesOf :: CatalogUser -> [Text]
       anomaliesOf user = filter (not . ownScratch) (user ^. #anomalies)
       ownScratch anomaly = case T.breakOnEnd "database " anomaly of
@@ -269,6 +379,21 @@ classifyUser engine role enabled name own catalog = case Map.lookup name (catalo
                 , Just restoreId <- [T.stripPrefix (base <> "_restore_") db]
                 ]
         _ -> False
+  where
+    -- Limits apply only on their engine; validation keeps the others empty.
+    settingsOf access
+      | engine == ClickHouse = [CatalogSetting settingName (Just value) (Just "1") (Just value) Nothing | (settingName, value) <- clickHouseCeilings (access ^. #limits)]
+      | otherwise = []
+    roleSettingsOf access
+      | engine == Postgres = ["statement_timeout=" <> postgresTimeout seconds | Just seconds <- [access ^. #limits . #statementTimeoutSeconds]]
+      | otherwise = []
+    declaredConnectionLimit access = if engine == Postgres then access ^. #limits . #connectionLimit else Nothing
+    describeSetting s =
+      s ^. #name
+        <> maybe "" (" = " <>) (s ^. #value)
+        <> maybe "" (" MIN " <>) (s ^. #minimum)
+        <> maybe "" (" MAX " <>) (s ^. #maximum)
+        <> maybe "" (" " <>) (s ^. #writability)
 
 classifyDatabase :: DatabaseAccess -> Catalog -> MemberState
 classifyDatabase access catalog = case Map.lookup name (catalog ^. #databases) of
@@ -328,6 +453,17 @@ classifyDatabase access catalog = case Map.lookup name (catalog ^. #databases) o
       | who == "PUBLIC" && target' `elem` ["database", "schema:public"] = Right True
       | who == "PUBLIC" && target' == "default-functions" && what == "EXECUTE" = Right False
       | who == "pg_database_owner" && target' == "schema:public" && Map.lookup "public" (db ^. #schemaOwners) == Just "pg_database_owner" = Right True
+      -- A declared monitoring role may read what the migration user owns:
+      -- USAGE on its schemas and SELECT in its default privileges (PGMQ).
+      | who `elem` map monitoringRoleToken (access ^. #monitoring)
+      , Just schema <- T.stripPrefix "schema:" target'
+      , Map.lookup schema (db ^. #schemaOwners) == Just migration
+      , what == "USAGE" =
+          Right False
+      | who `elem` map monitoringRoleToken (access ^. #monitoring)
+      , target' `elem` ["default-tables", "default-sequences"]
+      , what == "SELECT" =
+          Right False
       | otherwise = Left (who <> " holds " <> what <> " on " <> target')
       where
         who = g ^. #grantee

@@ -35,7 +35,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Database.AppDatabase.Catalog
 import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash, hashPassword)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..))
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), MonitoringRole, UserAccess, grantExceptionToken, monitoringRoleToken, noUserAccess)
 import Nagare.Dsl.Database (Engine (..), parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
@@ -59,10 +59,12 @@ data ServerRef = ServerRef
   deriving stock (Generic, Eq, Ord, Show)
 
 data MemberKind
-  = -- | role, user, credential Secret namespace and name
-    UserMember !AppDatabaseRole !Text !Name !Name
-  | -- | database, migration user, runtime user
-    DatabaseMember !Text !Text !Text
+  = -- | role, user, credential Secret namespace and name, and the desired
+    -- reviewed access
+    UserMember !AppDatabaseRole !Text !Name !Name !UserAccess
+  | -- | database, migration user, runtime user, and the tolerated monitoring
+    -- roles
+    DatabaseMember !Text !Text !Text ![MonitoringRole]
   deriving stock (Eq, Show)
 
 data AppDatabaseMember = AppDatabaseMember
@@ -86,7 +88,7 @@ data CredentialSecret = CredentialSecret
 -- | The member-level commands, rendered to SQL by the transport.
 data CatalogCommand
   = CreateUser !Text !PasswordHash !Text
-  | SetUserAccess !AppDatabaseRole !Text !Bool
+  | SetUserAccess !AppDatabaseRole !Text !Bool !UserAccess
   | CreateDatabase !Text !Text
   | SetDatabaseAccess !DatabaseAccess
   | SetPassword !Text !PasswordHash
@@ -122,15 +124,15 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
     siblings owner = [resource | resource <- members, resource ^. #owner == owner]
     bind resource = do
       (stateful, engineText, kind', enabled') <- case (resource ^. #address, resource ^. #spec) of
-        (DatabaseUser target user, DatabaseUserSpec engineText roleText on _) -> do
+        (DatabaseUser target user, DatabaseUserSpec engineText roleText on _ access) -> do
           role' <- case roleText of
             "runtime" -> Right RuntimeRole
             "migration" -> Right MigrationRole
             _ -> Left "app-database user has an unknown role"
           (secretNamespace, secretName) <- credentialOf resource
-          pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName, on)
-        (DatabaseName target db, LogicalDatabase engineText migration runtime on _) ->
-          pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime), on)
+          pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName access, on)
+        (DatabaseName target db, LogicalDatabase engineText migration runtime on _ monitoring) ->
+          pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime) monitoring, on)
         _ -> Left "app-database member has an invalid address or specification"
       engine' <- maybe (Left "app-database member has an unknown engine") Right (parseEngine engineText)
       unless (OrderedAfter stateful `elem` resource ^. #dependencies) (Left "app-database member is not ordered after its server")
@@ -277,10 +279,16 @@ mkAppDatabaseAdapter accepted members ops =
       pure plan
     catalogFor member = observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
     classify member catalog = case member ^. #kind of
-      UserMember role user _ _ -> classifyUser (member ^. #server . #engine) role (member ^. #enabled) user (member ^. #scopeDatabases) catalog
-      DatabaseMember db migration runtime -> classifyDatabase (accessOf member db migration runtime) catalog
-    accessOf member db migration runtime =
-      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled)
+      UserMember role user _ _ desired ->
+        classifyUser (member ^. #server . #engine) (UserDeclaration role (member ^. #enabled) desired (acceptedAccess member)) user (member ^. #scopeDatabases) catalog
+      DatabaseMember db migration runtime monitoring -> classifyDatabase (accessOf member db migration runtime monitoring) catalog
+    accessOf member db migration runtime monitoring =
+      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled) monitoring
+    -- The access the last reviewed plan declared; an item only it names is
+    -- revoked or reset by review rather than refused as drift.
+    acceptedAccess member = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
+      Just (DatabaseUserSpec _ _ _ _ access) -> access
+      _ -> noUserAccess
     stateOf member = fmap (classify member) <$> catalogFor member
     -- The member's state and whether its user accepts its Secret's password.
     stateAndCredential member = do
@@ -293,9 +301,9 @@ mkAppDatabaseAdapter accepted members ops =
     -- its password, so it is checked again once its login is back on.
     credentialMatches member observed = case member ^. #kind of
       DatabaseMember {} -> pure (Right True)
-      UserMember _ user _ _
+      UserMember _ user _ _ _
         | loginOff user observed && member ^. #server . #engine == ClickHouse -> pure (Right True)
-      UserMember _ user secretNamespace secretName -> do
+      UserMember _ user secretNamespace secretName _ -> do
         secret <- readCredential ops secretNamespace secretName
         case secret of
           Left reason -> pure (Left reason)
@@ -334,7 +342,7 @@ mkAppDatabaseAdapter accepted members ops =
         Left reason -> pure (AdapterEffectAmbiguous reason)
         Right observed -> case (classify member observed, member ^. #kind) of
           (MemberDrift reason, _) -> pure (AdapterEffectFailed (KnownNoEffect (grantDriftCode <> ": " <> reason)))
-          (state, UserMember role user secretNamespace secretName) -> do
+          (state, UserMember role user secretNamespace secretName desired) -> do
             secret <- readCredential ops secretNamespace secretName
             case secret of
               Left reason -> pure (AdapterEffectAmbiguous reason)
@@ -351,17 +359,17 @@ mkAppDatabaseAdapter accepted members ops =
                       Right True -> Nothing
                       Right False -> Just (AdapterEffectFailed (KnownNoEffect "app-database user exists with a password other than its Secret's; rotate it"))
                       Left reason -> Just (AdapterEffectAmbiguous reason)
-                maybe (finish (run member (SetUserAccess role user (member ^. #enabled)))) pure created
-          (state, DatabaseMember db migration runtime) -> do
+                maybe (finish (run member (SetUserAccess role user (member ^. #enabled) desired))) pure created
+          (state, DatabaseMember db migration runtime monitoring) -> do
             created <- case state of
               MemberAbsent -> run member (CreateDatabase db migration)
               _ -> pure Nothing
-            maybe (finish (run member (SetDatabaseAccess (accessOf member db migration runtime)))) pure created
+            maybe (finish (run member (SetDatabaseAccess (accessOf member db migration runtime monitoring)))) pure created
     -- Rotation: the Secret takes the new password first, then the user
     -- follows it, so a lost step never leaves a password nobody holds.
     rotate member = case member ^. #kind of
       DatabaseMember {} -> pure (AdapterEffectFailed (KnownNoEffect "only an app-database user's credential is rotated"))
-      UserMember _ user secretNamespace secretName -> do
+      UserMember _ user secretNamespace secretName _ -> do
         secret <- readCredential ops secretNamespace secretName
         case secret of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
@@ -389,8 +397,30 @@ mkAppDatabaseAdapter accepted members ops =
         <> " app-database "
         <> (if actionText == "rotate" then "credential of " else "")
         <> case member ^. #kind of
-          UserMember _ user _ _ -> "user " <> user
-          DatabaseMember db _ _ -> "database " <> db
+          UserMember _ user _ _ _ -> "user " <> user
+          DatabaseMember db _ _ _ -> "database " <> db
         <> " on "
         <> nameText (member ^. #server . #name)
         <> (if member ^. #enabled then "" else " (retired: access off)")
+        <> case member ^. #kind of
+          UserMember _ _ _ _ access | actionText /= "rotate" -> describeAccess access
+          DatabaseMember _ _ _ monitoring@(_ : _) -> "; tolerates grants to " <> T.intercalate ", " (map monitoringRoleToken monitoring)
+          _ -> ""
+    -- The saved plan names each declared exception and limit (IR-30 AC-1).
+    describeAccess access =
+      mconcat
+        [ "; exceptions " <> T.intercalate ", " (map grantExceptionToken (access ^. #exceptions))
+        | not (null (access ^. #exceptions))
+        ]
+        <> mconcat
+          [ "; limits " <> T.intercalate ", " [key <> " " <> T.show value | (key, Just value) <- limitList]
+          | let limits' = access ^. #limits
+                limitList =
+                  [ ("maxMemoryBytes", limits' ^. #maxMemoryBytes)
+                  , ("maxExecutionSeconds", limits' ^. #maxExecutionSeconds)
+                  , ("maxConcurrentQueries", limits' ^. #maxConcurrentQueries)
+                  , ("connectionLimit", limits' ^. #connectionLimit)
+                  , ("statementTimeoutSeconds", limits' ^. #statementTimeoutSeconds)
+                  ]
+          , any (isJust . snd) limitList
+          ]

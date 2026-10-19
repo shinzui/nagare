@@ -12,8 +12,12 @@ import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Database.AppDatabase.Catalog (CatalogGrant (..), CatalogSetting (..), exceptionGrantToken)
+import Nagare.Database.AppDatabase.Sql (PasswordHash (..))
+import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
@@ -30,22 +34,21 @@ import Test.Tasty.HUnit
 
 appDatabaseWorldTests :: TestTree
 appDatabaseWorldTests =
-  testGroup
-    "AppDatabase world"
+  testGroup "AppDatabase world" $
     [ testGroup
-        (show engine')
+        (show engine' <> variant)
         [ testCase "a first apply converges and an unchanged re-plan has no operations" $ do
-            (world, ops, members) <- setup engine' []
+            (world, ops, members) <- setup engine' declare []
             converge ops members >>= expectRight
             replan ops members >>= (@?= [])
             assertPasswordsOriginal world ops members
         , testCase "every interruption resumes to the declared state with the original password" $ do
-            (_, ops, members) <- setup engine' []
+            (_, ops, members) <- setup engine' declare []
             converge ops members >>= expectRight
-            calls <- countMutations engine'
+            calls <- countMutations engine' declare
             assertBool "the apply makes mutation calls" (calls > 0)
             forM_ [(n, fault) | n <- [1 .. calls], fault <- [RefusedBeforeEffect, LostAcknowledgement, Interrupt]] $ \(n, fault) -> do
-              (world', ops', members', adversary) <- setupWith engine' [] [(Boundary MutateCall n, fault)]
+              (world', ops', members', adversary) <- setupWith engine' declare [(Boundary MutateCall n, fault)]
               result <- converge ops' members'
               either (\reason -> assertFailure (show (n, fault) <> ": " <> T.unpack reason)) pure result
               replan ops' members' >>= (@?= [])
@@ -53,23 +56,23 @@ appDatabaseWorldTests =
               left <- unacted <$> readIORef adversary
               assertEqual ("fault placement fired " <> show (n, fault)) [] left
         , testCase "a failed catalog read refuses nothing and the re-plan converges" $ do
-            (_, ops, members, adversary) <- setupWith engine' [] [(Boundary ObserveCall 1, TransientReadFailure)]
+            (_, ops, members, adversary) <- setupWith engine' declare [(Boundary ObserveCall 1, TransientReadFailure)]
             converge ops members >>= expectRight
             unacted <$> readIORef adversary >>= (@?= [])
         , testCase "access Nagare never grants refuses as drift" $ do
-            (world, ops, members) <- setup engine' []
+            (world, ops, members) <- setup engine' declare []
             converge ops members >>= expectRight
             modifyIORef' world (seedDrift engine')
             refusals <- observeAll ops members
             assertBool (show refusals) (any (T.isPrefixOf grantDriftCode) refusals)
         , testCase "a Secret the user no longer accepts refuses until rotation" $ do
-            (world, ops, members) <- setup engine' []
+            (world, ops, members) <- setup engine' declare []
             converge ops members >>= expectRight
             modifyIORef' world (#secrets %~ Map.map (#password .~ "replaced-out-of-band"))
             refusals <- observeAll ops members
             assertBool (show refusals) (any (T.isPrefixOf credentialMissingCode) refusals)
         , testCase "rotation changes only the selected user of the selected app database" $ do
-            (world, ops, members) <- setup engine' []
+            (world, ops, members) <- setup engine' declare []
             converge ops members >>= expectRight
             before <- readIORef world
             let runtime = userMember members "alpha" "runtime"
@@ -79,10 +82,12 @@ appDatabaseWorldTests =
                 changedUsers = Map.keys (Map.differenceWith (\a b -> if a == b then Nothing else Just a) (after ^. #users) (before ^. #users))
             changedSecrets @?= ["personal/alpha-" <> suffix engine' <> "-runtime"]
             changedUsers @?= ["alpha_" <> suffix engine' <> "_runtime"]
+            let unchanged u = u & #password .~ PostgresVerifier ""
+            Map.map unchanged (after ^. #users) @?= Map.map unchanged (before ^. #users)
             after ^. #databases @?= before ^. #databases
             assertPasswordsCurrent ops members
         , testCase "retiring alpha turns its access off and leaves beta byte-identical" $ do
-            (world, ops, members) <- setup engine' []
+            (world, ops, members) <- setup engine' declare []
             converge ops members >>= expectRight
             before <- readIORef world
             let retired = Map.map (\member -> if isAlpha member then retire member else member) members
@@ -94,8 +99,12 @@ appDatabaseWorldTests =
             betaOnly (after ^. #databases) @?= betaOnly (before ^. #databases)
             [u ^. #login | (name, u) <- Map.toList (after ^. #users), "alpha" `T.isPrefixOf` name] @?= [False, False]
             after ^. #secrets @?= before ^. #secrets
+            -- Retirement revokes the exceptions; the limits stay declared.
+            [g | (name, u) <- Map.toList (after ^. #users), "alpha" `T.isPrefixOf` name, g <- u ^. #serverGrants, g `elem` exceptionTokens] @?= []
+            Map.map limitsOf (Map.filterWithKey (\name _ -> "alpha" `T.isPrefixOf` name) (after ^. #users))
+              @?= Map.map limitsOf (Map.filterWithKey (\name _ -> "alpha" `T.isPrefixOf` name) (before ^. #users))
         , testCase "after a server rebuild a re-apply recreates the declared catalog with the retained passwords (M6)" $ do
-            (world, ops, members) <- setup engine' []
+            (world, ops, members) <- setup engine' declare []
             converge ops members >>= expectRight
             before <- readIORef world
             modifyIORef' world (\w -> w & #users .~ Map.empty & #databases .~ Map.empty & #publicSystemAccess .~ (engine' == Postgres))
@@ -107,7 +116,193 @@ appDatabaseWorldTests =
             assertPasswordsOriginal world ops members
         ]
     | engine' <- [Postgres, ClickHouse]
+    , (variant, declare) <- [("", id), (" with declared access", declaredAccess engine')]
     ]
+      <> [testGroup (show engine' <> " reviewed access (EP-204)") (accessTests engine') | engine' <- [Postgres, ClickHouse]]
+  where
+    expectRight = either (assertFailure . T.unpack) pure
+
+-- EP-204 ------------------------------------------------------------------
+
+-- | alpha's reviewed access: exceptions and ceilings on ClickHouse, limits
+-- and a tolerated pg_monitor on PostgreSQL.
+declaredAccess :: Engine -> AppDatabase -> AppDatabase
+declaredAccess Postgres db =
+  db
+    & #access
+    . #monitoring
+    .~ [PgMonitor]
+    & #access
+    . #runtime
+    . #limits
+    .~ (noUserLimits & #connectionLimit ?~ 3 & #statementTimeoutSeconds ?~ 30)
+    & #access
+    . #migration
+    . #limits
+    .~ (noUserLimits & #connectionLimit ?~ 5)
+declaredAccess _ db =
+  db
+    & #access
+    . #runtime
+    .~ UserAccess [SystemParts, SystemStoragePolicies, ArbitraryTemporaryTables] (ceilings 268435456 5 2)
+    & #access
+    . #migration
+    .~ UserAccess [SystemDisks] (ceilings 1073741824 600 4)
+  where
+    ceilings memory seconds queries = noUserLimits & #maxMemoryBytes ?~ memory & #maxExecutionSeconds ?~ seconds & #maxConcurrentQueries ?~ queries
+
+-- | A declaration change under review: a ceiling changed, an exception and
+-- the statement timeout removed.
+changedAccess :: Engine -> AppDatabase -> AppDatabase
+changedAccess Postgres db =
+  declaredAccess Postgres db & #access . #runtime . #limits .~ (noUserLimits & #connectionLimit ?~ 4)
+changedAccess engine' db =
+  declaredAccess engine' db
+    & #access
+    . #runtime
+    . #exceptions
+    .~ [SystemStoragePolicies, ArbitraryTemporaryTables]
+    & #access
+    . #runtime
+    . #limits
+    . #maxExecutionSeconds
+    ?~ 9
+
+exceptionTokens :: [Text]
+exceptionTokens = map exceptionGrantToken [minBound .. maxBound]
+
+limitsOf :: WorldUser -> ([CatalogSetting], [Text], Int, [Text])
+limitsOf u = (u ^. #settings, u ^. #inheritedProfiles, u ^. #connectionLimit, u ^. #roleSettings)
+
+user' :: Engine -> Text -> Text -> Text
+user' engine' app role = app <> "_" <> suffix engine' <> "_" <> role
+
+-- | What PGMQ's install leaves in alpha's database when its migration user
+-- runs it (M1): a schema it owns, read by pg_monitor.
+seedPgmq :: World -> World
+seedPgmq world = world & #databases %~ Map.adjust pgmq "alpha"
+  where
+    migration = user' Postgres "alpha" "migration"
+    runtime = user' Postgres "alpha" "runtime"
+    pgmq db =
+      db
+        & #otherSchemas
+        %~ Map.insert "pgmq" migration
+        & #grants
+        %~ Set.union
+          ( Set.fromList
+              [ CatalogGrant migration "schema:pgmq" "USAGE"
+              , CatalogGrant migration "schema:pgmq" "CREATE"
+              , CatalogGrant runtime "schema:pgmq" "USAGE"
+              , CatalogGrant "pg_monitor" "schema:pgmq" "USAGE"
+              , CatalogGrant "pg_monitor" "default-tables" "SELECT"
+              , CatalogGrant "pg_monitor" "default-sequences" "SELECT"
+              ]
+          )
+
+-- | Hand changes outside both declarations: each is drift.
+handDrift :: Engine -> [(String, World -> World)]
+handDrift Postgres =
+  [ ("CONNECTION LIMIT 10 on alpha's runtime", onUser (user' Postgres "alpha" "runtime") (#connectionLimit .~ 10))
+  , ("SET statement_timeout = 0 on alpha's runtime", onUser (user' Postgres "alpha" "runtime") (#roleSettings .~ ["statement_timeout=0"]))
+  , ("CONNECTION LIMIT 4 on beta's runtime", onUser (user' Postgres "beta" "runtime") (#connectionLimit .~ 4))
+  , ("SET work_mem on beta's migration", onUser (user' Postgres "beta" "migration") (#roleSettings .~ ["work_mem=1GB"]))
+  ]
+handDrift engine' =
+  [ ("SETTINGS max_memory_usage = 0 on alpha's runtime", onUser (user' engine' "alpha" "runtime") (#settings .~ [CatalogSetting "max_memory_usage" (Just "0") Nothing Nothing Nothing]))
+  , ("SETTINGS PROFILE default on alpha's runtime", onUser (user' engine' "alpha" "runtime") (#inheritedProfiles .~ ["default"]))
+  , ("GRANT SELECT ON system.mutations to alpha's migration", onUser (user' engine' "alpha" "migration") (#serverGrants %~ ("SELECT ON system.mutations" :)))
+  , ("GRANT SELECT ON system.parts to beta's runtime", onUser (user' engine' "beta" "runtime") (#serverGrants %~ ("SELECT ON system.parts" :)))
+  , ("SETTINGS max_memory_usage on beta's runtime", onUser (user' engine' "beta" "runtime") (#settings .~ [CatalogSetting "max_memory_usage" (Just "1") (Just "1") (Just "1") Nothing]))
+  ]
+
+-- | Hand removals of declared items: the next plan restores each.
+handRemoval :: Engine -> [(String, World -> World)]
+handRemoval Postgres =
+  [ ("CONNECTION LIMIT -1 on alpha's runtime", onUser (user' Postgres "alpha" "runtime") (#connectionLimit .~ (-1)))
+  , ("RESET statement_timeout on alpha's runtime", onUser (user' Postgres "alpha" "runtime") (#roleSettings .~ []))
+  ]
+handRemoval engine' =
+  [ ("SETTINGS NONE on alpha's runtime", onUser (user' engine' "alpha" "runtime") (#settings .~ []))
+  , ("REVOKE SELECT ON system.parts from alpha's runtime", onUser (user' engine' "alpha" "runtime") (#serverGrants %~ filter (/= "SELECT ON system.parts")))
+  , ("REVOKE SELECT ON system.disks from alpha's migration", onUser (user' engine' "alpha" "migration") (#serverGrants %~ filter (/= "SELECT ON system.disks")))
+  ]
+
+onUser :: Text -> (WorldUser -> WorldUser) -> World -> World
+onUser name f = #users %~ Map.adjust f name
+
+accessTests :: Engine -> [TestTree]
+accessTests engine' =
+  [ testCase "a hand change outside the declaration refuses as drift (IR-32 AC-4)" $ do
+      (world, ops, members) <- setup engine' (declaredAccess engine') []
+      converge ops members >>= expectRight
+      converged <- readIORef world
+      forM_ (handDrift engine') $ \(label, change) -> do
+        writeIORef world (change converged)
+        refusals <- observeAll ops members
+        assertBool (label <> ": " <> show refusals) (any (T.isPrefixOf grantDriftCode) refusals)
+  , testCase "a hand removal is restored by the next plan (IR-32 AC-4)" $ do
+      (world, ops, members) <- setup engine' (declaredAccess engine') []
+      converge ops members >>= expectRight
+      converged <- readIORef world
+      forM_ (handRemoval engine') $ \(label, change) -> do
+        writeIORef world (change converged)
+        planned' <- replan ops members
+        assertBool (label <> ": the re-plan updates the user") (not (null planned'))
+        converge ops members >>= expectRight
+        replan ops members >>= (@?= [])
+        after <- readIORef world
+        assertEqual label (converged ^. #users) (after ^. #users)
+  , testCase "the reviewed operation names each declared exception and limit (IR-30 AC-1)" $ do
+      members <- membersFor engine' (declaredAccess engine')
+      (_, ops, _) <- setup engine' (declaredAccess engine') []
+      let runtime = userMember members "alpha" "runtime"
+      prepared <- adapterPrepare (adapterFor ops members) (planned UpdateResource runtime)
+      summary <- either (assertFailure . show) (pure . preparedPublicSummary) prepared
+      let expected =
+            if engine' == Postgres
+              then ["limits connectionLimit 3, statementTimeoutSeconds 30"]
+              else ["exceptions system-parts, system-storage-policies, arbitrary-temporary-tables", "maxMemoryBytes 268435456", "maxExecutionSeconds 5", "maxConcurrentQueries 2"]
+      forM_ expected $ \needle -> assertBool (T.unpack summary) (needle `T.isInfixOf` summary)
+  , testCase "a changed ceiling or a removed exception plans an update that resets or revokes it (IR-30 AC-5)" $ do
+      (world, ops, before) <- setup engine' (declaredAccess engine') []
+      converge ops before >>= expectRight
+      after <- membersFor engine' (changedAccess engine')
+      let runtime = userMember after "alpha" "runtime"
+      replanAgainst before ops after >>= (@?= [runtime])
+      -- Without the accepted declaration the old values are access Nagare
+      -- never reviewed, so they refuse rather than converge.
+      refusals <- observeAll ops after
+      assertBool (show refusals) (any (T.isPrefixOf grantDriftCode) refusals)
+      convergeAgainst before ops after >>= expectRight
+      replan ops after >>= (@?= [])
+      u <- (Map.! user' engine' "alpha" "runtime") . (^. #users) <$> readIORef world
+      if engine' == Postgres
+        then (u ^. #connectionLimit, u ^. #roleSettings) @?= (4, [])
+        else do
+          assertBool "system.parts is revoked" ("SELECT ON system.parts" `notElem` u ^. #serverGrants)
+          [(s ^. #name, s ^. #value) | s <- u ^. #settings, s ^. #name == "max_execution_time"] @?= [("max_execution_time", Just "9")]
+  ]
+    <> [ testCase "PGMQ's grants to a declared pg_monitor are not drift, survive rotation, retirement and a rebuild; undeclared they refuse (IR-30 AC-4)" $ do
+           (world, ops, members) <- setup engine' (declaredAccess engine') []
+           converge ops members >>= expectRight
+           modifyIORef' world seedPgmq
+           replan ops members >>= (@?= [])
+           rotate ops members (userMember members "alpha" "runtime") >>= expectRight
+           replan ops members >>= (@?= [])
+           plain <- membersFor engine' id
+           refusals <- observeAll ops plain
+           assertBool (show refusals) (any (\r -> grantDriftCode `T.isPrefixOf` r && "pg_monitor" `T.isInfixOf` r) refusals)
+           let retired = Map.map (\member -> if isAlpha member then retire member else member) members
+           converge ops retired >>= expectRight
+           replan ops retired >>= (@?= [])
+           -- A rebuilt server: re-apply, then the dump brings the grants back.
+           modifyIORef' world (\w -> w & #users .~ Map.empty & #databases .~ Map.empty & #publicSystemAccess .~ True)
+           converge ops members >>= expectRight
+           modifyIORef' world seedPgmq
+           replan ops members >>= (@?= [])
+       | engine' == Postgres
+       ]
   where
     expectRight = either (assertFailure . T.unpack) pure
 
@@ -119,23 +314,29 @@ suffix _ = "ch"
 
 type Members = Map ResourceId AppDatabaseMember
 
-setup :: Engine -> [(Boundary, Fault)] -> IO (IORef World, AppDatabaseOps, Members)
-setup engine' faults = do
-  (world, ops, members, _) <- setupWith engine' [] faults
+setup :: Engine -> (AppDatabase -> AppDatabase) -> [(Boundary, Fault)] -> IO (IORef World, AppDatabaseOps, Members)
+setup engine' declare faults = do
+  (world, ops, members, _) <- setupWith engine' declare faults
   pure (world, ops, members)
 
--- | alpha and beta on one server, their Secrets already created (the
--- Kubernetes adapter creates them before the users, which depend on them).
-setupWith :: Engine -> [()] -> [(Boundary, Fault)] -> IO (IORef World, AppDatabaseOps, Members, IORef Adversary)
-setupWith engine' _ faults = do
+-- | The resolved members of alpha, declared with the given access, and beta.
+membersFor :: Engine -> (AppDatabase -> AppDatabase) -> IO Members
+membersFor engine' declare = do
   let server' = serverOf engine'
-      declarations = concat [declarationsOf scope | scope <- fst server' : map (scopeOf server') [alpha engine', beta engine']]
-  members <- either (assertFailure . T.unpack) pure (appDatabaseMembersFromDeclarations declarations)
+      declarations = concat [declarationsOf scope | scope <- fst server' : map (scopeOf server') [declare (alpha engine'), beta engine']]
+  either (assertFailure . T.unpack) pure (appDatabaseMembersFromDeclarations declarations)
+
+-- | alpha, declared with the given access, and beta on one server, their
+-- Secrets already created (the Kubernetes adapter creates them before the
+-- users, which depend on them).
+setupWith :: Engine -> (AppDatabase -> AppDatabase) -> [(Boundary, Fault)] -> IO (IORef World, AppDatabaseOps, Members, IORef Adversary)
+setupWith engine' declare faults = do
+  members <- membersFor engine' declare
   let secrets' =
         Map.fromList
           [ (secretKey namespace' secretName, CredentialSecret ("pw-" <> user) (firstDatabase member))
           | member <- Map.elems members
-          , UserMember _ user namespace' secretName <- [member ^. #kind]
+          , UserMember _ user namespace' secretName _ <- [member ^. #kind]
           ]
   world <- newWorld engine' secrets'
   adversary <- newAdversary faults
@@ -163,7 +364,7 @@ userMember members app role =
   head
     [ resource
     | (resource, member) <- Map.toList members
-    , UserMember _ user _ _ <- [member ^. #kind]
+    , UserMember _ user _ _ _ <- [member ^. #kind]
     , (app <> "_") `T.isPrefixOf` user
     , ("_" <> role) `T.isSuffixOf` user
     ]
@@ -183,14 +384,22 @@ ordered members = [r | (r, m) <- Map.toList members, isUser m] <> [r | (r, m) <-
       _ -> False
 
 adapterFor :: AppDatabaseOps -> Members -> Adapter
-adapterFor ops members = mkAppDatabaseAdapter (Map.map (^. #declaration) members) members ops
+adapterFor ops members = adapterAgainst members ops members
+
+-- | The adapter for the desired members with accepted history from another
+-- set of members: a declaration change under review.
+adapterAgainst :: Members -> AppDatabaseOps -> Members -> Adapter
+adapterAgainst accepted ops members = mkAppDatabaseAdapter (Map.map (^. #declaration) accepted) members ops
 
 -- | Observe each member, act as the planner would, and recover after an
 -- ambiguous effect or a killed executor as a resume would.
 converge :: AppDatabaseOps -> Members -> IO (Either Text ())
-converge ops members = go (ordered members)
+converge ops members = convergeAgainst members ops members
+
+convergeAgainst :: Members -> AppDatabaseOps -> Members -> IO (Either Text ())
+convergeAgainst accepted ops members = go (ordered members)
   where
-    adapter = adapterFor ops members
+    adapter = adapterAgainst accepted ops members
     go [] = pure (Right ())
     go (resource : rest) = do
       fact <- observeOne adapter resource (3 :: Int)
@@ -269,8 +478,11 @@ planned action resource =
 
 -- | The operations a re-plan would carry: anything not observed present.
 replan :: AppDatabaseOps -> Members -> IO [ResourceId]
-replan ops members = do
-  observed <- adapterObserve (adapterFor ops members) (Map.keys members)
+replan ops members = replanAgainst members ops members
+
+replanAgainst :: Members -> AppDatabaseOps -> Members -> IO [ResourceId]
+replanAgainst accepted ops members = do
+  observed <- adapterObserve (adapterAgainst accepted ops members) (Map.keys members)
   case observationMap <$> observed of
     Right facts -> pure [r | (r, fact) <- Map.toList facts, not (isPresent fact)]
     Left reason -> assertFailure (T.unpack reason)
@@ -280,13 +492,16 @@ replan ops members = do
       _ -> False
 
 observeAll :: AppDatabaseOps -> Members -> IO [Text]
-observeAll ops members = do
-  observed <- adapterObserve (adapterFor ops members) (Map.keys members)
+observeAll ops members = observeAllAgainst members ops members
+
+observeAllAgainst :: Members -> AppDatabaseOps -> Members -> IO [Text]
+observeAllAgainst accepted ops members = do
+  observed <- adapterObserve (adapterAgainst accepted ops members) (Map.keys members)
   pure [reason | Right facts <- [observationMap <$> observed], ObservationUnavailable reason <- Map.elems facts]
 
-countMutations :: Engine -> IO Int
-countMutations engine' = do
-  (_, ops, members, adversary) <- setupWith engine' [] []
+countMutations :: Engine -> (AppDatabase -> AppDatabase) -> IO Int
+countMutations engine' declare = do
+  (_, ops, members, adversary) <- setupWith engine' declare []
   _ <- converge ops members
   Map.findWithDefault 0 MutateCall . counts <$> readIORef adversary
 
@@ -295,13 +510,13 @@ countMutations engine' = do
 assertPasswordsOriginal :: IORef World -> AppDatabaseOps -> Members -> Assertion
 assertPasswordsOriginal world ops members = do
   current <- readIORef world
-  forM_ [(user, namespace', secretName) | m <- Map.elems members, UserMember _ user namespace' secretName <- [m ^. #kind]] $ \(user, namespace', secretName) ->
+  forM_ [(user, namespace', secretName) | m <- Map.elems members, UserMember _ user namespace' secretName _ <- [m ^. #kind]] $ \(user, namespace', secretName) ->
     (^. #password) <$> Map.lookup (secretKey namespace' secretName) (current ^. #secrets) @?= Just ("pw-" <> user)
   assertPasswordsCurrent ops members
 
 assertPasswordsCurrent :: AppDatabaseOps -> Members -> Assertion
 assertPasswordsCurrent ops members =
-  forM_ [(m, user, namespace', secretName) | m <- Map.elems members, UserMember _ user namespace' secretName <- [m ^. #kind]] $ \(m, user, namespace', secretName) -> do
+  forM_ [(m, user, namespace', secretName) | m <- Map.elems members, UserMember _ user namespace' secretName _ <- [m ^. #kind]] $ \(m, user, namespace', secretName) -> do
     secret <- readCredential ops namespace' secretName
     case secret of
       Right (Just credential) -> passwordMatches ops (m ^. #server) user (credential ^. #password) >>= (@?= Right True)

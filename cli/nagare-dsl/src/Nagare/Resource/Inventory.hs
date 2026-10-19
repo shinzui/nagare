@@ -58,9 +58,10 @@ module Nagare.Resource.Inventory
   )
 where
 
+import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (group, sort, sortOn)
+import Data.List (group, nub, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -68,6 +69,8 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified
+import Nagare.Dsl.AppDatabase (validUserAccess)
+import Nagare.Dsl.Database (parseEngine)
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Access (validAccessEndpoint)
 import Nagare.Resource.Inventory.Types
@@ -212,10 +215,11 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (BrokerTopic _ _, LogicalBrokerTopic partitions replicas retention) ->
         partitions > 0 && replicas > 0 && maybe True (> 0) retention
       (BrokerTopic {}, _) -> False
-      (DatabaseName _ _, LogicalDatabase engine _ _ _ _) -> engine `elem` ["postgres", "clickhouse"]
+      (DatabaseName _ _, LogicalDatabase engine _ _ _ _ monitoring) ->
+        engine `elem` ["postgres", "clickhouse"] && (engine == "postgres" || null monitoring) && length (nub monitoring) == length monitoring
       (DatabaseName {}, _) -> False
-      (DatabaseUser _ _, DatabaseUserSpec engine role _ _) ->
-        engine `elem` ["postgres", "clickhouse"] && role `elem` ["runtime", "migration"]
+      (DatabaseUser _ _, DatabaseUserSpec engine role _ _ access) ->
+        engine `elem` ["postgres", "clickhouse"] && role `elem` ["runtime", "migration"] && maybe False (\e -> isRight (validUserAccess e access)) (parseEngine engine)
       (DatabaseUser {}, _) -> False
       (Helm {}, HelmRelease {}) -> True
       (Helm {}, _) -> False

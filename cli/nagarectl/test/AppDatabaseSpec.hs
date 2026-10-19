@@ -16,6 +16,7 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
@@ -59,7 +60,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Test.Support.Profiles (tnbProfile)
 import System.Exit (ExitCode (..))
 import Test.Tasty
@@ -121,7 +122,22 @@ appDatabaseTests =
         ]
     , testGroup
         "scope"
-        [ testCase "alpha and beta share one server per engine (AC-1)" $ do
+        [ testCase "v0.7.1 app-database scope records decode, re-encode byte-identically and equal an unchanged compile (EP-204)" $
+            forM_ [("appdb-alpha-pg", scopeOf pgServer (alpha Postgres)), ("appdb-alpha-ch", scopeOf chServer (alpha ClickHouse))] $ \(file, compiled) -> do
+              bytes <- BS.readFile ("test/fixtures/app-database/v0.7.1/" <> file <> ".json")
+              decoded <- either (assertFailure . show) pure (decodeScope bytes)
+              assertBool (file <> " re-encodes byte-identically") (encodeCanonicalScope decoded == bytes)
+              assertBool (file <> " compiles unchanged") (encodeCanonicalScope compiled == bytes)
+        , testCase "declared access rides in the specs and round-trips through the wire (EP-204)" $ do
+            let scope = scopeOf chServer (alpha ClickHouse & #access . #runtime . #exceptions .~ [SystemParts])
+                pgScope = scopeOf pgServer (alpha Postgres & #access . #monitoring .~ [PgMonitor])
+                specsOf s' = [member ^. #spec | bundle <- scopeBundles s', Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
+            forM_ [scope, pgScope] $ \s' -> (encodeCanonicalScope <$> decodeScope (encodeCanonicalScope s')) @?= Right (encodeCanonicalScope s')
+            assertBool "the runtime extension is on the wire" ("system-parts" `T.isInfixOf` TE.decodeUtf8 (encodeCanonicalScope scope))
+            [access | DatabaseUserSpec _ "runtime" _ _ access <- specsOf scope] @?= [noUserAccess & #exceptions .~ [SystemParts]]
+            [monitoring | LogicalDatabase _ _ _ _ _ monitoring <- specsOf pgScope] @?= [[PgMonitor]]
+            assertBool "the extension changes the user's digest" ([d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf scope] /= [d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf (scopeOf chServer (alpha ClickHouse))])
+        , testCase "alpha and beta share one server per engine (AC-1)" $ do
             let inventory =
                   known
                     ( composeInventory
@@ -230,9 +246,9 @@ appDatabaseTests =
                 specs revised = [member ^. #spec | bundle <- scopeBundles revised, Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
             found <- either (assertFailure . T.unpack) pure (namedAppDatabaseScope accepted "alpha-pg" Nothing)
             (retired, _) <- either (assertFailure . show) pure (retireAppDatabaseScope accepted (snd (scopeAndNative pgServer (alpha Postgres))) found)
-            [on | LogicalDatabase _ _ _ on _ <- specs retired] @?= [False]
-            [on | DatabaseUserSpec _ _ on _ <- specs retired] @?= [False, False]
-            let runtime = head [member ^. #identity | bundle <- scopeBundles scope, Managed member <- declarations bundle, DatabaseUserSpec _ "runtime" _ _ <- [member ^. #spec]]
+            [on | LogicalDatabase _ _ _ on _ _ <- specs retired] @?= [False]
+            [on | DatabaseUserSpec _ _ on _ _ <- specs retired] @?= [False, False]
+            let runtime = head [member ^. #identity | bundle <- scopeBundles scope, Managed member <- declarations bundle, DatabaseUserSpec _ "runtime" _ _ _ <- [member ^. #spec]]
                 bound = snapshotWith [pgServer] [scope, boundTo runtime]
             case retireAppDatabaseScope bound Map.empty found of
               Left errors -> map (^. #code) (NE.toList errors) @?= ["app-database-in-use"]

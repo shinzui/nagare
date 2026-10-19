@@ -28,6 +28,7 @@ import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text qualified
+import Nagare.Dsl.AppDatabase (MonitoringRole, UserAccess)
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
@@ -53,14 +54,16 @@ data DesiredSpec
   | LogicalBrokerTopic !Int !Int !(Maybe Int)
   | -- | A logical database inside a server: the engine token, its owning
     -- migration user, its runtime user, whether its declared access is on
-    -- (retirement turns it off and keeps the data), and the digest of the grant
-    -- set declared on it. Registration creates the empty database only.
-    LogicalDatabase !Text !Name !Name !Bool !ContentDigest
+    -- (retirement turns it off and keeps the data), the digest of the grant
+    -- set declared on it, and the monitoring roles whose grants on its objects
+    -- are expected (EP-204). Registration creates the empty database only.
+    LogicalDatabase !Text !Name !Name !Bool !ContentDigest ![MonitoringRole]
   | -- | A login user inside a server: the engine token, the role token
-    -- (@runtime@ or @migration@), whether it may log in, and the digest of its
-    -- declared attributes and server-wide grants. The password lives only in
-    -- its credential Secret.
-    DatabaseUserSpec !Text !Text !Bool !ContentDigest
+    -- (@runtime@ or @migration@), whether it may log in, the digest of its
+    -- declared attributes and server-wide grants, and its reviewed grant
+    -- exceptions and limits (EP-204). The password lives only in its
+    -- credential Secret.
+    DatabaseUserSpec !Text !Text !Bool !ContentDigest !UserAccess
   | DnsARecord !Text !Int
   | CloudflareRulesSpec ![CloudflareCacheIntent]
   | CloudflareZoneTlsSpec !CloudflareTlsMode

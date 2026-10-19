@@ -326,7 +326,7 @@ logicalScope =
                 volumeMember
                   { executor = AppDatabaseExecutor
                   , address = DatabaseName volumeId (expectOk (mkName "alpha"))
-                  , spec = LogicalDatabase "postgres" (expectOk (mkName "alpha_migration")) (expectOk (mkName "alpha_runtime")) True (contentDigest "grants")
+                  , spec = LogicalDatabase "postgres" (expectOk (mkName "alpha_migration")) (expectOk (mkName "alpha_runtime")) True (contentDigest "grants") []
                   }
             ]
             []

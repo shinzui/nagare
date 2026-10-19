@@ -18,6 +18,8 @@ module Nagare.Database.AppDatabase.Sql
     -- * Commands
   , renderCreateUser
   , renderUserAccess
+  , clickHouseCeilings
+  , postgresTimeout
   , renderSetPassword
   , renderCreateDatabase
   , DatabaseAccess (..)
@@ -40,7 +42,7 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 
@@ -133,22 +135,54 @@ renderCreateUser _ user (PostgresVerifier verifier) _ =
 renderCreateUser _ user (ClickHouseSha256 digest salt) defaultDatabase =
   "CREATE USER " <> user <> " IDENTIFIED WITH sha256_hash BY " <> literal digest <> " SALT " <> literal salt <> " HOST ANY DEFAULT DATABASE " <> defaultDatabase <> ";\n"
 
--- | Login on or off, with the user's server-wide grants.
-renderUserAccess :: Engine -> AppDatabaseRole -> Text -> Bool -> Text
-renderUserAccess ClickHouse role user enabled =
+-- | Login on or off, with the user's server-wide grants, its reviewed grant
+-- exceptions and its limits (EP-204). The statements depend only on the
+-- declaration: every allow-listed exception is granted when declared and the
+-- user is enabled, and revoked otherwise; the one settings statement
+-- replaces the user's whole settings list. Limits follow the declaration
+-- whether or not the user can log in.
+renderUserAccess :: Engine -> AppDatabaseRole -> Text -> Bool -> UserAccess -> Text
+renderUserAccess ClickHouse role user enabled access =
   T.unlines
     ( ("ALTER USER " <> user <> (if enabled then " HOST ANY;" else " HOST NONE;"))
         : [ (if enabled then "GRANT " else "REVOKE ") <> privilege <> " ON " <> T.toUpper (g ^. #objectClass) <> (if enabled then " TO " else " FROM ") <> user <> ";"
           | g <- appDatabaseServerGrants ClickHouse role
           , privilege <- g ^. #privileges
           ]
+          <> [ if enabled && exception `elem` access ^. #exceptions
+                 then "GRANT " <> privilege <> " ON " <> object' <> " TO " <> user <> ";"
+                 else "REVOKE " <> privilege <> " ON " <> object' <> " FROM " <> user <> ";"
+             | exception <- [minBound .. maxBound]
+             , let (privilege, object') = grantExceptionGrant exception
+             ]
+          <> ["ALTER USER " <> user <> " SETTINGS " <> settings <> ";"]
     )
-renderUserAccess _ _ user True = "ALTER ROLE " <> pgIdent user <> " LOGIN;\n"
-renderUserAccess _ _ user False =
-  T.unlines
-    [ "ALTER ROLE " <> pgIdent user <> " NOLOGIN;"
-    , "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = " <> literal user <> ";"
+  where
+    settings = case clickHouseCeilings (access ^. #limits) of
+      [] -> "NONE"
+      ceilings -> T.intercalate ", " [settingName <> " = " <> value <> " MIN 1 MAX " <> value | (settingName, value) <- ceilings]
+renderUserAccess _ _ user enabled access =
+  T.unlines $
+    [ "ALTER ROLE " <> pgIdent user <> (if enabled then " LOGIN" else " NOLOGIN") <> " CONNECTION LIMIT " <> T.show (fromMaybe (-1) (access ^. #limits . #connectionLimit)) <> ";"
+    , "ALTER ROLE " <> pgIdent user <> maybe " RESET statement_timeout;" (\seconds -> " SET statement_timeout = " <> literal (postgresTimeout seconds) <> ";") (access ^. #limits . #statementTimeoutSeconds)
     ]
+      <> ["SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = " <> literal user <> ";" | not enabled]
+
+-- | The declared ClickHouse ceilings as settings and their values, in the
+-- order they are sent.
+clickHouseCeilings :: UserLimits -> [(Text, Text)]
+clickHouseCeilings limits =
+  [ (settingName, T.show value)
+  | (settingName, Just value) <-
+      [ ("max_memory_usage", limits ^. #maxMemoryBytes)
+      , ("max_execution_time", limits ^. #maxExecutionSeconds)
+      , ("max_concurrent_queries_for_user", limits ^. #maxConcurrentQueries)
+      ]
+  ]
+
+-- | A role-level @statement_timeout@ as PostgreSQL stores it: @30s@.
+postgresTimeout :: Int -> Text
+postgresTimeout seconds = T.show seconds <> "s"
 
 renderSetPassword :: Text -> PasswordHash -> Text
 renderSetPassword user (PostgresVerifier verifier) = "ALTER ROLE " <> pgIdent user <> " PASSWORD " <> literal verifier <> ";\n"
@@ -167,6 +201,8 @@ data DatabaseAccess = DatabaseAccess
   , migration :: !Text
   , runtime :: !Text
   , enabled :: !Bool
+  , monitoring :: ![MonitoringRole]
+  -- ^ roles whose read-only grants on the app's objects are tolerated; never granted
   }
   deriving stock (Generic, Eq, Show)
 
@@ -236,14 +272,15 @@ renderScratchRestore engine scratches _ migration runtime =
 
 -- Observation ---------------------------------------------------------------
 
--- | PostgreSQL server-wide facts: the users, the declared databases with
+-- | PostgreSQL server-wide facts: the users with their connection limits and
+-- server-wide role settings, the declared databases with
 -- their effective ACLs, whether PUBLIC may still connect to a system
 -- database, and the app's grants on any other database.
 renderObserveServer :: [Text] -> [Text] -> Text -> Text
 renderObserveServer users databases initialDatabase =
   T.unlines
     [ "SELECT json_build_object("
-    , "  'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL)) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.rolname IN (" <> userList <> ")),"
+    , "  'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL), 'connectionLimit', r.rolconnlimit, 'settings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s WHERE s.setrole = r.oid AND s.setdatabase = 0), '[]')) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.rolname IN (" <> userList <> ")),"
     , "  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname) ORDER BY r.rolname, m.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname IN (" <> userList <> ") OR m.rolname IN (" <> userList <> ")),"
     , "  'databases', (SELECT coalesce(json_agg(json_build_object('name', d.datname, 'oid', d.oid::text, 'owner', pg_get_userbyid(d.datdba), 'grants', " <> grants "coalesce(d.datacl, acldefault('d', d.datdba))" <> ") ORDER BY d.datname), '[]') FROM pg_database d WHERE d.datname IN (" <> databaseList <> ")),"
     , "  'publicSystemAccess', (SELECT count(*) > 0 FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname IN ('postgres', 'template1', " <> literal initialDatabase <> ") AND a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY')),"
@@ -277,13 +314,14 @@ grants acl =
 
 -- | ClickHouse facts as tagged JSONEachRow rows: the users, the grants of the
 -- app's users anywhere and of anyone on the app's databases, role grants,
--- and the databases.
+-- the users' own settings elements, and the databases.
 renderObserveClickHouse :: [Text] -> [Text] -> Text
 renderObserveClickHouse users databases =
   T.unlines
     [ "SELECT 'user' AS kind, name, toString(id) AS physical, host_ip, host_names, host_names_regexp, host_names_like, default_database FROM system.users WHERE name IN (" <> userList <> ") ORDER BY name FORMAT JSONEachRow;"
     , "SELECT 'grant' AS kind, user_name, access_type, database, table, column, is_partial_revoke, grant_option FROM system.grants WHERE user_name IN (" <> userList <> ") OR database IN (" <> databaseList <> ") ORDER BY ALL FORMAT JSONEachRow;"
     , "SELECT 'role' AS kind, user_name, granted_role_name FROM system.role_grants WHERE user_name IN (" <> userList <> ") ORDER BY ALL FORMAT JSONEachRow;"
+    , "SELECT 'setting' AS kind, user_name, setting_name, value, min, max, writability, inherit_profile FROM system.settings_profile_elements WHERE user_name IN (" <> userList <> ") ORDER BY ALL FORMAT JSONEachRow;"
     , "SELECT 'database' AS kind, name, toString(uuid) AS physical, engine FROM system.databases WHERE name IN (" <> databaseList <> ") ORDER BY name FORMAT JSONEachRow;"
     ]
   where

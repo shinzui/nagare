@@ -1,12 +1,12 @@
 diff --git a/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs b/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
-index b905e8d5..e26ca11f 100644
+index f8f1abd5..5bf690b7 100644
 --- a/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
 +++ b/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
-@@ -246,7 +246,6 @@ classifyUser :: Engine -> AppDatabaseRole -> Bool -> Text -> [Text] -> Catalog -
- classifyUser engine role enabled name own catalog = case Map.lookup name (catalog ^. #users) of
+@@ -325,7 +325,6 @@ classifyUser :: Engine -> UserDeclaration -> Text -> [Text] -> Catalog -> Member
+ classifyUser engine declaration name own catalog = case Map.lookup name (catalog ^. #users) of
    Nothing -> MemberAbsent
    Just user
 -    | not (null (anomaliesOf user)) -> MemberDrift (name <> ": " <> T.intercalate "; " (anomaliesOf user))
      | user ^. #login == LoginRestricted -> MemberDrift (name <> ": login is restricted to particular hosts")
-     | not (null extra) -> MemberDrift (name <> ": server-wide " <> T.intercalate ", " extra)
-     | user ^. #login /= wantedLogin -> MemberIncomplete (user ^. #physical) (name <> (if enabled then ": cannot log in" else ": can still log in"))
+     | not (null drifts) -> MemberDrift (name <> ": " <> T.intercalate "; " drifts)
+     | user ^. #login /= wantedLogin -> MemberIncomplete (user ^. #physical) (name <> (if enabled' then ": cannot log in" else ": can still log in"))

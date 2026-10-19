@@ -102,6 +102,7 @@ compileAppDatabase digestOf input = do
     db = input ^. #appDatabase
     engine = db ^. #engine
     stateful = input ^. #server
+    monitoring = db ^. #access . #monitoring
     namespaceDependency = map OrderedAfter (maybe [] pure (input ^. #namespaceResource))
     memberId roleText = do
       role <- first invalid (mkName roleText)
@@ -128,18 +129,21 @@ compileAppDatabase digestOf input = do
               }
       pure (declaration {dependencies = namespaceDependency}, value)
     user role = do
+      let userAccess = appDatabaseUserAccess db role
       resource <- roleId role "-user"
       credentialId <- roleId role "-credential"
       userName <- first invalid (mkName (appDatabaseUser (db ^. #name) role))
       digest <-
         first invalid $
           digestOf
-            ( object
+            ( object $
                 [ "engine" .= engineToken engine
                 , "role" .= appDatabaseRoleToken role
                 , "attributes" .= appDatabaseAttributes engine role
                 , "serverGrants" .= map grantJSON (appDatabaseServerGrants engine role)
                 ]
+                  -- Only when declared, so an unchanged user keeps its v0.7 digest.
+                  <> ["access" .= userAccess | userAccess /= noUserAccess]
             )
       pure
         ManagedResource
@@ -148,7 +152,7 @@ compileAppDatabase digestOf input = do
           , executor = AppDatabaseExecutor
           , address = DatabaseUser stateful userName
           , aliases = []
-          , spec = DatabaseUserSpec (engineToken engine) (appDatabaseRoleToken role) True digest
+          , spec = DatabaseUserSpec (engineToken engine) (appDatabaseRoleToken role) True digest userAccess
           , lifecycle = Retain
           , dataPolicy = Stateless
           , sensitivity = Private
@@ -167,7 +171,7 @@ compileAppDatabase digestOf input = do
       digest <-
         first invalid $
           digestOf
-            ( object
+            ( object $
                 [ "engine" .= engineToken engine
                 , "database" .= databaseText
                 , "grants"
@@ -176,6 +180,7 @@ compileAppDatabase digestOf input = do
                       , "migration" .= map grantJSON (appDatabaseDatabaseGrants engine MigrationRole)
                       ]
                 ]
+                  <> ["monitoring" .= monitoring | not (null monitoring)]
             )
       pure
         ManagedResource
@@ -184,7 +189,7 @@ compileAppDatabase digestOf input = do
           , executor = AppDatabaseExecutor
           , address = DatabaseName stateful databaseName
           , aliases = []
-          , spec = LogicalDatabase (engineToken engine) migrationUser runtimeUser True digest
+          , spec = LogicalDatabase (engineToken engine) migrationUser runtimeUser True digest monitoring
           , lifecycle = Retain
           , dataPolicy = Durable (input ^. #recovery)
           , sensitivity = Private

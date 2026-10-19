@@ -343,8 +343,8 @@ retireAppDatabaseScope snapshot native scope = do
       pure (member ^. #identity, (updated, changedBytes))
     retirement member message = (inventoryError "invalid-app-database-retirement" message & #scopes .~ [scopeId scope] & #resources .~ [member ^. #identity]) :| []
     disable = \case
-      LogicalDatabase engine' migration runtime _ digest -> LogicalDatabase engine' migration runtime False digest
-      DatabaseUserSpec engine' role _ digest -> DatabaseUserSpec engine' role False digest
+      LogicalDatabase engine' migration runtime _ digest monitoring -> LogicalDatabase engine' migration runtime False digest monitoring
+      DatabaseUserSpec engine' role _ digest access -> DatabaseUserSpec engine' role False digest access
       other -> other
 
 -- | Whether an accepted schedule's native bytes are suspended, as a retired
@@ -400,7 +400,7 @@ appDatabaseScheduleSource snapshot cluster namespaceName appDatabase = do
 rotateAppDatabaseScope :: ScopeDeclaration -> Text -> Text -> Either (NonEmpty InventoryError) ScopeDeclaration
 rotateAppDatabaseScope scope role stamp = do
   let owner = scopeId scope
-      users = [member | member <- scopeMembers scope, DatabaseUserSpec _ memberRole _ _ <- [member ^. #spec], memberRole == role]
+      users = [member | member <- scopeMembers scope, DatabaseUserSpec _ memberRole _ _ _ <- [member ^. #spec], memberRole == role]
   user <- case users of
     [member] -> Right member
     _ -> Left (single owner ("the app database has no " <> role <> " user"))
@@ -440,11 +440,11 @@ appDatabaseRows snapshot =
       serverNamespace
       engineText
       [nameText db | member <- members, DatabaseName _ db <- [member ^. #address]]
-      (not (or [on | member <- members, DatabaseUserSpec _ _ on _ <- [member ^. #spec]]))
+      (not (or [on | member <- members, DatabaseUserSpec _ _ on _ _ <- [member ^. #spec]]))
   | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
   , "appdb-" `T.isPrefixOf` nameText (scopeName owner)
   , let members = filter ((== AppDatabaseExecutor) . (^. #executor)) (scopeMembers scope)
-  , (stateful, engineText) : _ <- [[(target, engine') | member <- members, DatabaseUser target _ <- [member ^. #address], DatabaseUserSpec engine' _ _ _ <- [member ^. #spec]]]
+  , (stateful, engineText) : _ <- [[(target, engine') | member <- members, DatabaseUser target _ <- [member ^. #address], DatabaseUserSpec engine' _ _ _ _ <- [member ^. #spec]]]
   , let (serverName, serverNamespace) = fromMaybe ("?", "?") (Map.lookup stateful statefulSets)
   ]
   where

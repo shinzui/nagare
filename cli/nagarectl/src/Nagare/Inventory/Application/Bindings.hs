@@ -559,7 +559,7 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
         _ -> Left "accepted app-database credential is not this app database's runtime credential"
       let logical = filter ((== AppDatabaseExecutor) . (^. #executor)) scopeMembers
       unless
-        (and [on | member <- logical, DatabaseUserSpec _ _ on _ <- [member ^. #spec]])
+        (and [on | member <- logical, DatabaseUserSpec _ _ on _ _ <- [member ^. #spec]])
         (Left ("app database " <> appName <> " is retired"))
       stateful <- case [target | member <- logical, DatabaseUser target _ <- [member ^. #address]] of
         target : _ -> Right target

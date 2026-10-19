@@ -113,7 +113,7 @@ appDatabaseRuntimeOps config =
       engine' -> void <$> psql server "postgres" (render engine' command)
     render engine' = \case
       CreateUser user hash' db -> renderCreateUser engine' user hash' db
-      SetUserAccess role user on -> renderUserAccess engine' role user on
+      SetUserAccess role user on access -> renderUserAccess engine' role user on access
       CreateDatabase db owner' -> renderCreateDatabase engine' db owner'
       SetDatabaseAccess access -> renderDatabaseAccess access
       SetPassword user hash' -> renderSetPassword user hash'

@@ -26,7 +26,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Database.AppDatabase.Catalog
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), clickhouseHashMatches, scramVerifierMatches)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), clickHouseCeilings, clickhouseHashMatches, postgresTimeout, scramVerifierMatches)
 import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
@@ -40,6 +40,10 @@ data WorldUser = WorldUser
   , login :: !Bool
   , elevated :: ![Text]
   , serverGrants :: ![Text]
+  , settings :: ![CatalogSetting]
+  , inheritedProfiles :: ![Text]
+  , connectionLimit :: !Int
+  , roleSettings :: ![Text]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -49,6 +53,8 @@ data WorldDatabase = WorldDatabase
   , grants :: !(Set CatalogGrant)
   , publicSchemaOwner :: !Text
   , defaultRoles :: ![Text]
+  , otherSchemas :: !(Map Text Text)
+  -- ^ schemas an app's migration created, with their owners
   }
   deriving stock (Generic, Eq, Show)
 
@@ -83,12 +89,16 @@ worldCatalog world =
         (if u ^. #login then LoginOn else LoginOff)
         (u ^. #serverGrants)
         (map ("attribute " <>) (u ^. #elevated))
+        (u ^. #settings)
+        (u ^. #inheritedProfiles)
+        (if world ^. #engine == ClickHouse then Nothing else Just (u ^. #connectionLimit))
+        (u ^. #roleSettings)
     database db =
       CatalogDatabase
         (db ^. #physical)
         (if world ^. #engine == ClickHouse then Nothing else Just (db ^. #owner))
         (Set.toList (db ^. #grants))
-        (if world ^. #engine == ClickHouse then Map.empty else Map.singleton "public" (db ^. #publicSchemaOwner))
+        (if world ^. #engine == ClickHouse then Map.empty else Map.insert "public" (db ^. #publicSchemaOwner) (db ^. #otherSchemas))
         (db ^. #defaultRoles)
         []
 
@@ -151,18 +161,40 @@ interpret :: CatalogCommand -> World -> Either Text World
 interpret command world = case command of
   CreateUser name hash _
     | Map.member name (world ^. #users) -> Left ("role " <> name <> " already exists")
-    | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True [] []))
-  SetUserAccess role name on -> withUser name $ \u ->
-    u
-      & #login
-      .~ on
-      & #serverGrants
-      .~ (if engine' == ClickHouse && on then concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) else if engine' == ClickHouse then [] else u ^. #serverGrants)
+    | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True [] [] [] [] (-1) []))
+  -- As M1 proved: the declared exceptions are granted and every other
+  -- allow-listed one revoked (a grant outside the list stays), the one
+  -- SETTINGS statement replaces the whole settings list, CONNECTION LIMIT
+  -- replaces the limit, and SET or RESET touches only statement_timeout.
+  SetUserAccess role name on access -> withUser name $ \u ->
+    if engine' == ClickHouse
+      then
+        let managed = concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken [minBound .. maxBound]
+            granted = if on then concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken (access ^. #exceptions) else []
+         in u
+              & #login
+              .~ on
+              & #serverGrants
+              .~ (filter (`notElem` managed) (u ^. #serverGrants) <> granted)
+              & #settings
+              .~ [CatalogSetting settingName (Just value) (Just "1") (Just value) Nothing | (settingName, value) <- clickHouseCeilings (access ^. #limits)]
+              & #inheritedProfiles
+              .~ []
+      else
+        u
+          & #login
+          .~ on
+          & #connectionLimit
+          .~ fromMaybe (-1) (access ^. #limits . #connectionLimit)
+          & #roleSettings
+          .~ ( filter (not . ("statement_timeout=" `T.isPrefixOf`)) (u ^. #roleSettings)
+                 <> ["statement_timeout=" <> postgresTimeout seconds | Just seconds <- [access ^. #limits . #statementTimeoutSeconds]]
+             )
   SetPassword name hash -> withUser name (#password .~ hash)
   CreateDatabase name owner'
     | Map.member name (world ^. #databases) ->
         if engine' == ClickHouse then Right world else Left ("database " <> name <> " already exists")
-    | engine' == ClickHouse -> Right (world & #databases %~ Map.insert name (WorldDatabase (fresh "database" name) owner' Set.empty "" []))
+    | engine' == ClickHouse -> Right (world & #databases %~ Map.insert name (WorldDatabase (fresh "database" name) owner' Set.empty "" [] Map.empty))
     | otherwise ->
         Right
           ( world
@@ -181,6 +213,7 @@ interpret command world = case command of
                     )
                     "pg_database_owner"
                     []
+                    Map.empty
                 )
           )
   SetDatabaseAccess access ->

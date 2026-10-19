@@ -1,4 +1,4 @@
--- EP-202 M1 reference fixture: the PostgreSQL 18 statements for one app database.
+-- EP-202 M1 reference fixture, extended by EP-204 M1: the PostgreSQL 18 statements for one app database.
 --
 -- App database "alpha-pg" on server "smoke-pg" (initial database "smoke_pg"), logical
 -- database "alpha", users "alpha_runtime" and "alpha_migration". Proven by hand against
@@ -50,18 +50,55 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT EXECUTE ON FUNCTIONS T
 REVOKE CONNECT, TEMPORARY ON DATABASE "alpha" FROM "alpha_runtime";
 
 -- operation: user-access alpha_runtime on
-ALTER ROLE "alpha_runtime" LOGIN;
+ALTER ROLE "alpha_runtime" LOGIN CONNECTION LIMIT -1;
+ALTER ROLE "alpha_runtime" RESET statement_timeout;
 
 -- operation: user-access alpha_runtime off
-ALTER ROLE "alpha_runtime" NOLOGIN;
+ALTER ROLE "alpha_runtime" NOLOGIN CONNECTION LIMIT -1;
+ALTER ROLE "alpha_runtime" RESET statement_timeout;
 SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'alpha_runtime';
 
 -- operation: user-access alpha_migration on
-ALTER ROLE "alpha_migration" LOGIN;
+ALTER ROLE "alpha_migration" LOGIN CONNECTION LIMIT -1;
+ALTER ROLE "alpha_migration" RESET statement_timeout;
 
 -- operation: user-access alpha_migration off
-ALTER ROLE "alpha_migration" NOLOGIN;
+ALTER ROLE "alpha_migration" NOLOGIN CONNECTION LIMIT -1;
+ALTER ROLE "alpha_migration" RESET statement_timeout;
 SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'alpha_migration';
+
+-- operation: user-access alpha_runtime on with declared access
+-- EP-204 M1. The connection limit is a ceiling: with CONNECTION LIMIT 3 and three sessions
+-- open a fourth is refused with FATAL "too many connections for role "alpha_runtime"",
+-- and pg_roles.rolconnlimit reports it (-1 when none is declared). statement_timeout is a
+-- role default, not a ceiling: pg_db_role_setting holds it at setdatabase = 0 as the text
+-- "statement_timeout=30s", RESET removes it, and a session may still SET
+-- statement_timeout = 0. Both statements are sent on every converge, so a hand change is
+-- restored and a retry needs no history.
+ALTER ROLE "alpha_runtime" LOGIN CONNECTION LIMIT 3;
+ALTER ROLE "alpha_runtime" SET statement_timeout = '30s';
+
+-- operation: user-access alpha_runtime off with declared access
+-- The limits follow the declaration whether or not the user can log in.
+ALTER ROLE "alpha_runtime" NOLOGIN CONNECTION LIMIT 3;
+ALTER ROLE "alpha_runtime" SET statement_timeout = '30s';
+SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'alpha_runtime';
+
+-- operation: pgmq-install
+-- Not sent by Nagare: PGMQ's 0001-install-v1.11.0.sql grants, run by the app as
+-- alpha_migration after it creates schema pgmq. observe-database then reports three
+-- pg_monitor rows: USAGE on schema:pgmq (owned by alpha_migration), and SELECT in
+-- alpha_migration's per-schema default privileges on tables and on sequences. The
+-- per-table and per-sequence SELECT grants are not observed. With pg_monitor declared these
+-- are tolerated, never granted by Nagare. pg_dump keeps them (ACL and DEFAULT ACL entries),
+-- so a restore brings them back. As alpha_migration with CONNECTION LIMIT 1 and
+-- statement_timeout = '1ms', pg_dump -Fc still completes: it opens one connection and sets
+-- statement_timeout = 0 in its own session.
+GRANT USAGE ON SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;
 
 -- operation: set-password alpha_runtime
 -- Rotation: the Secret holds the new password first, then the role follows it.
@@ -72,9 +109,10 @@ ALTER ROLE "alpha_runtime" PASSWORD 'SCRAM-SHA-256$4096:EBESExQVFhcYGRobHB0eHw==
 -- effective ACL (a NULL ACL means the built-in default, so acldefault fills it in);
 -- grantee 0 is PUBLIC. publicSystemAccess is whether PUBLIC may still connect to the
 -- system or initial databases; foreignAccess lists "<user> on <database>" for each grant to the
--- app's users on any other database.
+-- app's users on any other database. Each role carries its connection limit and its
+-- server-wide role settings (EP-204).
 SELECT json_build_object(
-  'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL)) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.rolname IN ('alpha_migration', 'alpha_runtime')),
+  'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL), 'connectionLimit', r.rolconnlimit, 'settings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s WHERE s.setrole = r.oid AND s.setdatabase = 0), '[]')) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.rolname IN ('alpha_migration', 'alpha_runtime')),
   'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname) ORDER BY r.rolname, m.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname IN ('alpha_migration', 'alpha_runtime') OR m.rolname IN ('alpha_migration', 'alpha_runtime')),
   'databases', (SELECT coalesce(json_agg(json_build_object('name', d.datname, 'oid', d.oid::text, 'owner', pg_get_userbyid(d.datdba), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a)) ORDER BY d.datname), '[]') FROM pg_database d WHERE d.datname IN ('alpha')),
   'publicSystemAccess', (SELECT count(*) > 0 FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname IN ('postgres', 'template1', 'smoke_pg') AND a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY')),

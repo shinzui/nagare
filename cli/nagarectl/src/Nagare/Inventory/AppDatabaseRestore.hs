@@ -90,7 +90,7 @@ compileAppDatabaseRestoreScope request native = do
   unless
     (sourceScope == scopeIdText (scopeId (request ^. #appScope)) && kind == "app-database")
     (Left (invalid "the backup is not an ingested run of this app database"))
-  (engine, migration, runtime, databases, stateful) <- case ( [(engineText, nameText user, role) | member <- appMembers, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec engineText role _ _ <- [member ^. #spec]]
+  (engine, migration, runtime, databases, stateful) <- case ( [(engineText, nameText user, role) | member <- appMembers, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec engineText role _ _ _ <- [member ^. #spec]]
                                                             , [(nameText db, target) | member <- appMembers, DatabaseName target db <- [member ^. #address]]
                                                             ) of
     (users@((engineText, _, _) : _), dbs@((_, target) : _))
