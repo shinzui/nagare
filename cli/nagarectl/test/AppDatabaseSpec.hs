@@ -128,6 +128,13 @@ appDatabaseTests =
               decoded <- either (assertFailure . show) pure (decodeScope bytes)
               assertBool (file <> " re-encodes byte-identically") (encodeCanonicalScope decoded == bytes)
               assertBool (file <> " compiles unchanged") (encodeCanonicalScope compiled == bytes)
+        , testCase "v0.7.1 app-database scopes accepted on a native context decode and re-encode byte-identically (EP-204)" $
+            -- From the review the v0.7.1 smoke applied on the local context transition;
+            -- each file is named by its content digest there.
+            forM_ ["native-appdb-alpha-pg", "native-appdb-alpha-ch"] $ \file -> do
+              bytes <- BS.readFile ("test/fixtures/app-database/v0.7.1/" <> file <> ".json")
+              decoded <- either (assertFailure . show) pure (decodeScope bytes)
+              assertBool (file <> " re-encodes byte-identically") (encodeCanonicalScope decoded == bytes)
         , testCase "declared access rides in the specs and round-trips through the wire (EP-204)" $ do
             let scope = scopeOf chServer (alpha ClickHouse & #access . #runtime . #exceptions .~ [SystemParts])
                 pgScope = scopeOf pgServer (alpha Postgres & #access . #monitoring .~ [PgMonitor])
