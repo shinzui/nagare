@@ -47,6 +47,7 @@ import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..), ScheduledRec
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Restore (manualRestoreTargetProof)
 import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Store (ScopeRevision (..))
@@ -162,7 +163,7 @@ appDatabaseTests =
         , testCase "a restore loads one app database into scratch names as the administrator (M5)" $ do
             (appScope, serverScope, native, receiptScope, _, _) <- ingested
             let request scope =
-                  AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" scope serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget
+                  AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" scope serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
             (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope (request appScope) native)
             [bytes] <- pure (map snd (Map.elems restoreNative))
             let text = TE.decodeUtf8 bytes
@@ -171,13 +172,15 @@ appDatabaseTests =
             assertBool "touches no other app" (not ("beta" `T.isInfixOf` text))
             nub (sort (secretKeyRefs bytes)) @?= ["nagare-db-smoke-pg"]
             Map.lookup "restore.target.databases" (scopeOverrides restoreScope) @?= Just "alpha_restore_r1"
+            -- Admission re-checks the server scope's accepted revision and incarnations.
+            either (assertFailure . T.unpack) (assertBool "no target proof" . isJust) (manualRestoreTargetProof restoreScope)
             let (betaScope, _) = scopeAndNative pgServer (beta Postgres)
             case compileAppDatabaseRestoreScope (request betaScope) native of
               Left _ -> pure ()
               Right _ -> assertFailure "another app database's backup was restored"
         , testCase "a rebuilt-server restore loads into the declared, still-empty databases (M6)" $ do
             (appScope, serverScope, native, receiptScope, _, _) <- ingested
-            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts2")) (known (mkPhysicalIdentity "pvc2")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") RebuiltTarget
+            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts2")) (known (mkPhysicalIdentity "pvc2")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") RebuiltTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
             (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope request native)
             [bytes] <- pure (map snd (Map.elems restoreNative))
             let text = TE.decodeUtf8 bytes

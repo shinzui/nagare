@@ -100,6 +100,8 @@ runAppDatabase mctx = \case
         (\_ -> pure (Left "restore target observation does not use a cache key"))
         (Map.restrictKeys accepted (Set.fromList [stateful ^. #identity, pvc ^. #identity]))
     observed <- InventoryAdapter.adapterObserve sourceAdapter [stateful ^. #identity, pvc ^. #identity] >>= either dieT pure
+    serverRevision <-
+      maybe (dieT "the app database's server scope is not accepted") (pure . fst) (Map.lookup (ResourceInventory.scopeId serverScope) (InventoryPlan.historyAccepted history))
     (statefulUid, pvcUid) <- either dieT pure (restoreTargetPins (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) observed (stateful ^. #identity) (pvc ^. #identity))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     (restoreScope, native) <-
@@ -119,6 +121,7 @@ runAppDatabase mctx = \case
               , backend = backend
               , source = Resource.SourceLocation "db app-database restore" (T.pack (o ^. #name))
               , target = if o ^. #rebuilt then RebuiltTarget else ScratchTarget
+              , serverRevision = serverRevision
               }
             accepted
         )

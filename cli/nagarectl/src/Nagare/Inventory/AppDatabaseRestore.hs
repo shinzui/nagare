@@ -38,6 +38,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Restore (scratchDatabaseName)
 import Nagare.Inventory.RestoreNative (acceptedValue, sameCluster)
+import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryClass (VerifyBeforeRetry), Sensitivity (Private))
@@ -60,6 +61,8 @@ data AppDatabaseRestoreRequest = AppDatabaseRestoreRequest
   , backend :: !StoreBackend
   , source :: !SourceLocation
   , target :: !RestoreTarget
+  , serverRevision :: !ScopeRevision
+  -- ^ the server scope's accepted revision, which admission re-checks
   }
   deriving stock (Generic, Eq, Show)
 
@@ -201,6 +204,9 @@ compileAppDatabaseRestoreScope request native = do
           , ("restore.backup.receipt", receiptUrl)
           , ("restore.backup.receipt.digest", digestText receiptDigest)
           , ("restore.backup.sha256", checksum)
+          , ("restore.target.scope", scopeIdText (scopeId (request ^. #serverScope)))
+          , ("restore.target.generation", T.pack (show (generationNumber (revisionGeneration (request ^. #serverRevision)))))
+          , ("restore.target.revision", digestText (revisionDigest (request ^. #serverRevision)))
           , ("restore.target.statefulset", resourceIdText stateful)
           , ("restore.target.statefulset.uid", physicalIdentityText (request ^. #targetStatefulUid))
           , ("restore.target.pvc", resourceIdText (pvc ^. #identity))
