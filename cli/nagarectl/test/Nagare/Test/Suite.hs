@@ -9,6 +9,7 @@ where
 import AccessCheckSpec (accessCheckTests)
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
+import AppDatabaseSpec (appDatabaseTests)
 import AppDeploySpec (appDeployTests)
 import CertificateMigrationSpec (certificateMigrationTests)
 import Data.ByteString qualified as BS
@@ -121,12 +122,7 @@ import Nagare.Test.Pulumi (pulumiBackendBootstrapTests)
 import Nagare.Test.Server (serverBuildTests)
 import Nagare.Test.Shards (runSharded)
 import Nagare.Test.SiteInventory (staticInventoryTests)
-import Nagare.Test.Static
-  ( dockerfileTests
-  , prepareTests
-  , previewTests
-  , releaseTests
-  )
+import Nagare.Test.Static (dockerfileTests, prepareTests, previewTests, releaseTests)
 import Nagare.Test.Storage
   ( storageDiscoverTests
   , storageSnapshotTests
@@ -212,6 +208,7 @@ main = do
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
+            , appDatabaseTests
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
             , inventoryWorldFaultsTests

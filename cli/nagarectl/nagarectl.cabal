@@ -170,6 +170,7 @@ library
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Adapters.RestoreScratch
+    Nagare.Inventory.AppDatabase
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact
     Nagare.Inventory.BackendMap
@@ -535,6 +536,7 @@ test-suite nagarectl-test
     AccessCheckSpec
     AccessGrantsSpec
     AccessResolveSpec
+    AppDatabaseSpec
     AppDeployPhaseSpec
     AppDeploySpec
     CertificateMigrationSpec

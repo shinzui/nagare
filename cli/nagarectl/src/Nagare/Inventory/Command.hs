@@ -955,7 +955,7 @@ clientIdentity target =
 
 executionBlockedRegistry :: AdapterRegistry
 executionBlockedRegistry =
-  either (error . T.unpack) id (mkAdapterRegistry (map executionBlockedAdapterFor [KubernetesExecutor, PulumiExecutor, CloudFoundationExecutor, HostExecutor, ArtifactExecutor, CacheExecutor, BrokerExecutor, HelmExecutor, CdnExecutor, AccessExecutor]))
+  either (error . T.unpack) id (mkAdapterRegistry (map executionBlockedAdapterFor [KubernetesExecutor, PulumiExecutor, CloudFoundationExecutor, HostExecutor, ArtifactExecutor, CacheExecutor, BrokerExecutor, HelmExecutor, CdnExecutor, AccessExecutor, AppDatabaseExecutor]))
 
 executionBlockedAdapterFor :: Executor -> Adapter
 executionBlockedAdapterFor executor =

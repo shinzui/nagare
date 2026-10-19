@@ -12,6 +12,8 @@ module Nagare.Dsl.Config
   , encodeBroker
   , emitDatabase
   , encodeDatabase
+  , emitAppDatabases
+  , encodeAppDatabases
   , emitStaticSite
   , encodeStaticSite
   , emitServerSite
@@ -36,6 +38,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Access
+import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
@@ -155,6 +158,30 @@ databaseJSON db =
     res = db ^. #resources
     retentionToken Retain = "Retain" :: Text
     retentionToken Delete = "Delete"
+
+-- | Serialize an app-database config to JSON and write it to stdout: one
+-- @"kind": "AppDatabases"@ document whose @appDatabases@ array holds every
+-- declaration, so one config file can declare an app's PostgreSQL and
+-- ClickHouse databases together. Used by @nagarectl db app-database plan@.
+emitAppDatabases :: [AppDatabase] -> IO ()
+emitAppDatabases dbs = LBS.putStr (encodeAppDatabases dbs)
+
+-- | The exact JSON bytes 'emitAppDatabases' writes (exposed for the round-trip test).
+encodeAppDatabases :: [AppDatabase] -> LBS.ByteString
+encodeAppDatabases dbs =
+  encode (object ["kind" .= ("AppDatabases" :: Text), "appDatabases" .= map appDatabaseJSON dbs])
+
+appDatabaseJSON :: AppDatabase -> Value
+appDatabaseJSON db =
+  object
+    ( [ "name" .= appDatabaseNameText (db ^. #name)
+      , "server" .= databaseNameText (db ^. #server)
+      , "engine" .= engineToken (db ^. #engine)
+      , "namespace" .= namespaceText (db ^. #namespace)
+      , "logicalDatabases" .= map logicalDatabaseNameText (NE.toList (db ^. #logicalDatabases))
+      ]
+        <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (db ^. #logicalKey)
+    )
 
 -- | Serialize a 'Task' to JSON and write it to stdout. Call this as the last
 -- line of a task project's @Config.hs@ @main@. The top-level @"kind": "Task"@

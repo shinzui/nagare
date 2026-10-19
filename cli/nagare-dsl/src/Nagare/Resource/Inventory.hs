@@ -187,6 +187,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       address | accessAddress address -> r ^. #executor == AccessExecutor
       AtticCache {} -> r ^. #executor == CacheExecutor
       BrokerTopic {} -> r ^. #executor == BrokerExecutor
+      DatabaseName {} -> r ^. #executor == AppDatabaseExecutor
+      DatabaseUser {} -> r ^. #executor == AppDatabaseExecutor
       Helm {} -> r ^. #executor == HelmExecutor
       DnsRecord {} -> r ^. #executor == CdnExecutor
       CloudflareRuleset {} -> r ^. #executor == CdnExecutor
@@ -210,6 +212,11 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (BrokerTopic _ _, LogicalBrokerTopic partitions replicas retention) ->
         partitions > 0 && replicas > 0 && maybe True (> 0) retention
       (BrokerTopic {}, _) -> False
+      (DatabaseName _ _, LogicalDatabase engine _ _ _) -> engine `elem` ["postgres", "clickhouse"]
+      (DatabaseName {}, _) -> False
+      (DatabaseUser _ _, DatabaseUserSpec engine role _) ->
+        engine `elem` ["postgres", "clickhouse"] && role `elem` ["runtime", "migration"]
+      (DatabaseUser {}, _) -> False
       (Helm {}, HelmRelease {}) -> True
       (Helm {}, _) -> False
       (DnsRecord _ _ _, DnsARecord target ttl) -> validDnsIpv4 target && ttl > 0

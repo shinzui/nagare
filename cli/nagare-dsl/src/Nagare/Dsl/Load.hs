@@ -18,6 +18,8 @@ module Nagare.Dsl.Load
   , decodeBroker
   , loadDatabase
   , decodeDatabase
+  , loadAppDatabases
+  , decodeAppDatabases
   , loadStaticSite
   , loadStaticSiteWith
   , decodeStaticSite
@@ -36,6 +38,7 @@ module Nagare.Dsl.Load
   )
 where
 
+import Nagare.Dsl.Load.AppDatabase (decodeAppDatabases)
 import Nagare.Dsl.Load.Application (decodeApplication)
 import Nagare.Dsl.Load.Broker (decodeBroker)
 import Nagare.Dsl.Load.Database (decodeDatabase)
@@ -47,7 +50,8 @@ import Nagare.Dsl.Load.Error
   , renderLoadError
   )
 import Nagare.Dsl.Load.File
-  ( loadApplication
+  ( loadAppDatabases
+  , loadApplication
   , loadBroker
   , loadDatabase
   , loadDeployment

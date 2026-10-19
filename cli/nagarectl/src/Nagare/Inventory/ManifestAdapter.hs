@@ -25,7 +25,7 @@ manifestOnlyRegistry :: InventoryHistory -> AdapterRegistry
 manifestOnlyRegistry history =
   either (error . T.unpack) id (mkAdapterRegistry (map (manifestAdapterFor history) executors))
   where
-    executors = [KubernetesExecutor, PulumiExecutor, CloudFoundationExecutor, HostExecutor, ArtifactExecutor, CacheExecutor, BrokerExecutor, HelmExecutor, CdnExecutor, AccessExecutor]
+    executors = [KubernetesExecutor, PulumiExecutor, CloudFoundationExecutor, HostExecutor, ArtifactExecutor, CacheExecutor, BrokerExecutor, HelmExecutor, CdnExecutor, AccessExecutor, AppDatabaseExecutor]
 
 manifestAdapterFor :: InventoryHistory -> Executor -> Adapter
 manifestAdapterFor history executor =

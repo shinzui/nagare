@@ -488,7 +488,7 @@ inventoryExecutionRegistry mctx store bundle = do
           (Map.union helmSpecs retiringHelmSpecs)
           (selected ResourceInventory.HelmExecutor `Set.union` Map.keysSet retiringHelmSpecs)
   if null registrations && Set.null retainedHosts && Set.null retainedArtifacts && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
-    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor, ResourceInventory.AccessExecutor]))
+    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor, ResourceInventory.AccessExecutor, ResourceInventory.AppDatabaseExecutor]))
     else do
       let needsWorkspace =
             selectedInfra

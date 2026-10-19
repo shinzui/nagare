@@ -15,6 +15,7 @@ module Nagare.Database.Secret
   , composeConnectionUrl
   , percentEncode
   , secretKeysFor
+  , appDatabaseSecretKeys
   , DbSecretInputs (..)
   , renderDbSecret
   , b64encode
@@ -113,6 +114,19 @@ secretKeysFor ClickHouse p =
   , ("CLICKHOUSE_USER", p ^. #user)
   , ("CLICKHOUSE_URL", composeConnectionUrl ClickHouse p)
   ]
+
+-- | The key set of an app database's runtime or migration Secret (EP-202):
+-- user, password, the logical database it opens, and a URL whose path selects
+-- that database. Unlike the server Secret, the ClickHouse URL carries the
+-- database path too.
+appDatabaseSecretKeys :: Engine -> ConnectionParts -> [(Text, Text)]
+appDatabaseSecretKeys ClickHouse p =
+  [ ("CLICKHOUSE_PASSWORD", p ^. #password)
+  , ("CLICKHOUSE_USER", p ^. #user)
+  , ("CLICKHOUSE_DB", p ^. #database)
+  , ("CLICKHOUSE_URL", composeConnectionUrl ClickHouse p <> "/" <> p ^. #database)
+  ]
+appDatabaseSecretKeys engine p = secretKeysFor engine p
 
 -- | Inputs to the managed-Secret renderer.
 data DbSecretInputs = DbSecretInputs

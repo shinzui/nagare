@@ -11,6 +11,8 @@ module Nagare.Inventory.Adapters.CredentialTemplate
   , minioSourceData
   , generatedCredentialTemplate
   , databaseCredentialKind
+  , AppDatabaseCredential (..)
+  , appDatabaseCredentialKind
   , credentialDataMatches
   , cacheClientTemplate
   , withoutCacheClientData
@@ -25,12 +27,14 @@ import Data.Aeson
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
+import Data.Generics.Labels ()
+import Data.List (sortOn)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), b64decode, b64encode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
-import Nagare.Dsl.Database (Engine, dbSecretName, parseEngine)
+import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), appDatabaseSecretKeys, b64decode, b64encode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
+import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
 import Nagare.Resource.Types
@@ -91,16 +95,26 @@ materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
             _ -> Left "backup signing credential template is malformed"
       Right Nothing -> case databaseCredentialKind value of
         Left reason -> pure (Left reason)
-        Right Nothing -> pure (Right native)
+        Right Nothing -> case appDatabaseCredentialKind value of
+          Left reason -> pure (Left reason)
+          Right Nothing -> pure (Right native)
+          Right (Just credential) -> do
+            generated <- generateDatabasePassword
+            pure (generated >>= fillAppDatabaseCredential value credential)
         Right (Just (dbName, namespace, engine)) -> do
-          generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "24"] "")
-          pure $ case generated of
-            Left (_ :: IOException) -> Left "could not generate database credential"
-            Right (ExitFailure _, _, _) -> Left "could not generate database credential"
-            Right (ExitSuccess, output, _) -> do
-              let password = T.strip (T.pack output)
-              unless (T.length password == 48) (Left "database credential generator returned an invalid password")
-              fillCredential value dbName namespace engine password
+          generated <- generateDatabasePassword
+          pure (generated >>= fillCredential value dbName namespace engine)
+
+generateDatabasePassword :: IO (Either Text Text)
+generateDatabasePassword = do
+  generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "24"] "")
+  pure $ case generated of
+    Left (_ :: IOException) -> Left "could not generate database credential"
+    Right (ExitFailure _, _, _) -> Left "could not generate database credential"
+    Right (ExitSuccess, output, _) -> do
+      let password = T.strip (T.pack output)
+      unless (T.length password == 48) (Left "database credential generator returned an invalid password")
+      pure password
 
 materializeLocalObjectStoreCredentialWith ::
   IO (Either Text (ExitCode, String, String)) ->
@@ -248,7 +262,8 @@ generatedCredentialTemplate native = do
   database <- databaseCredentialKind value
   minio <- minioCredentialKind value
   signing <- backupSigningCredentialKind value
-  pure (isJust auth || isJust database || isJust minio || isJust signing)
+  appDatabase <- appDatabaseCredentialKind value
+  pure (isJust auth || isJust database || isJust minio || isJust signing || isJust appDatabase)
 
 backupSigningCredentialKind :: Value -> Either Text (Maybe ())
 backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just (String "Secret") = do
@@ -303,8 +318,75 @@ databaseCredentialKind value = case value of
         engineName <- fieldText "nagare.dev/engine" labels
         engine <- maybe (Left "database credential template has an unknown engine") Right (parseEngine engineName)
         pure (Just (dbName, namespace, engine))
+      Just "app-database-v1" -> Right Nothing
       Just _ -> Left "unknown Kubernetes credential template"
   _ -> Right Nothing
+
+-- | What an app-database credential template names (EP-202). Its user and
+-- database are carried as annotations and checked against the names the
+-- app database derives, so a template cannot point at another user.
+data AppDatabaseCredential = AppDatabaseCredential
+  { appDatabase :: !Text
+  , server :: !Text
+  , namespace :: !Text
+  , engine :: !Engine
+  , role :: !Text
+  , user :: !Text
+  , database :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+appDatabaseCredentialKind :: Value -> Either Text (Maybe AppDatabaseCredential)
+appDatabaseCredentialKind value = case value of
+  Object root | KM.lookup "kind" root == Just (String "Secret") -> do
+    metadata <- metadataOf value
+    annotations <- case KM.lookup "annotations" metadata of
+      Just (Object fields) -> Right fields
+      Nothing -> Right KM.empty
+      _ -> Left "reviewed Secret annotations are malformed"
+    case textAt "nagare.dev/credential-template" annotations of
+      Just "app-database-v1" -> do
+        unless
+          (not (KM.member "data" root) && not (KM.member "stringData" root))
+          (Left "app-database credential template may not include Secret data")
+        labels <- case KM.lookup "labels" metadata of
+          Just (Object fields) -> Right fields
+          _ -> Left "app-database credential template lacks labels"
+        appDatabase <- fieldText "nagare.dev/app-database" labels
+        server <- fieldText "nagare.dev/app-database-server" labels
+        role <- fieldText "nagare.dev/app-database-role" labels
+        engineName <- fieldText "nagare.dev/engine" labels
+        engine <- case parseEngine engineName of
+          Just parsed | parsed /= Redis -> Right parsed
+          _ -> Left "app-database credential template has an unsupported engine"
+        user <- fieldText "nagare.dev/app-database-user" annotations
+        database <- fieldText "nagare.dev/app-database-db" annotations
+        namespace <- fieldText "namespace" metadata
+        secretName <- fieldText "name" metadata
+        unless (role `elem` ["runtime", "migration"]) (Left "app-database credential template has an unknown role")
+        unless
+          (secretName == appDatabase <> "-" <> role && user == sanitizeDbName appDatabase <> "_" <> role)
+          (Left "app-database credential template names another Secret or user")
+        pure (Just (AppDatabaseCredential appDatabase server namespace engine role user database))
+      _ -> Right Nothing
+  _ -> Right Nothing
+
+fillAppDatabaseCredential :: Value -> AppDatabaseCredential -> Text -> Either Text Text
+fillAppDatabaseCredential template credential password = do
+  let connection =
+        ConnectionParts
+          (credential ^. #user)
+          password
+          (dbHost (credential ^. #server) (credential ^. #namespace))
+          (credential ^. #database)
+      secretData =
+        object
+          [ Key.fromText key .= b64encode keyValue
+          | (key, keyValue) <- sortOn fst (appDatabaseSecretKeys (credential ^. #engine) connection)
+          ]
+  case template of
+    Object root -> TE.decodeUtf8 <$> canonicalValue (Object (KM.insert "data" secretData root))
+    _ -> Left "app-database credential template is malformed"
 
 fillCredential :: Value -> Text -> Text -> Engine -> Text -> Either Text Text
 fillCredential template dbName namespace engine password = do
@@ -338,7 +420,13 @@ credentialDataMatches desired observed = case authCredentialKind desired of
 
 databaseDataMatches :: Value -> Value -> Bool
 databaseDataMatches desired observed = case databaseCredentialKind desired of
-  Right Nothing -> True
+  Right Nothing -> case appDatabaseCredentialKind desired of
+    Right Nothing -> True
+    Left _ -> False
+    Right (Just credential) ->
+      let connection = ConnectionParts "example" "example" "example" "example"
+          expected = Set.fromList (map (Key.fromText . fst) (appDatabaseSecretKeys (credential ^. #engine) connection))
+       in dataMatches expected observed
   Left _ -> False
   Right (Just (_, _, engine)) ->
     let connection = ConnectionParts defaultDbUser "example" "example" "example"

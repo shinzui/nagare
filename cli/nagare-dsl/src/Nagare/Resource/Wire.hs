@@ -269,6 +269,7 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   ["artifact", n, d] -> Artifact <$> name n <*> check (mkContentDigest d)
   ["hostname", n] -> Hostname <$> name n
   ["database", r, n] -> DatabaseName <$> resource r <*> name n
+  ["database-user", r, n] -> DatabaseUser <$> resource r <*> name n
   ["route", r, n] -> BackendRoute <$> resource r <*> name n
   ["attic-cache", r, n] -> AtticCache <$> resource r <*> name n
   ["broker-topic", r, n] -> BrokerTopic <$> resource r <*> name n

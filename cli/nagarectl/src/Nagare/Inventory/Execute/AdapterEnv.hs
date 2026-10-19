@@ -46,3 +46,4 @@ withAdapterEnv transaction operation action = do
       HelmExecutor -> "helm"
       CdnExecutor -> "cdn"
       AccessExecutor -> "access"
+      AppDatabaseExecutor -> "app-database"

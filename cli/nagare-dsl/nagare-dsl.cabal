@@ -31,6 +31,7 @@ library
   hs-source-dirs: src
   other-modules:
     Nagare.Dsl.Batch.Render
+    Nagare.Dsl.Load.AppDatabase
     Nagare.Dsl.Load.Application
     Nagare.Dsl.Load.Broker
     Nagare.Dsl.Load.Cdn
@@ -49,6 +50,7 @@ library
 
   exposed-modules:
     Nagare.Dsl.Access
+    Nagare.Dsl.AppDatabase
     Nagare.Dsl.Application
     Nagare.Dsl.Broker
     Nagare.Dsl.Broker.Render
@@ -78,6 +80,7 @@ library
     Nagare.Dsl.Worker
     Nagare.Dsl.Worker.Render
     Nagare.Resource.Access
+    Nagare.Resource.AppDatabase
     Nagare.Resource.Application
     Nagare.Resource.Broker
     Nagare.Resource.Cache

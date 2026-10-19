@@ -140,6 +140,7 @@ accessPlanRegistry active guard candidate history = do
               , BrokerExecutor
               , HelmExecutor
               , CdnExecutor
+              , AppDatabaseExecutor
               ]
         )
     )
@@ -271,6 +272,7 @@ planPortalSync active guard output = do
                     , HelmExecutor
                     , CdnExecutor
                     , AccessExecutor
+                    , AppDatabaseExecutor
                     ]
               )
           )

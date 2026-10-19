@@ -172,6 +172,8 @@ data ProviderAddress
   | Artifact Name ContentDigest
   | Hostname Name
   | DatabaseName ResourceId Name
+  | -- | A login role or user inside a database server: the server StatefulSet, the user name.
+    DatabaseUser ResourceId Name
   | BackendRoute ResourceId Name
   | AtticCache ResourceId Name
   | AccessTuple ResourceId Name Text
@@ -237,6 +239,7 @@ canonicalClaim =
     Artifact n d -> ["artifact", nameText n, digestText d]
     Hostname n -> ["hostname", nameText n]
     DatabaseName r n -> ["database", resourceIdText r, nameText n]
+    DatabaseUser r n -> ["database-user", resourceIdText r, nameText n]
     BackendRoute r n -> ["route", resourceIdText r, nameText n]
     AtticCache r n -> ["attic-cache", resourceIdText r, nameText n]
     AccessTuple r host subject -> ["access-tuple", resourceIdText r, nameText host, subject, "viewer"]

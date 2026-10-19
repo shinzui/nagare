@@ -33,7 +33,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
-data Executor = KubernetesExecutor | PulumiExecutor | CloudFoundationExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor | AccessExecutor
+data Executor = KubernetesExecutor | PulumiExecutor | CloudFoundationExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor | AccessExecutor | AppDatabaseExecutor
   deriving stock (Eq, Ord, Show, Generic, Enum, Bounded)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
@@ -51,6 +51,14 @@ data DesiredSpec
   | AccessGrantSpec !Text !Bool
   | LogicalCache !ContentDigest
   | LogicalBrokerTopic !Int !Int !(Maybe Int)
+  | -- | A logical database inside a server: the engine token, its owning
+    -- migration user, its runtime user, and the digest of the grant set
+    -- declared on it. Registration creates the empty database only.
+    LogicalDatabase !Text !Name !Name !ContentDigest
+  | -- | A login user inside a server: the engine token, the role token
+    -- (@runtime@ or @migration@), and the digest of its declared attributes
+    -- and server-wide grants. The password lives only in its credential Secret.
+    DatabaseUserSpec !Text !Text !ContentDigest
   | DnsARecord !Text !Int
   | CloudflareRulesSpec ![CloudflareCacheIntent]
   | CloudflareZoneTlsSpec !CloudflareTlsMode

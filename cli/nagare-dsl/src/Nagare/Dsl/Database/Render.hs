@@ -239,7 +239,8 @@ commandPairs Redis =
 commandPairs _ = []
 
 -- | The container env: any engine-specific literal (Postgres's @PGDATA@
--- subdirectory) followed by one @valueFrom.secretKeyRef@ entry per startup
+-- subdirectory; ClickHouse's SQL access management, which lets the
+-- administrator create app-database users and grants, EP-202) followed by one @valueFrom.secretKeyRef@ entry per startup
 -- credential key (from the managed Secret 'dbSecretName').
 credentialEnv :: Database -> [Value]
 credentialEnv db = literalEnv eng <> map (secretEnvEntry secret) (engineStartupSecretKeys eng)
@@ -250,7 +251,9 @@ credentialEnv db = literalEnv eng <> map (secretEnvEntry secret) (engineStartupS
 literalEnv :: Engine -> [Value]
 literalEnv Postgres =
   [object ["name" .= txt "PGDATA", "value" .= txt "/var/lib/postgresql/data/pgdata"]]
-literalEnv _ = []
+literalEnv ClickHouse =
+  [object ["name" .= txt "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT", "value" .= txt "1"]]
+literalEnv Redis = []
 
 secretEnvEntry :: Text -> Text -> Value
 secretEnvEntry secret key =

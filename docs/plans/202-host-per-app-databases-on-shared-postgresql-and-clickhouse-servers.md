@@ -215,6 +215,29 @@ and scratch restore of each app.
   relies on the socket as the administrator, as `scripts/local-smoke.sh` does.
   Date: 2026-10-19
 
+- Decision: M2 settles four details.
+  - **Grants belong to the logical database.** The grants on a database are part of its
+    `logical-database` member, not the user members. Its `LogicalDatabase engine migrationUser
+    runtimeUser digest` spec digests both roles' grant sets on that database. `DatabaseUserSpec
+    engine role digest` digests the user's attributes and server-wide grants. The reason is
+    ordering: databases are ordered after both users, because PostgreSQL's
+    `CREATE DATABASE ... OWNER` needs the role, so grants can only converge once the database
+    exists.
+  - **The shared-versus-direct rule lives in nagarectl.** It is not in the generic composition,
+    because recognising a direct binding depends on nagarectl scope names.
+    `Nagare.Inventory.AppDatabase.directServerBindings` counts any accepted member ordered after
+    the server StatefulSet outside the server's own scope, its `database-*` rebuild scopes and
+    `appdb-*` scopes. `compileStandaloneAppDatabase` refuses with
+    `app-database-on-direct-server`. M4 uses `serverHostsAppDatabases` for the other direction.
+  - **Name limits.** App-database names are at most 36 characters and start with a letter, which
+    keeps the backup CronJob name within 52 characters and user names within 63. The config emits
+    one `{"kind": "AppDatabases", "appDatabases": [...]}` document.
+  - **Credential template.** It is recognised by `nagare.dev/credential-template:
+    app-database-v1`, labels `nagare.dev/app-database`, `-server` and `-role`, and annotations
+    naming the user and database. The labels do not reuse `nagare.dev/database`, which belongs to
+    the server's own objects.
+  Date: 2026-10-19
+
 
 ## Outcomes & Retrospective
 

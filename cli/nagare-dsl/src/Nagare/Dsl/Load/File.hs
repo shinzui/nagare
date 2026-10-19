@@ -3,6 +3,7 @@ module Nagare.Dsl.Load.File
   ( loadApplication
   , loadBroker
   , loadDatabase
+  , loadAppDatabases
   , loadDeployment
   , loadJob
   , loadServerSite
@@ -14,10 +15,12 @@ module Nagare.Dsl.Load.File
   )
 where
 
+import Nagare.Dsl.AppDatabase (AppDatabase)
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker (Broker)
 import Nagare.Dsl.Database (Database)
 import Nagare.Dsl.Job (Job)
+import Nagare.Dsl.Load.AppDatabase (decodeAppDatabases)
 import Nagare.Dsl.Load.Application (decodeApplication)
 import Nagare.Dsl.Load.Broker (decodeBroker)
 import Nagare.Dsl.Load.Database (decodeDatabase)
@@ -85,6 +88,12 @@ loadBroker path = fmap (>>= decodeBroker) (runConfig path)
 -- a site is reported as 'UnexpectedKind'. Used by @nagarectl db create --config@.
 loadDatabase :: FilePath -> IO (Either LoadError Database)
 loadDatabase path = fmap (>>= decodeDatabase) (runConfig path)
+
+-- | Load the app databases a config declares (EP-202). The config must print
+-- its JSON via 'Nagare.Dsl.Config.emitAppDatabases'. Used by
+-- @nagarectl db app-database plan --config@.
+loadAppDatabases :: FilePath -> IO (Either LoadError [AppDatabase])
+loadAppDatabases path = fmap (>>= decodeAppDatabases) (runConfig path)
 
 -- | Load a 'StaticSite' from a Haskell config-as-program source file. The config
 -- must print its JSON via 'Nagare.Dsl.Config.emitStaticSite'. A config that

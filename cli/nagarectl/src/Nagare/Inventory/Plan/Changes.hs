@@ -115,6 +115,7 @@ import Nagare.Resource.Inventory
   , Declaration (Managed, ObservedChild)
   , Executor
     ( AccessExecutor
+    , AppDatabaseExecutor
     , ArtifactExecutor
     , BrokerExecutor
     , CdnExecutor
@@ -859,6 +860,8 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
           recovery = case (resource ^. #executor, resource ^. #dataPolicy) of
             (CdnExecutor, _) -> VerifyBeforeRetry
             (CloudFoundationExecutor, _) -> VerifyBeforeRetry
+            -- SQL statements carry no idempotency token; resume re-observes first.
+            (AppDatabaseExecutor, _) -> VerifyBeforeRetry
             (_, Stateless) -> Idempotent
             (_, Durable _) -> VerifyBeforeRetry
        in mkPlanned action (resource ^. #executor) (resource ^. #identity :| []) digest recovery
