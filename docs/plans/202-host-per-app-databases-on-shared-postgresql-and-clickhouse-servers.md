@@ -58,11 +58,27 @@ and scratch restore of each app.
 
 ## Progress
 
-- [ ] M1 (prototype). The SQL that creates, grants, observes, rotates, retires, backs up and
+- [x] M1 (prototype). The SQL that creates, grants, observes, rotates, retires, backs up and
   restores an app database is proven by hand against the real PostgreSQL 18 and ClickHouse 26.8
   images on a local context. It is committed as reference fixtures under
   `cli/nagarectl/test/fixtures/app-database/`, and the answers to the open engine questions are in
   the Decision Log. Proves the engine half of AC-3.
+  Done 2026-10-19. Evidence: `postgres:18` and `clickhouse/clickhouse-server:26.8` (26.8.29)
+  containers with the server render's env (`PGDATA`, admin `nagare`, access management on). Both
+  fixtures were replayed block by block (`awk` on `-- operation:`) on fresh volumes, and every block
+  exited 0. Password checks used the non-loopback pod IP. Results, with alpha and beta as the two apps:
+  - Each user reaches its own database. Every cross-app connect, SELECT, INSERT, CREATE TABLE,
+    CREATE DATABASE and BACKUP is refused in both directions, on PostgreSQL with `permission
+    denied for database` and on ClickHouse with code 497.
+  - `CREATE ROLE/USER`, `GRANT` to self, `ALTER ROLE ... SUPERUSER` and `SYSTEM SHUTDOWN` are
+    refused for both users. ClickHouse `system.query_log`, `system.processes`, `file()` and
+    `url()` are refused.
+  - Rotation rejects the old password and accepts the new one.
+  - Retiring beta leaves alpha's ClickHouse `system.grants` md5 identical (`d3a15368…`).
+  - The PostgreSQL dump by the migration user restores into scratch and into a rebuilt empty
+    database with its rows, ACLs and sequence position. The ClickHouse two-database archive
+    restores into scratch names and into existing empty databases.
+  - Users and grants survive a ClickHouse restart.
 - [ ] M2. The typed `AppDatabase` declaration loads and validates. It compiles into its own
   standalone inventory scope, `appdb-<key>`, which claims each logical database and user on its
   server and refuses collisions and reserved names. The ClickHouse server render enables SQL
@@ -154,6 +170,49 @@ and scratch restore of each app.
   server sees a reviewed update and one restart on its next apply.
   Rationale: The project keeps no compatibility shims. The change is a normal reviewed update,
   and the release notes name it.
+  Date: 2026-10-19
+
+- Decision: M1 answers the six engine questions as follows. The fixtures hold the exact
+  statements.
+  1. Yes. ClickHouse SQL users and grants persist under `/var/lib/clickhouse/access` across a
+     restart.
+  2. Yes, with two design changes.
+     - The migration grant is an explicit list, not `ALL`: `SHOW TABLES, SHOW COLUMNS,
+       SHOW DICTIONARIES, SELECT, INSERT, ALTER TABLE, ALTER VIEW, CREATE DATABASE, CREATE TABLE,
+       CREATE VIEW, CREATE DICTIONARY, DROP TABLE, DROP VIEW, DROP DICTIONARY, TRUNCATE,
+       OPTIMIZE, BACKUP, dictGet ON <db>.*`. `ALL ON db.*` expands to a version-dependent list
+       (46 entries on 26.8, including row-policy and `SYSTEM` privileges), so observation could
+       not compare it across an engine upgrade. `system.grants` reports the explicit list back
+       exactly as granted. `DROP DATABASE` and `ALTER DATABASE` are left out on purpose.
+     - `BACKUP ... TO File(...)` also needs the global `WRITE ON FILE`, so the migration user
+       holds that one global grant. It is write-only: without `READ ON FILE` it cannot read a
+       file or `RESTORE`, a path outside `backups.allowed_path` is refused, and an existing
+       archive cannot be overwritten. Observation allows exactly this one global row.
+     - The runtime list is as proposed.
+  3. Yes. The ClickHouse query log records `IDENTIFIED WITH sha256_password`, and no hash, salt
+     or password reached the server logs. The hash is `hex(SHA256(password ‖ salt))` where the
+     salt is used as its text, not as decoded bytes. The renderer uses the uppercase hex of 16
+     random bytes as the salt text.
+  4. Yes. Client-side SCRAM-SHA-256 verifiers authenticate. There is one addition: PostgreSQL
+     grants PUBLIC `CONNECT` on `postgres`, `template1` and the initial database, so the
+     converge step also revokes `CONNECT, TEMPORARY` on those three from PUBLIC. That is safe
+     because a shared server has no direct consumer, and the readiness probe and the
+     administrator are superusers.
+  5. Yes. `pg_dump -Fc` as the migration user is complete, and an administrator `pg_restore`
+     reproduces the ACLs and default privileges. The owner can also `GRANT` its own database to
+     another role, so observation treats an ACL entry for any role other than the two declared
+     users as `app-database-grant-drift`.
+  6. Yes. `RESTORE ... AS` works, and so does `RESTORE` into the existing empty declared
+     databases, so the rebuilt-restore path needs no `DROP DATABASE`.
+
+  Two smaller facts from the prototype:
+  - ClickHouse users get `DEFAULT DATABASE <first logical database>`.
+  - Retiring revokes all grants and sets `HOST NONE`, so re-enabling is `HOST ANY` followed by
+    the converge step.
+
+  One fact the smoke test must respect: the PostgreSQL image's `pg_hba` trusts the pod socket
+  and `127.0.0.1`, so a password check must connect through the Service or pod IP. The transport
+  relies on the socket as the administrator, as `scripts/local-smoke.sh` does.
   Date: 2026-10-19
 
 
