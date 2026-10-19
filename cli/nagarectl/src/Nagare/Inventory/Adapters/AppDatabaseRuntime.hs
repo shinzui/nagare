@@ -8,6 +8,7 @@ module Nagare.Inventory.Adapters.AppDatabaseRuntime
   , appDatabaseRuntimeOps
   , credentialFromSecret
   , rotatedPatch
+  , clickHouseLoginVerdict
   )
 where
 
@@ -72,11 +73,7 @@ appDatabaseRuntimeOps config =
           kubectl
             (execArgs server ["sh", "-c", "read -r P; clickhouse-client --user " <> user <> " --password \"$P\" --query 'SELECT 1'"])
             (password <> "\n")
-        pure $ case result of
-          Right (ExitSuccess, _, _) -> Right True
-          Right (ExitFailure _, _, err) | "AUTHENTICATION_FAILED" `T.isInfixOf` T.pack err -> Right False
-          Right _ -> Left "ClickHouse login check failed; inspect the server before retry"
-          Left reason -> Left reason
+        pure (result >>= \(code, _, err) -> clickHouseLoginVerdict code (T.pack err))
       _ -> do
         stored <- psql server "postgres" (renderObservePassword user)
         pure (scramVerifierMatches password . T.strip . TE.decodeUtf8 <$> stored)
@@ -229,3 +226,13 @@ credentialFromSecret bytes = do
     (Just password', Just db, Nothing, Nothing) -> Right (CredentialSecret password' db)
     (Nothing, Nothing, Just password', Just db) -> Right (CredentialSecret password' db)
     _ -> Left "app-database credential Secret lacks its password or database"
+
+-- | Whether a ClickHouse login proved the password. The server applies a
+-- user's default database only after authenticating, so @UNKNOWN_DATABASE@
+-- from a user created before its database (EP-202 M7) is a match.
+clickHouseLoginVerdict :: ExitCode -> Text -> Either Text Bool
+clickHouseLoginVerdict ExitSuccess _ = Right True
+clickHouseLoginVerdict (ExitFailure _) err
+  | "AUTHENTICATION_FAILED" `T.isInfixOf` err = Right False
+  | "UNKNOWN_DATABASE" `T.isInfixOf` err = Right True
+  | otherwise = Left "ClickHouse login check failed; inspect the server before retry"

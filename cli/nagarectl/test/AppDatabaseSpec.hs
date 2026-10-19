@@ -17,6 +17,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -36,6 +37,7 @@ import Nagare.Dsl.Load (LoadError (..), decodeAppDatabases, decodeWorker)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (webWorker)
+import Nagare.Inventory.Adapters.AppDatabaseRuntime (clickHouseLoginVerdict)
 import Nagare.Inventory.Adapters.CredentialTemplate (credentialDataMatches, materializeCredential)
 import Nagare.Inventory.AppDatabase
 import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
@@ -56,6 +58,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Support.Profiles (tnbProfile)
+import System.Exit (ExitCode (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -247,6 +250,11 @@ appDatabaseTests =
             assertBool "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT is set" $
               any (T.isInfixOf "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT" . TE.decodeUtf8 . snd) (Map.elems native)
         ]
+    , testCase "a ClickHouse login proves the password even before the default database exists" $ do
+        clickHouseLoginVerdict ExitSuccess "" @?= Right True
+        clickHouseLoginVerdict (ExitFailure 81) "Code: 81. DB::Exception: Database beta does not exist. (UNKNOWN_DATABASE)" @?= Right True
+        clickHouseLoginVerdict (ExitFailure 4) "Code: 516. Authentication failed (AUTHENTICATION_FAILED)" @?= Right False
+        assertBool "an unknown failure is not a verdict" (isLeft (clickHouseLoginVerdict (ExitFailure 210) "Connection refused"))
     , testGroup
         "credential template"
         [ testCase "a runtime Secret is filled with its own user, database and URL path" $ do
