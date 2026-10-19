@@ -7,6 +7,8 @@
 #   3. a re-plan has no operations;
 #   4. four probe Workers, each binding one app database, on the servers' own images;
 #   5. own-database read and write, and every cross-app denial;
+#   5b. EP-204: reviewed exceptions and ceilings on alpha-ch and a connection limit and
+#      pg_monitor on alpha-pg hold, beta is unaffected, and removing an exception revokes it;
 #   6. rotate alpha-pg's runtime user and retire beta-ch, the other apps unchanged;
 #   7. one scheduled backup run of alpha-pg and alpha-ch, ingested and restored into scratch;
 #   8. server status grades all four app databases' recovery points (beta-ch retired), and a
@@ -65,13 +67,19 @@ done
 log "servers smoke-pg and smoke-ch are ready"
 
 # --- 2. the app databases ---
-cat > "$ROOT/config/AppDatabases.hs" <<'EOF'
+# One config per stage of reviewed access (EP-204): none, declared, and declared with one
+# exception removed. The later steps run with the last of them in force.
+appdb_config() { # file, stage
+  cat > "$1" <<EOF
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Control.Lens ((&), (.~), (?~))
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
-import Nagare.Dsl.AppDatabase (AppDatabase (..), mkLogicalDatabaseName, noAppDatabaseAccess)
+import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Config (emitAppDatabases)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
@@ -79,8 +87,11 @@ import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
 ok :: Either Text a -> a
 ok = either (error . show) id
 
-app :: Text -> Text -> Engine -> [Text] -> AppDatabase
-app name server engine (db : dbs) =
+stage :: Text
+stage = "$2"
+
+app :: Text -> Text -> Engine -> [Text] -> AppDatabaseAccess -> AppDatabase
+app name server engine (db : dbs) access' =
   AppDatabase
     { name = ok (mkAppDatabaseName name)
     , logicalKey = Nothing
@@ -88,19 +99,45 @@ app name server engine (db : dbs) =
     , engine = engine
     , namespace = ok (mkNamespace "personal")
     , logicalDatabases = ok (mapM mkLogicalDatabaseName (db :| dbs))
-    , access = noAppDatabaseAccess
+    , access = access'
     }
-app _ _ _ [] = error "an app database needs a logical database"
+app _ _ _ [] _ = error "an app database needs a logical database"
+
+ceilings :: Int -> Int -> Int -> UserLimits
+ceilings memory seconds queries = noUserLimits & #maxMemoryBytes ?~ memory & #maxExecutionSeconds ?~ seconds & #maxConcurrentQueries ?~ queries
+
+alphaCh, alphaPg :: AppDatabaseAccess
+alphaCh
+  | stage == "none" = noAppDatabaseAccess
+  | otherwise =
+      noAppDatabaseAccess
+        & #runtime .~ UserAccess ([SystemParts] <> [SystemStoragePolicies | stage == "declared"] <> [ArbitraryTemporaryTables]) (ceilings 268435456 5 2)
+        & #migration .~ UserAccess [] (ceilings 4294967296 600 4)
+alphaPg
+  | stage == "none" = noAppDatabaseAccess
+  | otherwise =
+      noAppDatabaseAccess
+        & #monitoring .~ [PgMonitor]
+        & #runtime . #limits .~ (noUserLimits & #connectionLimit ?~ 3 & #statementTimeoutSeconds ?~ 30)
 
 main :: IO ()
 main =
   emitAppDatabases
-    [ app "alpha-pg" "smoke-pg" Postgres ["alpha"]
-    , app "beta-pg" "smoke-pg" Postgres ["beta"]
-    , app "alpha-ch" "smoke-ch" ClickHouse ["alpha", "alpha_ledger"]
-    , app "beta-ch" "smoke-ch" ClickHouse ["beta"]
+    [ app "alpha-pg" "smoke-pg" Postgres ["alpha"] alphaPg
+    , app "beta-pg" "smoke-pg" Postgres ["beta"] noAppDatabaseAccess
+    , app "alpha-ch" "smoke-ch" ClickHouse ["alpha", "alpha_ledger"] alphaCh
+    , app "beta-ch" "smoke-ch" ClickHouse ["beta"] noAppDatabaseAccess
     ]
 EOF
+}
+appdb_config "$ROOT/config/AppDatabases.hs" none
+appdb_config "$ROOT/config/AppDatabasesDeclared.hs" declared
+appdb_config "$ROOT/config/AppDatabasesRemoved.hs" removed
+# A rerun starts from no reviewed access: PGMQ's grants an earlier run left would be drift.
+if kubectl -n "$NS" get secret alpha-pg-migration >/dev/null 2>&1; then
+  kubectl -n "$NS" exec smoke-pg-0 -- env PGPASSWORD="$(secret alpha-pg-migration POSTGRES_PASSWORD)" \
+    psql -h smoke-pg -U "$(secret alpha-pg-migration POSTGRES_USER)" -d alpha -v ON_ERROR_STOP=1 -tAc 'DROP SCHEMA IF EXISTS pgmq CASCADE' >/dev/null
+fi
 if ! n db app-database plan --config "$ROOT/config/AppDatabases.hs" | grep -qx 'no operations'; then
   n db app-database plan --config "$ROOT/config/AppDatabases.hs" --save-plan "$REVIEWS/app-databases"
   apply "$REVIEWS/app-databases"
@@ -237,6 +274,75 @@ refused "alpha-pg runtime creates a role" pg_rt alpha-pg 'CREATE ROLE smoke_intr
 refused "alpha-pg runtime grants a role" pg_rt alpha-pg 'GRANT pg_read_all_data TO CURRENT_USER'
 refused "alpha-pg runtime controls the server" pg_rt alpha-pg 'SELECT pg_reload_conf()'
 log "AC-3: own read and write for all four; eighteen cross-app, DDL and control denials hold"
+
+# --- 5b. EP-204: reviewed exceptions and limits ---
+plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs" --save-plan "$REVIEWS/access-declared")"
+for needle in "exceptions system-parts, system-storage-policies, arbitrary-temporary-tables" "maxMemoryBytes 268435456" "connectionLimit 3" "tolerates grants to pg_monitor"; do
+  { grep -qF "$needle" <<<"$plan_out" || grep -rqF "$needle" "$REVIEWS/access-declared"; } || { echo "$plan_out" >&2; fail "IR-30 AC-1: the reviewed plan does not name '$needle'"; }
+done
+apply "$REVIEWS/access-declared"
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs")"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan with declared access has operations"; }
+code_of() { grep -oE 'Code: [0-9]+' <<<"$1" | head -1; }
+# IR-30 AC-2: the declared system tables, own rows only, and Join temporary tables; no source engine.
+[ "$(ch_rt alpha-ch "SELECT count() FROM system.parts WHERE database = 'alpha'")" -gt 0 ] || fail "IR-30 AC-2: alpha-ch runtime sees no parts of its own tables"
+expect "IR-30 AC-2: alpha-ch runtime sees beta's parts" "$(ch_rt alpha-ch "SELECT count() FROM system.parts WHERE database = 'beta'")" "0"
+expect "IR-30 AC-2: alpha-ch runtime reads storage policies" "$(ch_rt alpha-ch "SELECT count() > 0 FROM system.storage_policies")" "1"
+refused "undeclared system.mutations for alpha-ch runtime" ch_rt alpha-ch 'SELECT count() FROM system.mutations'
+refused "undeclared system.parts for beta-ch runtime" ch_rt beta-ch 'SELECT count() FROM system.parts'
+expect "IR-30 AC-2: alpha-ch runtime Join temporary table" "$(ch_rt alpha-ch "CREATE TEMPORARY TABLE j (k UInt64, v String) ENGINE = Join(ANY, LEFT, k); INSERT INTO j VALUES (1, 'x'); SELECT joinGet(j, 'v', toUInt64(1))")" "x"
+out="$(ch_rt alpha-ch "CREATE TEMPORARY TABLE x (s String) ENGINE = URL('http://example.invalid/', CSV)" 2>&1 || true)"
+expect "IR-30 AC-2: a URL temporary table" "$(code_of "$out")" "Code: 497"
+# IR-32 AC-1: alpha's ceilings stop its probes; beta runs the same queries.
+out="$(ch_rt alpha-ch 'SELECT sum(cityHash64(number)) FROM numbers(100000000000) SETTINGS max_threads = 1' 2>&1 || true)"
+expect "IR-32 AC-1: alpha time ceiling" "$(code_of "$out")" "Code: 159"
+out="$(ch_rt beta-ch 'SELECT sum(cityHash64(number)) FROM numbers(100000000000) SETTINGS max_threads = 1, max_execution_time = 7' 2>&1 || true)"
+grep -qE 'elapsed 7[0-9]{3}\.[0-9]+ ms' <<<"$out" || { echo "$out" >&2; fail "IR-32 AC-1: beta's time probe was not stopped by its own 7 s cap"; }
+out="$(ch_rt alpha-ch 'SELECT length(groupArray(number)) FROM numbers(30000000)' 2>&1 || true)"
+expect "IR-32 AC-1: alpha memory ceiling" "$(code_of "$out")" "Code: 241"
+expect "IR-32 AC-1: beta memory probe" "$(ch_rt beta-ch 'SELECT length(groupArray(number)) FROM numbers(30000000)')" "30000000"
+concurrent() { # app database; prints how many of three concurrent sleep(3) were refused
+  local outs="$REVIEWS/concurrent-$1" i
+  mkdir -p "$outs"
+  for i in 1 2 3; do (ch_rt "$1" 'SELECT sleep(3)' >"$outs/$i" 2>&1 || true) & sleep 0.5; done
+  wait
+  cat "$outs"/* | grep -c 'Code: 202' || true
+}
+expect "IR-32 AC-1: alpha concurrency ceiling refusals" "$(concurrent alpha-ch)" "1"
+expect "IR-32 AC-1: beta concurrency refusals" "$(concurrent beta-ch)" "0"
+# IR-32 AC-2: lower is accepted, higher and zero are refused, undeclared settings stay writable.
+expect "IR-32 AC-2: a lower memory ceiling" "$(ch_rt alpha-ch 'SET max_memory_usage = 134217728; SELECT 1')" "1"
+for setting in "max_memory_usage = 536870912" "max_memory_usage = 0" "max_execution_time = 0" "max_concurrent_queries_for_user = 0"; do
+  out="$(ch_rt alpha-ch "SET $setting; SELECT 1" 2>&1 || true)"
+  expect "IR-32 AC-2: SET $setting" "$(code_of "$out")" "Code: 452"
+done
+expect "IR-32 AC-2: an undeclared setting" "$(ch_rt alpha-ch 'SET enable_analyzer = 0; SELECT 1')" "1"
+# IR-32 AC-3: the fourth connection of alpha-pg's runtime user is refused.
+for i in 1 2 3; do (pg_rt alpha-pg 'SELECT pg_sleep(8)' >/dev/null 2>&1 || true) & done
+sleep 4
+out="$(pg_rt alpha-pg 'SELECT 1' 2>&1 || true)"
+grep -q 'too many connections for role' <<<"$out" || { echo "$out" >&2; fail "IR-32 AC-3: a fourth alpha-pg runtime connection was not refused"; }
+wait
+expect "alpha-pg runtime statement_timeout default" "$(pg_rt alpha-pg 'SHOW statement_timeout')" "30s"
+# IR-30 AC-4: PGMQ's install grants to pg_monitor, run by the migration user, are declared.
+pg_as alpha-pg-migration alpha "CREATE SCHEMA pgmq; CREATE TABLE pgmq.meta (queue_name text PRIMARY KEY); CREATE SEQUENCE pgmq.s;
+GRANT USAGE ON SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;" >/dev/null
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs")"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-30 AC-4: PGMQ's grants to a declared pg_monitor re-plan with operations"; }
+if out="$(n db app-database plan --config "$ROOT/config/AppDatabases.hs" 2>&1)"; then fail "IR-30 AC-4: undeclared pg_monitor grants planned"; fi
+grep -q 'app-database-grant-drift.*pg_monitor' <<<"$out" || { echo "$out" >&2; fail "IR-30 AC-4: undeclared pg_monitor grants are not reported as drift"; }
+# IR-30 AC-5: removing an exception revokes it through review.
+plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" --save-plan "$REVIEWS/access-removed")"
+grep -q 'update app-database user alpha_ch_runtime on smoke-ch; exceptions system-parts, arbitrary-temporary-tables;' "$REVIEWS/access-removed/review.json" || { echo "$plan_out" >&2; fail "IR-30 AC-5: removing an exception planned no update of alpha_ch_runtime"; }
+apply "$REVIEWS/access-removed"
+refused "the removed system.storage_policies exception" ch_rt alpha-ch 'SELECT count() FROM system.storage_policies'
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs")"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan after the removal has operations"; }
+log "EP-204: alpha-ch exceptions and ceilings hold, beta unaffected; alpha-pg connection limit and pg_monitor grants hold; removal revoked"
 
 # --- 6. rotate alpha-pg's runtime user, retire beta-ch ---
 old_pw="$(secret alpha-pg-runtime POSTGRES_PASSWORD)"; old_user="$(secret alpha-pg-runtime POSTGRES_USER)"

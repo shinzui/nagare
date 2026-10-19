@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-19T19:58:14Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-19T22:23:36Z
+      mode: "implement"
+      note: "M1-M3 implemented: engine proof, declaration, specs, SQL, catalog, adapter and world"
 ---
 
 # Let app databases declare reviewed grant exceptions and resource limits
@@ -64,16 +70,22 @@ After this plan:
 
 ## Progress
 
-- [ ] M1 (engine proof). The new statements and observations are proven by hand against
+- [x] M1 (engine proof). The new statements and observations are proven by hand against
   `postgres:18` and `clickhouse/clickhouse-server:26.8`. They are committed as new
   `-- operation:` blocks in `cli/nagarectl/test/fixtures/app-database/clickhouse.sql` and
   `postgres.sql`, with captured observations under `observed/`. The fixture answers every
   question listed under M1 in Plan of Work, and the answers are in the Decision Log.
-- [ ] M2 (declaration). `AppDatabase` gains an `access` field holding the closed allow-list and
+  Done 2026-10-19 on 26.8.29.10 and 18: every fixture block was then replayed on fresh
+  containers without error. Captures: `observed/clickhouse-access.jsonl`,
+  `clickhouse-access-drifted.jsonl`, `postgres-server-access.json`,
+  `postgres-database-pgmq.json`. Committed in 856c64ee.
+- [x] M2 (declaration). `AppDatabase` gains an `access` field holding the closed allow-list and
   the limits. The config loader refuses an unknown exception, an exception on the wrong engine,
   and a non-positive limit, all before planning. A declaration without `access` emits
   byte-identical JSON. Tests: loader goldens and refusals in `AppDatabaseSpec`.
-- [ ] M3 (inventory and adapter). The user and logical-database specs carry the declared
+  Done 2026-10-19 in bc548f6e; `just gate-fast` green
+  (`~/.local/state/nagare/gates/fast/bc548f6ef9e13e38989b7535e4fc9ebfde24eb42.json`).
+- [x] M3 (inventory and adapter). The user and logical-database specs carry the declared
   extension, and their wire bytes are unchanged when it is empty. The adapter grants, sets and
   observes the extension, and the planned operation's summary names each exception and limit.
   Undeclared extras stay drift. A hand-changed value is drift; a hand-removed exception or
@@ -82,17 +94,49 @@ After this plan:
   operations, resume after every fault, drift on a hand-added grant or setting, restoration
   after a hand removal, and revocation on removal from the declaration, on both engines. A
   test decodes a v0.7.1 accepted app-database scope and re-encodes it byte-identically.
-- [ ] M4 (lifecycle and docs). Rotation keeps the extension. Retirement revokes the exceptions
+  Implemented 2026-10-19 in 856c64ee: every EP-202 world test also runs with declared access
+  (all fault placements), plus the EP-204 cases; the v0.7.1 records are
+  `fixtures/app-database/v0.7.1/`; the two EP-202 mutation records were regenerated and each
+  fails `/AppDatabase world/`. `just gate-fast` green
+  (`~/.local/state/nagare/gates/fast/856c64ee043481eb747e0357e0e0e86423bd0503.json`). In
+  4db79c8f, the two app-database scopes that the v0.7.1 smoke's review accepted on the local
+  context `transition` (`v0.7.1/native-appdb-*.json`) also decode and re-encode
+  byte-identically.
+- [x] M4 (lifecycle and docs). Rotation keeps the extension. Retirement revokes the exceptions
   with the other server grants; limits follow the declaration whether or not the user can log
   in. Scratch and rebuilt restores leave a declared app database complete on re-plan.
   `docs/user/managed-databases.md` documents the allow-list, the limits, which of them are
   ceilings and which are defaults, that the migration user's ceilings bound its scheduled
   backup, and why `system.processes` is not offered. `just haskell-style-check` and
   `just gate-fast` are green, and the change is landed.
-- [ ] M5 (native confirmation). `scripts/local-app-database-smoke.sh` declares exceptions and
+  Done 2026-10-19:
+  - The EP-202 world tests now also run with declared access. Covered: rotation, which leaves
+    every field but the password unchanged; retirement, which revokes the exceptions and keeps
+    the limits; and a rebuilt re-apply.
+  - A PostgreSQL case covers PGMQ's pg_monitor grants through rotation, retirement and a
+    rebuild whose restore brings them back.
+  - A scratch restore beside declared access classifies complete.
+  - Docs are in 17ac2bf4.
+  - The tip 4db79c8f passed `just gate-fast`
+    (`~/.local/state/nagare/gates/fast/4db79c8f8bc6e2481b17fdedd67c9e01789da718.json`) and was
+    landed with `just land`.
+- [x] M5 (native confirmation). `scripts/local-app-database-smoke.sh` declares exceptions and
   limits on both users of `alpha-ch` and on `alpha-pg` and proves IR-30 AC-2, AC-4 and AC-5,
   and IR-32 AC-1 to AC-4, on a disposable local context with the packaged CLI. The smoke's
   rotation, retirement, backup and restore steps then run with the exceptions declared.
+  Done 2026-10-19 with the packaged CLI from 4b5739fd, from an empty environment, on a fresh
+  disposable context `transition`. The context was rebuilt 0.7.0 → 0.7.1 with
+  `scripts/transition-rehearsal.sh`, then the v0.7.1 smoke ran on it with the v0.7.1 CLI.
+  - The new CLI's first plan over those v0.7.1 app databases only re-enabled `beta-ch`, which
+    the v0.7.1 smoke had retired. Re-planning then printed `no operations`.
+  - The EP-204 line printed, then rotation, retirement, backup with restore, and the prune
+    review ran with the access declared, and the run ended in `app-database smoke: PASS`.
+  - The saved review names `exceptions system-parts, system-storage-policies,
+    arbitrary-temporary-tables; limits maxMemoryBytes 268435456, maxExecutionSeconds 5,
+    maxConcurrentQueries 2`.
+  - Earlier runs found two defects, fixed and landed: fb3dcbf0 makes a plan refusal print the
+    drift reason, and 4b5739fd keeps the backup schedule revision when access changes (both in
+    the Decision Log).
 - [ ] M6 (release). The change ships in a release (it may share one with
   [EP-205](205-quiesce-one-app-database-and-back-it-up-on-demand.md)). The intranet is upgraded
   on the candidate before the tag. Kansoku's app databases then declare their exceptions in
@@ -220,6 +264,69 @@ After this plan:
   `pg_dump`, and `pg_dump` resets `statement_timeout` itself.
   Rationale: An exemption would need a second credential or a server-side setting per backup,
   and the operator who declares the ceiling owns the app's backup size.
+  Date: 2026-10-19
+
+- Decision: The specs carry the typed `UserAccess` and `[MonitoringRole]` from
+  `Nagare.Dsl.AppDatabase`, not tokens checked in `Nagare.Resource.Inventory`. Decoding a spec
+  refuses an unknown token, and spec validity checks only that the access fits the engine.
+  Rationale: `Nagare.Dsl.AppDatabase` imports no inventory module, so there is no cycle. One
+  JSON encoding then serves the declaration, the spec and the digests, and the adapter never
+  re-parses tokens.
+  Date: 2026-10-19
+
+- Decision: `AppDatabase` gains a strict `access` field, so a config program must set it
+  (`access = noAppDatabaseAccess` for none). The tan-ng-labs `isolation-probe` and `kansoku`
+  configs change with the M6 upgrade.
+  Rationale: one reviewed record shape, no defaulting constructor; the field's JSON is omitted
+  when empty, so the change reaches only the Haskell source of a config.
+  Date: 2026-10-19
+
+- Decision (M1): the time probe never finishes on its own, so `beta`'s comparison runs it with
+  its own per-query `max_execution_time = 7`. It stops at 7 s, not at `alpha`'s 5 s. The
+  memory probe stopped `alpha` at "would use 384.62 MiB" (code 241), and `beta` finished it
+  with a 512.14 MiB peak. The smoke uses the same probes.
+  Date: 2026-10-19
+
+- Decision (M1): a migration user's ceilings bound its `BACKUP` as follows:
+  - `max_execution_time` stops it, though late: with a 1 s ceiling, a 3.8 GiB backup failed with
+    code 159 after 22 s;
+  - `max_concurrent_queries_for_user` counts it (code 202 with two queries running);
+  - `max_memory_usage` does not bound it: its tracked memory stayed near 5 MiB, and it finished
+    under a 256 MiB ceiling.
+
+  The docs therefore say that the execution-time ceiling must exceed the backup's duration and
+  the concurrency ceiling must leave it a slot. `pg_dump` completed under `CONNECTION LIMIT 1`
+  and a 1 ms role `statement_timeout`.
+  Date: 2026-10-19
+
+- Decision: the v0.7.1 transition records were captured from the v0.7.1 compiler with
+  `encodeCanonicalScope`: at 25a41216, `cli/` is identical to `v0.7.1`. They were not exported
+  from a live context. Accepted history stores exactly these bytes
+  (`Nagare.Inventory.Plan.History`), and the revision digest is their content digest.
+  Date: 2026-10-19
+
+- Decision: the world tests apply hand changes to the world directly, as EP-202's drift test
+  does. They do not add adversary faults.
+  Rationale: the adversary models transport faults (a refusal, a lost acknowledgement, an
+  interrupt); a hand change is a state of the server.
+  Date: 2026-10-19
+
+- Decision (M5): the backup schedule's declaration digest leaves `access` out, so declaring or
+  changing access keeps the schedule revision. Earlier the plan said that adding access moves
+  the revision, as any declaration change does.
+  Rationale: the native smoke found that a prune refuses every run accepted under an earlier
+  schedule revision ("admitted under an older source or schedule"). With access in the
+  digest, Kansoku could never prune the runs taken before it declared its exceptions. Access
+  changes no byte a backup holds. That any other declaration change (a new logical database)
+  makes earlier runs unprunable is EP-203 behaviour and outside this plan; it is reported to
+  the operator.
+  Date: 2026-10-19
+
+- Decision (M5): a plan refusal prints an app-database member's drift and credential reasons,
+  as it prints access observations. Other providers' reasons stay redacted.
+  Rationale: the native smoke found that the refusal named only the member id, so IR-30
+  AC-4's "report app-database-grant-drift" was not observable to an operator. A world test now
+  requires the code and the grant in the rendered refusal.
   Date: 2026-10-19
 
 - Decision: Nagare does not check the sum of declared PostgreSQL connection limits against the
@@ -424,8 +531,8 @@ PostgreSQL questions:
 
 Extend `appDatabaseJSON` and the loader with an optional `access` object. It is emitted only
 when not empty, so declarations without it keep their bytes, their `declaration` digest, and
-the schedule revision. An app database that adds `access` gets a new schedule revision, as any
-declaration change does.
+the schedule revision. The backup schedule's declaration digest leaves `access` out, so
+declaring or changing access keeps the schedule revision too (see the Decision Log).
 
 **M3, inventory and adapter.**
 
