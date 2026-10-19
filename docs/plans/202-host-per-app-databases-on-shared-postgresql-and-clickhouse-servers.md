@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-19T03:37:28Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-19T03:57:26Z
+      mode: "update"
+      note: "Validated against the working tree: DesiredSpec constructors, app-database credential template and key set, Deployment and Worker fields, Worker probes in the smoke, checkedPhysical accessor"
 ---
 
 # Host per-app databases on shared PostgreSQL and ClickHouse servers
@@ -106,7 +112,9 @@ and scratch restore of each app.
   `databases` field keeps its meaning (bind a server directly).
   Rationale: Resolving one name list against two kinds of scope invites ambiguity. A separate
   field makes the binding kind explicit in the type and in review output. Existing configs and the
-  intranet's existing direct bindings keep working unchanged.
+  intranet's existing direct bindings keep working unchanged. The field is accepted on
+  `Deployment` and `Worker`. An `Application`'s workloads bind only the databases that
+  application declares today, and this plan keeps that rule; Kansoku deploys as a `Deployment`.
   Date: 2026-10-19
 
 - Decision: A server is either *direct* (bound by `databases`, as today) or *shared* (hosts at
@@ -120,9 +128,10 @@ and scratch restore of each app.
 - Decision: Users and grants are recovered from the accepted app-database declaration, which each
   backup receipt pins by revision digest. Passwords are recovered from the retained Secrets.
   Backup objects hold data and object-level ACLs only, never role definitions or password hashes.
-  Rationale: Backup objects are gzip with no encryption (the "recovery key version" is only a
-  label, `cli/nagare-dsl/src/Nagare/Resource/Policy.hs`). `pg_dumpall --roles-only` would put
-  SCRAM verifiers into the bucket. Users and grants are fully determined by the typed
+  Rationale: Backup objects are gzip with no encryption. `cli/nagarectl/src/Nagare/Database/Backup.hs`
+  only gzips, and the recovery key version (`RecoveryIntent` in
+  `cli/nagare-dsl/src/Nagare/Resource/Policy.hs`) names a key and version that no code uses to
+  encrypt a dump. `pg_dumpall --roles-only` would put SCRAM verifiers into the bucket. Users and grants are fully determined by the typed
   declaration, so it is their authority. A restore re-applies them and verifies them.
   Date: 2026-10-19
 
@@ -186,7 +195,12 @@ and scratch restore of each app.
     is the initdb superuser.
 - *Inventory compile.* `cli/nagare-dsl/src/Nagare/Resource/Database.hs` compiles a server into
   members `credential, pvc, [configmap], service, statefulset` and a backup bundle (service
-  account, role, signing Secret, CronJob).
+  account, read role and its binding, signing Secret, CronJob).
+  - A member's desired state is one constructor of the closed type `DesiredSpec` in
+    `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs`. `LogicalBrokerTopic` is the constructor for
+    a logical thing inside a StatefulSet; its claim derivation is in the same module.
+    `cli/nagare-dsl/src/Nagare/Resource/Wire.hs` encodes addresses and specs for the review
+    format.
   - `cli/nagarectl/src/Nagare/Inventory/DataService.hs` (`compileStandaloneDatabase`) places it in
     the standalone scope `database-<key>`.
   - The collision type `ProviderAddress` in `cli/nagare-dsl/src/Nagare/Resource/Types.hs`
@@ -201,8 +215,13 @@ and scratch restore of each app.
     `composeConnectionUrl` has no database path for ClickHouse.
   - The password is generated only at apply time, in `materializeCredential`
     (`cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs`), with
-    `openssl rand -hex 24`.
+    `openssl rand -hex 24`. The template is recognised by the annotation
+    `nagare.dev/credential-template: database-v1` (`databaseCredentialKind`), which also requires
+    the Secret name `nagare-db-<n>` and the engine's server key set (`engineSecretKeys`).
   - `credentialDataMatches` compares only key presence, so a re-plan never rotates a password.
+  - ADR 27's checked accessor is `checkedPhysical` in
+    `cli/nagarectl/src/Nagare/Inventory/Identity.hs`. It compares a live UID with the recorded
+    incarnation and reports a member without a record as unrecorded, never as matching.
 - *Lifecycle CLI.*
   - `cli/nagarectl/app/Nagare/Cli/Commands/Database.hs` (`runDbCreatePlan`) builds the scope and
     either converges it or saves a plan.
@@ -211,13 +230,19 @@ and scratch restore of each app.
     and `decideRetirement` in `cli/nagarectl/src/Nagare/Inventory/Lifecycle.hs`, which retains
     every member.
 - *Binding.*
-  - Workloads carry `databases :: ![DatabaseName]` (`cli/nagare-dsl/src/Nagare/Dsl/Types.hs`).
+  - `Deployment` (`cli/nagare-dsl/src/Nagare/Dsl/Types.hs`) and `Worker`
+    (`cli/nagare-dsl/src/Nagare/Dsl/Worker.hs`) carry `databases :: ![DatabaseName]`, loaded by
+    `cli/nagare-dsl/src/Nagare/Dsl/Load/Deployment.hs` and `Load/Worker.hs`. An `Application`
+    instead carries full `Database` declarations it owns, and its workloads may bind only those
+    (`databaseDependencies` in the environment module below).
   - At deploy, `reviewedStandaloneDatabases` (`cli/nagarectl/app/Nagare/Cli/Application/Inputs.hs`)
     loads accepted scopes. `acceptedDatabaseBindings`
     (`cli/nagarectl/src/Nagare/Inventory/Application/Bindings.hs`) finds the server's Service,
     StatefulSet and credential.
   - `standaloneDatabaseEnvironment` (`cli/nagarectl/src/Nagare/Inventory/Application/Environment.hs`)
-    produces the env. Every key, user included, is a `secretKeyRef` into `nagare-db-<n>`.
+    produces the env. Host and port are literals; user, database, password and URL are
+    `secretKeyRef`s into `nagare-db-<n>` (`databaseConnectionEnv`, same module, over
+    `connectionEnv` in `cli/nagarectl/src/Nagare/Database/Connection.hs`).
   - `mergeConnectionEnvs` (`cli/nagarectl/src/Nagare/Database/Connection.hs`) refuses two
     same-engine databases on one workload. That rule stays.
 - *Backups.* `cli/nagarectl/src/Nagare/Database/Backup.hs` renders CronJob `nagare-dbbackup-<n>`.
@@ -303,7 +328,8 @@ Answer these questions with evidence, and record each answer in the Decision Log
    - `CREATE USER`, `GRANT` and `SYSTEM SHUTDOWN` fail for both users.
    - `BACKUP DATABASE <own>` works for the migration user given `BACKUP ON <db>.*`.
 3. ClickHouse masks the password of `CREATE USER ... IDENTIFIED BY` in `system.query_log` and
-   the server log.
+   the server log, and `IDENTIFIED WITH sha256_hash BY '<hex>' SALT '<hex>'` accepts
+   `hex(SHA256(password ‖ salt))` computed off the server, so plaintext need not be sent at all.
 4. The exact PostgreSQL statements.
    - `CREATE ROLE ... LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD
      '<SCRAM-SHA-256 verifier>'`. The verifier is computed client-side, so plaintext never
@@ -337,8 +363,10 @@ answer. A "no" answer changes the design in the Decision Log before M2 starts.
 ### M2 — the declaration and its inventory scope
 
 Add `AppDatabase` to a new module, `cli/nagare-dsl/src/Nagare/Dsl/AppDatabase.hs`, with a
-loader in `cli/nagare-dsl/src/Nagare/Dsl/Load/AppDatabase.hs` and an `emitAppDatabase` in
-`cli/nagare-dsl/src/Nagare/Dsl/Config.hs`. The shape is in Interfaces and Dependencies.
+loader in `cli/nagare-dsl/src/Nagare/Dsl/Load/AppDatabase.hs` and an `emitAppDatabases` in
+`cli/nagare-dsl/src/Nagare/Dsl/Config.hs` beside `emitDatabase`. It writes one JSON array, so a
+config can declare several app databases in one file. The shape is in Interfaces and
+Dependencies.
 
 Loading refuses each of these with a precise message:
 - Redis.
@@ -347,7 +375,6 @@ Loading refuses each of these with a precise message:
 - A reserved name. On PostgreSQL that is `postgres`, `template0`, `template1`, and the server's
   initial database `sanitizeDbName server`. On ClickHouse it is `default`, `system`,
   `information_schema` and `INFORMATION_SCHEMA`.
-- Any retention other than `Retain`.
 
 User names derive from the app-database name: `sanitizeDbName name <> "_runtime"` and
 `<> "_migration"`. Secret names are `name <> "-runtime"` and `name <> "-migration"`.
@@ -356,14 +383,23 @@ Compile an app database in `cli/nagare-dsl/src/Nagare/Resource/AppDatabase.hs` i
 standalone scope `appdb-<logicalKey or name>`, through a `compileStandaloneAppDatabase` beside
 `compileStandaloneDatabase` in `cli/nagarectl/src/Nagare/Inventory/DataService.hs`. Members:
 
-- `runtime-credential` and `migration-credential`: Secrets with the data-free credential
-  template (as the server credential does today), `Retain`, `Durable`, `Secret` sensitivity.
+- `runtime-credential` and `migration-credential`: data-free Secret templates, `Retain`,
+  `Durable`, `Secret` sensitivity. They carry a new annotation value,
+  `nagare.dev/credential-template: app-database-v1`, recognised beside `database-v1` in
+  `cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs` by `materializeCredential`
+  and `credentialDataMatches`. The server template cannot be reused: it requires the Secret name
+  `nagare-db-<server>` and the server key set. The app-database key set is in Interfaces and
+  Dependencies.
 - One `logical-database/<db>` member per logical database. Its address is the existing
-  `DatabaseName serverStatefulSetId db`, and its kind is a new `LogicalDatabase` executor kind
-  (follow `LogicalBrokerTopic`). Its dependency is the server StatefulSet's resource id.
+  `DatabaseName serverStatefulSetId db`, and its spec is a new `DesiredSpec` constructor,
+  `LogicalDatabase`, in `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs` (follow
+  `LogicalBrokerTopic`, including the claim derivation there and the encoding in
+  `cli/nagare-dsl/src/Nagare/Resource/Wire.hs`). Its dependency is the server StatefulSet's
+  resource id.
 - `runtime-user` and `migration-user` members. Their address is a new constructor,
   `DatabaseUser ResourceId Name`, in `cli/nagare-dsl/src/Nagare/Resource/Types.hs`, with its
-  canonical claim. Their content digest covers the declared grant set (not the password).
+  canonical claim and `Wire.hs` encoding. Their spec is a new `DesiredSpec` constructor,
+  `DatabaseUserSpec`, whose content digest covers the declared grant set (not the password).
 
 Composition must refuse, with tests:
 - Two app databases claiming the same logical database or user on one server.
@@ -386,7 +422,8 @@ Write an adapter pair following the broker-topic precedent:
   transport.
 
 The transport runs `kubectl exec -i` into the exact server pod. Before each call it checks the
-StatefulSet and PVC UIDs through ADR 27's accessor. It runs `psql`/`clickhouse-client` inside the
+StatefulSet and PVC UIDs through `checkedPhysical`
+(`cli/nagarectl/src/Nagare/Inventory/Identity.hs`) against the recorded incarnations. It runs `psql`/`clickhouse-client` inside the
 pod with the container's own administrator env (`sh -c` so the env expands in the pod). It sends
 SQL on stdin only, never in argv.
 
@@ -420,12 +457,13 @@ exit is `rotate`.
 
 **CLI**, in `cli/nagarectl/app/Nagare/Cli/Parser/Data.hs` and
 `cli/nagarectl/app/Nagare/Cli/Commands/Database.hs`:
-- `nagarectl db app-database plan --config FILE [--save-plan DIR]`: every `AppDatabase` the config
-  emits becomes its own scope in one transaction.
+- `nagarectl db app-database plan --config FILE [--save-plan DIR]`: every `AppDatabase` in the
+  config's `emitAppDatabases` list becomes its own scope in one transaction.
 - `nagarectl db app-database rotate NAME --user runtime|migration --save-plan DIR`: generates a
   new password, then runs `ALTER ROLE`/`ALTER USER`, then replaces that Secret's data under a
-  resourceVersion precondition. Pods read the Secret at start, so the docs say to restart bound
-  workloads afterwards.
+  resourceVersion precondition. When the Secret is absent (the `app-database-credential-missing`
+  exit) it creates the Secret instead. Pods read the Secret at start, so the docs say to restart
+  bound workloads afterwards.
 - `nagarectl db app-database retire NAME --save-plan DIR`: PostgreSQL `ALTER ROLE ... NOLOGIN`
   and `REVOKE CONNECT`. ClickHouse `REVOKE ALL ... FROM` both users, then `ALTER USER ... HOST
   NONE`. Databases and Secrets are kept. It refuses while an accepted workload still lists the
@@ -450,9 +488,11 @@ create-only password, and prove each with its exact `records.json` pattern. Acce
 
 ### M4 — bind only the runtime Secret
 
-Add `appDatabases :: ![AppDatabaseName]` to the workload record in
-`cli/nagare-dsl/src/Nagare/Dsl/Types.hs`, defaulting to `[]` in every smart constructor, and to
-its loader. Then add two functions:
+Add `appDatabases :: ![AppDatabaseName]` to `Deployment` in
+`cli/nagare-dsl/src/Nagare/Dsl/Types.hs` and to `Worker` in
+`cli/nagare-dsl/src/Nagare/Dsl/Worker.hs`, defaulting to `[]` in every smart constructor, and to
+their loaders `cli/nagare-dsl/src/Nagare/Dsl/Load/Deployment.hs` and
+`cli/nagare-dsl/src/Nagare/Dsl/Load/Worker.hs`. Then add two functions:
 - `acceptedAppDatabaseBindings`, beside `acceptedDatabaseBindings` in
   `cli/nagarectl/src/Nagare/Inventory/Application/Bindings.hs`. It resolves an `appdb-` scope, its
   server's Service, and its `runtime-credential` member.
@@ -469,12 +509,15 @@ The two maps go through the existing `mergeConnectionEnvs`. So a workload may bi
 PostgreSQL and one ClickHouse database (direct or app), not two of one engine. The dependency is
 the app database's user members, so a deploy waits for provisioning.
 
-Callers are `cli/nagarectl/app/Nagare/Cli/Commands/Deployment.hs`,
-`cli/nagarectl/app/Nagare/Cli/Commands/Worker.hs`,
-`cli/nagarectl/src/Nagare/Inventory/Application/Service.hs` and
-`cli/nagarectl/src/Nagare/Inventory/Application/Worker.hs`. Application-scope workloads use the
-same function from `cli/nagarectl/src/Nagare/Inventory/Application/Compile.hs`. Scheduled tasks
-inherit the env as they do today.
+The deploy commands `cli/nagarectl/app/Nagare/Cli/Commands/Deployment.hs` and
+`cli/nagarectl/app/Nagare/Cli/Commands/Worker.hs` read the field and load the accepted scopes
+through `cli/nagarectl/app/Nagare/Cli/Application/Inputs.hs`, beside
+`reviewedStandaloneDatabases`. `cli/nagarectl/src/Nagare/Inventory/Application/Service.hs` and
+`cli/nagarectl/src/Nagare/Inventory/Application/Worker.hs` merge the env. An `Application`'s
+workloads bind only the databases that application declares (`databaseDependencies`), so
+`cli/nagarectl/src/Nagare/Inventory/Application/Compile.hs` refuses a non-empty `appDatabases`
+there with `app-database-not-bindable-from-application`. Scheduled tasks inherit the env as they
+do today.
 
 `acceptedDatabaseBindings` refuses a server that hosts any accepted app database, with
 `shared-server-direct-binding`. The migration Secret is never bindable. Acceptance: a render test
@@ -532,11 +575,20 @@ packaged `nagarectl`. It runs:
 1. Create servers `smoke-pg` and `smoke-ch`.
 2. Declare app databases `alpha-pg`, `alpha-ch`, `beta-pg` and `beta-ch`, and plan and apply them.
 3. Re-plan and expect `no operations`.
-4. Deploy `alpha-probe` and `beta-probe`. This needs a tiny image already used by the fixtures:
-   read its entrypoint first, and if none fits, use a `kubectl run` client pod with the runtime
-   Secrets mounted by name.
-5. Assert own-database read and write, and every cross-app denial from AC-3, for both runtime and
-   both migration users.
+4. Publish the two pinned engine images through the same `app image-plan` review that
+   `scripts/local-smoke.sh` uses for its app, then deploy four `Worker`s with
+   `nagarectl worker deploy --image-resource`: `alpha-pg-probe` and `beta-pg-probe` on the
+   PostgreSQL image, `alpha-ch-probe` and `beta-ch-probe` on the ClickHouse image, each with
+   `command = sleep infinity` and `appDatabases` naming its one app database. A `Deployment` is a
+   Knative Service that must answer HTTP, so it cannot be the probe; a `Worker` has no such
+   requirement and carries the same env. `nagarectl worker deploy` requires `--image-resource`, so
+   the images go through review. Each probe pod's env is what AC-2 inspects.
+5. Assert own-database read and write, and every cross-app denial from AC-3. Runtime users run
+   through `kubectl exec` into their probe pod with its own env (`psql "$DATABASE_URL"`,
+   `clickhouse-client --host "$CLICKHOUSE_HOST" --user "$CLICKHOUSE_USER" --password
+   "$CLICKHOUSE_PASSWORD" --database "$CLICKHOUSE_DB"`). Migration users run through the server
+   pod with the migration Secret read by `kubectl get secret`, as `psql_in_pod` in
+   `scripts/local-smoke.sh` does today; the password is passed only as process env in the pod.
 6. Rotate `alpha-pg` runtime and retire `beta-ch`, and assert the other app's state is unchanged.
 7. Run each backup CronJob once, ingest the receipts, restore `alpha-*` into scratch, and assert
    rows and denials there.
@@ -628,7 +680,7 @@ Land with `just gate-fast` clean, then `just land`.
 | IR-29 criterion | Proven by |
 | --- | --- |
 | AC-1 (one server per engine hosts many app databases) | M2 composition test; M7 smoke counts one StatefulSet, PVC and Service per engine |
-| AC-2 (deploy injects only the app's own Secret) | M4 two-app render test; M7 inspects both live Deployments' env |
+| AC-2 (deploy injects only the app's own Secret) | M4 two-app render test; M7 inspects the four probe Workers' env |
 | AC-3 (users confined to own database) | M1 by hand; M3 grant-set tests against M1 fixtures; M7 live denials for runtime and migration users of both apps on both engines |
 | AC-4 (reviewed, repeatable provisioning, rotation, retirement) | M3 interpreter world; M7 re-plan `no operations`, rotate and retire with the other app unchanged |
 | AC-5 (backups of every app database, independent restore) | M5 tests; M6 rebuild test; M7 scheduled backup, receipt ingest and scratch restore of one app |
@@ -686,10 +738,11 @@ mkAppDatabaseName :: Text -> Either DslError AppDatabaseName
 mkLogicalDatabaseName :: Text -> Either DslError LogicalDatabaseName
 appDatabaseUsers :: AppDatabase -> (Text, Text)        -- (runtime, migration) user names
 appDatabaseSecretNames :: AppDatabaseName -> (SecretName, SecretName)
-emitAppDatabase :: AppDatabase -> IO ()                -- in Nagare.Dsl.Config
+emitAppDatabases :: [AppDatabase] -> IO ()             -- in Nagare.Dsl.Config; one JSON array
 ```
 
-Kansoku's declarations, which tan-ng-labs will write against this interface:
+Kansoku's declarations, which tan-ng-labs will write against this interface. The literals stand
+for the results of the smart constructors above:
 
 ```haskell
 kansokuPg = AppDatabase { name = "kansoku-pg", logicalKey = Nothing, server = "labs-postgres"
@@ -697,12 +750,28 @@ kansokuPg = AppDatabase { name = "kansoku-pg", logicalKey = Nothing, server = "l
 kansokuCh = AppDatabase { name = "kansoku-ch", logicalKey = Nothing, server = "labs-clickhouse"
                         , engine = ClickHouse, namespace = personal
                         , logicalDatabases = "analytics" :| ["kansoku_migration_ledger"] }
+
+main :: IO ()
+main = emitAppDatabases [kansokuPg, kansokuCh]
 ```
 
-Inventory additions in `cli/nagare-dsl/src/Nagare/Resource/Types.hs`:
-- A `ProviderAddress` constructor, `DatabaseUser ResourceId Name`. `DatabaseName ResourceId Name`
-  already exists.
-- Executor kinds for logical databases and database users.
+The two Secrets of an app database. Both are data-free templates at review time, annotated
+`nagare.dev/credential-template: app-database-v1` and labelled with the app database, its server
+and its engine. `materializeCredential` fills them at the create-only mutation:
+- PostgreSQL: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` (the one logical database) and
+  `DATABASE_URL`, whose path is that database.
+- ClickHouse: `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DB` (the first logical
+  database) and `CLICKHOUSE_URL`, whose path is that database. `composeConnectionUrl` in
+  `cli/nagarectl/src/Nagare/Database/Secret.hs` gains a ClickHouse database path for this; the
+  server Secret's URL is unchanged.
+
+Inventory additions:
+- A `ProviderAddress` constructor, `DatabaseUser ResourceId Name`, in
+  `cli/nagare-dsl/src/Nagare/Resource/Types.hs`, with its canonical claim. `DatabaseName
+  ResourceId Name` already exists there; only `cli/nagare-dsl/src/Nagare/Resource/Wire.hs`
+  decodes it today, and nothing emits it.
+- `DesiredSpec` constructors `LogicalDatabase` and `DatabaseUserSpec` in
+  `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs`, with their encodings in `Wire.hs`.
 
 Binding additions:
 - `AppDatabaseBinding` beside `DatabaseBinding` in
