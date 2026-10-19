@@ -88,14 +88,17 @@ for real use, as [priorities after v0.6.3](../releases/priorities-after-v0.6.3.m
   candidate's packaged `nagarectl` (`fe162dbf`). The F131 line and the F132 line
   ("status grades all four app databases' recovery points, beta-ch retired; alpha-pg has no
   runs past policy") both printed.
-- [ ] M6. v0.7.1 is released intranet first. Candidate `fe162dbf` (`chore(release): prepare
-  v0.7.1`); its rehearsal record is
-  `docs/release-evidence/fe162dbf82fd4797f731be3e2b0af00256e49fa3/transition-rehearsal.json`.
-  Remaining: `just release-candidate 0.7.1` (needs the builder), the intranet upgrade, then
-  `just release-publish 0.7.1`; all three need the operator's go-ahead. The intranet's transition runs with
+- [x] M6. v0.7.1 is released intranet first. The intranet's transition runs with
   `~/.config/nagare/kubeconfigs/intranet.yaml` still a symlink to
   `/run/agenix/nagare-kubeconfig-intranet`, which is F127's real proof. F126, F127, F131 and
-  F132 move to Verifying in `docs/audits/mp23-findings.md`.
+  F132 move to Verifying in `docs/audits/mp23-findings.md`. Done 2026-10-19: candidate
+  `fe162dbf` (`chore(release): prepare v0.7.1`) passed `just release-candidate 0.7.1` (full gate
+  green, clean mutation sweep, rehearsal record landed as `ae973a32`). The intranet moved from
+  0.7.0 to the candidate in three stages (host activation; 210 verifications and the version
+  stamp; an empty review) with the kubeconfig link in place throughout, and `platform status`
+  is exact on 0.7.1; node Ready, no unhealthy pods, `/signup` 404, protected-hello 302 to login,
+  no active transaction (`mori://tan/tan-ng-labs` commits `bbfdf4f`, then `933170b` pinning the
+  tag). `just release-publish 0.7.1` published GitHub release 417666344.
 
 
 ## Surprises & Discoveries
@@ -143,7 +146,9 @@ for real use, as [priorities after v0.6.3](../releases/priorities-after-v0.6.3.m
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+The four findings are fixed in 0.7.1 and the intranet runs it. The intranet's upgrade needed no
+manual kubeconfig copy, and its 0.7.1 `server status` grades the Kansoku app databases' backups.
+F126, F127, F131 and F132 are Verifying; each row names its next check.
 
 
 ## Context and Orientation
