@@ -49,8 +49,9 @@ runAppDatabase mctx = \case
   AppDatabaseRetire o -> do
     (active, snapshot) <- loadSnapshot mctx
     scope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack (o ^. #name)) (T.pack <$> o ^. #scopeKey))
-    revised <- either (dieT . renderErrors) pure (retireAppDatabaseScope snapshot scope)
-    planReview active snapshot [revised] Map.empty (Just (o ^. #savePlan))
+    accepted <- loadAcceptedNative active snapshot
+    (revised, native) <- either (dieT . renderErrors) pure (retireAppDatabaseScope snapshot accepted scope)
+    planReview active snapshot [revised] native (Just (o ^. #savePlan))
   AppDatabaseRotate o roleText -> do
     role <- case roleText of
       "runtime" -> pure "runtime"
@@ -150,10 +151,7 @@ runPlan mctx o = do
   provisionGhcEnv Nothing
   databases <- loadAppDatabases (o ^. #config) >>= either (dieT . renderLoadError) pure
   (active, snapshot) <- loadSnapshot mctx
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-  inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
-  (accepted, _) <- InventoryStatus.loadAcceptedNative store history inventory >>= either dieT pure
+  accepted <- loadAcceptedNative active snapshot
   keyVersion <- either dieT pure (Resource.mkName (maybe "v1" T.pack (o ^. #recoveryKeyVersion)))
   backend <- either dieT pure (storeBackendFor (active ^. #profile) (active ^. #profile . #backupBucket))
   let target = DatabaseBackupTarget backend (active ^. #profile . #backupRecoveryPoint)
@@ -172,6 +170,13 @@ loadSnapshot mctx = do
   active <- activeTarget mctx
   snapshot <- Inventory.loadTargetSnapshot active
   pure (active, snapshot)
+
+loadAcceptedNative :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
+loadAcceptedNative active snapshot = do
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
+  fst <$> (InventoryStatus.loadAcceptedNative store history inventory >>= either dieT pure)
 
 -- | Save the review, or, without a directory, print its operations (or
 -- @no operations@) from a review written to a throwaway directory.

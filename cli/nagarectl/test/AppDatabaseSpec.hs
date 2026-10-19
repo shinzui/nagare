@@ -209,15 +209,36 @@ appDatabaseTests =
                 accepted = snapshotWith [pgServer] [scope]
                 specs revised = [member ^. #spec | bundle <- scopeBundles revised, Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
             found <- either (assertFailure . T.unpack) pure (namedAppDatabaseScope accepted "alpha-pg" Nothing)
-            retired <- either (assertFailure . show) pure (retireAppDatabaseScope accepted found)
+            (retired, _) <- either (assertFailure . show) pure (retireAppDatabaseScope accepted (snd (scopeAndNative pgServer (alpha Postgres))) found)
             [on | LogicalDatabase _ _ _ on _ <- specs retired] @?= [False]
             [on | DatabaseUserSpec _ _ on _ <- specs retired] @?= [False, False]
             let runtime = head [member ^. #identity | bundle <- scopeBundles scope, Managed member <- declarations bundle, DatabaseUserSpec _ "runtime" _ _ <- [member ^. #spec]]
                 bound = snapshotWith [pgServer] [scope, boundTo runtime]
-            case retireAppDatabaseScope bound found of
+            case retireAppDatabaseScope bound Map.empty found of
               Left errors -> map (^. #code) (NE.toList errors) @?= ["app-database-in-use"]
               Right _ -> assertFailure "retirement of a bound app database was accepted"
             map (\row -> (row ^. #name, row ^. #server, row ^. #retired)) (appDatabaseRows accepted) @?= [("alpha-pg", "smoke-pg", False)]
+        , testCase "F131: retirement suspends the schedule, re-planning resumes it, and earlier runs still ingest and restore" $ do
+            (appScope, serverScope, native, _, _, _) <- ingested
+            let accepted = snapshotWith [pgServer] [appScope]
+                cronOf scope = head [m | bundle <- scopeBundles scope, Managed m <- declarations bundle, Kubernetes _ _ k _ _ <- [m ^. #address], nameText k == "cronjob"]
+                cron = cronOf appScope
+            (retired, suspended) <- either (assertFailure . show) pure (retireAppDatabaseScope accepted native appScope)
+            Map.keys suspended @?= [cron ^. #identity]
+            let (retiredCron, retiredBytes) = suspended Map.! (cron ^. #identity)
+            cronOf retired @?= retiredCron
+            assertBool "the schedule is an update" (retiredCron ^. #spec /= cron ^. #spec)
+            scheduleSuspended retiredBytes @?= True
+            scheduleSuspended (snd (native Map.! (cron ^. #identity))) @?= False
+            let expectationOf = scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" "alpha-pg" (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc"))
+            fmap scheduledPolicyRevision (expectationOf retiredBytes) @?= fmap scheduledPolicyRevision (expectationOf (snd (native Map.! (cron ^. #identity))))
+            let retiredNative = Map.union suspended native
+            (receiptScope, _) <- either (assertFailure . show) pure (compileScheduledIngestScope (ingestRequest serverScope native retired) retired retiredNative)
+            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" retired serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+            either (assertFailure . show) (const (pure ())) (compileAppDatabaseRestoreScope request retiredNative)
+            (again, _) <- either (assertFailure . show) pure (retireAppDatabaseScope (snapshotWith [pgServer] [retired]) retiredNative retired)
+            again @?= retired
+            cronOf (scopeOf pgServer (alpha Postgres)) @?= cron
         , testCase "a rotation is one forward-only operation per user, replaced by the next" $ do
             let scope = scopeOf pgServer (alpha Postgres)
                 rotations revised = [operation | bundle <- scopeBundles revised, operation <- bundle ^. #operations, operation ^. #operationKind == RotateCredential]

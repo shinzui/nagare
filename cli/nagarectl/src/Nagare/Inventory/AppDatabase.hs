@@ -13,6 +13,7 @@ module Nagare.Inventory.AppDatabase
   , compileStandaloneAppDatabase
   , namedAppDatabaseScope
   , retireAppDatabaseScope
+  , scheduleSuspended
   , rotateAppDatabaseScope
   , AppDatabaseRow (..)
   , appDatabaseRows
@@ -285,11 +286,19 @@ namedAppDatabaseScope snapshot name pinned = do
     (Left ("accepted scope " <> nameText (scopeName owner) <> " is not an app database"))
   pure scope
 
--- | Retirement turns the users' logins and the declared access off and keeps
--- the databases and Secrets. It refuses while any accepted member outside the
--- scope is ordered after one of its members (a workload binding it).
-retireAppDatabaseScope :: ScopeSnapshot -> ScopeDeclaration -> Either (NonEmpty InventoryError) ScopeDeclaration
-retireAppDatabaseScope snapshot scope = do
+-- | Retirement turns the users' logins and the declared access off, suspends
+-- the backup schedule (F131), and keeps the databases and Secrets. It refuses
+-- while any accepted member outside the scope is ordered after one of its
+-- members (a workload binding it). The suspended schedule's receipt metadata,
+-- and so its schedule revision, is unchanged, so earlier runs still ingest.
+retireAppDatabaseScope ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ScopeDeclaration ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+retireAppDatabaseScope snapshot native scope = do
   let owner = scopeId scope
       ours = Set.fromList (map (^. #identity) (scopeMembers scope))
       consumers =
@@ -311,15 +320,36 @@ retireAppDatabaseScope snapshot scope = do
             :| []
         )
     )
-  reviseScope scope (map (\bundle -> bundle & #declarations %~ map off) (scopeBundles scope))
+  suspended <- Map.fromList <$> traverse suspend [member | member <- scopeMembers scope, Kubernetes _ "batch" kind _ _ <- [member ^. #address], nameText kind == "cronjob"]
+  revised <- reviseScope scope (map (\bundle -> bundle & #declarations %~ map (off suspended)) (scopeBundles scope))
+  pure (revised, suspended)
   where
-    off = \case
-      Managed member -> Managed (member & #spec %~ disable)
+    off suspended = \case
+      Managed member -> Managed (maybe (member & #spec %~ disable) fst (Map.lookup (member ^. #identity) suspended))
       other -> other
+    suspend member = do
+      bytes <- case Map.lookup (member ^. #identity) native of
+        Just (accepted, bytes) | accepted == member -> Right bytes
+        _ -> Left (retirement member "the backup schedule has no private native object")
+      value <- first (retirement member . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      changed <- case value of
+        Object root | Just (Object spec) <- KM.lookup "spec" root -> Right (Object (KM.insert "spec" (Object (KM.insert "suspend" (Bool True) spec)) root))
+        _ -> Left (retirement member "the backup schedule has no spec")
+      changedBytes <- first (retirement member) (canonicalValue changed)
+      let updated = member & #spec .~ NativeObject (contentDigest changedBytes)
+      pure (member ^. #identity, (updated, changedBytes))
+    retirement member message = (inventoryError "invalid-app-database-retirement" message & #scopes .~ [scopeId scope] & #resources .~ [member ^. #identity]) :| []
     disable = \case
       LogicalDatabase engine' migration runtime _ digest -> LogicalDatabase engine' migration runtime False digest
       DatabaseUserSpec engine' role _ digest -> DatabaseUserSpec engine' role False digest
       other -> other
+
+-- | Whether an accepted schedule's native bytes are suspended, as a retired
+-- app database's are.
+scheduleSuspended :: ByteString -> Bool
+scheduleSuspended bytes = case Yaml.decodeEither' bytes :: Either Yaml.ParseException Value of
+  Right (Object root) | Just (Object spec) <- KM.lookup "spec" root -> KM.lookup "suspend" spec == Just (Bool True)
+  _ -> False
 
 -- | Rotation is one forward-only operation on one user member, keyed by the
 -- role: a new stamp makes a new operation, so each rotation runs once.
