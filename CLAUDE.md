@@ -129,9 +129,8 @@ which defer to the user's scope:
 - **A plan is a deliverable checklist plus a decision log.** Progress holds the deliverables with
   pass/fail evidence. Decision Log holds decisions that change scope or design, dated. Do not write
   Surprises & Discoveries entries, compatibility tables, per-commit progress narration, revision
-  notes or Outcomes prose, and do not run the provenance scripts. ADRs stay for real architecture
-  changes. The `MasterPlan:` and `ExecPlan:` trailers are optional; the `Intention:` trailer is not
-  used.
+  notes or Outcomes prose. ADRs stay for real architecture changes. The `MasterPlan:` and
+  `ExecPlan:` trailers are optional; the `Intention:` trailer is not used.
 - **Never answer a mistake with a new check, script, rule, runbook item or plan.** Fix it in one
   line and keep working. Prefer removing a step to adding one.
 - **No time estimates.** Report what is done and what is next.
