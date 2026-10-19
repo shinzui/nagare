@@ -4,6 +4,7 @@ module Nagare.Inventory.Application.Bindings
   , acceptedApplicationImage
   , acceptedBrokerBindings
   , acceptedDatabaseBindings
+  , acceptedAppDatabaseBindings
   , acceptedImageBuildSecrets
   , acceptedImageResourceForDestination
   , acceptedSecretBindings
@@ -38,26 +39,33 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Database (dbSecretName, engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
-  ( DatabaseName
+  ( AppDatabaseName
+  , DatabaseName
   , ScopedEnvVar
   , SecretName
+  , appDatabaseNameText
   , databaseNameText
+  , mkDatabaseName
   , mkSecretName
   )
 import Nagare.Dsl.Types qualified as Dsl
+import Nagare.Inventory.Adapters.CredentialTemplate (appDatabaseCredentialKind)
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( databaseCredentialKind
   )
+import Nagare.Inventory.AppDatabase (serverHostsAppDatabases)
 import Nagare.Inventory.Application.Types
   ( AccessBinding (..)
+  , AppDatabaseBound (..)
   , DatabaseBinding (..)
+  , ServerBinding (..)
   )
 import Nagare.Inventory.Environment (acceptedBuildChannelMember)
 import Nagare.Resource.Inventory
   ( ContributionGrant (BackendMapGrant, ShomeiSettingsGrant)
   , Declaration (Managed)
-  , DesiredSpec (ArtifactPublication, LogicalBrokerTopic)
-  , Executor (ArtifactExecutor, BrokerExecutor)
+  , DesiredSpec (ArtifactPublication, DatabaseUserSpec, LogicalBrokerTopic)
+  , Executor (AppDatabaseExecutor, ArtifactExecutor, BrokerExecutor)
   , ManagedResource
   , ResourceBundle (declarations)
   , ScopeSnapshot
@@ -68,7 +76,7 @@ import Nagare.Resource.Inventory
   )
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-  ( ProviderAddress (Artifact, BrokerTopic, Kubernetes)
+  ( ProviderAddress (Artifact, BrokerTopic, DatabaseUser, Kubernetes)
   , ResourceId
   , ScopeKind (Platform, Publication, Standalone)
   , SourceLocation (path)
@@ -479,7 +487,11 @@ acceptedDatabaseBindings snapshot native cluster namespaceName names = do
             | templateName == dbName && templateNamespace == namespaceName -> Right parsed
           _ -> Left "accepted database credential template differs from the requested database"
       forM_ [service, stateful] (checkNativeLabels dbName engine)
-      pure (name, DatabaseBinding service stateful credential engine)
+      -- EP-202: a server either is bound directly or hosts app databases.
+      when
+        (serverHostsAppDatabases snapshot (stateful ^. #identity))
+        (Left ("shared-server-direct-binding: server " <> dbName <> " hosts app databases; bind an app database with appDatabases instead"))
+      pure (name, ServerDatabaseBinding (ServerBinding service stateful credential engine))
     checkNativeLabels dbName engine member = do
       (_, bytes) <- case Map.lookup (member ^. #identity) native of
         Just pair@(accepted, _) | accepted == member -> Right pair
@@ -496,3 +508,64 @@ acceptedDatabaseBindings snapshot native cluster namespaceName names = do
             _ -> Left "accepted database native labels differ from its credential engine"
           _ -> Left "accepted database native member has no metadata"
         _ -> Left "accepted database native member is not an object"
+
+-- | EP-202: resolve each app database a workload names to its accepted
+-- @appdb-@ scope in the namespace, by its runtime credential. The binding
+-- carries only that credential; the migration credential is never bindable,
+-- and a retired app database is refused.
+acceptedAppDatabaseBindings ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  T.Text ->
+  [AppDatabaseName] ->
+  Either T.Text (Map DatabaseName DatabaseBinding)
+acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
+  pairs <- traverse resolve names
+  let bindings = Map.fromList pairs
+  unless
+    (length pairs == Map.size bindings)
+    (Left "app database bindings repeat an app database")
+  pure bindings
+  where
+    scopes = Map.toList (snapshotScopes snapshot)
+    members scope = [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle]
+    allMembers = concatMap (members . snd . snd) scopes
+    resolve name = do
+      let appName = appDatabaseNameText name
+      key <- mkDatabaseName appName
+      secretAddress <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appName <> "-runtime")
+      (credential, scopeMembers) <-
+        case [ (credential', members scope)
+             | (owner, (_, scope)) <- scopes
+             , scopeKind owner == Standalone
+             , "appdb-" `T.isPrefixOf` nameText (scopeName owner)
+             , credential' <- members scope
+             , credential' ^. #address == secretAddress
+             ] of
+          [found] -> Right found
+          _ -> Left ("app database " <> appName <> " has no unique accepted runtime credential in namespace " <> namespaceName)
+      (_, bytes) <- case Map.lookup (credential ^. #identity) native of
+        Just pair@(member, _) | member == credential -> Right pair
+        _ -> Left "accepted app-database credential has no matching private native template"
+      value <- first (T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      template <- appDatabaseCredentialKind value
+      engine <- case template of
+        Just found
+          | found ^. #appDatabase == appName
+          , found ^. #role == "runtime"
+          , found ^. #namespace == namespaceName ->
+              Right (found ^. #engine)
+        _ -> Left "accepted app-database credential is not this app database's runtime credential"
+      let logical = filter ((== AppDatabaseExecutor) . (^. #executor)) scopeMembers
+      unless
+        (and [on | member <- logical, DatabaseUserSpec _ _ on _ <- [member ^. #spec]])
+        (Left ("app database " <> appName <> " is retired"))
+      stateful <- case [target | member <- logical, DatabaseUser target _ <- [member ^. #address]] of
+        target : _ -> Right target
+        [] -> Left "accepted app database has no users"
+      prefix <- maybe (Left "accepted app-database server has no StatefulSet identity") Right (T.stripSuffix "/statefulset" (resourceIdText stateful))
+      service <- case [member | member <- allMembers, resourceIdText (member ^. #identity) == prefix <> "/service"] of
+        [found] -> Right found
+        _ -> Left "accepted app-database server has no unique Service"
+      pure (key, AppDatabaseBinding (AppDatabaseBound service credential logical engine))

@@ -51,7 +51,8 @@ import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Command (Command (..), commandArgvList, mkCommand)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
-  ( DatabaseName
+  ( AppDatabaseName
+  , DatabaseName
   , EnvName
   , HealthScheme (..)
   , ImageRef
@@ -206,6 +207,8 @@ data Worker = Worker
   , resources :: !(Maybe Resources)
   , volumes :: ![Volume]
   , databases :: ![DatabaseName]
+  , appDatabases :: ![AppDatabaseName]
+  -- ^ app databases on shared servers (EP-202); only their runtime Secrets are bound.
   , brokers :: ![BrokerBinding]
   , liveness :: !(Maybe WorkerProbe)
   -- ^ optional liveness/health probe (EP-74). 'Nothing' (the default) emits no
@@ -238,6 +241,7 @@ webWorker nameText imageText = do
       , resources = Nothing
       , volumes = []
       , databases = []
+      , appDatabases = []
       , brokers = []
       , liveness = Nothing
       }

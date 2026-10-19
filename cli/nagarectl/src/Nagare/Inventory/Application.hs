@@ -41,6 +41,7 @@ module Nagare.Inventory.Application
   , legacyStandaloneReleaseImport
   , DatabaseBinding
   , acceptedDatabaseBindings
+  , acceptedAppDatabaseBindings
   , applicationVolumeRecoveryBindings
   , standaloneWorkerVolumeRecoveryBindings
   , applicationRetirementScope
@@ -53,6 +54,7 @@ where
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application.Bindings
   ( acceptedAccessBinding
+  , acceptedAppDatabaseBindings
   , acceptedApplicationImage
   , acceptedBrokerBindings
   , acceptedDatabaseBindings

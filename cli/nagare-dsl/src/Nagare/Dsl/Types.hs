@@ -92,6 +92,11 @@ module Nagare.Dsl.Types
   , mkDatabaseName
   , databaseNameText
 
+    -- * AppDatabaseName
+  , AppDatabaseName
+  , mkAppDatabaseName
+  , appDatabaseNameText
+
     -- * MountPath
   , MountPath
   , mkMountPath
@@ -111,7 +116,7 @@ module Nagare.Dsl.Types
   )
 where
 
-import Data.Char (isAscii, isDigit, isLower, isSpace)
+import Data.Char (isAscii, isAsciiLower, isDigit, isLower, isSpace)
 import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Set (Set)
@@ -585,6 +590,27 @@ volumeNameText (VolumeName t) = t
 newtype DatabaseName = DatabaseName Text
   deriving stock (Generic, Eq, Ord, Show)
 
+-- | A DNS label of 1–36 characters that starts with a letter. The bound keeps
+-- the backup CronJob name @nagare-dbbackup-\<name\>@ within Kubernetes' 52
+-- characters and the derived user names within PostgreSQL's 63. Constructor
+-- hidden; use 'mkAppDatabaseName'.
+newtype AppDatabaseName = AppDatabaseName Text
+  deriving stock (Eq, Ord, Show)
+
+mkAppDatabaseName :: Text -> Either Text AppDatabaseName
+mkAppDatabaseName t
+  | Text.null t = Left "app database name must not be empty"
+  | Text.length t > 36 =
+      Left ("app database name too long (" <> tshow (Text.length t) <> " chars, max 36)")
+  | not (maybe False (isAsciiLower . fst) (Text.uncons t)) = Left ("app database name must start with a letter: " <> t)
+  | Text.isSuffixOf "-" t = Left "app database name must not end with a hyphen"
+  | not (Text.all (\c -> isAsciiLower c || isDigit c || c == '-') t) =
+      Left ("app database name contains invalid characters (allowed: a-z, 0-9, -): " <> t)
+  | otherwise = Right (AppDatabaseName t)
+
+appDatabaseNameText :: AppDatabaseName -> Text
+appDatabaseNameText (AppDatabaseName t) = t
+
 -- | Validate and construct a 'DatabaseName': 1–63 characters of lowercase
 -- letters, digits, and hyphens, not starting or ending with a hyphen.
 mkDatabaseName :: Text -> Either Text DatabaseName
@@ -687,6 +713,9 @@ data Deployment = Deployment
   -- Empty (the backward-compatible default) means the app uses no managed
   -- database. EP-46 resolves each name to its in-cluster DNS and managed Secret
   -- and injects the connection env at deploy time.
+  , appDatabases :: ![AppDatabaseName]
+  -- ^ App databases on shared servers this app connects to (EP-202). A deploy
+  -- injects only each one's runtime Secret. Empty by default.
   , brokers :: ![BrokerBinding]
   -- ^ Names of messaging brokers and topics this app connects to.
   -- Empty (the backward-compatible default) means the app uses no brokers.

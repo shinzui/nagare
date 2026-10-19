@@ -179,6 +179,7 @@ demoDep domains =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , appDatabases = []
     , brokers = []
     , access = Nothing
     , tasks = []

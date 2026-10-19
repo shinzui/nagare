@@ -41,6 +41,7 @@ import Nagare.Inventory.Application.Environment
   , standaloneBrokerEnvironment
   , standaloneDatabaseEnvironment
   , stripBuildSecretEnv
+  , workloadDatabaseNames
   )
 import Nagare.Inventory.Application.Policy (configDigestOf)
 import Nagare.Inventory.Application.Types (DatabaseBinding (..))
@@ -166,11 +167,12 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
         && Map.null (rollout ^. #appEnv)
     )
     (Left (invalid "standalone worker rollout differs from its declared identity or environment"))
+  databaseNames <- first invalid (workloadDatabaseNames (worker ^. #databases) (worker ^. #appDatabases))
   (databaseEnv, databaseIds, databaseSecrets) <-
     standaloneDatabaseEnvironment
       cluster
       (worker ^. #namespace)
-      (worker ^. #databases)
+      databaseNames
       databaseBindings
       invalid
   (brokerEnv, brokerIds) <-
@@ -188,6 +190,8 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
           & #brokers
           .~ []
           & #databases
+          .~ []
+          & #appDatabases
           .~ []
   requiredSecrets <-
     first

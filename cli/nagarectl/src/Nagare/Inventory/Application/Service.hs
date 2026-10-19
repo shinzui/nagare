@@ -54,6 +54,7 @@ import Nagare.Inventory.Application.Environment
   , standaloneBrokerEnvironment
   , standaloneDatabaseEnvironment
   , stripBuildSecretEnv
+  , workloadDatabaseNames
   )
 import Nagare.Inventory.Application.Policy (configDigestOf)
 import Nagare.Inventory.Application.Release
@@ -276,11 +277,12 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
         && Map.null (rollout ^. #appEnv)
     )
     (Left (invalid "standalone rollout identity, namespace, or environment differs from its service"))
+  databaseNames <- first invalid (workloadDatabaseNames (service ^. #databases) (service ^. #appDatabases))
   (databaseEnv, databaseIds, databaseSecrets) <-
     standaloneDatabaseEnvironment
       cluster
       (service ^. #namespace)
-      (service ^. #databases)
+      databaseNames
       databaseBindings
       invalid
   (brokerEnv, brokerIds) <-
@@ -298,6 +300,8 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
           & #brokers
           .~ []
           & #databases
+          .~ []
+          & #appDatabases
           .~ []
   requiredEnvSecrets <-
     first

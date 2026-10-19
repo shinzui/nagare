@@ -41,6 +41,7 @@ mkDeployment baseDomain = do
       , healthCheck = Just health'
       , volumes = []
       , databases = []
+      , appDatabases = []
       , brokers = []
       , access = Just authPortal
       , tasks = []

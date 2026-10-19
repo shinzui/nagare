@@ -12,27 +12,33 @@ module AppDatabaseSpec
   )
 where
 
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
+import Nagare.App.Deploy (RolloutEnv (..))
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.AppDatabase
-import Nagare.Dsl.Config (encodeAppDatabases)
+import Nagare.Dsl.Config (encodeAppDatabases, encodeWorker)
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, mkDatabaseName)
-import Nagare.Dsl.Load (LoadError (..), decodeAppDatabases)
+import Nagare.Dsl.Load (LoadError (..), decodeAppDatabases, decodeWorker)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
+import Nagare.Dsl.Worker (webWorker)
 import Nagare.Inventory.Adapters.CredentialTemplate (credentialDataMatches, materializeCredential)
 import Nagare.Inventory.AppDatabase
+import Nagare.Inventory.Application (DatabaseBinding, acceptedAppDatabaseBindings, acceptedDatabaseBindings, compileStandaloneWorkerWithDependencies)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
@@ -43,6 +49,7 @@ import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWh
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Test.Support.Profiles (tnbProfile)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -68,6 +75,11 @@ appDatabaseTests =
             appDatabaseSecretName n MigrationRole @?= "kansoku-pg-migration"
         , testCase "emitted declarations decode back unchanged" $
             decodeAppDatabases (LBS.toStrict (encodeAppDatabases [kansokuPg, kansokuCh])) @?= Right [kansokuPg, kansokuCh]
+        , testCase "a workload's appDatabases round-trip, and an empty list emits nothing" $ do
+            let plain = either error id (webWorker "probe" "registry.example.com/probe")
+                bound = plain & #appDatabases .~ [known (mkAppDatabaseName "kansoku-pg")]
+            decodeWorker (LBS.toStrict (encodeWorker bound)) @?= Right bound
+            assertBool "an unbound worker keeps its pre-EP-202 bytes" (not ("appDatabases" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeWorker plain))))
         , testCase "loading refuses each invalid declaration with its reason" $ do
             refused (kansokuPg & #engine .~ Redis) "not supported on Redis"
             refused (kansokuPg & #logicalDatabases .~ (logical "a" :| [logical "b"])) "exactly one logical database"
@@ -148,6 +160,27 @@ appDatabaseTests =
             case rotateAppDatabaseScope scope "admin" "now" of
               Left _ -> pure ()
               Right _ -> assertFailure "rotation of an unknown role was accepted"
+        , testCase "a workload receives only its own app databases' runtime Secrets (AC-2)" $ do
+            let appScopes = [(s, db) | (s, db) <- [(pgServer, alpha Postgres), (chServer, alpha ClickHouse), (pgServer, beta Postgres), (chServer, beta ClickHouse)]]
+                compiled = [scopeAndNative s db | (s, db) <- appScopes]
+                accepted = snapshotWith [pgServer, chServer] (map fst compiled)
+                native = Map.unions (acceptedNative [pgServer, chServer] : map snd compiled)
+            forM_ ["alpha", "beta"] $ \app -> do
+              let names = [known (mkAppDatabaseName (app <> "-pg")), known (mkAppDatabaseName (app <> "-ch"))]
+              bindings <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings accepted native testCluster "personal" names)
+              (scope, workerNative) <- either (assertFailure . show) pure (compileWorker app (Just names) bindings)
+              let refs = nub (sort (concatMap secretKeyRefs (Map.elems workerNative)))
+              refs @?= [app <> "-ch-runtime", app <> "-pg-runtime"]
+              let users = [member ^. #identity | (s', _) <- compiled, ("appdb-" <> app) `T.isPrefixOf` nameText (scopeName (scopeId s')), bundle <- scopeBundles s', Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
+                  workloadDependencies = concat [member ^. #dependencies | bundle <- scopeBundles scope, Managed member <- declarations bundle]
+              assertBool "the workload is ordered after its app databases" (all (\user -> OrderedAfter user `elem` workloadDependencies) users)
+            case acceptedDatabaseBindings accepted native testCluster "personal" [dbServer "smoke-pg"] of
+              Left reason -> assertBool (T.unpack reason) ("shared-server-direct-binding" `T.isPrefixOf` reason)
+              Right _ -> assertFailure "a shared server was bound directly"
+            twoPostgres <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings accepted native testCluster "personal" [known (mkAppDatabaseName "alpha-pg"), known (mkAppDatabaseName "beta-pg")])
+            case compileWorker "alpha" (Just (Map.keys twoPostgres & map (known . mkAppDatabaseName . Dsl.databaseNameText))) twoPostgres of
+              Left _ -> pure ()
+              Right _ -> assertFailure "a workload bound two PostgreSQL databases"
         , testCase "the ClickHouse server enables SQL access management" $ do
             let (_, native) = chServer
             assertBool "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT is set" $
@@ -267,6 +300,52 @@ scopeAndNative s db = known (compileAgainst (snapshot [s]) [s] db)
 
 scopeOf :: Server -> AppDatabase -> ScopeDeclaration
 scopeOf s = fst . scopeAndNative s
+
+-- | A standalone worker bound to the named app databases.
+compileWorker ::
+  Text ->
+  Maybe [AppDatabaseName] ->
+  Map.Map Dsl.DatabaseName DatabaseBinding ->
+  Either (NonEmpty InventoryError) (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
+compileWorker app names bindings =
+  compileStandaloneWorkerWithDependencies
+    (known (mkScopeId Standalone ("worker-" <> app <> "-probe")))
+    worker
+    rollout
+    testCluster
+    (mintResourceId (known (mkScopeId Platform "foundation")) (known (mkLogicalKey "foundation")) (known (mkName "namespace-personal")))
+    (mintResourceId (known (mkScopeId Platform "foundation")) (known (mkLogicalKey "image")) (known (mkName "publication")))
+    Map.empty
+    Map.empty
+    Map.empty
+    Map.empty
+    bindings
+    (SourceLocation "test" "worker")
+  where
+    worker = either error id (webWorker (app <> "-probe") "registry.example.com/probe") & #appDatabases .~ fromMaybe [] names
+    rollout =
+      RolloutEnv
+        { appName = app <> "-probe"
+        , qualifiedImage = known (Dsl.mkImageRef "registry.example.com/probe")
+        , imageTag = "v1"
+        , effectiveTag = "v1"
+        , taggedAppImage = "registry.example.com/probe:v1"
+        , appEnv = Map.empty
+        , namespace = "personal"
+        , baseDomain = "apps.example.com"
+        , targetProfile = tnbProfile
+        }
+
+-- | Every @secretKeyRef.name@ in a native object.
+secretKeyRefs :: (ManagedResource, ByteString) -> [Text]
+secretKeyRefs (_, bytes) = either (const []) collect (eitherDecodeStrict bytes)
+  where
+    collect = \case
+      Object fields ->
+        [name | Just (Object ref) <- [KM.lookup "secretKeyRef" fields], Just (String name) <- [KM.lookup "name" ref]]
+          <> concatMap collect (KM.elems fields)
+      Array items -> concatMap collect (V.toList items)
+      _ -> []
 
 -- | A workload scope whose member is ordered after the server StatefulSet,
 -- as a direct database binding is.

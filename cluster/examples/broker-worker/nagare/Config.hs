@@ -47,6 +47,7 @@ worker = do
       , resources = Nothing
       , volumes = []
       , databases = []
+      , appDatabases = []
       , brokers = [BrokerBinding {name = broker, topics = [topic]}]
       , liveness = Nothing
       }

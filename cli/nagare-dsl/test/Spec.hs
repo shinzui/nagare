@@ -20,11 +20,7 @@ import JobSpec (jobTests)
 import LoadSpec (loadTests)
 import Nagare.Dsl.Access
 import Nagare.Dsl.Broker
-import Nagare.Dsl.Broker.Render
-  ( renderBrokerPvc
-  , renderBrokerService
-  , renderBrokerStatefulSet
-  )
+import Nagare.Dsl.Broker.Render (renderBrokerPvc, renderBrokerService, renderBrokerStatefulSet)
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
@@ -401,6 +397,7 @@ helloDep =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , appDatabases = []
     , brokers = []
     , access = Nothing
     , tasks = []

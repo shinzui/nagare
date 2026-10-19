@@ -38,6 +38,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( HealthScheme (HTTP, HTTPS)
   , Resources (..)
+  , mkAppDatabaseName
   , mkImageRef
   , mkNamespace
   , mkPort
@@ -80,6 +81,7 @@ data JsonWorker = JsonWorker
   , memoryLimit :: !(Maybe Text)
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
+  , appDatabases :: ![Text]
   , brokers :: ![JsonBrokerBinding]
   , liveness :: !(Maybe JsonWorkerProbe)
   }
@@ -102,6 +104,7 @@ instance FromJSON JsonWorker where
       <*> o .:? "memoryLimit"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
+      <*> o .:? "appDatabases" .!= []
       <*> o .:? "brokers" .!= []
       <*> o .:? "liveness"
 
@@ -194,6 +197,7 @@ toWorker j = do
   res' <- toWorkerResources j
   vols' <- toVolumes (j ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (j ^. #databases)
+  appDbRefs' <- traverse (first (MarshalError "appDatabases") . mkAppDatabaseName) (j ^. #appDatabases)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
   liveness' <- traverse toWorkerProbe (j ^. #liveness)
   Right
@@ -209,6 +213,7 @@ toWorker j = do
       , resources = res'
       , volumes = vols'
       , databases = dbRefs'
+      , appDatabases = appDbRefs'
       , brokers = brokerRefs'
       , liveness = liveness'
       }

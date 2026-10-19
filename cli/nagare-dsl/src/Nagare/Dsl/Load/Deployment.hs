@@ -48,6 +48,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( Deployment (..)
   , Resources (..)
+  , mkAppDatabaseName
   , mkImageRef
   , mkNamespace
   , mkPort
@@ -76,6 +77,7 @@ data JsonDeployment = JsonDeployment
   , healthCheck :: !(Maybe JsonHealthCheck)
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
+  , appDatabases :: ![Text]
   , brokers :: ![JsonBrokerBinding]
   , access :: !(Maybe JsonAccessPolicy)
   , tasks :: ![JsonTask]
@@ -103,6 +105,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "healthCheck"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
+      <*> o .:? "appDatabases" .!= []
       <*> o .:? "brokers" .!= []
       <*> o .:? "access"
       <*> o .:? "tasks" .!= []
@@ -127,6 +130,7 @@ toDeployment jd = do
   hc' <- toHealthCheck (jd ^. #healthCheck)
   vols' <- toVolumes (jd ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jd ^. #databases)
+  appDbRefs' <- traverse (first (MarshalError "appDatabases") . mkAppDatabaseName) (jd ^. #appDatabases)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (jd ^. #brokers)
   access' <- traverse toAccessPolicy (jd ^. #access)
   -- MasterPlan 10 / EP-52: re-validate each co-located task (re-runs every smart
@@ -165,6 +169,7 @@ toDeployment jd = do
       , healthCheck = hc'
       , volumes = vols'
       , databases = dbRefs'
+      , appDatabases = appDbRefs'
       , brokers = brokerRefs'
       , access = access'
       , tasks = tasks'

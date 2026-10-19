@@ -65,6 +65,7 @@ webService nameText imageText = do
       , healthCheck = Nothing
       , volumes = []
       , databases = []
+      , appDatabases = []
       , brokers = []
       , access = Nothing
       , tasks = []

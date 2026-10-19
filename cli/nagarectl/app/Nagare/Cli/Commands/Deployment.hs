@@ -190,6 +190,7 @@ runDeployPlan mctx options output = do
       cluster
       namespaceName
       (service ^. #databases)
+      (service ^. #appDatabases)
   let params =
         AppDeployParams
           { configPath = options ^. #file

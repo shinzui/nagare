@@ -8,6 +8,7 @@ module Nagare.Inventory.Application.Environment
   , secretDependency
   , standaloneBrokerEnvironment
   , standaloneDatabaseEnvironment
+  , workloadDatabaseNames
   , stripBuildSecretEnv
   , stripBuildSecretRefs
   , stripBuildSecretRollout
@@ -45,13 +46,16 @@ import Nagare.Dsl.Database (Engine (..), dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
-  ( DatabaseName
+  ( AppDatabaseName
+  , DatabaseName
   , EnvScope (Build, Runtime)
   , EnvVar (EnvLiteral, EnvSecretRef)
   , Namespace
   , ScopedEnvVar
   , SecretName
+  , appDatabaseNameText
   , databaseNameText
+  , mkDatabaseName
   , mkEnvName
   , mkSecretName
   , namespaceText
@@ -60,16 +64,18 @@ import Nagare.Dsl.Types
   )
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Application.Bindings (brokerEvidenceIds)
-import Nagare.Inventory.Application.Types (DatabaseBinding (..))
+import Nagare.Inventory.Application.Types (AppDatabaseBound (..), DatabaseBinding (..), ServerBinding (..))
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (Declaration (..), declarationId)
 import Nagare.Resource.Types
   ( InventoryError
+  , ProviderAddress (Kubernetes)
   , ResourceId
   , ScopeId
   , ScopeKind (Standalone)
   , kubernetesAddress
   , mkName
+  , nameText
   , scopeKind
   )
 import Nagare.Task.Resolve (resolveTaskImage)
@@ -198,6 +204,15 @@ databaseConnectionEnv engine databaseName namespace = do
       extra
   pure (Map.union (Map.fromList fields) base)
 
+-- | The binding keys of a workload: the servers it binds directly and the app
+-- databases it names (EP-202), which share one key space.
+workloadDatabaseNames :: [DatabaseName] -> [AppDatabaseName] -> Either T.Text [DatabaseName]
+workloadDatabaseNames direct apps = do
+  appKeys <- traverse (mkDatabaseName . appDatabaseNameText) apps
+  let keys = direct <> appKeys
+  unless (length keys == Set.size (Set.fromList keys)) (Left "a workload names one database twice across databases and appDatabases")
+  pure keys
+
 -- | Supply generated connection fields and exact resource dependencies for
 -- separately owned databases. The binding witness can only come from accepted
 -- scope history and the original private native credential template.
@@ -220,7 +235,7 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
   env <- first invalid (mergeConnectionEnvs [fields | (fields, _, _) <- rows])
   pure
     ( env
-    , [resource | (_, resource, _) <- rows]
+    , concat [resources | (_, resources, _) <- rows]
     , Map.fromList [secret | (_, _, secret) <- rows]
     )
   where
@@ -231,7 +246,34 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
           (Left (invalid "database has no accepted binding"))
           Right
           (Map.lookup name bindings)
-      let service = boundService binding
+      case binding of
+        ServerDatabaseBinding server -> direct name server
+        AppDatabaseBinding app -> appDatabase name app
+    -- EP-202: the runtime credential is the only Secret; host and port are
+    -- the shared server's, and the workload waits for the users and databases.
+    appDatabase name app = do
+      let appName = databaseNameText name
+          service = appService app
+          credential = appRuntimeCredential app
+      expectedCredential <- first invalid (kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appName <> "-runtime"))
+      host <- case service ^. #address of
+        Kubernetes _ "" kind (Just serviceNamespace) serviceName
+          | nameText kind == "service" -> Right (nameText serviceName <> "." <> nameText serviceNamespace <> ".svc.cluster.local")
+        _ -> Left (invalid "app database binding has no server Service address")
+      unless
+        (credential ^. #address == expectedCredential && scopeKind (credential ^. #owner) == Standalone)
+        (Left (invalid "app database binding has a different runtime credential"))
+      secretName <- first invalid (mkSecretName (appName <> "-runtime"))
+      let lit key value = (,runtimeScoped (EnvLiteral value)) <$> mkEnvName key
+          ref key = (,runtimeScoped (EnvSecretRef secretName)) <$> mkEnvName key
+      fields <-
+        first invalid . fmap Map.fromList . sequence $ case appEngine app of
+          ClickHouse -> [lit "CLICKHOUSE_HOST" host, lit "CLICKHOUSE_PORT" "9000"] <> map ref ["CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "CLICKHOUSE_DB", "CLICKHOUSE_URL"]
+          _ -> [lit "POSTGRES_HOST" host, lit "POSTGRES_PORT" "5432"] <> map ref ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL"]
+      pure (fields, map (^. #identity) (appMembers app), (secretName, Managed credential))
+    direct name server = do
+      let binding = server
+          service = boundService binding
           stateful = boundStatefulSet binding
           credential = boundCredential binding
           dbName = databaseNameText name
@@ -275,7 +317,7 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
         (Left (invalid "database binding has a different owner or native address"))
       secretName <- first invalid (mkSecretName (dbSecretName dbName))
       fields <- first invalid (databaseConnectionEnv (boundEngine binding) name namespace)
-      pure (fields, stateful ^. #identity, (secretName, Managed credential))
+      pure (fields, [stateful ^. #identity], (secretName, Managed credential))
 
 -- | A workload may refer only to databases declared in this application.
 -- Ordering it after the StatefulSet records the typed lifecycle edge, while

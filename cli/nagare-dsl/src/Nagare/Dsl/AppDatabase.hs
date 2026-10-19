@@ -42,29 +42,8 @@ import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as Text
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (DatabaseName, Namespace, databaseNameText)
+import Nagare.Dsl.Types (AppDatabaseName, DatabaseName, Namespace, appDatabaseNameText, databaseNameText, mkAppDatabaseName)
 import Nagare.Resource.Types (LogicalKey)
-
--- | A DNS label of 1–36 characters that starts with a letter. The bound keeps
--- the backup CronJob name @nagare-dbbackup-\<name\>@ within Kubernetes' 52
--- characters and the derived user names within PostgreSQL's 63. Constructor
--- hidden; use 'mkAppDatabaseName'.
-newtype AppDatabaseName = AppDatabaseName Text
-  deriving stock (Eq, Ord, Show)
-
-mkAppDatabaseName :: Text -> Either Text AppDatabaseName
-mkAppDatabaseName t
-  | Text.null t = Left "app database name must not be empty"
-  | Text.length t > 36 =
-      Left ("app database name too long (" <> Text.show (Text.length t) <> " chars, max 36)")
-  | not (startsWithLetter t) = Left ("app database name must start with a letter: " <> t)
-  | Text.isSuffixOf "-" t = Left "app database name must not end with a hyphen"
-  | not (Text.all (\c -> isAsciiLower c || isDigit c || c == '-') t) =
-      Left ("app database name contains invalid characters (allowed: a-z, 0-9, -): " <> t)
-  | otherwise = Right (AppDatabaseName t)
-
-appDatabaseNameText :: AppDatabaseName -> Text
-appDatabaseNameText (AppDatabaseName t) = t
 
 -- | A SQL identifier, @[a-z][a-z0-9_]{0,47}@, so it needs no quoting on
 -- either engine. Constructor hidden; use 'mkLogicalDatabaseName'.

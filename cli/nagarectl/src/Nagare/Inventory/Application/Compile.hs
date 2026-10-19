@@ -142,6 +142,17 @@ compileApplicationScope input = do
           .~ [source]
           & (:| [])
   _ <- first invalid (mkApplication app)
+  -- EP-202: an application's workloads bind only the databases it declares.
+  unless
+    (all (null . (^. #appDatabases)) (maybe [] pure (app ^. #service)) && all (null . (^. #appDatabases)) (app ^. #workers))
+    ( Left
+        ( ( inventoryError "app-database-not-bindable-from-application" "an application's workloads bind only the databases the application declares; deploy the workload as a Deployment or Worker to bind an app database"
+              & #sources
+              .~ [source]
+          )
+            :| []
+        )
+    )
   unless
     (null (app ^. #tasks) && Map.null (scopeHookEffects input))
     (Left (invalid "application hooks need independent reviewed per-release Job scopes"))

@@ -161,6 +161,7 @@ runWorkerPlan mctx options output = do
       cluster
       (namespaceText (worker ^. #namespace))
       (worker ^. #databases)
+      (worker ^. #appDatabases)
   let app =
         Application
           { name = worker ^. #name

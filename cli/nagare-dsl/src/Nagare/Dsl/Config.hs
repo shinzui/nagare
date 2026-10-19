@@ -29,7 +29,7 @@ module Nagare.Dsl.Config
   )
 where
 
-import Data.Aeson (Value, encode, object, toJSON, (.=))
+import Data.Aeson (Key, Value, encode, object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List (sortOn)
@@ -182,6 +182,12 @@ appDatabaseJSON db =
       ]
         <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (db ^. #logicalKey)
     )
+
+-- | Emitted only when present, so a workload without app databases keeps the
+-- exact bytes (and config digest) it had before EP-202.
+appDatabasesJSON :: [AppDatabaseName] -> [(Key, Value)]
+appDatabasesJSON [] = []
+appDatabasesJSON names = ["appDatabases" .= map appDatabaseNameText names]
 
 -- | Serialize a 'Task' to JSON and write it to stdout. Call this as the last
 -- line of a task project's @Config.hs@ @main@. The top-level @"kind": "Task"@
@@ -373,6 +379,7 @@ workerJSON w =
     , "liveness" .= fmap workerProbeJSON (w ^. #liveness)
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (w ^. #logicalKey)
+      <> appDatabasesJSON (w ^. #appDatabases)
   where
     res = w ^. #resources
 
@@ -478,6 +485,7 @@ deploymentJSON dep =
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (dep ^. #logicalKey)
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
+      <> appDatabasesJSON (dep ^. #appDatabases)
   where
     resources = dep ^. #resources
     scale = dep ^. #scale

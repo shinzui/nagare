@@ -327,6 +327,7 @@ brokerExampleWorker =
     , resources = Nothing
     , volumes = []
     , databases = []
+    , appDatabases = []
     , brokers =
         [ BrokerBinding
             { name = unsafe (mkBrokerName "events")
@@ -369,6 +370,7 @@ helloDep =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , appDatabases = []
     , brokers = []
     , access = Nothing
     , tasks = []

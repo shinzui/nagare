@@ -91,11 +91,23 @@ and scratch restore of each app.
     refusals, and the credential template fill.
   - The mutation proof of the extraction commit `a328464a` killed all 6 records that touch
     `KubernetesRuntime.hs`.
-- [ ] M3. `nagarectl db app-database plan|rotate|retire` provision, rotate and retire app
+- [x] M3. `nagarectl db app-database plan|rotate|retire` provision, rotate and retire app
   databases through reviewed transactions. An effect-interpreter world covers each case: a re-plan
   of an unchanged declaration has no operations, an interrupted apply resumes without resetting a
   password or widening a grant, and a wider-than-declared grant refuses. Proves AC-4 in the
   interpreter.
+  Done 2026-10-19 and landed at `5b9fb115`, with `gate-fast` green. Evidence:
+  - `AppDatabaseSqlSpec` pins every command to its fixture block and classifies real captured
+    catalogs.
+  - `AppDatabaseWorldSpec` runs on both engines. It converges and re-plans to no operations. It
+    resumes after every refused, unacknowledged or interrupted statement, with each user still
+    accepting its original password and every scheduled fault firing. It refuses drift and a
+    Secret the user no longer accepts, rotates only the selected user, and retires alpha while
+    beta stays byte-identical.
+  - The mutation records `EP202-app-database-drift-unrefused` and
+    `EP202-app-database-existing-user-repassworded` were each proven killed by
+    `nagare-harness mutations prove --record`.
+  - The commands are registered in the command audit and the coverage catalogue.
 - [ ] M4. Workloads bind app databases with `appDatabases`, and a deploy injects only the runtime
   Secret. Binding a server that hosts app databases directly is refused, and so is registering an
   app database on a directly bound server. Render tests prove a two-app fixture names only its own
@@ -270,6 +282,21 @@ and scratch restore of each app.
     recreates Secrets fresh. Rotation then aligns the user.
   - **Passwords on ClickHouse.** A ClickHouse password is proven by a login inside the pod, so it
     is not checked while the user's login is off.
+  Date: 2026-10-19
+
+- Decision: M4 shapes the binding as follows.
+  - **One map, two witnesses.** App-database bindings share the existing `Map DatabaseName
+    DatabaseBinding`, keyed by the app-database name, so the Service and Worker compilers and
+    their twenty call sites keep their signatures. `DatabaseBinding` is now `ServerDatabaseBinding
+    ServerBinding | AppDatabaseBinding AppDatabaseBound`, two records with distinct field names
+    and no partial selectors.
+  - **Cross-kind duplicates.** A workload may not name one database in both `databases` and
+    `appDatabases`.
+  - **Bytes.** `appDatabases` is emitted only when non-empty, so every existing workload keeps its
+    exact emitted bytes and config digest.
+  - **A breaking source change.** `Deployment` and `Worker` gain a strict field, so a config that
+    builds either record literally must add `appDatabases = []`. Presets and record updates are
+    unaffected. The repository's examples and fixtures are updated, and the release notes name it.
   Date: 2026-10-19
 
 

@@ -17,13 +17,15 @@ import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
-  ( DatabaseName
+  ( AppDatabaseName
+  , DatabaseName
   , databaseNameText
   , mkServiceName
   , serviceNameText
   )
 import Nagare.Inventory.Application
   ( DatabaseBinding
+  , acceptedAppDatabaseBindings
   , acceptedDatabaseBindings
   )
 import Nagare.Inventory.Command qualified as Inventory
@@ -90,9 +92,10 @@ reviewedStandaloneDatabases ::
   Resource.ResourceId ->
   Text ->
   [DatabaseName] ->
+  [AppDatabaseName] ->
   IO (Map DatabaseName DatabaseBinding)
-reviewedStandaloneDatabases _ _ _ _ [] = pure Map.empty
-reviewedStandaloneDatabases active snapshot cluster namespaceName names = do
+reviewedStandaloneDatabases _ _ _ _ [] [] = pure Map.empty
+reviewedStandaloneDatabases active snapshot cluster namespaceName names appNames = do
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   inventory <-
@@ -103,7 +106,11 @@ reviewedStandaloneDatabases active snapshot cluster namespaceName names = do
   (native, _) <-
     InventoryStatus.loadAcceptedNative store history inventory
       >>= either dieT pure
-  either dieT pure (acceptedDatabaseBindings snapshot native cluster namespaceName names)
+  direct <- either dieT pure (acceptedDatabaseBindings snapshot native cluster namespaceName names)
+  -- EP-202: app databases bind their runtime credential only.
+  apps <- either dieT pure (acceptedAppDatabaseBindings snapshot native cluster namespaceName appNames)
+  unless (Map.disjoint direct apps) (dieT "a workload names one database twice across databases and appDatabases")
+  pure (Map.union direct apps)
 
 validateInlineReleaseAdoption ::
   ResourceInventory.ScopeDeclaration -> Text -> InventoryLifecycle.AdoptionInput -> IO ()

@@ -29,6 +29,7 @@ applicationConfig = do
       , image = image
       , env = Map.empty
       , databases = []
+      , appDatabases = []
       , brokers = []
       , access = Nothing
       , service = Just (service & #build .~ PrebuiltImage tag)

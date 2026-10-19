@@ -3,7 +3,9 @@ module Nagare.Inventory.Application.Types
   ( AccessBinding (..)
   , ApplicationScopeInput (..)
   , CloudflareCdnBinding (..)
+  , AppDatabaseBound (..)
   , DatabaseBinding (..)
+  , ServerBinding (..)
   , GoogleCdnBinding (..)
   , ReviewedCdnBinding (..)
   )
@@ -38,14 +40,32 @@ data AccessBinding = AccessBinding
   }
   deriving stock (Eq, Show)
 
--- | A database connection is authorized by one accepted standalone scope and
--- its original private credential template. Keep this witness opaque so a
--- caller cannot substitute an engine or a Secret with the same display name.
-data DatabaseBinding = DatabaseBinding
+-- | A database connection is authorized by accepted scope history and an
+-- original private credential template: a server bound directly, or an app
+-- database on a shared server (EP-202). Keep the witnesses opaque so a caller
+-- cannot substitute an engine or a Secret with the same display name.
+data DatabaseBinding
+  = ServerDatabaseBinding !ServerBinding
+  | AppDatabaseBinding !AppDatabaseBound
+  deriving stock (Eq, Show)
+
+-- | A server bound directly: its administrator Secret is the workload's.
+data ServerBinding = ServerBinding
   { boundService :: !ManagedResource
   , boundStatefulSet :: !ManagedResource
   , boundCredential :: !ManagedResource
   , boundEngine :: !Engine
+  }
+  deriving stock (Eq, Show)
+
+-- | An app database: the server Service gives the host, the runtime
+-- credential is the only Secret the workload receives, and its users and
+-- databases order the workload after their provisioning.
+data AppDatabaseBound = AppDatabaseBound
+  { appService :: !ManagedResource
+  , appRuntimeCredential :: !ManagedResource
+  , appMembers :: ![ManagedResource]
+  , appEngine :: !Engine
   }
   deriving stock (Eq, Show)
 
