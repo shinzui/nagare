@@ -404,7 +404,6 @@ executable nagarectl
     Nagare.Cli.Bootstrap.Sequence
     Nagare.Cli.Bootstrap.Stage
     Nagare.Cli.Commands.Access
-    Nagare.Cli.Commands.AppDatabase
     Nagare.Cli.Commands.Application
     Nagare.Cli.Commands.Bootstrap
     Nagare.Cli.Commands.Broker
@@ -428,6 +427,7 @@ executable nagarectl
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Transition
     Nagare.Cli.Commands.Worker
+    Nagare.Cli.Data.AppDatabase
     Nagare.Cli.Data.Backup
     Nagare.Cli.Data.DatabaseRename
     Nagare.Cli.Data.Lifecycle

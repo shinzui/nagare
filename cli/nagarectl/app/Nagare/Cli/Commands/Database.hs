@@ -9,7 +9,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Cli.Commands.AppDatabase (runAppDatabase)
+import Nagare.Cli.Data.AppDatabase (runAppDatabase)
 import Nagare.Cli.Data.Backup
   ( runReviewedDbBackupPlan
   , runReviewedDbPruneBackupPlan

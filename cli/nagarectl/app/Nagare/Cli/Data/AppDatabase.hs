@@ -1,7 +1,7 @@
 -- | The @db app-database@ commands (EP-202). Executable-private CLI boundary:
 -- each builds reviewed app-database scopes against the accepted inventory and
--- saves, prints or converges their review.
-module Nagare.Cli.Commands.AppDatabase
+-- saves or prints their review.
+module Nagare.Cli.Data.AppDatabase
   ( runAppDatabase
   )
 where
