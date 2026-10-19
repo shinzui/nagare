@@ -113,6 +113,9 @@ appDatabaseSqlTests =
         -- Retired: the exceptions are kept until the update revokes them.
         incomplete (classifyUser ClickHouse (UserDeclaration RuntimeRole False chRuntimeAccess chRuntimeAccess) "alpha_runtime" [] observed)
         mapM_ (\db -> complete (classifyDatabase (chAccess db True) observed)) ["alpha", "alpha_ledger"]
+        -- A scratch restore's grants beside the declared access are the app's own.
+        let restored = observed & #users . ix "alpha_runtime" . #anomalies .~ ["grant of SELECT on database alpha_restore_r1"]
+        complete (classifyUser ClickHouse (declared RuntimeRole chRuntimeAccess) "alpha_runtime" ["alpha"] restored)
         handChanged <- clickHouseCatalog "access-drifted" ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"]
         drift (classifyUser ClickHouse (declared RuntimeRole chRuntimeAccess) "alpha_runtime" [] handChanged)
         drift (classifyUser ClickHouse (declared MigrationRole chMigrationAccess) "alpha_migration" [] handChanged)

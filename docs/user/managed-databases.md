@@ -531,7 +531,7 @@ calls `emitAppDatabases`:
 
 ```haskell
 import Data.List.NonEmpty (NonEmpty (..))
-import Nagare.Dsl.AppDatabase (AppDatabase (..), mkLogicalDatabaseName)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), mkLogicalDatabaseName, noAppDatabaseAccess)
 import Nagare.Dsl.Config (emitAppDatabases)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
@@ -546,6 +546,7 @@ main =
         , engine = Postgres
         , namespace = ok (mkNamespace "personal")        -- the server's namespace
         , logicalDatabases = ok (mkLogicalDatabaseName "notes") :| []
+        , access = noAppDatabaseAccess                   -- see "Reviewed exceptions and limits"
         }
     ]
   where
@@ -567,6 +568,111 @@ holding its user's generated password, then the users, the databases and their
 grants. A re-plan of an unchanged config prints `no operations`. Access that
 Nagare never grants (a manual `GRANT`, a role membership) is refused at planning
 as drift rather than silently revoked.
+
+### Reviewed exceptions and limits
+
+An app database can declare a little more than the fixed grant set, per user,
+in its `access` field. It can name only exceptions from a closed allow-list, and
+limits the server enforces. A config that names anything else is refused before
+planning, with the offending token or key in the message.
+
+```haskell
+import Nagare.Dsl.AppDatabase
+
+kansokuCh :: AppDatabase
+kansokuCh =
+  AppDatabase
+    { -- name, logicalKey, server, engine = ClickHouse, namespace, logicalDatabases ...
+      access =
+        noAppDatabaseAccess
+          & #runtime .~ UserAccess
+              [SystemParts, SystemMutations, ArbitraryTemporaryTables]
+              (noUserLimits & #maxMemoryBytes ?~ 268435456 & #maxExecutionSeconds ?~ 30 & #maxConcurrentQueries ?~ 8)
+          & #migration .~ UserAccess
+              [SystemDisks, SystemStoragePolicies]
+              (noUserLimits & #maxExecutionSeconds ?~ 3600)
+    }
+
+kansokuPg :: AppDatabase
+kansokuPg =
+  AppDatabase
+    { -- ... engine = Postgres ...
+      access =
+        noAppDatabaseAccess
+          & #monitoring .~ [PgMonitor]
+          & #runtime . #limits .~ (noUserLimits & #connectionLimit ?~ 20 & #statementTimeoutSeconds ?~ 30)
+    }
+```
+
+**ClickHouse exceptions.** Each exception is granted to the user that declares it:
+
+| Exception (JSON token) | Grant | What it shows |
+| --- | --- | --- |
+| `SystemParts` (`system-parts`) | `SELECT ON system.parts` | parts of the tables the user can see, never another app's |
+| `SystemMutations` (`system-mutations`) | `SELECT ON system.mutations` | mutations of the tables the user can see |
+| `SystemDisks` (`system-disks`) | `SELECT ON system.disks` | server storage, no tenant data |
+| `SystemStoragePolicies` (`system-storage-policies`) | `SELECT ON system.storage_policies` | server storage, no tenant data |
+| `ArbitraryTemporaryTables` (`arbitrary-temporary-tables`) | `CREATE ARBITRARY TEMPORARY TABLE ON *.*` | session temporary tables with any engine the user may use, such as `Join` or `Memory` |
+
+A temporary table on `File`, `URL` or `S3` is still refused with code 497,
+because no source privilege is ever granted. `system.processes` is not offered.
+Limiting its rows to one app's queries would need a row policy on a system
+table, which Nagare does not create or observe. Without one, an app's users
+would see every app's query text.
+
+**PostgreSQL monitoring roles.** `monitoring = [PgMonitor]` says that grants to
+`pg_monitor` on objects the migration user owns are expected. These are USAGE on
+its schemas, and SELECT in its default privileges on tables and sequences.
+PGMQ's install script makes exactly these grants. Nagare never grants them
+itself, and never grants membership in `pg_monitor`. The dump keeps them, so a
+restore brings them back. Without the declaration they are drift, and so are
+grants to any other role.
+
+**Limits.** A limit is either a ceiling, which the app cannot exceed, or a
+default, which it can override.
+
+| Limit | Engine | Kind |
+| --- | --- | --- |
+| `maxMemoryBytes` (`max_memory_usage`) | ClickHouse | ceiling, and the default |
+| `maxExecutionSeconds` (`max_execution_time`) | ClickHouse | ceiling, and the default |
+| `maxConcurrentQueries` (`max_concurrent_queries_for_user`) | ClickHouse | ceiling, and the default |
+| `connectionLimit` (`CONNECTION LIMIT`) | PostgreSQL | ceiling |
+| `statementTimeoutSeconds` (role `statement_timeout`) | PostgreSQL | default only |
+
+A ClickHouse ceiling is a user setting constrained to `MIN 1 MAX <value>`. An app
+may lower it for a query or session, but cannot raise it, and cannot set it to
+`0`, which would mean unlimited. Both attempts are refused with code 452.
+Settings that are not declared stay writable. PostgreSQL lets any session
+`SET statement_timeout`, including to `0`, so the role-level value is only the
+default for sessions that set nothing. Nagare does not check the sum of the
+declared connection limits against the server's `max_connections`.
+
+**Changes and drift.** Access is reviewed like the rest of the app database:
+
+- Adding, changing or removing an exception or a limit in the config plans an
+  update of that user. The plan names each declared exception and limit. On
+  apply, a removed exception is revoked and a removed limit is reset.
+- A hand change that neither the config nor the accepted plan names is drift and
+  is refused at planning. Examples: `ALTER USER ... SETTINGS max_memory_usage = 0`,
+  an undeclared `GRANT SELECT ON system.parts`, a settings profile, or
+  `ALTER ROLE ... CONNECTION LIMIT 10`.
+- A hand removal of a declared item, such as `SETTINGS NONE` or `CONNECTION LIMIT
+  -1`, is restored by the next plan.
+- Rotation keeps the access. Retirement revokes the exceptions with the other
+  grants. Limits follow the declaration whether or not the user can log in.
+
+**Backups under ceilings.** The scheduled backup runs as the migration user, so
+that user's limits apply to it. On ClickHouse:
+
+- the backup is one `BACKUP` query, so `maxExecutionSeconds` must be longer than
+  the backup takes, or the run fails. The check fires late: a 1 s ceiling failed a
+  3.8 GiB backup after 22 s;
+- `maxConcurrentQueries` counts the backup, so leave it a slot;
+- `maxMemoryBytes` does not bound a backup, whose own memory stays small.
+
+On PostgreSQL, `pg_dump` opens one connection, so the migration user's
+`connectionLimit` must leave one free. `pg_dump` sets `statement_timeout = 0` in
+its own session, so a role default does not affect it.
 
 **Binding.** A workload names app databases in `appDatabases`, not `databases`:
 
