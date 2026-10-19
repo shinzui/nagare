@@ -5,6 +5,25 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-19
+
+### Fixed
+
+- **A transition passes the kubeconfig stage with an operator-linked kubeconfig.** A symlinked
+  context kubeconfig whose bytes match the accepted digest is read through the link and never
+  written (F127).
+- **`context apply` works on a symlinked context.** A reviewed change renames over the link's
+  target, so the link into the operator's repository survives (F126).
+- **Retiring an app database suspends its backup schedule**, which kept running and failing at
+  login. Runs taken before retirement still ingest and restore (F131).
+
+### Added
+
+- **App databases' backups are graded and pruned.** `server status` and `doctor` show a
+  recovery-point and a retention row for every app database, and
+  `db app-database prune-scheduled-backups` and `recover-scheduled-prune` review the removal of
+  runs past policy (F132).
+
 ## [0.7.0] - 2026-10-19
 
 ### Added

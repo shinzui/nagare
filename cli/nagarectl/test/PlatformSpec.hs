@@ -454,7 +454,7 @@ withFixture action = withSystemTempDirectory "nagare-platform-fixture" $ \root -
     ]
   BS.writeFile
     (root </> "release.json")
-    "{\"assetSchemaVersion\":1,\"payloadId\":\"test-payload\",\"platformVersion\":\"0.7.0\",\"sourceRevision\":null,\"rollbackSupportedFrom\":[]}"
+    "{\"assetSchemaVersion\":1,\"payloadId\":\"test-payload\",\"platformVersion\":\"0.7.1\",\"sourceRevision\":null,\"rollbackSupportedFrom\":[]}"
   BS.writeFile (root </> "infra" </> "pulumi" </> "Pulumi.prod.yaml") "config:\n  secret: local-only\n"
   action root
 
