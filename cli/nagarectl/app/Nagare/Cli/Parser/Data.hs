@@ -29,6 +29,7 @@ import Nagare.Cli.Options
   , StandaloneRetireOpts (..)
   , StorageCommand (..)
   )
+import Nagare.Cli.Parser.AppDatabase (appDatabaseParser)
 import Nagare.Cli.Parser.Common (dryRunOpt, namespaceOpt)
 import Nagare.Cli.Parser.Environment (storeCommonOptsParser)
 import Nagare.Dsl.Broker (BrokerProvider (Redpanda))
@@ -615,6 +616,12 @@ dbSubparser =
           ( info
               (Db . DbDelete <$> standaloneRetireOptsParser dbNameArg <**> helper)
               (progDesc "Save a reviewed database retirement; provider resources remain retained")
+          )
+        <> command
+          "app-database"
+          ( info
+              (Db . DbAppDatabase <$> appDatabaseParser <**> helper)
+              (progDesc "App databases: per-app databases and users on a shared server (EP-202)")
           )
         <> command
           "retire"

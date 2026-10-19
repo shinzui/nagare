@@ -73,6 +73,11 @@ ROUTES = {
         "reviewed": "DbCreate DbRename DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbPruneScheduledBackups DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore DbRestoreRebuilt",
         "recovery": "DbRecoverScheduledPrune",
         "deferred": "DbShell",
+        "group": "DbAppDatabase",
+    },
+    "AppDatabaseCommand": {
+        "read": "AppDatabaseList",
+        "reviewed": "AppDatabasePlan AppDatabaseRotate AppDatabaseRetire",
     },
     "BrokerCommand": {
         "read": "BrokerList BrokerGet",
@@ -198,6 +203,7 @@ FAMILY_ROUTES = {
     "DomainsCommand.DomainsTls": "Certificate re-issuance trigger",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore DbCommand.DbRestoreRebuilt": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
+    "AppDatabaseCommand.AppDatabasePlan AppDatabaseCommand.AppDatabaseRotate AppDatabaseCommand.AppDatabaseRetire": "App databases on shared servers: users, databases and grants",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",
 }
 

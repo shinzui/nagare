@@ -212,9 +212,9 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (BrokerTopic _ _, LogicalBrokerTopic partitions replicas retention) ->
         partitions > 0 && replicas > 0 && maybe True (> 0) retention
       (BrokerTopic {}, _) -> False
-      (DatabaseName _ _, LogicalDatabase engine _ _ _) -> engine `elem` ["postgres", "clickhouse"]
+      (DatabaseName _ _, LogicalDatabase engine _ _ _ _) -> engine `elem` ["postgres", "clickhouse"]
       (DatabaseName {}, _) -> False
-      (DatabaseUser _ _, DatabaseUserSpec engine role _) ->
+      (DatabaseUser _ _, DatabaseUserSpec engine role _ _) ->
         engine `elem` ["postgres", "clickhouse"] && role `elem` ["runtime", "migration"]
       (DatabaseUser {}, _) -> False
       (Helm {}, HelmRelease {}) -> True

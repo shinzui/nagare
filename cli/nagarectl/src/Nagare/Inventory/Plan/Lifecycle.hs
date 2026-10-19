@@ -64,6 +64,7 @@ import Nagare.Resource.Inventory
   , DesiredSpec (AccessGrantSpec)
   , Executor
     ( AccessExecutor
+    , AppDatabaseExecutor
     , ArtifactExecutor
     , BrokerExecutor
     , CdnExecutor
@@ -347,6 +348,9 @@ validateLifecycleDecisions candidate history observations proposals =
                 , Map.notMember resource (headRetained (historyHead history)) ->
                     []
               (Nothing, Just (Managed old))
+                | old ^. #executor == AppDatabaseExecutor ->
+                    issue "app-database-retirement" "an app database is retired by db app-database retire, which turns its logins and grants off and keeps its databases and Secrets"
+              (Nothing, Just (Managed old))
                 | old ^. #executor == AccessExecutor
                 , grantLive old ->
                     issue "access-grant-live" "revoke the access grant with a reviewed access revoke before retiring its scope; a retired grant could never be revoked"
@@ -364,6 +368,9 @@ validateLifecycleDecisions candidate history observations proposals =
                     , any ((== resource) . dependencyTarget) (declarationDependencies consumer)
                     ] ->
                     []
+              (_, Just (_, old), _)
+                | old ^. #executor == AppDatabaseExecutor ->
+                    issue "app-database-not-collected" "app-database users and databases are never collected: retirement keeps the data, and dropping it is not a reviewed operation"
               _ -> issue "invalid-collection" "collection needs a selected retained incarnation of a supported kind, exact present provider identity, stateless deletion policy, and no known consumers"
             ApproveMigration -> issue "unsupported-migration" "migration needs a reviewed data and cutover contract"
             -- ADR 27 §3: record the live object of an accepted Kubernetes

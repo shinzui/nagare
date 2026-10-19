@@ -16,9 +16,11 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Access.Reviewed qualified as ReviewedAccess
 import Nagare.Cli.Inventory.Adapters
-  ( acceptedDnsResources
+  ( acceptedAppDatabaseResources
+  , acceptedDnsResources
   , acceptedTopicResources
   , hostScopeAccepted
+  , inventoryAppDatabaseAdapter
   , inventoryArtifactAdapter
   , inventoryBrokerAdapter
   , inventoryCacheAdapter
@@ -42,6 +44,7 @@ import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Adapters.AppDatabase (appDatabaseMembersFromDeclarations)
 import Nagare.Inventory.Adapters.ArtifactRuntime
   ( observeKubeconfigProjectionAt
   )
@@ -172,6 +175,8 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   allTopicSpecs <- either dieT pure (topicSpecsFromDeclarations (historical <> declarations))
   let topicSpecs = Map.restrictKeys allTopicSpecs (selected ResourceInventory.BrokerExecutor)
+  allAppDatabaseMembers <- either dieT pure (appDatabaseMembersFromDeclarations (historical <> declarations))
+  let appDatabaseMembers = Map.restrictKeys allAppDatabaseMembers (selected ResourceInventory.AppDatabaseExecutor)
   desiredDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
   historicalDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations historical)
   let dnsSpecs =
@@ -386,6 +391,16 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
       (ResourceInventory.inventoryBinding inventory)
       topicSpecs
       (acceptedTopicResources history)
+  appDatabase <-
+    if Map.null appDatabaseMembers
+      then pure (Inventory.manifestAdapterFor history ResourceInventory.AppDatabaseExecutor)
+      else
+        inventoryAppDatabaseAdapter
+          active
+          (ResourceInventory.inventoryBinding inventory)
+          appDatabaseMembers
+          (acceptedAppDatabaseResources history)
+          (InventoryStore.headIncarnations (InventoryPlan.historyHead history))
   acceptedCdn <- Map.union (retainedCdnResources history) <$> either dieT pure (acceptedDnsResources history)
   dnsBase <-
     inventoryCdnAdapter
@@ -445,7 +460,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
           scopes
           maintenanceNative
           (maintenanceAdapter runtime scopes maintenanceNative kubernetesBase)
-      adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access]
+      adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access, appDatabase]
   registry <- either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
   withMaintenance <-
     either

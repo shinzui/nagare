@@ -1,8 +1,10 @@
 -- | Inventory / Adapters. Executable-private CLI boundary.
 module Nagare.Cli.Inventory.Adapters
-  ( acceptedDnsResources
+  ( acceptedAppDatabaseResources
+  , acceptedDnsResources
   , acceptedTopicResources
   , hostScopeAccepted
+  , inventoryAppDatabaseAdapter
   , inventoryArtifactAdapter
   , inventoryBrokerAdapter
   , inventoryCacheAdapter
@@ -39,6 +41,8 @@ import Nagare.Cli.Runtime.Pulumi (ensurePulumiInWorkspaceWithDependencies)
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir, readContextHostName)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Adapters.AppDatabase (AppDatabaseMember, mkAppDatabaseAdapter)
+import Nagare.Inventory.Adapters.AppDatabaseRuntime qualified as AppDatabaseRuntime
 import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
 import Nagare.Inventory.Adapters.ArtifactRuntime
   ( ArtifactRuntimeConfig
@@ -205,6 +209,16 @@ acceptedTopicResources history =
     , bundle <- ResourceInventory.scopeBundles scope
     , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
     , resource ^. #executor == ResourceInventory.BrokerExecutor
+    ]
+
+acceptedAppDatabaseResources :: InventoryPlan.InventoryHistory -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
+acceptedAppDatabaseResources history =
+  Map.fromList
+    [ (resource ^. #identity, resource)
+    | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
+    , bundle <- ResourceInventory.scopeBundles scope
+    , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+    , resource ^. #executor == ResourceInventory.AppDatabaseExecutor
     ]
 
 acceptedDnsResources ::
@@ -398,6 +412,30 @@ inventoryBrokerAdapter active binding specs accepted
               , BrokerRuntime.topicRuntimeSpecs = specs
               }
       pure (mkTopicAdapter accepted specs (BrokerRuntime.topicRuntimeOps config))
+
+-- | EP-202: app-database members, through the context-guarded transport
+-- that checks the server's recorded incarnations before every call.
+inventoryAppDatabaseAdapter ::
+  ActiveTarget ->
+  Resource.ContextBinding ->
+  Map.Map Resource.ResourceId AppDatabaseMember ->
+  Map.Map Resource.ResourceId ResourceInventory.ManagedResource ->
+  Map.Map Resource.ResourceId Resource.PhysicalIdentity ->
+  IO InventoryAdapter.Adapter
+inventoryAppDatabaseAdapter active binding members accepted incarnations
+  | Map.null members = pure (Inventory.executionBlockedAdapterFor ResourceInventory.AppDatabaseExecutor)
+  | otherwise = do
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      unless
+        (context == binding ^. #identity)
+        (dieT "app-database inventory review belongs to a different context")
+      let config =
+            AppDatabaseRuntime.AppDatabaseRuntimeConfig
+              { AppDatabaseRuntime.kubectlContext = contextNameText (active ^. #contextName)
+              , AppDatabaseRuntime.contextGuard = fmap (fmap (const ())) (guardKubernetesContext active)
+              , AppDatabaseRuntime.recordedIncarnations = incarnations
+              }
+      pure (mkAppDatabaseAdapter accepted members (AppDatabaseRuntime.appDatabaseRuntimeOps config))
 
 inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> IO InventoryAdapter.Adapter
 inventoryArtifactAdapter active workspace specs = do

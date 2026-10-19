@@ -135,6 +135,7 @@ import Nagare.Resource.Inventory
     , PurgeCdnCache
     , PurgeCdnZone
     , RestoreLiveData
+    , RotateCredential
     , SchemaMigration
     , StartVm
     , StopVm
@@ -515,7 +516,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       forwardOnly operation || operation ^. #operationKind == CreateLogicalCache
     forwardOnly operation =
       operation ^. #operationKind
-        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone, StartVm, StopVm, PruneHostImage]
+        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone, StartVm, StopVm, PruneHostImage, RotateCredential]
         || ( operation ^. #operationKind == PublishRelease
                && all isArtifact (NE.toList (operation ^. #affects))
            )
@@ -790,6 +791,13 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
           else ([PlanError "adoption-required" "resource exists without inventory ownership" [resourceId]], Nothing)
       (_, Just (ObservedUnowned _)) -> ([PlanError "foreign-resource" "accepted object lost its inventory owner stamp" [resourceId]], Nothing)
       (_, Just (ObservedForeign _)) -> ([PlanError "foreign-resource" "resource address is occupied by an object without accepted ownership" [resourceId]], Nothing)
+      (_, Just (ObservationUnavailable reason))
+        | Just (code, message) <- appDatabaseRefusal resource reason ->
+            -- A credential the user no longer accepts is waived when this
+            -- review rotates that user: rotation is its reviewed exit.
+            if code == "app-database-credential-missing" && Set.member resourceId rotatedUsers
+              then ([], Nothing)
+              else ([PlanError code message [resourceId]], Nothing)
       (Nothing, Just (ObservationUnavailable reason)) -> ([PlanError "observation-unavailable" (unavailableMessage resource reason) [resourceId]], Nothing)
       (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
         Stateless
@@ -834,6 +842,25 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       (Just _, Just (ObservationUnavailable reason)) -> ([PlanError "observation-unavailable" (unavailableMessage resource reason) [resourceId]], Nothing)
       (Just _, _) -> ([], Just (resourceOperation UpdateResource resource))
       (_, Nothing) -> ([PlanError "observation-coverage" "resource was not observed" [resourceId]], Nothing)
+    rotatedUsers =
+      Set.fromList
+        [ resource
+        | scope <- Map.elems (inventoryScopes (candidateInventory candidate))
+        , bundle <- scopeBundles scope
+        , operation <- bundle ^. #operations
+        , operation ^. #operationKind == RotateCredential
+        , not (operationIsProven operation)
+        , resource <- NE.toList (operation ^. #affects)
+        ]
+    -- EP-202: an app-database observation names its refusal (grant drift, a
+    -- missing credential) so the plan reports it under that code.
+    appDatabaseRefusal resource reason
+      | resource ^. #executor == AppDatabaseExecutor
+      , (code, rest) <- T.breakOn ": " reason
+      , "app-database-" `T.isPrefixOf` code
+      , not (T.null rest) =
+          Just (code, T.drop 2 rest)
+      | otherwise = Nothing
     unavailableMessage resource reason
       | resource ^. #executor == AccessExecutor = "resource observation is unavailable: " <> reason
       | otherwise = "resource observation is unavailable"

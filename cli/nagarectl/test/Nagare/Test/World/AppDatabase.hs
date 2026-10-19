@@ -1,0 +1,218 @@
+-- | EP-202 M3: an interpreter world for app-database members. It keeps an
+-- in-memory catalog per engine, interprets the adapter's member-level
+-- commands with the engine's semantics as M1 proved them, and lets an
+-- adversary refuse a statement, lose its acknowledgement, kill the executor
+-- after it lands, or fail an observation. The checker reads the catalog
+-- through 'worldCatalog', a pure view that never passes through the faults.
+module Nagare.Test.World.AppDatabase
+  ( World (..)
+  , WorldUser (..)
+  , WorldDatabase (..)
+  , newWorld
+  , worldOps
+  , worldCatalog
+  , secretKey
+  )
+where
+
+import Control.Exception (throwIO)
+import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
+import Data.IORef
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Text (Text)
+import Data.Text qualified as T
+import Nagare.Database.AppDatabase.Catalog
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), clickhouseHashMatches, scramVerifierMatches)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants)
+import Nagare.Dsl.Database (Engine (..))
+import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapters.AppDatabase
+import Nagare.Resource.Types (Name, nameText)
+import Nagare.Test.World.Adversary
+
+data WorldUser = WorldUser
+  { physical :: !Text
+  , password :: !PasswordHash
+  , login :: !Bool
+  , elevated :: ![Text]
+  , serverGrants :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+data WorldDatabase = WorldDatabase
+  { physical :: !Text
+  , owner :: !Text
+  , grants :: !(Set CatalogGrant)
+  , publicSchemaOwner :: !Text
+  , defaultRoles :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | One server's catalogs and the Secrets of its app databases.
+data World = World
+  { engine :: !Engine
+  , users :: !(Map Text WorldUser)
+  , databases :: !(Map Text WorldDatabase)
+  , publicSystemAccess :: !Bool
+  , secrets :: !(Map Text CredentialSecret)
+  , issued :: !Int
+  }
+  deriving stock (Generic, Eq, Show)
+
+newWorld :: Engine -> Map Text CredentialSecret -> IO (IORef World)
+newWorld engine' secrets' = newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0)
+
+secretKey :: Name -> Name -> Text
+secretKey namespace' secretName = nameText namespace' <> "/" <> nameText secretName
+
+-- | What the catalogs say, as the observation queries would report it.
+worldCatalog :: World -> Catalog
+worldCatalog world =
+  Catalog
+    (Map.map user (world ^. #users))
+    (Map.map database (world ^. #databases))
+    (world ^. #publicSystemAccess)
+  where
+    user u =
+      CatalogUser
+        (u ^. #physical)
+        (if u ^. #login then LoginOn else LoginOff)
+        (u ^. #serverGrants)
+        (map ("attribute " <>) (u ^. #elevated))
+    database db =
+      CatalogDatabase
+        (db ^. #physical)
+        (if world ^. #engine == ClickHouse then Nothing else Just (db ^. #owner))
+        (Set.toList (db ^. #grants))
+        (if world ^. #engine == ClickHouse then Map.empty else Map.singleton "public" (db ^. #publicSchemaOwner))
+        (db ^. #defaultRoles)
+        []
+
+worldOps :: IORef World -> IORef Adversary -> AppDatabaseOps
+worldOps ref adversary =
+  AppDatabaseOps
+    { observeCatalog = \_ _ _ -> do
+        fault <- nextFaultAt adversary ObserveCall
+        case fault of
+          Just placement@(_, TransientReadFailure) -> do
+            noteActed adversary placement
+            pure (Left "injected: catalog observation timed out")
+          _ -> Right . worldCatalog <$> readIORef ref
+    , passwordMatches = \_ name password' -> do
+        world <- readIORef ref
+        pure . Right $ case Map.lookup name (world ^. #users) of
+          Nothing -> False
+          Just u -> matches (u ^. #password) password'
+    , readCredential = \namespace' secretName ->
+        Right . Map.lookup (secretKey namespace' secretName) . (^. #secrets) <$> readIORef ref
+    , runCommand = \_ command -> mutate (interpret command)
+    , rewriteCredential = \namespace' secretName password' ->
+        mutate $ \world -> case Map.lookup (secretKey namespace' secretName) (world ^. #secrets) of
+          Nothing -> Left "injected world: Secret not found"
+          Just secret -> Right (world & #secrets %~ Map.insert (secretKey namespace' secretName) (secret & #password .~ password'))
+    , freshSalt = do
+        n <- atomicModifyIORef' ref (\world -> (world & #issued %~ (+ 1), world ^. #issued + 1))
+        pure (BS.pack (map fromIntegral (take 16 (iterate (+ 1) n))))
+    , freshPassword = do
+        n <- atomicModifyIORef' ref (\world -> (world & #issued %~ (+ 1), world ^. #issued + 1))
+        pure ("rotated-" <> T.pack (show n))
+    }
+  where
+    -- One effectful call: the adversary may refuse it, lose its answer, or
+    -- kill the executor once it has landed.
+    mutate step = do
+      fault <- nextFaultAt adversary MutateCall
+      world <- readIORef ref
+      case fault of
+        Just placement@(_, RefusedBeforeEffect) -> do
+          noteActed adversary placement
+          pure (Left "injected: refused before effect")
+        _ -> case step world of
+          Left reason -> pure (Left reason)
+          Right changed -> do
+            writeIORef ref changed
+            case fault of
+              Just placement@(_, LostAcknowledgement) -> do
+                noteActed adversary placement
+                pure (Left "injected: acknowledgement lost")
+              Just placement@(_, Interrupt) -> do
+                noteActed adversary placement
+                throwIO Interrupted
+              _ -> pure (Right ())
+    matches hash password' = case hash of
+      PostgresVerifier verifier -> scramVerifierMatches password' verifier
+      ClickHouseSha256 digest saltText -> clickhouseHashMatches password' digest saltText
+
+interpret :: CatalogCommand -> World -> Either Text World
+interpret command world = case command of
+  CreateUser name hash _
+    | Map.member name (world ^. #users) -> Left ("role " <> name <> " already exists")
+    | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True [] []))
+  SetUserAccess role name on -> withUser name $ \u ->
+    u
+      & #login
+      .~ on
+      & #serverGrants
+      .~ (if engine' == ClickHouse && on then concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) else if engine' == ClickHouse then [] else u ^. #serverGrants)
+  SetPassword name hash -> withUser name (#password .~ hash)
+  CreateDatabase name owner'
+    | Map.member name (world ^. #databases) ->
+        if engine' == ClickHouse then Right world else Left ("database " <> name <> " already exists")
+    | engine' == ClickHouse -> Right (world & #databases %~ Map.insert name (WorldDatabase (fresh "database" name) owner' Set.empty "" []))
+    | otherwise ->
+        Right
+          ( world
+              & #databases
+              %~ Map.insert
+                name
+                ( WorldDatabase
+                    (fresh "database" name)
+                    owner'
+                    ( Set.fromList
+                        ( [CatalogGrant owner' "database" p | p <- ["CREATE", "TEMPORARY", "CONNECT"]]
+                            <> [CatalogGrant "PUBLIC" "database" p | p <- ["TEMPORARY", "CONNECT"]]
+                            <> [CatalogGrant "pg_database_owner" "schema:public" p | p <- ["USAGE", "CREATE"]]
+                            <> [CatalogGrant "PUBLIC" "schema:public" "USAGE"]
+                        )
+                    )
+                    "pg_database_owner"
+                    []
+                )
+          )
+  SetDatabaseAccess access ->
+    -- PostgreSQL access-on also revokes PUBLIC from the system databases.
+    (if access ^. #enabled then #publicSystemAccess .~ False else id) <$> withDatabase (access ^. #database) (setAccess access)
+  where
+    engine' = world ^. #engine
+    fresh kind' name = kind' <> ":" <> name <> ":" <> T.pack (show (Map.size (world ^. #users) + Map.size (world ^. #databases)))
+    withUser name f = case Map.lookup name (world ^. #users) of
+      Nothing -> Left ("role " <> name <> " does not exist")
+      Just u -> Right (world & #users %~ Map.insert name (f u))
+    withDatabase name f = case Map.lookup name (world ^. #databases) of
+      Nothing -> Left ("database " <> name <> " does not exist")
+      Just db -> Right (world & #databases %~ Map.insert name (f db))
+    setAccess access db
+      | engine' == ClickHouse =
+          let others = Set.filter (\g -> g ^. #grantee `notElem` [access ^. #migration, access ^. #runtime]) (db ^. #grants)
+              declared = Set.fromList [CatalogGrant who "database" p | (role, who) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)], g <- appDatabaseDatabaseGrants ClickHouse role, p <- g ^. #privileges]
+           in db & #grants .~ (if access ^. #enabled then Set.union others declared else others)
+      | access ^. #enabled =
+          let runtime = access ^. #runtime
+              migration = access ^. #migration
+              kept = Set.filter (\g -> g ^. #grantee `notElem` ["PUBLIC", "pg_database_owner"] || (g ^. #grantee == "PUBLIC" && g ^. #target == "default-functions")) (db ^. #grants)
+              runtimeGrants = Set.fromList [CatalogGrant runtime (target g) p | g <- appDatabaseDatabaseGrants Postgres RuntimeRole, p <- g ^. #privileges]
+              target g = case g ^. #objectClass of
+                "schema" -> "schema:public"
+                other -> other
+           in db
+                & #grants
+                .~ Set.unions [kept, runtimeGrants, Set.fromList [CatalogGrant migration "schema:public" p | p <- ["USAGE", "CREATE"]], Set.singleton (CatalogGrant "PUBLIC" "default-functions" "EXECUTE")]
+                & #publicSchemaOwner
+                .~ migration
+                & #defaultRoles
+                .~ [migration]
+      | otherwise = db & #grants %~ Set.filter (\g -> not (g ^. #grantee == access ^. #runtime && g ^. #target == "database"))

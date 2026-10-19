@@ -10,6 +10,8 @@ import AccessCheckSpec (accessCheckTests)
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDatabaseSpec (appDatabaseTests)
+import AppDatabaseSqlSpec (appDatabaseSqlTests)
+import AppDatabaseWorldSpec (appDatabaseWorldTests)
 import AppDeploySpec (appDeployTests)
 import CertificateMigrationSpec (certificateMigrationTests)
 import Data.ByteString qualified as BS
@@ -123,11 +125,7 @@ import Nagare.Test.Server (serverBuildTests)
 import Nagare.Test.Shards (runSharded)
 import Nagare.Test.SiteInventory (staticInventoryTests)
 import Nagare.Test.Static (dockerfileTests, prepareTests, previewTests, releaseTests)
-import Nagare.Test.Storage
-  ( storageDiscoverTests
-  , storageSnapshotTests
-  , volumeArchiveTests
-  )
+import Nagare.Test.Storage (storageDiscoverTests, storageSnapshotTests, volumeArchiveTests)
 import Nagare.Test.Task (taskDiscoverTests, taskResolveTests, taskRunTests)
 import Nagare.Test.Version (versionTests)
 import Nagare.Test.Webhook (webhookTests)
@@ -209,6 +207,8 @@ main = do
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
             , appDatabaseTests
+            , appDatabaseSqlTests
+            , appDatabaseWorldTests
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
             , inventoryWorldFaultsTests

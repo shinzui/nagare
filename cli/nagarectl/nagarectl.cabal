@@ -108,6 +108,8 @@ library
     Nagare.Context.Review
     Nagare.Contract.Project
     Nagare.Contract.Sink
+    Nagare.Database.AppDatabase.Catalog
+    Nagare.Database.AppDatabase.Sql
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
@@ -137,6 +139,8 @@ library
     Nagare.Inventory.Access
     Nagare.Inventory.AccessRuntime
     Nagare.Inventory.Adapter
+    Nagare.Inventory.Adapters.AppDatabase
+    Nagare.Inventory.Adapters.AppDatabaseRuntime
     Nagare.Inventory.Adapters.Artifact
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Broker
@@ -400,6 +404,7 @@ executable nagarectl
     Nagare.Cli.Bootstrap.Sequence
     Nagare.Cli.Bootstrap.Stage
     Nagare.Cli.Commands.Access
+    Nagare.Cli.Commands.AppDatabase
     Nagare.Cli.Commands.Application
     Nagare.Cli.Commands.Bootstrap
     Nagare.Cli.Commands.Broker
@@ -453,8 +458,10 @@ executable nagarectl
     Nagare.Cli.Inventory.Workflow
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
+    Nagare.Cli.Options.AppDatabase
     Nagare.Cli.Parser
     Nagare.Cli.Parser.Access
+    Nagare.Cli.Parser.AppDatabase
     Nagare.Cli.Parser.Application
     Nagare.Cli.Parser.Common
     Nagare.Cli.Parser.Context
@@ -537,6 +544,8 @@ test-suite nagarectl-test
     AccessGrantsSpec
     AccessResolveSpec
     AppDatabaseSpec
+    AppDatabaseSqlSpec
+    AppDatabaseWorldSpec
     AppDeployPhaseSpec
     AppDeploySpec
     CertificateMigrationSpec
@@ -693,6 +702,7 @@ test-suite nagarectl-test
     Nagare.Test.Webhook
     Nagare.Test.World.Adversary
     Nagare.Test.World.ApiServer
+    Nagare.Test.World.AppDatabase
     Nagare.Test.World.Bucket
     Nagare.Test.World.Cluster
     Nagare.Test.World.Kinds

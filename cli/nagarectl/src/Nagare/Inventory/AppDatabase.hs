@@ -11,6 +11,11 @@ module Nagare.Inventory.AppDatabase
   , directServerBindings
   , serverHostsAppDatabases
   , compileStandaloneAppDatabase
+  , namedAppDatabaseScope
+  , retireAppDatabaseScope
+  , rotateAppDatabaseScope
+  , AppDatabaseRow (..)
+  , appDatabaseRows
   )
 where
 
@@ -22,6 +27,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.AppDatabase (AppDatabase (..))
 import Nagare.Dsl.Database (Engine, engineToken)
@@ -33,7 +39,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.AppDatabase
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
-import Nagare.Resource.Policy (RecoveryIntent)
+import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry), RecoveryIntent)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -223,3 +229,123 @@ compileStandaloneAppDatabase snapshot acceptedNative db cluster namespaceId reco
         (recompiled {dependencies = declaration ^. #dependencies} == declaration)
         (Left (invalid (Just owner) "app-database native object changed during binding"))
       pure (resource, (declaration, bytes))
+
+-- | The accepted app-database scope a command names: @appdb-\<key\>@, where
+-- the key is the pinned one or the app-database name.
+namedAppDatabaseScope :: ScopeSnapshot -> Text -> Maybe Text -> Either Text ScopeDeclaration
+namedAppDatabaseScope snapshot name pinned = do
+  key <- mkLogicalKey (fromMaybe name pinned)
+  owner <- mkScopeId Standalone ("appdb-" <> logicalKeyText key)
+  scope <- maybe (Left ("app database " <> name <> " is not in accepted inventory history")) (Right . snd) (Map.lookup owner (snapshotScopes snapshot))
+  unless
+    (any (\member -> member ^. #executor == AppDatabaseExecutor) (scopeMembers scope))
+    (Left ("accepted scope " <> nameText (scopeName owner) <> " is not an app database"))
+  pure scope
+
+-- | Retirement turns the users' logins and the declared access off and keeps
+-- the databases and Secrets. It refuses while any accepted member outside the
+-- scope is ordered after one of its members (a workload binding it).
+retireAppDatabaseScope :: ScopeSnapshot -> ScopeDeclaration -> Either (NonEmpty InventoryError) ScopeDeclaration
+retireAppDatabaseScope snapshot scope = do
+  let owner = scopeId scope
+      ours = Set.fromList (map (^. #identity) (scopeMembers scope))
+      consumers =
+        [ member
+        | (other, (_, otherScope)) <- Map.toList (snapshotScopes snapshot)
+        , other /= owner
+        , member <- scopeMembers otherScope
+        , any (\case OrderedAfter producer -> Set.member producer ours; _ -> False) (member ^. #dependencies)
+        ]
+  unless
+    (null consumers)
+    ( Left
+        ( ( inventoryError "app-database-in-use" "an accepted workload still binds this app database; remove the binding first"
+              & #scopes
+              .~ [owner]
+              & #resources
+              .~ map (^. #identity) consumers
+          )
+            :| []
+        )
+    )
+  reviseScope scope (map (\bundle -> bundle & #declarations %~ map off) (scopeBundles scope))
+  where
+    off = \case
+      Managed member -> Managed (member & #spec %~ disable)
+      other -> other
+    disable = \case
+      LogicalDatabase engine' migration runtime _ digest -> LogicalDatabase engine' migration runtime False digest
+      DatabaseUserSpec engine' role _ digest -> DatabaseUserSpec engine' role False digest
+      other -> other
+
+-- | Rotation is one forward-only operation on one user member, keyed by the
+-- role: a new stamp makes a new operation, so each rotation runs once.
+rotateAppDatabaseScope :: ScopeDeclaration -> Text -> Text -> Either (NonEmpty InventoryError) ScopeDeclaration
+rotateAppDatabaseScope scope role stamp = do
+  let owner = scopeId scope
+      users = [member | member <- scopeMembers scope, DatabaseUserSpec _ memberRole _ _ <- [member ^. #spec], memberRole == role]
+  user <- case users of
+    [member] -> Right member
+    _ -> Left (single owner ("the app database has no " <> role <> " user"))
+  key <- first (single owner) (mkLogicalKey (nameText (scopeName owner)))
+  operationName <- first (single owner) (mkName ("rotate-" <> role))
+  let operation =
+        DeclaredOperation
+          { identity = mintResourceId owner key operationName
+          , affects = user ^. #identity :| []
+          , inputs = [ContentInput (contentDigest (TE.encodeUtf8 ("rotate " <> role <> " at " <> stamp)))]
+          , recovery = VerifyBeforeRetry
+          , operationKind = RotateCredential
+          }
+      replace bundle = bundle & #operations %~ ((operation :) . filter (\existing -> existing ^. #identity /= operation ^. #identity))
+  case scopeBundles scope of
+    first' : rest -> reviseScope scope (replace first' : rest)
+    [] -> Left (single owner "the app-database scope has no bundle")
+  where
+    single owner message = (inventoryError "invalid-app-database-rotation" message & #scopes .~ [owner]) :| []
+
+-- | One accepted app database, as @db app-database list@ shows it.
+data AppDatabaseRow = AppDatabaseRow
+  { name :: !Text
+  , server :: !Text
+  , namespace :: !Text
+  , engine :: !Text
+  , databases :: ![Text]
+  , retired :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+appDatabaseRows :: ScopeSnapshot -> [AppDatabaseRow]
+appDatabaseRows snapshot =
+  [ AppDatabaseRow
+      (fromMaybe (nameText (scopeName owner)) (T.stripPrefix "appdb-" (nameText (scopeName owner))))
+      serverName
+      serverNamespace
+      engineText
+      [nameText db | member <- members, DatabaseName _ db <- [member ^. #address]]
+      (not (or [on | member <- members, DatabaseUserSpec _ _ on _ <- [member ^. #spec]]))
+  | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
+  , "appdb-" `T.isPrefixOf` nameText (scopeName owner)
+  , let members = filter ((== AppDatabaseExecutor) . (^. #executor)) (scopeMembers scope)
+  , (stateful, engineText) : _ <- [[(target, engine') | member <- members, DatabaseUser target _ <- [member ^. #address], DatabaseUserSpec engine' _ _ _ <- [member ^. #spec]]]
+  , let (serverName, serverNamespace) = fromMaybe ("?", "?") (Map.lookup stateful statefulSets)
+  ]
+  where
+    statefulSets =
+      Map.fromList
+        [ (member ^. #identity, (nameText name, nameText ns))
+        | (_, (_, scope)) <- Map.toList (snapshotScopes snapshot)
+        , member <- scopeMembers scope
+        , Kubernetes _ "apps" _ (Just ns) name <- [member ^. #address]
+        ]
+
+scopeMembers :: ScopeDeclaration -> [ManagedResource]
+scopeMembers scope = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
+
+-- | A revision of an accepted scope keeps its config digest and overrides.
+reviseScope :: ScopeDeclaration -> [ResourceBundle] -> Either (NonEmpty InventoryError) ScopeDeclaration
+reviseScope scope bundles = do
+  base <- mkScopeDeclaration (scopeId scope) bundles
+  pure $ withScopeOverrides (scopeOverrides scope) $ case scopeConfigDigest scope of
+    Nothing -> base
+    Just digest -> withScopeConfigDigest digest base

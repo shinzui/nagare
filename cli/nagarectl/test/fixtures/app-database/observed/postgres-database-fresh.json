@@ -1,0 +1,1 @@
+{"schemas" : [{"name" : "public", "owner" : "pg_database_owner", "grants" : [{"grantee" : "pg_database_owner", "privilege" : "USAGE", "grantable" : false}, {"grantee" : "pg_database_owner", "privilege" : "CREATE", "grantable" : false}, {"grantee" : "PUBLIC", "privilege" : "USAGE", "grantable" : false}]}], "defaultAcl" : []}

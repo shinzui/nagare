@@ -52,13 +52,15 @@ data DesiredSpec
   | LogicalCache !ContentDigest
   | LogicalBrokerTopic !Int !Int !(Maybe Int)
   | -- | A logical database inside a server: the engine token, its owning
-    -- migration user, its runtime user, and the digest of the grant set
-    -- declared on it. Registration creates the empty database only.
-    LogicalDatabase !Text !Name !Name !ContentDigest
+    -- migration user, its runtime user, whether its declared access is on
+    -- (retirement turns it off and keeps the data), and the digest of the grant
+    -- set declared on it. Registration creates the empty database only.
+    LogicalDatabase !Text !Name !Name !Bool !ContentDigest
   | -- | A login user inside a server: the engine token, the role token
-    -- (@runtime@ or @migration@), and the digest of its declared attributes
-    -- and server-wide grants. The password lives only in its credential Secret.
-    DatabaseUserSpec !Text !Text !ContentDigest
+    -- (@runtime@ or @migration@), whether it may log in, and the digest of its
+    -- declared attributes and server-wide grants. The password lives only in
+    -- its credential Secret.
+    DatabaseUserSpec !Text !Text !Bool !ContentDigest
   | DnsARecord !Text !Int
   | CloudflareRulesSpec ![CloudflareCacheIntent]
   | CloudflareZoneTlsSpec !CloudflareTlsMode
@@ -134,7 +136,7 @@ declarationDependencies (ObservedChild _ p _ _ _) = [OrderedAfter p]
 data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest | CdnPathsInput ![Text] | HostImageInput !Text
   deriving stock (Eq, Ord, Show, Generic)
 
-data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone | StartVm | StopVm | PruneHostImage
+data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone | StartVm | StopVm | PruneHostImage | RotateCredential
   deriving stock (Eq, Ord, Show, Generic)
 
 data DeclaredOperation = DeclaredOperation

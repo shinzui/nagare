@@ -1,0 +1,31 @@
+{"kind":"user","name":"gamma_migration","physical":"1f4889ee-ce77-9001-6aa2-0ab95fa16a88","host_ip":["::\/0"],"host_names":[],"host_names_regexp":[],"host_names_like":[],"default_database":""}
+{"kind":"user","name":"gamma_runtime","physical":"8d45113b-8d1f-425d-cdcd-09d9fc9c5dae","host_ip":["10.0.0.0\/8"],"host_names":[],"host_names_regexp":[],"host_names_like":[],"default_database":""}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW TABLES","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW COLUMNS","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW DICTIONARIES","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SELECT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"INSERT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"ALTER TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"ALTER VIEW","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE DATABASE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE VIEW","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE DICTIONARY","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP VIEW","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP DICTIONARY","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"TRUNCATE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"OPTIMIZE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"BACKUP","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"dictGet","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SHOW TABLES","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SHOW COLUMNS","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SELECT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"INSERT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"ALTER UPDATE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"ALTER DELETE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"dictGet","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"gamma_migration","access_type":"SELECT","database":null,"table":null,"column":null,"is_partial_revoke":0,"grant_option":1}
+{"kind":"grant","user_name":"gamma_runtime","access_type":"SELECT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"database","name":"alpha","physical":"5b417ce9-6e35-4bb5-b74c-848155783be4","engine":"Atomic"}
+{"kind":"database","name":"gamma","physical":"bb339b31-1237-47e0-8381-65afd80e2e85","engine":"Atomic"}

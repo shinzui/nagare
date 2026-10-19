@@ -94,6 +94,7 @@ import Nagare.Cli.Options.Access
   , TeamListOpts (..)
   , TeamMemberOpts (..)
   )
+import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
 import Nagare.Dsl.Broker (BrokerProvider)
 import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
@@ -676,6 +677,7 @@ data DbCommand
     DbDisableBackupPrune DbNameOpts FilePath
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
     DbRestore DbRestoreOpts
+  | DbAppDatabase AppDatabaseCommand
   deriving stock (Generic, Show)
 
 -- | The @broker@ subcommands (MasterPlan 15, EP-78).

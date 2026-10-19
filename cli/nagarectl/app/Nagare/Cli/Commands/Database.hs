@@ -9,6 +9,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Cli.Commands.AppDatabase (runAppDatabase)
 import Nagare.Cli.Data.Backup
   ( runReviewedDbBackupPlan
   , runReviewedDbPruneBackupPlan
@@ -92,6 +93,7 @@ import Nagare.Target (contextNameText, storeBackendFor)
 runDb :: Maybe String -> DbCommand -> IO ()
 runDb mctx = \case
   DbList o -> runDbList (nsOf (o ^. #namespace))
+  DbAppDatabase command' -> runAppDatabase mctx command'
   DbCreate eng name o -> do
     when (isJust (o ^. #config)) (provisionGhcEnv Nothing)
     tp <- activeProfile mctx

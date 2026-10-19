@@ -13,7 +13,9 @@ import Data.Maybe (catMaybes, maybeToList)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Inventory.Adapters
-  ( acceptedTopicResources
+  ( acceptedAppDatabaseResources
+  , acceptedTopicResources
+  , inventoryAppDatabaseAdapter
   , inventoryArtifactAdapter
   , inventoryBrokerAdapter
   , inventoryCacheAdapter
@@ -60,6 +62,7 @@ import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.AccessRuntime (accessReviewAdapter)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Adapters.AppDatabase (appDatabaseMembersFromDeclarations)
 import Nagare.Inventory.Adapters.Broker
   ( topicSpecsFromDeclarations
   )
@@ -261,6 +264,19 @@ inventoryExecutionRegistry mctx store bundle = do
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   allTopicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
   let topicSpecs = Map.restrictKeys allTopicSpecs (selected ResourceInventory.BrokerExecutor)
+  -- EP-202: an app database's server lives in another, accepted scope.
+  -- Resolve its members against accepted history, preferring the review's own.
+  appDatabaseHistory <-
+    if Set.null (selected ResourceInventory.AppDatabaseExecutor)
+      then pure Nothing
+      else Just <$> (InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure)
+  appDatabaseMembers <- case appDatabaseHistory of
+    Nothing -> pure Map.empty
+    Just accepted -> do
+      let byId = Map.fromList . map (\declaration -> (ResourceInventory.declarationId declaration, declaration))
+          universe = Map.elems (Map.union (byId declarations) (byId (InventoryPlan.historyDeclarations accepted)))
+      members <- either dieT pure (appDatabaseMembersFromDeclarations universe)
+      pure (Map.restrictKeys members (selected ResourceInventory.AppDatabaseExecutor))
   historicalCdn <- reviewedHistoricalCdn store bundle
   -- A Google CDN host record depends on the platform BackendService, which lives
   -- in the accepted cloud scope rather than the reviewed workload scope. Resolve
@@ -487,7 +503,7 @@ inventoryExecutionRegistry mctx store bundle = do
         Map.restrictKeys
           (Map.union helmSpecs retiringHelmSpecs)
           (selected ResourceInventory.HelmExecutor `Set.union` Map.keysSet retiringHelmSpecs)
-  if null registrations && Set.null retainedHosts && Set.null retainedArtifacts && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
+  if null registrations && Set.null retainedHosts && Set.null retainedArtifacts && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null appDatabaseMembers && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor, ResourceInventory.AccessExecutor, ResourceInventory.AppDatabaseExecutor]))
     else do
       let needsWorkspace =
@@ -579,6 +595,13 @@ inventoryExecutionRegistry mctx store bundle = do
             history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
             pure (acceptedTopicResources history)
       broker <- inventoryBrokerAdapter active binding topicSpecs acceptedTopics
+      appDatabase <-
+        inventoryAppDatabaseAdapter
+          active
+          binding
+          appDatabaseMembers
+          (maybe Map.empty acceptedAppDatabaseResources appDatabaseHistory)
+          (maybe Map.empty (InventoryStore.headIncarnations . InventoryPlan.historyHead) appDatabaseHistory)
       acceptedDns <-
         if Map.null dnsSpecs && Map.null cloudflareSpecs
           then pure Map.empty
@@ -663,7 +686,7 @@ inventoryExecutionRegistry mctx store bundle = do
               )
           -- Reviewed migration stages execute only from their saved bundle.
           kubernetes = kubernetesMigrationAdapter runtime Nothing kubernetesRestore
-          adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access]
+          adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access, appDatabase]
       registry <- either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
       withMaintenance <-
         either

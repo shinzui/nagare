@@ -1,6 +1,16 @@
 -- | EP-202 M2: app-database declarations load and validate, and compile into
 -- their own standalone scopes against an accepted shared server.
-module AppDatabaseSpec (appDatabaseTests) where
+module AppDatabaseSpec
+  ( appDatabaseTests
+  , Server
+  , alpha
+  , beta
+  , pgServer
+  , chServer
+  , scopeOf
+  , serverStateful
+  )
+where
 
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
@@ -113,6 +123,31 @@ appDatabaseTests =
         , testCase "an app database is refused on a server a workload binds directly" $ do
             let workload = boundWorkload (serverStateful pgServer)
             assertCompileRefusedWith "app-database-on-direct-server" (snapshotWith [pgServer] [workload]) (alpha Postgres)
+        , testCase "retirement turns every member off and refuses while a workload binds it" $ do
+            let scope = scopeOf pgServer (alpha Postgres)
+                accepted = snapshotWith [pgServer] [scope]
+                specs revised = [member ^. #spec | bundle <- scopeBundles revised, Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
+            found <- either (assertFailure . T.unpack) pure (namedAppDatabaseScope accepted "alpha-pg" Nothing)
+            retired <- either (assertFailure . show) pure (retireAppDatabaseScope accepted found)
+            [on | LogicalDatabase _ _ _ on _ <- specs retired] @?= [False]
+            [on | DatabaseUserSpec _ _ on _ <- specs retired] @?= [False, False]
+            let runtime = head [member ^. #identity | bundle <- scopeBundles scope, Managed member <- declarations bundle, DatabaseUserSpec _ "runtime" _ _ <- [member ^. #spec]]
+                bound = snapshotWith [pgServer] [scope, boundTo runtime]
+            case retireAppDatabaseScope bound found of
+              Left errors -> map (^. #code) (NE.toList errors) @?= ["app-database-in-use"]
+              Right _ -> assertFailure "retirement of a bound app database was accepted"
+            map (\row -> (row ^. #name, row ^. #server, row ^. #retired)) (appDatabaseRows accepted) @?= [("alpha-pg", "smoke-pg", False)]
+        , testCase "a rotation is one forward-only operation per user, replaced by the next" $ do
+            let scope = scopeOf pgServer (alpha Postgres)
+                rotations revised = [operation | bundle <- scopeBundles revised, operation <- bundle ^. #operations, operation ^. #operationKind == RotateCredential]
+            first' <- either (assertFailure . show) pure (rotateAppDatabaseScope scope "runtime" "2026-10-19T00:00:00Z")
+            second' <- either (assertFailure . show) pure (rotateAppDatabaseScope first' "runtime" "2026-10-19T01:00:00Z")
+            length (rotations first') @?= 1
+            length (rotations second') @?= 1
+            assertBool "a new stamp makes a new operation" (rotations first' /= rotations second')
+            case rotateAppDatabaseScope scope "admin" "now" of
+              Left _ -> pure ()
+              Right _ -> assertFailure "rotation of an unknown role was accepted"
         , testCase "the ClickHouse server enables SQL access management" $ do
             let (_, native) = chServer
             assertBool "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT is set" $
@@ -236,7 +271,10 @@ scopeOf s = fst . scopeAndNative s
 -- | A workload scope whose member is ordered after the server StatefulSet,
 -- as a direct database binding is.
 boundWorkload :: ManagedResource -> ScopeDeclaration
-boundWorkload stateful =
+boundWorkload stateful = boundTo (stateful ^. #identity)
+
+boundTo :: ResourceId -> ScopeDeclaration
+boundTo producer =
   known
     ( mkScopeDeclaration
         owner
@@ -252,7 +290,7 @@ boundWorkload stateful =
                   , lifecycle = DeleteWhenUnreferenced
                   , dataPolicy = Stateless
                   , sensitivity = Private
-                  , dependencies = [OrderedAfter (stateful ^. #identity)]
+                  , dependencies = [OrderedAfter producer]
                   , delegations = []
                   , source = SourceLocation "test" "consumer"
                   }

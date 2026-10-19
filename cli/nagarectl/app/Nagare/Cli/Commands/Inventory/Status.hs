@@ -20,9 +20,11 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Access.Reviewed qualified as ReviewedAccess
 import Nagare.Cli.Inventory.Adapters
-  ( acceptedDnsResources
+  ( acceptedAppDatabaseResources
+  , acceptedDnsResources
   , acceptedTopicResources
   , hostScopeAccepted
+  , inventoryAppDatabaseAdapter
   , inventoryArtifactAdapter
   , inventoryBrokerAdapter
   , inventoryCacheAdapter
@@ -42,6 +44,7 @@ import Nagare.Contract.Project (inventoryStatusReport, storeRefusal, workspaceRe
 import Nagare.Contract.Sink (contractSinkSet, emitDocument)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Adapters.AppDatabase (appDatabaseMembersFromDeclarations)
 import Nagare.Inventory.Adapters.Broker
   ( topicSpecsFromDeclarations
   )
@@ -247,8 +250,15 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
               ]
           )
       )
-  -- EP-202: app-database members gain their catalog observer with the adapter.
-  let appDatabase = Inventory.executionBlockedAdapterFor ResourceInventory.AppDatabaseExecutor
+  -- EP-202: app-database members are observed through their server's catalogs.
+  allAppDatabaseMembers <- either dieT pure (appDatabaseMembersFromDeclarations (ResourceInventory.inventoryDeclarations inventory))
+  appDatabase <-
+    inventoryAppDatabaseAdapter
+      active
+      binding
+      (Map.restrictKeys allAppDatabaseMembers (Set.fromList (ids ResourceInventory.AppDatabaseExecutor)))
+      (acceptedAppDatabaseResources history)
+      (InventoryStore.headIncarnations (InventoryPlan.historyHead history))
   acceptedCdn <-
     if null (ids ResourceInventory.CdnExecutor) && Map.null retainedCdn
       then pure Map.empty

@@ -79,11 +79,18 @@ and scratch restore of each app.
     database with its rows, ACLs and sequence position. The ClickHouse two-database archive
     restores into scratch names and into existing empty databases.
   - Users and grants survive a ClickHouse restart.
-- [ ] M2. The typed `AppDatabase` declaration loads and validates. It compiles into its own
+- [x] M2. The typed `AppDatabase` declaration loads and validates. It compiles into its own
   standalone inventory scope, `appdb-<key>`, which claims each logical database and user on its
   server and refuses collisions and reserved names. The ClickHouse server render enables SQL
   access management. Pure tests and goldens pass under `just gate-fast`. Proves the inventory half
   of AC-1.
+  Done 2026-10-19 and landed at `0db07f5a`, with `gate-fast` green.
+  - `AppDatabaseSpec` covers the AC-1 composition test: two app databases on one server per
+    engine give exactly 2 StatefulSets, 2 PVCs and 2 Services. It also covers collisions on a
+    logical database and on a user, the server absent, engine, namespace and direct-binding
+    refusals, and the credential template fill.
+  - The mutation proof of the extraction commit `a328464a` killed all 6 records that touch
+    `KubernetesRuntime.hs`.
 - [ ] M3. `nagarectl db app-database plan|rotate|retire` provision, rotate and retire app
   databases through reviewed transactions. An effect-interpreter world covers each case: a re-plan
   of an unchanged declaration has no operations, an interrupted apply resumes without resetting a
@@ -236,6 +243,33 @@ and scratch restore of each app.
     app-database-v1`, labels `nagare.dev/app-database`, `-server` and `-role`, and annotations
     naming the user and database. The labels do not reuse `nagare.dev/database`, which belongs to
     the server's own objects.
+  Date: 2026-10-19
+
+- Decision: M3 settles how members are converged, retired and rotated.
+  - **Typed commands at the boundary.** The adapter sends typed commands (`CreateUser`,
+    `SetUserAccess`, `CreateDatabase`, `SetDatabaseAccess`, `SetPassword`). The transport renders
+    them to the fixture SQL, and the interpreter world interprets them directly, so the world
+    needs no SQL parser. The fixtures are therefore grouped per member command (create-user,
+    user-access on/off, create-database, database-access on/off, set-password), and they were
+    replayed again in that form.
+  - **Every execution converges.** Each execution creates the member only if it is absent, then
+    sets its declared access. A retry is therefore safe, and recovery either proves the member
+    complete or returns `RecoverySafeToRetry`. An existing user whose password differs from its
+    Secret's fails with no effect; it is never re-passworded.
+  - **Retirement is a reviewed revision.** `db app-database retire` revises the scope so each
+    spec's new `enabled` flag is `False`, and the planner sees an update. It is not a scope
+    retirement: `decideRetirement` and `inventory collect` refuse app-database members by name.
+  - **Rotation is a forward-only operation.** `RotateCredential` is a declared operation on the
+    user member, keyed by role, whose input digests a timestamp, so each rotation runs once. It
+    writes the new password into the Secret first, with a merge patch under `resourceVersion` as
+    `nagare-inventory`, and then sets the user's password. The plan said the opposite order; this
+    order means a lost step never leaves a password that no Secret holds.
+  - **Credential refusals.** A Secret the user no longer accepts refuses planning with
+    `app-database-credential-missing`, unless the same review rotates that user. An absent Secret
+    is reported by its own durable credential member, and its exit is `inventory rebuild`, which
+    recreates Secrets fresh. Rotation then aligns the user.
+  - **Passwords on ClickHouse.** A ClickHouse password is proven by a login inside the pod, so it
+    is not checked while the user's login is off.
   Date: 2026-10-19
 
 
