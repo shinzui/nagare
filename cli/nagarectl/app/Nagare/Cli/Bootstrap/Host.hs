@@ -24,9 +24,12 @@ import Nagare.Cli.Bootstrap.Stage (StageMode (..))
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cluster.Kubeconfig
   ( KubeconfigIdentity (..)
+  , KubeconfigStageDecision (..)
   , defaultFetchOps
   , fetchKubeconfig
+  , inspectKubeconfigDestination
   , kubeconfigPath
+  , kubeconfigStageDecision
   , normalizeLocalKubeconfig
   )
 import Nagare.Dsl.Prelude
@@ -350,19 +353,11 @@ buildKubeconfigStageCandidateWithRecovery recover active workspace snapshot = do
       | not (InventoryArtifact.sameKubeconfigProjection prior scope) ->
           dieT "accepted kubeconfig differs from the selected host; use a reviewed credential transition"
     _ -> pure ()
-  destinationLinked <-
-    try (pathIsSymbolicLink destination) >>= \case
-      Left (err :: IOException) | isDoesNotExistError err -> pure False
-      Left (err :: IOException) -> dieT ("could not inspect context kubeconfig: " <> T.pack (show err))
-      Right value -> pure value
-  when destinationLinked (dieT "context kubeconfig destination is a symlink")
-  destinationExists <- doesFileExist destination
-  current <- if destinationExists then Just <$> BS.readFile destination else pure Nothing
+  destinationState <- inspectKubeconfigDestination destination >>= either dieT pure
   let accepted = Map.member owner (ResourceInventory.snapshotScopes snapshot)
-  case (accepted, current) of
-    (True, Just currentBytes) | InventoryDigest.contentDigest currentBytes == digest -> pure Nothing
-    (True, Just _) -> dieT "accepted context kubeconfig has a different content digest"
-    (True, Nothing) | recover -> do
+  either dieT pure (kubeconfigStageDecision accepted recover bytes destinationState) >>= \case
+    KubeconfigUnchanged -> pure Nothing
+    KubeconfigRecover -> do
       createDirectoryIfMissing True (takeDirectory destination)
       setFileMode (takeDirectory destination) 0o700
       withTempDirectory (takeDirectory destination) "recover-" $ \temporary -> do
@@ -371,9 +366,7 @@ buildKubeconfigStageCandidateWithRecovery recover active workspace snapshot = do
         setFileMode staged 0o600
         createLink staged destination
       pure Nothing
-    (True, Nothing) -> dieT "accepted kubeconfig is absent in this context root; run nagarectl kubeconfig recover"
-    _ | recover -> dieT "kubeconfig recovery requires an accepted credential scope"
-    _ ->
+    KubeconfigReplace ->
       Just
         <$> either
           (dieT . T.pack . show)

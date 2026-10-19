@@ -28,7 +28,6 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
-import System.Directory (pathIsSymbolicLink)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
@@ -73,10 +72,8 @@ observeKubeconfigProjectionAt :: FilePath -> ArtifactExecutionSpec -> IO (Either
 observeKubeconfigProjectionAt destination spec
   | executionArtifactKind spec /= KubeconfigArtifact = pure (Left "projection is not an accepted kubeconfig")
   | otherwise = do
-      observed <- try $ do
-        linked <- pathIsSymbolicLink destination
-        when linked (ioError (userError "context kubeconfig is a symlink"))
-        BS.readFile destination
+      -- F127: an operator-linked kubeconfig is read through its link.
+      observed <- try (BS.readFile destination)
       pure $ case observed of
         Left (_ :: IOException) -> Left "accepted current-root kubeconfig is unavailable; run nagarectl kubeconfig recover"
         Right bytes

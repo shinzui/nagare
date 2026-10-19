@@ -18,7 +18,10 @@ import Data.Text.IO qualified as TIO
 import Nagare.Cluster.Kubeconfig
   ( FetchOps (..)
   , KubeconfigIdentity (..)
+  , KubeconfigStageDecision (..)
   , fetchKubeconfig
+  , inspectKubeconfigDestination
+  , kubeconfigStageDecision
   , normalizeKubeconfig
   )
 import Nagare.Dsl.Prelude
@@ -341,6 +344,30 @@ hostTests =
           createFileLink (root </> "missing-target") destination
           result <- fetchKubeconfig (FetchOps "/unused/iap" "/unused/kubectl") (KubeconfigIdentity "labs" "labs-nagare") fixtureProfile destination
           assertBool "dangling symlink destination is rejected before transport" (either (T.isInfixOf "symlink") (const False) result)
+    , testCase "F127: the kubeconfig stage accepts a matching link and never writes through one" $
+        withSystemTempDirectory "nagare-kubeconfig-stage-link" $ \root -> do
+          let target = root </> "agenix-secret"
+              destination = root </> "labs.yaml"
+              dangling = root </> "dangling.yaml"
+              regular = root </> "regular.yaml"
+              decide accepted recover path = inspectKubeconfigDestination path >>= either (assertFailure . T.unpack) (pure . kubeconfigStageDecision accepted recover fixtureKubeconfig)
+          BS.writeFile target fixtureKubeconfig
+          createFileLink target destination
+          createFileLink (root </> "missing") dangling
+          BS.writeFile regular fixtureKubeconfig
+          decide True False destination >>= (@?= Right KubeconfigUnchanged)
+          decide True True destination >>= (@?= Right KubeconfigUnchanged)
+          BS.readFile target >>= (@?= fixtureKubeconfig)
+          BS.writeFile target "rotated\n"
+          decide True False destination >>= assertLeftContains ("symlink to " <> T.pack target)
+          decide False False destination >>= assertLeftContains "symlink to"
+          decide True True dangling >>= assertLeftContains ("symlink to " <> T.pack (root </> "missing"))
+          decide True False regular >>= (@?= Right KubeconfigUnchanged)
+          decide False False regular >>= (@?= Right KubeconfigReplace)
+          decide True True (root </> "absent.yaml") >>= (@?= Right KubeconfigRecover)
+          decide True False (root </> "absent.yaml") >>= assertLeftContains "run nagarectl kubeconfig recover"
+          BS.writeFile regular "rotated\n"
+          decide True False regular >>= assertLeftContains "different content digest"
     ]
 
 fixtureConfig :: ContextName -> HostConfig

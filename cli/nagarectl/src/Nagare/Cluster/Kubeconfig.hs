@@ -3,9 +3,13 @@
 -- | Fetch, normalize, validate, and atomically install a context kubeconfig.
 module Nagare.Cluster.Kubeconfig
   ( FetchOps (..)
+  , KubeconfigDestination (..)
   , KubeconfigIdentity (..)
+  , KubeconfigStageDecision (..)
   , defaultFetchOps
   , fetchKubeconfig
+  , inspectKubeconfigDestination
+  , kubeconfigStageDecision
   , kubeconfigPath
   , normalizeKubeconfig
   , normalizeLocalKubeconfig
@@ -30,6 +34,8 @@ import Nagare.Dsl.Prelude
 import Nagare.Target (ContextName, TargetProfile (..), contextNameText, nagareConfigDir)
 import System.Directory
   ( createDirectoryIfMissing
+  , doesFileExist
+  , getSymbolicLinkTarget
   , pathIsSymbolicLink
   , removePathForcibly
   , renameFile
@@ -70,6 +76,60 @@ kubeconfigPath :: ContextName -> IO FilePath
 kubeconfigPath context = do
   configRoot <- nagareConfigDir
   pure (configRoot </> "kubeconfigs" </> T.unpack (contextNameText context) <> ".yaml")
+
+-- | The context kubeconfig destination, read through a symbolic link.
+-- A dangling link has no bytes.
+data KubeconfigDestination
+  = DestinationAbsent
+  | DestinationFile !ByteString
+  | DestinationLink !FilePath !(Maybe ByteString)
+  deriving stock (Eq, Show)
+
+-- | What the kubeconfig stage does with its destination.
+data KubeconfigStageDecision
+  = KubeconfigUnchanged
+  | KubeconfigRecover
+  | KubeconfigReplace
+  deriving stock (Eq, Show)
+
+inspectKubeconfigDestination :: FilePath -> IO (Either Text KubeconfigDestination)
+inspectKubeconfigDestination destination = do
+  linked <- try (pathIsSymbolicLink destination)
+  case linked of
+    Left (err :: IOException)
+      | isDoesNotExistError err -> pure (Right DestinationAbsent)
+      | otherwise -> pure (Left (ioFailure "inspect the context kubeconfig" err))
+    Right True -> do
+      target <- try (getSymbolicLinkTarget destination)
+      contents <- try (BS.readFile destination)
+      pure $ case (target, contents) of
+        (Left (err :: IOException), _) -> Left (ioFailure "read the context kubeconfig link" err)
+        (Right path, Left (err :: IOException))
+          | isDoesNotExistError err -> Right (DestinationLink path Nothing)
+          | otherwise -> Left (ioFailure "read the context kubeconfig through its link" err)
+        (Right path, Right bytes) -> Right (DestinationLink path (Just bytes))
+    Right False -> do
+      exists <- doesFileExist destination
+      if exists
+        then Right . DestinationFile <$> BS.readFile destination
+        else pure (Right DestinationAbsent)
+
+-- | F127: a linked destination whose bytes match the accepted scope needs no
+-- write. Nagare never writes through a link, so every other linked case refuses.
+kubeconfigStageDecision :: Bool -> Bool -> ByteString -> KubeconfigDestination -> Either Text KubeconfigStageDecision
+kubeconfigStageDecision accepted recover expected destination = case destination of
+  DestinationFile current
+    | accepted && current == expected -> Right KubeconfigUnchanged
+    | accepted -> Left "accepted context kubeconfig has a different content digest"
+  DestinationLink _ (Just current) | accepted && current == expected -> Right KubeconfigUnchanged
+  DestinationLink target _ ->
+    Left ("context kubeconfig destination is a symlink to " <> T.pack target <> "; update it outside Nagare")
+  DestinationAbsent
+    | accepted && recover -> Right KubeconfigRecover
+    | accepted -> Left "accepted kubeconfig is absent in this context root; run nagarectl kubeconfig recover"
+  _
+    | recover -> Left "kubeconfig recovery requires an accepted credential scope"
+    | otherwise -> Right KubeconfigReplace
 
 -- | Fetch through the existing project-confined IAP helper, normalize the
 -- single-cluster k3s file, validate it with kubectl, and replace the destination

@@ -25,7 +25,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-import System.Directory (doesPathExist)
+import System.Directory (createFileLink, doesPathExist)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
@@ -56,6 +56,10 @@ inventoryArtifactTests =
           BS.writeFile current "changed"
           observeKubeconfigProjectionAt current accepted >>= assertBool "changed bytes accepted" . either (const True) (const False)
           observeKubeconfigProjectionAt old accepted >>= assertBool "missing bytes accepted" . either (const True) (const False)
+          let linked = temporary </> "linked.yaml"
+          BS.writeFile current "published-content"
+          createFileLink current linked
+          observeKubeconfigProjectionAt linked accepted >>= expectRight >>= (@?= ObservedPresent (ok (mkPhysicalIdentity ("kubeconfig://" <> Text.pack linked))))
     , testCase "accepted kubeconfig projection relocates paths but rejects identity, bytes and producer changes" $ do
         let owner = ok (mkScopeId Platform "kubeconfig")
             credential =
