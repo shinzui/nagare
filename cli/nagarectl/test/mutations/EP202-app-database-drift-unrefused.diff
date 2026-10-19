@@ -1,5 +1,5 @@
 diff --git a/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs b/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
-index 02c14fe7..3de8f1a6 100644
+index b905e8d5..e26ca11f 100644
 --- a/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
 +++ b/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
 @@ -246,7 +246,6 @@ classifyUser :: Engine -> AppDatabaseRole -> Bool -> Text -> [Text] -> Catalog -
