@@ -48,25 +48,38 @@ for real use, as [priorities after v0.6.3](../releases/priorities-after-v0.6.3.m
 
 ## Progress
 
-- [ ] M1 (F127). The kubeconfig stage accepts a symlinked destination whose bytes, read through
+- [x] M1 (F127). The kubeconfig stage accepts a symlinked destination whose bytes, read through
   the link, match the accepted digest, and it writes nothing. A symlinked destination whose
   bytes differ still refuses, and the message names the link target. A test covers a matching
-  link, a differing link and a dangling link.
-- [ ] M2 (F126). Context control reads a symlinked context file and its `.reviews` directory
+  link, a differing link and a dangling link. Done 2026-10-19 (`6953fd7c`, landed with
+  `ee9bb365`): `kubeconfigStageDecision` in `cli/nagarectl/src/Nagare/Cluster/Kubeconfig.hs`;
+  test "F127: the kubeconfig stage accepts a matching link and never writes through one"; the
+  planning observation of the accepted projection also reads through the link (artifact adapter
+  test). Fast gate green.
+- [x] M2 (F126). Context control reads a symlinked context file and its `.reviews` directory
   through the link. It writes by renaming over the canonical target, so the link survives. A
   dangling link refuses. A test applies a reviewed profile change to a symlinked context in a
   temporary configuration root, then checks the link is still a link and its target holds the
-  new bytes.
-- [ ] M3 (F131). `db app-database retire` sets the backup CronJob's `spec.suspend: true` in the
+  new bytes. Done 2026-10-19 (`ee9bb365`, landed): test "F126: a reviewed change applies through
+  a linked context and keeps the link". Fast gate green.
+- [x] M3 (F131). `db app-database retire` sets the backup CronJob's `spec.suspend: true` in the
   same reviewed revision. A later `db app-database plan` of the enabled declaration clears it.
   The schedule revision digest ignores `suspend`, so runs made before retirement can still be
   ingested and restored. Tests cover retire, re-enable and ingestion of a pre-retirement run.
-- [ ] M4 (F132). `server status` and `doctor` emit a recovery-point row and a retention row
+  Done 2026-10-19 (`9d389cba`): test "F131: retirement suspends the schedule, re-planning resumes
+  it, and earlier runs still ingest and restore". The revision lives in the receipt metadata,
+  which `suspend` does not touch.
+- [x] M4 (F132). `server status` and `doctor` emit a recovery-point row and a retention row
   labelled `<namespace>/<appdb>` for every accepted `nagare-appdb-*` schedule. A suspended
   (retired) schedule grades `retired`, not stale. `db app-database prune-scheduled-backups` and
   `db app-database recover-scheduled-prune` review deletions exactly as the database commands
   do. Both commands are registered in `scripts/audit-managed-commands.py`, and
-  `docs/user/managed-databases.md` documents them.
+  `docs/user/managed-databases.md` documents them. Done 2026-10-19 (`d480be02`): tests "F132:
+  status grades every app database's schedule, and a retired one as retired" and "F132: an app
+  database's scheduled run is pruned under its own prefix and scope names". Schedule selection
+  is `Nagare.Inventory.ScheduledStatus`; the source resolution is `appDatabaseScheduleSource`,
+  shared by status, ingestion and prune. Mutation record
+  `EP183-volume-prune-prefix-ignores-volume` regenerated for the new constructor.
 - [ ] M5. `just local-app-database-smoke CONTEXT` also asserts that retiring beta-ch suspends
   its CronJob, that `server status` lists the four app databases' recovery points, and that a
   prune review of alpha-pg has no runs past policy.
@@ -102,6 +115,20 @@ for real use, as [priorities after v0.6.3](../releases/priorities-after-v0.6.3.m
   Rationale: ADR 13, decision point 2 requires this, and EP-116 already resolves the context
   file this way in `cli/nagarectl/src/Nagare/Target.hs`. Context control is the one writer that
   still refuses instead.
+  Date: 2026-10-19
+
+
+- Decision: Context control refuses a removal review of a linked context.
+  Rationale: Removing the link's target would delete a file in the operator's private
+  repository and leave a dangling link that restore then refuses. A linked context is removed
+  in its private repository.
+  Date: 2026-10-19
+
+- Decision: An app-database prune treats a run as current while it was taken from the server's
+  current StatefulSet and claim incarnations, not while the app-database scope revision is
+  unchanged. Its policy pin is the scope revision, as a database's is.
+  Rationale: The scope revision moves at every rotation and at retirement, so a revision check
+  would make every earlier run unprunable after either, with no way to re-ingest it.
   Date: 2026-10-19
 
 

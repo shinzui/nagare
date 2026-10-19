@@ -9,7 +9,9 @@
 #   5. own-database read and write, and every cross-app denial;
 #   6. rotate alpha-pg's runtime user and retire beta-ch, the other apps unchanged;
 #   7. one scheduled backup run of alpha-pg and alpha-ch, ingested and restored into scratch;
-#   8. app-database smoke: PASS.
+#   8. server status grades all four app databases' recovery points (beta-ch retired), and a
+#      prune review of alpha-pg has no runs past policy (EP-203);
+#   9. app-database smoke: PASS.
 #
 # Usage (from an empty environment; the context names the cluster, never the ambient shell):
 #   NAGARE_SMOKE_CONTEXT=NAME [NAGARECTL=/path/to/nagarectl] scripts/local-app-database-smoke.sh
@@ -267,7 +269,8 @@ refused "retired beta-ch runtime login" ch_as beta-ch-runtime 'SELECT 1'
 refused "retired beta-ch migration login" ch_as beta-ch-migration 'SELECT 1'
 expect "beta-ch data kept after retirement" "$(ch_admin 'SELECT count() FROM beta.t')" "1"
 expect "alpha-ch read after beta-ch retirement" "$(ch_rt alpha-ch 'SELECT groupArray(v)[1] FROM alpha.t')" "alpha"
-log "AC-4: rotation changed only alpha-pg runtime; beta-ch retired with its data kept; alpha unaffected"
+expect "retired beta-ch schedule suspended (F131)" "$(kubectl -n "$NS" get cronjob nagare-appdb-beta-ch -o jsonpath='{.spec.suspend}')" "true"
+log "AC-4: rotation changed only alpha-pg runtime; beta-ch retired with its data kept and its schedule suspended; alpha unaffected"
 
 # --- 7. one scheduled run of each alpha backup, ingested, restored into scratch ---
 for app in alpha-pg alpha-ch; do
@@ -289,5 +292,25 @@ expect "alpha-ch scratch ledger" "$(ch_rt alpha-ch "SELECT count() FROM alpha_le
 expect "live alpha untouched by the restore" "$(pg_rt alpha-pg "SELECT string_agg(v, '|') FROM t")" "alpha"
 expect "beta-pg untouched by the restore" "$(pg_rt beta-pg "SELECT string_agg(v, '|') FROM t")" "beta"
 log "AC-5: scheduled runs of alpha-pg and alpha-ch ingested and restored into scratch with their access"
+
+# --- 8. status grades every app database; nothing of alpha-pg is past policy (F132) ---
+status="$(n server status --skip-vm 2>&1)" || { echo "$status" >&2; fail "server status"; }
+for app in alpha-pg alpha-ch beta-pg beta-ch; do
+  grep -Eq "recovery point +$NS/$app: " <<<"$status" || { echo "$status" >&2; fail "server status has no recovery point for $NS/$app"; }
+  grep -Eq "retention +$NS/$app: " <<<"$status" || { echo "$status" >&2; fail "server status has no retention row for $NS/$app"; }
+done
+grep -Eq "^ +OK +recovery point +$NS/beta-ch: retired; schedule suspended" <<<"$status" || { echo "$status" >&2; fail "retired beta-ch is not graded retired"; }
+# The schedule's own runs since the app databases were created are ingested first: a
+# prune refuses while an older run is not ingested.
+if ingest="$(n db app-database backup-receipts alpha-pg -n "$NS" --all --save-plan "$REVIEWS/ingest-all-alpha-pg" 2>&1)"; then
+  apply "$REVIEWS/ingest-all-alpha-pg"
+else
+  grep -q "no verified scheduled run awaits ingestion" <<<"$ingest" || { echo "$ingest" >&2; fail "ingest alpha-pg's scheduled runs"; }
+fi
+if prune="$(n db app-database prune-scheduled-backups alpha-pg -n "$NS" --save-plan "$REVIEWS/prune-alpha-pg" 2>&1)"; then
+  fail "a prune of alpha-pg's fresh runs was reviewed"
+fi
+grep -q "no accepted scheduled backup is past the retention policy" <<<"$prune" || { echo "$prune" >&2; fail "alpha-pg prune review"; }
+log "F132: status grades all four app databases' recovery points, beta-ch retired; alpha-pg has no runs past policy"
 
 echo "app-database smoke: PASS"
