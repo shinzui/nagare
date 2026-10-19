@@ -5,6 +5,29 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-19
+
+### Added
+
+- **App databases on shared servers.** One PostgreSQL or ClickHouse server hosts many apps'
+  databases, each with its own runtime and migration users and explicit grants, provisioned,
+  rotated and retired through reviewed `nagarectl db app-database` commands. Workloads bind them
+  with `appDatabases` and receive only their runtime credential. Each app database has its own
+  signed backup schedule, ingestion, and restore into scratch or after a server rebuild (IR-29).
+
+### Changed
+
+- **`Deployment` and `Worker` have an `appDatabases` field.** A config that builds either record
+  literally adds `appDatabases = []`; presets and record updates are unaffected.
+- **ClickHouse servers turn on SQL access management.** Each existing ClickHouse server sees one
+  reviewed update and restarts once.
+
+### Fixed
+
+- **Backup and restore Job pods no longer receive database connections.** They carried the label
+  a server's Service selects, so a running Job pod briefly refused connections routed to it. Each
+  existing backup CronJob sees one reviewed update.
+
 ## [0.6.6] - 2026-10-18
 
 ### Fixed

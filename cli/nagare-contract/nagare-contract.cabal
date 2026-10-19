@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: nagare-contract
-version: 0.6.6
+version: 0.7.0
 synopsis: Nagare's versioned public document contract.
 description:
   The documents nagarectl prints under --contract 1 and the read-only admin

@@ -5,7 +5,7 @@
   "minimumInventorySchemaVersion": 1,
   "minimumUpgradeTransactionSchemaVersion": 1,
   "payloadId": "source-development",
-  "platformVersion": "0.6.6",
+  "platformVersion": "0.7.0",
   "sourceRevision": null,
   "supportedSystems": [
     "x86_64-linux",
@@ -19,6 +19,7 @@
     "0.6.2",
     "0.6.3",
     "0.6.4",
-    "0.6.5"
+    "0.6.5",
+    "0.6.6"
   ]
 }
