@@ -50,11 +50,14 @@ After this plan:
   list is refused when the config loads;
 - a PostgreSQL app database can declare `pg_monitor`. Then the read-only grants that PGMQ's
   migration makes to it are not drift;
-- each user can carry ceilings. ClickHouse has memory per query, execution time and concurrent
-  queries. PostgreSQL has a connection limit and an optional role-level `statement_timeout`. An
-  app can still lower a ClickHouse ceiling per query, but never raise it;
-- a hand change to any of these is drift, and removing a ClickHouse declaration revokes it
-  through review;
+- each user can carry limits. ClickHouse has ceilings on memory per query, execution time and
+  concurrent queries, which the server enforces: an app can lower one per query, but can
+  neither raise it nor set it to zero. PostgreSQL has a connection limit, which the server
+  enforces, and an optional role-level `statement_timeout`, which is a session default an app
+  can override, not a ceiling;
+- a hand change to any of these is refused as drift, and a hand removal is restored by the next
+  plan. Removing a ClickHouse exception or any limit from the declaration revokes or resets it
+  through review. Removing `pg_monitor` makes its grants drift again;
 - an app database that declares none of this plans to `no operations` after the upgrade, with
   the same digests it had.
 
@@ -72,19 +75,24 @@ After this plan:
   byte-identical JSON. Tests: loader goldens and refusals in `AppDatabaseSpec`.
 - [ ] M3 (inventory and adapter). The user and logical-database specs carry the declared
   extension, and their wire bytes are unchanged when it is empty. The adapter grants, sets and
-  observes the extension. Undeclared extras stay drift. Removing a declared ClickHouse exception
-  or limit plans a revocation. `AppDatabaseWorldSpec` covers converge, re-plan to no operations,
-  resume after every fault, drift on a hand-added grant or setting, and revocation on removal,
-  on both engines. A test decodes a v0.7.1 accepted app-database scope and re-encodes it
-  byte-identically.
-- [ ] M4 (lifecycle and docs). Rotation keeps the extension. Retirement turns it off with the
-  other server grants. Scratch and rebuilt restores leave a declared app database complete on
-  re-plan. `docs/user/managed-databases.md` documents the allow-list, the limits, what the
-  ceilings mean, and why `system.processes` is not offered. `just haskell-style-check` and
+  observes the extension, and the planned operation's summary names each exception and limit.
+  Undeclared extras stay drift. A hand-changed value is drift; a hand-removed exception or
+  limit is restored by the next plan. Removing a declared ClickHouse exception or any limit
+  plans a revocation or reset. `AppDatabaseWorldSpec` covers converge, re-plan to no
+  operations, resume after every fault, drift on a hand-added grant or setting, restoration
+  after a hand removal, and revocation on removal from the declaration, on both engines. A
+  test decodes a v0.7.1 accepted app-database scope and re-encodes it byte-identically.
+- [ ] M4 (lifecycle and docs). Rotation keeps the extension. Retirement revokes the exceptions
+  with the other server grants; limits follow the declaration whether or not the user can log
+  in. Scratch and rebuilt restores leave a declared app database complete on re-plan.
+  `docs/user/managed-databases.md` documents the allow-list, the limits, which of them are
+  ceilings and which are defaults, that the migration user's ceilings bound its scheduled
+  backup, and why `system.processes` is not offered. `just haskell-style-check` and
   `just gate-fast` are green, and the change is landed.
 - [ ] M5 (native confirmation). `scripts/local-app-database-smoke.sh` declares exceptions and
-  limits on `alpha-ch` and `alpha-pg` and proves IR-30 AC-2 and AC-4, and IR-32 AC-1 to AC-4,
-  on a disposable local context with the packaged CLI.
+  limits on both users of `alpha-ch` and on `alpha-pg` and proves IR-30 AC-2, AC-4 and AC-5,
+  and IR-32 AC-1 to AC-4, on a disposable local context with the packaged CLI. The smoke's
+  rotation, retirement, backup and restore steps then run with the exceptions declared.
 - [ ] M6 (release). The change ships in a release (it may share one with
   [EP-205](205-quiesce-one-app-database-and-back-it-up-on-demand.md)). The intranet is upgraded
   on the candidate before the tag. Kansoku's app databases then declare their exceptions in
@@ -129,14 +137,25 @@ After this plan:
   turn an engine upgrade into drift.
   Date: 2026-10-19
 
-- Decision: ClickHouse limits are user-level settings with `MAX` constraints, set by
-  `ALTER USER <u> SETTINGS <s> = <v> MAX <v>, …`. They are not a Nagare-created settings profile
-  or quota, and not `readonly`.
+- Decision: ClickHouse limits are user-level settings with `MIN 1` and `MAX` constraints, set
+  by `ALTER USER <u> SETTINGS <s> = <v> MIN 1 MAX <v>, …`, or `SETTINGS NONE` when none is
+  declared. They are not a Nagare-created settings profile or quota, and not `readonly`.
   Rationale: There is one statement per user, which replaces the user's whole settings list, so
   converging is idempotent. They are observed in `system.settings_profile_elements` by
   `user_name`. No extra named entity can collide between app databases. The default equals the
   ceiling, so an app that sets nothing gets the ceiling. An app can lower a setting per query
-  (IR-32 AC-2), and undeclared settings stay writable.
+  (IR-32 AC-2), and undeclared settings stay writable. A constraint only compares against its
+  own bounds, so with `MAX` alone `SET max_memory_usage = 0` is accepted, and zero means
+  unlimited for all three settings. `MIN 1` closes that, and M1 confirms it.
+  Date: 2026-10-19
+
+- Decision: The PostgreSQL `statement_timeout` is kept as an optional role-level default, set
+  with `ALTER ROLE … SET`, and the docs call it a default, not a ceiling. The connection limit
+  is the only PostgreSQL ceiling.
+  Rationale: `statement_timeout` is a session setting any role may `SET`, including to `0`, so
+  PostgreSQL cannot make it a ceiling. IR-32 lists it as optional. EP-206 reuses the role
+  setting observation built here and calls its own role settings advisory defaults. `pg_dump`
+  sets `statement_timeout = 0` in its own session, so the scheduled backup is not affected.
   Date: 2026-10-19
 
 - Decision: PostgreSQL `pg_monitor` is tolerated, not granted. When declared, grants to
@@ -160,12 +179,47 @@ After this plan:
   compatibility layer.
   Date: 2026-10-19
 
-- Decision: A ClickHouse exception or limit that the accepted spec declared, but the desired
-  spec does not, is a declared revocation. The member is classified incomplete, so the plan
-  revokes it. Anything that neither spec declared is still drift.
-  Rationale: IR-30 AC-5 asks that removal revoke through review. ADR 30 forbids repairing
-  access Nagare never granted. The adapter already receives the accepted members
-  (`mkAppDatabaseAdapter accepted`).
+- Decision: Each observed item of a user's extension is classified by one rule. An item equal
+  to the desired declaration is complete. An item equal to the accepted declaration but not the
+  desired one is incomplete, and the update revokes or resets it. Any other item is drift. A
+  desired item that is absent is incomplete, and the update restores it. The items are: each
+  allow-listed exception (held or not), each ClickHouse user setting (name, value, min, max,
+  writability), any inherited settings profile (always drift), the PostgreSQL connection limit
+  (`-1` when none is declared), and the role's `statement_timeout` (any other role setting is
+  drift). The accepted declaration is read from the accepted user spec, which
+  `mkAppDatabaseAdapter accepted` already receives.
+  Rationale: IR-30 AC-5 asks that removal revoke through review, and IR-32 AC-4 that a hand
+  change be reported. ADR 30 forbids repairing access Nagare never granted, which is why a
+  value neither declaration names refuses rather than converges. A hand removal is the same
+  case as a hand-revoked grant today: the declared state is restored.
+  Date: 2026-10-19
+
+- Decision: The renderings depend only on the desired extension, never on the accepted one.
+  The ClickHouse user-access statements grant each declared exception and revoke every other
+  allow-listed exception, then send the one settings statement. The PostgreSQL statements
+  always send `CONNECTION LIMIT` (`-1` when none is declared) and `SET` or `RESET
+  statement_timeout`. `SetUserAccess` therefore carries the desired extension only.
+  Rationale: Every statement is idempotent and complete on its own, so a retry after a lost
+  acknowledgement needs no history, and the fixture can pin one rendering per declaration.
+  Revoking a grant the user does not hold is a no-op, which the existing retirement path
+  already relies on and M1 confirms.
+  Date: 2026-10-19
+
+- Decision: Retirement revokes the exceptions, as it revokes the other server grants. Limits
+  follow the declaration whether or not the user can log in, so the disabled rendering sends
+  the same settings, connection-limit and role-setting statements as the enabled one.
+  Rationale: One rule for limits, no second classification branch, and a user re-enabled after
+  retirement is limited from its first query.
+  Date: 2026-10-19
+
+- Decision: The migration user's ceilings apply to the scheduled backup it runs. On ClickHouse
+  the backup is one `BACKUP DATABASE … TO File(…)` query as the migration user, so a declared
+  execution-time or memory ceiling on that user bounds it, and the concurrency ceiling counts
+  it. Nagare does not exempt the backup. The docs say so, and M1 confirms which ceilings
+  `BACKUP` is subject to. On PostgreSQL the connection limit must leave one connection for
+  `pg_dump`, and `pg_dump` resets `statement_timeout` itself.
+  Rationale: An exemption would need a second credential or a server-side setting per backup,
+  and the operator who declares the ceiling owns the app's backup size.
   Date: 2026-10-19
 
 - Decision: Nagare does not check the sum of declared PostgreSQL connection limits against the
@@ -285,7 +339,9 @@ Relevant ADRs:
 Terms:
 
 - **Exception**: an allow-listed privilege beyond the fixed grant set.
-- **Limit** or **ceiling**: a server-enforced maximum on one user.
+- **Limit**: a declared per-user value the server applies. A **ceiling** is a limit the app
+  cannot exceed: the three ClickHouse settings and the PostgreSQL connection limit. The
+  PostgreSQL `statement_timeout` is a role default, not a ceiling.
 - **Extension**: the exceptions plus the limits of one user, or the tolerated monitoring roles
   of one logical database.
 
@@ -309,19 +365,31 @@ ClickHouse questions:
   `ENGINE = File(...)`, `URL(...)` or `S3(...)` still refused?
 - **Exact rows.** What exact rows does `system.grants` report for each of these grants? Record
   any implied privilege rows: the classification must match them exactly.
-- **Ceilings.** Does `ALTER USER alpha_runtime SETTINGS max_memory_usage = 1073741824 MAX
-  1073741824, max_execution_time = 60 MAX 60, max_concurrent_queries_for_user = 4 MAX 4` give
-  each ceiling as the default? Is `SET max_memory_usage = 536870912` accepted and
-  `SET max_memory_usage = 2147483648` refused?
-- **Zero.** Is `SET max_memory_usage = 0` refused? Zero means unlimited, so it must be refused.
-  If it is not, add `MIN 1` and record that in the Decision Log. Ask the same for
-  `max_execution_time = 0`.
-- **Enforcement.** Is a query over each ceiling stopped (memory, time, a fifth concurrent
-  query) while `beta_runtime` runs the same query unaffected?
+- **Ceilings.** Does `ALTER USER alpha_runtime SETTINGS max_memory_usage = 268435456 MIN 1 MAX
+  268435456, max_execution_time = 5 MIN 1 MAX 5, max_concurrent_queries_for_user = 2 MIN 1 MAX
+  2` give each ceiling as the default? Is `SET max_memory_usage = 134217728` accepted and
+  `SET max_memory_usage = 536870912` refused?
+- **Zero.** Is `SET max_memory_usage = 0`, `max_execution_time = 0` and
+  `max_concurrent_queries_for_user = 0` each refused under `MIN 1`? Record the exact error.
+- **Enforcement.** Is a query over each ceiling stopped while `beta_runtime` runs the same
+  query unaffected? The probes must not be optimised away and must fit under the server's
+  1.5 GiB `max_server_memory_usage` for `beta`:
+  - time: `SELECT sum(cityHash64(number)) FROM numbers(100000000000) SETTINGS max_threads = 1`.
+    A `count()` over `numbers(N)` is answered without reading rows, so it is not a probe;
+  - memory: `SELECT length(groupArray(number)) FROM numbers(30000000)`, which needs more than
+    256 MiB and well under 1.5 GiB. Record `beta`'s peak from `system.query_log`;
+  - concurrency: three `SELECT sleep(3)` at once; the third is refused.
 - **Undeclared settings.** Can `enable_analyzer`, `async_insert` and `mutations_sync` still be
   set?
 - **Observation.** What does `system.settings_profile_elements` return for the user? Does
-  `ALTER USER … SETTINGS NONE` clear it?
+  `ALTER USER … SETTINGS NONE` clear it? Does a second `ALTER USER … SETTINGS` replace, not
+  add to, the list?
+- **Revoke of an absent grant.** Does `REVOKE SELECT ON system.disks FROM alpha_runtime`
+  succeed when the grant is not held? The renderings revoke every undeclared allow-listed
+  exception on each converge.
+- **Backup under ceilings.** With the ceilings on `alpha_migration`, is
+  `BACKUP DATABASE alpha TO File('m1.zip')` subject to `max_execution_time` and
+  `max_memory_usage`? Record which apply.
 
 PostgreSQL questions:
 
@@ -329,7 +397,9 @@ PostgreSQL questions:
   connection refused with `too many connections for role`? Is the limit observed in
   `pg_roles.rolconnlimit`?
 - **Statement timeout.** After `ALTER ROLE "alpha_runtime" SET statement_timeout = '30s'`, is
-  the setting observed in `pg_db_role_setting` (`setdatabase = 0`)? Does `RESET` clear it?
+  the setting observed in `pg_db_role_setting` (`setdatabase = 0`), and in which text form?
+  Does `RESET` clear it? Is `SET statement_timeout = 0` in a session still accepted, which is
+  why the docs call it a default?
 - **PGMQ rows.** Run PGMQ's `0001-install-v1.11.0.sql` grants as `alpha_migration` (the five
   statements quoted in IR-30). What rows do `renderObserveServer` and `renderObserveDatabase`
   report for `pg_monitor`?
@@ -354,7 +424,8 @@ PostgreSQL questions:
 
 Extend `appDatabaseJSON` and the loader with an optional `access` object. It is emitted only
 when not empty, so declarations without it keep their bytes, their `declaration` digest, and
-the schedule revision.
+the schedule revision. An app database that adds `access` gets a new schedule revision, as any
+declaration change does.
 
 **M3, inventory and adapter.**
 
@@ -366,24 +437,33 @@ the schedule revision.
   - In `compileAppDatabase`, add `exceptions`, `limits` or `monitoring` keys to the digest
     objects only when they are non-empty.
 - **SQL** (`Sql.hs`).
-  - `renderUserAccess` adds the exception grants or revocations, the `ALTER USER … SETTINGS`
-    statement (or `SETTINGS NONE`), and, for PostgreSQL, `CONNECTION LIMIT` and `SET` or
-    `RESET statement_timeout`. Each must be pinned to an M1 block.
-  - `renderObserveClickHouse` gains a `setting` row from `system.settings_profile_elements`,
-    and keeps table-level grants as structured rows.
-  - `renderObserveServer` gains `rolconnlimit` and the role's `pg_db_role_setting` entries.
+  - `renderUserAccess` takes the desired extension. On ClickHouse it grants each declared
+    exception, revokes every other allow-listed exception, and sends one
+    `ALTER USER … SETTINGS … MIN 1 MAX …` statement, or `SETTINGS NONE`. On PostgreSQL it
+    always sends `CONNECTION LIMIT` (`-1` when none) and `SET` or `RESET statement_timeout`.
+    The disabled rendering revokes all exceptions and sends the same limit statements. Each
+    rendering is pinned to an M1 block.
+  - `renderObserveClickHouse` gains a `setting` row per `system.settings_profile_elements`
+    entry of the user: name, value, min, max, writability and inherited profile. Table-level
+    grants stay structured rows.
+  - `renderObserveServer` gains `rolconnlimit` and the role's `pg_db_role_setting` entries
+    with `setdatabase = 0`.
 - **Classification** (`Catalog.hs`).
-  - `CatalogUser` gains observed settings, a connection limit and role settings.
-  - ClickHouse `SELECT` on a declared `system.<table>` is a server grant, not an anomaly.
-  - `classifyUser` compares the user's server grants and settings against fixed grants plus the
-    declared extension, with the accepted extension as the revocable set (see the Decision
-    Log).
+  - `CatalogUser` gains observed settings (name, value, min, max, writability), inherited
+    profiles, the connection limit and the role settings. EP-206 reads the same fields.
+  - Parsing turns a ClickHouse `SELECT` on one of the four allow-listed `system` tables into a
+    server-grant token such as `SELECT ON system.parts`. Any other grant with a table or
+    column is still an anomaly. Classification, not parsing, decides whether the token is
+    declared.
+  - `classifyUser` takes the desired and the accepted extension and applies the one rule in
+    the Decision Log to each exception, setting, inherited profile, connection limit and role
+    setting.
   - `postgresGrant` accepts declared monitoring roles for exactly the read-only privileges in
     the Decision Log.
-  - Any settings profile inherited by an app user, or any role setting other than
-    `statement_timeout`, is drift.
-- **Adapter.** `AppDatabaseMember` carries the desired and accepted extensions.
-  `SetUserAccess` carries the extension, so `converge` sends one statement set per member.
+- **Adapter.** `AppDatabaseMember` carries the desired extension; the accepted one is read
+  from the accepted spec. `SetUserAccess` carries the desired extension, so `converge` sends
+  one statement set per member. The operation `summary` names each declared exception and
+  limit, so the saved plan shows them (IR-30 AC-1).
 - **World.** Extend `cli/nagarectl/test/Nagare/Test/World/AppDatabase.hs` to interpret the new
   statements with M1's semantics. Add an adversary fault that hand-adds an undeclared setting
   and one that hand-adds an undeclared grant on `system.parts`.
@@ -393,22 +473,27 @@ the schedule revision.
 - **Rotation.** `rotateAppDatabaseScope` is unchanged; a test confirms the extension survives
   it.
 - **Retirement.** `retireAppDatabaseScope` already turns user specs off; the disabled path of
-  `renderUserAccess` now also revokes the exceptions. Limits stay set, because a user that
-  cannot log in is not limited by them. `classifyUser` must accept that state for a disabled
-  user.
+  `renderUserAccess` now also revokes the exceptions and sends the declared limits.
+  `classifyUser` expects no exceptions and the declared limits for a disabled user.
 - **Restore.** ClickHouse exceptions are server-wide, not per database, so scratch restore
   needs nothing new. A test asserts that a re-plan after a rebuilt restore is `no operations`
   for an app database with PGMQ grants in its dump.
-- **Docs.** Write the docs section, with a worked Kansoku-shaped example.
+- **Docs.** Write the docs section, with a worked Kansoku-shaped example. It states which
+  limits are ceilings and that `statement_timeout` is a default, that the migration user's
+  ceilings bound its scheduled backup and its connection limit must leave one connection for
+  `pg_dump`, and why `system.processes` is not offered.
 
 **M5, native confirmation.** Extend the smoke after its AC-3 step:
 
-- declare `system-parts`, `system-storage-policies` and `arbitrary-temporary-tables`, plus all
-  three ClickHouse ceilings, on `alpha-ch`;
+- declare `system-parts`, `system-storage-policies` and `arbitrary-temporary-tables` on
+  `alpha-ch`'s runtime user, and all three ClickHouse ceilings on both of its users, with the
+  migration user's ceilings large enough for the step 7 backup;
 - declare a connection limit of 3 and `pg_monitor` on `alpha-pg`;
 - re-plan, apply, and assert the probes listed in Validation;
 - remove one exception, and assert the plan revokes it.
 
+The smoke's later steps then rotate `alpha-pg`, retire `beta-ch`, and back up and restore
+`alpha-ch` with its exceptions and ceilings in force, which is IR-30 AC-5's native evidence.
 Run the smoke from an empty environment with the packaged CLI.
 
 **M6, release.** Follow `docs/runbooks/releases.md`: upgrade the intranet on the candidate,
@@ -434,8 +519,7 @@ containers afterwards with `docker rm -f ep204-pg ep204-ch`.
 For each Haskell commit:
 
 ```bash
-cd cli/nagarectl
-for p in AppDatabase; do cabal test nagarectl-test --test-options="-p $p"; done
+cd cli/nagarectl && cabal test nagarectl-test --test-options="-p AppDatabase"
 cd ../.. && just haskell-style-check && just gate-fast HEAD
 ```
 
@@ -483,27 +567,33 @@ app-database smoke: PASS
 
 **IR-32.**
 
-- **AC-1.** The smoke runs a query that exceeds each ClickHouse ceiling as `alpha_runtime`:
-  - `SELECT count() FROM numbers(1e10) SETTINGS max_threads = 1` stops at the time ceiling;
-  - a `groupArray` over `numbers(1e9)` stops at the memory ceiling;
-  - the query over the concurrency limit is refused.
+- **AC-1.** The smoke runs the M1 probes as `alpha_runtime`, with M1's proven sizes:
+  - the `cityHash64` sum over `numbers(100000000000)` stops at the time ceiling;
+  - the `groupArray` over `numbers(30000000)` stops at the memory ceiling;
+  - the third concurrent `sleep(3)` is refused.
 
-  The same queries as `beta_runtime` are not stopped by `alpha`'s ceilings.
+  The same queries as `beta_runtime` complete, so they were stopped by `alpha`'s ceilings and
+  not by the server's own limits.
 - **AC-2.** As `alpha_runtime`:
   - `SET max_memory_usage` below the ceiling is accepted;
   - above it, and to `0`, is refused;
   - `SET enable_analyzer = 0` is accepted.
 - **AC-3.** As `alpha_pg_runtime`, opening connection 4 when the limit is 3 fails with
   `too many connections for role`.
-- **AC-4.**
-  - In the world, a hand-applied `ALTER USER … SETTINGS max_memory_usage = 0` and a hand
-    `ALTER ROLE … CONNECTION LIMIT -1` each make the re-plan refuse with drift.
-  - Changing the declared ceiling plans an update.
+- **AC-4.** In the world:
+  - a hand-applied `ALTER USER … SETTINGS max_memory_usage = 0` and a hand
+    `ALTER ROLE … CONNECTION LIMIT 10`, neither value declared, each make the re-plan refuse
+    with drift;
+  - a hand `ALTER USER … SETTINGS NONE` and a hand `ALTER ROLE … CONNECTION LIMIT -1` each
+    make the re-plan show the update that restores the declared limit;
+  - changing the declared ceiling plans an update, and after it the old value is gone.
 
-**Transition.** A test loads the accepted `appdb-*` scope bytes that the v0.7.1 smoke produced,
-decodes and re-encodes them byte-identically, and re-plans the unchanged declaration to
-`no operations`. If the test needs captured bytes, record them as a fixture, from
-`nagarectl inventory show` on the M5 context before the upgrade.
+**Transition.** A test loads the accepted `appdb-*` scope records that the v0.7.1 smoke
+produced, decodes and re-encodes them byte-identically, and compiles the unchanged declaration
+to members equal to the accepted ones, so the planner sees no change. Record the records as a
+fixture under `cli/nagarectl/test/fixtures/app-database/`, taken from
+`nagarectl inventory export --out DIR` on the M5 context before the upgrade; the scope
+records are the `appdb-*` entries under its `scopes/` directory.
 
 
 ## Idempotence and Recovery
@@ -528,10 +618,16 @@ These types and functions change:
 - `DatabaseUserSpec` and `LogicalDatabase` in `Nagare.Resource.Inventory.Types` gain the
   extension. Every pattern match on them must be updated. They are matched in:
   - `Nagare.Inventory.AppDatabase`;
+  - `Nagare.Inventory.AppDatabaseRestore`;
   - `Nagare.Inventory.Application.Bindings`;
   - `Nagare.Inventory.Adapters.AppDatabase`;
-  - `Nagare.Resource.Inventory`.
-- `CatalogUser` and the `SetUserAccess` command change shape.
+  - `Nagare.Resource.Inventory`;
+  - the tests `AppDatabaseSpec` and `AppDatabaseWorldSpec`.
+- `CatalogUser` gains settings, inherited profiles, the connection limit and role settings.
+  `SetUserAccess` carries the desired extension. `classifyUser` takes the desired and accepted
+  extensions. `DatabaseAccess` carries the declared monitoring roles.
 
-No new libraries. EP-206 depends on the ClickHouse user-settings mechanism, and on the
-`CatalogUser` settings observation, from M3.
+No new libraries. EP-206 depends on the ClickHouse user-settings mechanism, the PostgreSQL
+role-setting observation, and the `CatalogUser` fields, from M3. EP-205 changes the same
+`DatabaseUserSpec` constructor (its login flag); whichever lands first writes the hand-written
+codec, and the other extends it.
