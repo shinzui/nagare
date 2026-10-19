@@ -6,7 +6,8 @@ generated:
   by: process:claude-code
   at: "2026-10-19T17:02:45Z"
 requestId: IR-32
-status: proposed
+status: accepted
+targetPlan: docs/plans/204-let-app-databases-declare-reviewed-grant-exceptions-and-resource-limits.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 acceptanceCriteria:
   - id: AC-1

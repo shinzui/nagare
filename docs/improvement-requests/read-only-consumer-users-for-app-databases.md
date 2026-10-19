@@ -6,7 +6,8 @@ generated:
   by: process:claude-code
   at: "2026-10-19T17:40:31Z"
 requestId: IR-33
-status: proposed
+status: accepted
+targetPlan: docs/plans/206-give-app-databases-reviewed-read-only-consumer-users.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 dependencies:
   - ref: mori://shinzui/nagare/okf/improvement-requests/concepts/IR-32
