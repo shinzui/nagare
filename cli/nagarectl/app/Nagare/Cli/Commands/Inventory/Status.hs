@@ -247,6 +247,8 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
               ]
           )
       )
+  -- EP-202: app-database members gain their catalog observer with the adapter.
+  let appDatabase = Inventory.executionBlockedAdapterFor ResourceInventory.AppDatabaseExecutor
   acceptedCdn <-
     if null (ids ResourceInventory.CdnExecutor) && Map.null retainedCdn
       then pure Map.empty
@@ -350,7 +352,7 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
       retainedKubernetes = observedKubernetes runtime retainedKubernetesNative
   case InventoryStatus.missingStatusObservers
     [ InventoryAdapter.adapterExecutor adapter
-    | adapter <- [kubernetes, helm, pulumi, foundation, artifact, host, cache, broker, cdn, access]
+    | adapter <- [kubernetes, helm, pulumi, foundation, artifact, host, cache, broker, cdn, access, appDatabase]
     ] of
     [] -> pure ()
     missing -> dieT ("inventory status has no observer for " <> T.intercalate ", " (map (T.pack . show) missing))
@@ -420,7 +422,8 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
   unless
     (finalHead == Just (InventoryPlan.historyHead history))
     (dieT "accepted inventory changed during status; retry against the new head")
-  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> foundationFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts <> accessFacts
+  appDatabaseFacts <- inspect appDatabase ResourceInventory.AppDatabaseExecutor
+  let allFacts = appDatabaseFacts <> kubeFacts <> helmFacts <> pulumiFacts <> foundationFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts <> accessFacts
       knownFacts = Map.fromList allFacts
       remaining =
         [ ( resource ^. #identity

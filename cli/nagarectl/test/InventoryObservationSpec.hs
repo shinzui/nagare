@@ -43,7 +43,7 @@ inventoryObservationTests =
   testGroup
     "selected native observation"
     [ testCase "inventory status must register an observer for every executor (F44)" $ do
-        let observedBeforeF44 = [KubernetesExecutor, HelmExecutor, PulumiExecutor, ArtifactExecutor, HostExecutor, CacheExecutor, BrokerExecutor, CdnExecutor, AccessExecutor]
+        let observedBeforeF44 = [KubernetesExecutor, HelmExecutor, PulumiExecutor, ArtifactExecutor, HostExecutor, CacheExecutor, BrokerExecutor, CdnExecutor, AccessExecutor, AppDatabaseExecutor]
         missingStatusObservers observedBeforeF44 @?= [CloudFoundationExecutor]
         missingStatusObservers (CloudFoundationExecutor : observedBeforeF44) @?= []
     , testCase "execution source selection ignores missing siblings and corrupt unrelated reviews" (executionSourceRead "present")
