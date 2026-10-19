@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-19
+* **Add**: Propose IR-30, IR-31 and IR-32 together from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps`, after a full privilege audit of Kansoku 9127c47 against v0.7.0 app databases. IR-30 lets an app database declare allow-listed exceptions to its fixed grants (own-row ClickHouse system tables, storage metadata, arbitrary temporary tables, PostgreSQL `pg_monitor` grants from PGMQ), which v0.7.0 reports as drift. IR-31 adds a tenant-scoped quiesce, schedule pause and on-demand backup so app maintenance no longer restarts a shared server. IR-32 adds per-app query and connection limits. Kansoku-side changes are filed as `mori://shinzui/kansoku/okf/improvement-requests/concepts/IR-1` and `mori://shinzui/kansoku/okf/improvement-requests/concepts/IR-2`.
 * **Update**: Complete IR-29 in ExecPlan 202: app databases are reviewed tenants of a shared PostgreSQL or ClickHouse server with per-app users, grants, runtime-only bindings, rotation, retirement and per-app backups; `just local-app-database-smoke` passes on a local context.
 * **Add**: Propose IR-29 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps`: host many app databases on one shared PostgreSQL server and one shared ClickHouse server, with per-app users, grants, bindings and backups. v0.6.6 gives each server one shared credential and backs up only its initial database.
 

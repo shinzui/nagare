@@ -8,6 +8,9 @@ okf_version: "0.2"
 
 # Improvement Request
 
+- [Let an app database declare reviewed exceptions to its fixed grant set](declare-reviewed-app-database-privilege-exceptions.md) - Let an app database opt into a small allow-list of extra ClickHouse privileges and accept PostgreSQL grants to read-only predefined roles that app migrations install, instead of reporting them as drift.
+- [Quiesce one app database and back it up on demand, without restarting the shared server](quiesce-and-back-up-one-app-database-on-demand.md) - Give an app database a reviewed maintenance window that pauses its backup schedule, drains only its sessions, takes an on-demand signed backup and records evidence.
+- [Give each app database reviewed resource limits on its shared server](per-app-database-resource-limits.md) - Let an app database declare per-user ClickHouse query limits and PostgreSQL connection limits, enforced by the server and observed for drift.
 - [Host many app databases on one shared managed server per engine](shared-database-servers-with-per-app-databases.md) - Give one managed PostgreSQL server and one managed ClickHouse server a separate database, user, grants and backup per app, binding each app to only its own credentials.
 - [Diagnose terminal certificate issuance failures and expose scoped recovery](diagnose-certificate-issuance-and-scoped-recovery.md) - Surface the certificate request and ACME failure chain with a supported per-host retry path that preserves the reviewed deployment.
 - [Preflight private access credentials and preserve actionable observation errors](preflight-private-access-credentials.md) - Name missing access credentials before starting a reviewed transaction and retain safe adapter causes in planning diagnostics.
