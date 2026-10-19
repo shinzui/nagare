@@ -89,9 +89,9 @@ decideRebuild candidate history observations input = do
       Just (ConfirmedAbsent _) -> True
       _ -> False
 
--- | One rebuild per accepted durable Kubernetes member that stays declared and
--- is confirmed absent, naming its recorded incarnation (none when none was
--- recorded). A generated Secret starts fresh; the caller chooses every other
+-- | One rebuild per accepted durable Kubernetes member, or app database
+-- logical database (EP-202 M6), that stays declared and is confirmed absent,
+-- naming its recorded incarnation (none when none was recorded). A generated Secret starts fresh; the caller chooses every other
 -- member's source from its recorded predecessor: a verified recovery point,
 -- or, only by the operator's explicit choice, fresh.
 rebuildTargets ::
@@ -111,7 +111,7 @@ rebuildTargets candidate history observations sourceFor = case partitionEithers 
     missing =
       [ declaration
       | Managed declaration <- inventoryDeclarations (candidateInventory candidate)
-      , declaration ^. #executor == KubernetesExecutor
+      , declaration ^. #executor `elem` [KubernetesExecutor, AppDatabaseExecutor]
       , Durable _ <- [declaration ^. #dataPolicy]
       , Set.member (declaration ^. #identity) accepted
       , Just (ConfirmedAbsent _) <- [Map.lookup (declaration ^. #identity) (observationMap observations)]

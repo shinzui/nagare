@@ -5,6 +5,7 @@ module Nagare.Inventory.BackupReceipt
   , ScheduledBackupReceipt (..)
   , scheduledReceiptExpectationFromCronJob
   , scheduledVolumeReceiptExpectationFromCronJob
+  , scheduledAppDatabaseReceiptExpectationFromCronJob
   , scheduleMetadataObjective
   , manualBackupJobReceiptExpectation
   , parseBackupReceipt
@@ -30,7 +31,8 @@ import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Vector qualified as V
 import Nagare.Cluster.GcsJob (StoreBackend, storePrefixUrl)
-import Nagare.Database.Backup (backupExt, dbBackupKeyPrefix, volumeBackupFormat, volumeBackupKeyPrefix, volumeBackupScheduleName)
+import Nagare.Database.AppDatabase.Backup (appDatabaseBackupKeyPrefix, appDatabaseBackupScheduleName)
+import Nagare.Database.Backup (appDatabaseBackupExt, backupExt, dbBackupKeyPrefix, volumeBackupFormat, volumeBackupKeyPrefix, volumeBackupScheduleName)
 import Nagare.Dsl.Database (parseEngine)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
@@ -91,7 +93,7 @@ scheduledReceiptExpectationFromCronJob ::
   ByteString ->
   Either T.Text ScheduledReceiptExpectation
 scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUid pvcUid =
-  scheduledExpectationWith ("nagare-dbbackup-" <> database) namespaceName (Just statefulUid) pvcUid $ \plain fields -> do
+  scheduledExpectationWith 7 ("nagare-dbbackup-" <> database) namespaceName (Just statefulUid) pvcUid $ \plain fields -> do
     prefix <- plain "PREFIX"
     unless
       (prefix == storePrefixUrl backend (dbBackupKeyPrefix database))
@@ -110,6 +112,42 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
             Right (prefix, extension)
       _ -> Left "accepted scheduled backup has invalid receipt metadata"
 
+-- | The app-database form (EP-202). The accepted CronJob's metadata names
+-- the app database, its server and logical databases and the declaration
+-- digest; the schedule name, key space and probed server must be the ones
+-- derived from them.
+scheduledAppDatabaseReceiptExpectationFromCronJob ::
+  StoreBackend ->
+  T.Text ->
+  T.Text ->
+  PhysicalIdentity ->
+  PhysicalIdentity ->
+  ByteString ->
+  Either T.Text ScheduledReceiptExpectation
+scheduledAppDatabaseReceiptExpectationFromCronJob backend namespaceName appDatabase statefulUid pvcUid =
+  scheduledExpectationWith 10 (appDatabaseBackupScheduleName appDatabase) namespaceName (Just statefulUid) pvcUid $ \plain fields -> case fields of
+    _
+      | KM.lookup "appDatabase" fields == Just (String appDatabase)
+      , Just (String server) <- KM.lookup "server" fields
+      , Just (Array databases) <- KM.lookup "databases" fields
+      , not (null databases)
+      , all (\case String _ -> True; _ -> False) databases
+      , Just (String declaration) <- KM.lookup "declaration" fields
+      , Right _ <- mkContentDigest declaration
+      , Just (String engineName) <- KM.lookup "engine" fields
+      , Just engine <- parseEngine engineName
+      , KM.lookup "format" fields == Just (String (appDatabaseBackupExt engine)) -> do
+          prefix <- plain "PREFIX"
+          unless
+            (prefix == storePrefixUrl backend (appDatabaseBackupKeyPrefix namespaceName appDatabase))
+            (Left "accepted app-database backup uses another object key space")
+          sourceName <- plain "BACKUP_SOURCE_NAME"
+          unless
+            (sourceName == server)
+            (Left "accepted app-database backup probes another server")
+          Right (prefix, appDatabaseBackupExt engine)
+    _ -> Left "accepted app-database backup has invalid receipt metadata"
+
 -- | The volume form of 'scheduledReceiptExpectationFromCronJob' (EP-183 M3).
 -- The accepted CronJob's own metadata names its app and volume; the schedule
 -- name, key space and probed claim must all be the ones derived from them, so
@@ -122,7 +160,7 @@ scheduledVolumeReceiptExpectationFromCronJob ::
   ByteString ->
   Either T.Text ScheduledReceiptExpectation
 scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcUid =
-  scheduledExpectationWith schedule namespaceName Nothing pvcUid $ \plain fields -> case fields of
+  scheduledExpectationWith 7 schedule namespaceName Nothing pvcUid $ \plain fields -> case fields of
     _
       | Just (String app) <- KM.lookup "app" fields
       , Just (String volume) <- KM.lookup "volume" fields
@@ -144,6 +182,7 @@ scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcU
 -- receives the upload container's plain environment and the metadata fields
 -- and returns the exact key prefix and archive format.
 scheduledExpectationWith ::
+  Int ->
   T.Text ->
   T.Text ->
   Maybe PhysicalIdentity ->
@@ -151,7 +190,7 @@ scheduledExpectationWith ::
   ((T.Text -> Either T.Text T.Text) -> KM.KeyMap Value -> Either T.Text (T.Text, T.Text)) ->
   ByteString ->
   Either T.Text ScheduledReceiptExpectation
-scheduledExpectationWith schedule namespaceName statefulUid pvcUid checkSource bytes = do
+scheduledExpectationWith baseFields schedule namespaceName statefulUid pvcUid checkSource bytes = do
   value <- first T.pack (eitherDecodeStrict bytes)
   unless
     ( lookupJsonPath ["kind"] value == Just (String "CronJob")
@@ -212,7 +251,7 @@ scheduledExpectationWith schedule namespaceName statefulUid pvcUid checkSource b
   (prefix, format) <- checkSource plain fields
   (revision, keep, objective) <- case fields of
     _
-      | Just objective <- scheduleMetadataObjective fields
+      | Just objective <- scheduleMetadataObjectiveWith baseFields fields
       , KM.lookup "namespace" fields == Just (String namespaceName)
       , KM.lookup "schedule" fields == Just (String schedule)
       , Just (String digest) <- KM.lookup "scheduleRevision" fields
@@ -248,10 +287,15 @@ scheduledExpectationWith schedule namespaceName statefulUid pvcUid checkSource b
 -- | Hourly schedules carry exactly the seven original metadata fields; only a
 -- non-default objective adds one explicit eighth field.
 scheduleMetadataObjective :: KM.KeyMap Value -> Maybe RecoveryPointObjective
-scheduleMetadataObjective fields = case (KM.size fields, KM.lookup "recoveryPoint" fields) of
-  (7, Nothing) -> Just HourlyRecoveryPoint
-  (8, Just (String selected))
-    | Right objective <- parseRecoveryPointObjective selected
+scheduleMetadataObjective = scheduleMetadataObjectiveWith 7
+
+-- | An app database's metadata (EP-202) has ten base fields.
+scheduleMetadataObjectiveWith :: Int -> KM.KeyMap Value -> Maybe RecoveryPointObjective
+scheduleMetadataObjectiveWith baseFields fields = case (KM.size fields, KM.lookup "recoveryPoint" fields) of
+  (count, Nothing) | count == baseFields -> Just HourlyRecoveryPoint
+  (count, Just (String selected))
+    | count == baseFields + 1
+    , Right objective <- parseRecoveryPointObjective selected
     , objective /= HourlyRecoveryPoint ->
         Just objective
   _ -> Nothing

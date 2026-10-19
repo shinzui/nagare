@@ -17,6 +17,7 @@ module Nagare.Inventory.Backup
   , parseScheduledBackupReceipt
   , scheduledReceiptExpectationFromCronJob
   , scheduledVolumeReceiptExpectationFromCronJob
+  , scheduledAppDatabaseReceiptExpectationFromCronJob
   , compileManualBackupScope
   , manualBackupSourceIds
   , VolumeSnapshotRequest (..)
@@ -64,6 +65,7 @@ import Nagare.Inventory.BackupReceipt
   , parseBackupReceipt
   , parseManualBackupReceipt
   , parseScheduledBackupReceipt
+  , scheduledAppDatabaseReceiptExpectationFromCronJob
   , scheduledReceiptExpectationFromCronJob
   , scheduledVolumeReceiptExpectationFromCronJob
   )

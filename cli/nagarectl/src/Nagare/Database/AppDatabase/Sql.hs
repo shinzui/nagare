@@ -22,6 +22,7 @@ module Nagare.Database.AppDatabase.Sql
   , renderCreateDatabase
   , DatabaseAccess (..)
   , renderDatabaseAccess
+  , renderScratchRestore
 
     -- * Observation
   , renderObserveServer
@@ -206,6 +207,32 @@ renderDatabaseAccess access = case (access ^. #engine, access ^. #enabled) of
     runtimeUser = pgIdent (access ^. #runtime)
     migrationUser = pgIdent (access ^. #migration)
     privileges g = T.intercalate ", " (g ^. #privileges)
+
+-- | Restore into scratch names, as the administrator, with the declared
+-- access on them: PostgreSQL creates the one scratch database owned by the
+-- migration user (pg_restore then loads it), ClickHouse restores every
+-- database of the archive under its scratch name.
+renderScratchRestore :: Engine -> [(Text, Text)] -> Text -> Text -> Text -> Text
+renderScratchRestore ClickHouse scratches archive migration runtime =
+  T.unlines $
+    ("RESTORE " <> T.intercalate ", " ["DATABASE " <> db <> " AS " <> scratch | (db, scratch) <- scratches] <> " FROM File(" <> literal archive <> ");")
+      : [ "GRANT " <> T.intercalate ", " (g ^. #privileges) <> " ON " <> scratch <> ".* TO " <> user <> ";"
+        | (role, user) <- [(MigrationRole, migration), (RuntimeRole, runtime)]
+        , g <- appDatabaseDatabaseGrants ClickHouse role
+        , (_, scratch) <- scratches
+        ]
+renderScratchRestore engine scratches _ migration runtime =
+  T.unlines $
+    concat
+      [ [ "CREATE DATABASE " <> pgIdent scratch <> " OWNER " <> pgIdent migration <> ";"
+        , "REVOKE ALL ON DATABASE " <> pgIdent scratch <> " FROM PUBLIC;"
+        ]
+          <> [ "GRANT " <> T.intercalate ", " (g ^. #privileges) <> " ON DATABASE " <> pgIdent scratch <> " TO " <> pgIdent runtime <> ";"
+             | g <- appDatabaseDatabaseGrants engine RuntimeRole
+             , g ^. #objectClass == "database"
+             ]
+      | (_, scratch) <- scratches
+      ]
 
 -- Observation ---------------------------------------------------------------
 

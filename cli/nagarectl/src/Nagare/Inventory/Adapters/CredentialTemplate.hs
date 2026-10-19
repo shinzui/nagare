@@ -279,13 +279,15 @@ backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just 
       schedule <- case KM.lookup "labels" metadata of
         Just (Object labels)
           | KM.member "nagare.dev/volume-backup" labels -> fieldText "nagare.dev/volume-backup" labels
+          -- EP-202: an app database's schedule is nagare-appdb-<app database>.
+          | KM.member "nagare.dev/app-database" labels -> ("nagare-appdb-" <>) <$> fieldText "nagare.dev/app-database" labels
           | otherwise -> ("nagare-dbbackup-" <>) <$> fieldText "nagare.dev/database" labels
         _ -> Left "backup signing credential lacks database label"
       name <- fieldText "name" metadata
       _ <- fieldText "namespace" metadata
       unless
         ( name == schedule <> "-signing"
-            && ("nagare-dbbackup-" `T.isPrefixOf` name || "nagare-volbackup-" `T.isPrefixOf` name)
+            && any (`T.isPrefixOf` name) ["nagare-dbbackup-", "nagare-volbackup-", "nagare-appdb-"]
             && not (KM.member "data" root)
             && not (KM.member "stringData" root)
         )

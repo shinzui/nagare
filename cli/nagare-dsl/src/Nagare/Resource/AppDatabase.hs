@@ -19,6 +19,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Database (engineToken)
+import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Resource.Inventory
@@ -45,6 +46,8 @@ data AppDatabaseInput = AppDatabaseInput
   , server :: !ResourceId
   , recovery :: !RecoveryIntent
   , source :: !SourceLocation
+  , backupSchedule :: !(Maybe Value)
+  -- ^ the scheduled backup CronJob rendered by the caller's storage backend
   }
   deriving stock (Generic, Eq, Show)
 
@@ -90,9 +93,10 @@ compileAppDatabase digestOf input = do
   credentials <- traverse credential [RuntimeRole, MigrationRole]
   users <- traverse user [RuntimeRole, MigrationRole]
   databases <- traverse logicalDatabase (NE.toList (db ^. #logicalDatabases))
+  backup <- maybe (pure []) (backupBundle (map (^. #identity) databases)) (input ^. #backupSchedule)
   pure
-    ( ResourceBundle (map (Managed . fst) credentials <> map Managed (users <> databases)) [] [] [] [] []
-    , [(resource ^. #identity, value) | (resource, value) <- credentials]
+    ( ResourceBundle (map (Managed . fst) (credentials <> backup) <> map Managed (users <> databases)) [] [] [] [] []
+    , [(resource ^. #identity, value) | (resource, value) <- credentials <> backup]
     )
   where
     db = input ^. #appDatabase
@@ -188,6 +192,78 @@ compileAppDatabase digestOf input = do
           , delegations = []
           , source = sourceAt ("database/" <> databaseText)
           }
+    -- The schedule dumps with the migration credential, reads only the
+    -- server's StatefulSet and PVC, and signs its receipts with its own key.
+    backupBundle databaseIds cron = do
+      let schedule = "nagare-appdb-" <> appDatabaseNameText (db ^. #name)
+          namespaceName = namespaceText (db ^. #namespace)
+          serverName = databaseNameText (db ^. #server)
+          metadata = object ["name" .= schedule, "namespace" .= namespaceName]
+          account = object ["apiVersion" .= ("v1" :: Text), "kind" .= ("ServiceAccount" :: Text), "metadata" .= metadata]
+          role =
+            object
+              [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+              , "kind" .= ("Role" :: Text)
+              , "metadata" .= metadata
+              , "rules"
+                  .= [ object ["apiGroups" .= (["apps"] :: [Text]), "resources" .= (["statefulsets"] :: [Text]), "resourceNames" .= [serverName], "verbs" .= (["get"] :: [Text])]
+                     , object ["apiGroups" .= ([""] :: [Text]), "resources" .= (["persistentvolumeclaims"] :: [Text]), "resourceNames" .= [dbPvcName serverName], "verbs" .= (["get"] :: [Text])]
+                     ]
+              ]
+          binding =
+            object
+              [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+              , "kind" .= ("RoleBinding" :: Text)
+              , "metadata" .= metadata
+              , "subjects" .= [object ["kind" .= ("ServiceAccount" :: Text), "name" .= schedule, "namespace" .= namespaceName]]
+              , "roleRef" .= object ["apiGroup" .= ("rbac.authorization.k8s.io" :: Text), "kind" .= ("Role" :: Text), "name" .= schedule]
+              ]
+          signing =
+            object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("Secret" :: Text)
+              , "type" .= ("Opaque" :: Text)
+              , "metadata"
+                  .= object
+                    [ "name" .= (schedule <> "-signing")
+                    , "namespace" .= namespaceName
+                    , "labels" .= object ["nagare.dev/app-database" .= appDatabaseNameText (db ^. #name)]
+                    , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
+                    ]
+              ]
+      migrationCredential <- roleId MigrationRole "-credential"
+      accountMember <- companion "backup-account" account Stateless DeleteWhenUnreferenced Private []
+      roleMember <- companion "backup-read-role" role Stateless DeleteWhenUnreferenced Private []
+      bindingMember <- companion "backup-read-binding" binding Stateless DeleteWhenUnreferenced Private [fst accountMember ^. #identity, fst roleMember ^. #identity]
+      signingMember <- companion "backup-signing-key" signing (Durable (input ^. #recovery)) Retain Secret []
+      cronMember <-
+        companion "backup" cron Stateless DeleteWhenUnreferenced Private $
+          [stateful, migrationCredential, fst bindingMember ^. #identity, fst signingMember ^. #identity] <> databaseIds
+      expected <- first invalid (mkName schedule)
+      expectedNamespace <- first invalid (mkName namespaceName)
+      unless
+        (fst cronMember ^. #address == Kubernetes (input ^. #cluster) "batch" (known "cronjob") (Just expectedNamespace) expected)
+        (Left (invalid "app-database backup CronJob has an unexpected address"))
+      pure [accountMember, roleMember, bindingMember, signingMember, cronMember]
+    companion roleText value policy lifecycle' sensitivity' predecessors = do
+      resource <- memberId roleText
+      digest <- first invalid (digestOf value)
+      declaration <-
+        first (:| []) $
+          compileKubernetesObject
+            KubernetesInput
+              { resourceId = resource
+              , ownerScope = input ^. #owner
+              , clusterId = input ^. #cluster
+              , inputObject = value
+              , objectDigest = digest
+              , lifecyclePolicy = lifecycle'
+              , inputDataPolicy = policy
+              , inputSensitivity = sensitivity'
+              , sourceLocation = sourceAt roleText
+              }
+      pure (declaration {dependencies = namespaceDependency <> map OrderedAfter predecessors}, value)
+    known value = either (error . show) id (mkName value)
     invalid message =
       inventoryError "invalid-app-database" message
         & #scopes

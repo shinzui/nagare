@@ -94,6 +94,17 @@ appDatabaseWorldTests =
             betaOnly (after ^. #databases) @?= betaOnly (before ^. #databases)
             [u ^. #login | (name, u) <- Map.toList (after ^. #users), "alpha" `T.isPrefixOf` name] @?= [False, False]
             after ^. #secrets @?= before ^. #secrets
+        , testCase "after a server rebuild a re-apply recreates the declared catalog with the retained passwords (M6)" $ do
+            (world, ops, members) <- setup engine' []
+            converge ops members >>= expectRight
+            before <- readIORef world
+            modifyIORef' world (\w -> w & #users .~ Map.empty & #databases .~ Map.empty & #publicSystemAccess .~ (engine' == Postgres))
+            converge ops members >>= expectRight
+            replan ops members >>= (@?= [])
+            after <- readIORef world
+            Map.keys (after ^. #users) @?= Map.keys (before ^. #users)
+            Map.map (^. #grants) (after ^. #databases) @?= Map.map (^. #grants) (before ^. #databases)
+            assertPasswordsOriginal world ops members
         ]
     | engine' <- [Postgres, ClickHouse]
     ]

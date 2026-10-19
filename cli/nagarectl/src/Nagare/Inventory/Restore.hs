@@ -10,6 +10,7 @@ module Nagare.Inventory.Restore
   , VolumeRestoreRequest (..)
   , volumeRestoreJobSourcePins
   , compileVolumeRestoreScope
+  , scratchDatabaseName
   )
 where
 

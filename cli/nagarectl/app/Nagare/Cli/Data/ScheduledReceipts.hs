@@ -6,6 +6,7 @@ module Nagare.Cli.Data.ScheduledReceipts
   , IngestSelection (..)
   , runReviewedScheduledReceiptPlan
   , runReviewedVolumeReceiptPlan
+  , runReviewedAppDatabaseReceiptPlan
   , runListVolumeReceipts
   , scheduledReceiptReport
   , scheduledRecoveryPointProbes
@@ -40,6 +41,7 @@ import Nagare.Cluster.GcsJob
   ( StoreBackend
   , storeObjectUrl
   )
+import Nagare.Database.AppDatabase.Backup (appDatabaseBackupScheduleName)
 import Nagare.Database.Backup (volumeBackupScheduleName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
@@ -54,6 +56,7 @@ import Nagare.Inventory.Backup
     , scheduledObjective
     , scheduledPolicyRevision
     )
+  , scheduledAppDatabaseReceiptExpectationFromCronJob
   , scheduledReceiptExpectationFromCronJob
   , scheduledVolumeReceiptExpectationFromCronJob
   )
@@ -85,7 +88,7 @@ import Nagare.Inventory.ScheduledIngest
       , ingestSourceKind
       , ingestSourceRevision
       )
-  , ScheduledIngestSource (IngestDatabase, IngestVolume)
+  , ScheduledIngestSource (IngestAppDatabase, IngestDatabase, IngestVolume)
   , compileScheduledIngestBatch
   , pendingScheduledRuns
   , scheduledIngestEvidenceMatches
@@ -612,7 +615,15 @@ data ReceiptSourceSelection
   = ReceiptDatabase !Text
   | -- | application, volume
     ReceiptVolume !Text !Text
+  | -- | EP-202: an app database, whose schedule reads its server
+    ReceiptAppDatabase !Text
   deriving stock (Eq, Show)
+
+-- | @db app-database backup-receipts NAME@: review the ingestion of an app
+-- database's verified scheduled runs (EP-202).
+runReviewedAppDatabaseReceiptPlan ::
+  Maybe String -> Text -> Text -> Maybe String -> IngestSelection -> FilePath -> IO ()
+runReviewedAppDatabaseReceiptPlan mctx appDatabase = runReviewedScheduledSourceReceiptPlan mctx (ReceiptAppDatabase appDatabase)
 
 runReviewedScheduledReceiptPlan ::
   Maybe String -> Text -> Text -> Maybe String -> IngestSelection -> FilePath -> IO ()
@@ -664,6 +675,7 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
       schedule = case sourceSelection of
         ReceiptDatabase database -> "nagare-dbbackup-" <> database
         ReceiptVolume app volume -> volumeBackupScheduleName app volume
+        ReceiptAppDatabase appDatabase -> appDatabaseBackupScheduleName appDatabase
   cronAddress <- findAddress "batch/v1" "CronJob" schedule
   signingAddress <- findAddress "v1" "Secret" (schedule <> "-signing")
   -- A database's sources are its StatefulSet and claim; a volume's only source
@@ -695,6 +707,25 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
         [single] -> pure single
         _ -> dieT "scheduled volume backup is not ordered after exactly one accepted claim"
       pure (scope, Nothing, claim, schedule')
+    -- EP-202: the schedule is the app database's; its source is the server
+    -- its users live in, whose StatefulSet and claim the server scope owns.
+    ReceiptAppDatabase _ -> do
+      (scope, schedule') <- case everywhere cronAddress of
+        [single] -> pure single
+        _ -> dieT "app-database receipt requires one accepted backup CronJob"
+      statefulId <- case [target | bundle <- ResourceInventory.scopeBundles scope, ResourceInventory.Managed member <- ResourceInventory.declarations bundle, Resource.DatabaseUser target _ <- [member ^. #address]] of
+        target : _ -> pure target
+        [] -> dieT "app-database backup scope names no server"
+      (serverScope', member) <- case [(serverScope, member) | (_, serverScope) <- Map.elems (ResourceInventory.snapshotScopes snapshot), bundle <- ResourceInventory.scopeBundles serverScope, ResourceInventory.Managed member <- ResourceInventory.declarations bundle, member ^. #identity == statefulId] of
+        [single] -> pure single
+        _ -> dieT "app-database receipt requires its accepted server StatefulSet"
+      pvcAddress <- case member ^. #address of
+        Resource.Kubernetes _ _ _ _ server -> findAddress "v1" "PersistentVolumeClaim" (dbPvcName (Resource.nameText server))
+        _ -> dieT "app-database server has no Kubernetes address"
+      claim <- case members serverScope' pvcAddress of
+        [single] -> pure single
+        _ -> dieT "app-database receipt requires one accepted server PVC"
+      pure (scope, Just member, claim, schedule')
   signing <- case members sourceScope signingAddress of
     [single] -> pure single
     _ -> dieT "scheduled receipt requires one accepted backup signing Secret"
@@ -738,9 +769,13 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
       pure
       (Map.lookup (cron ^. #identity) sourceNative)
   backend <- resolveStoreBackend mctx bucketArg
-  sourceKind <- case (sourceSelection, statefulUid) of
-    (ReceiptDatabase database, Just uid) -> pure (IngestDatabase database uid)
-    (ReceiptVolume _ _, Nothing) -> pure (IngestVolume schedule)
+  sourceKind <- case (sourceSelection, statefulUid, stateful) of
+    (ReceiptDatabase database, Just uid, _) -> pure (IngestDatabase database uid)
+    (ReceiptVolume _ _, Nothing, _) -> pure (IngestVolume schedule)
+    (ReceiptAppDatabase appDatabase, Just uid, Just member)
+      | Resource.Kubernetes _ _ _ _ server <- member ^. #address
+      , [serverScope] <- [scope | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot), ResourceInventory.scopeId scope == member ^. #owner] ->
+          pure (IngestAppDatabase appDatabase (Resource.nameText server) serverScope uid)
     _ -> dieT "scheduled receipt source shape is inconsistent"
   expectation <-
     either
@@ -749,6 +784,7 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
       ( case sourceKind of
           IngestDatabase database uid -> scheduledReceiptExpectationFromCronJob backend namespaceName database uid pvcUid cronBytes
           IngestVolume _ -> scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcUid cronBytes
+          IngestAppDatabase appDatabase _ _ uid -> scheduledAppDatabaseReceiptExpectationFromCronJob backend namespaceName appDatabase uid pvcUid cronBytes
       )
   let contextName = contextNameText (active ^. #contextName)
   signingResult <-
@@ -803,6 +839,7 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
                 ( case sourceSelection of
                     ReceiptDatabase database -> "db backup-receipts/" <> database
                     ReceiptVolume app volume -> "storage backup-receipts/" <> app <> "/" <> volume
+                    ReceiptAppDatabase appDatabase -> "db app-database backup-receipts/" <> appDatabase
                 )
                 backupId
           , ingestAcceptedIncarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)

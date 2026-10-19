@@ -19,21 +19,28 @@ module Nagare.Inventory.AppDatabase
   )
 where
 
-import Data.Aeson (Value)
+import Data.Aeson (Value (..))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
-import Nagare.Dsl.AppDatabase (AppDatabase (..))
+import Nagare.Database.AppDatabase.Backup (AppDatabaseBackup (..), renderInventoryAppDatabaseBackupCronJob)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), appDatabaseNameText, logicalDatabaseNameText)
+import Nagare.Dsl.Config (encodeAppDatabases)
 import Nagare.Dsl.Database (Engine, engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Inventory.Adapters.CredentialTemplate (databaseCredentialKind)
+import Nagare.Inventory.Database (DatabaseBackupTarget)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.AppDatabase
@@ -48,6 +55,8 @@ import Nagare.Resource.Wire (canonicalValue)
 data AppDatabaseServer = AppDatabaseServer
   { statefulSet :: !ManagedResource
   , engine :: !Engine
+  , image :: !Text
+  -- ^ the server's engine image, which the backup schedule runs as its client
   }
   deriving stock (Generic, Eq, Show)
 
@@ -105,12 +114,27 @@ acceptedAppDatabaseServer snapshot native cluster db = do
             ("server " <> serverName <> " runs " <> engineToken serverEngine <> ", not " <> engineToken (db ^. #engine))
         )
     )
-  pure (AppDatabaseServer stateful serverEngine)
+  serverImage <- case Map.lookup (stateful ^. #identity) native of
+    Just (member, nativeBytes) | member == stateful -> first (refuse "app-database-server-absent") (containerImage nativeBytes)
+    _ -> Left (refuse "app-database-server-absent" ("server " <> serverName <> " StatefulSet has no private native object"))
+  pure (AppDatabaseServer stateful serverEngine serverImage)
   where
     statefulNamespace resource = case resource ^. #address of
       Kubernetes _ _ _ (Just namespace) _ -> Just (nameText namespace)
       _ -> Nothing
     refuse = inventoryError
+    containerImage bytes = do
+      value <- first (T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      case value of
+        Object root
+          | Just (Object spec) <- KM.lookup "spec" root
+          , Just (Object template) <- KM.lookup "template" spec
+          , Just (Object podSpec) <- KM.lookup "spec" template
+          , Just (Array containers) <- KM.lookup "containers" podSpec
+          , [Object container] <- V.toList containers
+          , Just (String found) <- KM.lookup "image" container ->
+              Right found
+        _ -> Left "server StatefulSet has no single container image"
 
 -- | Accepted members that bind a server directly: anything ordered after its
 -- StatefulSet outside the server's own scope, its rebuild-restore scopes
@@ -146,6 +170,7 @@ serverHostsAppDatabases snapshot stateful =
 compileStandaloneAppDatabase ::
   ScopeSnapshot ->
   Map ResourceId (ManagedResource, ByteString) ->
+  DatabaseBackupTarget ->
   AppDatabase ->
   ResourceId ->
   Maybe ResourceId ->
@@ -154,7 +179,7 @@ compileStandaloneAppDatabase ::
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneAppDatabase snapshot acceptedNative db cluster namespaceId recovery source = do
+compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespaceId recovery source = do
   owner <- first (invalid Nothing) (appDatabaseScopeId db)
   serverFound <- first (\err -> (err & #scopes .~ [owner] & #sources .~ [source]) :| []) (acceptedAppDatabaseServer snapshot acceptedNative cluster db)
   let stateful = serverFound ^. #statefulSet
@@ -176,6 +201,23 @@ compileStandaloneAppDatabase snapshot acceptedNative db cluster namespaceId reco
               & #sources
               .~ [source]
           )
+  -- Every app database has its own schedule, dumped with its migration
+  -- credential; its receipts pin this declaration's digest.
+  let schedule =
+        renderInventoryAppDatabaseBackupCronJob
+          (target ^. #objective)
+          AppDatabaseBackup
+            { namespace = namespaceText (db ^. #namespace)
+            , appDatabase = appDatabaseNameText (db ^. #name)
+            , server = databaseNameText (db ^. #server)
+            , engine = db ^. #engine
+            , clientImage = serverFound ^. #image
+            , databases = map logicalDatabaseNameText (NE.toList (db ^. #logicalDatabases))
+            , declaration = digestText (contentDigest (LBS.toStrict (encodeAppDatabases [db])))
+            }
+          (target ^. #backend)
+          7
+  scheduleValue <- first (invalid (Just owner) . T.pack . show) (Yaml.decodeEither' schedule :: Either Yaml.ParseException Value)
   (bundle, native) <-
     compileAppDatabase
       digestOf
@@ -187,6 +229,7 @@ compileStandaloneAppDatabase snapshot acceptedNative db cluster namespaceId reco
         , server = stateful ^. #identity
         , recovery = recovery
         , source = source
+        , backupSchedule = Just scheduleValue
         }
   bound <- traverse (bindOne owner bundle) native
   let nativeById = Map.fromList bound

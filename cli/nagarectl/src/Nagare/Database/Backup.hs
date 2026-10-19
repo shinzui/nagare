@@ -46,6 +46,8 @@ module Nagare.Database.Backup
   , renderPreviousInventoryDbBackupCronJob
   , renderPreviousSignedInventoryDbBackupCronJob
   , renderInventoryVolumeBackupCronJob
+  , appDatabaseBackupExt
+  , renderScheduledCronJob
 
     -- * Read-only legacy preview
   , previewDbBackup
@@ -162,10 +164,19 @@ backupRawExt ClickHouse = "zip"
 sourceExt :: BackupSource -> Text
 sourceExt (DatabaseSource engine) = backupExt engine
 sourceExt VolumeSource = volumeBackupFormat
+sourceExt (AppDatabaseSource engine _) = appDatabaseBackupExt engine
 
 sourceRawExt :: BackupSource -> Text
 sourceRawExt (DatabaseSource engine) = backupRawExt engine
 sourceRawExt VolumeSource = "tar"
+sourceRawExt (AppDatabaseSource ClickHouse _) = "zip"
+sourceRawExt (AppDatabaseSource _ _) = "dump"
+
+-- | An app database's archive: a PostgreSQL custom-format dump that keeps
+-- owners and ACLs, or a ClickHouse archive of every logical database.
+appDatabaseBackupExt :: Engine -> Text
+appDatabaseBackupExt ClickHouse = "zip.gz"
+appDatabaseBackupExt _ = "dump.gz"
 
 -- | Scheduled application-volume archives (EP-183 M3) live outside the manual
 -- snapshot space, one prefix per volume:
@@ -221,8 +232,21 @@ data BackupReceipt = BackupReceipt
 -- | What a backup Job dumps: a managed database through its engine client, or
 -- an application volume's claim (named by 'name'), mounted read-only and
 -- archived with @tar@.
-data BackupSource = DatabaseSource !Engine | VolumeSource
+data BackupSource
+  = DatabaseSource !Engine
+  | VolumeSource
+  | -- | An app database (EP-202): its logical databases, dumped with the
+    -- app's own migration credential from the shared server.
+    AppDatabaseSource !Engine ![Text]
   deriving stock (Generic, Eq, Show)
+
+-- | ClickHouse writes its archive on the server's own volume, so its Job reads
+-- that claim from the server's node.
+clickHouseSource :: BackupSource -> Bool
+clickHouseSource = \case
+  DatabaseSource ClickHouse -> True
+  AppDatabaseSource ClickHouse _ -> True
+  _ -> False
 
 data BackupJobInputs = BackupJobInputs
   { namespace :: !Text
@@ -275,7 +299,7 @@ backupJobSpecValueWithRecoveryPoint timed i =
       , backoffLimit = 2
       , hostAliases = storeHostAliases (i ^. #backend)
       , affinity =
-          if i ^. #source == DatabaseSource ClickHouse
+          if clickHouseSource (i ^. #source)
             then
               Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name))
             else Nothing
@@ -287,7 +311,7 @@ backupJobSpecValueWithRecoveryPoint timed i =
                    [ "name" .= ("source-data" :: Text)
                    , "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]
                    ]
-               | i ^. #source == DatabaseSource ClickHouse
+               | clickHouseSource (i ^. #source)
                ]
             <> [ object
                    [ "name" .= ("source-data" :: Text)
@@ -349,7 +373,7 @@ sourceProbeContainer timed i =
 -- data claim. The volume form names the claim through @BACKUP_SOURCE_NAME@.
 sourceProbeShell :: BackupSource -> Text
 sourceProbeShell VolumeSource = sourceProbeWith "paths={\"pvcUid\":\"/api/v1/namespaces/\"+ns+\"/persistentvolumeclaims/\"+name}; "
-sourceProbeShell (DatabaseSource _) =
+sourceProbeShell _ =
   sourceProbeWith
     ( "paths={\"statefulSetUid\":\"/apis/apps/v1/namespaces/\"+ns+\"/statefulsets/\"+name,"
         <> "\"pvcUid\":\"/api/v1/namespaces/\"+ns+\"/persistentvolumeclaims/nagare-db-\"+name+\"-data\"}; "
@@ -387,7 +411,8 @@ labelsValue i =
 -- managed Secret, writing the uncompressed dump to @\/dump\/backup.\<rawext\>@.
 dumpContainer :: BackupJobInputs -> Value
 dumpContainer i = case i ^. #source of
-  DatabaseSource engine -> databaseDumpContainer engine i
+  DatabaseSource engine -> databaseDumpContainer engine (dumpShell engine (i ^. #serviceHost)) i
+  AppDatabaseSource engine databases -> databaseDumpContainer engine (appDatabaseDumpShell engine databases (i ^. #serviceHost)) i
   VolumeSource ->
     object
       [ "name" .= ("dump" :: Text)
@@ -401,13 +426,13 @@ dumpContainer i = case i ^. #source of
             ]
       ]
 
-databaseDumpContainer :: Engine -> BackupJobInputs -> Value
-databaseDumpContainer engine i =
+databaseDumpContainer :: Engine -> Text -> BackupJobInputs -> Value
+databaseDumpContainer engine dump i =
   object
     [ "name" .= ("dump" :: Text)
     , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON ["set -e; " <> waitForServer engine (i ^. #serviceHost) <> dumpShell engine (i ^. #serviceHost)]
+    , "args" .= toJSON ["set -e; " <> waitForServer engine (i ^. #serviceHost) <> dump]
     , "env"
         .= toJSON
           ( dumpEnv engine (i ^. #secretName)
@@ -550,6 +575,26 @@ dumpShell ClickHouse svc =
     <> "--query \"BACKUP DATABASE default TO File('${BACKUP_RUN_ID}.zip')\"; "
     <> "test -s \"$ARCHIVE\"; cp \"$ARCHIVE\" /dump/backup.zip; "
     <> "rm -- \"$ARCHIVE\""
+
+-- | An app database's dump, run as its migration user: PostgreSQL in custom
+-- format with owners and ACLs (the migration user owns every object), or one
+-- consistent ClickHouse archive of all its databases, copied off the server's
+-- volume exactly as a server's archive is.
+appDatabaseDumpShell :: Engine -> [Text] -> Text -> Text
+appDatabaseDumpShell ClickHouse databases svc =
+  "case \"$BACKUP_RUN_ID\" in ''|*[!a-zA-Z0-9-]*) exit 1;; esac; "
+    <> "ARCHIVE=\"/source-data/backups/${BACKUP_RUN_ID}.zip\"; "
+    <> "test ! -e \"$ARCHIVE\"; "
+    <> "clickhouse-client -h "
+    <> svc
+    <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" "
+    <> "--query \"BACKUP "
+    <> T.intercalate ", " ["DATABASE " <> db | db <- databases]
+    <> " TO File('${BACKUP_RUN_ID}.zip')\"; "
+    <> "test -s \"$ARCHIVE\"; cp \"$ARCHIVE\" /dump/backup.zip; "
+    <> "rm -- \"$ARCHIVE\""
+appDatabaseDumpShell _ _ svc =
+  "pg_dump -Fc -h " <> svc <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" > /dump/backup.dump"
 
 -- | The upload shell: gzip + a backend copy to @$DEST@. Reviewed Jobs and
 -- schedules read back the exact stored bytes and compare SHA-256; fixed-key

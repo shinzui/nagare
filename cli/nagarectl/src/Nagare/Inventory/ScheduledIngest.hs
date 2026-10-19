@@ -33,9 +33,11 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeEnv, storeHostAliases, storeImage, storeObjectUrl)
+import Nagare.Database.AppDatabase.Backup (appDatabaseBackupScheduleName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob, scheduledVolumeReceiptExpectationFromCronJob)
+import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -62,12 +64,17 @@ data ScheduledIngestSource
     IngestDatabase !Text !PhysicalIdentity
   | -- | the volume schedule's CronJob name
     IngestVolume !Text
+  | -- | EP-202: an app database, its server, the server's accepted scope
+    -- (which owns the StatefulSet and claim), and the observed StatefulSet
+    -- incarnation. The schedule and signing key are the app database's own.
+    IngestAppDatabase !Text !Text !ScopeDeclaration !PhysicalIdentity
   deriving stock (Eq, Show)
 
 scheduledIngestScheduleName :: ScheduledIngestSource -> Text
 scheduledIngestScheduleName = \case
   IngestDatabase database _ -> "nagare-dbbackup-" <> database
   IngestVolume schedule -> schedule
+  IngestAppDatabase appDatabase _ _ _ -> appDatabaseBackupScheduleName appDatabase
 
 data ScheduledIngestRequest = ScheduledIngestRequest
   { ingestSourceKind :: !ScheduledIngestSource
@@ -220,9 +227,10 @@ compileScheduledIngestScope request accepted native = do
           & (:| [])
       namespaceName = ingestNamespace request
       scheduleName = scheduledIngestScheduleName (ingestSourceKind request)
-      select kind name =
+      select = selectIn accepted
+      selectIn scope kind name =
         [ member
-        | bundle <- scopeBundles accepted
+        | bundle <- scopeBundles scope
         , Managed member <- declarations bundle
         , case member ^. #address of
             Kubernetes _ group nativeKind (Just nativeNamespace) nativeName ->
@@ -246,6 +254,14 @@ compileScheduledIngestScope request accepted native = do
     IngestDatabase database statefulUid -> do
       stateful <- unique "StatefulSet" database
       claim <- unique "PersistentVolumeClaim" (dbPvcName database)
+      pure (Just (stateful, statefulUid), claim)
+    -- EP-202: the server's StatefulSet and claim live in the server's scope.
+    IngestAppDatabase _ server serverScope statefulUid -> do
+      let uniqueIn kind name = case selectIn serverScope kind name of
+            [member] -> Right member
+            _ -> Left (invalid ("accepted server lacks one " <> kind <> " " <> name))
+      stateful <- uniqueIn "StatefulSet" server
+      claim <- uniqueIn "PersistentVolumeClaim" (dbPvcName server)
       pure (Just (stateful, statefulUid), claim)
     IngestVolume _ -> case [ member
                            | bundle <- scopeBundles accepted
@@ -288,6 +304,14 @@ compileScheduledIngestScope request accepted native = do
               schedule
               (ingestPvcUid request)
               cronBytes
+          IngestAppDatabase appDatabase _ _ statefulUid ->
+            scheduledAppDatabaseReceiptExpectationFromCronJob
+              (ingestBackend request)
+              namespaceName
+              appDatabase
+              statefulUid
+              (ingestPvcUid request)
+              cronBytes
       )
   let evidence = ingestEvidence request
       receipt = scheduledReceipt evidence
@@ -326,6 +350,7 @@ compileScheduledIngestScope request accepted native = do
           ( ( case ingestSourceKind request of
                 IngestDatabase database _ -> "database-scheduled-receipt-" <> namespaceName <> "-" <> database
                 IngestVolume schedule -> "volume-scheduled-receipt-" <> namespaceName <> "-" <> schedule
+                IngestAppDatabase appDatabase _ _ _ -> "appdb-scheduled-receipt-" <> namespaceName <> "-" <> appDatabase
             )
               <> "-"
               <> ingestBackupId request
@@ -438,6 +463,7 @@ compileScheduledIngestScope request accepted native = do
                 , ("scheduled.backup.source.statefulset.uid", physicalIdentityText statefulUid)
                 ]
               Nothing -> [("scheduled.backup.source.kind", "volume")]
+            <> [("scheduled.backup.source.kind", "app-database") | IngestAppDatabase {} <- [ingestSourceKind request]]
   base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
   let recoveryOverrides =
         maybe

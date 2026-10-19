@@ -39,6 +39,7 @@ appDatabaseSqlTests =
           , ("observe-server", renderObserveServer ["alpha_migration", "alpha_runtime"] ["alpha"] "smoke_pg")
           , ("observe-database alpha", renderObserveDatabase)
           , ("observe-password alpha_runtime", renderObservePassword "alpha_runtime")
+          , ("restore-scratch", renderScratchRestore Postgres [("alpha", "alpha_restore_r1")] "" "alpha_migration" "alpha_runtime")
           ]
     , testCase "ClickHouse commands match the proven fixture" $ do
         blocks <- fixture "clickhouse"
@@ -60,6 +61,7 @@ appDatabaseSqlTests =
           , ("database-access alpha_ledger off", renderDatabaseAccess (access "alpha_ledger" False))
           , ("set-password alpha_runtime", renderSetPassword "alpha_runtime" (ch salt1 "pw2-alpha_runtime"))
           , ("observe", renderObserveClickHouse ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"])
+          , ("restore-scratch", renderScratchRestore ClickHouse [("alpha", "alpha_restore_r1"), ("alpha_ledger", "alpha_ledger_restore_r1")] "alpha-ch-backup-r1.zip" "alpha_migration" "alpha_runtime")
           ]
     , testCase "a converged PostgreSQL app database observes as complete" $ do
         catalog <- postgresCatalog "converged" "alpha"

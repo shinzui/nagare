@@ -20,6 +20,7 @@ import Options.Applicative
   , strArgument
   , strOption
   , subparser
+  , switch
   , (<**>)
   )
 
@@ -47,6 +48,39 @@ appDatabaseParser =
           ( info
               (AppDatabaseRetire <$> nameOpts "Save a review that turns the app database's access off" <**> helper)
               (progDesc "Review retirement: logins and grants off, databases and Secrets kept")
+          )
+        <> command
+          "backup-receipts"
+          ( info
+              ( AppDatabaseBackupReceipts
+                  <$> ( AppDatabaseReceiptsOpts
+                          <$> strArgument (metavar "NAME" <> help "App database name")
+                          <*> namespaceOpt
+                          <*> optional (strOption (long "bucket" <> metavar "BUCKET" <> help "Backup bucket (default: the context's)"))
+                          <*> optional (strOption (long "backup-id" <> metavar "JOB_UID" <> help "Scheduled backup Job UID to ingest"))
+                          <*> switch (long "all" <> help "Ingest every verified, not-yet-ingested scheduled run")
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the ingestion review")
+                      )
+                    <**> helper
+              )
+              (progDesc "Review the ingestion of an app database's verified scheduled backups, the authority a restore consumes")
+          )
+        <> command
+          "restore"
+          ( info
+              ( AppDatabaseRestore
+                  <$> ( AppDatabaseRestoreOpts
+                          <$> strArgument (metavar "NAME" <> help "App database name")
+                          <*> namespaceOpt
+                          <*> optional (strOption (long "bucket" <> metavar "BUCKET" <> help "Backup bucket (default: the context's)"))
+                          <*> strOption (long "backup-id" <> metavar "JOB_UID" <> help "An ingested scheduled backup run")
+                          <*> strOption (long "restore-id" <> metavar "ID" <> help "Scratch names are <database>_restore_<ID>")
+                          <*> switch (long "rebuilt" <> help "After a server rebuild: load into the re-applied, empty declared databases instead of scratch names")
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the restore review")
+                      )
+                    <**> helper
+              )
+              (progDesc "Review a restore of one app database's backup into scratch databases, leaving every other app untouched")
           )
         <> command
           "list"

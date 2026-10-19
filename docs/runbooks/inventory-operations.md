@@ -412,6 +412,33 @@ the whole procedure is
   restore-rebuilt` or `storage restore-rebuilt`; later recovery points of the
   predecessor need another decision.
 
+### App databases on a rebuilt server
+
+An app database (EP-202) lives inside its shared server, so it comes back after
+the server, in three steps:
+
+1. Rebuild and restore the server as above (`inventory rebuild`, then `db
+   restore-rebuilt`). Its own backup holds only its initial database, never the
+   app databases or their users.
+2. Re-apply each app database. Its logical databases are now confirmed absent,
+   so `inventory rebuild-decisions` names them; start each one empty with
+   `--fresh standalone:appdb-<name>/<name>/database-<db>` and review the
+   rebuild. The review recreates the users with the passwords in the retained
+   `<name>-runtime` and `<name>-migration` Secrets (or, after a lost cluster,
+   fresh ones), the empty databases and their declared grants.
+3. Ingest the app database's newest run (`db app-database backup-receipts NAME
+   --backup-id ID --save-plan DIR`, then `inventory apply`) and load it:
+
+   ```bash
+   nagarectl db app-database restore NAME --backup-id ID --restore-id RID --rebuilt --save-plan DIR
+   nagarectl inventory apply DIR --yes
+   ```
+
+   The restore Job refuses a database that already holds relations (PostgreSQL)
+   or tables (ClickHouse), so it never loads over data. Without `--rebuilt` the
+   same command restores into scratch names `<db>_restore_<RID>` beside the live
+   databases instead.
+
 ## A database volume claim deleted outside review (F77)
 
 This is a documented limit of MP-23 ([F77](../audits/mp23-findings.md#f77)). Nagare has no reviewed

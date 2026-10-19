@@ -108,15 +108,20 @@ and scratch restore of each app.
     `EP202-app-database-existing-user-repassworded` were each proven killed by
     `nagare-harness mutations prove --record`.
   - The commands are registered in the command audit and the coverage catalogue.
-- [ ] M4. Workloads bind app databases with `appDatabases`, and a deploy injects only the runtime
+- [x] M4. Workloads bind app databases with `appDatabases`, and a deploy injects only the runtime
   Secret. Binding a server that hosts app databases directly is refused, and so is registering an
   app database on a directly bound server. Render tests prove a two-app fixture names only its own
-  Secrets. Proves AC-2.
-- [ ] M5. Each app database has its own scheduled backup, which runs with the app's migration
+  Secrets. Proves AC-2. Done 2026-10-19: `82d170ba`, `1ad0a8c2`, fast gate green, landed.
+- [x] M5. Each app database has its own scheduled backup, which runs with the app's migration
   credential. Restoring it into scratch recovers its data and its declared access, and leaves
-  other apps untouched. Proves AC-5 in render and interpreter tests.
-- [ ] M6. `db restore-rebuilt` loads an app database backup into its re-provisioned, empty
+  other apps untouched. Proves AC-5 in render and interpreter tests. Done 2026-10-19: `AppDatabaseSpec`
+  schedule, ingest and scratch-restore tests; `AppDatabaseSqlSpec` pins `restore-scratch` to the
+  M1 fixture; see the M5/M6 Decision Log entry for the command shape.
+- [x] M6. `db restore-rebuilt` loads an app database backup into its re-provisioned, empty
   database after a server rebuild. The restored data matches and the declared access is in place.
+  Done 2026-10-19 as `db app-database restore --rebuilt`: world test re-applies a wiped catalog with
+  the retained passwords, `rebuildTargets` names absent logical databases, the Job refuses a
+  non-empty database; runbook step order in `docs/runbooks/inventory-operations.md`.
 - [ ] M7. `just local-app-database-smoke` passes on a k3d context. It covers two apps on one
   server per engine and proves AC-1 to AC-5 natively. `docs/user/managed-databases.md` documents
   shared servers, IR-29 is marked completed, and ADR 30 records the model.
@@ -297,6 +302,28 @@ and scratch restore of each app.
   - **A breaking source change.** `Deployment` and `Worker` gain a strict field, so a config that
     builds either record literally must add `appDatabases = []`. Presets and record updates are
     unaffected. The repository's examples and fixtures are updated, and the release notes name it.
+  Date: 2026-10-19
+
+- Decision: M5 and M6 differ from the Plan of Work as follows.
+  - **Names.** The schedule and its companions are `nagare-appdb-<appdb>`, not
+    `nagare-dbbackup-<appdb>`, so an app database can never collide with a server of the same
+    name. Objects go under `app-databases/<ns>/<appdb>/<jobUID>.<ext>` (`dump.gz` or `zip.gz`).
+  - **No version 6 receipt.** The receipt stays version 5. The app database's declaration digest,
+    server, databases and source kind travel in the signed schedule metadata (ten fields, checked
+    by count like the server's), which the verifier already binds to the receipt. The intranet's
+    version-5 receipts are untouched.
+  - **Commands.** Ingest and restore are `db app-database backup-receipts` and `db app-database
+    restore [--rebuilt]`, beside the other app-database commands, not new arguments to `db
+    backup-receipts`, `db restore` or `db restore-rebuilt`.
+  - **Restores run as the server administrator** (`nagare-db-<server>`); the dump runs with the
+    app's migration Secret.
+  - **Isolation is proven at render level** (the restore Job names no other app database, and an
+    ingested run of another app database is refused); the native proof is M7's.
+  - **Rebuild.** A logical database has no recorded incarnation, so `inventory rebuild-decisions`
+    now names an absent one and the operator starts it `--fresh`; `restore --rebuilt` then loads
+    the backup and refuses a database that holds any relation or table. The interpreter world
+    proves the re-apply after a wiped catalog; rows are proven by M7, since the world models no
+    data.
   Date: 2026-10-19
 
 

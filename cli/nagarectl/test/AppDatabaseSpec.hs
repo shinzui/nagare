@@ -38,10 +38,16 @@ import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (webWorker)
 import Nagare.Inventory.Adapters.CredentialTemplate (credentialDataMatches, materializeCredential)
 import Nagare.Inventory.AppDatabase
+import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
 import Nagare.Inventory.Application (DatabaseBinding, acceptedAppDatabaseBindings, acceptedDatabaseBindings, compileStandaloneWorkerWithDependencies)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
+import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledAppDatabaseReceiptExpectationFromCronJob)
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope)
+import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
+import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.AppDatabase (appDatabaseCredentialTemplate)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
@@ -117,12 +123,67 @@ appDatabaseTests =
             let (scope, native) = scopeAndNative chServer (alpha ClickHouse)
                 members = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
             nameText (scopeName (scopeId scope)) @?= "appdb-alpha-ch"
-            Map.size native @?= 2
+            Map.size native @?= 7
             [nameText user | DatabaseUser _ user <- map (^. #address) members] @?= ["alpha_ch_runtime", "alpha_ch_migration"]
             [nameText db | DatabaseName _ db <- map (^. #address) members] @?= ["alpha", "alpha_ledger"]
             [member ^. #executor | member <- members, isLogical member] @?= replicate 4 AppDatabaseExecutor
             assertBool "every logical member is ordered after the server StatefulSet" $
               all (\member -> OrderedAfter (serverStateful chServer ^. #identity) `elem` member ^. #dependencies) (filter isLogical members)
+        , testCase "each app database has its own schedule, dumping with its migration credential (M5)" $ do
+            let (_, native) = scopeAndNative chServer (alpha ClickHouse)
+                cron = [bytes | (member, bytes) <- Map.elems native, Kubernetes _ "batch" kind _ name <- [member ^. #address], nameText kind == "cronjob", nameText name == "nagare-appdb-alpha-ch"]
+                uid = known . mkPhysicalIdentity
+            bytes <- case cron of
+              [found] -> pure found
+              _ -> assertFailure "the app database has no unique schedule"
+            let text = TE.decodeUtf8 bytes
+            assertBool "dumps with the migration Secret" ("alpha-ch-migration" `T.isInfixOf` text)
+            assertBool "backs up both logical databases in one archive" ("BACKUP DATABASE alpha, DATABASE alpha_ledger TO File" `T.isInfixOf` text)
+            nub (sort (secretKeyRefs bytes)) @?= ["alpha-ch-migration", "nagare-appdb-alpha-ch-signing"]
+            case scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" "alpha-ch" (uid "sts") (uid "pvc") bytes of
+              Right expectation -> do
+                assertBool "its own key space" ("app-databases/personal/alpha-ch/" `T.isSuffixOf` scheduledObjectPrefix expectation)
+                scheduledFormat expectation @?= "zip.gz"
+              Left reason -> assertFailure (T.unpack reason)
+            case scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" "beta-ch" (uid "sts") (uid "pvc") bytes of
+              Left _ -> pure ()
+              Right _ -> assertFailure "another app database's schedule was accepted"
+        , testCase "a scheduled run ingests against the app database and its server's incarnations (M5)" $ do
+            (appScope, _, native, receiptScope, stateful, _) <- ingested
+            Map.lookup "scheduled.backup.source.kind" (scopeOverrides receiptScope) @?= Just "app-database"
+            Map.lookup "scheduled.backup.source.statefulset" (scopeOverrides receiptScope) @?= Just (resourceIdText (stateful ^. #identity))
+            assertBool "receipt scope names the app database" ("appdb-scheduled-receipt-personal-alpha-pg-" `T.isPrefixOf` nameText (scopeName (scopeId receiptScope)))
+            case compileScheduledIngestScope (ingestRequest (fst chServer) native appScope) appScope native of
+              Left _ -> pure ()
+              Right _ -> assertFailure "a run ingested against another server"
+        , testCase "a restore loads one app database into scratch names as the administrator (M5)" $ do
+            (appScope, serverScope, native, receiptScope, _, _) <- ingested
+            let request scope =
+                  AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" scope serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget
+            (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope (request appScope) native)
+            [bytes] <- pure (map snd (Map.elems restoreNative))
+            let text = TE.decodeUtf8 bytes
+            assertBool "creates the scratch database owned by the migration user" ("CREATE DATABASE \\\"alpha_restore_r1\\\" OWNER \\\"alpha_pg_migration\\\"" `T.isInfixOf` text)
+            assertBool "loads the custom-format dump" ("pg_restore --exit-on-error -h smoke-pg" `T.isInfixOf` text)
+            assertBool "touches no other app" (not ("beta" `T.isInfixOf` text))
+            nub (sort (secretKeyRefs bytes)) @?= ["nagare-db-smoke-pg"]
+            Map.lookup "restore.target.databases" (scopeOverrides restoreScope) @?= Just "alpha_restore_r1"
+            let (betaScope, _) = scopeAndNative pgServer (beta Postgres)
+            case compileAppDatabaseRestoreScope (request betaScope) native of
+              Left _ -> pure ()
+              Right _ -> assertFailure "another app database's backup was restored"
+        , testCase "a rebuilt-server restore loads into the declared, still-empty databases (M6)" $ do
+            (appScope, serverScope, native, receiptScope, _, _) <- ingested
+            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts2")) (known (mkPhysicalIdentity "pvc2")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") RebuiltTarget
+            (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope request native)
+            [bytes] <- pure (map snd (Map.elems restoreNative))
+            let text = TE.decodeUtf8 bytes
+            assertBool "refuses a database that already holds relations" ("refusing to restore over data" `T.isInfixOf` text)
+            assertBool "loads into the declared database" ("-d alpha /dump/backup.sql" `T.isInfixOf` text)
+            assertBool "creates no scratch database" (not ("_restore_r1" `T.isInfixOf` text))
+            nub (sort (secretKeyRefs bytes)) @?= ["nagare-db-smoke-pg"]
+            Map.lookup "restore.target.kind" (scopeOverrides restoreScope) @?= Just "rebuilt"
+            Map.lookup "restore.target.databases" (scopeOverrides restoreScope) @?= Just "alpha"
         , testCase "two app databases cannot claim one logical database on a server" $
             assertComposeRefused "claim-conflict" pgServer [alpha Postgres, beta Postgres & #logicalDatabases .~ (logical "alpha" :| [])]
         , testCase "two app databases cannot claim one user on a server" $
@@ -169,7 +230,7 @@ appDatabaseTests =
               let names = [known (mkAppDatabaseName (app <> "-pg")), known (mkAppDatabaseName (app <> "-ch"))]
               bindings <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings accepted native testCluster "personal" names)
               (scope, workerNative) <- either (assertFailure . show) pure (compileWorker app (Just names) bindings)
-              let refs = nub (sort (concatMap secretKeyRefs (Map.elems workerNative)))
+              let refs = nub (sort (concatMap (secretKeyRefs . snd) (Map.elems workerNative)))
               refs @?= [app <> "-ch-runtime", app <> "-pg-runtime"]
               let users = [member ^. #identity | (s', _) <- compiled, ("appdb-" <> app) `T.isPrefixOf` nameText (scopeName (scopeId s')), bundle <- scopeBundles s', Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
                   workloadDependencies = concat [member ^. #dependencies | bundle <- scopeBundles scope, Managed member <- declarations bundle]
@@ -293,13 +354,62 @@ acceptedNative = Map.unions . map snd
 
 compileAgainst :: ScopeSnapshot -> [Server] -> AppDatabase -> Either (NonEmpty InventoryError) (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
 compileAgainst accepted servers db =
-  compileStandaloneAppDatabase accepted (acceptedNative servers) db testCluster Nothing testRecovery (SourceLocation "test" "app-database")
+  compileStandaloneAppDatabase accepted (acceptedNative servers) (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint) db testCluster Nothing testRecovery (SourceLocation "test" "app-database")
 
 scopeAndNative :: Server -> AppDatabase -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
 scopeAndNative s db = known (compileAgainst (snapshot [s]) [s] db)
 
 scopeOf :: Server -> AppDatabase -> ScopeDeclaration
 scopeOf s = fst . scopeAndNative s
+
+-- | alpha-pg's accepted scope with one ingested scheduled run.
+ingested :: IO (ScopeDeclaration, ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString), ScopeDeclaration, ManagedResource, ManagedResource)
+ingested = do
+  let (appScope, appNative) = scopeAndNative pgServer (alpha Postgres)
+      (serverScope, serverNative) = pgServer
+      native = Map.union appNative serverNative
+  (receiptScope, _) <- either (assertFailure . show) pure (compileScheduledIngestScope (ingestRequest serverScope native appScope) appScope native)
+  pure (appScope, serverScope, native, receiptScope, member (named "statefulset" "smoke-pg") serverScope, member (named "persistentvolumeclaim" "nagare-db-smoke-pg-data") serverScope)
+  where
+    member predicate scope = head [m | bundle <- scopeBundles scope, Managed m <- declarations bundle, predicate m]
+    named kind name m = case m ^. #address of
+      Kubernetes _ _ k _ n -> nameText k == kind && nameText n == name
+      _ -> False
+
+-- | One verified scheduled run of alpha-pg against the given server scope.
+ingestRequest :: ScopeDeclaration -> Map.Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration -> ScheduledIngestRequest
+ingestRequest server native appScope =
+  ScheduledIngestRequest
+    { ingestSourceKind = IngestAppDatabase "alpha-pg" "smoke-pg" server (uid "sts")
+    , ingestNamespace = "personal"
+    , ingestBackupId = run
+    , ingestSourceRevision = ScopeRevision (known (mkScopeGeneration 1)) (contentDigest "appdb")
+    , ingestPvcUid = uid "pvc"
+    , ingestScheduleUid = uid "cron"
+    , ingestSigningUid = uid "signing"
+    , ingestEvidence =
+        ScheduledReceiptEvidence
+          { scheduledReceipt = ScheduledBackupReceipt (uid run) (scheduledObjectPrefix expectation <> run <> "." <> scheduledFormat expectation) (T.replicate 64 "0") (scheduledPolicyRevision expectation) Nothing
+          , scheduledObjectVersion = "1"
+          , scheduledReceiptVersion = "1"
+          , scheduledObjectLength = 1
+          , scheduledReceiptLength = 1
+          , scheduledReceiptDigest = contentDigest (TE.encodeUtf8 run)
+          }
+    , ingestBackend = GcsBackend "project" "bucket"
+    , ingestSource = SourceLocation "test" run
+    , ingestAcceptedIncarnations = Map.fromList [(stateful ^. #identity, uid "sts"), (pvc ^. #identity, uid "pvc"), (cron ^. #identity, uid "cron"), (signing ^. #identity, uid "signing")]
+    }
+  where
+    run = "11111111-1111-1111-1111-111111111111"
+    uid = known . mkPhysicalIdentity
+    members scope = [m | bundle <- scopeBundles scope, Managed m <- declarations bundle]
+    pick scope kind name = head [m | m <- members scope, Kubernetes _ _ k _ n <- [m ^. #address], nameText k == kind, nameText n == name]
+    stateful = pick (fst pgServer) "statefulset" "smoke-pg"
+    pvc = pick (fst pgServer) "persistentvolumeclaim" "nagare-db-smoke-pg-data"
+    cron = pick appScope "cronjob" "nagare-appdb-alpha-pg"
+    signing = pick appScope "secret" "nagare-appdb-alpha-pg-signing"
+    expectation = known (scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" "alpha-pg" (uid "sts") (uid "pvc") (snd (native Map.! (cron ^. #identity))))
 
 -- | A standalone worker bound to the named app databases.
 compileWorker ::
@@ -337,8 +447,8 @@ compileWorker app names bindings =
         }
 
 -- | Every @secretKeyRef.name@ in a native object.
-secretKeyRefs :: (ManagedResource, ByteString) -> [Text]
-secretKeyRefs (_, bytes) = either (const []) collect (eitherDecodeStrict bytes)
+secretKeyRefs :: ByteString -> [Text]
+secretKeyRefs bytes = either (const []) collect (eitherDecodeStrict bytes)
   where
     collect = \case
       Object fields ->

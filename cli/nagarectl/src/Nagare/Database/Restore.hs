@@ -11,6 +11,7 @@ module Nagare.Database.Restore
   , RestoreJobInputs (..)
   , VerifiedRestoreSource (..)
   , renderRestoreJob
+  , renderAppDatabaseRestoreJob
   , renderRebuildRestoreJob
   , renderRedisScratchService
   , renderRedisScratchStatefulSet
@@ -189,6 +190,30 @@ rebuildRestoreShell Redis svc stage =
     <> "loaded=\"$(rc DBSIZE)\"; "
     <> "test \"$loaded\" = \"$expected\" || { echo \"the restarted server holds $loaded keys, the recovery point $expected\" >&2; exit 6; }; "
     <> "echo \"restored $loaded keys\""
+
+-- | EP-202: restore an app database's verified archive as the server's
+-- administrator with a reviewed shell (scratch names and the declared access
+-- on them); the download init container is the verified one every restore uses.
+renderAppDatabaseRestoreJob :: RestoreJobInputs -> Text -> ByteString
+renderAppDatabaseRestoreJob i shell =
+  renderJobWith
+    (i ^. #engine == ClickHouse)
+    ( object
+        [ "name" .= ("restore" :: Text)
+        , "image" .= (i ^. #clientImage)
+        , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+        , "args" .= toJSON [shell]
+        , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName))
+        , "volumeMounts"
+            .= toJSON
+              ( dumpMount
+                  : [ object ["name" .= ("source-data" :: Text), "mountPath" .= ("/source-data" :: Text)]
+                    | i ^. #engine == ClickHouse
+                    ]
+              )
+        ]
+    )
+    i
 
 -- | The data PVC is mounted, on the database's node, when the engine needs it.
 renderJobWith :: Bool -> Value -> RestoreJobInputs -> ByteString

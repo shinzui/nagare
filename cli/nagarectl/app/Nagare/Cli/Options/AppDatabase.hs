@@ -4,6 +4,8 @@ module Nagare.Cli.Options.AppDatabase
   ( AppDatabaseCommand (..)
   , AppDatabasePlanOpts (..)
   , AppDatabaseNameOpts (..)
+  , AppDatabaseReceiptsOpts (..)
+  , AppDatabaseRestoreOpts (..)
   )
 where
 
@@ -14,6 +16,32 @@ data AppDatabaseCommand
   | AppDatabaseRotate AppDatabaseNameOpts String
   | AppDatabaseRetire AppDatabaseNameOpts
   | AppDatabaseList (Maybe String)
+  | AppDatabaseBackupReceipts AppDatabaseReceiptsOpts
+  | AppDatabaseRestore AppDatabaseRestoreOpts
+  deriving stock (Generic, Show)
+
+-- | Restore one ingested scheduled run into scratch names.
+data AppDatabaseRestoreOpts = AppDatabaseRestoreOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , backupId :: !String
+  , restoreId :: !String
+  , rebuilt :: !Bool
+  , savePlan :: !FilePath
+  }
+  deriving stock (Generic, Show)
+
+-- | Ingest an app database's verified scheduled runs: one by its Job UID, or
+-- every verified run not yet ingested.
+data AppDatabaseReceiptsOpts = AppDatabaseReceiptsOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , backupId :: !(Maybe String)
+  , allVerified :: !Bool
+  , savePlan :: !FilePath
+  }
   deriving stock (Generic, Show)
 
 data AppDatabasePlanOpts = AppDatabasePlanOpts

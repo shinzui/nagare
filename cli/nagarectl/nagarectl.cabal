@@ -108,6 +108,7 @@ library
     Nagare.Context.Review
     Nagare.Contract.Project
     Nagare.Contract.Sink
+    Nagare.Database.AppDatabase.Backup
     Nagare.Database.AppDatabase.Catalog
     Nagare.Database.AppDatabase.Sql
     Nagare.Database.Backup
@@ -175,6 +176,7 @@ library
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Adapters.RestoreScratch
     Nagare.Inventory.AppDatabase
+    Nagare.Inventory.AppDatabaseRestore
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact
     Nagare.Inventory.BackendMap

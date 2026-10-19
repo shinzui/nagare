@@ -103,6 +103,13 @@ inventoryRebuildTests =
         either (map planErrorCode . NE.toList) (const []) (rebuildTargets candidate history absent (\member _ -> Left (PlanError "rebuild-recovery-point" "none" [member]))) @?= ["rebuild-recovery-point"]
         -- A present member is not rebuilt.
         rebuildTargets candidate history (expectOk (observationSet [(volumeId, ObservedPresent (uid "uid-accepted"))])) choose @?= Right []
+    , testCase "an app database's logical database is a rebuild target the operator sources (EP-202 M6)" $ do
+        (store, _) <- acceptedVolume
+        history <- loadInventoryHistory store >>= expectRight
+        let logical = history {historyAccepted = Map.map (fmap (const logicalScope)) (historyAccepted history)}
+            candidate = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding (Map.map (\(revision, scope) -> (revisionGeneration revision, scope)) (historyAccepted logical)) (historyReservations logical))) (ReplaceScope logicalScope :| []))
+            absent = expectOk (observationSet [(volumeId, ConfirmedAbsent (contentDigest "absent"))])
+        fmap (map (^. #resource)) (rebuildTargets candidate logical absent (\_ _ -> Right Fresh)) @?= Right [volumeId]
     , testCase "a rebuild input and review proof round-trip, with exactly one source" $ do
         let input = RebuildInput fixtureBinding [target accepted (FromRecoveryPoint point), target Nothing Fresh]
         Aeson.eitherDecode (Aeson.encode input) @?= Right input
@@ -282,20 +289,44 @@ volumeScope =
     ( mkScopeDeclaration
         rebuildOwner
         [ ResourceBundle
+            [Managed volumeMember]
+            []
+            []
+            []
+            []
+            []
+        ]
+    )
+
+volumeMember :: ManagedResource
+volumeMember =
+  ManagedResource
+    { identity = volumeId
+    , owner = rebuildOwner
+    , executor = KubernetesExecutor
+    , address = volumeAddress
+    , aliases = []
+    , spec = NativeObject (contentDigest "volume")
+    , lifecycle = Retain
+    , dataPolicy = Durable (RecoveryIntent (expectOk (mkName "backup")) (mkSecretRef (expectOk (mkName "credential")) (expectOk (mkName "v1")) :| []))
+    , sensitivity = Public
+    , dependencies = []
+    , delegations = []
+    , source = SourceLocation "test" "data"
+    }
+
+-- | The volume's scope with its member an app database's logical database.
+logicalScope :: ScopeDeclaration
+logicalScope =
+  expectOk
+    ( mkScopeDeclaration
+        rebuildOwner
+        [ ResourceBundle
             [ Managed
-                ManagedResource
-                  { identity = volumeId
-                  , owner = rebuildOwner
-                  , executor = KubernetesExecutor
-                  , address = volumeAddress
-                  , aliases = []
-                  , spec = NativeObject (contentDigest "volume")
-                  , lifecycle = Retain
-                  , dataPolicy = Durable (RecoveryIntent (expectOk (mkName "backup")) (mkSecretRef (expectOk (mkName "credential")) (expectOk (mkName "v1")) :| []))
-                  , sensitivity = Public
-                  , dependencies = []
-                  , delegations = []
-                  , source = SourceLocation "test" "data"
+                volumeMember
+                  { executor = AppDatabaseExecutor
+                  , address = DatabaseName volumeId (expectOk (mkName "alpha"))
+                  , spec = LogicalDatabase "postgres" (expectOk (mkName "alpha_migration")) (expectOk (mkName "alpha_runtime")) True (contentDigest "grants")
                   }
             ]
             []
