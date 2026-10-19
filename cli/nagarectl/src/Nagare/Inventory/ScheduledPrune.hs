@@ -47,6 +47,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (..), storeObjectUrl)
+import Nagare.Database.AppDatabase.Backup (appDatabaseBackupKeyPrefix)
 import Nagare.Database.Backup (dbBackupKeyPrefix, volumeBackupKeyPrefix, volumeBackupScheduleName)
 import Nagare.Database.Prune (PruneJobInputs (..), renderScheduledPruneJob, renderScheduledReceiptRecoveryJob)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -94,6 +95,8 @@ data PruneSource
   = DatabasePruneSource !Text
   | -- | Application and volume.
     VolumePruneSource !Text !Text
+  | -- | An app database (EP-202), whose schedule its own scope holds.
+    AppDatabasePruneSource !Text
   deriving stock (Eq, Show)
 
 -- | The scope that ingests (@receipt@), prunes (@prune@) or finishes a stopped
@@ -106,12 +109,14 @@ pruneSourceOwner role namespaceName source run =
     (kind, stem) = case source of
       DatabasePruneSource database -> ("database", database)
       VolumePruneSource app volume -> ("volume", volumeBackupScheduleName app volume)
+      AppDatabasePruneSource appDatabase -> ("appdb", appDatabase)
 
 -- | The object-key prefix the source's schedule uploads under.
 pruneSourceKeyPrefix :: Text -> PruneSource -> Text
 pruneSourceKeyPrefix namespaceName = \case
   DatabasePruneSource database -> dbBackupKeyPrefix database
   VolumePruneSource app volume -> volumeBackupKeyPrefix namespaceName app volume
+  AppDatabasePruneSource appDatabase -> appDatabaseBackupKeyPrefix namespaceName appDatabase
 
 -- | The schedule an accepted run was ingested under.
 runSchedule :: ScopeDeclaration -> Maybe Text
@@ -716,15 +721,17 @@ compileScheduledPruneScopeWith recovery request backup native = do
   case runSource of
     DatabasePruneSource db -> void (first invalid (mkServiceName db))
     VolumePruneSource app volume -> traverse_ (first invalid . mkServiceName) [app, volume]
+    AppDatabasePruneSource appDatabase -> void (first invalid (mkServiceName appDatabase))
   _ <- first invalid (mkServiceName ns)
   unless
     (scopeId backup == scheduledPruneScope candidate && validUid backupId)
     (Left (invalid "selected candidate differs from the accepted receipt scope"))
-  -- A database pins its scope revision; a volume its run's own claim and
-  -- schedule.
+  -- A database or app database pins its scope revision; a volume its run's
+  -- own claim and schedule.
   unless
     ( case (runSource, scheduledPrunePolicyPin request) of
         (DatabasePruneSource _, PolicyRevisionPin _) -> True
+        (AppDatabasePruneSource _, PolicyRevisionPin _) -> True
         (VolumePruneSource _ _, ClaimSchedulePin claim _ schedule _) ->
           Map.lookup "scheduled.backup.source.pvc" fields == Just (resourceIdText claim)
             && runSchedule backup == Just (resourceIdText schedule)

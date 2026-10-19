@@ -77,7 +77,7 @@ defaultEscrowPath context namespaceName database = do
 runEscrowSigningKey :: Maybe String -> Text -> Text -> Maybe FilePath -> IO ()
 runEscrowSigningKey mctx database namespaceName output = do
   source <- resolveScheduledSource mctx database namespaceName Nothing
-  let ScheduledSource active _ _ statefulSource pvcUid signingUid _ expectation _ _ = source
+  let ScheduledSource active _ _ statefulSource pvcUid signingUid _ expectation _ _ _ = source
   statefulUid <- maybe (dieT "a database backup source has no StatefulSet") pure statefulSource
   let context = contextNameText (active ^. #contextName)
   (secretUid, key) <-

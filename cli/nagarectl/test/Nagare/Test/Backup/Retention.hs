@@ -50,6 +50,7 @@ backupRetentionTests =
   , testCase "admission checks only new prunes, under the release policy, of one source's unpruned runs" admissionScope
   , testCase "server status counts accepted unpruned runs past policy" statusCount
   , testCase "a volume's scheduled run is pruned only under its own volume's prefix" volumePruneCompiles
+  , testCase "F132: an app database's scheduled run is pruned under its own prefix and scope names" appDatabasePruneCompiles
   , testCase "a stopped volume prune stays recoverable after an application deploy (ADR 26)" volumeRecoveryAfterDeploy
   , testCase "a saved prune of an expired run is admitted and converges; pruning it again is refused" admittedPrune
   , testCase "a saved prune of the newest run refuses admission before any adapter effect" refusedNewest
@@ -522,6 +523,40 @@ volumePruneCompiles = do
   assertBool "the recovery of a stopped volume prune was refused" (isRight (recovery volumePin))
   assertBool "a recovery under a changed schedule was admitted" (isLeft (recovery (ClaimSchedulePin claimId (ok (mkPhysicalIdentity "claim-uid")) scheduleId (contentDigest "changed"))))
   assertBool "a recovery after the claim was replaced was admitted" (isLeft (recovery (ClaimSchedulePin claimId (ok (mkPhysicalIdentity "new-claim")) scheduleId (contentDigest "schedule-spec"))))
+
+-- | F132: an app database's run is pruned under its own key space and scope
+-- names, pinned to its scope revision as a database's is; a database's or
+-- another app database's source refuses.
+appDatabasePruneCompiles :: Assertion
+appDatabasePruneCompiles = do
+  let run = runId "appdb-run"
+      object = "gs://bucket/app-databases/personal/alpha-pg/" <> run <> ".dump"
+      owner = ok (mkScopeId Standalone ("appdb-scheduled-receipt-personal-alpha-pg-" <> run))
+      jobValue = Aeson.object ["apiVersion" Aeson..= ("batch/v1" :: Text), "kind" Aeson..= ("Job" :: Text), "metadata" Aeson..= Aeson.object ["name" Aeson..= ("ingest" :: Text), "namespace" Aeson..= ("personal" :: Text)]]
+      jobBytes = ok (canonicalValue jobValue)
+      job = case member owner "ingest" of
+        Managed declared -> declared & #spec .~ NativeObject (contentDigest jobBytes)
+        _ -> error "ingestion Job fixture is not managed"
+      fields =
+        Map.union
+          (Map.fromList [("scheduled.backup.object", object), ("scheduled.backup.receipt", object <> ".receipt.json")])
+          (receiptFields "appdb-run" (Just (hoursAgo 1000)))
+      backup = withScopeOverrides fields (scopeOf owner [Managed job])
+      candidate =
+        ScheduledPruneCandidate owner run object "object-version-appdb-run" 123 (T.replicate 64 "a") (object <> ".receipt.json") "receipt-version-appdb-run" 456 (T.replicate 64 "b") (hoursAgo 1000)
+      revision = ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest "revision")
+      request source pin =
+        ScheduledPruneRequest source "personal" candidate revision (ok (mkPhysicalIdentity "ingest-uid")) sourceScope pin standardRetention (GcsBackend "project" "bucket") (SourceLocation "test" run)
+      compiled source pin = compileScheduledPruneScope (request source pin) backup (Map.singleton (job ^. #identity) (job, jobBytes))
+  pruneSourceOwner "receipt" "personal" (AppDatabasePruneSource "alpha-pg") run @?= "appdb-scheduled-receipt-personal-alpha-pg-" <> run
+  case compiled (AppDatabasePruneSource "alpha-pg") (PolicyRevisionPin revision) of
+    Right (scope, _) -> do
+      scopeIdText (scopeId scope) @?= "standalone:appdb-scheduled-prune-personal-alpha-pg-" <> run
+      Map.lookup "scheduled.prune.policy.revision" (scopeOverrides scope) @?= Just (digestText (revisionDigest revision))
+    Left errors -> assertFailure ("an app database run's prune was refused: " <> show errors)
+  assertBool "an app database run was pruned as a database run" (isLeft (compiled (DatabasePruneSource "alpha-pg") (PolicyRevisionPin revision)))
+  assertBool "an app database run was pruned as another app database's" (isLeft (compiled (AppDatabasePruneSource "beta-pg") (PolicyRevisionPin revision)))
+  assertBool "an app database prune pinned a claim" (isLeft (compiled (AppDatabasePruneSource "alpha-pg") (ClaimSchedulePin claimId (ok (mkPhysicalIdentity "claim-uid")) scheduleId (contentDigest "schedule-spec"))))
 
 -- | EP-183 (ADR 26): a volume prune stopped by a failed Job is closed; an
 -- application deploy then moves its policy source's revision. Its recovery

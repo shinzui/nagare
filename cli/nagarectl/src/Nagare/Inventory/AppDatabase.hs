@@ -14,6 +14,8 @@ module Nagare.Inventory.AppDatabase
   , namedAppDatabaseScope
   , retireAppDatabaseScope
   , scheduleSuspended
+  , AppDatabaseScheduleSource (..)
+  , appDatabaseScheduleSource
   , rotateAppDatabaseScope
   , AppDatabaseRow (..)
   , appDatabaseRows
@@ -34,10 +36,11 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
-import Nagare.Database.AppDatabase.Backup (AppDatabaseBackup (..), renderInventoryAppDatabaseBackupCronJob)
+import Nagare.Database.AppDatabase.Backup (AppDatabaseBackup (..), appDatabaseBackupScheduleName, renderInventoryAppDatabaseBackupCronJob)
 import Nagare.Dsl.AppDatabase (AppDatabase (..), appDatabaseNameText, logicalDatabaseNameText)
 import Nagare.Dsl.Config (encodeAppDatabases)
 import Nagare.Dsl.Database (Engine, engineToken)
+import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Inventory.Adapters.CredentialTemplate (databaseCredentialKind)
@@ -350,6 +353,47 @@ scheduleSuspended :: ByteString -> Bool
 scheduleSuspended bytes = case Yaml.decodeEither' bytes :: Either Yaml.ParseException Value of
   Right (Object root) | Just (Object spec) <- KM.lookup "spec" root -> KM.lookup "suspend" spec == Just (Bool True)
   _ -> False
+
+-- | The accepted members an app database's schedule reads (EP-202): the
+-- CronJob and signing Secret of its own scope, and the StatefulSet and claim
+-- of the server its users live in, which the server's scope owns.
+data AppDatabaseScheduleSource = AppDatabaseScheduleSource
+  { scope :: !ScopeDeclaration
+  , serverScope :: !ScopeDeclaration
+  , statefulSet :: !ManagedResource
+  , claim :: !ManagedResource
+  , schedule :: !ManagedResource
+  , signing :: !ManagedResource
+  }
+  deriving stock (Generic, Eq, Show)
+
+appDatabaseScheduleSource :: ScopeSnapshot -> ResourceId -> Text -> Text -> Either Text AppDatabaseScheduleSource
+appDatabaseScheduleSource snapshot cluster namespaceName appDatabase = do
+  let scheduleName = appDatabaseBackupScheduleName appDatabase
+      scopes = map snd (Map.elems (snapshotScopes snapshot))
+      address api kind = kubernetesAddress cluster api kind (Just namespaceName)
+      at target scope' = [member | member <- scopeMembers scope', member ^. #address == target]
+  cronAddress <- address "batch/v1" "CronJob" scheduleName
+  signingAddress <- address "v1" "Secret" (scheduleName <> "-signing")
+  (owner, cron) <- case [(scope', member) | scope' <- scopes, member <- at cronAddress scope'] of
+    [single] -> Right single
+    _ -> Left "app-database schedule requires one accepted backup CronJob"
+  signingSecret <- case at signingAddress owner of
+    [single] -> Right single
+    _ -> Left "app-database schedule requires one accepted backup signing Secret"
+  statefulId <- case [target | member <- scopeMembers owner, DatabaseUser target _ <- [member ^. #address]] of
+    target : _ -> Right target
+    [] -> Left "app-database backup scope names no server"
+  (server, stateful) <- case [(scope', member) | scope' <- scopes, member <- scopeMembers scope', member ^. #identity == statefulId] of
+    [single] -> Right single
+    _ -> Left "app-database schedule requires its accepted server StatefulSet"
+  pvcAddress <- case stateful ^. #address of
+    Kubernetes _ _ _ _ serverName -> address "v1" "PersistentVolumeClaim" (dbPvcName (nameText serverName))
+    _ -> Left "app-database server has no Kubernetes address"
+  pvc <- case at pvcAddress server of
+    [single] -> Right single
+    _ -> Left "app-database schedule requires one accepted server PVC"
+  pure (AppDatabaseScheduleSource owner server stateful pvc cron signingSecret)
 
 -- | Rotation is one forward-only operation on one user member, keyed by the
 -- role: a new stamp makes a new operation, so each rotation runs once.

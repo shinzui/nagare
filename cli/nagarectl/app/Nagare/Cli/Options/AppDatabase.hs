@@ -6,6 +6,8 @@ module Nagare.Cli.Options.AppDatabase
   , AppDatabaseNameOpts (..)
   , AppDatabaseReceiptsOpts (..)
   , AppDatabaseRestoreOpts (..)
+  , AppDatabasePruneOpts (..)
+  , AppDatabaseRecoverPruneOpts (..)
   )
 where
 
@@ -18,6 +20,29 @@ data AppDatabaseCommand
   | AppDatabaseList (Maybe String)
   | AppDatabaseBackupReceipts AppDatabaseReceiptsOpts
   | AppDatabaseRestore AppDatabaseRestoreOpts
+  | AppDatabasePruneScheduledBackups AppDatabasePruneOpts
+  | AppDatabaseRecoverScheduledPrune AppDatabaseRecoverPruneOpts
+  deriving stock (Generic, Show)
+
+-- | Review an app database's accepted scheduled runs past the retention
+-- policy (F132), as @db prune-scheduled-backups@ reviews a database's.
+data AppDatabasePruneOpts = AppDatabasePruneOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , savePlan :: !FilePath
+  }
+  deriving stock (Generic, Show)
+
+-- | Review deletion of the receipt an abandoned partial prune left.
+data AppDatabaseRecoverPruneOpts = AppDatabaseRecoverPruneOpts
+  { name :: !String
+  , backupId :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , failedReview :: !FilePath
+  , savePlan :: !FilePath
+  }
   deriving stock (Generic, Show)
 
 -- | Restore one ingested scheduled run into scratch names.

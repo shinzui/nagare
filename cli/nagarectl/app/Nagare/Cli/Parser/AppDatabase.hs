@@ -83,6 +83,36 @@ appDatabaseParser =
               (progDesc "Review a restore of one app database's backup into scratch databases, leaving every other app untouched")
           )
         <> command
+          "prune-scheduled-backups"
+          ( info
+              ( AppDatabasePruneScheduledBackups
+                  <$> ( AppDatabasePruneOpts
+                          <$> strArgument (metavar "NAME" <> help "App database name")
+                          <*> namespaceOpt
+                          <*> bucketOpt
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the exact scheduled retention review")
+                      )
+                    <**> helper
+              )
+              (progDesc "Review an app database's accepted scheduled backups past the retention policy (every point 48 h, the newest per day 30 days)")
+          )
+        <> command
+          "recover-scheduled-prune"
+          ( info
+              ( AppDatabaseRecoverScheduledPrune
+                  <$> ( AppDatabaseRecoverPruneOpts
+                          <$> strArgument (metavar "NAME" <> help "App database name")
+                          <*> strArgument (metavar "BACKUP_ID" <> help "Exact scheduled Job UID from the abandoned prune")
+                          <*> namespaceOpt
+                          <*> bucketOpt
+                          <*> strOption (long "failed-review" <> metavar "DIR" <> help "Published immutable review of the failed scheduled prune")
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save an exact remaining-receipt recovery review")
+                      )
+                    <**> helper
+              )
+              (progDesc "Review deletion of the exact receipt left by an abandoned partial scheduled app-database prune")
+          )
+        <> command
           "list"
           ( info
               (AppDatabaseList <$> namespaceOpt <**> helper)
@@ -103,3 +133,4 @@ appDatabaseParser =
         <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pinned logical key used at creation"))
         <*> strOption (long "save-plan" <> metavar "DIR" <> help savePlanHelp)
     namespaceOpt = optional (strOption (long "namespace" <> short 'n' <> metavar "NS" <> help "Namespace (default personal)"))
+    bucketOpt = optional (strOption (long "bucket" <> metavar "BUCKET" <> help "Backup bucket (default: the context's)"))

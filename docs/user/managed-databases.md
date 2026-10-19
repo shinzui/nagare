@@ -589,8 +589,11 @@ restart the workloads bound to it afterwards. Rotation of one user never touches
 another user or another app.
 
 **Retirement.** `nagarectl db app-database retire NAME --save-plan DIR` turns both
-users' logins and every grant off, and keeps the databases and Secrets. It is
-refused while a workload still binds the app database; retire those first.
+users' logins and every grant off, suspends the backup schedule, and keeps the
+databases, Secrets and accepted backups. It is refused while a workload still
+binds the app database; retire those first. Runs taken before retirement can
+still be ingested and restored. Re-planning the app database in its config
+resumes the schedule.
 
 **Backups.** Each app database has its own signed schedule,
 `nagare-appdb-<name>`, on the context's recovery-point cadence. It dumps with the
@@ -607,6 +610,23 @@ nagarectl inventory apply ./ingest --yes
 nagarectl db app-database restore NAME --backup-id JOB_UID --restore-id ID --save-plan ./restore
 nagarectl inventory apply ./restore --yes
 ```
+
+`server status` and `doctor` show a `recovery point` and a `retention` row for
+every app database, labelled `<namespace>/<name>`; a retired one's recovery
+point reads `retired; schedule suspended`. Runs past the
+[retention policy](#backups-and-restore) are removed only by a reviewed prune,
+exactly as a server's:
+
+```bash
+nagarectl db app-database prune-scheduled-backups NAME --save-plan ./prune
+nagarectl inventory apply ./prune --yes
+# If the prune's Job failed and its transaction was abandoned, review the
+# deletion of the receipt it left behind:
+nagarectl db app-database recover-scheduled-prune NAME JOB_UID --failed-review ./prune --save-plan ./prune-recovery
+```
+
+With nothing past policy, the prune refuses with `no accepted scheduled backup
+is past the retention policy`.
 
 **After a server rebuild**, an app database comes back after its server, in three
 steps: restore the server, re-apply the app database (its absent logical

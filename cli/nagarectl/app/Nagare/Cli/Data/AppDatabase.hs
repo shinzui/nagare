@@ -14,6 +14,7 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Cli.Data.ScheduledPrune (runReviewedScheduledPrunePlan, runReviewedScheduledPruneRecoveryPlan)
 import Nagare.Cli.Data.ScheduledReceipts (IngestSelection (..), runReviewedAppDatabaseReceiptPlan)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
@@ -35,6 +36,7 @@ import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Restore (restoreTargetPins)
+import Nagare.Inventory.ScheduledPrune (PruneSource (AppDatabasePruneSource))
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -127,6 +129,10 @@ runAppDatabase mctx = \case
             accepted
         )
     planReview active snapshot [restoreScope] native (Just (o ^. #savePlan))
+  AppDatabasePruneScheduledBackups o ->
+    runReviewedScheduledPrunePlan mctx (AppDatabasePruneSource (T.pack (o ^. #name))) (maybe "personal" T.pack (o ^. #namespace)) (o ^. #bucket) (o ^. #savePlan)
+  AppDatabaseRecoverScheduledPrune o ->
+    runReviewedScheduledPruneRecoveryPlan mctx (AppDatabasePruneSource (T.pack (o ^. #name))) (maybe "personal" T.pack (o ^. #namespace)) (T.pack (o ^. #backupId)) (o ^. #bucket) (o ^. #failedReview) (o ^. #savePlan)
   AppDatabaseList namespaceFilter -> do
     (_, snapshot) <- loadSnapshot mctx
     let rows = [row | row <- appDatabaseRows snapshot, maybe True ((== row ^. #namespace) . T.pack) namespaceFilter]

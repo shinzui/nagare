@@ -50,7 +50,9 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Restore (manualRestoreTargetProof)
 import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
+import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), scheduledStatusSources)
 import Nagare.Inventory.Store (ScopeRevision (..))
+import Nagare.Ops.Probe (Probe (..), ProbeStatus (StatusOk), retiredRecoveryPointProbe)
 import Nagare.Resource.AppDatabase (appDatabaseCredentialTemplate)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
@@ -239,6 +241,17 @@ appDatabaseTests =
             (again, _) <- either (assertFailure . show) pure (retireAppDatabaseScope (snapshotWith [pgServer] [retired]) retiredNative retired)
             again @?= retired
             cronOf (scopeOf pgServer (alpha Postgres)) @?= cron
+        , testCase "F132: status grades every app database's schedule, and a retired one as retired" $ do
+            let (pgScope, _) = scopeAndNative pgServer (alpha Postgres)
+                (chScope, _) = scopeAndNative chServer (alpha ClickHouse)
+                accepted = snapshotWith [pgServer, chServer] [pgScope, chScope]
+                appRows = [(status ^. #kind, status ^. #label, status ^. #source) | status <- scheduledStatusSources accepted, case status ^. #kind of AppDatabaseStatus _ -> True; _ -> False]
+            appRows @?= [(AppDatabaseStatus "alpha-ch", "personal/alpha-ch", scopeId chScope), (AppDatabaseStatus "alpha-pg", "personal/alpha-pg", scopeId pgScope)]
+            assertBool "the servers' own schedules are graded too" (any (\status -> status ^. #kind == DatabaseStatus "smoke-pg") (scheduledStatusSources accepted))
+            retiredRecoveryPointProbe "personal/beta-ch" @?= Probe "recovery point" StatusOk "personal/beta-ch: retired; schedule suspended"
+            source <- either (assertFailure . T.unpack) pure (appDatabaseScheduleSource accepted testCluster "personal" "alpha-pg")
+            source ^. #scope @?= pgScope
+            source ^. #serverScope @?= fst pgServer
         , testCase "a rotation is one forward-only operation per user, replaced by the next" $ do
             let scope = scopeOf pgServer (alpha Postgres)
                 rotations revised = [operation | bundle <- scopeBundles revised, operation <- bundle ^. #operations, operation ^. #operationKind == RotateCredential]

@@ -43,6 +43,7 @@ module Nagare.Ops.Probe
   , parseNewestBackupAge
   , backupPrefixes
   , recoveryPointProbe
+  , retiredRecoveryPointProbe
   , retentionProbe
   , parseDfUsage
 
@@ -282,6 +283,11 @@ recoveryPointProbe database result = Probe "recovery point" grade (database <> "
       Right (RecoveryPointGrade _ (Deteriorating _) _) -> StatusWarn
       Right _ -> StatusFail
     detail = either ("receipts unobservable: " <>) recoveryPointDetail result
+
+-- | F132: a retired app database's schedule is suspended, so it takes no
+-- recovery points and is not stale.
+retiredRecoveryPointProbe :: Text -> Probe
+retiredRecoveryPointProbe source = Probe "recovery point" StatusOk (source <> ": retired; schedule suspended")
 
 -- | EP-183 M2: one source's accepted scheduled recovery points past the
 -- retention policy (ADR 28). Points past policy are a warning, not a failure:
