@@ -30,7 +30,6 @@ applicationConfig = do
       , image = image
       , env = Map.empty
       , databases = []
-      , appDatabases = []
       , brokers = []
       , access = Nothing
       , service = Nothing

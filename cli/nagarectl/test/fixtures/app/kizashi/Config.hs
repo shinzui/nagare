@@ -106,7 +106,6 @@ application = do
       , image = img
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]
       , databases = [db]
-      , appDatabases = []
       , brokers = []
       , access = Nothing
       , service = Just svc
