@@ -1,8 +1,6 @@
 {
   "cli/nagare-access/test/Spec.hs": 1720,
-  "cli/nagare-dsl/src/Nagare/Resource/Inventory.hs": 1011,
   "cli/nagare-dsl/test/Spec.hs": 1255,
-  "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1180,
   "cli/nagarectl/src/Nagare/Inventory/DataFence/KubernetesExclusion.hs": 1199,
   "cli/nagarectl/src/Nagare/Inventory/Store.hs": 1259,
   "cli/nagarectl/test/AppDeploySpec.hs": 4767,

@@ -148,6 +148,7 @@ library
     Nagare.Inventory.Adapters.CdnRuntime
     Nagare.Inventory.Adapters.Cloudflare
     Nagare.Inventory.Adapters.CloudflareRuntime
+    Nagare.Inventory.Adapters.CredentialTemplate
     Nagare.Inventory.Adapters.Foundation
     Nagare.Inventory.Adapters.FoundationRuntime
     Nagare.Inventory.Adapters.GitHubRelease

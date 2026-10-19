@@ -89,6 +89,7 @@ library
     Nagare.Resource.Database
     Nagare.Resource.Helm
     Nagare.Resource.Inventory
+    Nagare.Resource.Inventory.Types
     Nagare.Resource.Kubernetes
     Nagare.Resource.Policy
     Nagare.Resource.Reference
