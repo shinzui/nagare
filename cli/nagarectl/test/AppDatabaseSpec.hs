@@ -144,6 +144,7 @@ appDatabaseTests =
             assertBool "dumps with the migration Secret" ("alpha-ch-migration" `T.isInfixOf` text)
             assertBool "backs up both logical databases in one archive" ("BACKUP DATABASE alpha, DATABASE alpha_ledger TO File" `T.isInfixOf` text)
             nub (sort (secretKeyRefs bytes)) @?= ["alpha-ch-migration", "nagare-appdb-alpha-ch-signing"]
+            assertNoServerLabel bytes
             case scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" "alpha-ch" (uid "sts") (uid "pvc") bytes of
               Right expectation -> do
                 assertBool "its own key space" ("app-databases/personal/alpha-ch/" `T.isSuffixOf` scheduledObjectPrefix expectation)
@@ -171,6 +172,7 @@ appDatabaseTests =
             assertBool "loads the custom-format dump" ("pg_restore --exit-on-error -h smoke-pg" `T.isInfixOf` text)
             assertBool "touches no other app" (not ("beta" `T.isInfixOf` text))
             nub (sort (secretKeyRefs bytes)) @?= ["nagare-db-smoke-pg"]
+            assertNoServerLabel bytes
             Map.lookup "restore.target.databases" (scopeOverrides restoreScope) @?= Just "alpha_restore_r1"
             -- Admission re-checks the server scope's accepted revision and incarnations.
             either (assertFailure . T.unpack) (assertBool "no target proof" . isJust) (manualRestoreTargetProof restoreScope)
@@ -458,6 +460,24 @@ compileWorker app names bindings =
         }
 
 -- | Every @secretKeyRef.name@ in a native object.
+-- | Every pod template's labels in a rendered object.
+podTemplateLabels :: ByteString -> [KM.KeyMap Value]
+podTemplateLabels bytes = either (const []) collect (eitherDecodeStrict bytes)
+  where
+    collect = \case
+      Object fields ->
+        [labels | Just (Object template) <- [KM.lookup "template" fields], Just (Object metadata) <- [KM.lookup "metadata" template], Just (Object labels) <- [KM.lookup "labels" metadata]]
+          <> concatMap collect (KM.elems fields)
+      Array items -> concatMap collect (V.toList items)
+      _ -> []
+
+-- | A server's Service selects nagare.dev/database; a Job pod carrying it
+-- would receive the server's connections (EP-202 M7).
+assertNoServerLabel :: ByteString -> Assertion
+assertNoServerLabel bytes = do
+  assertBool "the object has a pod template" (not (null (podTemplateLabels bytes)))
+  assertBool "a Job pod carries the server's Service label" (all (not . KM.member "nagare.dev/database") (podTemplateLabels bytes))
+
 secretKeyRefs :: ByteString -> [Text]
 secretKeyRefs bytes = either (const []) collect (eitherDecodeStrict bytes)
   where

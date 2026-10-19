@@ -327,6 +327,15 @@ and scratch restore of each app.
   Date: 2026-10-19
 
 
+- Decision: Backup and restore Job pods label themselves `nagare.dev/database-job: <server>`, not
+  `nagare.dev/database`. The server's Service selects `nagare.dev/database`, so a running Job pod
+  was a Service endpoint and refused the connections routed to it. Servers have always had this
+  for the few seconds of each scheduled backup; every app database adds its own run each recovery
+  point, so on a shared server it became frequent (the M7 smoke hit it twice). Existing servers'
+  backup CronJobs see one reviewed update; the frozen pre-recovery-point renderers keep their
+  original labels so legacy objects are still recognised. The release notes name the update.
+  Date: 2026-10-19
+
 ## Outcomes & Retrospective
 
 (To be filled at completion.)

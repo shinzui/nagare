@@ -231,7 +231,7 @@ renderJobWith mountData container i =
       , "spec"
           .= dataMovementJobSpec
             DataMovementJob
-              { templateLabels = Just labels
+              { templateLabels = Just podLabels
               , serviceAccountName = Nothing
               , backoffLimit = 0
               , hostAliases = storeHostAliases (i ^. #backend)
@@ -256,6 +256,12 @@ renderJobWith mountData container i =
       object
         [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
         , "nagare.dev/database" .= (i ^. #name)
+        ]
+    -- The server's Service selects nagare.dev/database; the Job's pods must not match it.
+    podLabels =
+      object
+        [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+        , "nagare.dev/database-job" .= (i ^. #name)
         ]
 
 -- | A Job that mounts a database's data PVC runs on the database Pod's node.

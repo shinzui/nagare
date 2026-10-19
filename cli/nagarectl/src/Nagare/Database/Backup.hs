@@ -294,7 +294,8 @@ backupJobSpecValueWithRecoveryPoint :: Bool -> BackupJobInputs -> Value
 backupJobSpecValueWithRecoveryPoint timed i =
   dataMovementJobSpec
     DataMovementJob
-      { templateLabels = Just (labelsValue i)
+      { -- The frozen pre-recovery-point renderers keep their original pod labels.
+        templateLabels = Just (if timed then podLabelsValue i else labelsValue i)
       , serviceAccountName = if sourceAttested i then Just (i ^. #jobName) else Nothing
       , backoffLimit = 2
       , hostAliases = storeHostAliases (i ^. #backend)
@@ -405,6 +406,15 @@ labelsValue i =
   object
     [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
     , (if i ^. #source == VolumeSource then "nagare.dev/volume-claim" else "nagare.dev/database") .= (i ^. #name)
+    ]
+
+-- | A Job's pods never carry @nagare.dev/database@: the server's Service
+-- selects that label, and would route connections to a running Job pod.
+podLabelsValue :: BackupJobInputs -> Value
+podLabelsValue i =
+  object
+    [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+    , (if i ^. #source == VolumeSource then "nagare.dev/volume-claim" else "nagare.dev/database-job") .= (i ^. #name)
     ]
 
 -- | The dump initContainer: the engine client image, credentials from the
