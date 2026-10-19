@@ -145,6 +145,10 @@ appDatabaseTests =
             [access | DatabaseUserSpec _ "runtime" _ _ access <- specsOf scope] @?= [noUserAccess & #exceptions .~ [SystemParts]]
             [monitoring | LogicalDatabase _ _ _ _ _ monitoring <- specsOf pgScope] @?= [[PgMonitor]]
             assertBool "the extension changes the user's digest" ([d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf scope] /= [d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf (scopeOf chServer (alpha ClickHouse))])
+        , testCase "declared access keeps the backup schedule's revision (EP-204)" $
+            forM_ [(chServer, alpha ClickHouse & #access . #runtime . #exceptions .~ [SystemParts]), (pgServer, alpha Postgres & #access . #monitoring .~ [PgMonitor])] $ \(server', declared) -> do
+              let cronOf db = [bytes | (member, bytes) <- Map.elems (snd (scopeAndNative server' db)), Kubernetes _ "batch" kind _ _ <- [member ^. #address], nameText kind == "cronjob"]
+              cronOf declared @?= cronOf (declared & #access .~ noAppDatabaseAccess)
         , testCase "alpha and beta share one server per engine (AC-1)" $ do
             let inventory =
                   known

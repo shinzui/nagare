@@ -37,7 +37,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Database.AppDatabase.Backup (AppDatabaseBackup (..), appDatabaseBackupScheduleName, renderInventoryAppDatabaseBackupCronJob)
-import Nagare.Dsl.AppDatabase (AppDatabase (..), appDatabaseNameText, logicalDatabaseNameText)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), appDatabaseNameText, logicalDatabaseNameText, noAppDatabaseAccess)
 import Nagare.Dsl.Config (encodeAppDatabases)
 import Nagare.Dsl.Database (Engine, engineToken)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -206,7 +206,10 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
               .~ [source]
           )
   -- Every app database has its own schedule, dumped with its migration
-  -- credential; its receipts pin this declaration's digest.
+  -- credential; its receipts pin this declaration's digest. Reviewed access
+  -- (EP-204) changes no byte a backup holds, so it is left out: declaring or
+  -- changing it keeps the schedule revision, and the runs taken before it stay
+  -- current for ingestion and prune.
   let schedule =
         renderInventoryAppDatabaseBackupCronJob
           (target ^. #objective)
@@ -217,7 +220,7 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
             , engine = db ^. #engine
             , clientImage = serverFound ^. #image
             , databases = map logicalDatabaseNameText (NE.toList (db ^. #logicalDatabases))
-            , declaration = digestText (contentDigest (LBS.toStrict (encodeAppDatabases [db])))
+            , declaration = digestText (contentDigest (LBS.toStrict (encodeAppDatabases [db & #access .~ noAppDatabaseAccess])))
             }
           (target ^. #backend)
           7
