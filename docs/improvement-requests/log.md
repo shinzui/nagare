@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-19
+* **Add**: Propose IR-34 from `mori://shinzui/nagare`: a read-only `nagarectl inventory show` that lists accepted scopes and prints one scope's accepted declaration from the selected store, local or GCS, with no provider contact, lock or write. Found while reviewing ExecPlan 204, which assumed the command existed; every current reader of accepted history observes providers, exports the whole store, or covers one domain. Built in one commit when an operator first needs it, no ExecPlan.
 * **Update**: Accept IR-30, IR-31, IR-32 and IR-33 and plan them: IR-30 and IR-32 share ExecPlan 204 (allow-listed grant exceptions and per-user limits on the same user members), IR-31 targets ExecPlan 205 (tenant-scoped quiesce, on-demand backup and resume), and IR-33 targets ExecPlan 206 (read-only consumer users, after ExecPlan 204's limits land).
 * **Update**: Tighten IR-33's PostgreSQL scope: role-level read-only and timeout settings are overridable defaults, so the boundary is grants plus a connection limit; flag `security_invoker` views and guard readers against `SECURITY DEFINER` functions (new AC-9).
 * **Add**: Propose IR-33 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps`: reviewed read-only consumer users for app databases, limited to declared tables or views under a constrained profile, with their own Secret, rotation, retirement and cross-app binding by the owner's declaration. Kansoku's reader role needs access management that a shared server must not grant, and v0.7.0 reports any extra user or table grant as drift.
@@ -10,7 +11,7 @@
 
 ## 2026-10-13
 * **Update**: Complete IR-28 in ExecPlan 191: `nagarectl domains tls HOST` diagnoses one host's issuance chain, `--renew --yes` triggers one re-issuance of an owned failed certificate, and a deploy that stops on a certificate names the verdict and the command.
-* **Update**: Complete IR-27 in ExecPlan 190: access observation causes reach plan errors and status, and apply and resume refuse a missing NAGARE_EN_API_KEY before admission.
+* **Update**: Complete IR-27 in ExecPlan 190: access observation causes reach plan errors and status, and apply and resume refuse a missing NAGARE\_EN\_API\_KEY before admission.
 * **Update**: Accept IR-27 and IR-28 after validating both against master; plan them in ExecPlans 190 and 191.
 * **Add**: Propose IR-27 for early private-access credential preflight and safe cause-preserving observation diagnostics, and IR-28 for actionable certificate-issuance diagnostics and scoped supported recovery. Both originate from `mori://shinzui/keiro-runtime-docs/plans/49-deploy-the-docs-to-the-labs-intranet-with-local-bun-builds`. The first-class protected-site gap is already implemented by the site-access initiative and receives no duplicate request.
 

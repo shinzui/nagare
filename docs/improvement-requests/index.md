@@ -4,6 +4,7 @@ okf_version: "0.2"
 
 # Files
 
+- [Add a read-only inventory show command that prints accepted history without contacting providers](inventory-show-accepted-history-offline.md) - Let an operator list the accepted scopes of the selected inventory store, local or GCS, and print one scope's accepted declaration, with no provider contact, no lock and no store write, instead of exporting the whole store or reading digest-named records by hand.
 - [profile.dhall](profile.dhall)
 
 # Improvement Request
