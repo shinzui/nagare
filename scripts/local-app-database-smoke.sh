@@ -13,9 +13,13 @@
 #      pg_monitor on alpha-pg hold, beta is unaffected, and removing an exception revokes it;
 #   5c. EP-206: a reader on each alpha, declared since step 2, reads only its views under its
 #      ceilings from a consumer probe; a non-consumer is refused; alpha-pg's reader rotates;
+#   5d. EP-208: alpha-pg's runtime creates its queue in schema pgmq under declared CREATE, the
+#      migration user alters it, an owner probe binds the migration Secret, and alpha-ch's
+#      runtime creates and drops tables in its own databases only;
 #   6. rotate alpha-pg's runtime user and retire beta-ch, the other apps unchanged;
 #   7. one scheduled backup run of alpha-pg and alpha-ch, ingested and restored into scratch,
-#      which no reader reaches; then alpha-pg's reader is retired (EP-206);
+#      which no reader reaches and which keeps the runtime-owned queue (EP-208); then
+#      alpha-pg's reader is retired (EP-206);
 #   8. server status grades all four app databases' recovery points (beta-ch retired), and a
 #      prune review of alpha-pg has no runs past policy (EP-203);
 #   8a. EP-207: a run of a fresh app database taken before a logical database is added
@@ -134,12 +138,17 @@ chAccess
       noAppDatabaseAccess
         & #runtime .~ UserAccess ([SystemParts] <> [SystemStoragePolicies | stage == "declared"] <> [ArbitraryTemporaryTables]) (ceilings 268435456 5 2)
         & #migration .~ UserAccess [] (ceilings 4294967296 600 4)
+        -- EP-208: tables of its own in alpha and alpha_ledger.
+        & #privileges . #runtime . #clickhouse .~ map (ok . mkClickHousePrivilege) ["CREATE TABLE", "DROP TABLE"]
 pgAccess
   | stage == "none" = noAppDatabaseAccess
   | otherwise =
       noAppDatabaseAccess
         & #monitoring .~ [PgMonitor]
         & #runtime . #limits .~ (noUserLimits & #connectionLimit ?~ 3 & #statementTimeoutSeconds ?~ 30)
+        -- EP-208: a PGMQ queue created by the runtime, and one workload with the owner credential.
+        & #privileges . #runtime . #createIn .~ [ok (mkSchemaName "pgmq")]
+        & #owners .~ [ok (mkServiceName "alpha-pg-owner")]
 
 main :: IO ()
 main =
@@ -400,12 +409,14 @@ log "IR-31: alpha quiesced and drained on both engines while beta ran; on-demand
 
 # --- 5b. EP-204: reviewed exceptions and limits ---
 plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs" --save-plan "$REVIEWS/access-declared")"
-for needle in "exceptions system-parts, system-storage-policies, arbitrary-temporary-tables" "maxMemoryBytes 268435456" "connectionLimit 3" "tolerates grants to pg_monitor"; do
+for needle in "exceptions system-parts, system-storage-policies, arbitrary-temporary-tables" "maxMemoryBytes 268435456" "connectionLimit 3" "tolerates grants to pg_monitor" "createIn pgmq" "migration member of runtime" "runtime CREATE TABLE, DROP TABLE" "owners alpha-pg-owner"; do
   { grep -qF "$needle" <<<"$plan_out" || grep -rqF "$needle" "$REVIEWS/access-declared"; } || { echo "$plan_out" >&2; fail "IR-30 AC-1: the reviewed plan does not name '$needle'"; }
 done
 apply "$REVIEWS/access-declared"
-replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs")"
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs" 2>"$REVIEWS/declared.notes")"
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan with declared access has operations"; }
+# IR-35 AC-1: schema pgmq is the app's migration's; until it exists it is pending, not planned.
+grep -q 'pending: schema pgmq' "$REVIEWS/declared.notes" || { cat "$REVIEWS/declared.notes" >&2; fail "IR-35 AC-1: the plan names no pending schema pgmq"; }
 code_of() { grep -oE 'Code: [0-9]+' <<<"$1" | head -1; }
 # IR-30 AC-2: the declared system tables, own rows only, and Join temporary tables; no source engine.
 [ "$(ch_rt alpha-ch "SELECT count() FROM system.parts WHERE database = 'alpha'")" -gt 0 ] || fail "IR-30 AC-2: alpha-ch runtime sees no parts of its own tables"
@@ -454,6 +465,11 @@ GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;" >/dev/null
+# IR-35 AC-1: with the schema in place the next plan grants the runtime CREATE on it, and only that.
+plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs" --save-plan "$REVIEWS/pgmq-grant" 2>"$REVIEWS/pgmq.notes")"
+grep -q 'update app-database database alpha on smoke-pg; tolerates grants to pg_monitor; createIn pgmq; migration member of runtime' "$REVIEWS/pgmq-grant/review.json" || { echo "$plan_out" >&2; fail "IR-35 AC-1: the plan after PGMQ's install does not grant CREATE on pgmq"; }
+! grep -q 'pending' "$REVIEWS/pgmq.notes" || { cat "$REVIEWS/pgmq.notes" >&2; fail "IR-35 AC-1: schema pgmq is still pending"; }
+apply "$REVIEWS/pgmq-grant"
 replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs")"
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-30 AC-4: PGMQ's grants to a declared pg_monitor re-plan with operations"; }
 if out="$(n db app-database plan --config "$ROOT/config/AppDatabases.hs" 2>&1)"; then fail "IR-30 AC-4: undeclared pg_monitor grants planned"; fi
@@ -568,6 +584,30 @@ for _ in $(seq 1 30); do pg_rt gamma-pg 'SELECT 1' >/dev/null 2>&1 && break; sle
 expect "alpha-pg reader after its rotation" "$(pg_rt gamma-pg 'SELECT count(*) FROM rv')" "1"
 log "IR-33: readers read only their views under their ceilings from consumer probes; a non-consumer was refused; a definer function refused until revoked; the reader rotated alone"
 
+# --- 5d. EP-208: privileges inside the app's own databases ---
+# IR-35 AC-1/AC-2: the runtime creates its queue in pgmq, owns it, and the migration user alters it.
+pg_rt alpha-pg "CREATE TABLE IF NOT EXISTS pgmq.q_smoke (msg_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, message jsonb); TRUNCATE pgmq.q_smoke; INSERT INTO pgmq.q_smoke (message) VALUES ('{}')" >/dev/null
+expect "IR-35 AC-1: alpha-pg runtime CREATE on pgmq" "$(pg_as alpha-pg-migration alpha "SELECT has_schema_privilege('$PG_RT_USER', 'pgmq', 'CREATE')")" "t"
+expect "IR-35 AC-2: the queue's owner" "$(pg_as alpha-pg-migration alpha "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'pgmq.q_smoke'::regclass")" "$PG_RT_USER"
+pg_as alpha-pg-migration alpha "ALTER TABLE pgmq.q_smoke ADD COLUMN IF NOT EXISTS note text" >/dev/null || fail "IR-35 AC-2: the migration user cannot alter the runtime's queue"
+refused "alpha-pg runtime CREATE in public" pg_rt alpha-pg 'CREATE TABLE public.t2 (i int)'
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>&1)"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-35 AC-3: the re-plan after the runtime created its queue has operations"; }
+# IR-35 AC-4: alpha-ch's runtime creates and drops tables in its own databases, never beta's.
+for db in alpha alpha_ledger; do
+  ch_rt alpha-ch "CREATE TABLE $db.t_smoke (v String) ENGINE = MergeTree ORDER BY v" || fail "IR-35 AC-4: alpha-ch runtime CREATE TABLE in $db"
+  ch_rt alpha-ch "DROP TABLE $db.t_smoke" || fail "IR-35 AC-4: alpha-ch runtime DROP TABLE in $db"
+done
+out="$(ch_rt alpha-ch "CREATE TABLE beta.t_smoke (v String) ENGINE = MergeTree ORDER BY v" 2>&1 || true)"
+expect "IR-35 AC-4: alpha-ch runtime CREATE TABLE in beta" "$(code_of "$out")" "Code: 497"
+# IR-35 AC-5: the declared owner binds the migration Secret; every other binder the runtime Secret.
+probe alpha-pg-owner alpha-pg "$PG_IMAGE" appdb-probe-pg "$PG_TAG"
+kubectl -n "$NS" rollout status deployment/alpha-pg-owner --timeout=300s >/dev/null
+expect "IR-35 AC-5: alpha-pg-owner's Secrets" "$(secret_refs alpha-pg-owner)" "alpha-pg-migration"
+expect "IR-35 AC-5: alpha-pg-probe's Secrets" "$(secret_refs alpha-pg-probe)" "alpha-pg-runtime"
+expect "IR-35 AC-5: alpha-pg-owner connects as" "$(kubectl -n "$NS" exec deployment/alpha-pg-owner -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT current_user"')" "$(secret alpha-pg-migration POSTGRES_USER)"
+log "IR-35: alpha-pg runtime created its pgmq queue under declared CREATE; migration altered it; owner probe holds the migration Secret; alpha-ch runtime created and dropped its own table, beta refused"
+
 # --- 6. rotate alpha-pg's runtime user, retire beta-ch ---
 old_pw="$(secret alpha-pg-runtime POSTGRES_PASSWORD)"; old_user="$(secret alpha-pg-runtime POSTGRES_USER)"
 beta_pg="$(digest_of beta-pg-runtime)"; alpha_mig="$(digest_of alpha-pg-migration)"
@@ -623,6 +663,10 @@ expect "alpha-ch scratch ledger" "$(ch_rt alpha-ch "SELECT count() FROM alpha_le
 expect "live alpha untouched by the restore" "$(pg_rt alpha-pg "SELECT string_agg(v, '|') FROM t")" "alpha"
 expect "beta-pg untouched by the restore" "$(pg_rt beta-pg "SELECT string_agg(v, '|') FROM t")" "beta"
 log "AC-5: scheduled runs of alpha-pg and alpha-ch ingested and restored into scratch with their access"
+# IR-35 AC-6: the dump, taken as the migration user through the membership, keeps the queue's owner and row.
+expect "IR-35 AC-6: scratch queue owner" "$(pg_as alpha-pg-migration "alpha_restore_$RUN" "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'pgmq.q_smoke'::regclass")" "$PG_RT_USER"
+expect "IR-35 AC-6: scratch queue rows" "$(pg_as alpha-pg-migration "alpha_restore_$RUN" "SELECT count(*) FROM pgmq.q_smoke")" "1"
+log "IR-35: scratch restore kept the runtime-owned queue and its row"
 # IR-33 AC-8: the dump carried the reader's grant, yet no reader reaches a scratch database.
 refused "alpha-pg reader on alpha's scratch" pg_rt gamma-pg 'SELECT count(*) FROM rv' "alpha_restore_$RUN"
 out="$(ch_rt gamma-ch "SELECT count() FROM alpha_restore_$RUN.rv" 2>&1 || true)"

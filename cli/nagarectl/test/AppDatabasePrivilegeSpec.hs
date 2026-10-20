@@ -10,6 +10,7 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef
@@ -33,6 +34,7 @@ import Nagare.Inventory.Application (acceptedAppDatabaseBindings)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (decodeScope, encodeCanonicalScope)
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.Adversary qualified as Adversary
 import Nagare.Test.World.AppDatabase
@@ -110,6 +112,13 @@ appDatabasePrivilegeTests =
               [owners' | bundle <- scopeBundles scope, Managed member <- declarations bundle, DatabaseUserSpec _ role _ _ extension <- [member ^. #spec], let owners' = (role, extension ^. #owners), not (null (snd owners'))]
                 @?= [("migration", [known (Dsl.mkServiceName "gamma")])]
         ]
+    , testCase "v0.8.0 app-database scopes accepted on a native context decode and re-encode byte-identically (EP-208)" $
+        -- Applied by the packaged v0.8.0 CLI on the local context transition (the smoke's
+        -- first stage, readers declared), then exported; each file was named by its digest.
+        forM_ ["native-appdb-alpha-pg", "native-appdb-alpha-ch"] $ \file -> do
+          bytes <- BS.readFile ("test/fixtures/app-database/v0.8.0/" <> file <> ".json")
+          decoded <- either (assertFailure . show) pure (decodeScope bytes)
+          assertBool (file <> " re-encodes byte-identically") (encodeCanonicalScope decoded == bytes)
     , testGroup "Postgres world" postgresPrivilegeTests
     , testGroup "ClickHouse world" clickHousePrivilegeTests
     ]
