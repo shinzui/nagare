@@ -118,10 +118,25 @@ was not restarted. Other app databases on the server are not touched at any poin
     `docs/user/managed-databases.md`.
   - The evidence is read-only reporting, so it is confirmed natively in M5. There is no
     interpreter test for it.
-- [ ] M5 (native confirmation). `scripts/local-app-database-smoke.sh` proves AC-1 to AC-6 on a
+- [x] M5 (native confirmation). `scripts/local-app-database-smoke.sh` proves AC-1 to AC-6 on a
   disposable local context with the packaged CLI. In a new step before `beta-ch` is retired,
   it quiesces `alpha` on each engine while `beta`'s long queries keep running, and confirms the
   server Pods' UIDs and start times and the ClickHouse server UUID are unchanged.
+  Done 2026-10-20 with the packaged CLI from 28aec93e, from an empty environment, on the
+  disposable context `transition` (rebuilt 0.7.0 → 0.7.1, with v0.7.1 app databases created
+  by the v0.7.1 smoke). The IR-31 line printed, the EP-204 and EP-202/203 steps followed, and
+  the run ended in `app-database smoke: PASS`.
+  - On both engines: alpha was drained while beta's long queries kept running, logins were
+    refused, the schedules were suspended, and the server Pods' UID and start time and the
+    ClickHouse server UUID were unchanged.
+  - Also checked: `plan` skipped the quiesced alpha, `rotate` refused, the on-demand backups
+    were ingested and restored into scratch, and the schedules' specs came back equal.
+  - Also checked: ClickHouse grants were identical after resume, the definer view and
+    materialized view read, and both `evidence --json` records were complete with matching
+    server identity.
+  - Two defects found natively are fixed, with tests: the on-demand backup scope's overrides
+    (0763338b), and resume leaving a ClickHouse runtime user without grants (28aec93e, in the
+    Decision Log).
 - [ ] M6 (release). The change ships in a release, possibly shared with
   [EP-204](204-let-app-databases-declare-reviewed-grant-exceptions-and-resource-limits.md). The
   intranet is upgraded on the candidate before the tag. The tan-ng-labs plan replaces its two
@@ -277,6 +292,18 @@ was not restarted. Other app databases on the server are not touched at any poin
   blocked users are the scope's quiesced users.
   Rationale: `OperationInput` has no constructor for bounds, and Kansoku's ceremony needs
   none. A drain that times out leaves the app database quiesced: resume, then quiesce again.
+  Date: 2026-10-19
+
+- Decision (M5): app-database members resolve from the de-duplicated declarations, so the
+  review's own copy of a member wins over accepted history.
+  Rationale: the native smoke found that resume reopened the ClickHouse runtime login but left
+  it without grants. Planning resolves members from accepted history followed by the review.
+  The withheld users read from the raw list therefore still saw the accepted, quiesced runtime
+  user. The world now builds its members the same way, and reproduced the defect.
+  Date: 2026-10-20
+
+- Decision (operator, 2026-10-19): M6 waits for EP-206; EP-204, EP-205 and EP-206 ship in one
+  release.
   Date: 2026-10-19
 
 ## Outcomes & Retrospective
