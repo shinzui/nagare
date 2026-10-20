@@ -14,6 +14,7 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Cli.Data.ScheduledPrune (runReviewedScheduledPrunePlan, runReviewedScheduledPruneRecoveryPlan)
 import Nagare.Cli.Data.ScheduledReceipts (IngestSelection (..), runReviewedAppDatabaseReceiptPlan)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
@@ -30,6 +31,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (namespaceText)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.AppDatabase
+import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope)
 import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
@@ -69,6 +71,31 @@ runAppDatabase mctx = \case
     stamp <- currentTimestamp
     (revised, native) <- either (dieT . renderErrors) pure (resumeAppDatabaseScope accepted scope stamp)
     planReview active snapshot [revised] native (Just (o ^. #savePlan))
+  AppDatabaseBackup o requested -> do
+    (active, snapshot) <- loadSnapshot mctx
+    appScope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack (o ^. #name)) (T.pack <$> o ^. #scopeKey))
+    (_, stateful, pvc, statefulUid, pvcUid, history, accepted) <- serverPins active snapshot appScope
+    backupId <- maybe (T.pack . formatTime defaultTimeLocale "%Y%m%d%H%M" <$> getCurrentTime) (pure . T.pack) requested
+    (backupScope, native) <-
+      either
+        (dieT . renderErrors)
+        pure
+        ( compileAppDatabaseOnDemandBackupScope
+            AppDatabaseBackupRequest
+              { appScope = appScope
+              , namespace = maybe "personal" T.pack (o ^. #namespace)
+              , appDatabase = T.pack (o ^. #name)
+              , backupId = backupId
+              , statefulSet = stateful ^. #identity
+              , persistentVolume = pvc ^. #identity
+              , statefulUid = statefulUid
+              , pvcUid = pvcUid
+              , incarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
+              , source = Resource.SourceLocation "db app-database backup" (T.pack (o ^. #name))
+              }
+            accepted
+        )
+    planReview active snapshot [backupScope] native (Just (o ^. #savePlan))
   AppDatabaseRotate o roleText -> do
     role <- case roleText of
       "runtime" -> pure "runtime"
@@ -89,7 +116,6 @@ runAppDatabase mctx = \case
     (active, snapshot) <- loadSnapshot mctx
     let namespaceName = maybe "personal" T.pack (o ^. #namespace)
         scopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
-        membersOf scope = [member | bundle <- ResourceInventory.scopeBundles scope, ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
     appScope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack (o ^. #name)) Nothing)
     receiptScope <- case [ scope
                          | scope <- scopes
@@ -98,29 +124,9 @@ runAppDatabase mctx = \case
                          ] of
       [found] -> pure found
       _ -> dieT "the backup is not an accepted, ingested run of this app database; ingest it with db app-database backup-receipts"
-    statefulId <- case [target | member <- membersOf appScope, Resource.DatabaseUser target _ <- [member ^. #address]] of
-      target : _ -> pure target
-      [] -> dieT "the app database scope names no server"
-    (serverScope, stateful) <- case [(scope, member) | scope <- scopes, member <- membersOf scope, member ^. #identity == statefulId] of
-      [found] -> pure found
-      _ -> dieT "the app database's server StatefulSet is not accepted"
-    pvc <- case [member | member <- membersOf serverScope, Resource.Kubernetes _ "" kind _ _ <- [member ^. #address], Resource.nameText kind == "persistentvolumeclaim"] of
-      [found] -> pure found
-      _ -> dieT "the app database's server has no unique PVC"
-    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-    history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-    inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
-    (accepted, _) <- InventoryStatus.loadAcceptedNative store history inventory >>= either dieT pure
-    sourceAdapter <-
-      inventoryKubernetesAdapter
-        active
-        (ResourceInventory.snapshotBinding snapshot)
-        (\_ -> pure (Left "restore target observation does not use a cache key"))
-        (Map.restrictKeys accepted (Set.fromList [stateful ^. #identity, pvc ^. #identity]))
-    observed <- InventoryAdapter.adapterObserve sourceAdapter [stateful ^. #identity, pvc ^. #identity] >>= either dieT pure
+    (serverScope, _, _, statefulUid, pvcUid, history, accepted) <- serverPins active snapshot appScope
     serverRevision <-
       maybe (dieT "the app database's server scope is not accepted") (pure . fst) (Map.lookup (ResourceInventory.scopeId serverScope) (InventoryPlan.historyAccepted history))
-    (statefulUid, pvcUid) <- either dieT pure (restoreTargetPins (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) observed (stateful ^. #identity) (pvc ^. #identity))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     (restoreScope, native) <-
       either
@@ -195,6 +201,47 @@ runPlan mctx o = do
   if null compiled
     then TIO.putStrLn "no operations"
     else planReview active snapshot (map fst compiled) (Map.unions (map snd compiled)) (o ^. #savePlan)
+
+-- | The accepted server of an app database, its StatefulSet and claim, and
+-- their live UIDs, which must be the recorded incarnations (ADR 27).
+serverPins ::
+  ActiveTarget ->
+  ResourceInventory.ScopeSnapshot ->
+  ResourceInventory.ScopeDeclaration ->
+  IO
+    ( ResourceInventory.ScopeDeclaration
+    , ResourceInventory.ManagedResource
+    , ResourceInventory.ManagedResource
+    , Resource.PhysicalIdentity
+    , Resource.PhysicalIdentity
+    , InventoryPlan.InventoryHistory
+    , Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)
+    )
+serverPins active snapshot appScope = do
+  let scopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
+      membersOf scope = [member | bundle <- ResourceInventory.scopeBundles scope, ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+  statefulId <- case [target | member <- membersOf appScope, Resource.DatabaseUser target _ <- [member ^. #address]] of
+    target : _ -> pure target
+    [] -> dieT "the app database scope names no server"
+  (serverScope, stateful) <- case [(scope, member) | scope <- scopes, member <- membersOf scope, member ^. #identity == statefulId] of
+    [found] -> pure found
+    _ -> dieT "the app database's server StatefulSet is not accepted"
+  pvc <- case [member | member <- membersOf serverScope, Resource.Kubernetes _ "" kind _ _ <- [member ^. #address], Resource.nameText kind == "persistentvolumeclaim"] of
+    [found] -> pure found
+    _ -> dieT "the app database's server has no unique PVC"
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
+  (accepted, _) <- InventoryStatus.loadAcceptedNative store history inventory >>= either dieT pure
+  sourceAdapter <-
+    inventoryKubernetesAdapter
+      active
+      (ResourceInventory.snapshotBinding snapshot)
+      (\_ -> pure (Left "restore target observation does not use a cache key"))
+      (Map.restrictKeys accepted (Set.fromList [stateful ^. #identity, pvc ^. #identity]))
+  observed <- InventoryAdapter.adapterObserve sourceAdapter [stateful ^. #identity, pvc ^. #identity] >>= either dieT pure
+  (statefulUid, pvcUid) <- either dieT pure (restoreTargetPins (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) observed (stateful ^. #identity) (pvc ^. #identity))
+  pure (serverScope, stateful, pvc, statefulUid, pvcUid, history, accepted)
 
 loadSnapshot :: Maybe String -> IO (ActiveTarget, ResourceInventory.ScopeSnapshot)
 loadSnapshot mctx = do

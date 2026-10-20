@@ -44,6 +44,7 @@ import Nagare.Dsl.Worker (webWorker)
 import Nagare.Inventory.Adapters.AppDatabaseRuntime (clickHouseLoginVerdict)
 import Nagare.Inventory.Adapters.CredentialTemplate (credentialDataMatches, materializeCredential)
 import Nagare.Inventory.AppDatabase
+import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope, onDemandBackupJobName, validOnDemandBackupId)
 import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
 import Nagare.Inventory.Application (DatabaseBinding, acceptedAppDatabaseBindings, acceptedDatabaseBindings, compileStandaloneWorkerWithDependencies)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
@@ -366,6 +367,36 @@ appDatabaseTests =
             case compileWorker "alpha" (Just (Map.keys twoPostgres & map (known . mkAppDatabaseName . Dsl.databaseNameText))) twoPostgres of
               Left _ -> pure ()
               Right _ -> assertFailure "a workload bound two PostgreSQL databases"
+        , testCase "an on-demand backup is the schedule's own Job, ingests like a scheduled run, and needs the migration user (IR-31 AC-5)" $
+            forM_ [(pgServer, alpha Postgres), (chServer, alpha ClickHouse)] $ \(server', db) -> do
+              let (scope, native) = scopeAndNative server' db
+                  uid = known . mkPhysicalIdentity
+                  serverMembers = [m | bundle <- scopeBundles (fst server'), Managed m <- declarations bundle]
+                  pick kind = head [m ^. #identity | m <- serverMembers, Kubernetes _ _ k _ _ <- [m ^. #address], nameText k == kind]
+                  (statefulId, pvcId) = (pick "statefulset", pick "persistentvolumeclaim")
+                  pins = Map.fromList [(statefulId, uid "sts"), (pvcId, uid "pvc")]
+                  request scope' backup = AppDatabaseBackupRequest scope' "personal" (appDatabaseNameText (db ^. #name)) backup statefulId pvcId (uid "sts") (uid "pvc") pins (SourceLocation "test" "backup")
+                  cronBytes native' = head [bytes | (m, bytes) <- Map.elems native', Kubernetes _ "batch" k _ _ <- [m ^. #address], nameText k == "cronjob"]
+                  field path bytes = foldl (\v k -> case v of Just (Object o) -> KM.lookup k o; _ -> Nothing) (either (const Nothing) Just (eitherDecodeStrict bytes)) path
+              (backupScope, jobNative) <- either (assertFailure . show) pure (compileAppDatabaseOnDemandBackupScope (request scope "r1") native)
+              [jobBytes] <- pure (map snd (Map.elems jobNative))
+              field ["spec"] jobBytes @?= field ["spec", "jobTemplate", "spec"] (cronBytes native)
+              field ["metadata", "name"] jobBytes @?= Just (String ("nagare-appdb-" <> appDatabaseNameText (db ^. #name) <> "-r1"))
+              nameText (scopeName (scopeId backupScope)) @?= "appdb-backup-personal-" <> appDatabaseNameText (db ^. #name) <> "-r1"
+              -- A suspended schedule signs and is expected exactly as before.
+              (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope ["runtime"] "t1")
+              let expectation bytes = scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" (appDatabaseNameText (db ^. #name)) (uid "sts") (uid "pvc") bytes
+              expectation (cronBytes paused) @?= expectation (cronBytes native)
+              (_, quiescedJob) <- either (assertFailure . show) pure (compileAppDatabaseOnDemandBackupScope (request quiesced "r2") (Map.union paused native))
+              map (field ["spec"] . snd) (Map.elems quiescedJob) @?= [field ["spec"] jobBytes]
+              (both, bothPaused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope ["runtime", "migration"] "t1")
+              either (map (^. #code) . NE.toList) (const []) (compileAppDatabaseOnDemandBackupScope (request both "r3") (Map.union bothPaused native)) @?= ["app-database-quiesced"]
+              either (map (^. #code) . NE.toList) (const []) (compileAppDatabaseOnDemandBackupScope (request scope "R1") native) @?= ["invalid-app-database-backup"]
+              either (map (^. #code) . NE.toList) (const []) (compileAppDatabaseOnDemandBackupScope (request scope "r1" & #statefulUid .~ uid "other") native) @?= ["invalid-app-database-backup"]
+        , testCase "the longest app database and backup ID name a Job within the job-name label (EP-205)" $ do
+            let longest = T.replicate 36 "a"
+            assertBool "within the 63-character job-name label" (T.length (onDemandBackupJobName ("nagare-appdb-" <> longest) (T.replicate 12 "9")) <= 63)
+            assertBool "an ID longer than 12 is refused" (not (validOnDemandBackupId (T.replicate 13 "9")))
         , testCase "a quiesced app database still binds; a retired one does not (EP-205)" $ do
             let (scope, native) = scopeAndNative pgServer (alpha Postgres)
                 names = [known (mkAppDatabaseName "alpha-pg")]

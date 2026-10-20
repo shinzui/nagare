@@ -68,6 +68,16 @@ appDatabaseParser =
               (progDesc "Review the end of a quiesce: the quiesced users log in again and the schedule's accepted bytes come back")
           )
         <> command
+          "backup"
+          ( info
+              ( AppDatabaseBackup
+                  <$> nameOpts "Save a review that takes a signed backup now"
+                  <*> optional (strOption (long "backup-id" <> metavar "ID" <> help "1 to 12 lowercase letters or digits (default: the UTC time as yyyymmddhhmm)"))
+                    <**> helper
+              )
+              (progDesc "Review an on-demand backup: the schedule's own Job, quiesced or not; ingest its run with backup-receipts --backup-id JOB_UID")
+          )
+        <> command
           "backup-receipts"
           ( info
               ( AppDatabaseBackupReceipts

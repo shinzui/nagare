@@ -18,7 +18,7 @@ authority.
 | `SecretCommand` | 4 | none |
 | `StorageCommand` | 9 | none |
 | `DbCommand` | 20 | none |
-| `AppDatabaseCommand` | 10 | none |
+| `AppDatabaseCommand` | 11 | none |
 | `BrokerCommand` | 6 | none |
 | `TaskCommand` | 4 | none |
 | `WorkerCommand` | 2 | none |

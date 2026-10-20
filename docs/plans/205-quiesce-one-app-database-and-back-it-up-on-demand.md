@@ -91,11 +91,18 @@ was not restarted. Other app databases on the server are not touched at any poin
     suspension), a restarted server, and every fault placement acting across the whole cycle.
   - Each ordering and binding test fails without its fix.
   - The EP-202 repassword mutation record was regenerated and proven.
-- [ ] M3 (on-demand backup). `db app-database backup NAME --save-plan DIR` reviews a Job built
+- [x] M3 (on-demand backup). `db app-database backup NAME --save-plan DIR` reviews a Job built
   from the accepted schedule's `jobTemplate`. Its run is ingested by the existing
   `db app-database backup-receipts --backup-id` and restored by the existing `restore`. The
   backup is refused while the migration user is quiesced. Tests prove IR-31 AC-5 in render and
   ingestion.
+  Done 2026-10-19 (`Nagare.Inventory.AppDatabaseBackup`). Tests on both engines:
+  - the Job's `spec` is the CronJob's `jobTemplate.spec`;
+  - the Job is named `nagare-appdb-<name>-<id>`, in scope `appdb-backup-<ns>-<name>-<id>`;
+  - a suspended schedule gives the same receipt expectation and the same Job;
+  - a quiesced migration user is refused with `app-database-quiesced`, as are a bad ID and an
+    unrecorded server incarnation;
+  - the longest name is 62 characters.
 - [ ] M4 (evidence and docs). `db app-database evidence NAME` assembles the IR-31 AC-6 fields
   from the store: the reviewed `drain` and `resume` plans, their journalled completions, and the
   ingested receipt. The new commands are registered in `scripts/audit-managed-commands.py`. The

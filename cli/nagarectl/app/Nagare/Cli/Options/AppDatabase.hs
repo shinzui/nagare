@@ -20,6 +20,8 @@ data AppDatabaseCommand
   | -- | EP-205: the users to quiesce, as @runtime@ or @runtime,migration@
     AppDatabaseQuiesce AppDatabaseNameOpts String
   | AppDatabaseResume AppDatabaseNameOpts
+  | -- | EP-205: an on-demand backup, with an optional ID (default: the UTC minute)
+    AppDatabaseBackup AppDatabaseNameOpts (Maybe String)
   | AppDatabaseList (Maybe String)
   | AppDatabaseBackupReceipts AppDatabaseReceiptsOpts
   | AppDatabaseRestore AppDatabaseRestoreOpts

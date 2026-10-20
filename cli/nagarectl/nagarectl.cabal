@@ -177,6 +177,7 @@ library
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Adapters.RestoreScratch
     Nagare.Inventory.AppDatabase
+    Nagare.Inventory.AppDatabaseBackup
     Nagare.Inventory.AppDatabaseRestore
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact
