@@ -9,6 +9,7 @@ okf_version: "0.2"
 
 # Improvement Request
 
+- [Let an app database declare its runtime's privileges inside its own databases without a Nagare release](declare-runtime-privileges-within-an-app-database.md) - Replace the fixed DML-only runtime grant with a reviewed declaration of any privilege scoped to the app's own databases (PostgreSQL schema CREATE, ClickHouse database-level DDL, or an owner binding for apps that migrate at startup), so a common app pattern such as creating a PGMQ queue at startup needs only a config change, while cross-app isolation and server-wide allow-listing stay as they are.
 - [Give app databases reviewed read-only consumer users](read-only-consumer-users-for-app-databases.md) - Let an app database declare named read-only users limited to listed tables or views under fixed query limits, with their own Secret, rotation and retirement, for dashboards and other trusted SQL consumers.
 - [Let an app database declare reviewed exceptions to its fixed grant set](declare-reviewed-app-database-privilege-exceptions.md) - Let an app database opt into a small allow-list of extra ClickHouse privileges and accept PostgreSQL grants to read-only predefined roles that app migrations install, instead of reporting them as drift.
 - [Quiesce one app database and back it up on demand, without restarting the shared server](quiesce-and-back-up-one-app-database-on-demand.md) - Give an app database a reviewed maintenance window that pauses its backup schedule, drains only its sessions, takes an on-demand signed backup and records evidence.
