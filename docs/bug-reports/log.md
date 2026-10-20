@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-20
+* **Update**: BUG-7 is `fixed` in 0.9.0: the intranet's labs-clickhouse took the setting, its quiesced app databases resumed, and a reviewed restart left the migration grants write-only with both configs re-planning to no operations.
 * **Update**: Mark BUG-7 `fixed` in `unreleased` by commit `9e6ace41` (ExecPlan 209): ClickHouse servers turn on `enable_read_write_grants`, and the reloaded `READ ON FILE` on a migration user is revoked by the next plan instead of refused as drift.
 * **Addition**: Record BUG-7 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps` on 0.8.0: ClickHouse 26.8 persists an app database migration user's `WRITE ON FILE` as `FILE ON *.*`, so after a server restart the catalog sees an undeclared server-wide `READ` and refuses resume, plan, rotate and retire for every ClickHouse app database.
 
