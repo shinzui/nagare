@@ -6,6 +6,7 @@ module Nagare.Inventory.BackupReceipt
   , scheduledReceiptExpectationFromCronJob
   , scheduledVolumeReceiptExpectationFromCronJob
   , scheduledAppDatabaseReceiptExpectationFromCronJob
+  , scheduledReceiptDatabases
   , scheduleMetadataObjective
   , manualBackupJobReceiptExpectation
   , parseBackupReceipt
@@ -147,6 +148,37 @@ scheduledAppDatabaseReceiptExpectationFromCronJob backend namespaceName appDatab
             (Left "accepted app-database backup probes another server")
           Right (prefix, appDatabaseBackupExt engine)
     _ -> Left "accepted app-database backup has invalid receipt metadata"
+
+-- | The databases an app-database schedule's receipts name (EP-207): a run
+-- holds exactly these, whatever its app database declares now.
+scheduledReceiptDatabases :: ByteString -> Either T.Text [T.Text]
+scheduledReceiptDatabases bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes)
+  let containers = case path ["spec", "jobTemplate", "spec", "template", "spec", "containers"] value of
+        Just (Array entries) -> V.toList entries
+        _ -> []
+      metadata =
+        [ text
+        | container <- containers
+        , path ["name"] container == Just (String "upload")
+        , Just (Array env) <- [path ["env"] container]
+        , field <- V.toList env
+        , path ["name"] field == Just (String "BACKUP_RECEIPT_METADATA")
+        , Just (String text) <- [path ["value"] field]
+        ]
+  fields <- case metadata of
+    [text] -> first T.pack (eitherDecodeStrict (TE.encodeUtf8 text))
+    _ -> Left "accepted scheduled backup has no unique receipt metadata"
+  case path ["databases"] fields of
+    Just (Array names)
+      | not (null names)
+      , Just databases <- traverse (\case String name -> Just name; _ -> Nothing) (V.toList names) ->
+          Right databases
+    _ -> Left "accepted app-database schedule names no databases"
+  where
+    path [] current = Just current
+    path (key : rest) (Object entries) = KM.lookup (K.fromText key) entries >>= path rest
+    path _ _ = Nothing
 
 -- | The volume form of 'scheduledReceiptExpectationFromCronJob' (EP-183 M3).
 -- The accepted CronJob's own metadata names its app and volume; the schedule

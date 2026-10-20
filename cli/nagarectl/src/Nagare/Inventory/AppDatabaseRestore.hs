@@ -90,15 +90,26 @@ compileAppDatabaseRestoreScope request native = do
   unless
     (sourceScope == scopeIdText (scopeId (request ^. #appScope)) && kind == "app-database")
     (Left (invalid "the backup is not an ingested run of this app database"))
-  (engine, migration, runtime, databases, stateful) <- case ( [(engineText, nameText user, role) | member <- appMembers, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec engineText role _ _ _ <- [member ^. #spec]]
-                                                            , [(nameText db, target) | member <- appMembers, DatabaseName target db <- [member ^. #address]]
-                                                            ) of
+  (engine, migration, runtime, declaredDatabases, stateful) <- case ( [(engineText, nameText user, role) | member <- appMembers, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec engineText role _ _ _ <- [member ^. #spec]]
+                                                                    , [(nameText db, target) | member <- appMembers, DatabaseName target db <- [member ^. #address]]
+                                                                    ) of
     (users@((engineText, _, _) : _), dbs@((_, target) : _))
       | Just engine <- parseEngine engineText
       , [migration] <- [user | (_, user, "migration") <- users]
       , [runtime] <- [user | (_, user, "runtime") <- users] ->
           Right (engine, migration, runtime, sort (map fst dbs), target)
     _ -> Left (invalid "the app database scope has no users and databases")
+  -- EP-207: the databases the run holds. A run taken before a logical
+  -- database was declared does not hold it; one ingested before EP-207 was
+  -- ingested under its own revision, so the declared databases are its.
+  databases <- case Map.lookup "scheduled.backup.databases" receipt of
+    Nothing -> Right declaredDatabases
+    Just recorded
+      | held <- sort (T.splitOn "," recorded)
+      , not (null held)
+      , all (`elem` declaredDatabases) held ->
+          Right held
+      | otherwise -> Left (invalid "the backup holds a database this app database no longer declares")
   serverStateful <- case [member | member <- members (request ^. #serverScope), member ^. #identity == stateful] of
     [member] -> Right member
     _ -> Left (invalid "the server scope lacks the app database's StatefulSet")

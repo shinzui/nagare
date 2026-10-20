@@ -5,6 +5,13 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A scheduled run taken before its schedule changed is still ingested, restored and pruned.**
+  Adding a logical database to an app database, or moving a server's image, used to leave the
+  earlier runs unrecoverable through Nagare and every later prune refused. A restore of such a
+  run loads only the databases it holds (EP-203 finding).
+
 ### Added
 
 - **App databases declare read-only readers** (IR-33). A reader is a user with `SELECT` on

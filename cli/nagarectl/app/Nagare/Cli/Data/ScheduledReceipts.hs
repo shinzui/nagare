@@ -74,6 +74,7 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.ScheduleHistory (convergedScheduleRevisions)
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest
@@ -91,7 +92,7 @@ import Nagare.Inventory.ScheduledIngest
       , ingestSourceRevision
       )
   , ScheduledIngestSource (IngestAppDatabase, IngestDatabase, IngestVolume)
-  , compileScheduledIngestBatch
+  , compileScheduledIngestBatchWithHistory
   , pendingScheduledRuns
   , scheduledIngestEvidenceMatches
   )
@@ -734,15 +735,26 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
       , [serverScope] <- [scope | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot), ResourceInventory.scopeId scope == member ^. #owner] ->
           pure (IngestAppDatabase appDatabase (Resource.nameText server) serverScope uid)
     _ -> dieT "scheduled receipt source shape is inconsistent"
-  expectation <-
-    either
-      dieT
-      pure
-      ( case sourceKind of
-          IngestDatabase database uid -> scheduledReceiptExpectationFromCronJob backend namespaceName database uid pvcUid cronBytes
-          IngestVolume _ -> scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcUid cronBytes
-          IngestAppDatabase appDatabase _ _ uid -> scheduledAppDatabaseReceiptExpectationFromCronJob backend namespaceName appDatabase uid pvcUid cronBytes
-      )
+  let expectFrom bytes' = case sourceKind of
+        IngestDatabase database uid -> scheduledReceiptExpectationFromCronJob backend namespaceName database uid pvcUid bytes'
+        IngestVolume _ -> scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcUid bytes'
+        IngestAppDatabase appDatabase _ _ uid -> scheduledAppDatabaseReceiptExpectationFromCronJob backend namespaceName appDatabase uid pvcUid bytes'
+  expectation <- either dieT pure (expectFrom cronBytes)
+  -- EP-207: a run signed under an earlier converged revision of the schedule
+  -- is verified against that revision.
+  past <- convergedScheduleRevisions store (InventoryPlan.historyHead history) cron >>= either dieT pure
+  let pastSchedules = filter (/= cronBytes) past
+      pastExpectations = [found | bytes' <- pastSchedules, Right found <- [expectFrom bytes']]
+      inspectRun reader run signingKey' = do
+        current <- inspectScheduledReceipt reader expectation run signingKey'
+        case current of
+          Right evidence -> pure (Right evidence)
+          Left reason -> earlier reason pastExpectations
+        where
+          earlier reason [] = pure (Left reason)
+          earlier reason (candidate : rest) = do
+            checked <- inspectScheduledReceipt reader candidate run signingKey'
+            either (const (earlier reason rest)) (pure . Right) checked
   let contextName = contextNameText (active ^. #contextName)
   signingResult <-
     readSecretField
@@ -762,7 +774,7 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
       bucketPrefix = storeObjectUrl backend ""
   inspected <- withScheduledObjectStore contextName backend $ \reader -> case selection of
     IngestRun backupId -> do
-      evidence <- inspectScheduledReceipt reader expectation backupId signingKey
+      evidence <- inspectRun reader backupId signingKey
       pure (fmap (\checked -> ([(backupId, checked)], [])) evidence)
     IngestAllVerified -> case T.stripPrefix bucketPrefix (scheduledObjectPrefix expectation) of
       Nothing -> pure (Left "accepted schedule has another bucket")
@@ -774,7 +786,7 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
             let (recognized, _) =
                   classifyScheduledListingKeys bucketPrefix keyPrefix (scheduledFormat expectation) acceptedRuns (map listedKey listed)
             checked <- forM (pendingScheduledRuns acceptedRuns recognized) $ \run ->
-              (run,) <$> inspectScheduledReceipt reader expectation run signingKey
+              (run,) <$> inspectRun reader run signingKey
             pure (Right ([(run, evidence) | (run, Right evidence) <- checked], [(run, reason) | (run, Left reason) <- checked]))
   (verified, unverified) <- either dieT pure inspected >>= either dieT pure
   forM_ unverified $ \(run, reason) ->
@@ -805,7 +817,7 @@ runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketA
     either
       (dieT . T.pack . show)
       pure
-      (compileScheduledIngestBatch (fmap request selected) sourceScope acceptedNative)
+      (compileScheduledIngestBatchWithHistory pastSchedules (fmap request selected) sourceScope acceptedNative)
   forM_ compiled $ \(receiptScope', _) -> do
     case Map.lookup
       (ResourceInventory.scopeId receiptScope')

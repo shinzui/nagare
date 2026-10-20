@@ -286,6 +286,7 @@ library
     Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.Restore
     Nagare.Inventory.RestoreNative
+    Nagare.Inventory.ScheduleHistory
     Nagare.Inventory.ScheduledGcs
     Nagare.Inventory.ScheduledIngest
     Nagare.Inventory.ScheduledPrune

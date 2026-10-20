@@ -246,25 +246,19 @@ runReviewedScheduledPrunePlan mctx runSource namespaceName bucketArg output = do
             scopes
         -- EP-183 M3: an application's scope revision moves with every
         -- deploy, so a volume run is current while it was taken from the
-        -- current claim incarnation. An app database's moves with every
-        -- rotation and its retirement, so its run is current while taken
-        -- from the current server incarnations.
+        -- current claim incarnation. A database's or an app database's scope
+        -- revision moves with every declaration change, so its run is current
+        -- while taken from the current server incarnations (EP-207). Its
+        -- schedule revision may be any converged one: ingestion verified it.
         currentClaim = Map.lookup "scheduled.backup.source.pvc.uid" fields == Just (Resource.physicalIdentityText pvcUid)
+        currentServer = currentClaim && Map.lookup "scheduled.backup.source.statefulset.uid" fields == (Resource.physicalIdentityText <$> statefulUid)
         currentSource = case runSource of
-          DatabasePruneSource _ ->
-            Map.lookup "scheduled.backup.source.revision" fields
-              == Just (Resource.digestText (InventoryStore.revisionDigest sourceRevision))
+          DatabasePruneSource _ -> currentServer
           VolumePruneSource _ _ -> currentClaim
-          AppDatabasePruneSource _ ->
-            currentClaim && Map.lookup "scheduled.backup.source.statefulset.uid" fields == (Resource.physicalIdentityText <$> statefulUid)
+          AppDatabasePruneSource _ -> currentServer
     unless
-      ( alreadyPruned
-          || ( currentSource
-                 && Map.lookup "scheduled.backup.schedule.revision" fields
-                   == Just (Resource.digestText (scheduledPolicyRevision expectation))
-             )
-      )
-      (dieT "scheduled backup was admitted under an older source or schedule; ingest under the current schedule first")
+      (alreadyPruned || currentSource)
+      (dieT "scheduled backup was admitted from another source incarnation; it is not pruned under this one")
   now <- getCurrentTime
   candidates <-
     either

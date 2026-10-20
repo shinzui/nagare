@@ -10,8 +10,10 @@ module Nagare.Inventory.ScheduledIngest
   , scheduledIngestSourceProof
   , scheduledIngestEvidenceMatches
   , compileScheduledIngestScope
+  , compileScheduledIngestScopeWithHistory
   , pendingScheduledRuns
   , compileScheduledIngestBatch
+  , compileScheduledIngestBatchWithHistory
   , scheduledIngestJobSourcePins
   , ingestScriptFor
   , volumeIngestScriptFor
@@ -37,7 +39,7 @@ import Nagare.Database.AppDatabase.Backup (appDatabaseBackupScheduleName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob, scheduledVolumeReceiptExpectationFromCronJob)
-import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob)
+import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob, scheduledReceiptDatabases)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -185,7 +187,19 @@ compileScheduledIngestBatch ::
   Either
     (NonEmpty InventoryError)
     (NonEmpty (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
-compileScheduledIngestBatch requests@(first' :| _) accepted native = do
+compileScheduledIngestBatch = compileScheduledIngestBatchWithHistory []
+
+-- | As 'compileScheduledIngestBatch', also accepting runs signed under the
+-- given earlier converged revisions of the schedule (EP-207).
+compileScheduledIngestBatchWithHistory ::
+  [ByteString] ->
+  NonEmpty ScheduledIngestRequest ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (NonEmpty (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
+compileScheduledIngestBatchWithHistory history requests@(first' :| _) accepted native = do
   let invalid message =
         inventoryError "invalid-scheduled-ingest" message
           & #scopes
@@ -208,7 +222,7 @@ compileScheduledIngestBatch requests@(first' :| _) accepted native = do
   unless
     (length (Map.keys (Map.fromList [(run, ()) | run <- runs])) == length runs)
     (Left (invalid "a batch ingestion names a run twice"))
-  traverse (\request -> compileScheduledIngestScope request accepted native) requests
+  traverse (\request -> compileScheduledIngestScopeWithHistory history request accepted native) requests
 
 compileScheduledIngestScope ::
   ScheduledIngestRequest ->
@@ -217,7 +231,22 @@ compileScheduledIngestScope ::
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileScheduledIngestScope request accepted native = do
+compileScheduledIngestScope = compileScheduledIngestScopeWithHistory []
+
+-- | One run's ingestion. @history@ is the CronJob bytes of the schedule's
+-- earlier converged revisions, read from converged reviews by the caller
+-- (EP-207): a run signed under one of them is a run Nagare accepted, so it is
+-- verified against that revision's expectation, its key space and source
+-- checks unchanged. Retention stays the current revision's.
+compileScheduledIngestScopeWithHistory ::
+  [ByteString] ->
+  ScheduledIngestRequest ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileScheduledIngestScopeWithHistory history request accepted native = do
   let invalid message =
         inventoryError "invalid-scheduled-ingest" message
           & #scopes
@@ -285,34 +314,43 @@ compileScheduledIngestScope request accepted native = do
   forM_ statefulSource (acceptedBytes . fst)
   _ <- acceptedBytes pvc
   _ <- acceptedBytes signing
-  expectation <-
-    first
-      invalid
-      ( case ingestSourceKind request of
-          IngestDatabase database statefulUid ->
-            scheduledReceiptExpectationFromCronJob
-              (ingestBackend request)
-              namespaceName
-              database
-              statefulUid
-              (ingestPvcUid request)
-              cronBytes
-          IngestVolume schedule ->
-            scheduledVolumeReceiptExpectationFromCronJob
-              (ingestBackend request)
-              namespaceName
-              schedule
-              (ingestPvcUid request)
-              cronBytes
-          IngestAppDatabase appDatabase _ _ statefulUid ->
-            scheduledAppDatabaseReceiptExpectationFromCronJob
-              (ingestBackend request)
-              namespaceName
-              appDatabase
-              statefulUid
-              (ingestPvcUid request)
-              cronBytes
-      )
+  let expectationFor bytes' = case ingestSourceKind request of
+        IngestDatabase database statefulUid ->
+          scheduledReceiptExpectationFromCronJob
+            (ingestBackend request)
+            namespaceName
+            database
+            statefulUid
+            (ingestPvcUid request)
+            bytes'
+        IngestVolume schedule ->
+          scheduledVolumeReceiptExpectationFromCronJob
+            (ingestBackend request)
+            namespaceName
+            schedule
+            (ingestPvcUid request)
+            bytes'
+        IngestAppDatabase appDatabase _ _ statefulUid ->
+          scheduledAppDatabaseReceiptExpectationFromCronJob
+            (ingestBackend request)
+            namespaceName
+            appDatabase
+            statefulUid
+            (ingestPvcUid request)
+            bytes'
+      signedRevision = scheduledScheduleRevision (scheduledReceipt (ingestEvidence request))
+  current <- first invalid (expectationFor cronBytes)
+  -- EP-207: the revision the run was signed under, current or converged earlier.
+  (expectation, scheduleBytes) <-
+    case [(found, bytes') | bytes' <- history, Right found <- [expectationFor bytes'], scheduledPolicyRevision found == signedRevision] of
+      _ | scheduledPolicyRevision current == signedRevision -> Right (current, cronBytes)
+      [] -> Right (current, cronBytes)
+      matched@((found, bytes') : _)
+        | all ((== scheduledMetadataDigest found) . scheduledMetadataDigest . fst) matched -> Right (found, bytes')
+        | otherwise -> Left (invalid "scheduled receipt's schedule revision names two converged schedules with different metadata")
+  runDatabases <- case ingestSourceKind request of
+    IngestAppDatabase {} -> first invalid (Just <$> scheduledReceiptDatabases scheduleBytes)
+    _ -> Right Nothing
   let evidence = ingestEvidence request
       receipt = scheduledReceipt evidence
       objectAddress = scheduledObjectAddress receipt
@@ -464,6 +502,8 @@ compileScheduledIngestScope request accepted native = do
                 ]
               Nothing -> [("scheduled.backup.source.kind", "volume")]
             <> [("scheduled.backup.source.kind", "app-database") | IngestAppDatabase {} <- [ingestSourceKind request]]
+            -- EP-207: the databases the run holds, which a restore loads.
+            <> [("scheduled.backup.databases", T.intercalate "," databases) | Just databases <- [runDatabases]]
   base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
   let recoveryOverrides =
         maybe

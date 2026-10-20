@@ -18,6 +18,8 @@
 #      which no reader reaches; then alpha-pg's reader is retired (EP-206);
 #   8. server status grades all four app databases' recovery points (beta-ch retired), and a
 #      prune review of alpha-pg has no runs past policy (EP-203);
+#   8a. EP-207: a run of a fresh app database taken before a logical database is added
+#      ingests, restores only the databases it holds, and does not block a prune review;
 #   9. app-database smoke: PASS.
 #
 # Usage (from an empty environment; the context names the cluster, never the ambient shell):
@@ -659,5 +661,75 @@ if prune="$(n db app-database prune-scheduled-backups alpha-pg -n "$NS" --save-p
 fi
 grep -q "no accepted scheduled backup is past the retention policy" <<<"$prune" || { echo "$prune" >&2; fail "alpha-pg prune review"; }
 log "F132: status grades all four app databases' recovery points, beta-ch retired; alpha-pg has no runs past policy"
+
+# --- 8a. EP-207: a run taken before its schedule changed ---
+# A fresh app database per run, planned from its own config, so the four above are untouched.
+ZETA="zeta-$RUN"
+zeta_config() { # file, logical databases as a Haskell list
+  cat > "$1" <<EOF
+{-# LANGUAGE OverloadedStrings #-}
+module Main (main) where
+
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Text (Text)
+import Nagare.Dsl.AppDatabase
+import Nagare.Dsl.Config (emitAppDatabases)
+import Nagare.Dsl.Database (Engine (..))
+import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
+
+ok :: Either Text a -> a
+ok = either (error . show) id
+
+main :: IO ()
+main =
+  emitAppDatabases
+    [ AppDatabase
+        { name = ok (mkAppDatabaseName "$ZETA")
+        , logicalKey = Nothing
+        , server = ok (mkDatabaseName "smoke-ch")
+        , engine = ClickHouse
+        , namespace = ok (mkNamespace "personal")
+        , logicalDatabases = ok (mapM mkLogicalDatabaseName ($2))
+        , access = noAppDatabaseAccess
+        }
+    ]
+EOF
+}
+zeta_config "$ROOT/config/Zeta.hs" '"z" :| []'
+zeta_config "$ROOT/config/ZetaWider.hs" '"z" :| ["z_extra"]'
+scheduled_run() { # app database; prints the completed run's Job UID
+  local job="nagare-appdb-$1-$2"
+  kubectl -n "$NS" create job "$job" --from="cronjob/nagare-appdb-$1" >/dev/null
+  kubectl -n "$NS" wait --for=condition=complete "job/$job" --timeout=600s >/dev/null \
+    || { kubectl -n "$NS" logs "job/$job" --all-containers --tail=20 >&2 || true; fail "backup run $job did not complete"; }
+  kubectl -n "$NS" get job "$job" -o jsonpath='{.metadata.uid}'
+}
+n db app-database plan --config "$ROOT/config/Zeta.hs" --save-plan "$REVIEWS/zeta" >/dev/null 2>&1 || fail "plan $ZETA"
+apply "$REVIEWS/zeta"
+ch_as "$ZETA-migration" "CREATE TABLE z.t (v String) ENGINE = MergeTree ORDER BY v"
+ch_as "$ZETA-migration" "INSERT INTO z.t VALUES ('before')"
+before_run="$(scheduled_run "$ZETA" before)"
+# The schedule changes: a logical database is added after the run.
+n db app-database plan --config "$ROOT/config/ZetaWider.hs" --save-plan "$REVIEWS/zeta-wider" >/dev/null 2>&1 || fail "plan the wider $ZETA"
+apply "$REVIEWS/zeta-wider"
+grep -q z_extra <<<"$(kubectl -n "$NS" get cronjob "nagare-appdb-$ZETA" -o json)" || fail "EP-207: the wider declaration did not change the schedule"
+n db app-database backup-receipts "$ZETA" -n "$NS" --backup-id "$before_run" --save-plan "$REVIEWS/zeta-ingest-before" >/dev/null 2>&1 \
+  || fail "EP-207: the run taken before the schedule changed was not ingested"
+apply "$REVIEWS/zeta-ingest-before"
+n db app-database restore "$ZETA" -n "$NS" --backup-id "$before_run" --restore-id "$RUN" --save-plan "$REVIEWS/zeta-restore" >/dev/null 2>&1 \
+  || fail "EP-207: the run taken before the schedule changed was not restored"
+apply "$REVIEWS/zeta-restore"
+expect "EP-207: the restored pre-change run" "$(ch_admin "SELECT groupArray(v)[1] FROM z_restore_$RUN.t")" "before"
+expect "EP-207: no scratch for a database the run does not hold" "$(ch_admin "SELECT count() FROM system.databases WHERE name = 'z_extra_restore_$RUN'")" "0"
+after_run="$(scheduled_run "$ZETA" after)"
+n db app-database backup-receipts "$ZETA" -n "$NS" --backup-id "$after_run" --save-plan "$REVIEWS/zeta-ingest-after" >/dev/null 2>&1 || fail "ingest the run after the change"
+apply "$REVIEWS/zeta-ingest-after"
+if prune="$(n db app-database prune-scheduled-backups "$ZETA" -n "$NS" --save-plan "$REVIEWS/zeta-prune" 2>&1)"; then
+  fail "EP-207: a prune of two fresh runs was reviewed"
+fi
+grep -q "no accepted scheduled backup is past the retention policy" <<<"$prune" || { echo "$prune" >&2; fail "EP-207: the prune review refused a run of an earlier schedule revision"; }
+n db app-database retire "$ZETA" -n "$NS" --save-plan "$REVIEWS/zeta-retire" >/dev/null
+apply "$REVIEWS/zeta-retire"
+log "EP-207: a run taken before a logical database was added ingested, restored only its own database and kept prune open; $ZETA retired"
 
 echo "app-database smoke: PASS"

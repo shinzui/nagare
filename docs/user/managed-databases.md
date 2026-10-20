@@ -791,6 +791,12 @@ nagarectl db app-database recover-scheduled-prune NAME JOB_UID --failed-review .
 With nothing past policy, the prune refuses with `no accepted scheduled backup
 is past the retention policy`.
 
+A run taken before its schedule changed, for example before a logical database
+was added or before the server's image moved, is still ingested, restored and
+pruned: any schedule revision Nagare applied authorizes its receipt. Its restore
+loads only the databases the run holds. Retention is always the current
+schedule's.
+
 **After a server rebuild**, an app database comes back after its server, in three
 steps: restore the server, re-apply the app database (its absent logical
 databases are rebuilt `--fresh`, empty), then `db app-database restore NAME

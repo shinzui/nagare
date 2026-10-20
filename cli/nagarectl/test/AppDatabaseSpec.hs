@@ -37,7 +37,7 @@ import Nagare.Database.AppDatabase.Sql (renderScratchRestore)
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Config (encodeAppDatabases, encodeWorker)
-import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, mkDatabaseName)
+import Nagare.Dsl.Database (Database (Database), Engine (..), EngineVersion, defaultEngineVersion, mkDatabaseName, mkEngineVersion)
 import Nagare.Dsl.Load (LoadError (..), decodeAppDatabases, decodeWorker)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
@@ -53,8 +53,10 @@ import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..), ScheduledRec
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Journal (FailureClass (..), JournalEvent (..), OperationState (..), mkOperationId, mkTransactionId)
 import Nagare.Inventory.Restore (manualRestoreTargetProof)
-import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope)
+import Nagare.Inventory.ScheduleHistory (convergedReviews)
+import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope, compileScheduledIngestScopeWithHistory)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), scheduledStatusSources)
 import Nagare.Inventory.Store (ScopeRevision (..))
@@ -304,6 +306,68 @@ appDatabaseTests =
             assertBool "revokes PUBLIC on the scratch database" ("REVOKE ALL ON DATABASE \\\"alpha_restore_r1\\\" FROM PUBLIC" `T.isInfixOf` text)
             assertBool "grants nothing to the reader" (not ("reader" `T.isInfixOf` text))
             assertBool "the ClickHouse scratch restore grants nothing to a reader" (not ("reader" `T.isInfixOf` renderScratchRestore ClickHouse [("alpha", "alpha_restore_r1")] "a.zip" "alpha_ch_migration" "alpha_ch_runtime"))
+        , testCase "a run signed under an earlier converged schedule revision ingests and restores its own databases (EP-207)" $ do
+            let cronOf native' = head [bytes | (m, bytes) <- Map.elems native', Kubernetes _ "batch" k _ _ <- [m ^. #address], nameText k == "cronjob"]
+                changes =
+                  [ -- The server's image moved, so the schedule's client did.
+                    (Postgres, pgServer, acceptedServerAt "smoke-pg" Postgres (known (mkEngineVersion Postgres "17")), alpha Postgres, alpha Postgres)
+                  , -- A logical database was added after the run.
+                    (ClickHouse, chServer, chServer, alpha ClickHouse & #logicalDatabases .~ (logical "alpha" :| []), alpha ClickHouse)
+                  ]
+            forM_ changes $ \(engine', oldServer, newServer, earlier, later) -> do
+              let (oldScope, oldNative) = scopeAndNative oldServer earlier
+                  (newScope, newNative) = scopeAndNative newServer later
+                  native = Map.unions [newNative, snd newServer]
+                  request = ingestRequestFor engine' (fst newServer) oldNative oldScope
+                  appName = if engine' == Postgres then "alpha-pg" else "alpha-ch"
+                  digestOf native' = digestText (scheduledMetadataDigest (known (scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" appName (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (cronOf native'))))
+                  -- The ingest Job re-verifies the receipt against this digest in the cluster.
+                  jobMetadata compiled = case compiled of
+                    Right (_, jobNative) ->
+                      [ value
+                      | (_, bytes) <- Map.elems jobNative
+                      , Right decoded <- [eitherDecodeStrict bytes :: Either String Value]
+                      , Just (Array containers) <- [path ["spec", "template", "spec", "containers"] decoded]
+                      , container <- V.toList containers
+                      , Just (Array env) <- [path ["env"] container]
+                      , entry <- V.toList env
+                      , path ["name"] entry == Just (String "METADATA_SHA256")
+                      , Just (String value) <- [path ["value"] entry]
+                      ]
+                    Left _ -> []
+                  path keys value = foldl (\v k -> case v of Just (Object o) -> KM.lookup k o; _ -> Nothing) (Just value) keys
+              assertBool "the schedule changed" (cronOf oldNative /= cronOf newNative)
+              -- Without its history the run is checked against the current revision, which it fails.
+              jobMetadata (compileScheduledIngestScope request newScope native) @?= [digestOf newNative]
+              -- A revision that never converged authorizes nothing.
+              let (_, betaNative) = scopeAndNative newServer (beta engine')
+              jobMetadata (compileScheduledIngestScopeWithHistory [cronOf betaNative] request newScope native) @?= [digestOf newNative]
+              jobMetadata (compileScheduledIngestScopeWithHistory [cronOf oldNative] request newScope native) @?= [digestOf oldNative]
+              (receiptScope, _) <- either (assertFailure . show) pure (compileScheduledIngestScopeWithHistory [cronOf oldNative] request newScope native)
+              Map.lookup "scheduled.backup.databases" (scopeOverrides receiptScope) @?= Just "alpha"
+              let restoreRequest = AppDatabaseRestoreRequest (if engine' == Postgres then "alpha-pg" else "alpha-ch") "personal" "r1" newScope (fst newServer) receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+              (restoreScope, _) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope restoreRequest native)
+              -- Only the databases the run holds are restored.
+              Map.lookup "restore.target.databases" (scopeOverrides restoreScope) @?= Just "alpha_restore_r1"
+              -- A run naming a database the app no longer declares is refused.
+              let foreign' = withScopeOverrides (Map.insert "scheduled.backup.databases" "alpha,gone" (scopeOverrides receiptScope)) receiptScope
+              assertBool "a run naming an undeclared database is refused" (isLeft (compileAppDatabaseRestoreScope (restoreRequest & #receiptScope .~ foreign') native))
+        , testCase "only a converged transaction's review authorizes a schedule revision (EP-207)" $ do
+            let tx name = known (mkTransactionId ("tx-" <> name))
+                event n transaction operation state = JournalEvent 1 n Nothing (tx transaction) operation state "t" "" Nothing
+                operation' = Just (known (mkOperationId "op-1"))
+                events =
+                  [ event 1 "a" Nothing Pending
+                  , event 2 "a" operation' (Completed (contentDigest "a-op"))
+                  , event 3 "a" Nothing (Completed (contentDigest "review-a"))
+                  , event 4 "b" Nothing Pending
+                  , event 5 "b" operation' (Failed (KnownNoEffect "refused"))
+                  , event 6 "c" Nothing Pending
+                  , event 7 "d" Nothing (OperatorResolved "abandoned")
+                  , event 8 "e" Nothing (Completed (contentDigest "review-e"))
+                  , event 9 "e" Nothing (Completed (contentDigest "review-e"))
+                  ]
+            convergedReviews events @?= [contentDigest "review-a", contentDigest "review-e"]
         , testCase "a rebuilt-server restore loads into the declared, still-empty databases (M6)" $ do
             (appScope, serverScope, native, receiptScope, _, _) <- ingested
             let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts2")) (known (mkPhysicalIdentity "pvc2")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") RebuiltTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
@@ -615,11 +679,16 @@ chServer :: Server
 chServer = acceptedServer "smoke-ch" ClickHouse
 
 acceptedServer :: Text -> Engine -> Server
-acceptedServer name engine =
+acceptedServer name engine = acceptedServerAt name engine (defaultEngineVersion engine)
+
+-- | A server on the given engine version, whose image its app databases'
+-- schedules use as their client.
+acceptedServerAt :: Text -> Engine -> EngineVersion -> Server
+acceptedServerAt name engine version =
   known
     ( compileStandaloneDatabase
         ( DatabaseDirectInput
-            (Database (dbServer name) Nothing engine (defaultEngineVersion engine) personal (known (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain)
+            (Database (dbServer name) Nothing engine version personal (known (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain)
             (known (mkScopeId Standalone ("database-" <> name)))
             testCluster
             Nothing
@@ -688,9 +757,14 @@ ingestedWith db = do
 
 -- | One verified scheduled run of alpha-pg against the given server scope.
 ingestRequest :: ScopeDeclaration -> Map.Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration -> ScheduledIngestRequest
-ingestRequest server native appScope =
+ingestRequest = ingestRequestFor Postgres
+
+-- | alpha's run on its engine's server, its evidence signed under the
+-- schedule in @native@.
+ingestRequestFor :: Engine -> ScopeDeclaration -> Map.Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration -> ScheduledIngestRequest
+ingestRequestFor engine' server native appScope =
   ScheduledIngestRequest
-    { ingestSourceKind = IngestAppDatabase "alpha-pg" "smoke-pg" server (uid "sts")
+    { ingestSourceKind = IngestAppDatabase appName serverName server (uid "sts")
     , ingestNamespace = "personal"
     , ingestBackupId = run
     , ingestSourceRevision = ScopeRevision (known (mkScopeGeneration 1)) (contentDigest "appdb")
@@ -715,11 +789,14 @@ ingestRequest server native appScope =
     uid = known . mkPhysicalIdentity
     members scope = [m | bundle <- scopeBundles scope, Managed m <- declarations bundle]
     pick scope kind name = head [m | m <- members scope, Kubernetes _ _ k _ n <- [m ^. #address], nameText k == kind, nameText n == name]
-    stateful = pick (fst pgServer) "statefulset" "smoke-pg"
-    pvc = pick (fst pgServer) "persistentvolumeclaim" "nagare-db-smoke-pg-data"
-    cron = pick appScope "cronjob" "nagare-appdb-alpha-pg"
-    signing = pick appScope "secret" "nagare-appdb-alpha-pg-signing"
-    expectation = known (scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" "alpha-pg" (uid "sts") (uid "pvc") (snd (native Map.! (cron ^. #identity))))
+    (appName, serverName) = if engine' == Postgres then ("alpha-pg", "smoke-pg") else ("alpha-ch", "smoke-ch")
+    -- The pins are the engine's own server's, whatever server the request names.
+    ownServer = fst (if engine' == Postgres then pgServer else chServer)
+    stateful = pick ownServer "statefulset" serverName
+    pvc = pick ownServer "persistentvolumeclaim" ("nagare-db-" <> serverName <> "-data")
+    cron = pick appScope "cronjob" ("nagare-appdb-" <> appName)
+    signing = pick appScope "secret" ("nagare-appdb-" <> appName <> "-signing")
+    expectation = known (scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" appName (uid "sts") (uid "pvc") (snd (native Map.! (cron ^. #identity))))
 
 -- | A standalone worker bound to the named app databases.
 compileWorker ::
