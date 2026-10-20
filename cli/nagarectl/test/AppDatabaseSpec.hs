@@ -383,6 +383,8 @@ appDatabaseTests =
               field ["spec"] jobBytes @?= field ["spec", "jobTemplate", "spec"] (cronBytes native)
               field ["metadata", "name"] jobBytes @?= Just (String ("nagare-appdb-" <> appDatabaseNameText (db ^. #name) <> "-r1"))
               nameText (scopeName (scopeId backupScope)) @?= "appdb-backup-personal-" <> appDatabaseNameText (db ^. #name) <> "-r1"
+              -- Never read as a direct database's manual backup.
+              Map.keys (Map.filterWithKey (\k _ -> "backup." `T.isPrefixOf` k) (scopeOverrides backupScope)) @?= []
               -- A suspended schedule signs and is expected exactly as before.
               (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope ["runtime"] "t1")
               let expectation bytes = scheduledAppDatabaseReceiptExpectationFromCronJob (GcsBackend "project" "bucket") "personal" (appDatabaseNameText (db ^. #name)) (uid "sts") (uid "pvc") bytes

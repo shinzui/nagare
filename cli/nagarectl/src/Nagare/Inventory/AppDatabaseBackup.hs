@@ -125,15 +125,16 @@ compileAppDatabaseOnDemandBackupScope request native = do
             }
       )
   -- The Job reads the server and the schedule's credential and signing Secrets.
+  -- Its overrides are its own: @backup.*@ names a direct database's manual backup.
   let secrets = [secret ^. #identity | secret <- members, Kubernetes _ "" kind' _ _ <- [secret ^. #address], nameText kind' == "secret"]
       member = bound {dependencies = map OrderedAfter ([request ^. #statefulSet, request ^. #persistentVolume, cron ^. #identity] <> secrets)}
       overrides =
         Map.fromList
-          [ ("backup.id", request ^. #backupId)
-          , ("backup.job", jobName)
-          , ("backup.source.scope", scopeIdText (scopeId scope))
-          , ("backup.source.statefulset.uid", physicalIdentityText (request ^. #statefulUid))
-          , ("backup.source.pvc.uid", physicalIdentityText (request ^. #pvcUid))
+          [ ("appdb.backup.id", request ^. #backupId)
+          , ("appdb.backup.job", jobName)
+          , ("appdb.backup.source.scope", scopeIdText (scopeId scope))
+          , ("appdb.backup.source.statefulset.uid", physicalIdentityText (request ^. #statefulUid))
+          , ("appdb.backup.source.pvc.uid", physicalIdentityText (request ^. #pvcUid))
           ]
   declared <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [] []]
   pure (withScopeOverrides overrides declared, Map.singleton jobId (member, bytes))
