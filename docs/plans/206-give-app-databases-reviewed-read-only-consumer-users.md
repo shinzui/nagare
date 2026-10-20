@@ -110,6 +110,10 @@ pending, and do not wedge the app database. For Kansoku, the reader is `dashboar
 - [ ] M7 (release). The change ships in a release. The intranet is upgraded on the candidate
   before the tag. `kansoku-ch` declares its `dashboards` reader in `mori://tan/tan-ng-labs`.
   IR-33 is completed in `docs/improvement-requests/log.md`.
+  Released 2026-10-20 as v0.8.0 (signed tag on `a6004f22`, evidence `dfe9ad72`); the intranet
+  upgraded on the candidate before the tag (`mori://tan/tan-ng-labs` `8c8289c`, pinned to the tag
+  in `fde80f3`), status exact, and the operator's passkey login worked. IR-33 is completed in the
+  improvement-request log. Remaining: `kansoku-ch` declaring its `dashboards` reader in tan-ng-labs.
 
 
 ## Surprises & Discoveries

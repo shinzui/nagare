@@ -49,7 +49,8 @@ restored and pruned. A restore of such a run uses the databases the run actually
   CLI at `5fc3bf7d` on the local context `transition`: a run of `zeta-s1020050714` taken
   before `z_extra` was declared ingested, restored only `z`, and the prune review refused only
   for having nothing past policy.
-- [ ] M3 (release). The change ships in the release that carries EP-204 to EP-206.
+- [x] M3 (release). The change ships in the release that carries EP-204 to EP-206.
+  Done 2026-10-20: v0.8.0, signed tag on `a6004f22`; the intranet runs it.
 
 ## Decision Log
 

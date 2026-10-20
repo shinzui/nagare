@@ -142,6 +142,10 @@ was not restarted. Other app databases on the server are not touched at any poin
   intranet is upgraded on the candidate before the tag. The tan-ng-labs plan replaces its two
   `db restart` steps with quiesce, backup and resume. IR-31 is completed in
   `docs/improvement-requests/log.md`.
+  Released 2026-10-20 as v0.8.0 (signed tag on `a6004f22`, evidence `dfe9ad72`); the intranet
+  upgraded on the candidate before the tag (`mori://tan/tan-ng-labs` `8c8289c`, pinned to the tag
+  in `fde80f3`), status exact, and the operator's passkey login worked. IR-31 is completed in the
+  improvement-request log. Remaining: the tan-ng-labs plan replacing its two `db restart` steps with quiesce, backup and resume.
 
 
 ## Surprises & Discoveries

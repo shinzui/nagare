@@ -142,6 +142,10 @@ After this plan:
   on the candidate before the tag. Kansoku's app databases then declare their exceptions in
   `mori://tan/tan-ng-labs`, re-plan, and `kansoku-ch-migrate` loads its ledger. IR-30 and IR-32
   are completed in `docs/improvement-requests/log.md`.
+  Released 2026-10-20 as v0.8.0 (signed tag on `a6004f22`, evidence `dfe9ad72`); the intranet
+  upgraded on the candidate before the tag (`mori://tan/tan-ng-labs` `8c8289c`, pinned to the tag
+  in `fde80f3`), status exact, and the operator's passkey login worked. IR-30 and IR-32 are completed in the
+  improvement-request log. Remaining: Kansoku's exceptions declared in tan-ng-labs and `kansoku-ch-migrate` loading its ledger, owned by the tan-ng-labs Kansoku plan.
 
 
 ## Surprises & Discoveries

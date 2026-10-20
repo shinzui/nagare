@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-20
+* **Update**: Complete IR-30 and IR-32 in ExecPlan 204, IR-31 in ExecPlan 205 and IR-33 in ExecPlan 206, all released in Nagare 0.8.0, which the work intranet runs: reviewed grant exceptions and per-user limits, a quiesced maintenance window with an on-demand backup and its evidence, and read-only reader users bound by declared consumer apps.
+
 ## 2026-10-19
 * **Add**: Propose IR-34 from `mori://shinzui/nagare`: a read-only `nagarectl inventory show` that lists accepted scopes and prints one scope's accepted declaration from the selected store, local or GCS, with no provider contact, lock or write. Found while reviewing ExecPlan 204, which assumed the command existed; every current reader of accepted history observes providers, exports the whole store, or covers one domain. Built in one commit when an operator first needs it, no ExecPlan.
 * **Update**: Accept IR-30, IR-31, IR-32 and IR-33 and plan them: IR-30 and IR-32 share ExecPlan 204 (allow-listed grant exceptions and per-user limits on the same user members), IR-31 targets ExecPlan 205 (tenant-scoped quiesce, on-demand backup and resume), and IR-33 targets ExecPlan 206 (read-only consumer users, after ExecPlan 204's limits land).

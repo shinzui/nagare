@@ -6,7 +6,9 @@ generated:
   by: process:claude-code
   at: "2026-10-19T17:02:45Z"
 requestId: IR-30
-status: accepted
+status: completed
+completedAt: "2026-10-20T13:40:00Z"
+resolution: "ExecPlan 204, released in 0.8.0: an app database's access declares, per user, ClickHouse exceptions from a closed allow-list and tolerated PGMQ grants to pg_monitor; anything else is refused at load, a declared change plans an update, and a hand change outside the declaration is drift. The app-database smoke proves it natively and the intranet runs it."
 targetPlan: docs/plans/204-let-app-databases-declare-reviewed-grant-exceptions-and-resource-limits.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 acceptanceCriteria:
