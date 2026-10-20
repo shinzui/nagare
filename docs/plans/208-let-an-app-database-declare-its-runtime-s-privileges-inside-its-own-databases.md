@@ -151,7 +151,7 @@ queue and serves `/health/live` as the runtime user, with one config change in
   completed in `docs/improvement-requests/log.md`.
   Released 2026-10-20 as v0.9.0 (signed tag `fca04e13` on `e6314c40`, evidence `8ba86a0f`); the
   intranet upgraded on the candidate before the tag (`mori://tan/tan-ng-labs` `8d24a35`, pinned to
-  the tag in `32933ad`), status exact; Kansoku's config gained the two new fields with no change
+  the tag in `32933ad`), status exact, and the operator's passkey login worked; Kansoku's config gained the two new fields with no change
   in access. Remaining: Kansoku's `createIn = [pgmq]` declaration and `kansoku-server` starting as
   the runtime, then IR-35's completion.
 

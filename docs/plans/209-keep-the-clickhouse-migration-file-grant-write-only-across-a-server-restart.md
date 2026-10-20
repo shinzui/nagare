@@ -104,7 +104,7 @@ when it tries `SELECT * FROM file(...)`.
   labs-clickhouse` (pod 19:52:46Z) left both migration users with `WRITE` only, and both configs
   still re-planned to `no operations` (tan-ng-labs `8d24a35`). Released 2026-10-20 as v0.9.0
   (signed tag `fca04e13` on `e6314c40`, evidence `8ba86a0f`; tan-ng-labs pinned to the tag in
-  `32933ad`); BUG-7 is fixed in 0.9.0.
+  `32933ad`); BUG-7 is fixed in 0.9.0. The operator's passkey login worked on 0.9.0.
 
 
 ## Surprises & Discoveries
