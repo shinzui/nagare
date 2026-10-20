@@ -121,7 +121,7 @@ queue and serves `/health/live` as the runtime user, with one config change in
   Done 2026-10-20: `acceptedAppDatabaseBindings` takes the workload's `ServiceName`; the AC-5
   test is in `AppDatabasePrivilegeSpec` on both engines (variables identical, ordering
   unchanged, no way to the migration Secret without the declaration).
-- [ ] M6 (lifecycle, docs and ADR). Rotation, retirement, quiesce and resume, scratch restore
+- [x] M6 (lifecycle, docs and ADR). Rotation, retirement, quiesce and resume, scratch restore
   and rebuilt restore leave a declared app database complete on re-plan, on both engines, with
   the membership and owner bindings in force (IR-35 AC-6 in the world). The "Sharing one server
   between apps" section of `docs/user/managed-databases.md` states the rule and shows the PGMQ
@@ -131,11 +131,20 @@ queue and serves `/health/live` as the runtime user, with one config change in
   apply, every interruption, drift, rotation, retirement, rebuild), and quiesce and resume keep
   the privileges and the membership. The scratch restore's rendering is pinned to the M1 block
   and owners surviving `pg_restore` were proven in M1; the native confirmation is M7. Docs,
-  ADR 31 and the capability evidence are written. Landing is next.
-- [ ] M7 (native confirmation). `scripts/local-app-database-smoke.sh` declares `CREATE` on
+  ADR 31 and the capability evidence are written. Landed as `82383fb9` and `ae3c3155` (fast gate
+  green; the post-land full gate of `ae3c3155` green). Transition: the packaged v0.8.0 CLI
+  applied the smoke's first stage on the local context `transition`; its accepted
+  `appdb-alpha-pg` and `appdb-alpha-ch` scopes are `test/fixtures/app-database/v0.8.0/` and
+  decode and re-encode byte-identically, and the candidate re-planned that unchanged
+  declaration to `no operations` natively.
+- [x] M7 (native confirmation). `scripts/local-app-database-smoke.sh` declares `CREATE` on
   schema `pgmq` for `alpha-pg`, `CREATE TABLE` and `DROP TABLE` for `alpha-ch`'s runtime, and
   one owner workload, and proves AC-1 to AC-6 natively on a disposable local context with the
   packaged CLI, ending in `app-database smoke: PASS`.
+  Done 2026-10-20: `app-database smoke: PASS` with the packaged CLI at `ae3c3155` on the local
+  context `transition`, printing both IR-35 lines. An earlier run stopped at an ingestion whose
+  receipt Job overlapped the hourly backups on the single local node and exceeded the readiness
+  wait; `inventory resume` converged it and the rerun passed.
 - [ ] M8 (release). The change ships in a release; the intranet is upgraded on the candidate
   before the tag. Kansoku's PostgreSQL app database declares `createIn = [pgmq]` in
   `mori://tan/tan-ng-labs`, re-plans, and `kansoku-server` starts as the runtime user. IR-35 is

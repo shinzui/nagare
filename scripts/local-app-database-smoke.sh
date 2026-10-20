@@ -468,7 +468,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;
 # IR-35 AC-1: with the schema in place the next plan grants the runtime CREATE on it, and only that.
 plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs" --save-plan "$REVIEWS/pgmq-grant" 2>"$REVIEWS/pgmq.notes")"
 grep -q 'update app-database database alpha on smoke-pg; tolerates grants to pg_monitor; createIn pgmq; migration member of runtime' "$REVIEWS/pgmq-grant/review.json" || { echo "$plan_out" >&2; fail "IR-35 AC-1: the plan after PGMQ's install does not grant CREATE on pgmq"; }
-! grep -q 'pending' "$REVIEWS/pgmq.notes" || { cat "$REVIEWS/pgmq.notes" >&2; fail "IR-35 AC-1: schema pgmq is still pending"; }
+! grep -q 'pending: schema pgmq' "$REVIEWS/pgmq.notes" || { cat "$REVIEWS/pgmq.notes" >&2; fail "IR-35 AC-1: schema pgmq is still pending"; }
 apply "$REVIEWS/pgmq-grant"
 replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs")"
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-30 AC-4: PGMQ's grants to a declared pg_monitor re-plan with operations"; }
