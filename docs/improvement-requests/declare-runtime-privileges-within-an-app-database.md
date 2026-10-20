@@ -7,7 +7,10 @@ generated:
   by: process:claude-code
   at: "2026-10-20T16:10:00Z"
 requestId: IR-35
-status: proposed
+status: completed
+completedAt: "2026-10-20T21:10:00Z"
+resolution: "ExecPlan 208, released in 0.9.0: an app database declares PostgreSQL CREATE in named schemas (createIn) or on its database (createSchemas), with a derived membership of the migration user in the runtime role, any database-scoped ClickHouse privilege the running server knows, and the workloads that bind its migration credential (owners). On the intranet kansoku-pg declares createIn = [pgmq], which planned one update, and kansoku-server, bound only to the runtime Secrets, created its PGMQ queue at startup."
+targetPlan: docs/plans/208-let-an-app-database-declare-its-runtime-s-privileges-inside-its-own-databases.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 acceptanceCriteria:
   - id: AC-1

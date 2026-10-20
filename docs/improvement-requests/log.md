@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-20
+* **Update**: Complete IR-35 in ExecPlan 208, released in Nagare 0.9.0, which the work intranet runs: Kansoku's PostgreSQL app database declares `createIn = [pgmq]` and its server creates its queue at startup as the runtime user.
 * **Add**: Propose IR-35 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps`: let an app database declare its runtime's privileges inside its own databases (PostgreSQL schema CREATE with migration membership in the runtime role, open ClickHouse own-database privileges, and owner bindings for apps that migrate at startup), so recurring patterns such as creating a PGMQ queue at startup need a config change rather than a release. A local PostgreSQL 18.6 rehearsal with Kansoku 9127c47 shows schema CREATE plus membership is the smallest grant that keeps backups and later migrations working.
 * **Update**: Complete IR-30 and IR-32 in ExecPlan 204, IR-31 in ExecPlan 205 and IR-33 in ExecPlan 206, all released in Nagare 0.8.0, which the work intranet runs: reviewed grant exceptions and per-user limits, a quiesced maintenance window with an on-demand backup and its evidence, and read-only reader users bound by declared consumer apps.
 
