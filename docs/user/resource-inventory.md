@@ -22,12 +22,11 @@ proved complete, so an interrupted change can resume from its evidence.
 For an operator, this answers four questions: what should exist, who owns it,
 what is actually there, and what happened during the last change.
 
-> **Status:** 🟡 **In progress.** The inventory, reviewed execution, status, and
-> recovery paths are implemented. Full release acceptance remains governed by
-> [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md).
-> The first release covers fresh inventory-backed contexts. In-place platform
-> version upgrades and automatic adoption of foreign resources are outside that
-> release boundary.
+> **Status:** ✅ **Working.** The inventory, reviewed execution, status, and
+> recovery paths ship in every release since 0.4.0 and run the work intranet.
+> An installed context moves between releases through a
+> [reviewed release transition](upgrades.md#move-an-installed-context-to-a-new-release).
+> Automatic adoption of foreign resources is outside the inventory contract.
 
 ## Inventory and ledger
 

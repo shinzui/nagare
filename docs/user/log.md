@@ -1,5 +1,13 @@
 # Bundle Update Log
 
+## 2026-10-20
+
+* **Update**: Describe the reviewed release transition (`platform transition plan`, `inventory apply`, `platform transition commit`) as the upgrade path for an installed context, and scope `platform upgrade` to untouched pre-inventory contexts.
+* **Update**: Pin the installation and getting-started examples to 0.8.0.
+* **Update**: Replace the operator guide's stale per-plan status table with pointers to the release notes, capability catalog and readiness checklist.
+* **Add**: List the `db app-database` commands, including quiesce, resume, on-demand backup, evidence and reader rotation, in the reference.
+* **Update**: Drop the managed-databases claim that scheduled pruning reviews are deferred; `db prune-scheduled-backups` shipped in 0.5.0.
+
 ## 2026-10-09
 
 * **Add**: Explain the resource inventory and operation ledger, including independent ownership scopes, logical and physical identity, saved reviews, accepted and converged revisions, live status, interruption recovery, single-writer storage, and retained resource collection.

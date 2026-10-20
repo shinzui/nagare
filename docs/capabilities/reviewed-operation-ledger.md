@@ -3,8 +3,8 @@ title: "Reviewed operation ledger"
 type: Capability
 description: "Apply immutable context-bound reviews through a durable cross-tool journal, resume from completion evidence, and close stopped transactions by operation proof."
 generated:
-  by: process:openai-codex
-  at: "2026-10-10T05:03:04Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 capabilityId: CAP-22
 provider: mori://shinzui/nagare
 status: shipped
@@ -82,5 +82,4 @@ client after the original executor and its child processes have stopped.
 - Keep private review members, history, and recovery credentials. The public
   review summary alone is insufficient for execution or recovery.
 - A transient GCS read during journal writing can leave an apply ambiguous
-  until resume (F89); an ambiguous resume may omit its decision reason from
-  terminal output (F94). See the [0.4.0 limits](../releases/v0.4.0.md).
+  until resume (F89). See the [0.4.0 limits](../releases/v0.4.0.md).

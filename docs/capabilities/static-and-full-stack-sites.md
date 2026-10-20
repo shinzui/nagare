@@ -3,8 +3,8 @@ title: "Static and full-stack site releases"
 type: Capability
 description: "Build and publish static or server-rendered sites with typed routing policy, immutable releases, previews, and rollback commands."
 generated:
-  by: codex/gpt-5
-  at: "2026-08-25T20:51:44Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -32,7 +32,7 @@ packages:
 interface:
   - "Nagare.Dsl.Static"
   - "Nagare.Dsl.Server"
-  - "nagarectl site deploy|releases|rollback|preview"
+  - "nagarectl site deploy|releases|rollback|preview|list"
 requires:
   - CAP-4
 evidence:

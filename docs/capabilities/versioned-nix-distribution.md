@@ -3,8 +3,8 @@ title: "Versioned Nix distribution and clone-free operation"
 type: Capability
 description: "Run a version-matched Nagare CLI and immutable platform payload from a semantic Git tag without a source checkout."
 generated:
-  by: codex/gpt-5
-  at: "2026-08-26T03:07:31Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -77,7 +77,8 @@ Nix output identities, notes, and checksums rather than claiming portable binary
 
 ## Limits
 
-- Nix is the only supported distribution channel in version 0.1.0.
+- Nix is the only supported distribution channel. An installed context moves to a newer release
+  through [reviewed release transitions](reviewed-release-transitions.md) (CAP-24).
 - External cloud, Kubernetes, secret, and container clients remain operator prerequisites.
 - A release tag appears only after explicit maintainer publication; default-branch source is not a
   substitute for a published semantic tag.

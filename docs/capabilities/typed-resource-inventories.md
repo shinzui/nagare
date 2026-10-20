@@ -3,8 +3,8 @@ title: "Typed resource inventories"
 type: Capability
 description: "Compose independently revisioned ownership scopes into one context inventory and reject conflicting resource claims before mutation."
 generated:
-  by: process:openai-codex
-  at: "2026-10-10T05:03:04Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 capabilityId: CAP-21
 provider: mori://shinzui/nagare
 status: shipped
@@ -61,7 +61,8 @@ Live ownership and permission to execute are established through the
   a provider object exists, is healthy, or is owned by Nagare.
 - The combined context inventory is derived from its scopes. It is not a
   separately editable desired-state document.
-- The 0.4.0 release covers fresh inventory-backed contexts. General in-place
-  platform payload or inventory-schema transitions are outside its contract.
+- An installed context changes release only through
+  [reviewed release transitions](reviewed-release-transitions.md) (CAP-24), from a release the
+  target lists.
 - The resource vocabulary and Haskell interfaces remain experimental; this is
   not an open provider/plugin framework.

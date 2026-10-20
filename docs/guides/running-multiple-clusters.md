@@ -282,16 +282,15 @@ per-cluster kubeconfigs remain the preferred parallel operating path; no worktre
 ## Run different platform releases safely
 
 Contexts may intentionally remain on different Nagare platform releases. Use the target release's
-tagged CLI when planning its upgrade. The
-payload workspace, generated host flake, Pulumi projection, and transaction
-history are stored below that context's XDG state/config roots; upgrading
+tagged CLI to move a context. The payload workspace, generated host flake, Pulumi projection, and
+transition marker belong to that context's XDG state/config roots and inventory store; moving
 `labs` does not advance `prod`.
 
 The contexts may each keep a GCE instance named `nagare-01` because the project and context confine
 cloud operations. Their generated host names must remain distinct: for example, `labs-nagare` and
 `prod-nagare`. During apply, the staged `labs` host module selects
 `nixosConfigurations.labs-nagare` and `deploy@labs-nagare`; an ambient sibling name cannot redirect
-the transaction. Check each mapping with `nagarectl host name --context NAME` before planning.
+the host stage. Check each mapping with `nagarectl host name --context NAME` before planning.
 
 Inspect each context with its own kubeconfig before planning:
 
@@ -305,27 +304,25 @@ KUBECONFIG="$HOME/.config/nagare/kubeconfigs/prod.yaml" \
 nagarectl platform status --json
 ```
 
-Rehearse a release on `labs`, keep its transaction identifier, and apply that
-same reviewed plan. Do not reuse the identifier for another context; the CLI
-rejects cross-context transaction histories.
+Move `labs` first through a reviewed release transition. Each context plans and applies its own
+stages; a review saved for one context does not apply to another.
 
 ```bash
 export NAGARE_CONTEXT=labs
 export KUBECONFIG="$HOME/.config/nagare/kubeconfigs/labs.yaml"
-export LABS_NAGARE_VERSION=0.2.0
+export LABS_NAGARE_VERSION=0.8.0
 export LABS_NAGARE="github:shinzui/nagare/v${LABS_NAGARE_VERSION}"
-nix shell "${LABS_NAGARE}#nagare" -c nagarectl \
-  platform upgrade --to "$LABS_NAGARE_VERSION" --dry-run --json > labs-upgrade.json
-labs_transaction="$(jq -r '.transactionId' labs-upgrade.json)"
-nix shell "${LABS_NAGARE}#nagare" -c nagarectl \
-  platform upgrade --apply --resume "$labs_transaction" --yes
+nix shell "${LABS_NAGARE}#nagare" -c nagarectl platform transition plan --out labs-stage-1
+nix shell "${LABS_NAGARE}#nagare" -c nagarectl inventory apply labs-stage-1 --yes
+# plan again into a new directory until the review has no operations, then:
+nix shell "${LABS_NAGARE}#nagare" -c nagarectl platform transition commit --yes
 nix shell "${LABS_NAGARE}#nagare" -c nagarectl platform status
 ```
 
 Leave `prod` selected at its old release until the labs verification is
 complete. A shell-local `NAGARE_CONTEXT` and `KUBECONFIG` pair is safer than
 changing the shared current-context pointer during parallel work. See
-[Upgrades](../user/upgrades.md) for adoption, recovery, and rollback limits.
+[Upgrades](../user/upgrades.md) for the transition rules and the legacy workflow.
 
 ## Deploy the same application to two clusters
 

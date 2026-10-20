@@ -225,9 +225,10 @@ cluster identity. A `--config` database must match the command's engine and
 name. Live `db create` requires both recovery options in every context.
 
 Live create, restart, and retirement use reviewed scopes in every context.
-New interactive maintenance sessions, live-target restores, and scheduled
-pruning reviews are deferred. Manual backup and isolated restore still have
-saved-plan routes. An already-admitted session, restore, or partial prune
+New interactive maintenance sessions and live-target restores are deferred.
+Scheduled runs are pruned through a reviewed `db prune-scheduled-backups`
+(see [Backups and restore](#backups-and-restore)). Manual backup and isolated
+restore still have saved-plan routes. An already-admitted session, restore, or partial prune
 retains its original evidence-bound recovery path. If a prior session's
 terminal was lost, use the original transaction, operation, and review digest
 with `verify-fenced-effect`. An ordinary resume cannot replay an uncertain

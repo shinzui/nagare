@@ -11,10 +11,13 @@ generated:
 
 # Nagare operator guide
 
-This is the **operator** documentation for Nagare (流れ, "flow") — the people
+This is the **operator** documentation for Nagare (流れ, "flow"): for the people
 who *run* the platform, whether for personal projects or a team's workplace
-intranet. Nagare's tooling still assumes one operator acts at a time; see
-[MasterPlan 24](../masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md). It covers both supported operating targets:
+intranet. Nagare's tooling assumes one operator acts at a time
+([ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md));
+team operation is tracked in
+[MasterPlan 24](../masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
+It covers both supported operating targets:
 
 - **Cloud mode:** one GCP Compute Engine VM running NixOS/k3s, configured by
   the active target context (or, for back compatibility, `nagare.target.env`).
@@ -26,59 +29,24 @@ intranet. Nagare's tooling still assumes one operator acts at a time; see
 > Nagare, the page you want is [Deploying apps](deploying-apps.md). Everything
 > else here is about standing up and operating the platform itself.
 
-For the design rationale behind any choice documented here, see the
-[full spec](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md) and the
-[MasterPlan](../masterplans/1-bootstrap-nagare-personal-paas.md). This guide is
-the operational "how," not the "why."
+## Where status lives
 
----
+The current release is [Nagare 0.8.0](../releases/v0.8.0.md); every release has
+notes in [`docs/releases/`](../releases/). What ships is cataloged, with
+evidence, in the [capability catalog](../capabilities/index.md). The drills that
+prove day-to-day operation, data recovery, and upgrades are recorded in the
+[production readiness checklist](../releases/production-readiness-checklist.md).
+For the original design rationale, see the
+[initial spec](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md).
 
-## Status legend
-
-Nagare is being built in waves. Not every component documented here exists yet,
-so every page (and many sections) carries a status badge. Read it before you
-follow the steps.
+Pages and sections carry a badge:
 
 | Badge | Meaning |
 | --- | --- |
-| ✅ **Working** | Implemented and exercised on `nagare-01`. The commands run today. |
-| 🟢 **Complete** | Implemented and verified on its supported target; no planned implementation work remains. |
-| 🟡 **In progress** | Partially implemented; some steps work, some are unfinished or unverified. Caveats are called out inline. |
-| 🔭 **Planned** | Designed in the spec but **not built yet**. The page is a *target* runbook describing the intended behavior. Files, recipes, and manifests it references may not exist on disk. |
-
-The mapping to the implementation plans (`docs/plans/`) and their current state:
-
-| Area | Plan | Status |
-| --- | --- | --- |
-| Repo scaffolding, dev shell | EP-1 | ✅ Working |
-| Cloud provisioning (Pulumi) | EP-2 | 🟡 In progress |
-| Host image + k3s (NixOS) | EP-3 | 🟡 In progress |
-| Cluster bootstrap (Knative/Kourier/cert-manager) | EP-4 | ✅ Working (verified live) |
-| Observability (Victoria stack + Grafana) | EP-5 | ✅ Working (verified live) |
-| Deploy CLI (`nagarectl`) + typed config DSL | MP-2 (EP-8–12), MP-16 EP-83 | 🟡 Built; cloud and local targets supported |
-| Static & full-stack site hosting (`nagarectl site`) | MP-3 (EP-13–18), MP-16 EP-83 | 🟡 Built; cloud and local targets supported |
-| CDN integration (Cloudflare / Google Cloud CDN) | MP-11 (EP-54–59) | 🟡 Built; live edge deploy pending |
-| Application build modes (Dockerfile/Nixpacks/prebuilt) | MP-4 (EP-19–22), MP-16 EP-83 | 🟡 Built; target-aware image builds |
-| App env & secrets (`nagarectl env`/`secret`) | MP-5 (EP-23–28) | 🟡 Built; applies to any active Kubernetes target |
-| Application lifecycle (`nagarectl app`/`deployments`) | MP-6 (EP-29–32) | 🟡 Built; live verbs partially pending |
-| Persistent storage (Knative PVC volumes) | MP-7 (EP-33–37), MP-16 EP-84 | 🟡 Built; cloud GCS and local MinIO snapshot paths implemented |
-| Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48), MP-16 EP-84 | 🟡 Built; cloud GCS and local MinIO backup paths implemented |
-| Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
-| Multi-workload apps (`nagarectl app deploy`) + worker liveness | MP-14 (EP-72–74), MP-16 EP-83 | 🟡 Built; target-aware image builds |
-| Local development and testing | MP-16 (EP-82–86) | 🟡 Underlying local cluster, data services, MinIO, and auth have prior native proof; reviewed `nagare local-smoke` needs a new native run |
-| Target contexts | MP-17 (EP-87–92) | ✅ Working — named cloud/local contexts, `--context`, `NAGARE_CONTEXT`, per-context Pulumi state, and context-rendered bootstrap paths |
-| Bounded one-shot Jobs | MP-18 EP-95 | 🟢 Complete — typed model, hardened renderer, two-slot quota, example, and local acceptance; no `nagarectl job` command yet |
-| Platform security and reliability hardening | MP-19 (EP-97–103) | 🟡 Guardrail and auth fixes shipped; infrastructure protection is implemented but awaits live apply; resource, alerting, CLI, and host follow-ups remain |
-| Backups, secrets, disaster recovery | EP-7, MP-16 EP-84 | 🟡 DB/volume backup tooling works; full DR drill and some app-specific backups deferred |
-
-The deploy CLI was superseded by a second initiative — the typed Haskell
-deployment DSL ([MasterPlan 2](../masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md))
-— which replaces the original `nagare.yaml` contract (EP-6) with a typed
-`nagare/Config.hs`. The library and CLI are built and tested; the live
-end-to-end deploy is deferred until `nagare-01` is powered back on.
-
-The authoritative, always-current status lives in the MasterPlan's **Progress**
-section; if this table and the MasterPlan disagree, the MasterPlan wins.
+| ✅ **Working** | Implemented and exercised on a real context. |
+| 🟢 **Complete** | Implemented and verified on its supported target; no planned work remains. |
+| 🟡 **In progress** | Partially implemented or partially verified; caveats are called out inline. |
+| 🔭 **Planned** | Not built yet; the page describes intended behavior. |
 
 ---
 
@@ -109,17 +77,19 @@ you can observe.
    `--context` / `NAGARE_CONTEXT`. ✅
    - [Resource inventory and operation ledger](resource-inventory.md) — understand
      ownership scopes, saved reviews, status, interruption recovery, and retained
-     resources before changing an inventory-backed context. 🟡
+     resources before changing an inventory-backed context. ✅
 3. [Provisioning with Pulumi](provisioning-with-pulumi.md) — create the cloud
    perimeter: VPC, static IP, DNS, disks, service account, registry, buckets. 🟡
 4. [Host image and first boot](host-image-and-boot.md) — build the NixOS GCE
    image on a remote Linux builder, register it, and boot `nagare-01`. 🟡
 5. [Accessing the host](accessing-the-host.md) — Tailscale SSH, the IAP tunnel,
    `scripts/iap-ssh.sh`, and getting a working `kubectl`. 🟡
-6. [Day-2 host changes](day-2-host-changes.md) — `nixos-rebuild switch` over
-   Tailscale and how the host config is laid out. 🟡
-   - [Upgrades](upgrades.md) — inspect release identity, adopt legacy contexts,
-     and plan, apply, resume, or explicitly roll back per-context releases. ✅
+6. [Day-2 host changes](day-2-host-changes.md) — reviewed, self-reverting host
+   changes through `nagarectl host apply` and `just host-switch`, and how the host
+   config is laid out. 🟡
+   - [Upgrades](upgrades.md) — move an installed context to a new release through
+     a reviewed transition, inspect release identity, and upgrade the node and
+     PostgreSQL majors. ✅
    - [Resizing the VM](resizing-the-vm.md) — vertical scale to a bigger machine
      type: bump `machineType`, `pulumi up`, ~1–3 min stop/start. Disks and IP
      persist. 🟡
@@ -164,7 +134,10 @@ you can observe.
    - [Managed databases](managed-databases.md) — run a Postgres, Redis, or
      ClickHouse database with `nagarectl db`, connect an app to it by name
      (`DATABASE_URL`/`REDIS_URL`/`CLICKHOUSE_URL` injected from a Secret), and back
-     it up to GCS or local MinIO on a schedule. 🟡
+     it up to GCS or local MinIO on a schedule. Many apps can share one PostgreSQL
+     or ClickHouse server as app databases, each with its own users, reviewed
+     grant exceptions and limits, maintenance window, backups, and read-only
+     readers for other apps. 🟡
    - [Scheduled tasks](scheduled-tasks.md) — run work on a cron schedule or once on
      demand: declare a typed `Task` in an app's `tasks` list, provision a CronJob at
      deploy time, and operate it with `nagarectl task list/run/logs/delete`,

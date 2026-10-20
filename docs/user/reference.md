@@ -94,10 +94,11 @@ Per-context builder routing lives at
 `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/nix-builder/{ssh_config,builders}`. Both use a
 private mode-`0700` directory and mode-`0600` files.
 
-The upgrade and rollback commands below are legacy compatibility for untouched
-contexts. After inventory admission they refuse mutation; the first
-inventory-backed release starts from a fresh context and has no in-place
-platform version upgrade.
+The `platform upgrade` and rollback commands below are legacy compatibility for
+untouched contexts; after inventory admission they refuse mutation. An
+inventory-backed context moves to a new release with `platform transition plan`
+and `platform transition commit`; see
+[Upgrades](upgrades.md#move-an-installed-context-to-a-new-release).
 
 | Platform command | Does |
 | --- | --- |
@@ -581,6 +582,26 @@ env at deploy time. Backups land at
 `gs://<backup-bucket>/databases/<name>/<timestamp>.<ext>` in cloud mode or
 `s3://nagare-backups/databases/<name>/<timestamp>.<ext>` in local mode. See the
 [Managed databases](managed-databases.md) guide.
+
+### App databases on a shared server
+
+| Command | Does |
+| --- | --- |
+| `nagarectl db app-database plan --config FILE [--save-plan DIR]` | Plan every app database a config declares through `emitAppDatabases`: Secrets, users, databases, grants, reviewed exceptions, limits, and readers. Without `--save-plan`, print the operations or `no operations`. |
+| `nagarectl db app-database list [-n NS]` | List accepted app databases with their servers. |
+| `nagarectl db app-database rotate NAME --user runtime\|migration\|reader-NAME --save-plan DIR` | Review a new password for one user: the Secret first, then the user. Restart bound workloads afterwards. |
+| `nagarectl db app-database quiesce NAME [--users runtime[,migration]] --save-plan DIR` | Review a maintenance window: logins off, the backup schedule paused, then a drain proves no session, scheduled run or ClickHouse mutation remains. |
+| `nagarectl db app-database resume NAME --save-plan DIR` | Review the end of a quiesce: exactly the quiesced users log in again and the schedule comes back. |
+| `nagarectl db app-database backup NAME [--backup-id ID] --save-plan DIR` | Review an on-demand backup with the schedule's own Job, quiesced or not; ingest it with `backup-receipts --backup-id JOB_UID`. |
+| `nagarectl db app-database evidence NAME [-n NS] [--json]` | Print what the last quiesce, backup and resume recorded: server identity, blocked users, drain, transactions, and the ingested receipt. |
+| `nagarectl db app-database backup-receipts NAME (--backup-id JOB_UID\|--all) --save-plan DIR` | Review ingestion of verified scheduled runs, the authority a restore consumes. |
+| `nagarectl db app-database restore NAME --backup-id JOB_UID --restore-id ID [--rebuilt] --save-plan DIR` | Review a restore into scratch databases, or with `--rebuilt` into the empty declared databases of a rebuilt server; other apps are untouched. |
+| `nagarectl db app-database prune-scheduled-backups NAME --save-plan DIR` | Review removal of scheduled runs past the retention policy. |
+| `nagarectl db app-database recover-scheduled-prune NAME BACKUP_ID --failed-review DIR --save-plan DIR` | Review deletion of the exact receipt left by an abandoned partial prune. |
+| `nagarectl db app-database retire NAME --save-plan DIR` | Review retirement: logins and grants off, databases and Secrets kept. |
+
+Apply each saved review with `nagarectl inventory apply DIR --yes`. See
+[Sharing one server between apps](managed-databases.md#sharing-one-server-between-apps).
 
 ## `nagarectl cdn` commands
 

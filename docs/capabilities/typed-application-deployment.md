@@ -3,8 +3,8 @@ title: "Typed application deployment"
 type: Capability
 description: "Load checked Haskell deployment data and deploy an accepted image publication through a reviewed Knative Service change."
 generated:
-  by: process:openai-codex
-  at: "2026-10-10T05:03:04Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -54,7 +54,7 @@ A project exports checked deployment data from `nagare/Config.hs`. Haskell check
 constructors validate names, scaling ranges, quantities, and paths, and the loader checks the whole
 configuration before provider mutation.
 
-In 0.4.0, build the image separately and publish its Docker archive with `nagarectl app image-plan`.
+Build the image separately and publish its Docker archive with `nagarectl app image-plan`.
 `nagarectl deploy` loads the program and requires an accepted `--image-resource` and explicit tag.
 It prepares a reviewed Service scope, renders native inputs, applies the change, and waits for
 readiness. `--save-plan DIR` saves the review for separate inspection and apply. Deployment does
@@ -71,7 +71,7 @@ The current review and recovery protocol is cataloged as
   time and output bounds, but consumers should still treat project configuration as trusted code.
 - Live deploy and deployment dry-run require the selected context's inventory and accepted image
   publication. Dry-run prints the public scope rather than executing a build.
-- Fresh local and cloud acceptance is recorded in the [0.4.0 evidence](../releases/v0.4.0.md#ir-24-acceptance-evidence);
-  this does not establish every configuration on every target.
-- The `nagare-dsl` and `nagarectl` interfaces remain experimental. General in-place platform
-  payload upgrades after inventory admission are outside the 0.4.0 contract.
+- Release acceptance, first recorded in the [0.4.0 evidence](../releases/v0.4.0.md#ir-24-acceptance-evidence),
+  does not establish every configuration on every target.
+- The `nagare-dsl` and `nagarectl` interfaces remain experimental. A release that adds a record
+  field requires configs built with record syntax to add it; each release's notes name the field.

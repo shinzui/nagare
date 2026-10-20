@@ -3,8 +3,8 @@ title: "Multi-workload application rollouts"
 type: Capability
 description: "Deploy a typed application containing hooks, databases, a web Service, workers, and scheduled tasks through dependency-ordered reviewed scopes."
 generated:
-  by: process:openai-codex
-  at: "2026-10-10T05:03:04Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -54,7 +54,7 @@ evidence:
 
 An `Application` groups resources under one `nagare.dev/app` identity and validates shared image,
 namespace, database references, broker bindings, and workload-name uniqueness. `nagarectl app check`
-validates an Application without context or provider access. In 0.4.0, `nagarectl app deploy` binds
+validates an Application without context or provider access. `nagarectl app deploy` binds
 an accepted image publication and explicit tag, then reviews dependency-ordered resources and
 release history. Hooks declare their affected data resources, or explicitly declare no data effects;
 their completion gates the workloads that depend on them.

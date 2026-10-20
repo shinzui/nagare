@@ -3,8 +3,8 @@ title: "Resource identity and reviewed lifecycle"
 type: Capability
 description: "Explain live ownership, identity, dependencies, drift, and health, and retire or collect resources through separate evidence-bound reviews."
 generated:
-  by: process:openai-codex
-  at: "2026-10-10T05:03:04Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 capabilityId: CAP-23
 provider: mori://shinzui/nagare
 status: shipped
@@ -17,9 +17,13 @@ interface:
   - "nagarectl inventory status|explain"
   - "nagarectl inventory adopt|retire|collect"
   - "nagarectl inventory gc --plan"
+  - "nagarectl inventory rebuild-decisions|rebuild"
 requires:
   - CAP-22
 evidence:
+  - kind: test
+    resource: cli/nagarectl/test/InventoryRebuildSpec.hs
+    proves: A rebuild recreates a confirmed-absent member as a new incarnation from a recorded predecessor's recovery point, records its lineage, and is refused if the member reappeared after review.
   - kind: test
     resource: cli/nagarectl/test/InventoryStatusSpec.hs
     proves: Status distinguishes absence, foreign ownership, drift, unreadability, and dependency and collection assessments.
@@ -66,6 +70,11 @@ deletion authority. A confirmed collection leaves a tombstone in history.
 Supported controller collection includes the exact reviewed descendants;
 omitting a scope or screening collection candidates does not delete anything.
 
+Since 0.5.0, a durable member confirmed absent can be rebuilt. `inventory rebuild-decisions` names
+each missing database or volume's recorded incarnation, and `inventory rebuild` recreates it as a
+new incarnation from a verified recovery point of that recorded predecessor, recording the lineage
+in the review. Admission refuses a rebuild whose member reappeared after review.
+
 ## Limits
 
 - Recorded-incarnation protection covers Kubernetes members. Other adapters
@@ -74,10 +83,10 @@ omitting a scope or screening collection candidates does not delete anything.
 - Data is retained by default. Retirement does not authorize collection of
   database PVCs, credential Secrets, or broker topics; retained consumers may
   continue to block collection of their dependencies.
-- Full-context physical teardown, including VM/workload collection, is outside
-  the 0.4.0 contract. Cloud perimeter cleanup has a separate staged procedure.
+- Full-context physical teardown, including VM/workload collection, is not
+  offered. Cloud perimeter cleanup has a separate staged procedure.
 - A PVC deleted outside review while mounted (F77), or members blocked behind
   a broken StatefulSet (F78), have documented recovery limits. See the
   [inventory runbook](../runbooks/inventory-operations.md).
-- Scheduled backup keep-N and expiry retention are unenforced. An expiry
-  timestamp or collection assessment is not proof of provider deletion.
+- An expiry timestamp or collection assessment is not proof of provider
+  deletion. Scheduled backup retention is applied only through reviewed prunes.

@@ -3,8 +3,8 @@ title: "Persistent application volumes and snapshots"
 type: Capability
 description: "Declare durable application volumes, inspect their claims, and snapshot or scratch-restore their contents through GCS or local MinIO."
 generated:
-  by: process:openai-codex
-  at: "2026-10-10T05:03:04Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -29,6 +29,7 @@ packages:
 interface:
   - "Nagare.Dsl.Types.Volume"
   - "nagarectl storage list|inspect|snapshot|restore"
+  - "nagarectl storage backup-receipts|prune-scheduled-backups|recover-scheduled-prune|restore-rebuilt"
 requires:
   - CAP-6
 evidence:
@@ -44,6 +45,12 @@ evidence:
   - kind: example
     resource: cluster/examples/uploads-volume/nagare/Config.hs
     proves: A shipped application declares and uses a persistent upload volume.
+  - kind: test
+    resource: cli/nagarectl/test/Nagare/Test/Backup/VolumeSchedule.hs
+    proves: A volume schedule archives its claim read-only and uploads a signed version-5 receipt, and its expectation comes only from the accepted CronJob's own app, volume and claim.
+  - kind: test
+    resource: cli/nagarectl/test/Nagare/Test/Backup/Retention.hs
+    proves: Retention keeps every point for 48 hours, the newest of each day for 30 days, and the newest point, and admission refuses a prune of any of them.
   - kind: guide
     resource: docs/user/persistent-storage.md
     proves: Declaration, ownership, inspection, snapshot, and restore behavior are documented.
@@ -51,11 +58,20 @@ evidence:
 
 # Persistent application volumes and snapshots
 
-Typed `Volume` values render PVCs and mounts alongside an application. In 0.4.0, snapshot commands
+Typed `Volume` values render PVCs and mounts alongside an application. Snapshot commands
 save a reviewed, create-only archive and checksum receipt Job against an accepted PVC incarnation.
 Restore saves a separate scratch PVC and verification Job, pinning and rechecking the accepted
 archive and receipt bytes. Source storage remains intact. Manual pruning requires a separate
 expiry-gated review of exact accepted objects and versions, with restore dependencies checked.
+
+Since 0.5.0, every backup-included volume also has a scheduled producer
+(`nagare-volbackup-<app>-<volume>`) that uploads signed receipts on the database schedule.
+`server status` grades each volume's freshness against the context's recovery-point objective.
+`storage backup-receipts` ingests runs, `storage restore --scheduled-run` restores an accepted run
+into a scratch claim, and `storage prune-scheduled-backups` reviews the removal of runs past the
+retention policy, which keeps every run for 48 hours, then one a day for 30 days, and always the
+newest verified run. A volume lost from the cluster is recreated by `inventory rebuild` and refilled
+with `storage restore-rebuilt` from its predecessor's verified recovery point.
 
 Volume attachment builds on [typed application deployment](typed-application-deployment.md) (CAP-6).
 Snapshot and restore execution use the [reviewed operation ledger](reviewed-operation-ledger.md)
@@ -66,9 +82,7 @@ Snapshot and restore execution use the [reviewed operation ledger](reviewed-oper
 
 - Knative PVC concurrency constraints still apply; a volume is not shared multi-writer storage.
 - Snapshot consistency is filesystem-level. Nagare does not quiesce arbitrary application writes.
-- Live overwrite is unavailable in the 0.4.0 contract; restore uses a new isolated PVC.
-- Volumes are outside the scheduled database recovery-point objective and need manual snapshots.
-- Scheduled keep-N and expiry retention are unenforced. A saved expiry does not automatically
-  delete an archive; eligible manual disposal needs its own review.
-- The shipped storage snapshot/restore loader accepts single-Service `Deployment` configs;
-  `Application` config support is deferred to the next release.
+- Live overwrite is unavailable; restore uses a new isolated PVC or a rebuilt incarnation.
+- Retention is applied through a reviewed prune, never by automatic deletion; manual snapshot
+  disposal needs its own expiry-gated review.
+- The storage snapshot and restore commands load single-Service `Deployment` configs only.

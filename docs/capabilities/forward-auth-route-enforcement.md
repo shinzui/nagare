@@ -3,8 +3,8 @@ title: "Forward-auth route enforcement"
 type: Capability
 description: "Route protected hostnames through a shared enforcer that challenges unauthenticated requests and checks authorization before proxying to the application."
 generated:
-  by: codex/gpt-5
-  at: "2026-08-25T20:51:44Z"
+  by: process:claude-code
+  at: "2026-10-20T13:46:54Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -79,7 +79,10 @@ fails closed unless the shared enforcer is present, writes the hostname-to-backe
 points the DomainMapping at `nagare-access`.
 The enforcer challenges browser and API clients appropriately, validates session material, checks a
 host-scoped authorization tuple, caches bounded decisions, and proxies allowed requests. Grant
-commands manage the tuples used for that check.
+commands manage the tuples used for that check: reviewed grants name a user by Shomei email,
+resolved to exactly one user id, or a team, and `access check` reports one user's effective access
+on one host without writing. Since 0.6.4, requests from API clients (API paths, bearer credentials,
+JSON-preferring `Accept`) receive problem documents instead of a login redirect.
 
 Route provisioning builds on [typed application deployment](typed-application-deployment.md)
 (CAP-6).
@@ -91,5 +94,4 @@ Route provisioning builds on [typed application deployment](typed-application-de
   capabilities; a working login flow composes all three projects.
 - The enforcer is a shared availability dependency for protected hosts. Authorizer outages return
   503 and evict cached decisions rather than failing open.
-- The local auth-plane path has been exercised; current cloud deployment still depends on operator
-  configuration of external URLs, keys, secrets, and TLS.
+- Cloud deployment depends on operator configuration of external URLs, keys, secrets, and TLS.

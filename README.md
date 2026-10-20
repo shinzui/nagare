@@ -7,52 +7,28 @@
 > smooth, lightweight, and continuous.
 
 Nagare is a cheap, single-node **PaaS** that runs on one GCP Compute Engine
-instance. It began as a personal PaaS and is now also intended to run a
-workplace **intranet** for a small team. It lets you deploy many small projects
-without thinking about servers, while staying simple enough to rebuild the
-entire system from scratch.
+instance. It began as a personal PaaS and now also runs a small team's workplace
+**intranet**. It lets you deploy many small projects without thinking about
+servers, while staying simple enough to rebuild the entire system from scratch.
 
-> **Team operation is in progress.** Nagare was designed around one operator.
-> Multi-operator coordination, named-reviewer approval, shared team access to
-> deployment material, and an explicit availability model are being planned in
-> [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
-> Until that lands, treat a team installation as operated by one person at a time.
+## Status
 
-> **Status:** [Nagare 0.8.0](https://github.com/shinzui/nagare/releases/tag/v0.8.0)
-> gives app databases reviewed grant exceptions and limits, a quiesced maintenance window with an
-> on-demand backup, and read-only reader users for other apps
-> ([release notes](docs/releases/v0.8.0.md)).
-> [0.7.1](docs/releases/v0.7.1.md) upgrades and applies context changes through operator
-> symlinks, and grades, prunes and suspends app databases' backups.
-> [0.7.0](docs/releases/v0.7.0.md) lets many apps share one PostgreSQL or ClickHouse server, each
-> with its own databases, users, grants, credentials and backups.
-> [0.6.6](docs/releases/v0.6.6.md) lets an installed cloud context enable and run the admin API
-> end to end, and lets a newer release finish a stranded transition.
-> [0.6.5](docs/releases/v0.6.5.md) lets an installed cloud context enable the admin API's reader
-> account. [0.6.4](docs/releases/v0.6.4.md) serves a
-> context's recorded state through a read-only admin API behind login, gives the CLI's outputs a
-> versioned JSON contract, lists recorded sites, and makes ClickHouse 26.8 the default.
-> [0.6.3](docs/releases/v0.6.3.md) protects static and
-> server sites behind login, grants a site to a team, checks one user's access, and diagnoses and
-> renews a host's certificate. [0.6.2](docs/releases/v0.6.2.md) ends a converged
-> upgrade plan with no operations, ships its pinned Helm, runs the release guard on every stage,
-> and makes `inventory status` about five times faster. [0.6.1](docs/releases/v0.6.1.md) lets a cloud
-> context's transition stages apply and builds the host on the context's builder.
-> [0.6.0](docs/releases/v0.6.0.md) upgrades an installed context in place through a reviewed transition, grants
-> access by email, and fixes the first-deploy and recovery findings from the
-> intranet's 0.5.0 bootstrap. 0.5.0 added
-> protected HTTPS login for every deploy, scheduled volume backups, retention with
-> reviewed pruning, and rebuild of a lost database or volume. It builds on the typed
-> resource inventory and resumable operation ledger from
-> [MasterPlan 23](docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md).
-> Cloud mode runs on one GCP/NixOS/k3s host; local mode uses k3d, a local registry,
-> and MinIO.
-> Supported recovery and upgrade drills are recorded in the
-> [production readiness checklist](docs/releases/production-readiness-checklist.md).
-> Current operator docs start at
-> [`docs/user/README.md`](docs/user/README.md), goal-oriented walkthroughs start
-> at [`docs/guides/README.md`](docs/guides/README.md), and the full design
-> rationale is in [`docs/initial-spec.md`](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md).
+The current release is [**Nagare 0.8.0**](https://github.com/shinzui/nagare/releases/tag/v0.8.0)
+([release notes](docs/releases/v0.8.0.md)), and the work intranet runs on it. It completes app
+databases on shared PostgreSQL and ClickHouse servers: reviewed grant exceptions and limits, a
+maintenance window for one app with an on-demand backup, and read-only reader users that other apps
+bind. Notes for every earlier release are in [`docs/releases/`](docs/releases/).
+
+- Every capability is still `experimental`; the shipped surface is cataloged in
+  [`docs/capabilities/`](docs/capabilities/index.md).
+- The [production readiness checklist](docs/releases/production-readiness-checklist.md) records the
+  recovery and upgrade drills behind each release.
+- Nagare is operated by one person at a time. Multi-operator coordination is planned in
+  [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
+
+Operator docs start at [`docs/user/README.md`](docs/user/README.md), goal-oriented walkthroughs at
+[`docs/guides/README.md`](docs/guides/README.md), and the original design rationale is in the
+[initial spec](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md).
 
 ---
 
@@ -90,7 +66,7 @@ See [Deploying an app](#deploying-an-app) below for the publication workflow.
 | **TLS** | cert-manager + Let's Encrypt (wildcard via DNS-01) |
 | **Observability** | [VictoriaMetrics](https://victoriametrics.com/), VictoriaLogs, VictoriaTraces, OpenTelemetry Collector |
 | **Dashboards** | [Grafana](https://grafana.com/) |
-| **Data** | PVC-backed app volumes, managed Postgres/Redis/ClickHouse, Redpanda brokers, optional in-cluster Attic, GCS or MinIO backups |
+| **Data** | PVC-backed app volumes, managed Postgres/Redis/ClickHouse (dedicated or shared between apps), Redpanda brokers, optional in-cluster Attic, GCS or MinIO backups |
 
 The Victoria stack replaces Prometheus + Loki + Tempo because it has lower
 operational overhead and memory usage — a better fit for a cheap single-node
@@ -187,6 +163,26 @@ nagare --list
 See [Installing Nagare](docs/user/installation.md) for temporary, persistent,
 operator, and contributor workflows.
 
+## Upgrade an installed context
+
+Changing the workstation package does not move a context. With the new release installed and the
+context selected, move it through a reviewed transition. A release's `transitionsFrom` (in
+[`release.json`](release.json)) lists the releases it accepts; 0.8.0 accepts 0.4.0, 0.5.0, and
+0.6.1 through 0.7.1.
+
+```bash
+nagarectl inventory status --json          # no active transaction
+nagarectl platform transition plan --out transition-1
+nagarectl inventory apply transition-1 --yes
+# plan and apply again in a new directory until the review has no operations
+nagarectl platform transition commit --yes
+nagarectl platform status
+```
+
+A stopped stage keeps the transition open; resume, recover, or close it with the new release's
+`nagarectl`. Each release's notes list the config changes it needs. See
+[Upgrades](docs/user/upgrades.md) for node (NixOS/k3s) and PostgreSQL major upgrades.
+
 ## Recommended GCP instance
 
 ```text
@@ -275,9 +271,13 @@ nagare/
     local/             # local-only MinIO and local-mode support manifests
     observability/     # victoria-metrics / -logs / -traces, otel-collector, grafana
     examples/          # app, site, database, broker, worker, and task examples
-  cli/nagarectl/       # deploy and operations CLI
-  cli/nagare-dsl/      # typed config DSL and manifest renderers
-  cli/nagare-access/   # shared forward-auth enforcer for protected apps
+  cli/nagarectl/          # deploy and operations CLI
+  cli/nagare-dsl/         # typed config DSL and manifest renderers
+  cli/nagare-access/      # shared forward-auth enforcer for protected apps
+  cli/nagare-contract/    # versioned JSON document contract for CLI output
+  cli/nagare-api/         # route types and OpenAPI document of the admin API
+  cli/nagare-api-server/  # read-only admin API server
+  cli/nagare-harness/     # local gate and acceptance harness
 ```
 
 ## Current capabilities
@@ -303,13 +303,23 @@ data, and operations vocabulary with stable `TERM-N` handles.
 - Operate app env/secrets, app lifecycle, static/full-stack sites, CDN plans,
   persistent volumes, managed databases, scheduled tasks, workers, Redpanda
   brokers, and identity-aware access through `nagarectl`.
+- Let many apps share one PostgreSQL or ClickHouse server, each with its own
+  databases, users, grants, credentials, and backups; declare reviewed grant
+  exceptions and limits, read-only readers that other apps bind, and a
+  maintenance window that quiesces one app without touching the others.
 - Back up managed databases and app volumes to GCS in cloud mode or MinIO in
   local mode, on a schedule, with signed receipts and isolated restores.
   Freshness is graded against an hourly or daily recovery-point objective.
   Scheduled runs are kept for 48 hours, then one a day for 30 days, and pruned
   through review; the newest verified run is always kept.
-- Protect a site behind passkey login over HTTPS, and grant or revoke each
-  user's access through review.
+- Rebuild a lost database or volume as a new incarnation from its verified
+  recovery point.
+- Protect any deploy or site behind passkey login over HTTPS, grant or revoke a
+  user's or team's access by email through review, and check one user's access.
+- Serve a context's recorded state through an optional read-only admin API behind
+  login; CLI JSON output follows a versioned contract.
+- Move an installed context to a newer release through a reviewed, resumable
+  transition.
 - Apply reviewed, self-reverting NixOS/k3s host changes and follow the rehearsed
   side-by-side PostgreSQL major-upgrade procedure.
 
@@ -317,8 +327,10 @@ data, and operations vocabulary with stable `TERM-N` handles.
 
 The machine should be **disposable**. Rebuildable declarations, off-cluster
 backups, escrowed recovery credentials, and durable history make recovery
-reviewable. MP-23 proved isolated data recovery after cluster loss; complete
-live-service rebuild and replacement cutover remain follow-up work. Follow the
+reviewable. MP-23 proved isolated data recovery after cluster loss, and 0.5.0
+rebuilds a lost database or volume from its recovery point. A timed rebuild of a
+whole installation in service ([ADR 28](docs/adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md)'s
+four-hour objective) is not yet proven. Follow the
 [backup and recovery procedures](docs/user/backups-and-disaster-recovery.md)
 and [production readiness checklist](docs/releases/production-readiness-checklist.md).
 Local mode keeps the same operational shape on a laptop so core paths can be
@@ -326,12 +338,11 @@ tested without a cloud bill.
 
 Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 
-## Non-goals (v1)
+## Non-goals
 
-Full-context physical collection, live database/PVC overwrite, and new
-interactive mutating maintenance remain outside the 0.6 inventory contract. See
-[0.8.0 release notes](docs/releases/v0.8.0.md) for the supported boundaries and
-known limits.
+Full-context physical collection, live database/PVC overwrite, and interactive
+mutating maintenance sessions are outside the inventory contract. Each release's
+notes list its known limits; see [0.8.0's](docs/releases/v0.8.0.md#known-limitations).
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,
 External Secrets Operator, complex autoscaling, multi-tenant auth, huge

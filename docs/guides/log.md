@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-20
+* **Update**: Move a context between releases through a reviewed release transition instead of the legacy `platform upgrade` transaction.
+
 ## 2026-09-15
 * **Update**: Explain how multi-cluster upgrades bind each staged generated host name even when projects reuse the GCE instance name.
 

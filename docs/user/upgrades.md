@@ -11,34 +11,56 @@ generated:
 
 # Upgrades
 
-> **Status:** The first inventory-backed release starts from a fresh context.
-> There is no in-place platform version upgrade after inventory admission.
-> The legacy procedure below applies only to untouched older contexts.
+> **Status:** An installed, inventory-backed context moves to a new release through a reviewed
+> release transition (since 0.6.0). The coarse `platform upgrade` workflow below applies only to
+> untouched contexts created before inventory admission.
 
-Inventory-backed contexts do have a proved **node configuration upgrade** path: reviewed inventory
-apply through the self-reverting host adapter for NixOS/k3s changes, with verified backups first.
-See [the node upgrade drills](../releases/production-readiness-checklist.md#3-upgrade-a-node-without-worry).
-That differs from advancing the Nagare payload/context pin or inventory schema; the restriction
-above applies to those release transitions. PostgreSQL major upgrades use
+## Move an installed context to a new release
+
+Read the target release notes first. The release's `transitionsFrom` list (in its platform
+metadata, `nagare-platform-metadata-vVERSION.json`) names the releases a context may move from;
+0.8.0 accepts 0.4.0, 0.5.0 and 0.6.1 through 0.7.1. Run every step with the **target** release's
+`nagarectl` and the context selected:
+
+1. Install the target release and check that `nagarectl inventory status --json` reports no
+   active transaction.
+2. Run `nagarectl platform transition plan --out DIR`, read the review, and apply it with
+   `nagarectl inventory apply DIR --yes`. Plan again into a new directory and repeat until the
+   review has no operations.
+3. Run `nagarectl platform transition commit --yes`. It refuses until the store is idle, every
+   platform scope has converged, and the payload, host and cluster report the target. It then pins
+   the context and closes the transition. `nagarectl platform status` reports the target release.
+
+The first applied stage opens a transition marker in the store head. Until the commit, only the
+target release's `nagarectl` applies, resumes, recovers or closes a stage. Operators who keep
+their context in a private repository commit the updated host flake lock and any rewritten
+configuration together with the new release pin. A release may add record fields to typed configs; its notes list them.
+
+Every release is rehearsed this way on a disposable local context before it is tagged; see
+[Release publication and retry](#release-publication-and-retry).
+
+## Node and database upgrades
+
+Within a release, NixOS/k3s changes go through reviewed inventory apply and the self-reverting
+host adapter, with verified backups first. See
+[the node upgrade drills](../releases/production-readiness-checklist.md#3-upgrade-a-node-without-worry).
+PostgreSQL major upgrades use
 [the side-by-side procedure](managed-databases.md#upgrade-postgresql-to-a-new-major-version).
 
+## Legacy release identity and upgrades
 
 Nagare treats the CLI, immutable platform payload, context, generated host
 flake, and cluster marker as one versioned release. `platform status` compares
-those five identities; `platform upgrade` stages and previews a new release,
-persists every phase, and advances the context only after the infrastructure,
-host, and cluster phases succeed.
+those five identities. For an untouched pre-inventory context, `platform upgrade`
+stages and previews a new release, persists every phase, and advances the context
+only after the infrastructure, host, and cluster phases succeed.
 
-The existing upgrade transaction uses coarse Pulumi, host, and cluster phases.
-It refuses planning or applying when the selected context has substantive
-resource inventory history, because those phases do not record component
-receipts and could overwrite independently revised scopes. Keep the old
-context pin and transaction bundle for recovery with its original operator
-payload; do not rerun the coarse upgrade against managed scopes. Existing
-Nagare contexts and their data are disposable for the first inventory-backed
-release, so create a new context from its selected immutable payload and use
-the reviewed bootstrap. A later in-place version transition requires its own
-reviewed component protocol.
+That transaction uses coarse Pulumi, host, and cluster phases. It refuses
+planning or applying when the selected context has substantive resource
+inventory history, because those phases do not record component receipts and
+could overwrite independently revised scopes. Use the release transition above
+for such a context. Keep an old context pin and transaction bundle for recovery
+with its original operator payload.
 
 Release metadata declares the minimum inventory and upgrade-transaction wire
 schemas required by its payload. The current operator supports version 1 of
@@ -126,7 +148,7 @@ compatibility result has these meanings:
 | --- | --- |
 | `exact` | Every identity reports the payload version. |
 | `patch-skew` | A patch differs; inspection and compatible mutation remain available. |
-| `minor-upgrade-required` | An untouched legacy context may use the guarded upgrade workflow. An inventory-backed context has no in-place version transition in this release. |
+| `minor-upgrade-required` | An inventory-backed context moves through a [release transition](#move-an-installed-context-to-a-new-release); an untouched legacy context may use the guarded upgrade workflow. |
 | `major-incompatible` | Platform mutation is blocked until a compatible CLI and release are selected. |
 | `legacy-unknown` | At least one identity is absent, old, or unreachable; inspect it before adoption or upgrade. |
 
@@ -177,9 +199,12 @@ GCE NotFound proves the context's named instance does not exist. Authentication,
 network, or malformed-output failures refuse. If a generated context-owned host flake exists, its
 Nagare input and release comments advance with the context while `host.nix` and `secrets.yaml`
 remain untouched. Unrecognized generated files refuse before either pin changes. Once the instance
-exists, use the normal upgrade workflow; there is no force option.
+exists, use a [release transition](#move-an-installed-context-to-a-new-release); there is no force option.
 
-## Plan and apply a release upgrade
+## Plan and apply a legacy release upgrade
+
+This section applies only to an untouched context with no inventory history.
+
 
 Read the target release notes and invoke the **target release's** CLI. Its packaged payload becomes
 the upgrade candidate; the currently installed CLI cannot invent or fetch a payload from a bare
