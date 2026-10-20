@@ -43,8 +43,12 @@ restored and pruned. A restore of such a run uses the databases the run actually
   Done 2026-10-20. Evidence: `AppDatabaseSpec` "a run signed under an earlier converged
   schedule revision ingests and restores its own databases" (both engines) and "only a
   converged transaction's review authorizes a schedule revision".
-- [ ] M2 (native). The app-database smoke ingests, restores and prunes runs taken before a
+- [x] M2 (native). The app-database smoke ingests, restores and prunes runs taken before a
   schedule change, with the packaged CLI on a disposable local context.
+  Done 2026-10-20: step 8a of `scripts/local-app-database-smoke.sh` passed with the packaged
+  CLI at `5fc3bf7d` on the local context `transition`: a run of `zeta-s1020050714` taken
+  before `z_extra` was declared ingested, restored only `z`, and the prune review refused only
+  for having nothing past policy.
 - [ ] M3 (release). The change ships in the release that carries EP-204 to EP-206.
 
 ## Decision Log

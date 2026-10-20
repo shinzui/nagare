@@ -143,12 +143,13 @@ pgAccess
 
 main :: IO ()
 main =
-  emitAppDatabases
+  emitAppDatabases $
     [ app "alpha-pg" "smoke-pg" Postgres ["alpha"] alphaPg
     , app "beta-pg" "smoke-pg" Postgres ["beta"] noAppDatabaseAccess
     , app "alpha-ch" "smoke-ch" ClickHouse ["alpha", "alpha_ledger"] alphaCh
-    , app "beta-ch" "smoke-ch" ClickHouse ["beta"] noAppDatabaseAccess
     ]
+      -- The retired stage runs after step 6 retired beta-ch; planning it would reopen it.
+      <> [app "beta-ch" "smoke-ch" ClickHouse ["beta"] noAppDatabaseAccess | stage /= "retired"]
 EOF
 }
 appdb_config "$ROOT/config/AppDatabases.hs" none
@@ -682,7 +683,7 @@ ok = either (error . show) id
 
 main :: IO ()
 main =
-  emitAppDatabases
+  emitAppDatabases $
     [ AppDatabase
         { name = ok (mkAppDatabaseName "$ZETA")
         , logicalKey = Nothing

@@ -100,9 +100,13 @@ pending, and do not wedge the app database. For Kansoku, the reader is `dashboar
   the declared catalog" in the "with a reader" variant on both engines, and `AppDatabaseSpec` "a
   scratch restore extends no reader to the scratch databases". The PostgreSQL dump loading
   reader ACLs under `--exit-on-error` is confirmed natively in M6.
-- [ ] M6 (native confirmation). `scripts/local-app-database-smoke.sh` declares one reader on
+- [x] M6 (native confirmation). `scripts/local-app-database-smoke.sh` declares one reader on
   `alpha-ch` and one on `alpha-pg`. It binds each from a second app, and proves AC-2, AC-3, AC-6,
   AC-7, AC-8 and AC-9 on a disposable local context with the packaged CLI.
+  Done 2026-10-20: `app-database smoke: PASS` with the packaged CLI at `5fc3bf7d` on the
+  disposable local context `transition`. The native run found two refusals the interpreter
+  missed, both fixed before the pass: an on-demand backup counted as a reader's binder
+  (`e9759407`), and so did every runtime binder (`8575cd0f`).
 - [ ] M7 (release). The change ships in a release. The intranet is upgraded on the candidate
   before the tag. `kansoku-ch` declares its `dashboards` reader in `mori://tan/tan-ng-labs`.
   IR-33 is completed in `docs/improvement-requests/log.md`.
