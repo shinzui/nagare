@@ -798,6 +798,118 @@ databases are rebuilt `--fresh`, empty), then `db app-database restore NAME
 declared databases and refuses one that already holds data. The full procedure is
 [App databases on a rebuilt server](../runbooks/inventory-operations.md#app-databases-on-a-rebuilt-server).
 
+### Read-only readers
+
+An app database can declare readers in `access`. A reader is a third user that may
+only `SELECT` the tables and views it names in the app's own databases. Another
+app, its consumer, binds it to read those objects, for example a dashboard
+reading Kansoku's analytics views:
+
+```haskell
+kansokuCh :: AppDatabase
+kansokuCh =
+  -- ... engine = ClickHouse, logicalDatabases = analytics :| [...] ...
+  & #access . #readers .~
+      [ AppDatabaseReader
+          { name = ok (mkReaderName "dashboards")
+          , objects = ReaderRelation (ok (mkLogicalDatabaseName "analytics")) Nothing (ok (mkRelationName "events_analytics_v1")) :| []
+          , limits = defaultReaderLimits ClickHouse
+          , consumers = [ok (mkServiceName "grafana")]
+          , retired = False
+          }
+      ]
+
+grafanaPg :: AppDatabase
+grafanaPg =
+  -- ... engine = Postgres, logicalDatabases = kansoku :| [] ...
+  & #access . #readers .~
+      [ AppDatabaseReader
+          { name = ok (mkReaderName "grafana")
+          , -- every view of schema reporting, and one table in public
+            objects = ReaderSchemaViews (ok (mkLogicalDatabaseName "kansoku")) (ok (mkSchemaName "reporting"))
+                :| [ReaderRelation (ok (mkLogicalDatabaseName "kansoku")) Nothing (ok (mkRelationName "daily_totals"))]
+          , limits = defaultReaderLimits Postgres
+          , consumers = [ok (mkServiceName "grafana")]
+          , retired = False
+          }
+      ]
+```
+
+The consumer's workload binds the reader in `appDatabaseReaders`:
+
+```haskell
+  pure (worker & #appDatabaseReaders .~ [AppDatabaseReaderRef (ok (mkAppDatabaseName "kansoku-ch")) (ok (mkReaderName "dashboards"))])
+```
+
+It receives the same variables as an `appDatabases` binding, from the reader's
+own Secret `<appdb>-reader-<name>`. Its database variable names the database of
+the reader's first object. The deploy is refused with
+`app-database-reader-not-a-consumer` when the reader does not list the workload's
+app, and with `app-database-reader-retired` when the reader is retired. A
+workload binds at most one credential per engine, runtime or reader.
+
+**Names.** A reader name is 1 to 16 lowercase letters or digits, starting with a
+letter, and is neither `runtime` nor `migration`. Its user is
+`<appdb_with_underscores>_reader_<name>`.
+
+**Objects.** A ClickHouse object is `database.table`; a schema is refused. A
+PostgreSQL object is a table or view in a schema (`public` when none is given),
+or `ReaderSchemaViews`, every view and materialized view of a schema as observed
+when the plan is made: a view created later is granted by the next plan. An
+object outside the app's own databases is refused when the config loads.
+
+**Limits.** A ClickHouse reader sets all five ceilings: `maxExecutionSeconds`,
+`maxMemoryBytes`, `maxResultRows`, `maxResultBytes` and `maxThreads`. Each is
+constrained to `MIN 1 MAX <value>`, and `readonly = 2` and
+`result_overflow_mode = 'throw'` are `CONST`. A query above a ceiling fails, and
+so does `SET readonly = 0` (code 164). `defaultReaderLimits ClickHouse` is 30 s,
+512 MiB, 10,000 rows, 10 MiB and 4 threads.
+
+A PostgreSQL reader sets a connection limit. Its role defaults,
+`default_transaction_read_only = on` and the statement timeout, are advisory:
+a session can `SET` either back. The boundary is its grants, which are `CONNECT`
+on the databases, `USAGE` on the schemas of its objects, and `SELECT` on each
+object. It is never a member of any role, including `pg_read_all_data`, and has
+no `CREATE` or `TEMPORARY`, so every write, DDL statement and temporary table is
+refused. `defaultReaderLimits Postgres` is 5 connections and 30 s.
+
+**Before the app's migrations.** A PostgreSQL object that does not exist yet is
+pending. The reader is complete over the objects that do exist, nothing is
+planned for the missing ones, and every plan prints
+`note: <resource>: pending: <schema>.<object>`, also shown as the reason in
+`inventory status`. The first plan after the migration creates them grants them.
+ClickHouse grants by name, so nothing is pending there.
+
+**Refusals.** The plan is refused with:
+
+- `app-database-reader-definer-function` when a schema the reader would get
+  `USAGE` on holds a `SECURITY DEFINER` function that `PUBLIC` or the reader may
+  run. Such a function runs with its owner's rights, so the reader could write
+  through it. Revoke `EXECUTE` on it from `PUBLIC` in a migration; Nagare does not
+  change the app's own objects;
+- `app-database-reader-invoker-view` when a declared view has
+  `security_invoker = true`, which would need the reader to hold its base tables.
+
+**Changes and drift.** As with the other users: an object removed from the
+declaration is revoked by the next plan, and a grant or a raised ceiling that
+neither the config nor the accepted plan names is drift.
+
+**Rotation and retirement.** `db app-database rotate NAME --user reader-<name>`
+rotates one reader. To retire a reader, declare `retired = True`: the next plan
+closes its login and revokes its grants, and keeps its Secret and its
+declaration. Setting it back reopens it. The plan is refused with
+`app-database-reader-in-use` while a workload still binds it. A reader stays
+declared once accepted: dropping it from the config is refused like any other
+removal without a lifecycle decision. Retiring the app database retires its
+readers too.
+
+**Backups and restore.** The PostgreSQL dump keeps the reader's `SELECT` grants.
+After a server rebuild the re-apply creates the reader before the restore, so
+the grants load. A scratch restore revokes `PUBLIC` from the scratch databases
+and grants `CONNECT` only to the runtime user, so a reader can never connect to
+or read them. ClickHouse grants are not in the backup; the reader keeps its
+grants by name. Adding a reader keeps the backup schedule's revision.
+
 
 ## Backups and restore
 

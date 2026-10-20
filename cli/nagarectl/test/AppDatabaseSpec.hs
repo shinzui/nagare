@@ -33,6 +33,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.App.Deploy (RolloutEnv (..))
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
+import Nagare.Database.AppDatabase.Sql (renderScratchRestore)
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Config (encodeAppDatabases, encodeWorker)
@@ -291,6 +292,18 @@ appDatabaseTests =
             case compileAppDatabaseRestoreScope (request betaScope) native of
               Left _ -> pure ()
               Right _ -> assertFailure "another app database's backup was restored"
+        , testCase "a scratch restore extends no reader to the scratch databases (IR-33 AC-8)" $ do
+            let reader = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "gamma")] False
+            (appScope, serverScope, native, receiptScope, _, _) <- ingestedWith (alpha Postgres & #access . #readers .~ [reader])
+            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+            (_, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope request native)
+            [bytes] <- pure (map snd (Map.elems restoreNative))
+            let text = TE.decodeUtf8 bytes
+            -- PUBLIC loses CONNECT on the scratch database and only the runtime user gets it, so
+            -- the reader cannot connect to it whatever ACLs the dump restores inside.
+            assertBool "revokes PUBLIC on the scratch database" ("REVOKE ALL ON DATABASE \\\"alpha_restore_r1\\\" FROM PUBLIC" `T.isInfixOf` text)
+            assertBool "grants nothing to the reader" (not ("reader" `T.isInfixOf` text))
+            assertBool "the ClickHouse scratch restore grants nothing to a reader" (not ("reader" `T.isInfixOf` renderScratchRestore ClickHouse [("alpha", "alpha_restore_r1")] "a.zip" "alpha_ch_migration" "alpha_ch_runtime"))
         , testCase "a rebuilt-server restore loads into the declared, still-empty databases (M6)" $ do
             (appScope, serverScope, native, receiptScope, _, _) <- ingested
             let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts2")) (known (mkPhysicalIdentity "pvc2")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") RebuiltTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
@@ -634,8 +647,11 @@ scopeOf s = fst . scopeAndNative s
 
 -- | alpha-pg's accepted scope with one ingested scheduled run.
 ingested :: IO (ScopeDeclaration, ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString), ScopeDeclaration, ManagedResource, ManagedResource)
-ingested = do
-  let (appScope, appNative) = scopeAndNative pgServer (alpha Postgres)
+ingested = ingestedWith (alpha Postgres)
+
+ingestedWith :: AppDatabase -> IO (ScopeDeclaration, ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString), ScopeDeclaration, ManagedResource, ManagedResource)
+ingestedWith db = do
+  let (appScope, appNative) = scopeAndNative pgServer db
       (serverScope, serverNative) = pgServer
       native = Map.union appNative serverNative
   (receiptScope, _) <- either (assertFailure . show) pure (compileScheduledIngestScope (ingestRequest serverScope native appScope) appScope native)

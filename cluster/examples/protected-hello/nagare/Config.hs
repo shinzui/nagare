@@ -52,6 +52,7 @@ mkDeployment baseDomain = do
             , volumes = []
             , databases = []
             , appDatabases = []
+            , appDatabaseReaders = []
             , brokers = []
             , access = Just requireLogin
             , tasks = []

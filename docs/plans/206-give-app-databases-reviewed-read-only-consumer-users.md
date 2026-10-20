@@ -91,11 +91,15 @@ pending, and do not wedge the app database. For Kansoku, the reader is `dashboar
   Done 2026-10-20. Evidence: `AppDatabaseSpec` "a reader binds its own Secret for a declared
   consumer only, after its user and databases, until it is retired", on both engines, including
   `app-database-reader-in-use`.
-- [ ] M5 (backup, restore and docs). Rebuilt restore brings readers and their grants back, and
+- [x] M5 (backup, restore and docs). Rebuilt restore brings readers and their grants back, and
   scratch restore does not extend readers to scratch databases (IR-33 AC-8), on both engines.
   The "Sharing one server between apps" section of `docs/user/managed-databases.md` documents
   readers, including the advisory nature of the PostgreSQL role defaults. The change is landed
   with a green `just gate-fast`.
+  Done 2026-10-20. Evidence: `AppDatabaseWorldSpec` "after a server rebuild a re-apply recreates
+  the declared catalog" in the "with a reader" variant on both engines, and `AppDatabaseSpec` "a
+  scratch restore extends no reader to the scratch databases". The PostgreSQL dump loading
+  reader ACLs under `--exit-on-error` is confirmed natively in M6.
 - [ ] M6 (native confirmation). `scripts/local-app-database-smoke.sh` declares one reader on
   `alpha-ch` and one on `alpha-pg`. It binds each from a second app, and proves AC-2, AC-3, AC-6,
   AC-7, AC-8 and AC-9 on a disposable local context with the packaged CLI.
