@@ -78,7 +78,10 @@ Recorded mistakes, each costing a gate cycle, a run, a version or hours:
 5. v0.8.0's notes needed one wording fix after the bump (`a6004f22`); because `docs/releases/`
    is a gate-read tree (`contentReadDocuments` in
    `cli/nagare-harness/src/Nagare/Harness/CarryForward.hs`), that fix cost a second from-scratch
-   fast gate and a second full gate, 27 minutes.
+   fast gate and a second full gate, 27 minutes. The same on v0.9.0: a one-sentence notes fix
+   needed its own fast gate of about 8 minutes, and rebasing it to land discarded that record,
+   since records are keyed by commit and a notes change is not inert. The operator, 2026-10-20:
+   "ridiculous that a note change takes so much time".
 6. v0.9.0, today: the hand-run app-database smoke (`scripts/local-app-database-smoke.sh`, 820
    lines, about 15 min) failed on a name left by an earlier run and ran again; the fix's gate went
    red on the 1,000-line module limit and was re-gated; the operator's documentation-only push was
@@ -265,7 +268,11 @@ but it runs in the candidate pipeline on the candidate revision, not in a gate. 
 requiring a `[X.Y.Z]` changelog entry; `CHANGELOG.md` becomes a list of links to the notes. A
 notes commit after the bump then lands by carry-forward and `release-candidate --revision`
 accepts it because it descends from the gated bump (the gate record lookup already accepts
-carried-forward records).
+carried-forward records). Because the notes become inert, a rebase of a notes commit keeps its
+ancestor's record too. The more general mechanism raised on 2026-10-20, rerunning only the
+checks that read a changed tree instead of the suites, is not needed while nothing in a gate
+reads the notes; `check-release.sh --source-only` reads them in seconds in the candidate
+pipeline.
 
 **M3, one version source.** `Nagare.Version` embeds the `platformVersion` of `release.json` at
 compile time (Template Haskell with `addDependentFile`, so only that module recompiles on a
