@@ -31,8 +31,9 @@ immutable `v<major>.<minor>.<patch>` Git tags.
   under fixed ceilings. A workload in a declared consumer app binds it with
   `appDatabaseReaders` and receives only the reader's Secret. Readers rotate with
   `db app-database rotate --user reader-NAME` and are retired by declaring `retired`.
-- **`Deployment` and `Worker` have an `appDatabaseReaders` field.** A config that builds either
-  record literally adds `appDatabaseReaders = []`; presets and record updates are unaffected.
+- **`AppDatabase` has an `access` field, and `Deployment` and `Worker` an `appDatabaseReaders`
+  field.** A config that builds one of them literally adds `access = noAppDatabaseAccess` or
+  `appDatabaseReaders = []`; presets and record updates are unaffected.
 
 ## [0.7.1] - 2026-10-19
 
