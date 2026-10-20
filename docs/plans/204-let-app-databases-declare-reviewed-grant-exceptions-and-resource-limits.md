@@ -329,6 +329,10 @@ After this plan:
   requires the code and the grant in the rendered refusal.
   Date: 2026-10-19
 
+- Decision (operator, 2026-10-19): M6 waits for EP-205 and EP-206. The three plans ship in one
+  release, because the labs intranet needs all of them before Kansoku runs.
+  Date: 2026-10-19
+
 - Decision: Nagare does not check the sum of declared PostgreSQL connection limits against the
   server's `max_connections`.
   Rationale: IR-32 asks only for the per-user part. The consuming deployment owns aggregate
