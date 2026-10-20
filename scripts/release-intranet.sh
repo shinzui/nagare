@@ -51,9 +51,9 @@ stages_max=12
 # An empty environment, as a fresh operator shell has: the calling shell may carry another
 # context's NAGARE_*, CLOUDSDK_* and KUBECONFIG from its own direnv.
 clean() {
-  local keep=(HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" TMPDIR="${TMPDIR:-/tmp}" PATH="$PATH" TERM="${TERM:-dumb}")
+  local keep=(HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" PATH="$PATH" TERM="${TERM:-dumb}")
   local name
-  for name in SSH_AUTH_SOCK XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME; do
+  for name in USER LOGNAME SSH_AUTH_SOCK XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME; do
     [[ -z "${!name:-}" ]] || keep+=("$name=${!name}")
   done
   env -i "${keep[@]}" "$@"
