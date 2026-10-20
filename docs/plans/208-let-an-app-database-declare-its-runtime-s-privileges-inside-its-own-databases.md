@@ -357,6 +357,43 @@ queue and serves `/health/live` as the runtime user, with one config change in
   refusal names the objects and the exit is the app's own migration.
   Date: 2026-10-20
 
+- Decision (M3–M6): Interfaces as built differ from Interfaces and Dependencies in five places.
+  `classifyDatabase` takes `DatabaseDeclaration { access :: DatabaseAccess, accepted ::
+  DatabasePrivileges }`: only the accepted privileges matter, not a whole accepted access.
+  `DatabaseAccess` carries `revokeMembership` and `revokeDatabaseCreate` instead of
+  `membership`, since the grant is derived from `privileges`. The catalog's tree is `Map Text
+  (Maybe Text, Maybe Text)`, since groups have no level. `CatalogRelation.owner` is a `Maybe`,
+  since observations captured before EP-208 carry none. A database member judges only memberships
+  that name its own users (migration, runtime, readers): memberships are server-wide, and
+  the interpreter world showed one app database refusing another's membership as drift.
+  Rationale: Each follows from M1 or from a defect the world found; none changes what is
+  declared or observed.
+  Date: 2026-10-20
+
+- Decision (M5, M7): The owner probe in the smoke is a new Worker, `alpha-pg-owner`, not
+  `gamma-pg-probe`. The EP-208 tests are in a new module, `AppDatabasePrivilegeSpec`, not in
+  `AppDatabaseSpec` and `AppDatabaseWorldSpec`.
+  Rationale: `gamma-pg-probe` already binds alpha-pg's reader, and a workload binds one
+  credential per engine, so naming alpha-pg in its `appDatabases` is refused. Both test modules
+  passed the 1000-line architecture ratchet with the new tests.
+  Date: 2026-10-20
+
+- Decision (Transition, M6): The v0.8.0 fixture comes from the local context `transition`
+  after the packaged v0.8.0 CLI applied the smoke's first stage, taken from the v0.8.0 tag's own
+  copy of the script. The plan's "export from the M7 context before the upgrade" assumed app
+  databases there, and the context had none; the new smoke's config does not compile under the
+  v0.8.0 DSL. The test decodes and re-encodes the two native scopes; compile equality is shown
+  natively, where the candidate re-planned the unchanged declaration to `no operations`.
+  Rationale: The accepted bytes on a real context are the compatibility that matters for an
+  upgrade.
+  Date: 2026-10-20
+
+- Decision (M6): The scratch-restore half of AC-6 has no interpreter test. Its rendering is
+  pinned to the M1 block, `pg_restore` keeping owners and the schema grant was proven by hand in
+  M1, and M7 checks the restored queue's owner and row natively.
+  Rationale: The world has no restore command; a world test would only restate the fixture.
+  Date: 2026-10-20
+
 - Decision: The backup schedule's declaration digest keeps leaving `access` out (EP-204), so
   declaring privileges or owners keeps the schedule revision and earlier runs stay prunable.
   Rationale: A backup holds no grant or binding bytes; restore re-applies them from the
