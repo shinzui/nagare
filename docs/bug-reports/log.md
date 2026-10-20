@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-20
+* **Addition**: Record BUG-7 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps` on 0.8.0: ClickHouse 26.8 persists an app database migration user's `WRITE ON FILE` as `FILE ON *.*`, so after a server restart the catalog sees an undeclared server-wide `READ` and refuses resume, plan, rotate and retire for every ClickHouse app database.
+
 ## 2026-10-13
 * **Update**: Mark BUG-5 and BUG-6 `fixed` in `unreleased` by commit `dff31cf5` (ExecPlan 189): the generated Nginx configuration issues relative redirects and serves text as UTF-8, proved by the `static-nginx-runtime` flake check.
 * **Update**: Revalidate BUG-1 through BUG-4 against master `1532a447` and close them as `fixed` in 0.4.0 (ExecPlans 140 to 143). Plan BUG-5 and BUG-6 in `docs/plans/189-serve-static-sites-with-relative-redirects-and-a-utf-8-charset.md`.
