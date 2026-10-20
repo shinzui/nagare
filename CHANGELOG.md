@@ -5,6 +5,8 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-20
+
 ### Fixed
 
 - **A scheduled run taken before its schedule changed is still ingested, restored and pruned.**
@@ -14,6 +16,16 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ### Added
 
+- **App databases declare reviewed grant exceptions and per-user limits** (IR-30, IR-32). An
+  app database's `access` names, per user, ClickHouse system-table and temporary-table
+  exceptions from a closed allow-list, ClickHouse ceilings constrained `MIN 1 MAX` the declared
+  value, and a PostgreSQL connection limit and statement timeout; `monitoring = [PgMonitor]`
+  tolerates PGMQ's grants to `pg_monitor`. A hand change outside the declaration is drift.
+- **One app database can be quiesced, backed up on demand and resumed** (IR-31).
+  `db app-database quiesce` closes the chosen users' logins, pauses the schedule and drains the
+  app's sessions, scheduled run and mutations without restarting the shared server;
+  `db app-database backup` takes the schedule's own Job on demand; `resume` reopens exactly the
+  quiesced users; `evidence` prints the window's server identity, drain and backup.
 - **App databases declare read-only readers** (IR-33). A reader is a user with `SELECT` on
   named tables or views of the app's own databases (or, on PostgreSQL, every view of a schema),
   under fixed ceilings. A workload in a declared consumer app binds it with

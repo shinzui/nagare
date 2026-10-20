@@ -18,9 +18,12 @@ entire system from scratch.
 > [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
 > Until that lands, treat a team installation as operated by one person at a time.
 
-> **Status:** [Nagare 0.7.1](https://github.com/shinzui/nagare/releases/tag/v0.7.1)
-> upgrades and applies context changes through operator symlinks, and grades, prunes and
-> suspends app databases' backups ([release notes](docs/releases/v0.7.1.md)).
+> **Status:** [Nagare 0.8.0](https://github.com/shinzui/nagare/releases/tag/v0.8.0)
+> gives app databases reviewed grant exceptions and limits, a quiesced maintenance window with an
+> on-demand backup, and read-only reader users for other apps
+> ([release notes](docs/releases/v0.8.0.md)).
+> [0.7.1](docs/releases/v0.7.1.md) upgrades and applies context changes through operator
+> symlinks, and grades, prunes and suspends app databases' backups.
 > [0.7.0](docs/releases/v0.7.0.md) lets many apps share one PostgreSQL or ClickHouse server, each
 > with its own databases, users, grants, credentials and backups.
 > [0.6.6](docs/releases/v0.6.6.md) lets an installed cloud context enable and run the admin API
@@ -159,7 +162,7 @@ typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
 needed. Select a reviewed release explicitly:
 
 ```bash
-export NAGARE_VERSION=0.7.1
+export NAGARE_VERSION=0.8.0
 nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
@@ -327,7 +330,7 @@ Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 
 Full-context physical collection, live database/PVC overwrite, and new
 interactive mutating maintenance remain outside the 0.6 inventory contract. See
-[0.7.1 release notes](docs/releases/v0.7.1.md) for the supported boundaries and
+[0.8.0 release notes](docs/releases/v0.8.0.md) for the supported boundaries and
 known limits.
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,
