@@ -4,8 +4,10 @@
 -- differs between the two trees is documentation no check, test or payload
 -- reads. Re-running the gate for such a commit cannot change its result.
 --
--- The repository's top-level @README.md@ is inert: no check, test or payload
--- reads it. So is an edited, not removed, Markdown file under @docs/@ that no
+-- The repository's top-level @README.md@ and @CHANGELOG.md@ are inert: no
+-- check, test or payload reads them. Release notes under @docs/releases/@ are
+-- inert too (EP-210 M2): only @scripts/check-release.sh@ reads them, in the
+-- candidate run, never in a gate. So is an edited, not removed, Markdown file under @docs/@ that no
 -- check reads for its content ('contentReadDocuments') and that is not one of
 -- the 'shippedDocuments' (operator, 2026-10-20: a documentation-only push must
 -- never run a gate). Code names such pages in help text and the payload copies
@@ -54,13 +56,12 @@ data PathVerdict
 
 -- | Single documents that are neither shipped nor executed.
 inertFiles :: [Text]
-inertFiles = ["README.md"]
+inertFiles = ["README.md", "CHANGELOG.md"]
 
--- | Markdown a check reads for its content: release notes
--- (@scripts/check-release.sh@) and the managed-command catalogue
+-- | Markdown a check reads for its content: the managed-command catalogue
 -- (@scripts/audit-managed-commands.py@). A prefix ending in @/@ covers a tree.
 contentReadDocuments :: [Text]
-contentReadDocuments = ["docs/releases/", "docs/architecture/managed-resource-coverage.md"]
+contentReadDocuments = ["docs/architecture/managed-resource-coverage.md"]
 
 -- | An edited Markdown file under @docs/@ whose words no check reads.
 editedProse :: (Text -> Bool) -> Text -> Bool
@@ -73,7 +74,7 @@ editedProse removed path =
 
 -- | Documentation trees the payload ships or a check reads whole.
 readTrees :: [Text]
-readTrees = ["docs/api/", "docs/architecture/", "docs/guides/", "docs/releases/", "docs/reviews/", "docs/runbooks/", "docs/terminology/", "docs/user/"]
+readTrees = ["docs/api/", "docs/architecture/", "docs/guides/", "docs/reviews/", "docs/runbooks/", "docs/terminology/", "docs/user/"]
 
 -- | The inert tree a path lies in: @docs/<tree>/@, or @docs/@ for a
 -- document directly under it.

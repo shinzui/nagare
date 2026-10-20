@@ -185,6 +185,8 @@ tests =
         , testCase "the top-level README is inert; nested READMEs are not" $
             map (classifyPath (const False) (const Nothing)) ["README.md", "cluster/bootstrap/nix-cache/README.md"]
               @?= [Inert, OutsideInertDocumentation]
+        , testCase "release notes and the changelog are inert (EP-210 M2)" $
+            carryForwardVerdict (const False) (const Nothing) ["docs/releases/v0.10.0.md", "CHANGELOG.md"] @?= Right 2
         , testCase "an empty difference carries forward" $
             carryForwardVerdict (const False) (const Nothing) [] @?= Right 0
         , testCase "edited Markdown in any docs tree is inert, even where code names the page (operator 2026-10-20)" $ do
@@ -198,11 +200,11 @@ tests =
             let namedBy needle = if needle == "docs/audits/k8s" then Just "cli/nagarectl/test/KSpec.hs" else Nothing
             map (classifyPath (const True) namedBy) ["docs/user/reference.md", "docs/audits/k8s/notes.md"]
               @?= [OutsideInertDocumentation, NamedByCode "cli/nagarectl/test/KSpec.hs"]
-        , testCase "code, release notes, documents checks read for their words, and non-Markdown in read trees are not inert" $
+        , testCase "code, documents checks read for their words, and non-Markdown in read trees are not inert" $
             map
               (classifyPath (const False) (const Nothing))
-              ["cli/nagarectl/src/X.hs", "docs/releases/v0.4.0.md", "docs/architecture/managed-resource-coverage.md", "docs/api/openapi.json", "docs/user/fixture.json", "release.json"]
-              @?= replicate 6 OutsideInertDocumentation
+              ["cli/nagarectl/src/X.hs", "docs/architecture/managed-resource-coverage.md", "docs/api/openapi.json", "docs/user/fixture.json", "release.json"]
+              @?= replicate 5 OutsideInertDocumentation
         , testCase "plans the payload ships are not inert" $
             map (classifyPath (const False) (const Nothing)) shippedDocuments @?= replicate 2 ShippedInPayload
         , testCase "a fixture named by a test, or in a directory a test names, is not inert" $ do

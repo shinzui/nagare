@@ -26,8 +26,8 @@ copy_release_sources() {
     "$destination/cli/nagare-access" \
     "$destination/docs/releases"
   cp "$repo_root/release.json" "$destination/release.json"
-  cp "$repo_root/CHANGELOG.md" "$destination/CHANGELOG.md"
-  cp "$repo_root/docs/releases/v${version}.md" "$destination/docs/releases/v${version}.md"
+  # Fixture notes: no check reads the real ones, so editing them never needs a gate (EP-210 M2).
+  printf '# Nagare %s\n\nFixture release notes.\n' "$version" > "$destination/docs/releases/v${version}.md"
   cp "$repo_root/cli/nagare-dsl/nagare-dsl.cabal" "$destination/cli/nagare-dsl/nagare-dsl.cabal"
   cp "$repo_root/cli/nagarectl/nagarectl.cabal" "$destination/cli/nagarectl/nagarectl.cabal"
   cp "$repo_root/cli/nagarectl/src/Nagare/Host/Config.hs" "$destination/cli/nagarectl/src/Nagare/Host/Config.hs"
@@ -163,6 +163,12 @@ rm "$missing_notes/docs/releases/v${version}.md"
 expect_failure missing-notes \
   check_release --version "$version" --source-root "$missing_notes" --source-only
 
+untitled_notes="$test_root/untitled-notes"
+copy_release_sources "$untitled_notes"
+printf 'Preface\n# Nagare %s\n' "$version" > "$untitled_notes/docs/releases/v${version}.md"
+expect_failure untitled-notes \
+  check_release --version "$version" --source-root "$untitled_notes" --source-only
+
 unsupported="$test_root/unsupported-system"
 copy_release_sources "$unsupported"
 jq '.supportedSystems += ["x86_64-darwin"]' "$unsupported/release.json" > "$unsupported/release.tmp"
@@ -193,8 +199,8 @@ touch "$git_fixture/dirty"
 expect_failure dirty-tree \
   check_release --version "$version" --tag "v$version" --source-root "$git_fixture" --skip-build
 rm "$git_fixture/dirty"
-printf '\n' >> "$git_fixture/CHANGELOG.md"
-git -C "$git_fixture" add CHANGELOG.md
+printf '\n' >> "$git_fixture/docs/releases/v${version}.md"
+git -C "$git_fixture" add "docs/releases/v${version}.md"
 git -C "$git_fixture" commit -qm 'docs: move candidate head'
 expect_failure moving-tag \
   check_release --version "$version" --tag "v$version" --source-root "$git_fixture" --skip-build

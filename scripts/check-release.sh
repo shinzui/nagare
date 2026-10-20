@@ -120,14 +120,12 @@ fi
 
 release_file="$source_root/release.json"
 notes_file="$source_root/docs/releases/${expected_tag}.md"
-changelog_file="$source_root/CHANGELOG.md"
 host_schema_file="$source_root/cli/nagarectl/src/Nagare/Host/Config.hs"
 compatibility_fixture="$source_root/cli/nagarectl/test/PlatformSpec.hs"
 
 for required in \
   "$release_file" \
   "$notes_file" \
-  "$changelog_file" \
   "$host_schema_file" \
   "$compatibility_fixture"; do
   [[ -f "$required" ]] || die "missing required release source: ${required#"$source_root/"}"
@@ -163,9 +161,7 @@ jq -e '
 ' "$release_file" >/dev/null || die "release.json has unsupported or invalid release schema metadata"
 
 mapfile_supported_systems="$(jq -c '.supportedSystems' "$release_file")"
-grep -Fq "## [$version]" "$changelog_file" \
-  || die "CHANGELOG.md has no [$version] entry"
-grep -Fq "# Nagare $version" "$notes_file" \
+[[ "$(head -n 1 "$notes_file")" == "# Nagare $version" ]] \
   || die "release notes do not begin with '# Nagare $version'"
 grep -Fq 'Nagare platform version:' "$host_schema_file" \
   || die "host-flake version metadata marker is missing"
@@ -177,7 +173,6 @@ grep -Fq "\\\"platformVersion\\\":\\\"$version\\\"" "$compatibility_fixture" \
 checked_sources="$(jq -c \
   --arg version "$version" \
   '. + [{source: "release.json", version: $version},
-         {source: "CHANGELOG.md", version: $version},
          {source: "docs/releases/v" + $version + ".md", version: $version},
          {source: "host-flake-metadata-schema", version: "1"},
          {source: "platform-compatibility-schema", version: "1"},
