@@ -576,8 +576,9 @@ Nagare's ClickHouse servers turn on
 `access_control_improvements.enable_read_write_grants` so that the grant
 survives a server restart as written. Without that setting, ClickHouse stores
 the grant as `FILE ON *.*` and reloads it after a restart as `READ` and `WRITE`.
-A ClickHouse server created before this setting gets one reviewed StatefulSet
-update on its next `db create` update or release transition, and restarts once.
+A ClickHouse server created before this setting takes it through one reviewed
+`db create` update of that server (the release transition does not touch database
+servers), and restarts once.
 After that restart, each of its app databases plans one `update` per migration
 user, which revokes the `READ` that the old storage form reloaded. A `READ ON
 FILE` on a migration user is always revoked by the next plan. On any other user,

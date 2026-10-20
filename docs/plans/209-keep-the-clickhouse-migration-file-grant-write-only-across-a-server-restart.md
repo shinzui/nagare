@@ -95,6 +95,14 @@ when it tries `SELECT * FROM file(...)`.
   Done 2026-10-20: the paragraph, ADR 30's consequence and BUG-7 `fixed` in `unreleased` (commit
   `9e6ace41`); `just user-documentation-validate` and the strict bug-report validation pass.
   The intranet rollout stays with the next release (Validation and Acceptance).
+- [x] Intranet (release work, v0.9.0 candidate `e6314c40`, 2026-10-20): the transition
+  committed with `platform status` exact on 0.9.0; a reviewed `db create` update of
+  `labs-clickhouse` rolled it with the config digest, after which `SHOW GRANTS` printed
+  `GRANT READ, WRITE ON FILE TO kansoku_ch_migration` (and the same for
+  `isolation_probe_ch_migration`); the resumes of `kansoku-ch` and `isolation-probe-ch` were
+  accepted and applied; both configs re-planned to `no operations`; a reviewed `db restart
+  labs-clickhouse` (pod 19:52:46Z) left both migration users with `WRITE` only, and both configs
+  still re-planned to `no operations` (tan-ng-labs `8d24a35`).
 
 
 ## Surprises & Discoveries
@@ -145,6 +153,16 @@ when it tries `SELECT * FROM file(...)`.
   Rationale: M1 Run C. Turning the setting on does not rewrite stored entities. The plan's
   first draft expected an empty re-plan right after the rollout restart, which the engine
   contradicts. M3 already expected this path natively.
+  Date: 2026-10-20
+
+- Decision: An existing ClickHouse server takes the setting through its own reviewed `db create`
+  update, not through the release transition, which carries no database-server scopes. The user
+  guide and the v0.9.0 notes say so; the notes shipped in the candidate claimed the transition
+  updated the servers, and are corrected on master and in the release description.
+  Rationale: The intranet's 0.8.0 → 0.9.0 transition (host stage, 210 verifications and the
+  stamp, then an empty review) left `labs-clickhouse` unchanged; `db create clickhouse
+  labs-clickhouse --config databases/nagare/ClickHouse.hs ...` planned exactly its ConfigMap and
+  StatefulSet.
   Date: 2026-10-20
 
 - Decision: The intranet rollout is release work, not this plan's acceptance. The plan completes
