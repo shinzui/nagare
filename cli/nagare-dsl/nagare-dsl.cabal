@@ -1,6 +1,7 @@
 cabal-version: 3.0
 name: nagare-dsl
-version: 0.9.0
+-- Constant: the release version is written only in release.json (EP-210).
+version: 0.0.0
 synopsis: Typed deployment model and Knative renderer for Nagare.
 description:
   A library of maximally-safe Haskell types for describing Nagare

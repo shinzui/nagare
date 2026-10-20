@@ -1,6 +1,7 @@
 cabal-version: 3.0
 name: nagare-api
-version: 0.9.0
+-- Constant: the release version is written only in release.json (EP-210).
+version: 0.0.0
 synopsis: Route types and OpenAPI document of Nagare's read-only admin API.
 description:
   The Servant NamedRoutes of the admin API with typed MultiVerb responses,

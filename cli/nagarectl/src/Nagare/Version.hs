@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | Stable human- and machine-readable build identity for @nagarectl@.
 module Nagare.Version
   ( BuildVersion (..)
@@ -16,10 +18,9 @@ where
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Version (showVersion)
 import Nagare.Dsl.Prelude
+import Nagare.Version.Embed (embedPlatformVersion)
 import Numeric.Natural (Natural)
-import Paths_nagarectl qualified as Package
 import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
@@ -103,21 +104,25 @@ compatibilityToken LegacyUnknown = "legacy-unknown"
 -- | Version metadata carried by a built CLI distribution.
 data BuildVersion = BuildVersion
   { version :: !Text
-  -- ^ Semantic package version generated from the Cabal package metadata.
+  -- ^ The platform version of @release.json@, embedded at compile time.
   , revision :: !(Maybe Text)
   -- ^ Optional source revision for distribution channels that provide one.
   }
   deriving stock (Generic, Eq, Show)
 
--- | Build identity for the running executable. The revision is compiled in
--- when the Nix build stamps it (@stampRevision@ in @nix/haskell-packages.nix@);
--- otherwise the shipped wrapper supplies it as @NAGARE_SOURCE_REVISION@.
+-- | Build identity for the running executable. The version is the
+-- @platformVersion@ of the repository's @release.json@, whose path the Nix
+-- build replaces with its own copy. The revision is compiled in when the Nix
+-- build stamps it (@stampRevision@ in @nix/haskell-packages.nix@); otherwise
+-- the shipped wrapper supplies it as @NAGARE_SOURCE_REVISION@.
 currentBuildVersion :: BuildVersion
 currentBuildVersion =
   BuildVersion
-    { version = Text.pack (showVersion Package.version)
+    { version = Text.pack $(embedPlatformVersion "../../release.json")
     , revision = compiledRevision <|> wrapperRevision
     }
+-- Not inlined, so a version bump recompiles this module alone.
+{-# NOINLINE currentBuildVersion #-}
 
 -- | Replaced by the Nix build when it stamps the revision.
 compiledRevision :: Maybe Text

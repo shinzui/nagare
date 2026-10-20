@@ -33,10 +33,6 @@ hash_file() {
   fi
 }
 
-cabal_version() {
-  awk '$1 == "version:" { print $2; exit }' "$1"
-}
-
 version=""
 tag=""
 json_output=false
@@ -121,28 +117,12 @@ fi
 release_file="$source_root/release.json"
 notes_file="$source_root/docs/releases/${expected_tag}.md"
 host_schema_file="$source_root/cli/nagarectl/src/Nagare/Host/Config.hs"
-compatibility_fixture="$source_root/cli/nagarectl/test/PlatformSpec.hs"
 
 for required in \
   "$release_file" \
   "$notes_file" \
-  "$host_schema_file" \
-  "$compatibility_fixture"; do
+  "$host_schema_file"; do
   [[ -f "$required" ]] || die "missing required release source: ${required#"$source_root/"}"
-done
-
-checked_sources='[]'
-for cabal_file in \
-  cli/nagare-dsl/nagare-dsl.cabal \
-  cli/nagarectl/nagarectl.cabal \
-  cli/nagare-access/nagare-access.cabal; do
-  full_path="$source_root/$cabal_file"
-  [[ -f "$full_path" ]] || die "missing Cabal package: $cabal_file"
-  observed="$(cabal_version "$full_path")"
-  [[ "$observed" == "$version" ]] \
-    || die "$cabal_file declares $observed, expected $version"
-  checked_sources="$(jq -c --arg source "$cabal_file" --arg observed "$observed" \
-    '. + [{source: $source, version: $observed}]' <<<"$checked_sources")"
 done
 
 payload_version="$(jq -er '.platformVersion' "$release_file")"
@@ -167,18 +147,15 @@ grep -Fq 'Nagare platform version:' "$host_schema_file" \
   || die "host-flake version metadata marker is missing"
 grep -Fq 'Nagare source revision:' "$host_schema_file" \
   || die "host-flake revision metadata marker is missing"
-grep -Fq "\\\"platformVersion\\\":\\\"$version\\\"" "$compatibility_fixture" \
-  || die "platform compatibility fixture does not cover release $version"
 
-checked_sources="$(jq -c \
+checked_sources="$(jq -nc \
   --arg version "$version" \
-  '. + [{source: "release.json", version: $version},
+  '[{source: "release.json", version: $version},
          {source: "docs/releases/v" + $version + ".md", version: $version},
          {source: "host-flake-metadata-schema", version: "1"},
          {source: "platform-compatibility-schema", version: "1"},
          {source: "minimum-inventory-schema", version: "1"},
-         {source: "minimum-upgrade-transaction-schema", version: "1"}]' \
-  <<<"$checked_sources")"
+         {source: "minimum-upgrade-transaction-schema", version: "1"}]')"
 
 if [[ "$source_only" == false ]]; then
   git -C "$source_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 \

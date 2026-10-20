@@ -23,7 +23,7 @@
         sourceRoot = ../.;
       };
       haskellPackages = import ./haskell-packages.nix {
-        inherit pkgs platformPackage sourceRevision;
+        inherit pkgs platformPackage releaseVersion sourceRevision;
         atticClient = attic.client;
         cradleSrc = inputs.cradle;
         gogolSrc = inputs.gogol;

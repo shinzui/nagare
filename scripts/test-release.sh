@@ -19,20 +19,11 @@ assemble_release() {
 
 copy_release_sources() {
   local destination="$1"
-  mkdir -p \
-    "$destination/cli/nagare-dsl" \
-    "$destination/cli/nagarectl/src/Nagare/Host" \
-    "$destination/cli/nagarectl/test" \
-    "$destination/cli/nagare-access" \
-    "$destination/docs/releases"
+  mkdir -p "$destination/cli/nagarectl/src/Nagare/Host" "$destination/docs/releases"
   cp "$repo_root/release.json" "$destination/release.json"
   # Fixture notes: no check reads the real ones, so editing them never needs a gate (EP-210 M2).
   printf '# Nagare %s\n\nFixture release notes.\n' "$version" > "$destination/docs/releases/v${version}.md"
-  cp "$repo_root/cli/nagare-dsl/nagare-dsl.cabal" "$destination/cli/nagare-dsl/nagare-dsl.cabal"
-  cp "$repo_root/cli/nagarectl/nagarectl.cabal" "$destination/cli/nagarectl/nagarectl.cabal"
   cp "$repo_root/cli/nagarectl/src/Nagare/Host/Config.hs" "$destination/cli/nagarectl/src/Nagare/Host/Config.hs"
-  cp "$repo_root/cli/nagarectl/test/PlatformSpec.hs" "$destination/cli/nagarectl/test/PlatformSpec.hs"
-  cp "$repo_root/cli/nagare-access/nagare-access.cabal" "$destination/cli/nagare-access/nagare-access.cabal"
 }
 
 expect_failure() {
@@ -148,14 +139,12 @@ expect_failure malformed-version \
 expect_failure malformed-tag \
   check_release --version "$version" --tag "release-$version" --source-root "$fixture" --source-only
 
-for package in nagare-dsl nagarectl nagare-access; do
-  mismatch="$test_root/mismatch-$package"
-  copy_release_sources "$mismatch"
-  sed -i.bak "s/^version: *${version//./\\.}\$/version: 999.0.0/" "$mismatch/cli/$package/$package.cabal"
-  rm "$mismatch/cli/$package/$package.cabal.bak"
-  expect_failure "mismatch-$package" \
-    check_release --version "$version" --source-root "$mismatch" --source-only
-done
+mismatch="$test_root/mismatch"
+copy_release_sources "$mismatch"
+jq '.platformVersion = "999.0.0"' "$mismatch/release.json" > "$mismatch/release.tmp"
+mv "$mismatch/release.tmp" "$mismatch/release.json"
+expect_failure mismatch \
+  check_release --version "$version" --source-root "$mismatch" --source-only
 
 missing_notes="$test_root/missing-notes"
 copy_release_sources "$missing_notes"

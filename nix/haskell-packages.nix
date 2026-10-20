@@ -1,4 +1,4 @@
-{ pkgs, cradleSrc, gogolSrc, platformPackage, atticClient, sourceRevision ? null }:
+{ pkgs, cradleSrc, gogolSrc, platformPackage, atticClient, releaseVersion, sourceRevision ? null }:
 
 let
   inherit (pkgs) lib;
@@ -12,6 +12,11 @@ let
   # release tooling (check-release.sh, assemble-release.sh,
   # rehearse-clone-free-release.sh) keeps working.
   stampRevision = false;
+
+  # EP-210 M3: nagarectl embeds its version from release.json at compile time
+  # (Nagare.Version.Embed); the package source has no release.json, so the
+  # splice reads this file, which holds the version alone.
+  releaseVersionFile = pkgs.writeText "nagare-release-version.json" (builtins.toJSON { platformVersion = releaseVersion; });
 
   # Nagare's own packages: no library profiling (nothing uses it, and it is a
   # second full compile pass), no Haddock. Tests run in the one derivation that
@@ -163,6 +168,8 @@ let
         nagarePackage ((if pkgs.stdenv.hostPlatform.isDarwin then hl.dontCheck else hl.doCheck) (
           hl.overrideCabal revisionPackage (_old: {
             postPatch = (_old.postPatch or "") + ''
+              substituteInPlace src/Nagare/Version.hs \
+                --replace-fail '"../../release.json"' '"${releaseVersionFile}"'
               substituteInPlace \
                 test/InventoryUpstreamSpec.hs test/InventoryApplicationSpec.hs \
                 test/InventoryFoundationSpec.hs test/InventoryAuthSpec.hs \
@@ -227,7 +234,7 @@ let
   checkedNagarectl = haskellPackages.nagarectl;
 
   nagarectl = pkgs.buildEnv {
-    name = "nagarectl-${haskellPackages.nagarectl.version}";
+    name = "nagarectl-${releaseVersion}";
     paths = [ haskellPackages.nagarectl ];
     pathsToLink = [ "/bin" "/share" "/nix-support" ];
     nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -241,7 +248,7 @@ let
   };
 
   operatorNagarectl = pkgs.buildEnv {
-    name = "nagare-operator-nagarectl-${haskellPackages.nagarectl.version}";
+    name = "nagare-operator-nagarectl-${releaseVersion}";
     paths = [ nagarectl ];
     pathsToLink = [ "/bin" "/share" "/nix-support" ];
     nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -283,7 +290,7 @@ let
   };
 
   nagare = pkgs.buildEnv {
-    name = "nagare-${haskellPackages.nagarectl.version}";
+    name = "nagare-${releaseVersion}";
     # Attic and skopeo are also direct release outputs: clone-free operators
     # can invoke them from #nagare, while the wrapper PATH continues to expose
     # the complete operator tool set to recipes and nagarectl subprocesses.

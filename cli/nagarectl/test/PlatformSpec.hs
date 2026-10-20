@@ -26,7 +26,7 @@ import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
 import Nagare.Target (contextFilePath, mergeContextOverrides, mkContextName, profileFromContextMap, readContextProfile, resolveActiveTarget, setCurrentContext, writeContextPlatformVersion)
-import Nagare.Version (BuildVersion (..), Compatibility (..))
+import Nagare.Version (BuildVersion (..), Compatibility (..), currentBuildVersion)
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -452,9 +452,18 @@ withFixture action = withSystemTempDirectory "nagare-platform-fixture" $ \root -
     , "scripts/enable-apis.sh"
     , "docs/user/extra.md"
     ]
-  BS.writeFile
+  LBS.writeFile
     (root </> "release.json")
-    "{\"assetSchemaVersion\":1,\"payloadId\":\"test-payload\",\"platformVersion\":\"0.9.0\",\"sourceRevision\":null,\"rollbackSupportedFrom\":[]}"
+    ( Aeson.encode
+        ( Aeson.object
+            [ "assetSchemaVersion" Aeson..= (1 :: Int)
+            , "payloadId" Aeson..= ("test-payload" :: Text)
+            , "platformVersion" Aeson..= (currentBuildVersion ^. #version)
+            , "sourceRevision" Aeson..= Aeson.Null
+            , "rollbackSupportedFrom" Aeson..= ([] :: [Text])
+            ]
+        )
+    )
   BS.writeFile (root </> "infra" </> "pulumi" </> "Pulumi.prod.yaml") "config:\n  secret: local-only\n"
   action root
 
