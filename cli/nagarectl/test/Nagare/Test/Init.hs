@@ -4,7 +4,6 @@ module Nagare.Test.Init
   )
 where
 
-import Control.Exception (finally)
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
@@ -23,6 +22,7 @@ import Nagare.Init
   , requiredInitTools
   , seedKeys
   , seedPulumiConfig
+  , seedPulumiConfigWith
   )
 import Nagare.Platform.Paths
   ( PlatformRootSource (InstalledRoot, SourceRoot)
@@ -53,8 +53,8 @@ import Nagare.Target
   , validateVmShape
   )
 import Nagare.Test.Support.Profiles (initProfile)
-import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure))
+import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcess)
 import Test.Tasty (TestTree, testGroup)
@@ -272,17 +272,12 @@ initTests =
           (defaultInitOpts & #skipPreflight .~ True & #skipEnable .~ True)
           PulumiBackendGcs
           @?= ["gcloud", "pulumi", "npm"]
-    , testCase "missing Pulumi is reported instead of throwing" $ do
+    , -- Tests run concurrently in one process, so this one never changes
+      -- the process-wide PATH: a concurrent test's child would lose its tools.
+      testCase "missing Pulumi is reported instead of throwing" $
         withSystemTempDirectory "nagare-empty-path" $ \emptyPath -> do
-          oldPath <- lookupEnv "PATH"
-          let restorePath = maybe (unsetEnv "PATH") (setEnv "PATH") oldPath
-          result <-
-            ( do
-                setEnv "PATH" emptyPath
-                findMissingTools ["pulumi"] >>= (@?= ["pulumi"])
-                seedPulumiConfig "/tmp/unused" False "labs" initProfile
-            )
-              `finally` restorePath
+          findMissingTools ["nagare-test-absent-tool"] >>= (@?= ["nagare-test-absent-tool"])
+          result <- seedPulumiConfigWith (emptyPath </> "pulumi") "/tmp/unused" False "labs" initProfile
           result @?= Left ("gcp:project", ExitFailure 127)
     , testCase "pulumiConfigSetArgs targets the active context stack" $
         pulumiConfigSetArgs "/payload/infra/pulumi" "labs" "gcp:project" "acme-prod"

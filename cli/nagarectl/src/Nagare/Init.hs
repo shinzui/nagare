@@ -30,6 +30,7 @@ module Nagare.Init
   , runPreflight
   , enableApis
   , seedPulumiConfig
+  , seedPulumiConfigWith
   )
 where
 
@@ -478,7 +479,12 @@ enableApis script dryRun = do
 -- stack. Stops and returns the first failing key (with its exit code) so the
 -- handler can report a precise, recoverable error. @dryRun@ prints the argv.
 seedPulumiConfig :: FilePath -> Bool -> Text -> TargetProfile -> IO (Either (Text, ExitCode) ())
-seedPulumiConfig pulumiDir dryRun stack tp = go (seedKeys tp)
+seedPulumiConfig = seedPulumiConfigWith "pulumi"
+
+-- | 'seedPulumiConfig' with an explicit @pulumi@ executable, so a test can
+-- name a missing one without changing the process-wide @PATH@.
+seedPulumiConfigWith :: FilePath -> FilePath -> Bool -> Text -> TargetProfile -> IO (Either (Text, ExitCode) ())
+seedPulumiConfigWith pulumi pulumiDir dryRun stack tp = go (seedKeys tp)
   where
     go [] = pure (Right ())
     go ((k, v) : rest)
@@ -487,7 +493,7 @@ seedPulumiConfig pulumiDir dryRun stack tp = go (seedKeys tp)
           go rest
       | otherwise = do
           result <-
-            try (run $ cmd "pulumi" & addArgs (pulumiConfigSetArgs pulumiDir stack k v)) ::
+            try (run $ cmd pulumi & addArgs (pulumiConfigSetArgs pulumiDir stack k v)) ::
               IO (Either IOException ExitCode)
           case result of
             Left _ -> pure (Left (k, ExitFailure 127))

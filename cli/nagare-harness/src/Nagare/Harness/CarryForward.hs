@@ -5,7 +5,12 @@
 -- reads. Re-running the gate for such a commit cannot change its result.
 --
 -- The repository's top-level @README.md@ is inert: no check, test or payload
--- reads it. Any other changed path is inert only when all three hold:
+-- reads it. So is an edited, not removed, Markdown file under @docs/@ that no
+-- check reads for its content ('contentReadDocuments') and that is not one of
+-- the 'shippedDocuments' (operator, 2026-10-20: a documentation-only push must
+-- never run a gate). Code names such pages in help text and the payload copies
+-- some trees whole, but nothing in a gate reads their words. Any other changed
+-- path is inert only when all three hold:
 --
 -- * it lies under @docs/@, outside the 'readTrees' a check or the payload
 --   reads whole (operator, 2026-10-18: pushing documentation must not run a
@@ -24,6 +29,7 @@ module Nagare.Harness.CarryForward
   ( PathVerdict (..)
   , carryForwardVerdict
   , classifyPath
+  , contentReadDocuments
   , inertFiles
   , inertPrefix
   , readTrees
@@ -49,6 +55,21 @@ data PathVerdict
 -- | Single documents that are neither shipped nor executed.
 inertFiles :: [Text]
 inertFiles = ["README.md"]
+
+-- | Markdown a check reads for its content: release notes
+-- (@scripts/check-release.sh@) and the managed-command catalogue
+-- (@scripts/audit-managed-commands.py@). A prefix ending in @/@ covers a tree.
+contentReadDocuments :: [Text]
+contentReadDocuments = ["docs/releases/", "docs/architecture/managed-resource-coverage.md"]
+
+-- | An edited Markdown file under @docs/@ whose words no check reads.
+editedProse :: (Text -> Bool) -> Text -> Bool
+editedProse removed path =
+  "docs/" `T.isPrefixOf` path
+    && ".md" `T.isSuffixOf` path
+    && not (removed path)
+    && path `notElem` shippedDocuments
+    && not (any (\document -> if "/" `T.isSuffixOf` document then document `T.isPrefixOf` path else document == path) contentReadDocuments)
 
 -- | Documentation trees the payload ships or a check reads whole.
 readTrees :: [Text]
@@ -81,11 +102,13 @@ referenceNeedles path = case inertPrefix path of
      in [prefix <> T.intercalate "/" (take count components) | count <- [1 .. length components]]
   Nothing -> []
 
--- | Classify one changed path. @namedBy@ answers which file outside @docs/@,
--- if any, names a needle.
-classifyPath :: (Text -> Maybe Text) -> Text -> PathVerdict
-classifyPath namedBy path
+-- | Classify one changed path. @removed@ answers whether the commit deletes
+-- the path; @namedBy@ answers which file outside @docs/@, if any, names a
+-- needle.
+classifyPath :: (Text -> Bool) -> (Text -> Maybe Text) -> Text -> PathVerdict
+classifyPath removed namedBy path
   | path `elem` inertFiles = Inert
+  | editedProse removed path = Inert
   | isNothing (inertPrefix path) = OutsideInertDocumentation
   | path `elem` shippedDocuments = ShippedInPayload
   | otherwise = case mapMaybe namedBy (referenceNeedles path) of
@@ -94,9 +117,9 @@ classifyPath namedBy path
 
 -- | The number of inert paths, or why carry-forward is refused (the first
 -- five blocking paths).
-carryForwardVerdict :: (Text -> Maybe Text) -> [Text] -> Either Text Int
-carryForwardVerdict namedBy paths =
-  case [(path, verdict) | path <- paths, let verdict = classifyPath namedBy path, verdict /= Inert] of
+carryForwardVerdict :: (Text -> Bool) -> (Text -> Maybe Text) -> [Text] -> Either Text Int
+carryForwardVerdict removed namedBy paths =
+  case [(path, verdict) | path <- paths, let verdict = classifyPath removed namedBy path, verdict /= Inert] of
     [] -> Right (length paths)
     blocked -> Left (T.intercalate "; " (map render (take 5 blocked)) <> more blocked)
   where

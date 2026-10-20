@@ -590,13 +590,15 @@ carryForwardWith workdir verifyOwn siblings commitId = do
     Left refusal -> maybe (Left refusal) Right <$> (firstSibling . filter (`notElem` (commitId : T.lines listed)) =<< siblings)
   where
     verdictFrom gatedId systems = do
-      changed <- changedPaths gatedId
+      changed <- changedPaths [] gatedId
+      removed <- removedFrom gatedId
       named <- forM (nubOrd (concatMap referenceNeedles changed)) $ \needle -> (needle,) <$> namingFile needle
       let namedBy needle = join (lookup needle named)
-      pure ((gatedId,,systems) <$> carryForwardVerdict namedBy changed)
-    changedPaths gatedId = do
-      (_, diffed, _) <- capture workdir "git" ["diff", "-z", "--name-only", "--no-renames", T.unpack gatedId, T.unpack commitId]
+      pure ((gatedId,,systems) <$> carryForwardVerdict removed namedBy changed)
+    changedPaths filters gatedId = do
+      (_, diffed, _) <- capture workdir "git" (["diff", "-z", "--name-only", "--no-renames"] <> filters <> [T.unpack gatedId, T.unpack commitId])
       pure (filter (not . T.null) (T.splitOn "\0" diffed))
+    removedFrom gatedId = (\deleted -> (`elem` deleted)) <$> changedPaths ["--diff-filter=D"] gatedId
     -- A recently gated commit that is not an ancestor, such as this commit
     -- before a rebase. Paths that are not inert on their face skip the
     -- naming search.
@@ -607,8 +609,9 @@ carryForwardWith workdir verifyOwn siblings commitId = do
         own <- if exists == ExitSuccess then verifyOwn candidate else pure (Right Nothing)
         case own of
           Right (Just systems) -> do
-            changed <- changedPaths candidate
-            if isRight (carryForwardVerdict (const Nothing) changed)
+            changed <- changedPaths [] candidate
+            removed <- removedFrom candidate
+            if isRight (carryForwardVerdict removed (const Nothing) changed)
               then verdictFrom candidate systems >>= either (const (firstSibling rest)) (pure . Just)
               else firstSibling rest
           _ -> firstSibling rest

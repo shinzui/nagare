@@ -170,6 +170,7 @@ tests =
               @?= ["docs/audits/run", "docs/audits/run/c2", "docs/audits/run/c2/chain.sh"]
         , testCase "documentation nobody names, outside the trees checks read, is inert" $
             carryForwardVerdict
+              (const False)
               (const Nothing)
               [ "docs/plans/1-x.md"
               , "docs/masterplans/2-y.md"
@@ -182,23 +183,34 @@ tests =
               ]
               @?= Right 8
         , testCase "the top-level README is inert; nested READMEs are not" $
-            map (classifyPath (const Nothing)) ["README.md", "cluster/bootstrap/nix-cache/README.md"]
+            map (classifyPath (const False) (const Nothing)) ["README.md", "cluster/bootstrap/nix-cache/README.md"]
               @?= [Inert, OutsideInertDocumentation]
         , testCase "an empty difference carries forward" $
-            carryForwardVerdict (const Nothing) [] @?= Right 0
-        , testCase "code, user guides, runbooks and release notes are not inert" $
+            carryForwardVerdict (const False) (const Nothing) [] @?= Right 0
+        , testCase "edited Markdown in any docs tree is inert, even where code names the page (operator 2026-10-20)" $ do
+            let namedBy needle = if needle == "docs/user/reference.md" then Just "nix/checks/scripts/nagare-platform-assets.sh" else Nothing
+            carryForwardVerdict
+              (const False)
+              namedBy
+              ["docs/user/reference.md", "docs/guides/g.md", "docs/runbooks/a.md", "docs/capabilities/index.md", "docs/terminology/t.md", "docs/architecture/a.md"]
+              @?= Right 6
+        , testCase "a removed page keeps the tree and naming rules" $ do
+            let namedBy needle = if needle == "docs/audits/k8s" then Just "cli/nagarectl/test/KSpec.hs" else Nothing
+            map (classifyPath (const True) namedBy) ["docs/user/reference.md", "docs/audits/k8s/notes.md"]
+              @?= [OutsideInertDocumentation, NamedByCode "cli/nagarectl/test/KSpec.hs"]
+        , testCase "code, release notes, documents checks read for their words, and non-Markdown in read trees are not inert" $
             map
-              (classifyPath (const Nothing))
-              ["cli/nagarectl/src/X.hs", "docs/user/reference.md", "docs/runbooks/a.md", "docs/releases/v0.4.0.md", "docs/api/openapi.json", "docs/guides/g.md", "release.json"]
-              @?= replicate 7 OutsideInertDocumentation
+              (classifyPath (const False) (const Nothing))
+              ["cli/nagarectl/src/X.hs", "docs/releases/v0.4.0.md", "docs/architecture/managed-resource-coverage.md", "docs/api/openapi.json", "docs/user/fixture.json", "release.json"]
+              @?= replicate 6 OutsideInertDocumentation
         , testCase "plans the payload ships are not inert" $
-            map (classifyPath (const Nothing)) shippedDocuments @?= replicate 2 ShippedInPayload
+            map (classifyPath (const False) (const Nothing)) shippedDocuments @?= replicate 2 ShippedInPayload
         , testCase "a fixture named by a test, or in a directory a test names, is not inert" $ do
             let namedBy needle = if needle == "docs/audits/k8s" then Just "cli/nagarectl/test/KSpec.hs" else Nothing
-            classifyPath namedBy "docs/audits/k8s/experiments/e6e.out" @?= NamedByCode "cli/nagarectl/test/KSpec.hs"
-            classifyPath namedBy "docs/audits/other/notes.md" @?= Inert
+            classifyPath (const False) namedBy "docs/audits/k8s/experiments/e6e.out" @?= NamedByCode "cli/nagarectl/test/KSpec.hs"
+            classifyPath (const False) namedBy "docs/audits/other/notes.md" @?= Inert
         , testCase "one blocking path refuses the whole difference" $
-            assertBool "mixed difference accepted" (isLeft (carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "justfile"]))
+            assertBool "mixed difference accepted" (isLeft (carryForwardVerdict (const False) (const Nothing) ["docs/plans/1-x.md", "justfile"]))
         , testCase "gate verify carries a green record forward over inert documentation only, including across a rebase" carryForwardRoundTrip
         ]
     , testGroup
