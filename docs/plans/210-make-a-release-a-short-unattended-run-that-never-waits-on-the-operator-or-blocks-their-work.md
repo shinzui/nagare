@@ -143,11 +143,6 @@ Ordered by payoff per effort.
   `<run>/intranet.json`; `release-publish.sh` refuses without a record for the run's revision
   and, after the tag, pins the tag. Pass: the next release's run directory holds `intranet.json`
   dated before the tag; the operator repository shows exactly two pin commits from the release.
-- [ ] M6. The sweep leaves the release's critical path. `gate post-land` queues a sweep, one at
-  a time on the builder after the full gate, for a landed commit that changed what the sweep
-  builds; `gate-release` finds the clean sweep on an ancestor (the existing skip rule) and waits
-  only for one already running. Pass: a candidate run's `gate-release.log` shows the sweep
-  covered by an ancestor and the run ends with its longest local step.
 
 
 ## Decision Log
@@ -176,12 +171,13 @@ Ordered by payoff per effort.
   Rationale: a wording fix after the bump cost 27 minutes of gates on v0.8.0; nothing a gate runs
   reads the notes.
   Date: 2026-10-20
-- Decision: The mutation sweep runs after a land, in the background on the builder, instead of
-  at release. This amends the 2026-10-10 "sweep per release only" rule: the sweep still never
-  runs in anyone's foreground path. Cost: about 25 builder-minutes per landed commit that
-  changes `cli/` or `nix/` (eight such lands on 2026-10-20), on a builder idle most of the day.
-  Rationale: the sweep is the candidate run's critical path (29 min against 14 min for the rest)
-  and needs nothing from the candidate.
+- Decision: The mutation sweep stays per release, inside the candidate run, as the 2026-10-10
+  rule says. Moving it after every landed code commit was proposed and dropped by the operator,
+  2026-10-20: about 25 builder-minutes per land, eight such lands on 2026-10-20, contending with
+  other remote runs, to save 15 minutes of a run that no longer waits on anyone. If those
+  minutes ever matter, the harness's incremental proof (`mutations prove --base`, records whose
+  mutated files changed in the range) is the cheap next step, with the caveat that a test change
+  can break a record it does not select.
   Date: 2026-10-20
 - Decision: The native app-database smoke is EP-202's proof, run when app-database code changes,
   not a release proof (ADR 25; the three-proof rule of 2026-10-10).
@@ -236,7 +232,7 @@ Files this plan changes: `release.json`, the six `cli/*/*.cabal` files,
 `nix/haskell-packages.nix`, `nix/platform-package.nix`, `scripts/check-release.sh`,
 `scripts/release-candidate.sh`, `scripts/release-publish.sh`, a new
 `scripts/release-intranet.sh`, `cli/nagare-harness/src/Nagare/Harness/CarryForward.hs`,
-`cli/nagare-harness/src/Nagare/Harness/Gate.hs` (post-land), `justfile`,
+`justfile`,
 `scripts/audit-managed-commands.py` (every recipe and mutating script is registered),
 `docs/runbooks/releases.md`, `agents/skills/nagare-release/SKILL.md`, `CHANGELOG.md`,
 `docs/releases/`, `docs/plans/201-*.md` (superseded note).
@@ -316,14 +312,6 @@ transition (ADR 6 amendment). The flag `--login-confirmed` from EP-201 is not im
 (Decision Log). Register the recipe and the script in `scripts/audit-managed-commands.py`;
 drive each refusal with a fake `nagarectl` on `PATH` in `scripts/test-release.sh`.
 
-**M6, the sweep after a land.** In the harness's post-land path, after a green full gate of a
-commit whose diff from the nearest ancestor with a sweep base touches `cli`, `nix`, `flake.*` or
-`cabal.project*`, run `mutations sweep` for that commit in the same background job, one sweep at
-a time (a lock file under `~/.local/state/nagare/gates/sweep/`), and write its base on success.
-`gate-release` keeps its lookup and, when a sweep is running for an ancestor that covers the
-range, waits for it instead of starting its own. A red sweep after a land is reported like a red
-full gate and blocks the next land until a fix lands with a clean sweep.
-
 
 ## Concrete Steps
 
@@ -342,24 +330,22 @@ just release-publish X.Y.Z        # tag, push, publish, public flake, pin the ta
 ```
 
 Expected: the candidate run ends `vX.Y.Z is ready to publish` within the time of its longest
-local step, and `release-publish` ends `vX.Y.Z is published`.
+step, the sweep, and `release-publish` ends `vX.Y.Z is published`.
 
 
 ## Validation and Acceptance
 
 Each milestone's pass condition is in Progress. The plan is complete when one release ships
 through the new path with: the prepare commit touching two files, its fast gate building
-`nagarectl-test` incrementally, no gate on a notes fix, the sweep covered by an ancestor, the
-operator landing an unrelated commit during the run without failing it, `intranet.json` dated
-before the tag, and the operator's passkey login confirmed after the tag.
+`nagarectl-test` incrementally, no gate on a notes fix, the operator landing an unrelated commit
+during the run without failing it, and `intranet.json` dated before the tag.
 
 
 ## Idempotence and Recovery
 
 `release-intranet.sh` only pins, plans, applies and reads; rerunning it on a context already on
 the candidate plans zero operations and rewrites the record. A refused publish creates nothing.
-A sweep that dies leaves no base; the next land queues it again. The fix-forward loop keeps the
-version: nothing is tagged until the intranet runs the revision.
+The fix-forward loop keeps the version: nothing is tagged until the intranet runs the revision.
 
 
 ## Interfaces and Dependencies
@@ -367,5 +353,5 @@ version: nothing is tagged until the intranet runs the revision.
 `intranet.json` in the run directory is the one new interface, read by `release-publish.sh`.
 `NAGARE_RELEASE_OPERATOR_REPO` names the operator repository. The embedded version in
 `Nagare.Version` is read by `nagarectl version`, the platform status identities and
-`check-release.sh`'s built checks; nothing else changes shape. M6 depends on the builder being
-free of a second sweep at a time; M5 depends on ADR 6's supersede rule (v0.6.6, F130).
+`check-release.sh`'s built checks; nothing else changes shape. M5 depends on ADR 6's supersede
+rule (v0.6.6, F130).
