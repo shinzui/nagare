@@ -23,6 +23,8 @@ data AppDatabaseCommand
   | -- | EP-205: an on-demand backup, with an optional ID (default: the UTC minute)
     AppDatabaseBackup AppDatabaseNameOpts (Maybe String)
   | AppDatabaseList (Maybe String)
+  | -- | EP-205: the maintenance window's evidence: name, namespace, JSON
+    AppDatabaseEvidence String (Maybe String) Bool
   | AppDatabaseBackupReceipts AppDatabaseReceiptsOpts
   | AppDatabaseRestore AppDatabaseRestoreOpts
   | AppDatabasePruneScheduledBackups AppDatabasePruneOpts

@@ -7,7 +7,9 @@ module Nagare.Cli.Data.AppDatabase
 where
 
 import Control.Monad (forM, forM_)
+import Data.Aeson (encode)
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
@@ -32,6 +34,7 @@ import Nagare.Dsl.Types (namespaceText)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.AppDatabase
 import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope)
+import Nagare.Inventory.AppDatabaseEvidence (loadAppDatabaseEvidence, renderAppDatabaseEvidence)
 import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
@@ -154,6 +157,15 @@ runAppDatabase mctx = \case
     runReviewedScheduledPrunePlan mctx (AppDatabasePruneSource (T.pack (o ^. #name))) (maybe "personal" T.pack (o ^. #namespace)) (o ^. #bucket) (o ^. #savePlan)
   AppDatabaseRecoverScheduledPrune o ->
     runReviewedScheduledPruneRecoveryPlan mctx (AppDatabasePruneSource (T.pack (o ^. #name))) (maybe "personal" T.pack (o ^. #namespace)) (T.pack (o ^. #backupId)) (o ^. #bucket) (o ^. #failedReview) (o ^. #savePlan)
+  AppDatabaseEvidence name _ asJson -> do
+    (active, snapshot) <- loadSnapshot mctx
+    scope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack name) Nothing)
+    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+    let accepted = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
+    evidence <- loadAppDatabaseEvidence store (T.pack name) (ResourceInventory.scopeId scope) accepted >>= either dieT pure
+    if asJson
+      then LBS.putStr (encode evidence) >> TIO.putStrLn ""
+      else mapM_ TIO.putStrLn (renderAppDatabaseEvidence evidence)
   AppDatabaseList namespaceFilter -> do
     (_, snapshot) <- loadSnapshot mctx
     let rows = [row | row <- appDatabaseRows snapshot, maybe True ((== row ^. #namespace) . T.pack) namespaceFilter]

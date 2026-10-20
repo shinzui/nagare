@@ -78,6 +78,17 @@ appDatabaseParser =
               (progDesc "Review an on-demand backup: the schedule's own Job, quiesced or not; ingest its run with backup-receipts --backup-id JOB_UID")
           )
         <> command
+          "evidence"
+          ( info
+              ( AppDatabaseEvidence
+                  <$> strArgument (metavar "NAME" <> help "App database name")
+                  <*> namespaceOpt
+                  <*> switch (long "json" <> help "Print one JSON record")
+                    <**> helper
+              )
+              (progDesc "Print what the last quiesce, backup and resume recorded: server identity, blocked users, drained state, transactions and proofs, and the ingested receipt")
+          )
+        <> command
           "backup-receipts"
           ( info
               ( AppDatabaseBackupReceipts

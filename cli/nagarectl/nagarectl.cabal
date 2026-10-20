@@ -178,6 +178,7 @@ library
     Nagare.Inventory.Adapters.RestoreScratch
     Nagare.Inventory.AppDatabase
     Nagare.Inventory.AppDatabaseBackup
+    Nagare.Inventory.AppDatabaseEvidence
     Nagare.Inventory.AppDatabaseRestore
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact

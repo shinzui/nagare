@@ -76,7 +76,7 @@ ROUTES = {
         "group": "DbAppDatabase",
     },
     "AppDatabaseCommand": {
-        "read": "AppDatabaseList",
+        "read": "AppDatabaseList AppDatabaseEvidence",
         "reviewed": "AppDatabasePlan AppDatabaseRotate AppDatabaseRetire AppDatabaseQuiesce AppDatabaseResume AppDatabaseBackup AppDatabaseBackupReceipts AppDatabaseRestore AppDatabasePruneScheduledBackups",
         "recovery": "AppDatabaseRecoverScheduledPrune",
     },

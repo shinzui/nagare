@@ -103,11 +103,21 @@ was not restarted. Other app databases on the server are not touched at any poin
   - a quiesced migration user is refused with `app-database-quiesced`, as are a bad ID and an
     unrecorded server incarnation;
   - the longest name is 62 characters.
-- [ ] M4 (evidence and docs). `db app-database evidence NAME` assembles the IR-31 AC-6 fields
+- [x] M4 (evidence and docs). `db app-database evidence NAME` assembles the IR-31 AC-6 fields
   from the store: the reviewed `drain` and `resume` plans, their journalled completions, and the
   ingested receipt. The new commands are registered in `scripts/audit-managed-commands.py`. The
   "Sharing one server between apps" section of `docs/user/managed-databases.md` documents the
   ceremony. The change is landed with a green `just gate-fast`.
+  Done 2026-10-19:
+  - `db app-database evidence NAME [--json]` is `Nagare.Inventory.AppDatabaseEvidence`. It reads
+    the published reviews' session plans, their `Completed` journal events, and the newest
+    receipt scope admitted after the drain. A missing step prints `absent`.
+  - `quiesce`, `resume`, `backup` and `evidence` are registered, and the catalogue is
+    refreshed.
+  - The ceremony is documented under "Maintenance windows" in
+    `docs/user/managed-databases.md`.
+  - The evidence is read-only reporting, so it is confirmed natively in M5. There is no
+    interpreter test for it.
 - [ ] M5 (native confirmation). `scripts/local-app-database-smoke.sh` proves AC-1 to AC-6 on a
   disposable local context with the packaged CLI. In a new step before `beta-ch` is retired,
   it quiesces `alpha` on each engine while `beta`'s long queries keep running, and confirms the

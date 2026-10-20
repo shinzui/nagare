@@ -701,6 +701,63 @@ binds the app database; retire those first. Runs taken before retirement can
 still be ingested and restored. Re-planning the app database in its config
 resumes the schedule.
 
+**Maintenance windows.** To change an app's schema with drain evidence and a
+consistent backup, without restarting the shared server or touching other apps:
+
+```bash
+nagarectl db app-database quiesce kansoku-ch -n personal --users runtime --save-plan ./q
+nagarectl inventory apply ./q --yes
+nagarectl db app-database backup kansoku-ch -n personal --save-plan ./b
+nagarectl inventory apply ./b --yes
+nagarectl db app-database backup-receipts kansoku-ch -n personal --backup-id JOB_UID --save-plan ./i
+nagarectl inventory apply ./i --yes
+# Run the app's own migrator as the migration user, which stays open.
+nagarectl db app-database resume kansoku-ch -n personal --save-plan ./r
+nagarectl inventory apply ./r --yes
+nagarectl db app-database evidence kansoku-ch -n personal
+```
+
+Quiesce does the following:
+
+- It closes the named users' logins. `--users` defaults to `runtime`, and
+  `runtime,migration` is allowed; the runtime user is always included.
+- It pauses the app database's backup schedule.
+- It then drains the app database:
+  - after a 30 s grace period it ends the blocked users' running queries
+    (ClickHouse) or sessions (PostgreSQL);
+  - it waits up to 300 s for a scheduled run already in flight and, on
+    ClickHouse, for the app's unfinished mutations. A failed mutation fails the
+    drain and is named.
+
+On PostgreSQL every grant is kept. On ClickHouse an open native session
+survives any login change, so the blocked users' grants are withheld until
+resume; the migration user keeps its grants, so its `SQL SECURITY DEFINER` views
+and materialized views keep working. Resume reopens exactly the quiesced users,
+grants them their declared access again, and gives the schedule its accepted
+bytes back. Both steps record the server Pod's UID and start time and the
+server's identity (`serverUUID()`, or `system_identifier` and the postmaster
+start time). Each refuses if the server was restarted or replaced since its
+review, and `evidence` shows they match.
+
+While an app database is quiesced:
+
+- `db app-database plan` leaves it out and says so; every other app database
+  plans as usual.
+- `rotate` refuses with `app-database-quiesced`.
+- `retire` is allowed.
+- Quiesce does not stop workloads: a bound workload fails to connect, and keeps
+  restarting, until resume.
+- `server status` grades its recovery point `quiesced`.
+
+If the drain fails or times out, the app database stays quiesced; resume it,
+then quiesce again.
+
+The on-demand backup is the schedule's own Job, signed with the same schedule
+revision. It is ingested with `backup-receipts --backup-id`, restored with
+`restore`, and pruned under the schedule's retention like any scheduled run. It
+can be taken quiesced or not, but not while the migration user, whose
+credential the dump uses, is quiesced.
+
 **Backups.** Each app database has its own signed schedule,
 `nagare-appdb-<name>`, on the context's recovery-point cadence. It dumps with the
 migration credential (`pg_dump -Fc` keeping owners and grants, or one ClickHouse
