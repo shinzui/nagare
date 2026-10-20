@@ -11,8 +11,11 @@
 #      demand, ingest and restore it, resume it, and print the evidence; servers not restarted;
 #   5b. EP-204: reviewed exceptions and ceilings on alpha-ch and a connection limit and
 #      pg_monitor on alpha-pg hold, beta is unaffected, and removing an exception revokes it;
+#   5c. EP-206: a reader on each alpha, declared since step 2, reads only its views under its
+#      ceilings from a consumer probe; a non-consumer is refused; alpha-pg's reader rotates;
 #   6. rotate alpha-pg's runtime user and retire beta-ch, the other apps unchanged;
-#   7. one scheduled backup run of alpha-pg and alpha-ch, ingested and restored into scratch;
+#   7. one scheduled backup run of alpha-pg and alpha-ch, ingested and restored into scratch,
+#      which no reader reaches; then alpha-pg's reader is retired (EP-206);
 #   8. server status grades all four app databases' recovery points (beta-ch retired), and a
 #      prune review of alpha-pg has no runs past policy (EP-203);
 #   9. app-database smoke: PASS.
@@ -84,7 +87,7 @@ import Data.Text (Text)
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Config (emitAppDatabases)
 import Nagare.Dsl.Database (Engine (..))
-import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
+import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace, mkReaderName, mkServiceName)
 
 ok :: Either Text a -> a
 ok = either (error . show) id
@@ -108,14 +111,28 @@ app _ _ _ [] _ = error "an app database needs a logical database"
 ceilings :: Int -> Int -> Int -> UserLimits
 ceilings memory seconds queries = noUserLimits & #maxMemoryBytes ?~ memory & #maxExecutionSeconds ?~ seconds & #maxConcurrentQueries ?~ queries
 
-alphaCh, alphaPg :: AppDatabaseAccess
-alphaCh
+-- EP-206: one reader per engine in every stage, so a rerun never drops one.
+dash :: Engine -> Text -> [Text] -> AppDatabaseReader
+dash engine consumer (o : os) =
+  AppDatabaseReader
+    { name = ok (mkReaderName "dash")
+    , objects = fmap (\rel -> ReaderRelation (ok (mkLogicalDatabaseName "alpha")) Nothing (ok (mkRelationName rel))) (o :| os)
+    , limits = defaultReaderLimits engine
+    , consumers = [ok (mkServiceName consumer)]
+    , retired = stage == "retired" && engine == Postgres
+    }
+dash _ _ [] = error "a reader reads an object"
+
+alphaCh, alphaPg, chAccess, pgAccess :: AppDatabaseAccess
+alphaCh = chAccess & #readers .~ [dash ClickHouse "gamma-ch-probe" ["rv", "rpv"]]
+alphaPg = pgAccess & #readers .~ [dash Postgres "gamma-pg-probe" ["rv"]]
+chAccess
   | stage == "none" = noAppDatabaseAccess
   | otherwise =
       noAppDatabaseAccess
         & #runtime .~ UserAccess ([SystemParts] <> [SystemStoragePolicies | stage == "declared"] <> [ArbitraryTemporaryTables]) (ceilings 268435456 5 2)
         & #migration .~ UserAccess [] (ceilings 4294967296 600 4)
-alphaPg
+pgAccess
   | stage == "none" = noAppDatabaseAccess
   | otherwise =
       noAppDatabaseAccess
@@ -135,6 +152,7 @@ EOF
 appdb_config "$ROOT/config/AppDatabases.hs" none
 appdb_config "$ROOT/config/AppDatabasesDeclared.hs" declared
 appdb_config "$ROOT/config/AppDatabasesRemoved.hs" removed
+appdb_config "$ROOT/config/AppDatabasesRetired.hs" retired
 # A rerun starts with every app database open: an interrupted earlier run may have left one quiesced.
 for app in $(n db app-database list -n "$NS" 2>/dev/null | awk -F'\t' '$6 == "quiesced" {print $1}'); do
   n db app-database resume "$app" -n "$NS" --save-plan "$REVIEWS/rerun-resume-$app" >/dev/null
@@ -144,6 +162,9 @@ done
 if kubectl -n "$NS" get secret alpha-pg-migration >/dev/null 2>&1; then
   kubectl -n "$NS" exec smoke-pg-0 -- env PGPASSWORD="$(secret alpha-pg-migration POSTGRES_PASSWORD)" \
     psql -h smoke-pg -U "$(secret alpha-pg-migration POSTGRES_USER)" -d alpha -v ON_ERROR_STOP=1 -tAc 'DROP SCHEMA IF EXISTS pgmq CASCADE' >/dev/null
+  # ... and from alpha-pg's reader view and definer function absent (EP-206).
+  kubectl -n "$NS" exec smoke-pg-0 -- env PGPASSWORD="$(secret alpha-pg-migration POSTGRES_PASSWORD)" \
+    psql -h smoke-pg -U "$(secret alpha-pg-migration POSTGRES_USER)" -d alpha -v ON_ERROR_STOP=1 -tAc 'DROP VIEW IF EXISTS rv; DROP FUNCTION IF EXISTS add_row(integer)' >/dev/null
 fi
 if ! n db app-database plan --config "$ROOT/config/AppDatabases.hs" | grep -qx 'no operations'; then
   n db app-database plan --config "$ROOT/config/AppDatabases.hs" --save-plan "$REVIEWS/app-databases"
@@ -151,9 +172,12 @@ if ! n db app-database plan --config "$ROOT/config/AppDatabases.hs" | grep -qx '
 fi
 
 # --- 3. converged ---
-replan="$(n db app-database plan --config "$ROOT/config/AppDatabases.hs")"
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabases.hs" 2>"$REVIEWS/replan.notes")"
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan has operations"; }
 log "AC-1/AC-4: four app databases on one server per engine; re-plan: no operations"
+# IR-33 AC-5: alpha-pg's reader is declared before the app creates its view.
+grep -q 'pending: public.rv' "$REVIEWS/replan.notes" || { cat "$REVIEWS/replan.notes" >&2; fail "IR-33 AC-5: the plan names no pending view for alpha-pg's reader"; }
+log "IR-33 AC-5: alpha-pg's reader converged with its view pending; no operation planned for it"
 [ "$(kubectl -n "$NS" get statefulset -o name | grep -c 'smoke-')" = 2 ] || fail "expected exactly the two server StatefulSets"
 
 # --- 4. probe Workers on the servers' own images, published through review ---
@@ -440,6 +464,107 @@ replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs")
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan after the removal has operations"; }
 log "EP-204: alpha-ch exceptions and ceilings hold, beta unaffected; alpha-pg connection limit and pg_monitor grants hold; removal revoked"
 
+# --- 5c. EP-206: read-only readers ---
+# The app's migrations create the views the readers declare.
+pg_as alpha-pg-migration alpha "CREATE OR REPLACE VIEW rv AS SELECT v FROM t" >/dev/null
+ch_as alpha-ch-migration "INSERT INTO alpha.src VALUES (1)"
+ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.rv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT k FROM alpha.src"
+ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.rpv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT k FROM alpha.src WHERE k = {x:UInt64}"
+# IR-33 AC-5: the plan after the migration grants the view, then nothing is left.
+plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" --save-plan "$REVIEWS/readers" 2>&1)" || { echo "$plan_out" >&2; fail "IR-33 AC-5: plan after the migration"; }
+grep -q 'update app-database user alpha_pg_reader_dash' "$REVIEWS/readers/review.json" || { echo "$plan_out" >&2; fail "IR-33 AC-5: the view created by the migration is not granted by review"; }
+apply "$REVIEWS/readers"
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>&1)"
+{ grep -qx 'no operations' <<<"$replan" && ! grep -q pending <<<"$replan"; } || { echo "$replan" >&2; fail "IR-33 AC-5: the re-plan after the migration is not empty"; }
+# IR-33 AC-9: a SECURITY DEFINER function PUBLIC may run refuses the plan until the app revokes it.
+pg_as alpha-pg-migration alpha "CREATE FUNCTION add_row(x integer) RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'" >/dev/null
+if out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>&1)"; then fail "IR-33 AC-9: a definer function PUBLIC may run was planned"; fi
+grep -q 'app-database-reader-definer-function.*add_row(x integer)' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-9: the definer refusal does not name add_row"; }
+pg_as alpha-pg-migration alpha "REVOKE EXECUTE ON FUNCTION add_row(integer) FROM PUBLIC" >/dev/null
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>/dev/null)"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-33 AC-9: the plan after the app's revoke is not empty"; }
+reader_probe() { # worker, app database whose reader it binds (or none), image resource, published repository, published tag
+  mkdir -p "$ROOT/config/$1"
+  local bound=""
+  [ "$2" = none ] || bound="\"$2\""
+  cat > "$ROOT/config/$1/Config.hs" <<EOF
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedStrings #-}
+module Main (main) where
+
+import Control.Lens ((&), (.~))
+import Data.Bifunctor (first)
+import Data.Generics.Labels ()
+import Nagare.Dsl.Build (BuildSpec (PrebuiltImage), mkTag)
+import Nagare.Dsl.Config (emitWorker)
+import Nagare.Dsl.Types (AppDatabaseReaderRef (..), mkAppDatabaseName, mkReaderName)
+import Nagare.Dsl.Worker (mkCommand, webWorker)
+
+main :: IO ()
+main = either (ioError . userError) emitWorker \$ do
+  base <- webWorker "$1" "$4"
+  tag <- first show (mkTag "$5")
+  cmd <- first show (mkCommand ["sleep", "infinity"])
+  refs <- first show (sequence [AppDatabaseReaderRef <\$> mkAppDatabaseName db <*> mkReaderName "dash" | db <- [$bound]])
+  Right (base & #build .~ PrebuiltImage tag & #command .~ Just cmd & #appDatabaseReaders .~ refs)
+EOF
+  n worker deploy -f "$ROOT/config/$1/Config.hs" --tag probe --image-resource "$3" --save-plan "$REVIEWS/worker-$1-$2" 2>&1
+}
+reader_probe gamma-pg-probe alpha-pg "$PG_IMAGE" appdb-probe-pg "$PG_TAG" >/dev/null || fail "IR-33 AC-6: plan gamma-pg-probe"
+apply "$REVIEWS/worker-gamma-pg-probe-alpha-pg"
+reader_probe gamma-ch-probe alpha-ch "$CH_IMAGE" appdb-probe-ch "$CH_TAG" >/dev/null || fail "IR-33 AC-6: plan gamma-ch-probe"
+apply "$REVIEWS/worker-gamma-ch-probe-alpha-ch"
+# IR-33 AC-6: a workload the reader does not list is refused.
+if out="$(reader_probe delta-pg-probe alpha-pg "$PG_IMAGE" appdb-probe-pg "$PG_TAG")"; then fail "IR-33 AC-6: a non-consumer bound alpha-pg's reader"; fi
+grep -q 'app-database-reader-not-a-consumer' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-6: the non-consumer refusal has the wrong code"; }
+for w in gamma-pg gamma-ch; do kubectl -n "$NS" rollout status "deployment/$w-probe" --timeout=300s >/dev/null; done
+secret_refs() { kubectl -n "$NS" get deployment "$1" -o json | python3 -I -c '
+import json, sys
+d = json.load(sys.stdin)
+refs = {(e.get("valueFrom") or {}).get("secretKeyRef", {}).get("name") for c in d["spec"]["template"]["spec"]["containers"] for e in c.get("env", [])}
+refs.discard(None); refs.discard("nagare-secret-" + sys.argv[1] + "-runtime")
+print(" ".join(sorted(refs)))' "$1"; }
+expect "IR-33 AC-6: gamma-pg-probe's Secrets" "$(secret_refs gamma-pg-probe)" "alpha-pg-reader-dash"
+expect "IR-33 AC-6: gamma-ch-probe's Secrets" "$(secret_refs gamma-ch-probe)" "alpha-ch-reader-dash"
+# IR-33 AC-2/AC-3 on PostgreSQL: the declared view only; grants are the boundary, whatever the session sets.
+expect "IR-33 AC-2: alpha-pg reader reads its view" "$(pg_rt gamma-pg "SELECT string_agg(v, '|') FROM rv")" "alpha"
+refused "alpha-pg reader on the base table" pg_rt gamma-pg 'SELECT count(*) FROM t'
+refused "alpha-pg reader INSERT with read-only off" pg_rt gamma-pg "SET default_transaction_read_only = off; INSERT INTO t VALUES ('x')"
+refused "alpha-pg reader CREATE TABLE" pg_rt gamma-pg 'SET default_transaction_read_only = off; CREATE TABLE x (i int)'
+refused "alpha-pg reader temporary table" pg_rt gamma-pg 'SET default_transaction_read_only = off; CREATE TEMPORARY TABLE x (i int)'
+refused "alpha-pg reader on beta" pg_rt gamma-pg 'SELECT 1' beta
+expect "alpha-pg reader statement_timeout default" "$(pg_rt gamma-pg 'SHOW statement_timeout')" "30s"
+for i in 1 2 3 4 5; do (pg_rt gamma-pg 'SELECT pg_sleep(8)' >/dev/null 2>&1 || true) & done
+sleep 4
+out="$(pg_rt gamma-pg 'SELECT 1' 2>&1 || true)"
+grep -q 'too many connections for role' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-3: a sixth alpha-pg reader connection was not refused"; }
+wait
+# IR-33 AC-2/AC-3 on ClickHouse: its definer views, nothing else, under CONST and MIN 1 MAX ceilings.
+expect "IR-33 AC-2: alpha-ch reader reads its view" "$(ch_rt gamma-ch 'SELECT count() > 0 FROM alpha.rv')" "1"
+expect "IR-33 AC-2: alpha-ch reader reads its parameterized view" "$(ch_rt gamma-ch 'SELECT count() FROM alpha.rpv(x = 1)')" "$(ch_admin 'SELECT count() FROM alpha.src WHERE k = 1')"
+for q in 'SELECT count() FROM alpha.src' 'SELECT count() FROM alpha.t' 'SELECT count() FROM beta.t' 'INSERT INTO alpha.src VALUES (2)' 'CREATE TABLE alpha.x (k UInt64) ENGINE = Memory' 'SELECT count() FROM system.parts'; do
+  out="$(ch_rt gamma-ch "$q" 2>&1 || true)"
+  expect "IR-33 AC-2: alpha-ch reader: $q" "$(code_of "$out")" "Code: 497"
+done
+out="$(ch_rt gamma-ch 'SET readonly = 0; SELECT 1' 2>&1 || true)"
+expect "IR-33 AC-3: alpha-ch reader SET readonly = 0" "$(code_of "$out")" "Code: 164"
+for setting in "max_threads = 8" "max_result_rows = 0" "max_execution_time = 60" "max_memory_usage = 0" "max_result_bytes = 104857600"; do
+  out="$(ch_rt gamma-ch "SET $setting; SELECT 1" 2>&1 || true)"
+  expect "IR-33 AC-3: alpha-ch reader SET $setting" "$(code_of "$out")" "Code: 452"
+done
+# IR-33 AC-7: rotating alpha-pg's reader changes its Secret only; its consumer reads after a restart.
+old_reader_pw="$(secret alpha-pg-reader-dash POSTGRES_PASSWORD)"; alpha_rt="$(digest_of alpha-pg-runtime)"
+n db app-database rotate alpha-pg -n "$NS" --user reader-dash --save-plan "$REVIEWS/rotate-reader" >/dev/null
+apply "$REVIEWS/rotate-reader"
+[ "$(secret alpha-pg-reader-dash POSTGRES_PASSWORD)" != "$old_reader_pw" ] || fail "IR-33 AC-7: the reader rotation left its password unchanged"
+expect "alpha-pg runtime Secret after the reader rotation" "$(digest_of alpha-pg-runtime)" "$alpha_rt"
+selector="$(kubectl -n "$NS" get deployment gamma-pg-probe -o go-template='{{range $k, $v := .spec.selector.matchLabels}}{{$k}}={{$v}},{{end}}')"
+kubectl -n "$NS" delete pod -l "${selector%,}" --wait=false >/dev/null
+kubectl -n "$NS" rollout status deployment/gamma-pg-probe --timeout=300s >/dev/null
+for _ in $(seq 1 30); do pg_rt gamma-pg 'SELECT 1' >/dev/null 2>&1 && break; sleep 2; done
+expect "alpha-pg reader after its rotation" "$(pg_rt gamma-pg 'SELECT count(*) FROM rv')" "1"
+log "IR-33: readers read only their views under their ceilings from consumer probes; a non-consumer was refused; a definer function refused until revoked; the reader rotated alone"
+
 # --- 6. rotate alpha-pg's runtime user, retire beta-ch ---
 old_pw="$(secret alpha-pg-runtime POSTGRES_PASSWORD)"; old_user="$(secret alpha-pg-runtime POSTGRES_USER)"
 beta_pg="$(digest_of beta-pg-runtime)"; alpha_mig="$(digest_of alpha-pg-migration)"
@@ -495,6 +620,25 @@ expect "alpha-ch scratch ledger" "$(ch_rt alpha-ch "SELECT count() FROM alpha_le
 expect "live alpha untouched by the restore" "$(pg_rt alpha-pg "SELECT string_agg(v, '|') FROM t")" "alpha"
 expect "beta-pg untouched by the restore" "$(pg_rt beta-pg "SELECT string_agg(v, '|') FROM t")" "beta"
 log "AC-5: scheduled runs of alpha-pg and alpha-ch ingested and restored into scratch with their access"
+# IR-33 AC-8: the dump carried the reader's grant, yet no reader reaches a scratch database.
+refused "alpha-pg reader on alpha's scratch" pg_rt gamma-pg 'SELECT count(*) FROM rv' "alpha_restore_$RUN"
+out="$(ch_rt gamma-ch "SELECT count() FROM alpha_restore_$RUN.rv" 2>&1 || true)"
+expect "IR-33 AC-8: alpha-ch reader on alpha's scratch" "$(code_of "$out")" "Code: 497"
+
+# --- 7b. EP-206: retire alpha-pg's reader ---
+if out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRetired.hs" 2>&1)"; then fail "IR-33 AC-7: a reader still bound was retired"; fi
+grep -q 'app-database-reader-in-use' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-7: retiring a bound reader has the wrong refusal"; }
+reader_probe gamma-pg-probe none "$PG_IMAGE" appdb-probe-pg "$PG_TAG" >/dev/null || fail "unbind gamma-pg-probe"
+apply "$REVIEWS/worker-gamma-pg-probe-none"
+n db app-database plan --config "$ROOT/config/AppDatabasesRetired.hs" --save-plan "$REVIEWS/reader-retired" >/dev/null 2>&1
+apply "$REVIEWS/reader-retired"
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRetired.hs" 2>/dev/null)"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-33 AC-7: the re-plan after retiring the reader has operations"; }
+refused "the retired alpha-pg reader's login" pg_as alpha-pg-reader-dash alpha 'SELECT 1'
+kubectl -n "$NS" get secret alpha-pg-reader-dash >/dev/null || fail "IR-33 AC-7: the retired reader's Secret was removed"
+expect "alpha-ch reader after alpha-pg's reader retired" "$(ch_rt gamma-ch 'SELECT count() > 0 FROM alpha.rv')" "1"
+expect "alpha-pg runtime after its reader retired" "$(pg_rt alpha-pg "SELECT string_agg(v, '|') FROM t")" "alpha"
+log "IR-33 AC-7/AC-8: no reader reaches a scratch restore; alpha-pg's reader retired by declaration, refused while bound, its Secret kept"
 
 # --- 8. status grades every app database; nothing of alpha-pg is past policy (F132) ---
 status="$(n server status --skip-vm 2>&1)" || { echo "$status" >&2; fail "server status"; }

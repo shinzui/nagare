@@ -443,6 +443,24 @@ appDatabaseTests =
               case compileAgainst (snapshotWith [server'] [scope, workerScope]) [server'] (db & #access . #readers .~ [dash True]) of
                 Left errs -> assertBool (show errs) (any ((== "app-database-reader-in-use") . (^. #code)) (NE.toList errs))
                 Right _ -> assertFailure "a bound reader was retired"
+        , testCase "an app database's own on-demand backup is not a binding: it reads no reader's Secret and blocks no retirement (EP-205, EP-206)" $
+            forM_ [(pgServer, alpha Postgres), (chServer, alpha ClickHouse)] $ \(server', base) -> do
+              let dash retired' = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits (base ^. #engine)) [known (Dsl.mkServiceName "gamma")] retired'
+                  (scope, native) = scopeAndNative server' (base & #access . #readers .~ [dash False])
+                  uid = known . mkPhysicalIdentity
+                  serverMembers = [m | bundle <- scopeBundles (fst server'), Managed m <- declarations bundle]
+                  pick kind = head [m ^. #identity | m <- serverMembers, Kubernetes _ _ k _ _ <- [m ^. #address], nameText k == kind]
+                  (statefulId, pvcId) = (pick "statefulset", pick "persistentvolumeclaim")
+                  pins = Map.fromList [(statefulId, uid "sts"), (pvcId, uid "pvc")]
+                  request = AppDatabaseBackupRequest scope "personal" (appDatabaseNameText (base ^. #name)) "r1" statefulId pvcId (uid "sts") (uid "pvc") pins (SourceLocation "test" "backup")
+              (backupScope, _) <- either (assertFailure . show) pure (compileAppDatabaseOnDemandBackupScope request native)
+              let jobDependencies = concat [m ^. #dependencies | bundle <- scopeBundles backupScope, Managed m <- declarations bundle]
+                  readerSecrets = [m ^. #identity | bundle <- scopeBundles scope, Managed m <- declarations bundle, Kubernetes _ "" _ _ n <- [m ^. #address], "-reader-dash" `T.isSuffixOf` nameText n]
+              length readerSecrets @?= 1
+              assertBool "the Job is not ordered after the reader's Secret" (all (\r -> OrderedAfter r `notElem` jobDependencies) readerSecrets)
+              let accepted = snapshotWith [server'] [scope, backupScope]
+              either (assertFailure . show) (const (pure ())) (retireAppDatabaseScope accepted (Map.union (acceptedNative [server']) native) scope)
+              either (assertFailure . show) (const (pure ())) (compileAgainst accepted [server'] (base & #access . #readers .~ [dash True]))
         , testCase "an on-demand backup is the schedule's own Job, ingests like a scheduled run, and needs the migration user (IR-31 AC-5)" $
             forM_ [(pgServer, alpha Postgres), (chServer, alpha ClickHouse)] $ \(server', db) -> do
               let (scope, native) = scopeAndNative server' db

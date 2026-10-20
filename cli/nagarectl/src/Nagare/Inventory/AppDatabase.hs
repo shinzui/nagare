@@ -259,7 +259,7 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
       readerConsumers =
         [ member
         | (other, (_, otherScope)) <- Map.toList (snapshotScopes snapshot)
-        , other /= owner
+        , bindsAppDatabases owner other
         , member <- scopeMembers otherScope
         , any (\case OrderedAfter producer -> Set.member producer retired; _ -> False) (member ^. #dependencies)
         ]
@@ -314,6 +314,12 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
         (Left (invalid (Just owner) "app-database native object changed during binding"))
       pure (resource, (declaration, bytes))
 
+-- | Whether a scope's members can be workloads binding an app database: any
+-- scope but the app databases' own, whose on-demand backups are ordered after
+-- the schedule they copy and are not bindings.
+bindsAppDatabases :: ScopeId -> ScopeId -> Bool
+bindsAppDatabases owner other = other /= owner && not ("appdb-" `T.isPrefixOf` nameText (scopeName other))
+
 -- | The accepted app-database scope a command names: @appdb-\<key\>@, where
 -- the key is the pinned one or the app-database name.
 namedAppDatabaseScope :: ScopeSnapshot -> Text -> Maybe Text -> Either Text ScopeDeclaration
@@ -344,7 +350,7 @@ retireAppDatabaseScope snapshot native scope = do
       consumers =
         [ member
         | (other, (_, otherScope)) <- Map.toList (snapshotScopes snapshot)
-        , other /= owner
+        , bindsAppDatabases owner other
         , member <- scopeMembers otherScope
         , any (\case OrderedAfter producer -> Set.member producer ours; _ -> False) (member ^. #dependencies)
         ]

@@ -124,9 +124,10 @@ compileAppDatabaseOnDemandBackupScope request native = do
             , sourceLocation = request ^. #source
             }
       )
-  -- The Job reads the server and the schedule's credential and signing Secrets.
+  -- The Job reads the server and the schedule's credential and signing Secrets,
+  -- no other user's (a reader's Secret is not its input, EP-206).
   -- Its overrides are its own: @backup.*@ names a direct database's manual backup.
-  let secrets = [secret ^. #identity | secret <- members, Kubernetes _ "" kind' _ _ <- [secret ^. #address], nameText kind' == "secret"]
+  let secrets = [secret ^. #identity | secret <- members, Kubernetes _ "" kind' _ _ <- [secret ^. #address], nameText kind' == "secret", OrderedAfter (secret ^. #identity) `elem` (cron ^. #dependencies)]
       member = bound {dependencies = map OrderedAfter ([request ^. #statefulSet, request ^. #persistentVolume, cron ^. #identity] <> secrets)}
       overrides =
         Map.fromList
