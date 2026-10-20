@@ -9,6 +9,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-20T15:05:24Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-20T17:22:09Z
+      mode: "implement"
+      note: "M1 engine proof and M2 fix implemented"
 ---
 
 # Keep the ClickHouse migration FILE grant write-only across a server restart
@@ -46,10 +52,49 @@ when it tries `SELECT * FROM file(...)`.
 
 ## Progress
 
-- [ ] M1: The defect and the fix are proven against the real engine (`clickhouse/clickhouse-server:26.8` in Docker): with the released configuration a restart turns `WRITE ON FILE` into `READ` and `WRITE`; with `enable_read_write_grants` on a restart keeps `WRITE` alone; a legacy entity reloaded under the new setting shows `READ` once, `REVOKE READ ON FILE` removes it, and it stays removed across the next restart. The re-proven `user-access alpha_migration` fixture blocks and the `SHOW GRANTS` texts are recorded here.
-- [ ] M2: The code change is in and gated: the rendered ClickHouse server turns the setting on and rolls its pod on a config change; the migration user's statement block always revokes `READ ON FILE`; observation classifies a reloaded `READ` as pending, never drift; the interpreter world restarts a server (legacy and fixed) and the new tests in `AppDatabaseWorldSpec` pass, with the legacy-restart test failing on the unfixed code. `just haskell-style-check` and `just gate-fast` are green.
-- [ ] M3: The native proof passes on a disposable local context: `scripts/local-app-database-smoke.sh` gains a final step that confirms the setting is live, restarts `smoke-ch` through review, re-plans to `no operations`, and shows the migration user cannot read through `file()`; `just local-app-database-smoke <context>` ends in `app-database smoke: PASS`.
-- [ ] M4: `docs/user/managed-databases.md` documents the grant, the setting and the one-time effect on existing servers; BUG-7 is `fixed` in `unreleased` with its resolution and a `docs/bug-reports/log.md` entry; the strict bundle validation passes; the work is landed with `just land`.
+- [x] M1: The defect and the fix are proven against the real engine (`clickhouse/clickhouse-server:26.8` in Docker): with the released configuration a restart turns `WRITE ON FILE` into `READ` and `WRITE`; with `enable_read_write_grants` on a restart keeps `WRITE` alone; a legacy entity reloaded under the new setting shows `READ` once, `REVOKE READ ON FILE` removes it, and it stays removed across the next restart. The re-proven `user-access alpha_migration` fixture blocks and the `SHOW GRANTS` texts are recorded here.
+  Done 2026-10-20 on 26.8.29.10 (Colima profile `nagare-mp23`). The config file is copied in
+  with `docker cp`; a bind mount from the scratchpad silently became an empty directory and the
+  first Run B had no setting. `CREATE TEMPORARY TABLE ON *.*` was granted to `m` in Runs A and B
+  only so that `file()` reaches the FILE check.
+
+  ```text
+  Run A  before restart: system.grants WRITE; SHOW GRANTS: GRANT FILE ON *.* TO m;
+         entity: ATTACH GRANT FILE ON *.* TO m; file() read refused (497)
+         after restart:  system.grants READ, WRITE; file() read succeeds
+  Run B  REVOKE READ ON FILE on a user without it: ok
+         before and after restart: system.grants WRITE; SHOW GRANTS: GRANT WRITE ON FILE TO m;
+         entity: ATTACH GRANT WRITE ON FILE TO m; file() read refused (497);
+         BACKUP DATABASE default TO File('m1.zip'): BACKUP_CREATED
+  Run C  Run A's volume, setting on: system.grants READ, WRITE; SHOW GRANTS: GRANT READ, WRITE ON FILE TO m
+         REVOKE READ ON FILE: WRITE; entity: ATTACH GRANT WRITE ON FILE TO m; after restart: WRITE
+  No setting: REVOKE READ ON FILE on a user without it is accepted, and after a restart it reduces READ, WRITE to WRITE
+  Fixture: the three alpha_migration user-access blocks, run in first-apply order with the setting on:
+         every block accepted; server-wide WRITE before and after two restarts, none while off;
+         BACKUP DATABASE alpha, DATABASE alpha_ledger: BACKUP_CREATED; file() read refused
+         "it's necessary to have the grant READ ON FILE"
+  ```
+- [x] M2: The code change is in and gated: the rendered ClickHouse server turns the setting on and rolls its pod on a config change; the migration user's statement block always revokes `READ ON FILE`; observation classifies a reloaded `READ` as pending, never drift; the interpreter world restarts a server (legacy and fixed) and the new tests in `AppDatabaseWorldSpec` pass, with the legacy-restart test failing on the unfixed code. `just haskell-style-check` and `just gate-fast` are green.
+  Done 2026-10-20 in `9e6ace41`. Before the `Catalog.hs` fix the legacy-restart case failed with
+  `app-database-grant-drift: alpha_ch_migration: server-wide READ`; after it the 169 AppDatabase
+  cases pass. The restart cases live in `cli/nagarectl/test/AppDatabaseRestartSpec.hs` (the
+  world spec would have exceeded the 1000-line module bound), and the suite lists the five
+  app-database trees under one `AppDatabase` group. The ClickHouse goldens gained only the
+  setting block and `nagare.dev/config-digest: eea29667…` (the SHA-256 of the config text).
+  `just gate-fast` green on `9e6ace41`.
+- [x] M3: The native proof passes on a disposable local context: `scripts/local-app-database-smoke.sh` gains a final step that confirms the setting is live, restarts `smoke-ch` through review, re-plans to `no operations`, and shows the migration user cannot read through `file()`; `just local-app-database-smoke <context>` ends in `app-database smoke: PASS`.
+  Done 2026-10-20 with the packaged CLI at `9e6ace41` on the local context `transition`, whose
+  `smoke-ch` predated the setting: step 1 updated it (pod recreated with the config digest) and
+  step 2's plan converged the reloaded `READ` without a refusal; the run ended
+  `BUG-7: a reviewed restart of smoke-ch leaves the migration grant write-only; re-plan: no
+  operations` and `app-database smoke: PASS`. Two earlier attempts stopped on defects of the
+  script, fixed in it: EP-207's zeta used the fixed logical names `z` and `z_extra`, which an
+  earlier run's retired zeta keeps (now `z_<run>`), and both prune reviews raced the 15-minute
+  schedule's run in flight (they now wait for it and ingest it first).
+- [x] M4: `docs/user/managed-databases.md` documents the grant, the setting and the one-time effect on existing servers; BUG-7 is `fixed` in `unreleased` with its resolution and a `docs/bug-reports/log.md` entry; the strict bundle validation passes; the work is landed with `just land`.
+  Done 2026-10-20: the paragraph, ADR 30's consequence and BUG-7 `fixed` in `unreleased` (commit
+  `9e6ace41`); `just user-documentation-validate` and the strict bug-report validation pass.
+  The intranet rollout stays with the next release (Validation and Acceptance).
 
 
 ## Surprises & Discoveries
@@ -90,6 +135,16 @@ when it tries `SELECT * FROM file(...)`.
   or its key would retire and recreate reviewed resources for no gain. Every ClickHouse server
   created before this change therefore sees one reviewed StatefulSet update and restarts once,
   exactly as it did when v0.7.0 turned on SQL access management.
+  Date: 2026-10-20
+
+- Decision: The interpreter world tracks which users' access entities are stored in the legacy
+  form (`legacyEntities`), beside the server setting `legacySourceGrants`. After the setting is
+  turned off (the rollout), a restart still reloads `READ` until the next converge rewrites the
+  entity, so the second restart case expects one more `update` per migration user after the
+  rollout instead of `[]`.
+  Rationale: M1 Run C. Turning the setting on does not rewrite stored entities. The plan's
+  first draft expected an empty re-plan right after the rollout restart, which the engine
+  contradicts. M3 already expected this path natively.
   Date: 2026-10-20
 
 - Decision: The intranet rollout is release work, not this plan's acceptance. The plan completes
@@ -544,8 +599,8 @@ until the server's update lands. Nothing is lost either way.
   `Nagare.Database.AppDatabase.Catalog.classifyUser` and the world's `SetUserAccess` branch.
 - `Nagare.Dsl.Database.engineMemoryConfig` (changed content) and the pod-template annotation
   `nagare.dev/config-digest` rendered by `Nagare.Dsl.Database.Render`.
-- `Nagare.Test.World.AppDatabase.restartServer :: World -> World` and the `World` field
-  `legacySourceGrants :: Bool` (test-only).
+- `Nagare.Test.World.AppDatabase.restartServer :: World -> World` and the `World` fields
+  `legacySourceGrants :: Bool` and `legacyEntities :: Set Text` (test-only; Decision Log).
 - The proven fixture `cli/nagarectl/test/fixtures/app-database/clickhouse.sql` and the goldens
   `cli/nagare-dsl/test/golden/db-clickhouse.{configmap,statefulset}.yaml`.
 - ClickHouse server setting `access_control_improvements.enable_read_write_grants` (25.7 and

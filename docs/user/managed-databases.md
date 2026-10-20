@@ -570,6 +570,19 @@ grants. A re-plan of an unchanged config prints `no operations`. Access that
 Nagare never grants (a manual `GRANT`, a role membership) is refused at planning
 as drift rather than silently revoked.
 
+On ClickHouse the migration user's only server-wide grant is `WRITE ON FILE`,
+which the app's backup needs to write its archive. It cannot read files back.
+Nagare's ClickHouse servers turn on
+`access_control_improvements.enable_read_write_grants` so that the grant
+survives a server restart as written. Without that setting, ClickHouse stores
+the grant as `FILE ON *.*` and reloads it after a restart as `READ` and `WRITE`.
+A ClickHouse server created before this setting gets one reviewed StatefulSet
+update on its next `db create` update or release transition, and restarts once.
+After that restart, each of its app databases plans one `update` per migration
+user, which revokes the `READ` that the old storage form reloaded. A `READ ON
+FILE` on a migration user is always revoked by the next plan. On any other user,
+it is drift.
+
 ### Reviewed exceptions and limits
 
 An app database can declare a little more than the fixed grant set, per user,

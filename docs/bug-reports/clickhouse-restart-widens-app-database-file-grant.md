@@ -6,7 +6,10 @@ generated:
   by: process:claude-code
   at: "2026-10-20T15:05:00Z"
 bugId: BUG-7
-status: reported
+status: fixed
+fixedVersion: unreleased
+resolution: >-
+  Fixed on master by ExecPlan 209 (docs/plans/209-keep-the-clickhouse-migration-file-grant-write-only-across-a-server-restart.md, commit 9e6ace41). Nagare's ClickHouse servers turn on access_control_improvements.enable_read_write_grants, so WRITE ON FILE is stored and reloaded as written, and a config change rolls the server pod through the nagare.dev/config-digest pod-template annotation. Every migration user-access block revokes READ ON FILE, and a READ observed on a migration user is pending, not drift, so a server that stored the legacy FILE form converges with one update per migration user. Proven on clickhouse/clickhouse-server 26.8.29.10, in the interpreter world, and by the local app-database smoke, which restarts smoke-ch through review and re-plans to no operations. The intranet's labs-clickhouse picks up the fix through the release that carries it: its StatefulSet update restarts the server once, and each app database's resume or next plan revokes the reloaded READ.
 severity: unusable
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 affects: mori://shinzui/nagare/packages/nagarectl

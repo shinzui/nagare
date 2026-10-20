@@ -63,6 +63,12 @@ backups restorable on their own.
   names.
 - Turning on SQL access management changes the ClickHouse pod template, so existing ClickHouse
   servers restart once on their next reviewed apply.
+- The persisted form of a grant belongs to the server: Nagare's ClickHouse servers turn on
+  `access_control_improvements.enable_read_write_grants`, so the migration user's `WRITE ON FILE`
+  survives a restart as written. The `READ` that a legacy-stored entity reloads is the one
+  engine-derived privilege every user-access block revokes. It is never drift
+  ([EP-209](../plans/209-keep-the-clickhouse-migration-file-grant-write-only-across-a-server-restart.md),
+  BUG-7).
 - Moving an existing direct consumer onto an app database is an explicit data migration, not a
   rebinding.
 - Backup and restore Job pods label themselves `nagare.dev/database-job`, never the
