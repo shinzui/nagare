@@ -139,7 +139,9 @@ Ordered by payoff per effort.
   Implemented 2026-10-20 in `b9600557` (fast gate green, landed): `CarryForward` classifies
   `docs/releases/v0.10.0.md` and `CHANGELOG.md` inert (harness test "release notes and the
   changelog are inert"); `scripts/test-release.sh` uses fixture notes; `CHANGELOG.md` is links.
-  The pass is observed on the next release.
+  A scratch commit on `b9600557` editing `docs/releases/v0.9.0.md` and `CHANGELOG.md` (not
+  landed) was landable without a gate: "carried forward from b9600557…: 2 changed paths, all
+  inert documentation". The `--revision` half is observed on the next release.
 - [ ] M3. `release.json` is the only place the version is written. The six Cabal `version:`
   fields stay constant, `Nagare.Version` reports the version read from `release.json` at build
   time, the `PlatformSpec.hs` fixture reads it, the Nix package names take it from
@@ -148,8 +150,9 @@ Ordered by payoff per effort.
   under 60 s; `nagarectl version --json` and `nix build .#nagarectl` report and name X.Y.Z.
   Implemented 2026-10-20 in `6bba9c4d`: the Cabal versions are `0.0.0`; with `release.json` set
   to 0.9.1 a local `cabal build exe:nagarectl` recompiled `Nagare.Version` alone and relinked,
-  and reported 0.9.1; `nix build .#nagarectl` built `nagarectl-0.9.0` reporting 0.9.0. The gate
-  timing is observed on the next bump.
+  and reported 0.9.1; `nix build .#nagarectl` built `nagarectl-0.9.0` reporting 0.9.0. Its own
+  fast gate built from scratch once for the new package ids (`nagarectl-build` 555 s); the next
+  commit in that slot built in 4.0 s. The bump's timing is observed on the next release.
 - [ ] M4. A release never blocks the operator. `release-candidate.sh` fetches again before it
   creates the evidence commit, so a land during the run does not fail it; the run touches no
   checkout but its own worktrees; the operator repository receives commits by explicit path
@@ -170,7 +173,9 @@ Ordered by payoff per effort.
   `scripts/test-release.sh`) drives the success path with one ambiguous resume, an idempotent
   rerun, the tag pin, each refusal (dirty pin files, wrong CLI, wrong lock, active transaction,
   config compile error, host skew, unconverged scope, unprotected URL) and publish's refusal of
-  a missing or foreign record. The pass is observed on the next release.
+  a missing or foreign record. The read-only checks ran against the real intranet through the
+  operator shell from an empty environment on 2026-10-20 and passed on v0.9.0 (`exact`, 58 of 58
+  scopes converged, protected-hello 302 to `/login`). The pass is observed on the next release.
 
 ## Decision Log
 
