@@ -148,3 +148,16 @@ commit and selects the evidence commit through an explicit repository variable. 
 all scenario/operator/payload identities against the candidate; selecting a newer evidence commit
 never changes the released source. Missing evidence refuses final assembly. Dispatch remains
 non-publishing, and no new authority to create tags or admit production data follows from acceptance.
+
+## Amendment — 2026-10-20: one version source, and the intranet before the tag
+
+`release.json` is the only place a release writes its version
+([EP-210](../plans/210-make-a-release-a-short-unattended-run-that-never-waits-on-the-operator-or-blocks-their-work.md)).
+`nagarectl` embeds its `platformVersion` at compile time, the Cabal packages keep a constant
+`0.0.0`, and the release check compares the built CLI and payload with `release.json`, not the
+Cabal versions or a fixture. A Cabal bump changed six package ids and rebuilt every gate slot from
+scratch. Release notes are not gate inputs; one notes file per release is also its changelog entry.
+
+The candidate run moves the operator's intranet to the candidate before the tag exists, and
+publication refuses without that run's record of an exact platform status. Publication itself
+still mutates no cluster; it pins the operator repository to the tag, which names the same commit.
