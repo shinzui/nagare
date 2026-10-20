@@ -152,16 +152,17 @@ Ordered by payoff per effort.
 
 ## Decision Log
 
-- Decision: The tag does not wait for the operator's passkey login. The intranet record (exact
-  platform status, converged inventory, the protected URL answering 302 to the login page) gates
-  the tag; the login remains the acceptance of "released" in the checklist, done when the
-  operator is next at the keyboard, and a failed login is a P1 fix in the next patch. This
-  replaces EP-201's `--login-confirmed` flag. Proposed; the operator decides.
+- Decision: The tag does not wait for the operator's passkey login, and the login is no longer a
+  release step. The intranet record (exact platform status, converged inventory, the protected
+  URL answering 302 to the login page) gates the tag. This replaces EP-201's `--login-confirmed`
+  flag. Decided by the operator, 2026-10-20.
   Rationale: the last two releases spent 7 h and 4 h between "candidate ready" and the tag
-  waiting for the operator, with bits that could no longer change.
+  waiting for the operator, with bits that could no longer change. The login has passed on every
+  release since v0.6.1; every intranet defect since then was transition machinery (F121 to
+  F130), and the record's redirect check covers the gateway and auth path.
   Date: 2026-10-20
 - Decision: The intranet transition is a step of `just release-candidate` under a standing
-  go-ahead; a release asks for nothing per release. Proposed; the operator decides.
+  go-ahead; a release asks for nothing per release. Decided by the operator, 2026-10-20.
   Rationale: the operator pre-approved the same bounded sequence for every release since v0.6.0
   and said not to re-ask for a class of action once approved (2026-10-09).
   Date: 2026-10-20
