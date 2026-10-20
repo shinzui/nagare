@@ -26,10 +26,10 @@ release and supplies its manifest, native Nix output identities, notes, and `SHA
 | Provision or operate the platform | `nagare` | `nagarectl`, the immutable payload, the `nagare` recipe launcher, Pulumi, and Pulumi's Node.js language plugin |
 | Build or change Nagare itself | source checkout | `nix develop`, tests, and maintainer tools |
 
-The examples use version 0.8.0, the current release. Read a release's notes before selecting it.
+The examples use version 0.9.0, the current release. Read a release's notes before selecting it.
 
 ```bash
-export NAGARE_VERSION=0.8.0
+export NAGARE_VERSION=0.9.0
 export NAGARE_FLAKE="github:shinzui/nagare/v${NAGARE_VERSION}"
 ```
 
@@ -91,7 +91,7 @@ new explicit target rather than following an unpinned branch:
 ```bash
 nix profile list
 nix profile remove nagare
-nix profile install "github:shinzui/nagare/v0.8.0#nagare"
+nix profile install "github:shinzui/nagare/v0.9.0#nagare"
 ```
 
 Profile names can vary, so use the name shown by `nix profile list`. Changing the

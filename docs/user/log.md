@@ -2,6 +2,7 @@
 
 ## 2026-10-20
 
+* **Update**: Pin the installation, getting-started and upgrade examples to 0.9.0, and explain the migration user's write-only `FILE` grant and the one restart an existing ClickHouse server takes (BUG-7).
 * **Update**: Describe the reviewed release transition (`platform transition plan`, `inventory apply`, `platform transition commit`) as the upgrade path for an installed context, and scope `platform upgrade` to untouched pre-inventory contexts.
 * **Update**: Pin the installation and getting-started examples to 0.8.0.
 * **Update**: Replace the operator guide's stale per-plan status table with pointers to the release notes, capability catalog and readiness checklist.

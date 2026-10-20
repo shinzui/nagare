@@ -72,7 +72,7 @@ Since 0.8.0, an app database's `access` names reviewed exceptions from a closed 
 ceilings an app may lower but never raise, and read-only readers: users with `SELECT` on named
 objects that other apps in the namespace bind with `appDatabaseReaders`. Anything outside the
 declaration is refused when the config loads, and a hand change on the server is drift.
-An app database also declares privileges inside its own databases (PostgreSQL `CREATE` in named
+Since 0.9.0, an app database also declares privileges inside its own databases (PostgreSQL `CREATE` in named
 schemas or on the database, with a derived membership of the migration user in the runtime role;
 any database-scoped ClickHouse privilege the running server knows), and the workloads that bind
 its migration credential.

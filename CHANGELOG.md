@@ -5,6 +5,25 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-20
+
+### Fixed
+
+- **A ClickHouse server restart no longer blocks its app databases' reviews** (BUG-7). ClickHouse
+  stored the migration user's `WRITE ON FILE` in a legacy form that a restart reloads as `READ`
+  and `WRITE`, which every plan, quiesce and resume then refused as drift. Nagare's ClickHouse
+  servers turn on `access_control_improvements.enable_read_write_grants`, and the next plan
+  revokes a `READ` an older server reloaded. Each existing ClickHouse server restarts once.
+
+### Added
+
+- **App databases declare privileges inside their own databases and name owner workloads**
+  (IR-35). On PostgreSQL the runtime takes `CREATE` in named schemas (`createIn`) or on the
+  database (`createSchemas`), and the migration user becomes a member of the runtime role so
+  backups and migrations reach runtime-owned objects; on ClickHouse either user takes any
+  database-scoped privilege the running server knows. A workload named in `owners` binds the
+  migration credential. `AppDatabaseAccess` gains `privileges` and `owners`.
+
 ## [0.8.0] - 2026-10-20
 
 ### Fixed

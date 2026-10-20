@@ -8,11 +8,11 @@ This bundle catalogs what Nagare provides today to someone standing up or using 
 Every record names a mechanism a consumer can adopt and verify independently, carries a stable
 `CAP-N` handle, and points to evidence in this repository.
 
-The catalog includes capabilities shipped through [Nagare 0.8.0](../releases/v0.8.0.md).
+The catalog includes capabilities shipped through [Nagare 0.9.0](../releases/v0.9.0.md).
 Each record preserves the release in which its mechanism first shipped in `since`;
 CAP-21 through CAP-23 describe the inventory introduced in 0.4.0, CAP-24 the release transitions
-of 0.6.0, CAP-25 the admin API of 0.6.4, and CAP-26 the shared-server app databases of 0.7.0 and
-0.8.0. Compatibility remains
+of 0.6.0, CAP-25 the admin API of 0.6.4, and CAP-26 the shared-server app databases of 0.7.0, 0.8.0
+and 0.9.0. Compatibility remains
 `experimental`: a later release may change an interface without a major-version bump. `shipped`
 means the implementation is packaged; it does not erase the live-verification limits recorded on
 individual pages. Confirm that a tag is published on the

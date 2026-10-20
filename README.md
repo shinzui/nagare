@@ -13,9 +13,11 @@ servers, while staying simple enough to rebuild the entire system from scratch.
 
 ## Status
 
-The current release is [**Nagare 0.8.0**](https://github.com/shinzui/nagare/releases/tag/v0.8.0)
-([release notes](docs/releases/v0.8.0.md)), and the work intranet runs on it. It completes app
-databases on shared PostgreSQL and ClickHouse servers: reviewed grant exceptions and limits, a
+The current release is [**Nagare 0.9.0**](https://github.com/shinzui/nagare/releases/tag/v0.9.0)
+([release notes](docs/releases/v0.9.0.md)), and the work intranet runs on it. An app database can
+declare privileges inside its own databases, such as `CREATE` in PGMQ's schema, and name the
+workloads that run its migrations, and a ClickHouse server restart no longer blocks its app
+databases' reviews. [0.8.0](docs/releases/v0.8.0.md) added reviewed grant exceptions and limits, a
 maintenance window for one app with an on-demand backup, and read-only reader users that other apps
 bind. Notes for every earlier release are in [`docs/releases/`](docs/releases/).
 
@@ -138,7 +140,7 @@ typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
 needed. Select a reviewed release explicitly:
 
 ```bash
-export NAGARE_VERSION=0.8.0
+export NAGARE_VERSION=0.9.0
 nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
@@ -167,8 +169,8 @@ operator, and contributor workflows.
 
 Changing the workstation package does not move a context. With the new release installed and the
 context selected, move it through a reviewed transition. A release's `transitionsFrom` (in
-[`release.json`](release.json)) lists the releases it accepts; 0.8.0 accepts 0.4.0, 0.5.0, and
-0.6.1 through 0.7.1.
+[`release.json`](release.json)) lists the releases it accepts; 0.9.0 accepts 0.4.0, 0.5.0, and
+0.6.1 through 0.8.0.
 
 ```bash
 nagarectl inventory status --json          # no active transaction
@@ -342,7 +344,7 @@ Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 
 Full-context physical collection, live database/PVC overwrite, and interactive
 mutating maintenance sessions are outside the inventory contract. Each release's
-notes list its known limits; see [0.8.0's](docs/releases/v0.8.0.md#known-limitations).
+notes list its known limits; see [0.9.0's](docs/releases/v0.9.0.md#known-limitations).
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,
 External Secrets Operator, complex autoscaling, multi-tenant auth, huge

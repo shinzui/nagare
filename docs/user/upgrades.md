@@ -19,7 +19,7 @@ generated:
 
 Read the target release notes first. The release's `transitionsFrom` list (in its platform
 metadata, `nagare-platform-metadata-vVERSION.json`) names the releases a context may move from;
-0.8.0 accepts 0.4.0, 0.5.0 and 0.6.1 through 0.7.1. Run every step with the **target** release's
+0.9.0 accepts 0.4.0, 0.5.0 and 0.6.1 through 0.8.0. Run every step with the **target** release's
 `nagarectl` and the context selected:
 
 1. Install the target release and check that `nagarectl inventory status --json` reports no

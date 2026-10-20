@@ -31,7 +31,7 @@ It covers both supported operating targets:
 
 ## Where status lives
 
-The current release is [Nagare 0.8.0](../releases/v0.8.0.md); every release has
+The current release is [Nagare 0.9.0](../releases/v0.9.0.md); every release has
 notes in [`docs/releases/`](../releases/). What ships is cataloged, with
 evidence, in the [capability catalog](../capabilities/index.md). The drills that
 prove day-to-day operation, data recovery, and upgrades are recorded in the
