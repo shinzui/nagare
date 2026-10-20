@@ -351,12 +351,15 @@ data SessionReview = SessionReview
   }
   deriving stock (Generic)
 
--- | The declarations of the server, the given alpha scope and beta.
-membersOfScope :: Engine -> ScopeDeclaration -> IO Members
-membersOfScope engine' alphaScope =
+-- | The members a review resolves, as the CLI does: accepted history first,
+-- then the review's own declarations of the server, alpha and beta.
+membersOfScope :: Engine -> Members -> ScopeDeclaration -> IO Members
+membersOfScope engine' accepted alphaScope =
   either (assertFailure . T.unpack) pure $
     appDatabaseMembersFromDeclarations
-      (concat [declarationsOf scope | scope <- [fst (serverOf engine'), alphaScope, scopeOf (serverOf engine') (beta engine')]])
+      ( map (Managed . (^. #declaration)) (Map.elems accepted)
+          <> concat [declarationsOf scope | scope <- [fst (serverOf engine'), alphaScope, scopeOf (serverOf engine') (beta engine')]]
+      )
 
 sessionAdapter :: AppDatabaseOps -> SessionReview -> Adapter
 sessionAdapter ops review = withAppDatabaseSessions (review ^. #bindings) (review ^. #after) ops (adapterAgainst (review ^. #before) ops (review ^. #after))
@@ -394,7 +397,7 @@ quiesceCycle engine' world ops open = do
 
 sessionReviewFor :: Engine -> Members -> ScopeDeclaration -> SessionStep -> IO SessionReview
 sessionReviewFor engine' before' revised step' = do
-  after' <- membersOfScope engine' revised
+  after' <- membersOfScope engine' before' revised
   bindings' <- either (assertFailure . T.unpack) pure (sessionBindings [revised])
   (digest, binding) <- case [(d, b) | (d, b) <- Map.toList bindings', b ^. #step == step'] of
     [single] -> pure single

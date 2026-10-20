@@ -7,6 +7,8 @@
 #   3. a re-plan has no operations;
 #   4. four probe Workers, each binding one app database, on the servers' own images;
 #   5. own-database read and write, and every cross-app denial;
+#   5a. EP-205: quiesce alpha on both engines while beta's long queries run, back it up on
+#      demand, ingest and restore it, resume it, and print the evidence; servers not restarted;
 #   5b. EP-204: reviewed exceptions and ceilings on alpha-ch and a connection limit and
 #      pg_monitor on alpha-pg hold, beta is unaffected, and removing an exception revokes it;
 #   6. rotate alpha-pg's runtime user and retire beta-ch, the other apps unchanged;
@@ -133,6 +135,11 @@ EOF
 appdb_config "$ROOT/config/AppDatabases.hs" none
 appdb_config "$ROOT/config/AppDatabasesDeclared.hs" declared
 appdb_config "$ROOT/config/AppDatabasesRemoved.hs" removed
+# A rerun starts with every app database open: an interrupted earlier run may have left one quiesced.
+for app in $(n db app-database list -n "$NS" 2>/dev/null | awk -F'\t' '$6 == "quiesced" {print $1}'); do
+  n db app-database resume "$app" -n "$NS" --save-plan "$REVIEWS/rerun-resume-$app" >/dev/null
+  apply "$REVIEWS/rerun-resume-$app"
+done
 # A rerun starts from no reviewed access: PGMQ's grants an earlier run left would be drift.
 if kubectl -n "$NS" get secret alpha-pg-migration >/dev/null 2>&1; then
   kubectl -n "$NS" exec smoke-pg-0 -- env PGPASSWORD="$(secret alpha-pg-migration POSTGRES_PASSWORD)" \
@@ -274,6 +281,95 @@ refused "alpha-pg runtime creates a role" pg_rt alpha-pg 'CREATE ROLE smoke_intr
 refused "alpha-pg runtime grants a role" pg_rt alpha-pg 'GRANT pg_read_all_data TO CURRENT_USER'
 refused "alpha-pg runtime controls the server" pg_rt alpha-pg 'SELECT pg_reload_conf()'
 log "AC-3: own read and write for all four; eighteen cross-app, DDL and control denials hold"
+
+# --- 5a. EP-205: a maintenance window on alpha, beta untouched, servers not restarted ---
+pg_admin() { kubectl -n "$NS" exec smoke-pg-0 -- sh -c 'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -tAc "$1"' sh "$1"; }
+pod_identity() { kubectl -n "$NS" get pod "$1" -o jsonpath='{.metadata.uid} {.status.startTime}'; }
+spec_of() { kubectl -n "$NS" get cronjob "$1" -o json | python3 -I -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["spec"], sort_keys=True))'; }
+CH_MIG_USER="$(secret alpha-ch-migration CLICKHOUSE_USER)"
+CH_RT_USER="$(secret alpha-ch-runtime CLICKHOUSE_USER)"
+PG_RT_USER="$(secret alpha-pg-runtime POSTGRES_USER)"
+ch_as alpha-ch-migration "CREATE TABLE IF NOT EXISTS alpha.src (k UInt64) ENGINE = MergeTree ORDER BY k"
+ch_as alpha-ch-migration "CREATE TABLE IF NOT EXISTS alpha.agg (n UInt64) ENGINE = SummingMergeTree ORDER BY tuple()"
+ch_as alpha-ch-migration "CREATE MATERIALIZED VIEW IF NOT EXISTS alpha.mv TO alpha.agg DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT count() AS n FROM alpha.src"
+ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.dv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT count() AS c FROM alpha.t"
+# The app's own databases and server-wide grants; the window's scratch restore adds its own.
+grants_q="SELECT user_name, access_type, database, table, column, is_partial_revoke, grant_option FROM system.grants WHERE user_name IN ('$CH_RT_USER', '$CH_MIG_USER') AND (database IS NULL OR database IN ('alpha', 'alpha_ledger', 'system')) ORDER BY ALL FORMAT TSV"
+grants_before="$(ch_admin "$grants_q" | sha256sum)"
+ch_pod="$(pod_identity smoke-ch-0)"; pg_pod="$(pod_identity smoke-pg-0)"; ch_uuid="$(ch_admin 'SELECT serverUUID()')"
+cron_ch="$(spec_of nagare-appdb-alpha-ch)"; cron_pg="$(spec_of nagare-appdb-alpha-pg)"
+long_ch='SELECT sleepEachRow(1) FROM numbers(600) SETTINGS max_block_size = 1 FORMAT Null'
+for app in alpha beta; do
+  (ch_rt "$app-ch" "$long_ch" >/dev/null 2>&1 || true) &
+  (pg_rt "$app-pg" 'SELECT pg_sleep(600)' >/dev/null 2>&1 || true) &
+done
+sleep 3
+for app in alpha-ch alpha-pg; do
+  n db app-database quiesce "$app" -n "$NS" --users runtime --save-plan "$REVIEWS/quiesce-$app" >/dev/null
+  apply "$REVIEWS/quiesce-$app"
+done
+expect "IR-31 AC-1: alpha-ch runtime queries after the drain" "$(ch_admin "SELECT count() FROM system.processes WHERE user = '$CH_RT_USER'")" "0"
+expect "IR-31 AC-1: alpha-pg runtime sessions after the drain" "$(pg_admin "SELECT count(*) FROM pg_stat_activity WHERE usename = '$PG_RT_USER'")" "0"
+[ "$(ch_admin "SELECT count() FROM system.processes WHERE user = '$(secret beta-ch-runtime CLICKHOUSE_USER)'")" -ge 1 ] || fail "IR-31 AC-1: beta-ch's long query did not keep running"
+[ "$(pg_admin "SELECT count(*) FROM pg_stat_activity WHERE usename = '$(secret beta-pg-runtime POSTGRES_USER)'")" -ge 1 ] || fail "IR-31 AC-1: beta-pg's long query did not keep running"
+refused "quiesced alpha-ch runtime login" ch_as alpha-ch-runtime 'SELECT 1'
+refused "quiesced alpha-pg runtime login" pg_rt alpha-pg 'SELECT 1'
+expect "alpha-ch migration stays open" "$(ch_as alpha-ch-migration 'SELECT 1')" "1"
+for app in alpha-ch alpha-pg; do
+  expect "IR-31 AC-4: $app schedule suspended" "$(kubectl -n "$NS" get cronjob "nagare-appdb-$app" -o jsonpath='{.spec.suspend}')" "true"
+done
+expect "IR-31: alpha-ch server pod unchanged" "$(pod_identity smoke-ch-0)" "$ch_pod"
+expect "IR-31: alpha-pg server pod unchanged" "$(pod_identity smoke-pg-0)" "$pg_pod"
+expect "IR-31: ClickHouse server UUID unchanged" "$(ch_admin 'SELECT serverUUID()')" "$ch_uuid"
+out="$(n db app-database plan --config "$ROOT/config/AppDatabases.hs")"
+grep -q 'app database alpha-ch is quiesced; left out of this plan' <<<"$out" || { echo "$out" >&2; fail "IR-31: plan did not leave quiesced alpha-ch out"; }
+if out="$(n db app-database rotate alpha-pg -n "$NS" --user runtime --save-plan "$REVIEWS/rotate-quiesced" 2>&1)"; then fail "IR-31: a quiesced app database's rotation was reviewed"; fi
+grep -q 'app-database-quiesced' <<<"$out" || { echo "$out" >&2; fail "IR-31: rotation of a quiesced app database did not refuse with app-database-quiesced"; }
+# IR-31 AC-5: an on-demand backup of each, quiesced, ingested and restored into scratch.
+OD="q${RUN#s}"
+for app in alpha-pg alpha-ch; do
+  n db app-database backup "$app" -n "$NS" --backup-id "$OD" --save-plan "$REVIEWS/backup-$app" >/dev/null
+  apply "$REVIEWS/backup-$app"
+  job="nagare-appdb-$app-$OD"
+  kubectl -n "$NS" wait --for=condition=complete "job/$job" --timeout=600s >/dev/null \
+    || { kubectl -n "$NS" logs "job/$job" --all-containers --tail=20 >&2 || true; fail "on-demand backup $job did not complete"; }
+  uid="$(kubectl -n "$NS" get job "$job" -o jsonpath='{.metadata.uid}')"
+  n db app-database backup-receipts "$app" -n "$NS" --backup-id "$uid" --save-plan "$REVIEWS/ingest-od-$app" >/dev/null
+  apply "$REVIEWS/ingest-od-$app"
+  n db app-database restore "$app" -n "$NS" --backup-id "$uid" --restore-id "$OD" --save-plan "$REVIEWS/restore-od-$app" >/dev/null
+  apply "$REVIEWS/restore-od-$app"
+done
+expect "IR-31 AC-5: alpha-pg on-demand scratch rows" "$(pg_as alpha-pg-migration "alpha_restore_$OD" "SELECT string_agg(v, '|') FROM t")" "alpha"
+expect "IR-31 AC-5: alpha-ch on-demand scratch rows" "$(ch_as alpha-ch-migration "SELECT groupArray(v)[1] FROM alpha_restore_$OD.t")" "alpha"
+for app in alpha-ch alpha-pg; do
+  n db app-database resume "$app" -n "$NS" --save-plan "$REVIEWS/resume-$app" >/dev/null
+  apply "$REVIEWS/resume-$app"
+done
+expect "IR-31 AC-4: alpha-ch schedule as accepted" "$(spec_of nagare-appdb-alpha-ch)" "$cron_ch"
+expect "IR-31 AC-4: alpha-pg schedule as accepted" "$(spec_of nagare-appdb-alpha-pg)" "$cron_pg"
+expect "IR-31 AC-2: alpha's grants after resume" "$(ch_admin "$grants_q" | sha256sum)" "$grants_before"
+ch_as alpha-ch-migration "INSERT INTO alpha.src VALUES (1)"
+[ "$(ch_rt alpha-ch 'SELECT c FROM alpha.dv')" -ge 1 ] || fail "IR-31 AC-2: alpha's definer view does not read after resume"
+[ "$(ch_rt alpha-ch 'SELECT sum(n) FROM alpha.agg')" -ge 1 ] || fail "IR-31 AC-2: alpha's materialized view does not read after resume"
+expect "alpha-pg reads after resume" "$(pg_rt alpha-pg "SELECT string_agg(v, '|') FROM t")" "alpha"
+for app in alpha-ch alpha-pg; do
+  evidence="$(n db app-database evidence "$app" -n "$NS" --json)"
+  python3 -I - "$evidence" <<'PY' || { echo "$evidence" >&2; fail "IR-31 AC-6: $app evidence is incomplete"; }
+import json, sys
+e = json.loads(sys.argv[1])
+for key in ("server", "serverAtResume", "blockedUsers", "drain", "backup", "resume"):
+    assert e[key], key
+assert e["sessionsObserved"] == 0 and e["activeRuns"] == 0 and e["unfinishedMutations"] == []
+same = lambda i: {k: v for k, v in i.items() if k != "processStarted"}
+assert same(e["server"]) == same(e["serverAtResume"]), (e["server"], e["serverAtResume"])
+assert "podUID" in e["server"] and ("serverUUID" in e["server"] or "systemIdentifier" in e["server"])
+assert e["backup"]["backupId"] and e["backup"]["receipt"]
+PY
+done
+ch_admin "KILL QUERY WHERE user = '$(secret beta-ch-runtime CLICKHOUSE_USER)' SYNC FORMAT Null" >/dev/null
+pg_admin "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = '$(secret beta-pg-runtime POSTGRES_USER)'" >/dev/null
+wait
+log "IR-31: alpha quiesced and drained on both engines while beta ran; on-demand backups ingested and restored; resumed with schedules as accepted; servers not restarted"
 
 # --- 5b. EP-204: reviewed exceptions and limits ---
 plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs" --save-plan "$REVIEWS/access-declared")"

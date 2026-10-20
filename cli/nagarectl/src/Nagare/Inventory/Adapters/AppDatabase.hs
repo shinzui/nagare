@@ -129,8 +129,10 @@ data AppDatabaseOps = AppDatabaseOps
 appDatabaseMembersFromDeclarations :: [Declaration] -> Either Text (Map ResourceId AppDatabaseMember)
 appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind members
   where
+    -- Accepted history comes first and the review's own declarations last,
+    -- so the latter win; a sibling read from both would see a stale login.
     byId = Map.fromList [(declarationId d, d) | d <- declarations]
-    members = [resource | Managed resource <- declarations, resource ^. #executor == AppDatabaseExecutor]
+    members = [resource | Managed resource <- Map.elems byId, resource ^. #executor == AppDatabaseExecutor]
     siblings owner = [resource | resource <- members, resource ^. #owner == owner]
     bind resource = do
       (stateful, engineText, kind', login) <- case (resource ^. #address, resource ^. #spec) of
