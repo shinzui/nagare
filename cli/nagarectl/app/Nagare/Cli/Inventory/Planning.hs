@@ -398,6 +398,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
         inventoryAppDatabaseAdapter
           active
           (ResourceInventory.inventoryBinding inventory)
+          scopes
           appDatabaseMembers
           (acceptedAppDatabaseResources history)
           (InventoryStore.headIncarnations (InventoryPlan.historyHead history))

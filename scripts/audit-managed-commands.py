@@ -77,7 +77,7 @@ ROUTES = {
     },
     "AppDatabaseCommand": {
         "read": "AppDatabaseList",
-        "reviewed": "AppDatabasePlan AppDatabaseRotate AppDatabaseRetire AppDatabaseBackupReceipts AppDatabaseRestore AppDatabasePruneScheduledBackups",
+        "reviewed": "AppDatabasePlan AppDatabaseRotate AppDatabaseRetire AppDatabaseQuiesce AppDatabaseResume AppDatabaseBackupReceipts AppDatabaseRestore AppDatabasePruneScheduledBackups",
         "recovery": "AppDatabaseRecoverScheduledPrune",
     },
     "BrokerCommand": {
@@ -206,7 +206,7 @@ FAMILY_ROUTES = {
     "DomainsCommand.DomainsTls": "Certificate re-issuance trigger",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore DbCommand.DbRestoreRebuilt": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
-    "AppDatabaseCommand.AppDatabasePlan AppDatabaseCommand.AppDatabaseRotate AppDatabaseCommand.AppDatabaseRetire AppDatabaseCommand.AppDatabaseBackupReceipts AppDatabaseCommand.AppDatabaseRestore AppDatabaseCommand.AppDatabasePruneScheduledBackups AppDatabaseCommand.AppDatabaseRecoverScheduledPrune": "App databases on shared servers: users, databases and grants",
+    "AppDatabaseCommand.AppDatabasePlan AppDatabaseCommand.AppDatabaseRotate AppDatabaseCommand.AppDatabaseRetire AppDatabaseCommand.AppDatabaseQuiesce AppDatabaseCommand.AppDatabaseResume AppDatabaseCommand.AppDatabaseBackupReceipts AppDatabaseCommand.AppDatabaseRestore AppDatabaseCommand.AppDatabasePruneScheduledBackups AppDatabaseCommand.AppDatabaseRecoverScheduledPrune": "App databases on shared servers: users, databases and grants",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",
 }
 

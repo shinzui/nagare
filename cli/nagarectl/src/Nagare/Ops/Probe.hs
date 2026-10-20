@@ -44,6 +44,7 @@ module Nagare.Ops.Probe
   , backupPrefixes
   , recoveryPointProbe
   , retiredRecoveryPointProbe
+  , quiescedRecoveryPointProbe
   , retentionProbe
   , parseDfUsage
 
@@ -288,6 +289,10 @@ recoveryPointProbe database result = Probe "recovery point" grade (database <> "
 -- recovery points and is not stale.
 retiredRecoveryPointProbe :: Text -> Probe
 retiredRecoveryPointProbe source = Probe "recovery point" StatusOk (source <> ": retired; schedule suspended")
+
+-- | EP-205: a quiesced app database's schedule is paused until resume.
+quiescedRecoveryPointProbe :: Text -> Probe
+quiescedRecoveryPointProbe source = Probe "recovery point" StatusOk (source <> ": quiesced; schedule paused until resume")
 
 -- | EP-183 M2: one source's accepted scheduled recovery points past the
 -- retention policy (ADR 28). Points past policy are a warning, not a failure:

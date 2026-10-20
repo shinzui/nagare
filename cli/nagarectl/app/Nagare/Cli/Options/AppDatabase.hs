@@ -17,6 +17,9 @@ data AppDatabaseCommand
   = AppDatabasePlan AppDatabasePlanOpts
   | AppDatabaseRotate AppDatabaseNameOpts String
   | AppDatabaseRetire AppDatabaseNameOpts
+  | -- | EP-205: the users to quiesce, as @runtime@ or @runtime,migration@
+    AppDatabaseQuiesce AppDatabaseNameOpts String
+  | AppDatabaseResume AppDatabaseNameOpts
   | AppDatabaseList (Maybe String)
   | AppDatabaseBackupReceipts AppDatabaseReceiptsOpts
   | AppDatabaseRestore AppDatabaseRestoreOpts

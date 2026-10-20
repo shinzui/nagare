@@ -8,6 +8,7 @@ module Nagare.Test.World.AppDatabase
   ( World (..)
   , WorldUser (..)
   , WorldDatabase (..)
+  , WorldMutation (..)
   , newWorld
   , worldOps
   , worldCatalog
@@ -31,6 +32,7 @@ import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseData
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.AppDatabase
+import Nagare.Resource.Inventory (UserLogin (..))
 import Nagare.Resource.Types (Name, nameText)
 import Nagare.Test.World.Adversary
 
@@ -66,11 +68,43 @@ data World = World
   , publicSystemAccess :: !Bool
   , secrets :: !(Map Text CredentialSecret)
   , issued :: !Int
+  , sessions :: !(Map Text Int)
+  -- ^ EP-205: each user's running queries (ClickHouse) or sessions (PostgreSQL)
+  , activeRuns :: !Int
+  -- ^ polls until the scheduled backup Job in flight ends
+  , mutations :: ![WorldMutation]
+  , server :: !(Map Text Text)
+  -- ^ the server Pod's UID and start time and the engine's identity
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | A ClickHouse mutation on one table: done after its remaining polls, or
+-- stuck with a failure reason.
+data WorldMutation = WorldMutation
+  { database :: !Text
+  , table :: !Text
+  , mutationId :: !Text
+  , remaining :: !Int
+  , failure :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
 newWorld :: Engine -> Map Text CredentialSecret -> IO (IORef World)
-newWorld engine' secrets' = newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0)
+newWorld engine' secrets' =
+  newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0 Map.empty 0 [] (Map.fromList [("podUID", "pod-1"), ("podStarted", "2026-10-19T00:00:00Z"), ("serverUUID", "uuid-1"), ("processStarted", "2026-10-19 00:00:00")]))
+
+-- | The server as a drain observes it.
+drainObservation :: World -> [Text] -> [Text] -> DrainObservation
+drainObservation world users' databases' =
+  DrainObservation
+    { sessions = sum [Map.findWithDefault 0 user (world ^. #sessions) | user <- users']
+    , unfinished = [mutationName m | m <- pending]
+    , failed = [mutationName m <> ": " <> reason | m <- pending, Just reason <- [m ^. #failure]]
+    , identity = Map.withoutKeys (world ^. #server) (Set.fromList ["podUID", "podStarted"])
+    }
+  where
+    pending = [m | m <- world ^. #mutations, m ^. #database `elem` databases', m ^. #remaining > 0 || isJust (m ^. #failure)]
+    mutationName m = m ^. #database <> "." <> m ^. #table <> " " <> m ^. #mutationId
 
 secretKey :: Name -> Name -> Text
 secretKey namespace' secretName = nameText namespace' <> "/" <> nameText secretName
@@ -130,6 +164,18 @@ worldOps ref adversary =
     , freshPassword = do
         n <- atomicModifyIORef' ref (\world -> (world & #issued %~ (+ 1), world ^. #issued + 1))
         pure ("rotated-" <> T.pack (show n))
+    , observeDrain = \_ users' databases' -> do
+        fault <- nextFaultAt adversary ObserveCall
+        case fault of
+          Just placement@(_, TransientReadFailure) -> do
+            noteActed adversary placement
+            pure (Left "injected: drain observation timed out")
+          _ -> Right . (\world -> drainObservation world users' databases') <$> readIORef ref
+    , terminateSessions = \_ users' -> mutate (Right . (#sessions %~ \running -> foldr (`Map.insert` 0) running users'))
+    , observeActiveRuns = \_ _ -> Right . (^. #activeRuns) <$> readIORef ref
+    , observeServerPod = \_ -> (\world -> Right (Map.findWithDefault "" "podUID" (world ^. #server), Map.findWithDefault "" "podStarted" (world ^. #server))) <$> readIORef ref
+    , -- Time passes: a running Job and the mutations move one poll on.
+      pause = modifyIORef' ref (\world -> world & #activeRuns %~ (max 0 . subtract 1) & #mutations . traverse . #remaining %~ (max 0 . subtract 1))
     }
   where
     -- One effectful call: the adversary may refuse it, lose its answer, or
@@ -166,30 +212,31 @@ interpret command world = case command of
   -- allow-listed one revoked (a grant outside the list stays), the one
   -- SETTINGS statement replaces the whole settings list, CONNECTION LIMIT
   -- replaces the limit, and SET or RESET touches only statement_timeout.
-  SetUserAccess role name on access -> withUser name $ \u ->
-    if engine' == ClickHouse
-      then
-        let managed = concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken [minBound .. maxBound]
-            granted = if on then concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken (access ^. #exceptions) else []
-         in u
+  SetUserAccess role name login' access -> withUser name $ \u ->
+    let on = login' == LoginOpen
+     in if engine' == ClickHouse
+          then
+            let managed = concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken [minBound .. maxBound]
+                granted = if on then concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken (access ^. #exceptions) else []
+             in u
+                  & #login
+                  .~ on
+                  & #serverGrants
+                  .~ (filter (`notElem` managed) (u ^. #serverGrants) <> granted)
+                  & #settings
+                  .~ [CatalogSetting settingName (Just value) (Just "1") (Just value) Nothing | (settingName, value) <- clickHouseCeilings (access ^. #limits)]
+                  & #inheritedProfiles
+                  .~ []
+          else
+            u
               & #login
-              .~ on
-              & #serverGrants
-              .~ (filter (`notElem` managed) (u ^. #serverGrants) <> granted)
-              & #settings
-              .~ [CatalogSetting settingName (Just value) (Just "1") (Just value) Nothing | (settingName, value) <- clickHouseCeilings (access ^. #limits)]
-              & #inheritedProfiles
-              .~ []
-      else
-        u
-          & #login
-          .~ on
-          & #connectionLimit
-          .~ fromMaybe (-1) (access ^. #limits . #connectionLimit)
-          & #roleSettings
-          .~ ( filter (not . ("statement_timeout=" `T.isPrefixOf`)) (u ^. #roleSettings)
-                 <> ["statement_timeout=" <> postgresTimeout seconds | Just seconds <- [access ^. #limits . #statementTimeoutSeconds]]
-             )
+              .~ (login' == LoginOpen)
+              & #connectionLimit
+              .~ fromMaybe (-1) (access ^. #limits . #connectionLimit)
+              & #roleSettings
+              .~ ( filter (not . ("statement_timeout=" `T.isPrefixOf`)) (u ^. #roleSettings)
+                     <> ["statement_timeout=" <> postgresTimeout seconds | Just seconds <- [access ^. #limits . #statementTimeoutSeconds]]
+                 )
   SetPassword name hash -> withUser name (#password .~ hash)
   CreateDatabase name owner'
     | Map.member name (world ^. #databases) ->
@@ -231,7 +278,7 @@ interpret command world = case command of
     setAccess access db
       | engine' == ClickHouse =
           let others = Set.filter (\g -> g ^. #grantee `notElem` [access ^. #migration, access ^. #runtime]) (db ^. #grants)
-              declared = Set.fromList [CatalogGrant who "database" p | (role, who) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)], g <- appDatabaseDatabaseGrants ClickHouse role, p <- g ^. #privileges]
+              declared = Set.fromList [CatalogGrant who "database" p | (role, who) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)], who `notElem` access ^. #withheld, g <- appDatabaseDatabaseGrants ClickHouse role, p <- g ^. #privileges]
            in db & #grants .~ (if access ^. #enabled then Set.union others declared else others)
       | access ^. #enabled =
           let runtime = access ^. #runtime

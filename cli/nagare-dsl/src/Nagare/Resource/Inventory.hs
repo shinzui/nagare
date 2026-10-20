@@ -1,6 +1,7 @@
 module Nagare.Resource.Inventory
   ( Executor (..)
   , DesiredSpec (..)
+  , UserLogin (..)
   , CloudflareCacheIntent (..)
   , CloudflareTlsMode (..)
   , validAccessEndpoint

@@ -17,10 +17,12 @@ import Options.Applicative
   , optional
   , progDesc
   , short
+  , showDefault
   , strArgument
   , strOption
   , subparser
   , switch
+  , value
   , (<**>)
   )
 
@@ -48,6 +50,22 @@ appDatabaseParser =
           ( info
               (AppDatabaseRetire <$> nameOpts "Save a review that turns the app database's access off" <**> helper)
               (progDesc "Review retirement: logins and grants off, databases and Secrets kept")
+          )
+        <> command
+          "quiesce"
+          ( info
+              ( AppDatabaseQuiesce
+                  <$> nameOpts "Save a review that quiesces the app database"
+                  <*> strOption (long "users" <> metavar "runtime[,migration]" <> value "runtime" <> showDefault <> help "The users whose logins close; the runtime user always")
+                    <**> helper
+              )
+              (progDesc "Review a maintenance window: logins off, the schedule paused, then a drain proves no session, scheduled run or mutation remains")
+          )
+        <> command
+          "resume"
+          ( info
+              (AppDatabaseResume <$> nameOpts "Save a review that ends the app database's maintenance window" <**> helper)
+              (progDesc "Review the end of a quiesce: the quiesced users log in again and the schedule's accepted bytes come back")
           )
         <> command
           "backup-receipts"

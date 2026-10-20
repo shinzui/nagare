@@ -47,7 +47,7 @@ import Nagare.Database.Backup (volumeBackupScheduleName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
-import Nagare.Inventory.AppDatabase (AppDatabaseScheduleSource (..), appDatabaseScheduleSource, scheduleSuspended)
+import Nagare.Inventory.AppDatabase (AppDatabaseScheduleSource (..), appDatabaseScheduleSource, quiescedRoles, scheduleSuspended)
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (scheduledRecoveryPoint)
   , ScheduledReceiptExpectation
@@ -110,7 +110,7 @@ import Nagare.Inventory.ScheduledStore
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
-import Nagare.Ops.Probe (Probe, recoveryPointProbe, retentionProbe, retiredRecoveryPointProbe)
+import Nagare.Ops.Probe (Probe, quiescedRecoveryPointProbe, recoveryPointProbe, retentionProbe, retiredRecoveryPointProbe)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -166,18 +166,19 @@ scheduledRecoveryPointProbes mctx =
         let label = status ^. #label
             namespaceName = status ^. #namespace
             retention command = retentionProbe command label ((standardRetention,) . length <$> acceptedPastPolicy standardRetention now (status ^. #source) (status ^. #schedule) current)
-            -- F132: only an app database's schedule is suspended by review,
-            -- at its retirement; it takes no recovery points and is not stale.
+            -- F132: only an app database's schedule is suspended by review, at
+            -- its retirement or a quiesce (EP-205); it takes no recovery points
+            -- and is not stale.
             graded retirable resolve = do
               result <-
                 ( Right <$> do
                     source <- resolve
                     if retirable && source ^. #suspended
-                      then pure Nothing
-                      else Just . (^. #freshness) <$> scheduledReceiptScanSource NewestVerified source
+                      then pure (Left (if null (quiescedRoles (source ^. #sourceScope)) then retiredRecoveryPointProbe label else quiescedRecoveryPointProbe label))
+                      else Right . (^. #freshness) <$> scheduledReceiptScanSource NewestVerified source
                 )
                   `catches` unobservable
-              pure (either (recoveryPointProbe label . Left) (maybe (retiredRecoveryPointProbe label) (recoveryPointProbe label . Right)) result)
+              pure (either (recoveryPointProbe label . Left) (either id (recoveryPointProbe label . Right)) result)
         case status ^. #kind of
           DatabaseStatus database -> do
             point <- graded False (resolveScheduledSource mctx database namespaceName Nothing)

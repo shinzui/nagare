@@ -1,4 +1,4 @@
--- EP-202 M1 reference fixture, extended by EP-204 M1: the PostgreSQL 18 statements for one app database.
+-- EP-202 M1 reference fixture, extended by EP-204 M1 and EP-205 M1: the PostgreSQL 18 statements for one app database.
 --
 -- App database "alpha-pg" on server "smoke-pg" (initial database "smoke_pg"), logical
 -- database "alpha", users "alpha_runtime" and "alpha_migration". Proven by hand against
@@ -99,6 +99,20 @@ GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;
+
+-- operation: user-access alpha_runtime quiesced
+-- EP-205 M1. Quiesce on PostgreSQL keeps every grant: NOLOGIN refuses a new login ("role
+-- "alpha_runtime" is not permitted to log in") and the drain ends what is open. The limits
+-- follow the declaration as when off. alpha_migration still logs in and runs DDL.
+ALTER ROLE "alpha_runtime" NOLOGIN CONNECTION LIMIT -1;
+ALTER ROLE "alpha_runtime" RESET statement_timeout;
+
+-- operation: drain alpha_runtime
+-- After the grace period: pg_terminate_backend ends an idle session and one running
+-- pg_sleep(600) (2 terminated); beta_runtime's session keeps running. Then the blocked
+-- users have no session, and the server identity is read.
+SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename IN ('alpha_runtime');
+SELECT json_build_object('sessions', (SELECT count(*) FROM pg_stat_activity WHERE usename IN ('alpha_runtime')), 'systemIdentifier', (SELECT system_identifier::text FROM pg_control_system()), 'started', pg_postmaster_start_time()::text);
 
 -- operation: set-password alpha_runtime
 -- Rotation: the Secret holds the new password first, then the role follows it.

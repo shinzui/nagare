@@ -256,6 +256,8 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
     inventoryAppDatabaseAdapter
       active
       binding
+      -- Status observes; it runs no declared operation.
+      []
       (Map.restrictKeys allAppDatabaseMembers (Set.fromList (ids ResourceInventory.AppDatabaseExecutor)))
       (acceptedAppDatabaseResources history)
       (InventoryStore.headIncarnations (InventoryPlan.historyHead history))

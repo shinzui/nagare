@@ -54,6 +54,21 @@ runAppDatabase mctx = \case
     accepted <- loadAcceptedNative active snapshot
     (revised, native) <- either (dieT . renderErrors) pure (retireAppDatabaseScope snapshot accepted scope)
     planReview active snapshot [revised] native (Just (o ^. #savePlan))
+  AppDatabaseQuiesce o usersText -> do
+    (active, snapshot) <- loadSnapshot mctx
+    scope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack (o ^. #name)) (T.pack <$> o ^. #scopeKey))
+    accepted <- loadAcceptedNative active snapshot
+    stamp <- currentTimestamp
+    let roles = filter (not . T.null) (map T.strip (T.splitOn "," (T.pack usersText)))
+    (revised, native) <- either (dieT . renderErrors) pure (quiesceAppDatabaseScope accepted scope roles stamp)
+    planReview active snapshot [revised] native (Just (o ^. #savePlan))
+  AppDatabaseResume o -> do
+    (active, snapshot) <- loadSnapshot mctx
+    scope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack (o ^. #name)) (T.pack <$> o ^. #scopeKey))
+    accepted <- loadAcceptedNative active snapshot
+    stamp <- currentTimestamp
+    (revised, native) <- either (dieT . renderErrors) pure (resumeAppDatabaseScope accepted scope stamp)
+    planReview active snapshot [revised] native (Just (o ^. #savePlan))
   AppDatabaseRotate o roleText -> do
     role <- case roleText of
       "runtime" -> pure "runtime"
@@ -146,7 +161,7 @@ runAppDatabase mctx = \case
             , row ^. #namespace
             , row ^. #engine
             , T.intercalate "," (row ^. #databases)
-            , if row ^. #retired then "retired" else "active"
+            , if row ^. #retired then "retired" else if row ^. #quiesced then "quiesced" else "active"
             ]
         )
 
@@ -161,7 +176,15 @@ runPlan mctx o = do
   keyVersion <- either dieT pure (Resource.mkName (maybe "v1" T.pack (o ^. #recoveryKeyVersion)))
   backend <- either dieT pure (storeBackendFor (active ^. #profile) (active ^. #profile . #backupBucket))
   let target = DatabaseBackupTarget backend (active ^. #profile . #backupRecoveryPoint)
-  compiled <- forM databases $ \db -> do
+  -- A quiesced app database is left out until resume (EP-205): planning it
+  -- would reopen its logins as convergence, and refusing would block every
+  -- other app's changes during one app's window.
+  let quiesced db = case appDatabaseScopeId db of
+        Right owner | Just (_, scope) <- Map.lookup owner (ResourceInventory.snapshotScopes snapshot) -> not (null (quiescedRoles scope))
+        _ -> False
+  forM_ (filter quiesced databases) $ \db ->
+    TIO.putStrLn ("app database " <> appDatabaseNameText (db ^. #name) <> " is quiesced; left out of this plan until db app-database resume")
+  compiled <- forM (filter (not . quiesced) databases) $ \db -> do
     let name = appDatabaseNameText (db ^. #name)
     (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot (namespaceText (db ^. #namespace)))
     backup <- either dieT pure (Resource.mkName (maybe ("nagare-dbbackup-" <> name) T.pack (o ^. #recoveryBackup)))
@@ -169,7 +192,9 @@ runPlan mctx o = do
     let recovery = RecoveryIntent backup (NE.fromList [mkSecretRef secret keyVersion | secret <- secrets])
         source = Resource.SourceLocation (T.pack (o ^. #config)) name
     either (dieT . renderErrors) pure (compileStandaloneAppDatabase snapshot accepted target db cluster (Just namespaceId) recovery source)
-  planReview active snapshot (map fst compiled) (Map.unions (map snd compiled)) (o ^. #savePlan)
+  if null compiled
+    then TIO.putStrLn "no operations"
+    else planReview active snapshot (map fst compiled) (Map.unions (map snd compiled)) (o ^. #savePlan)
 
 loadSnapshot :: Maybe String -> IO (ActiveTarget, ResourceInventory.ScopeSnapshot)
 loadSnapshot mctx = do

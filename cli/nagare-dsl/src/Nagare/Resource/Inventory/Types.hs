@@ -5,6 +5,7 @@
 module Nagare.Resource.Inventory.Types
   ( Executor (..)
   , DesiredSpec (..)
+  , UserLogin (..)
   , CloudflareCacheIntent (..)
   , CloudflareTlsMode (..)
   , validDnsIpv4
@@ -59,16 +60,22 @@ data DesiredSpec
     -- are expected (EP-204). Registration creates the empty database only.
     LogicalDatabase !Text !Name !Name !Bool !ContentDigest ![MonitoringRole]
   | -- | A login user inside a server: the engine token, the role token
-    -- (@runtime@ or @migration@), whether it may log in, the digest of its
+    -- (@runtime@ or @migration@), its login state, the digest of its
     -- declared attributes and server-wide grants, and its reviewed grant
     -- exceptions and limits (EP-204). The password lives only in its
     -- credential Secret.
-    DatabaseUserSpec !Text !Text !Bool !ContentDigest !UserAccess
+    DatabaseUserSpec !Text !Text !UserLogin !ContentDigest !UserAccess
   | DnsARecord !Text !Int
   | CloudflareRulesSpec ![CloudflareCacheIntent]
   | CloudflareZoneTlsSpec !CloudflareTlsMode
   | CloudflareProxiedARecord !Text
   | CloudflareDnsOnlyARecord !Text
+  deriving stock (Eq, Ord, Show, Generic)
+
+-- | Whether an app-database user may log in: open, quiesced by a reviewed
+-- maintenance window (EP-205: login off, reopened by resume), or closed by
+-- retirement.
+data UserLogin = LoginOpen | LoginQuiesced | LoginClosed
   deriving stock (Eq, Ord, Show, Generic)
 
 data CloudflareCacheIntent = CloudflareCacheIntent
@@ -139,7 +146,7 @@ declarationDependencies (ObservedChild _ p _ _ _) = [OrderedAfter p]
 data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest | CdnPathsInput ![Text] | HostImageInput !Text
   deriving stock (Eq, Ord, Show, Generic)
 
-data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone | StartVm | StopVm | PruneHostImage | RotateCredential
+data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone | StartVm | StopVm | PruneHostImage | RotateCredential | DrainSessions | ResumeSessions
   deriving stock (Eq, Ord, Show, Generic)
 
 data DeclaredOperation = DeclaredOperation

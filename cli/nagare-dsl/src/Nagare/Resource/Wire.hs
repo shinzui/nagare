@@ -372,8 +372,8 @@ instance FromJSON Executor where parseJSON = genericParseJSON options
 -- records decode with an empty extension. Every other alternative is generic.
 instance ToJSON DesiredSpec where
   toJSON = \case
-    DatabaseUserSpec engine role on digest access ->
-      tagged "DatabaseUserSpec" ([toJSON engine, toJSON role, toJSON on, toJSON digest] <> [toJSON access | access /= noUserAccess])
+    DatabaseUserSpec engine role login digest access ->
+      tagged "DatabaseUserSpec" ([toJSON engine, toJSON role, toJSON login, toJSON digest] <> [toJSON access | access /= noUserAccess])
     LogicalDatabase engine migration runtime on digest monitoring ->
       tagged "LogicalDatabase" ([toJSON engine, toJSON migration, toJSON runtime, toJSON on, toJSON digest] <> [toJSON monitoring | not (null monitoring)])
     spec ->
@@ -391,11 +391,11 @@ instance FromJSON DesiredSpec where
   parseJSON value = case value of
     Object o
       | Just (String "DatabaseUserSpec") <- KM.lookup "tag" o -> appDatabaseContents o $ \case
-          [engine, role, on, digest] -> DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON on <*> parseJSON digest <*> pure noUserAccess
-          [engine, role, on, digest, access] -> do
+          [engine, role, login, digest] -> DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON login <*> parseJSON digest <*> pure noUserAccess
+          [engine, role, login, digest, access] -> do
             access' <- parseJSON access
             when (access' == noUserAccess) (fail "an empty app-database user extension is written by omission")
-            DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON on <*> parseJSON digest <*> pure access'
+            DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON login <*> parseJSON digest <*> pure access'
           _ -> fail "DatabaseUserSpec has four or five elements"
       | Just (String "LogicalDatabase") <- KM.lookup "tag" o -> appDatabaseContents o $ \case
           [engine, migration, runtime, on, digest] -> LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> pure []
@@ -409,6 +409,21 @@ instance FromJSON DesiredSpec where
       appDatabaseContents o parse = do
         unless (sort (KM.keys o) == ["contents", "tag"]) (fail "an app-database spec has exactly tag and contents")
         o .: "contents" >>= parse
+
+-- | v0.7 wrote an app-database user's login as a Bool; quiesce (EP-205) is
+-- the third state.
+instance ToJSON UserLogin where
+  toJSON = \case
+    LoginOpen -> Bool True
+    LoginClosed -> Bool False
+    LoginQuiesced -> String "quiesced"
+
+instance FromJSON UserLogin where
+  parseJSON = \case
+    Bool True -> pure LoginOpen
+    Bool False -> pure LoginClosed
+    String "quiesced" -> pure LoginQuiesced
+    _ -> fail "an app-database user's login is true, false or \"quiesced\""
 
 instance ToJSON CloudflareCacheIntent where toJSON = genericToJSON options
 

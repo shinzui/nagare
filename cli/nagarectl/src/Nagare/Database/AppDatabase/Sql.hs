@@ -31,6 +31,8 @@ module Nagare.Database.AppDatabase.Sql
   , renderObserveDatabase
   , renderObservePassword
   , renderObserveClickHouse
+  , renderTerminateSessions
+  , renderObserveDrain
   )
 where
 
@@ -45,6 +47,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
+import Nagare.Resource.Inventory (UserLogin (..))
 
 -- | What a server stores for a password.
 data PasswordHash
@@ -141,8 +144,8 @@ renderCreateUser _ user (ClickHouseSha256 digest salt) defaultDatabase =
 -- user is enabled, and revoked otherwise; the one settings statement
 -- replaces the user's whole settings list. Limits follow the declaration
 -- whether or not the user can log in.
-renderUserAccess :: Engine -> AppDatabaseRole -> Text -> Bool -> UserAccess -> Text
-renderUserAccess ClickHouse role user enabled access =
+renderUserAccess :: Engine -> AppDatabaseRole -> Text -> UserLogin -> UserAccess -> Text
+renderUserAccess ClickHouse role user login access =
   T.unlines
     ( ("ALTER USER " <> user <> (if enabled then " HOST ANY;" else " HOST NONE;"))
         : [ (if enabled then "GRANT " else "REVOKE ") <> privilege <> " ON " <> T.toUpper (g ^. #objectClass) <> (if enabled then " TO " else " FROM ") <> user <> ";"
@@ -158,15 +161,21 @@ renderUserAccess ClickHouse role user enabled access =
           <> ["ALTER USER " <> user <> " SETTINGS " <> settings <> ";"]
     )
   where
+    -- A quiesced ClickHouse user is off: an open native session outlives a
+    -- login change but not a grant change (EP-205 M1).
+    enabled = login == LoginOpen
     settings = case clickHouseCeilings (access ^. #limits) of
       [] -> "NONE"
       ceilings -> T.intercalate ", " [settingName <> " = " <> value <> " MIN 1 MAX " <> value | (settingName, value) <- ceilings]
-renderUserAccess _ _ user enabled access =
+renderUserAccess _ _ user login access =
   T.unlines $
     [ "ALTER ROLE " <> pgIdent user <> (if enabled then " LOGIN" else " NOLOGIN") <> " CONNECTION LIMIT " <> T.show (fromMaybe (-1) (access ^. #limits . #connectionLimit)) <> ";"
     , "ALTER ROLE " <> pgIdent user <> maybe " RESET statement_timeout;" (\seconds -> " SET statement_timeout = " <> literal (postgresTimeout seconds) <> ";") (access ^. #limits . #statementTimeoutSeconds)
     ]
-      <> ["SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = " <> literal user <> ";" | not enabled]
+      -- A quiesced role's sessions end at the drain, after its grace period.
+      <> ["SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = " <> literal user <> ";" | login == LoginClosed]
+  where
+    enabled = login == LoginOpen
 
 -- | The declared ClickHouse ceilings as settings and their values, in the
 -- order they are sent.
@@ -203,6 +212,8 @@ data DatabaseAccess = DatabaseAccess
   , enabled :: !Bool
   , monitoring :: ![MonitoringRole]
   -- ^ roles whose read-only grants on the app's objects are tolerated; never granted
+  , withheld :: ![Text]
+  -- ^ quiesced users; on ClickHouse their grants are revoked until resume (EP-205)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -210,7 +221,9 @@ renderDatabaseAccess :: DatabaseAccess -> Text
 renderDatabaseAccess access = case (access ^. #engine, access ^. #enabled) of
   (ClickHouse, True) ->
     T.unlines
-      [ "GRANT " <> T.intercalate ", " (g ^. #privileges) <> " ON " <> db <> ".* TO " <> user <> ";"
+      [ if user `elem` access ^. #withheld
+          then "REVOKE ALL ON " <> db <> ".* FROM " <> user <> ";"
+          else "GRANT " <> T.intercalate ", " (g ^. #privileges) <> " ON " <> db <> ".* TO " <> user <> ";"
       | (role, user) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)]
       , g <- appDatabaseDatabaseGrants ClickHouse role
       ]
@@ -327,6 +340,27 @@ renderObserveClickHouse users databases =
   where
     userList = literals users
     databaseList = literals databases
+
+-- | End the blocked users' running work (EP-205 drain): ClickHouse kills
+-- their queries, PostgreSQL terminates their sessions.
+renderTerminateSessions :: Engine -> [Text] -> Text
+renderTerminateSessions ClickHouse users = "KILL QUERY WHERE user IN (" <> literals users <> ") SYNC FORMAT Null;\n"
+renderTerminateSessions _ users = "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename IN (" <> literals users <> ");\n"
+
+-- | What a drain proves: the blocked users' running queries (ClickHouse) or
+-- sessions (PostgreSQL), the app's unfinished mutations (ClickHouse), and
+-- the server's identity.
+renderObserveDrain :: Engine -> [Text] -> [Text] -> Text
+renderObserveDrain ClickHouse users databases =
+  T.unlines
+    [ "SELECT 'session' AS kind, user, query_id FROM system.processes WHERE user IN (" <> literals users <> ") ORDER BY ALL FORMAT JSONEachRow;"
+    , "SELECT 'mutation' AS kind, database, table, mutation_id, latest_fail_reason FROM system.mutations WHERE database IN (" <> literals databases <> ") AND is_done = 0 ORDER BY ALL FORMAT JSONEachRow;"
+    , "SELECT 'server' AS kind, toString(serverUUID()) AS uuid, toString(now() - uptime()) AS started FORMAT JSONEachRow;"
+    ]
+renderObserveDrain _ users _ =
+  "SELECT json_build_object('sessions', (SELECT count(*) FROM pg_stat_activity WHERE usename IN ("
+    <> literals users
+    <> ")), 'systemIdentifier', (SELECT system_identifier::text FROM pg_control_system()), 'started', pg_postmaster_start_time()::text);\n"
 
 pgIdent :: Text -> Text
 pgIdent name = "\"" <> name <> "\""

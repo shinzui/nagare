@@ -13,6 +13,7 @@ import Nagare.Database.AppDatabase.Sql
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
+import Nagare.Resource.Inventory (UserLogin (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -23,7 +24,7 @@ appDatabaseSqlTests =
     [ testCase "PostgreSQL commands match the proven fixture" $ do
         blocks <- fixture "postgres"
         let pg = hashPassword Postgres
-            access on = DatabaseAccess Postgres "smoke_pg" "alpha" "alpha_migration" "alpha_runtime" on []
+            access on = DatabaseAccess Postgres "smoke_pg" "alpha" "alpha_migration" "alpha_runtime" on [] []
         mapM_
           (uncurry (matches blocks))
           [ ("create-user alpha_migration", renderCreateUser Postgres "alpha_migration" (pg salt0 "pw-alpha_migration") "alpha")
@@ -31,12 +32,14 @@ appDatabaseSqlTests =
           , ("create-database alpha", renderCreateDatabase Postgres "alpha" "alpha_migration")
           , ("database-access alpha on", renderDatabaseAccess (access True))
           , ("database-access alpha off", renderDatabaseAccess (access False))
-          , ("user-access alpha_runtime on", renderUserAccess Postgres RuntimeRole "alpha_runtime" True noUserAccess)
-          , ("user-access alpha_runtime off", renderUserAccess Postgres RuntimeRole "alpha_runtime" False noUserAccess)
-          , ("user-access alpha_migration on", renderUserAccess Postgres MigrationRole "alpha_migration" True noUserAccess)
-          , ("user-access alpha_migration off", renderUserAccess Postgres MigrationRole "alpha_migration" False noUserAccess)
-          , ("user-access alpha_runtime on with declared access", renderUserAccess Postgres RuntimeRole "alpha_runtime" True pgRuntimeAccess)
-          , ("user-access alpha_runtime off with declared access", renderUserAccess Postgres RuntimeRole "alpha_runtime" False pgRuntimeAccess)
+          , ("user-access alpha_runtime on", renderUserAccess Postgres RuntimeRole "alpha_runtime" LoginOpen noUserAccess)
+          , ("user-access alpha_runtime off", renderUserAccess Postgres RuntimeRole "alpha_runtime" LoginClosed noUserAccess)
+          , ("user-access alpha_migration on", renderUserAccess Postgres MigrationRole "alpha_migration" LoginOpen noUserAccess)
+          , ("user-access alpha_migration off", renderUserAccess Postgres MigrationRole "alpha_migration" LoginClosed noUserAccess)
+          , ("user-access alpha_runtime on with declared access", renderUserAccess Postgres RuntimeRole "alpha_runtime" LoginOpen pgRuntimeAccess)
+          , ("user-access alpha_runtime off with declared access", renderUserAccess Postgres RuntimeRole "alpha_runtime" LoginClosed pgRuntimeAccess)
+          , ("user-access alpha_runtime quiesced", renderUserAccess Postgres RuntimeRole "alpha_runtime" LoginQuiesced noUserAccess)
+          , ("drain alpha_runtime", renderTerminateSessions Postgres ["alpha_runtime"] <> renderObserveDrain Postgres ["alpha_runtime"] ["alpha"])
           , ("set-password alpha_runtime", renderSetPassword "alpha_runtime" (pg salt1 "pw2-alpha_runtime"))
           , ("observe-server", renderObserveServer ["alpha_migration", "alpha_runtime"] ["alpha"] "smoke_pg")
           , ("observe-database alpha", renderObserveDatabase)
@@ -46,24 +49,27 @@ appDatabaseSqlTests =
     , testCase "ClickHouse commands match the proven fixture" $ do
         blocks <- fixture "clickhouse"
         let ch = hashPassword ClickHouse
-            access db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on []
+            access db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] []
         mapM_
           (uncurry (matches blocks))
           [ ("create-user alpha_migration", renderCreateUser ClickHouse "alpha_migration" (ch salt0 "pw-alpha_migration") "alpha")
           , ("create-user alpha_runtime", renderCreateUser ClickHouse "alpha_runtime" (ch salt0 "pw-alpha_runtime") "alpha")
-          , ("user-access alpha_migration on", renderUserAccess ClickHouse MigrationRole "alpha_migration" True noUserAccess)
-          , ("user-access alpha_migration off", renderUserAccess ClickHouse MigrationRole "alpha_migration" False noUserAccess)
-          , ("user-access alpha_runtime on", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" True noUserAccess)
-          , ("user-access alpha_runtime off", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" False noUserAccess)
-          , ("user-access alpha_runtime on with declared access", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" True chRuntimeAccess)
-          , ("user-access alpha_runtime off with declared access", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" False chRuntimeAccess)
-          , ("user-access alpha_migration on with declared access", renderUserAccess ClickHouse MigrationRole "alpha_migration" True chMigrationAccess)
+          , ("user-access alpha_migration on", renderUserAccess ClickHouse MigrationRole "alpha_migration" LoginOpen noUserAccess)
+          , ("user-access alpha_migration off", renderUserAccess ClickHouse MigrationRole "alpha_migration" LoginClosed noUserAccess)
+          , ("user-access alpha_runtime on", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" LoginOpen noUserAccess)
+          , ("user-access alpha_runtime off", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" LoginClosed noUserAccess)
+          , ("user-access alpha_runtime on with declared access", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" LoginOpen chRuntimeAccess)
+          , ("user-access alpha_runtime off with declared access", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" LoginClosed chRuntimeAccess)
+          , ("user-access alpha_migration on with declared access", renderUserAccess ClickHouse MigrationRole "alpha_migration" LoginOpen chMigrationAccess)
           , ("create-database alpha", renderCreateDatabase ClickHouse "alpha" "alpha_migration")
           , ("create-database alpha_ledger", renderCreateDatabase ClickHouse "alpha_ledger" "alpha_migration")
           , ("database-access alpha on", renderDatabaseAccess (access "alpha" True))
           , ("database-access alpha off", renderDatabaseAccess (access "alpha" False))
           , ("database-access alpha_ledger on", renderDatabaseAccess (access "alpha_ledger" True))
           , ("database-access alpha_ledger off", renderDatabaseAccess (access "alpha_ledger" False))
+          , ("database-access alpha withheld alpha_runtime", renderDatabaseAccess (access "alpha" True & #withheld .~ ["alpha_runtime"]))
+          , ("user-access alpha_runtime off", renderUserAccess ClickHouse RuntimeRole "alpha_runtime" LoginQuiesced noUserAccess)
+          , ("drain alpha_runtime", renderTerminateSessions ClickHouse ["alpha_runtime"] <> renderObserveDrain ClickHouse ["alpha_runtime"] ["alpha", "alpha_ledger"])
           , ("set-password alpha_runtime", renderSetPassword "alpha_runtime" (ch salt1 "pw2-alpha_runtime"))
           , ("observe", renderObserveClickHouse ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"])
           , ("restore-scratch", renderScratchRestore ClickHouse [("alpha", "alpha_restore_r1"), ("alpha_ledger", "alpha_ledger_restore_r1")] "alpha-ch-backup-r1.zip" "alpha_migration" "alpha_runtime")
@@ -89,8 +95,8 @@ appDatabaseSqlTests =
         drifted <- clickHouseCatalog "drifted" ["gamma_migration", "gamma_runtime"] ["gamma", "alpha"]
         drift (classifyUser ClickHouse (plain RuntimeRole True) "gamma_runtime" [] drifted)
         drift (classifyUser ClickHouse (plain MigrationRole True) "gamma_migration" [] drifted)
-        incomplete (classifyDatabase (DatabaseAccess ClickHouse "" "gamma" "gamma_migration" "gamma_runtime" True []) drifted)
-        drift (classifyDatabase (DatabaseAccess ClickHouse "" "alpha" "gamma_migration" "gamma_runtime" True []) drifted)
+        incomplete (classifyDatabase (DatabaseAccess ClickHouse "" "gamma" "gamma_migration" "gamma_runtime" True [] []) drifted)
+        drift (classifyDatabase (DatabaseAccess ClickHouse "" "alpha" "gamma_migration" "gamma_runtime" True [] []) drifted)
     , testCase "access to the app's own scratch restores is not drift; to any other database it is (M7)" $ do
         catalog <- postgresCatalog "converged" "alpha"
         let with anomalies = catalog & #users . ix "alpha_runtime" . #anomalies .~ anomalies
@@ -130,6 +136,27 @@ appDatabaseSqlTests =
         case classifyDatabase (pgAccess "alpha" "alpha" True) observed of
           MemberDrift reason -> assertBool (T.unpack reason) ("pg_monitor" `T.isInfixOf` reason)
           other -> assertFailure ("undeclared pg_monitor grants are not drift: " <> show other)
+    , testCase "drain observations parse: running work, unfinished and failed mutations, and the server identity (EP-205)" $ do
+        let parsed engine' file = BS.readFile ("test/fixtures/app-database/observed/" <> file) >>= either (assertFailure . T.unpack) pure . parseDrainObservation engine'
+        busy <- parsed ClickHouse "clickhouse-drain-busy.jsonl"
+        (busy ^. #sessions, busy ^. #unfinished) @?= (1, ["alpha.t mutation_9.txt"])
+        assertBool (show busy) (["alpha.t mutation_9.txt: Code: 395"] == map (T.take 33) (busy ^. #failed))
+        idle <- parsed ClickHouse "clickhouse-drain-idle.jsonl"
+        (idle ^. #sessions, idle ^. #unfinished, idle ^. #failed) @?= (0, [], [])
+        -- The process start time moved by a second between the two reads; the
+        -- compared identity does not.
+        assertBool "process start moved" (busy ^. #identity /= idle ^. #identity)
+        comparedIdentity (busy ^. #identity) @?= comparedIdentity (idle ^. #identity)
+        pgBusy <- parsed Postgres "postgres-drain-busy.json"
+        pgIdle <- parsed Postgres "postgres-drain-idle.json"
+        (pgBusy ^. #sessions, pgIdle ^. #sessions) @?= (1, 0)
+        pgBusy ^. #identity @?= pgIdle ^. #identity
+    , testCase "a quiesced ClickHouse user's withheld grants classify by the sibling users' login (EP-205)" $ do
+        converged <- clickHouseCatalog "converged" ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"]
+        incomplete (classifyDatabase (chAccess "alpha" True & #withheld .~ ["alpha_runtime"]) converged)
+        let withheld = converged & #databases . ix "alpha" . #grants %~ filter ((/= "alpha_runtime") . (^. #grantee))
+        complete (classifyDatabase (chAccess "alpha" True & #withheld .~ ["alpha_runtime"]) withheld)
+        incomplete (classifyDatabase (chAccess "alpha" True) withheld)
     , testCase "a stored verifier matches only the password it was made from" $ do
         let verifier = scramVerifier salt1 "pw2-alpha_runtime"
         scramVerifierMatches "pw2-alpha_runtime" verifier @?= True
@@ -152,10 +179,10 @@ clickHouseCatalog state users dbs = do
   either (assertFailure . T.unpack) pure (parseClickHouseCatalog users dbs bytes)
 
 pgAccess :: Text -> Text -> Bool -> DatabaseAccess
-pgAccess app db on = DatabaseAccess Postgres "smoke_pg" db (app <> "_migration") (app <> "_runtime") on []
+pgAccess app db on = DatabaseAccess Postgres "smoke_pg" db (app <> "_migration") (app <> "_runtime") on [] []
 
 chAccess :: Text -> Bool -> DatabaseAccess
-chAccess db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on []
+chAccess db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] []
 
 -- | A user declaring no reviewed access, now or before.
 plain :: AppDatabaseRole -> Bool -> UserDeclaration

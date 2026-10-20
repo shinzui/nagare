@@ -12,6 +12,7 @@ module Nagare.Inventory.Adapters.AppDatabaseRuntime
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, try)
 import Crypto.Random (getRandomBytes)
 import Data.Aeson (Value (..), eitherDecodeStrict, encode, object, (.=))
@@ -25,7 +26,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Database.AppDatabase.Catalog (parseClickHouseCatalog, parsePostgresCatalog)
+import Nagare.Database.AppDatabase.Catalog (parseClickHouseCatalog, parseDrainObservation, parsePostgresCatalog)
 import Nagare.Database.AppDatabase.Sql
 import Nagare.Database.Secret (b64decode, b64encode)
 import Nagare.Dsl.Database (Engine (..))
@@ -53,8 +54,37 @@ appDatabaseRuntimeOps config =
     , rewriteCredential = rewrite
     , freshSalt = getRandomBytes 16
     , freshPassword = TE.decodeUtf8 . convertToBase Base16 <$> (getRandomBytes 24 :: IO ByteString)
+    , observeDrain = drained
+    , terminateSessions = terminate
+    , observeActiveRuns = activeRuns
+    , observeServerPod = serverPod
+    , pause = threadDelay 1_000_000
     }
   where
+    drained server users databases = guarded server $ case server ^. #engine of
+      ClickHouse -> (>>= parseDrainObservation ClickHouse) <$> clickhouse server (renderObserveDrain ClickHouse users databases)
+      engine' -> (>>= parseDrainObservation engine') <$> psql server "postgres" (renderObserveDrain engine' users databases)
+    terminate server users = guarded server $ case server ^. #engine of
+      ClickHouse -> void <$> clickhouse server (renderTerminateSessions ClickHouse users)
+      engine' -> void <$> psql server "postgres" (renderTerminateSessions engine' users)
+    activeRuns namespace' cronJob = do
+      result <- guardedRaw (kubectl ["get", "cronjob", nameText cronJob, "--namespace", nameText namespace', "-o", "jsonpath={.status.active[*].name}"] "")
+      pure $ case result of
+        Right (ExitSuccess, output, _) -> Right (length (words output))
+        Right _ -> Left "app-database backup CronJob could not be read"
+        Left reason -> Left reason
+    -- The server Pod's UID and its container's start time: a restart of either
+    -- changes them, which the server UUID alone would not show.
+    serverPod server = guarded server $ do
+      result <-
+        kubectl
+          ["get", "pod", nameText (server ^. #name) <> "-0", "--namespace", nameText (server ^. #namespace), "-o", "jsonpath={.metadata.uid} {.status.containerStatuses[0].state.running.startedAt}"]
+          ""
+      pure $ case result of
+        Right (ExitSuccess, output, _) | [uid, started] <- words output -> Right (T.pack uid, T.pack started)
+        Right (ExitSuccess, _, _) -> Left "app-database server container is not running"
+        Right _ -> Left "app-database server Pod could not be read"
+        Left reason -> Left reason
     observe server users databases = guarded server $ case server ^. #engine of
       ClickHouse -> do
         output <- clickhouse server (renderObserveClickHouse users databases)

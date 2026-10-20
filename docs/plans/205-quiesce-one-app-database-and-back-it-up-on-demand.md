@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-19T19:58:14Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-20T00:05:19Z
+      mode: "implement"
+      note: "M1 onward: engine proof, quiesce/resume, on-demand backup, evidence"
 ---
 
 # Quiesce one app database and back it up on demand
@@ -52,12 +58,17 @@ was not restarted. Other app databases on the server are not touched at any poin
 
 ## Progress
 
-- [ ] M1 (engine proof). The quiesce statements and observations are proven by hand against
+- [x] M1 (engine proof). The quiesce statements and observations are proven by hand against
   `postgres:18` and `clickhouse/clickhouse-server:26.8`. They are committed as `-- operation:`
   blocks in `cli/nagarectl/test/fixtures/app-database/clickhouse.sql` and `postgres.sql`. The
   ClickHouse existing-session question under M1 in Plan of Work is answered, and the chosen
   primitive is in the Decision Log.
-- [ ] M2 (quiesce and resume). `db app-database quiesce` and `resume` review a revision of the
+  Done 2026-10-19 on 26.8.29.10 and 18. Open native ClickHouse sessions outlive every
+  login-level change, so on ClickHouse grants are withheld (operator decision, Decision Log).
+  The new blocks are `database-access alpha withheld alpha_runtime`, `drain alpha_runtime` and
+  `user-access alpha_runtime quiesced`. The drain observations are captured in
+  `observed/{clickhouse,postgres}-drain-{busy,idle}.*`.
+- [x] M2 (quiesce and resume). `db app-database quiesce` and `resume` review a revision of the
   app-database scope:
   - the users' login state moves between `on` and `quiesced`, with grants untouched;
   - the backup CronJob is suspended and resumed;
@@ -69,6 +80,17 @@ was not restarted. Other app databases on the server are not touched at any poin
   `server status` grades a quiesced schedule `quiesced`. `AppDatabaseWorldSpec` proves IR-31
   AC-1 to AC-4 on both engines, including resume after every fault and a scheduled tick that
   falls inside the window.
+  Done 2026-10-19:
+  - The login state is three-valued: v0.7 `true`/`false` plus `"quiesced"`.
+  - `quiesce` and `resume` revise one scope, and the scope-wide planner ordering is in.
+  - Drain and resume are selected by digest (`Nagare.Inventory.Adapters.AppDatabaseSessions`).
+  - `plan` leaves out a quiesced app database, `rotate` refuses with `app-database-quiesced`,
+    a quiesced app database still binds, and status grades it `quiesced`.
+  - World tests on both engines: AC-1 and AC-2 (grants and limits identical after resume),
+    AC-3 on ClickHouse, AC-4 (a run in flight, a timeout, and ordering after the
+    suspension), a restarted server, and every fault placement acting across the whole cycle.
+  - Each ordering and binding test fails without its fix.
+  - The EP-202 repassword mutation record was regenerated and proven.
 - [ ] M3 (on-demand backup). `db app-database backup NAME --save-plan DIR` reviews a Job built
   from the accepted schedule's `jobTemplate`. Its run is ingested by the existing
   `db app-database backup-receipts --backup-id` and restored by the existing `restore`. The
@@ -198,6 +220,47 @@ was not restarted. Other app databases on the server are not touched at any poin
   not restarted.
   Date: 2026-10-19
 
+
+- Decision (M1, operator, 2026-10-19): on ClickHouse, quiesce withholds the blocked users'
+  grants and resume grants exactly the declared set again. On PostgreSQL quiesce keeps every
+  grant. This supersedes "Quiesce must keep all grants" for ClickHouse.
+  Rationale: M1 found that an open native ClickHouse session keeps querying after every
+  login-level change: `HOST NONE`, a quota of `MAX queries = 0` or `1`, and `VALID UNTIL` a
+  past date. ClickHouse 26.8 also exposes no per-user idle-session count: there is no
+  `session_log`, `system.user_processes` lists users, and `TCPConnection` is server-wide. A
+  grant change reaches an open session at its next query. The migration user keeps its grants,
+  so its definer views and materialized views keep working (IR-31 AC-2). `system.grants` is
+  byte-identical after resume. HTTP requests authenticate one by one, so `HOST NONE` already
+  refuses them.
+  - The quiesced ClickHouse user renders as the "off" user access (`HOST NONE`, server grants
+    and exceptions revoked, limits kept).
+  - Its logical databases withhold its grants (`REVOKE ALL ON db.* FROM u`). The other user's
+    grants stay.
+  - The withheld users are derived from the sibling user specs, so the logical-database spec
+    and its encoding do not change.
+  Date: 2026-10-19
+
+- Decision (M1): on PostgreSQL the quiesced user access is `NOLOGIN` plus the declared limits,
+  without the terminate statement. The drain terminates after the grace period.
+  Date: 2026-10-19
+
+- Decision (M1): the server identity that drain and resume compare is the server Pod's UID,
+  its container's `startedAt`, and `serverUUID()` or `system_identifier` with
+  `pg_postmaster_start_time()`. ClickHouse's `now() - uptime()` is whole seconds and may move
+  by one between reads, so it is recorded but not compared.
+  Date: 2026-10-19
+
+- Decision (M1): the long-query probe is `SELECT sleepEachRow(1) FROM numbers(600) SETTINGS
+  max_block_size = 1`. Without `max_block_size`, ClickHouse refuses it with code 160, because
+  a block may sleep at most 3 s.
+  Date: 2026-10-19
+
+- Decision: the drain's bounds are fixed at a 30 s grace and a 300 s timeout, with no
+  `--grace` or `--timeout` options. The drain operation's inputs are the stamp alone. The
+  blocked users are the scope's quiesced users.
+  Rationale: `OperationInput` has no constructor for bounds, and Kansoku's ceremony needs
+  none. A drain that times out leaves the app database quiesced: resume, then quiesce again.
+  Date: 2026-10-19
 
 ## Outcomes & Retrospective
 

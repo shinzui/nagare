@@ -69,6 +69,7 @@ import Nagare.Resource.Inventory
   , ManagedResource
   , ResourceBundle (declarations)
   , ScopeSnapshot
+  , UserLogin (LoginClosed)
   , scopeBundles
   , scopeId
   , scopeOverrides
@@ -559,7 +560,9 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
         _ -> Left "accepted app-database credential is not this app database's runtime credential"
       let logical = filter ((== AppDatabaseExecutor) . (^. #executor)) scopeMembers
       unless
-        (and [on | member <- logical, DatabaseUserSpec _ _ on _ _ <- [member ^. #spec]])
+        -- A quiesced app database still binds (EP-205): its pods fail to
+        -- connect until resume, as running ones do.
+        (and [login /= LoginClosed | member <- logical, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]])
         (Left ("app database " <> appName <> " is retired"))
       stateful <- case [target | member <- logical, DatabaseUser target _ <- [member ^. #address]] of
         target : _ -> Right target

@@ -43,6 +43,7 @@ import Nagare.Host.Config (hostConfigDir, readContextHostName)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.AppDatabase (AppDatabaseMember, mkAppDatabaseAdapter)
 import Nagare.Inventory.Adapters.AppDatabaseRuntime qualified as AppDatabaseRuntime
+import Nagare.Inventory.Adapters.AppDatabaseSessions (sessionBindings, withAppDatabaseSessions)
 import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
 import Nagare.Inventory.Adapters.ArtifactRuntime
   ( ArtifactRuntimeConfig
@@ -418,11 +419,12 @@ inventoryBrokerAdapter active binding specs accepted
 inventoryAppDatabaseAdapter ::
   ActiveTarget ->
   Resource.ContextBinding ->
+  [ResourceInventory.ScopeDeclaration] ->
   Map.Map Resource.ResourceId AppDatabaseMember ->
   Map.Map Resource.ResourceId ResourceInventory.ManagedResource ->
   Map.Map Resource.ResourceId Resource.PhysicalIdentity ->
   IO InventoryAdapter.Adapter
-inventoryAppDatabaseAdapter active binding members accepted incarnations
+inventoryAppDatabaseAdapter active binding scopes members accepted incarnations
   | Map.null members = pure (Inventory.executionBlockedAdapterFor ResourceInventory.AppDatabaseExecutor)
   | otherwise = do
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
@@ -435,7 +437,10 @@ inventoryAppDatabaseAdapter active binding members accepted incarnations
               , AppDatabaseRuntime.contextGuard = fmap (fmap (const ())) (guardKubernetesContext active)
               , AppDatabaseRuntime.recordedIncarnations = incarnations
               }
-      pure (mkAppDatabaseAdapter accepted members (AppDatabaseRuntime.appDatabaseRuntimeOps config))
+          ops = AppDatabaseRuntime.appDatabaseRuntimeOps config
+      -- EP-205: a scope's drain and resume, selected by their input digest.
+      sessions <- either dieT pure (sessionBindings scopes)
+      pure (withAppDatabaseSessions sessions members ops (mkAppDatabaseAdapter accepted members ops))
 
 inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> IO InventoryAdapter.Adapter
 inventoryArtifactAdapter active workspace specs = do

@@ -142,6 +142,7 @@ library
     Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.AppDatabase
     Nagare.Inventory.Adapters.AppDatabaseRuntime
+    Nagare.Inventory.Adapters.AppDatabaseSessions
     Nagare.Inventory.Adapters.Artifact
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Broker

@@ -74,6 +74,10 @@ data AppDatabaseMember = AppDatabaseMember
   , enabled :: !Bool
   , scopeUsers :: ![Text]
   , scopeDatabases :: ![Text]
+  , quiesced :: !Bool
+  -- ^ a user whose login a reviewed quiesce closed (EP-205)
+  , withheld :: ![Text]
+  -- ^ a database's quiesced users, whose ClickHouse grants are withheld
   }
   deriving stock (Generic, Eq, Show)
 
@@ -88,7 +92,7 @@ data CredentialSecret = CredentialSecret
 -- | The member-level commands, rendered to SQL by the transport.
 data CatalogCommand
   = CreateUser !Text !PasswordHash !Text
-  | SetUserAccess !AppDatabaseRole !Text !Bool !UserAccess
+  | SetUserAccess !AppDatabaseRole !Text !UserLogin !UserAccess
   | CreateDatabase !Text !Text
   | SetDatabaseAccess !DatabaseAccess
   | SetPassword !Text !PasswordHash
@@ -107,6 +111,16 @@ data AppDatabaseOps = AppDatabaseOps
   -- resourceVersion precondition; the other keys keep their values
   , freshSalt :: !(IO ByteString)
   , freshPassword :: !(IO Text)
+  , observeDrain :: !(ServerRef -> [Text] -> [Text] -> IO (Either Text DrainObservation))
+  -- ^ EP-205: the blocked users' running work, the app's unfinished
+  -- mutations and the server's engine identity
+  , terminateSessions :: !(ServerRef -> [Text] -> IO (Either Text ()))
+  , observeActiveRuns :: !(Name -> Name -> IO (Either Text Int))
+  -- ^ the Jobs a CronJob (namespace, name) still runs
+  , observeServerPod :: !(ServerRef -> IO (Either Text (Text, Text)))
+  -- ^ the server Pod's UID and its container's start time
+  , pause :: !(IO ())
+  -- ^ one poll interval of a drain
   }
 
 -- | Resolve every app-database member against the declarations in view
@@ -119,16 +133,16 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
     members = [resource | Managed resource <- declarations, resource ^. #executor == AppDatabaseExecutor]
     siblings owner = [resource | resource <- members, resource ^. #owner == owner]
     bind resource = do
-      (stateful, engineText, kind', enabled') <- case (resource ^. #address, resource ^. #spec) of
-        (DatabaseUser target user, DatabaseUserSpec engineText roleText on _ access) -> do
+      (stateful, engineText, kind', login) <- case (resource ^. #address, resource ^. #spec) of
+        (DatabaseUser target user, DatabaseUserSpec engineText roleText login _ access) -> do
           role' <- case roleText of
             "runtime" -> Right RuntimeRole
             "migration" -> Right MigrationRole
             _ -> Left "app-database user has an unknown role"
           (secretNamespace, secretName) <- credentialOf resource
-          pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName access, on)
+          pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName access, login)
         (DatabaseName target db, LogicalDatabase engineText migration runtime on _ monitoring) ->
-          pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime) monitoring, on)
+          pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime) monitoring, if on then LoginOpen else LoginClosed)
         _ -> Left "app-database member has an invalid address or specification"
       engine' <- maybe (Left "app-database member has an unknown engine") Right (parseEngine engineText)
       unless (OrderedAfter stateful `elem` resource ^. #dependencies) (Left "app-database member is not ordered after its server")
@@ -140,9 +154,14 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
             resource
             serverRef
             kind'
-            enabled'
+            (login == LoginOpen)
             (sort [nameText user | member <- scope, DatabaseUser _ user <- [member ^. #address]])
             (sort [nameText db | member <- scope, DatabaseName _ db <- [member ^. #address]])
+            (login == LoginQuiesced)
+            ( case kind' of
+                DatabaseMember {} -> sort [nameText user | member <- scope, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec _ _ LoginQuiesced _ _ <- [member ^. #spec]]
+                UserMember {} -> []
+            )
         )
     serverOf engine' stateful = case Map.lookup stateful byId of
       Just (Managed target)
@@ -279,7 +298,7 @@ mkAppDatabaseAdapter accepted members ops =
         classifyUser (member ^. #server . #engine) (UserDeclaration role (member ^. #enabled) desired (acceptedAccess member)) user (member ^. #scopeDatabases) catalog
       DatabaseMember db migration runtime monitoring -> classifyDatabase (accessOf member db migration runtime monitoring) catalog
     accessOf member db migration runtime monitoring =
-      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled) monitoring
+      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled) monitoring (member ^. #withheld)
     -- The access the last reviewed plan declared; an item only it names is
     -- revoked or reset by review rather than refused as drift.
     acceptedAccess member = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
@@ -330,6 +349,10 @@ mkAppDatabaseAdapter accepted members ops =
           (Right (MemberIncomplete physical reason), _)
             | Map.notMember resource' accepted -> ObservedUnowned (identity physical)
             | otherwise -> ObservedDrifted (identity physical) (contentDigest (TE.encodeUtf8 reason))
+    loginOf member
+      | member ^. #quiesced = LoginQuiesced
+      | member ^. #enabled = LoginOpen
+      | otherwise = LoginClosed
     loginOff user observed = maybe False ((== LoginOff) . (^. #login)) (Map.lookup user (observed ^. #users))
     identity physical = either (error . T.unpack) id (mkPhysicalIdentity physical)
     converge member = do
@@ -355,7 +378,7 @@ mkAppDatabaseAdapter accepted members ops =
                       Right True -> Nothing
                       Right False -> Just (AdapterEffectFailed (KnownNoEffect "app-database user exists with a password other than its Secret's; rotate it"))
                       Left reason -> Just (AdapterEffectAmbiguous reason)
-                maybe (finish (run member (SetUserAccess role user (member ^. #enabled) desired))) pure created
+                maybe (finish (run member (SetUserAccess role user (loginOf member) desired))) pure created
           (state, DatabaseMember db migration runtime monitoring) -> do
             created <- case state of
               MemberAbsent -> run member (CreateDatabase db migration)
@@ -397,7 +420,7 @@ mkAppDatabaseAdapter accepted members ops =
           DatabaseMember db _ _ _ -> "database " <> db
         <> " on "
         <> nameText (member ^. #server . #name)
-        <> (if member ^. #enabled then "" else " (retired: access off)")
+        <> (if member ^. #quiesced then " (quiesced: login off)" else if member ^. #enabled then "" else " (retired: access off)")
         <> case member ^. #kind of
           UserMember _ _ _ _ access | actionText /= "rotate" -> describeAccess access
           DatabaseMember _ _ _ monitoring@(_ : _) -> "; tolerates grants to " <> T.intercalate ", " (map monitoringRoleToken monitoring)

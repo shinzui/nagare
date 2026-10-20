@@ -1,4 +1,4 @@
--- EP-202 M1 reference fixture, extended by EP-204 M1: the ClickHouse 26.8 statements for one app database.
+-- EP-202 M1 reference fixture, extended by EP-204 M1 and EP-205 M1: the ClickHouse 26.8 statements for one app database.
 --
 -- App database "alpha-ch" on server "smoke-ch", logical databases "alpha" and
 -- "alpha_ledger", users "alpha_runtime" and "alpha_migration". Proven by hand against
@@ -154,6 +154,34 @@ GRANT SHOW TABLES, SHOW COLUMNS, SELECT, INSERT, ALTER UPDATE, ALTER DELETE, dic
 -- operation: database-access alpha_ledger off
 REVOKE ALL ON alpha_ledger.* FROM alpha_migration;
 REVOKE ALL ON alpha_ledger.* FROM alpha_runtime;
+
+-- operation: database-access alpha withheld alpha_runtime
+-- EP-205 M1. Quiesce on ClickHouse: an open native session survives every login-level
+-- change (ALTER USER ... HOST NONE, a quota of MAX queries = 0 or 1, VALID UNTIL a past
+-- date) and keeps querying; ClickHouse 26.8 has no per-user idle-session view (no
+-- session_log; system.user_processes lists users, not sessions; TCPConnection is
+-- server-wide). A grant change reaches an open session at its next query, so a quiesced
+-- user's database grants are withheld here and its server grants and exceptions by
+-- user-access off; resume grants them again and system.grants is byte-identical after
+-- (md5 of the sorted rows). HTTP requests authenticate one by one, session_id or not, so
+-- HOST NONE refuses them. The migration user keeps its grants: its SQL SECURITY DEFINER
+-- view and materialized view keep working, and it can still run DDL.
+GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SELECT, INSERT, ALTER TABLE, ALTER VIEW, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, DROP TABLE, DROP VIEW, DROP DICTIONARY, TRUNCATE, OPTIMIZE, BACKUP, dictGet ON alpha.* TO alpha_migration;
+REVOKE ALL ON alpha.* FROM alpha_runtime;
+
+-- operation: drain alpha_runtime
+-- A running query survives the revoke and ends at KILL QUERY ... SYNC (code 394 "Query was
+-- cancelled" in its client); beta_runtime's query keeps running. The drain then observes
+-- the blocked users' running queries, the app's unfinished mutations (a failing one keeps
+-- is_done = 0 with latest_fail_reason set, and stalls the mutations queued before it), and
+-- the server identity. now() - uptime() is whole seconds and may move by one between
+-- reads, so it is reported, not compared.
+--   Probe: SELECT sleepEachRow(1) FROM numbers(600) SETTINGS max_block_size = 1; without
+--   max_block_size the block sleeps 600 s and is refused (code 160, at most 3 s per block).
+KILL QUERY WHERE user IN ('alpha_runtime') SYNC FORMAT Null;
+SELECT 'session' AS kind, user, query_id FROM system.processes WHERE user IN ('alpha_runtime') ORDER BY ALL FORMAT JSONEachRow;
+SELECT 'mutation' AS kind, database, table, mutation_id, latest_fail_reason FROM system.mutations WHERE database IN ('alpha', 'alpha_ledger') AND is_done = 0 ORDER BY ALL FORMAT JSONEachRow;
+SELECT 'server' AS kind, toString(serverUUID()) AS uuid, toString(now() - uptime()) AS started FORMAT JSONEachRow;
 
 -- operation: set-password alpha_runtime
 -- Rotation: the Secret holds the new password first, then the user follows it.

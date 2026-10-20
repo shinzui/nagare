@@ -129,6 +129,7 @@ import Nagare.Resource.Inventory
   , OperationKind
     ( ActivateHost
     , CreateLogicalCache
+    , DrainSessions
     , MaintainData
     , PreDeployHook
     , PruneHostImage
@@ -136,6 +137,7 @@ import Nagare.Resource.Inventory
     , PurgeCdnCache
     , PurgeCdnZone
     , RestoreLiveData
+    , ResumeSessions
     , RotateCredential
     , SchemaMigration
     , StartVm
@@ -522,7 +524,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       forwardOnly operation || operation ^. #operationKind == CreateLogicalCache
     forwardOnly operation =
       operation ^. #operationKind
-        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone, StartVm, StopVm, PruneHostImage, RotateCredential]
+        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone, StartVm, StopVm, PruneHostImage, RotateCredential, DrainSessions, ResumeSessions]
         || ( operation ^. #operationKind == PublishRelease
                && all isArtifact (NE.toList (operation ^. #affects))
            )
@@ -746,7 +748,18 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
             , Just prerequisite <- [Map.lookup (dependencyResource dependency) operationByDependency]
             ]
           affectedChanges = mapMaybe (`Map.lookup` operationByResource) affected
-       in (operation, planned {plannedDependencies = Set.toAscList (Set.fromList (affectedChanges <> prerequisites))})
+          -- An app database's drain and resume (EP-205) come after every change
+          -- of their scope: the schedule's suspension is neither an affected
+          -- member nor a dependency, and a tick before it would start a run.
+          owners = Set.fromList [resource ^. #owner | resourceId <- affected, Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
+          scopeChanges =
+            [ change
+            | operation ^. #operationKind `elem` [DrainSessions, ResumeSessions]
+            , (resourceId, change) <- Map.toList operationByResource
+            , Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]
+            , Set.member (resource ^. #owner) owners
+            ]
+       in (operation, planned {plannedDependencies = Set.toAscList (Set.fromList (affectedChanges <> prerequisites <> scopeChanges))})
     sameManaged old resource = case old of
       Managed previous ->
         let canonicalDependencies value =

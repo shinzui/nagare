@@ -1,0 +1,3 @@
+{"kind":"session","user":"alpha_runtime","query_id":"352f0919-42d8-4f71-87c4-a6fa9859d351"}
+{"kind":"mutation","database":"alpha","table":"t","mutation_id":"mutation_9.txt","latest_fail_reason":"Code: 395. DB::Exception: ep205 failing mutation: while executing 'FUNCTION if(1_UInt8 :: 2, _CAST(toString(throwIf(equals(k, 5_UInt8), 'ep205 failing mutation'_String)), 'String'_String) :: 3, v :: 1) -> if(1_UInt8, _CAST(toString(throwIf(equals(k, 5_UInt8), 'ep205 failing mutation'_String)), 'String'_S... String : 4'. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO) (version 26.8.29.10 (official build))"}
+{"kind":"server","uuid":"b47d3831-a342-4cc4-82b9-b88f23036f24","started":"2026-10-20 00:05:21"}

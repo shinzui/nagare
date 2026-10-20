@@ -4,12 +4,15 @@
 -- retire one app database, against the interpreter world.
 module AppDatabaseWorldSpec (appDatabaseWorldTests) where
 
-import AppDatabaseSpec (Server, alpha, beta, chServer, pgServer, scopeOf, snapshot)
+import AppDatabaseSpec (Server, alpha, beta, chServer, pgServer, scopeAndNative, scopeOf, snapshot, snapshotWith)
 import Control.Exception (try)
 import Control.Monad (forM_)
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.IORef
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -22,14 +25,18 @@ import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.AppDatabase
+import Nagare.Inventory.Adapters.AppDatabaseSessions
+import Nagare.Inventory.AppDatabase (quiesceAppDatabaseScope, resumeAppDatabaseScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (..), mkOperationId)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store (initializeStore, newMemoryStore)
+import Nagare.Inventory.Store qualified as Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry))
 import Nagare.Resource.Types
 import Nagare.Test.World.Adversary
+import Nagare.Test.World.Adversary qualified as Adversary
 import Nagare.Test.World.AppDatabase
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -121,6 +128,7 @@ appDatabaseWorldTests =
     , (variant, declare) <- [("", id), (" with declared access", declaredAccess engine')]
     ]
       <> [testGroup (show engine' <> " reviewed access (EP-204)") (accessTests engine') | engine' <- [Postgres, ClickHouse]]
+      <> [testGroup (show engine' <> " quiesce (EP-205)") (quiesceTests engine') | engine' <- [Postgres, ClickHouse]]
   where
     expectRight = either (assertFailure . T.unpack) pure
 
@@ -327,6 +335,197 @@ accessTests engine' =
                assertBool (T.unpack rendered) (grantDriftCode `T.isInfixOf` rendered && "pg_monitor" `T.isInfixOf` rendered)
                assertBool (T.unpack rendered) (not ("private provider stderr" `T.isInfixOf` rendered))
        | engine' == Postgres
+       ]
+  where
+    expectRight = either (assertFailure . T.unpack) pure
+
+-- EP-205 ------------------------------------------------------------------
+
+-- | One quiesce or resume under review: the members before and after, and
+-- the session step's binding and planned operation.
+data SessionReview = SessionReview
+  { before :: !Members
+  , after :: !Members
+  , bindings :: !(Map ContentDigest SessionBinding)
+  , operation :: !PlannedOperation
+  }
+  deriving stock (Generic)
+
+-- | The declarations of the server, the given alpha scope and beta.
+membersOfScope :: Engine -> ScopeDeclaration -> IO Members
+membersOfScope engine' alphaScope =
+  either (assertFailure . T.unpack) pure $
+    appDatabaseMembersFromDeclarations
+      (concat [declarationsOf scope | scope <- [fst (serverOf engine'), alphaScope, scopeOf (serverOf engine') (beta engine')]])
+
+sessionAdapter :: AppDatabaseOps -> SessionReview -> Adapter
+sessionAdapter ops review = withAppDatabaseSessions (review ^. #bindings) (review ^. #after) ops (adapterAgainst (review ^. #before) ops (review ^. #after))
+
+-- | Apply a reviewed quiesce or resume: the member changes, then the step.
+applySession :: AppDatabaseOps -> SessionReview -> IO (Either Text ())
+applySession ops review = do
+  changed <- convergeAgainst (review ^. #before) ops (review ^. #after)
+  case changed of
+    Left reason -> pure (Left reason)
+    Right () -> effect (sessionAdapter ops review) (review ^. #operation)
+
+-- | alpha's scope and accepted native bytes, quiesced with the given users.
+quiesceAlpha :: Engine -> [Text] -> IO (ScopeDeclaration, Map ResourceId (ManagedResource, BS.ByteString), ScopeDeclaration, Map ResourceId (ManagedResource, BS.ByteString))
+quiesceAlpha engine' roles = do
+  let (scope, native) = scopeAndNative (serverOf engine') (alpha engine')
+  (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope roles "t1")
+  pure (scope, native, quiesced, Map.union paused native)
+
+-- | Quiesce alpha's runtime user, drain, then resume: the world after each.
+quiesceCycle :: Engine -> IORef World -> AppDatabaseOps -> Members -> IO (Either Text (World, World))
+quiesceCycle engine' world ops open = do
+  (_, _, quiesced, nativeQuiesced) <- quiesceAlpha engine' ["runtime"]
+  drain <- sessionReviewFor engine' open quiesced DrainStep
+  drained <- applySession ops drain
+  case drained of
+    Left reason -> pure (Left reason)
+    Right () -> do
+      during <- readIORef world
+      (resumed, _) <- either (assertFailure . show) pure (resumeAppDatabaseScope nativeQuiesced quiesced "t2")
+      resume <- sessionReviewFor engine' (drain ^. #after) resumed ResumeStep
+      resumedResult <- applySession ops resume
+      afterResume <- readIORef world
+      pure ((during, afterResume) <$ resumedResult)
+
+sessionReviewFor :: Engine -> Members -> ScopeDeclaration -> SessionStep -> IO SessionReview
+sessionReviewFor engine' before' revised step' = do
+  after' <- membersOfScope engine' revised
+  bindings' <- either (assertFailure . T.unpack) pure (sessionBindings [revised])
+  (digest, binding) <- case [(d, b) | (d, b) <- Map.toList bindings', b ^. #step == step'] of
+    [single] -> pure single
+    other -> assertFailure ("expected one session step: " <> show other) >> fail "step"
+  pure (SessionReview before' after' (Map.singleton digest binding) (PlannedOperation (either (error . T.unpack) id (mkOperationId "op-session")) RunDeclaredOperation AppDatabaseExecutor (binding ^. #member :| []) digest [] VerifyBeforeRetry))
+
+-- | The catalog state a quiesce must give back: logins, grants, settings
+-- and limits of every user, and every database's grants.
+catalogAccess :: World -> (Map Text (Bool, [Text], [CatalogSetting], Int, [Text]), Map Text (Set.Set CatalogGrant))
+catalogAccess world =
+  ( Map.map (\u -> (u ^. #login, sort (u ^. #serverGrants), u ^. #settings, u ^. #connectionLimit, u ^. #roleSettings)) (world ^. #users)
+  , Map.map (^. #grants) (world ^. #databases)
+  )
+
+quiesceTests :: Engine -> [TestTree]
+quiesceTests engine' =
+  [ testCase "quiesce ends alpha's work and blocks its logins; beta, the server and the grants come back unchanged (IR-31 AC-1, AC-2)" $ do
+      (world, ops, open) <- setup engine' id []
+      converge ops open >>= expectRight
+      let alphaRuntime = user' engine' "alpha" "runtime"
+          betaRuntime = user' engine' "beta" "runtime"
+      modifyIORef' world (#sessions .~ Map.fromList [(alphaRuntime, 2), (betaRuntime, 1)])
+      before' <- readIORef world
+      result <- quiesceCycle engine' world ops open
+      (during, after') <- either (assertFailure . T.unpack) pure result
+      Map.lookup alphaRuntime (during ^. #sessions) @?= Just 0
+      Map.lookup betaRuntime (during ^. #sessions) @?= Just 1
+      (^. #login) <$> Map.lookup alphaRuntime (during ^. #users) @?= Just False
+      (^. #login) <$> Map.lookup (user' engine' "alpha" "migration") (during ^. #users) @?= Just True
+      during ^. #server @?= before' ^. #server
+      let betaOnly = Map.filterWithKey (\name _ -> "beta" `T.isPrefixOf` name)
+      betaOnly (during ^. #users) @?= betaOnly (before' ^. #users)
+      betaOnly (during ^. #databases) @?= betaOnly (before' ^. #databases)
+      let grantsOf who w = sort [g | db <- Map.elems (w ^. #databases), g <- Set.toList (db ^. #grants), g ^. #grantee == who]
+      if engine' == ClickHouse
+        then do
+          -- An open native session outlives a login change, not a grant change.
+          grantsOf alphaRuntime during @?= []
+          grantsOf (user' engine' "alpha" "migration") during @?= grantsOf (user' engine' "alpha" "migration") before'
+        else grantsOf alphaRuntime during @?= grantsOf alphaRuntime before'
+      catalogAccess after' @?= catalogAccess before'
+  , testCase "the drain waits out a scheduled run in flight and times out on one that never ends (IR-31 AC-4)" $ do
+      (world, ops, open) <- setup engine' id []
+      converge ops open >>= expectRight
+      modifyIORef' world (#activeRuns .~ 5)
+      quiesceCycle engine' world ops open >>= expectRight . fmap (const ())
+      (^. #activeRuns) <$> readIORef world >>= (@?= 0)
+      (world', ops', open') <- setup engine' id []
+      converge ops' open' >>= expectRight
+      modifyIORef' world' (#activeRuns .~ (drainTimeoutTicks + 10))
+      result <- quiesceCycle engine' world' ops' open'
+      case result of
+        Left reason -> assertBool (T.unpack reason) ("timed out" `T.isInfixOf` reason && "scheduled backup run" `T.isInfixOf` reason)
+        Right _ -> assertFailure "a drain finished with a scheduled run still in flight"
+  , testCase "a server restarted after review fails the drain's preflight" $ do
+      (world, ops, open) <- setup engine' id []
+      converge ops open >>= expectRight
+      (_, _, quiesced, _) <- quiesceAlpha engine' ["runtime"]
+      drain <- sessionReviewFor engine' open quiesced DrainStep
+      convergeAgainst open ops (drain ^. #after) >>= expectRight
+      let adapter = sessionAdapter ops drain
+      prepared <- adapterPrepare adapter (drain ^. #operation) >>= either (assertFailure . show) pure
+      modifyIORef' world (#server %~ Map.insert "podStarted" "2026-10-19T01:00:00Z")
+      adapterPreflight adapter (drain ^. #operation) prepared >>= \case
+        Left reason -> assertBool (T.unpack reason) ("server identity differs" `T.isInfixOf` reason)
+        Right () -> assertFailure "a restarted server passed the drain's preflight"
+  , testCase "every fault during quiesce, drain and resume ends in the same state" $ do
+      (world, ops, open, adversary) <- setupWith engine' id []
+      converge ops open >>= expectRight
+      start <- readIORef world
+      before' <- counts <$> readIORef adversary
+      modifyIORef' world (#sessions .~ Map.fromList [(user' engine' "alpha" "runtime", 1)])
+      expected <- quiesceCycle engine' world ops open >>= either (assertFailure . T.unpack) pure
+      calls <- (\after' -> Map.findWithDefault 0 MutateCall after' - Map.findWithDefault 0 MutateCall before') . counts <$> readIORef adversary
+      assertBool "the cycle makes mutation calls" (calls > 0)
+      forM_ [(n, fault) | n <- [1 .. calls], fault <- [RefusedBeforeEffect, LostAcknowledgement, Interrupt]] $ \(n, fault) -> do
+        (world', ops', open', adversary') <- setupWith engine' id []
+        converge ops' open' >>= expectRight
+        used <- Map.findWithDefault 0 MutateCall . counts <$> readIORef adversary'
+        modifyIORef' adversary' (\a -> a {Adversary.schedule = [(Boundary MutateCall (used + n), fault)]})
+        modifyIORef' world' (#sessions .~ Map.fromList [(user' engine' "alpha" "runtime", 1)])
+        got <- quiesceCycle engine' world' ops' open'
+        either (\reason -> assertFailure (show (n, fault) <> ": " <> T.unpack reason)) (\(_, final) -> catalogAccess final @?= catalogAccess (snd expected)) got
+        left <- unacted <$> readIORef adversary'
+        assertEqual ("fault placement fired " <> show (n, fault)) [] left
+        catalogAccess (snd expected) @?= catalogAccess start
+  ]
+    <> [ testCase "the reviewed drain is ordered after the schedule's suspension (IR-31 AC-4)" $ do
+           (world, ops, open) <- setup engine' id []
+           converge ops open >>= expectRight
+           _ <- readIORef world
+           (_, _, quiesced, _) <- quiesceAlpha engine' ["runtime"]
+           drain <- sessionReviewFor engine' open quiesced DrainStep
+           store <- newMemoryStore
+           let ok' :: (Show e) => Either e a -> a
+               ok' = either (error . show) id
+               accepted0 = snapshotWith [serverOf engine'] [scopeOf (serverOf engine') (alpha engine')]
+               -- The seed accepts the snapshot's scopes as they are.
+               openCandidate = ok' (composeInventory accepted0 (ReplaceScope (ok' (mkScopeDeclaration (ok' (mkScopeId Standalone "dummy")) [])) :| []))
+           initializeStore store (inventoryBinding (candidateInventory openCandidate)) "app-database" >>= either (assertFailure . show) (const (pure ()))
+           seedInventoryHistory store openCandidate >>= either (assertFailure . show) (const (pure ()))
+           history <- loadInventoryHistory store >>= either (assertFailure . show) pure
+           let accepted1 = ok' (mkScopeSnapshot (inventoryBinding (candidateInventory openCandidate)) (Map.map (\(revision, declared) -> (Store.revisionGeneration revision, declared)) (historyAccepted history)) (historyReservations history))
+               candidate = ok' (composeInventory accepted1 (ReplaceScope quiesced :| []))
+           planning <- loadInventoryPlanningHistory store candidate >>= either (assertFailure . show) pure
+           let byExecutor = requirementsByExecutor (observationRequirements candidate planning)
+           ours <- adapterObserve (sessionAdapter ops drain) (Map.findWithDefault [] AppDatabaseExecutor byExecutor) >>= either (assertFailure . T.unpack) pure
+           let others = [(r, ObservedPresent (ok' (mkPhysicalIdentity ("uid-" <> T.filter (`elem` ['a' .. 'z']) (resourceIdText r))))) | (executor', rs) <- Map.toList byExecutor, executor' /= AppDatabaseExecutor, r <- rs]
+               observed = ok' (observationSet (Map.toList (observationMap ours) <> others))
+           proposal <- either (assertFailure . show) pure (planChanges candidate noLifecycleDecisions planning observed)
+           let operations' = proposalOperations proposal
+               cron = [plannedOperationId o | o <- operations', any (\r -> "/backup" `T.isSuffixOf` resourceIdText r) (NE.toList (plannedResources o))]
+               drains = [o | o <- operations', plannedAction o == RunDeclaredOperation]
+           assertBool ("the schedule's suspension is planned: " <> show (map plannedResources operations')) (not (null cron))
+           case drains of
+             [drained] -> assertBool "the drain waits for the suspension" (all (`elem` plannedDependencies drained) cron)
+             other -> assertFailure ("expected one drain: " <> show (length other))
+       ]
+    <> [ testCase "the drain waits for the app's mutations and refuses a failed one by name (IR-31 AC-3)" $ do
+           (world, ops, open) <- setup engine' id []
+           converge ops open >>= expectRight
+           modifyIORef' world (#mutations .~ [WorldMutation "alpha" "t" "mutation_1.txt" 3 Nothing, WorldMutation "beta" "t" "mutation_1.txt" 1000 Nothing])
+           quiesceCycle engine' world ops open >>= expectRight . fmap (const ())
+           (world', ops', open') <- setup engine' id []
+           converge ops' open' >>= expectRight
+           modifyIORef' world' (#mutations .~ [WorldMutation "alpha_ledger" "l" "mutation_2.txt" 0 (Just "Code: 395. failing")])
+           result <- quiesceCycle engine' world' ops' open'
+           case result of
+             Left reason -> assertBool (T.unpack reason) ("alpha_ledger.l mutation_2.txt: Code: 395" `T.isInfixOf` reason)
+             Right _ -> assertFailure "a drain finished over a failed mutation"
+       | engine' == ClickHouse
        ]
   where
     expectRight = either (assertFailure . T.unpack) pure

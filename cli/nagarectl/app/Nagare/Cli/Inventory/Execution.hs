@@ -599,6 +599,7 @@ inventoryExecutionRegistry mctx store bundle = do
         inventoryAppDatabaseAdapter
           active
           binding
+          scopes
           appDatabaseMembers
           (maybe Map.empty acceptedAppDatabaseResources appDatabaseHistory)
           (maybe Map.empty (InventoryStore.headIncarnations . InventoryPlan.historyHead) appDatabaseHistory)

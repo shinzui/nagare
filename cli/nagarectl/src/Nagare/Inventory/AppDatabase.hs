@@ -17,6 +17,9 @@ module Nagare.Inventory.AppDatabase
   , AppDatabaseScheduleSource (..)
   , appDatabaseScheduleSource
   , rotateAppDatabaseScope
+  , quiesceAppDatabaseScope
+  , resumeAppDatabaseScope
+  , quiescedRoles
   , AppDatabaseRow (..)
   , appDatabaseRows
   )
@@ -326,29 +329,130 @@ retireAppDatabaseScope snapshot native scope = do
             :| []
         )
     )
-  suspended <- Map.fromList <$> traverse suspend [member | member <- scopeMembers scope, Kubernetes _ "batch" kind _ _ <- [member ^. #address], nameText kind == "cronjob"]
+  suspended <- withSchedules native scope "invalid-app-database-retirement" (KM.insert "suspend" (Bool True))
   revised <- reviseScope scope (map (\bundle -> bundle & #declarations %~ map (off suspended)) (scopeBundles scope))
   pure (revised, suspended)
   where
     off suspended = \case
       Managed member -> Managed (maybe (member & #spec %~ disable) fst (Map.lookup (member ^. #identity) suspended))
       other -> other
-    suspend member = do
-      bytes <- case Map.lookup (member ^. #identity) native of
-        Just (accepted, bytes) | accepted == member -> Right bytes
-        _ -> Left (retirement member "the backup schedule has no private native object")
-      value <- first (retirement member . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
-      changed <- case value of
-        Object root | Just (Object spec) <- KM.lookup "spec" root -> Right (Object (KM.insert "spec" (Object (KM.insert "suspend" (Bool True) spec)) root))
-        _ -> Left (retirement member "the backup schedule has no spec")
-      changedBytes <- first (retirement member) (canonicalValue changed)
-      let updated = member & #spec .~ NativeObject (contentDigest changedBytes)
-      pure (member ^. #identity, (updated, changedBytes))
-    retirement member message = (inventoryError "invalid-app-database-retirement" message & #scopes .~ [scopeId scope] & #resources .~ [member ^. #identity]) :| []
     disable = \case
       LogicalDatabase engine' migration runtime _ digest monitoring -> LogicalDatabase engine' migration runtime False digest monitoring
-      DatabaseUserSpec engine' role _ digest access -> DatabaseUserSpec engine' role False digest access
+      DatabaseUserSpec engine' role _ digest access -> DatabaseUserSpec engine' role LoginClosed digest access
       other -> other
+
+-- | Rewrite the @spec@ of the scope's backup CronJob in its accepted native
+-- bytes: retirement and quiesce set @suspend: true@; resume deletes the key,
+-- which the render never writes, so the accepted pre-quiesce bytes come back.
+withSchedules ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  ScopeDeclaration ->
+  Text ->
+  (KM.KeyMap Value -> KM.KeyMap Value) ->
+  Either (NonEmpty InventoryError) (Map ResourceId (ManagedResource, ByteString))
+withSchedules native scope code edit = Map.fromList <$> traverse rewrite [member | member <- scopeMembers scope, Kubernetes _ "batch" kind _ _ <- [member ^. #address], nameText kind == "cronjob"]
+  where
+    rewrite member = do
+      bytes <- case Map.lookup (member ^. #identity) native of
+        Just (accepted, bytes) | accepted == member -> Right bytes
+        _ -> Left (refusal member "the backup schedule has no private native object")
+      value <- first (refusal member . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      changed <- case value of
+        Object root | Just (Object spec) <- KM.lookup "spec" root -> Right (Object (KM.insert "spec" (Object (edit spec)) root))
+        _ -> Left (refusal member "the backup schedule has no spec")
+      changedBytes <- first (refusal member) (canonicalValue changed)
+      let updated = member & #spec .~ NativeObject (contentDigest changedBytes)
+      pure (member ^. #identity, (updated, changedBytes))
+    refusal member message = (inventoryError code message & #scopes .~ [scopeId scope] & #resources .~ [member ^. #identity]) :| []
+
+-- | The roles of an accepted app database's users that are quiesced (EP-205).
+quiescedRoles :: ScopeDeclaration -> [Text]
+quiescedRoles scope = [role | member <- scopeMembers scope, DatabaseUserSpec _ role LoginQuiesced _ _ <- [member ^. #spec]]
+
+-- | Quiesce (EP-205) closes the chosen users' logins until resume, suspends
+-- the backup schedule, and declares the @drain@ operation, which ends what is
+-- still open and proves the app database idle. It refuses a quiesced or
+-- retired app database, and a user set without the runtime user. Unlike
+-- retirement it keeps the databases' declared access, and a workload binding
+-- still resolves.
+quiesceAppDatabaseScope ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  ScopeDeclaration ->
+  [Text] ->
+  Text ->
+  Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+quiesceAppDatabaseScope native scope roles stamp = do
+  let owner = scopeId scope
+      logins = [login | member <- scopeMembers scope, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]]
+  when (LoginQuiesced `elem` logins) (Left (sessionRefusal owner "app-database-quiesced" "the app database is already quiesced; resume it first"))
+  when (LoginClosed `elem` logins) (Left (sessionRefusal owner "invalid-app-database-quiesce" "a retired app database is not quiesced"))
+  unless ("runtime" `elem` roles) (Left (sessionRefusal owner "invalid-app-database-quiesce" "quiesce always includes the runtime user"))
+  unless (all (`elem` ["runtime", "migration"]) roles) (Left (sessionRefusal owner "invalid-app-database-quiesce" "quiesce takes the users runtime and migration"))
+  suspended <- withSchedules native scope "invalid-app-database-quiesce" (KM.insert "suspend" (Bool True))
+  revised <- sessionScope scope suspended (setLogin (`elem` roles) LoginQuiesced) "drain" DrainSessions stamp
+  pure (revised, suspended)
+
+-- | Resume (EP-205) reopens exactly the quiesced users' logins, gives the
+-- backup schedule its accepted bytes back, and declares the @resume@
+-- operation, which proves the server is the one the drain observed.
+resumeAppDatabaseScope ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  ScopeDeclaration ->
+  Text ->
+  Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+resumeAppDatabaseScope native scope stamp = do
+  let owner = scopeId scope
+      quiesced = quiescedRoles scope
+  when (null quiesced) (Left (sessionRefusal owner "invalid-app-database-resume" "the app database is not quiesced"))
+  resumed <- withSchedules native scope "invalid-app-database-resume" (KM.delete "suspend")
+  revised <- sessionScope scope resumed (setLogin (`elem` quiesced) LoginOpen) "resume" ResumeSessions stamp
+  pure (revised, resumed)
+
+setLogin :: (Text -> Bool) -> UserLogin -> DesiredSpec -> DesiredSpec
+setLogin chosen login = \case
+  DatabaseUserSpec engine' role _ digest access | chosen role -> DatabaseUserSpec engine' role login digest access
+  other -> other
+
+-- | The revised scope of a quiesce or resume: the users' specs, the
+-- rewritten schedule, and the step's operation, keyed by its fixed name and
+-- affecting the runtime user; a new stamp makes a new operation, so each
+-- step runs once.
+sessionScope ::
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  (DesiredSpec -> DesiredSpec) ->
+  Text ->
+  OperationKind ->
+  Text ->
+  Either (NonEmpty InventoryError) ScopeDeclaration
+sessionScope scope schedules respec step kind' stamp = do
+  let owner = scopeId scope
+  runtime <- case [member | member <- scopeMembers scope, DatabaseUserSpec _ "runtime" _ _ _ <- [member ^. #spec]] of
+    [member] -> Right member
+    _ -> Left (sessionRefusal owner "invalid-app-database-quiesce" "the app database has no runtime user")
+  key <- first (sessionRefusal owner "invalid-app-database-quiesce") (mkLogicalKey (nameText (scopeName owner)))
+  operationName <- first (sessionRefusal owner "invalid-app-database-quiesce") (mkName step)
+  let operation =
+        DeclaredOperation
+          { identity = mintResourceId owner key operationName
+          , affects = runtime ^. #identity :| []
+          , inputs = [ContentInput (contentDigest (TE.encodeUtf8 (step <> " at " <> stamp)))]
+          , recovery = VerifyBeforeRetry
+          , operationKind = kind'
+          }
+      member' resource = case Map.lookup (resource ^. #identity) schedules of
+        Just (rewritten, _) -> rewritten
+        Nothing -> resource & #spec %~ respec
+      revise = \case
+        Managed resource -> Managed (member' resource)
+        other -> other
+      bundles = map (#declarations %~ map revise) (scopeBundles scope)
+  case bundles of
+    first' : rest -> reviseScope scope ((first' & #operations %~ ((operation :) . filter (\existing -> existing ^. #identity /= operation ^. #identity))) : rest)
+    [] -> Left (sessionRefusal owner "invalid-app-database-quiesce" "the app-database scope has no bundle")
+
+sessionRefusal :: ScopeId -> Text -> Text -> NonEmpty InventoryError
+sessionRefusal owner code message = (inventoryError code message & #scopes .~ [owner]) :| []
 
 -- | Whether an accepted schedule's native bytes are suspended, as a retired
 -- app database's are.
@@ -404,6 +508,7 @@ rotateAppDatabaseScope :: ScopeDeclaration -> Text -> Text -> Either (NonEmpty I
 rotateAppDatabaseScope scope role stamp = do
   let owner = scopeId scope
       users = [member | member <- scopeMembers scope, DatabaseUserSpec _ memberRole _ _ _ <- [member ^. #spec], memberRole == role]
+  unless (null (quiescedRoles scope)) (Left (sessionRefusal owner "app-database-quiesced" "the app database is quiesced; resume it before rotating a credential"))
   user <- case users of
     [member] -> Right member
     _ -> Left (single owner ("the app database has no " <> role <> " user"))
@@ -432,6 +537,7 @@ data AppDatabaseRow = AppDatabaseRow
   , engine :: !Text
   , databases :: ![Text]
   , retired :: !Bool
+  , quiesced :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -443,7 +549,8 @@ appDatabaseRows snapshot =
       serverNamespace
       engineText
       [nameText db | member <- members, DatabaseName _ db <- [member ^. #address]]
-      (not (or [on | member <- members, DatabaseUserSpec _ _ on _ _ <- [member ^. #spec]]))
+      (and [login == LoginClosed | member <- members, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]])
+      (or [login == LoginQuiesced | member <- members, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]])
   | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
   , "appdb-" `T.isPrefixOf` nameText (scopeName owner)
   , let members = filter ((== AppDatabaseExecutor) . (^. #executor)) (scopeMembers scope)

@@ -10,6 +10,8 @@ module AppDatabaseSpec
   , scopeOf
   , serverStateful
   , snapshot
+  , snapshotWith
+  , scopeAndNative
   )
 where
 
@@ -149,6 +151,40 @@ appDatabaseTests =
             forM_ [(chServer, alpha ClickHouse & #access . #runtime . #exceptions .~ [SystemParts]), (pgServer, alpha Postgres & #access . #monitoring .~ [PgMonitor])] $ \(server', declared) -> do
               let cronOf db = [bytes | (member, bytes) <- Map.elems (snd (scopeAndNative server' db)), Kubernetes _ "batch" kind _ _ <- [member ^. #address], nameText kind == "cronjob"]
               cronOf declared @?= cronOf (declared & #access .~ noAppDatabaseAccess)
+        , testCase "quiesce closes the chosen logins, pauses the schedule and declares a drain; resume gives the accepted bytes back (EP-205)" $
+            forM_ [(pgServer, alpha Postgres), (chServer, alpha ClickHouse)] $ \(server', db) -> do
+              let (scope, native) = scopeAndNative server' db
+                  cronOf s' = head [m | bundle <- scopeBundles s', Managed m <- declarations bundle, Kubernetes _ "batch" kind _ _ <- [m ^. #address], nameText kind == "cronjob"]
+                  logins s' = [(role, login) | DatabaseUserSpec _ role login _ _ <- specs' s']
+                  specs' s' = [m ^. #spec | bundle <- scopeBundles s', Managed m <- declarations bundle]
+                  kinds s' = [(op ^. #operationKind, last (T.splitOn "/" (resourceIdText (op ^. #identity)))) | bundle <- scopeBundles s', op <- bundle ^. #operations]
+              (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope ["runtime"] "t1")
+              logins quiesced @?= [("runtime", LoginQuiesced), ("migration", LoginOpen)]
+              kinds quiesced @?= [(DrainSessions, "drain")]
+              [bytes | (_, bytes) <- Map.elems paused] `forM_` \bytes -> assertBool "the schedule is suspended" (scheduleSuspended bytes)
+              -- The logical databases' specs are untouched: on ClickHouse their
+              -- grants are withheld from the quiesced users, derived from the users.
+              [spec | spec@LogicalDatabase {} <- specs' quiesced] @?= [spec | spec@LogicalDatabase {} <- specs' scope]
+              let afterQuiesce = Map.union paused native
+              (resumed, unpaused) <- either (assertFailure . show) pure (resumeAppDatabaseScope afterQuiesce quiesced "t2")
+              logins resumed @?= [("runtime", LoginOpen), ("migration", LoginOpen)]
+              kinds resumed @?= [(ResumeSessions, "resume"), (DrainSessions, "drain")]
+              map snd (Map.elems unpaused) @?= [snd (native Map.! (cronOf scope ^. #identity))]
+              cronOf resumed ^. #spec @?= cronOf scope ^. #spec
+        , testCase "quiesce refuses a quiesced or retired app database and a user set without the runtime user; rotation refuses while quiesced (EP-205)" $ do
+            let (scope, native) = scopeAndNative pgServer (alpha Postgres)
+                code = either (map (^. #code) . NE.toList) (const [])
+            (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope ["runtime", "migration"] "t1")
+            code (quiesceAppDatabaseScope (Map.union paused native) quiesced ["runtime"] "t2") @?= ["app-database-quiesced"]
+            code (quiesceAppDatabaseScope native scope ["migration"] "t1") @?= ["invalid-app-database-quiesce"]
+            code (rotateAppDatabaseScope quiesced "runtime" "t3") @?= ["app-database-quiesced"]
+            code (resumeAppDatabaseScope native scope "t1") @?= ["invalid-app-database-resume"]
+            (retired, retiredNative) <- either (assertFailure . show) pure (retireAppDatabaseScope (snapshotWith [pgServer] [scope]) native scope)
+            code (quiesceAppDatabaseScope (Map.union retiredNative native) retired ["runtime"] "t1") @?= ["invalid-app-database-quiesce"]
+            [row ^. #quiesced | row <- appDatabaseRows (snapshotWith [pgServer] [quiesced])] @?= [True]
+            -- The quiesced login is the third state on the wire; v0.7 wrote a Bool.
+            assertBool "quiesced on the wire" ("\"quiesced\"" `T.isInfixOf` TE.decodeUtf8 (encodeCanonicalScope quiesced))
+            (encodeCanonicalScope <$> decodeScope (encodeCanonicalScope quiesced)) @?= Right (encodeCanonicalScope quiesced)
         , testCase "alpha and beta share one server per engine (AC-1)" $ do
             let inventory =
                   known
@@ -259,7 +295,7 @@ appDatabaseTests =
             found <- either (assertFailure . T.unpack) pure (namedAppDatabaseScope accepted "alpha-pg" Nothing)
             (retired, _) <- either (assertFailure . show) pure (retireAppDatabaseScope accepted (snd (scopeAndNative pgServer (alpha Postgres))) found)
             [on | LogicalDatabase _ _ _ on _ _ <- specs retired] @?= [False]
-            [on | DatabaseUserSpec _ _ on _ _ <- specs retired] @?= [False, False]
+            [login | DatabaseUserSpec _ _ login _ _ <- specs retired] @?= [LoginClosed, LoginClosed]
             let runtime = head [member ^. #identity | bundle <- scopeBundles scope, Managed member <- declarations bundle, DatabaseUserSpec _ "runtime" _ _ _ <- [member ^. #spec]]
                 bound = snapshotWith [pgServer] [scope, boundTo runtime]
             case retireAppDatabaseScope bound Map.empty found of
@@ -330,6 +366,16 @@ appDatabaseTests =
             case compileWorker "alpha" (Just (Map.keys twoPostgres & map (known . mkAppDatabaseName . Dsl.databaseNameText))) twoPostgres of
               Left _ -> pure ()
               Right _ -> assertFailure "a workload bound two PostgreSQL databases"
+        , testCase "a quiesced app database still binds; a retired one does not (EP-205)" $ do
+            let (scope, native) = scopeAndNative pgServer (alpha Postgres)
+                names = [known (mkAppDatabaseName "alpha-pg")]
+                bindIn s' extra = acceptedAppDatabaseBindings (snapshotWith [pgServer] [s']) (Map.unions [acceptedNative [pgServer], extra, native]) testCluster "personal" names
+            (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope ["runtime"] "t1")
+            either (assertFailure . T.unpack) (const (pure ())) (bindIn quiesced paused)
+            (retired, retiredNative) <- either (assertFailure . show) pure (retireAppDatabaseScope (snapshotWith [pgServer] [scope]) native scope)
+            case bindIn retired retiredNative of
+              Left reason -> assertBool (T.unpack reason) ("retired" `T.isInfixOf` reason)
+              Right _ -> assertFailure "a retired app database was bound"
         , testCase "the ClickHouse server enables SQL access management" $ do
             let (_, native) = chServer
             assertBool "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT is set" $
