@@ -6,8 +6,9 @@
 # It builds PREV_VERSION's packaged nagarectl (the published tag) and REV's, then runs
 # scripts/transition-rehearsal.sh on a disposable local context in the Colima profile
 # nagare-mp23, and writes the record a release binds to
-# docs/release-evidence/<rev>/transition-rehearsal.json, uncommitted. An existing record is
-# kept: only a green run writes one.
+# docs/release-evidence/<rev>/transition-rehearsal.json, uncommitted, or to
+# NAGARE_RELEASE_REHEARSAL_RECORD (just release-candidate's run directory). An existing record
+# is kept: only a green run writes one.
 #
 # Both CLIs are nix packages with every guard on. The rehearsal runs from an empty
 # environment whose PATH holds only the operator tools below and no Helm, so the candidate
@@ -20,7 +21,7 @@ rev="$(git -C "$repo" rev-parse --verify "$1^{commit}")"
 prev="${2#v}"
 profile=nagare-mp23
 socket="$HOME/.colima/$profile/docker.sock"
-record="$repo/docs/release-evidence/$rev/transition-rehearsal.json"
+record="${NAGARE_RELEASE_REHEARSAL_RECORD:-$repo/docs/release-evidence/$rev/transition-rehearsal.json}"
 log() { printf '%s release-rehearse: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
 check_record() { # record

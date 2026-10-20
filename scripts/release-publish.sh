@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # MP-26 item 11: publish the run `just release-candidate VERSION` left ready
-# (docs/runbooks/releases.md). Sign the annotated tag with the maintainer's SSH key, verify it,
-# push only the tag, publish with the candidate's own CLI from a checkout of the tag, then check
-# that the public flake reports VERSION at the candidate revision. Each step stops at its first
-# failure. The only retry is the publisher's "created draft is not yet visible", which a rerun
+# (docs/runbooks/releases.md). It refuses unless the run's intranet record shows the intranet on
+# the candidate (EP-210 M5). Sign the annotated tag with the maintainer's SSH key, verify it,
+# push only the tag, publish with the candidate's own CLI from a checkout of the tag, check
+# that the public flake reports VERSION at the candidate revision, then pin the operator
+# repository to the tag. Each step stops at its first failure. The only retry is the publisher's "created draft is not yet visible", which a rerun
 # completes. A rerun after a failure accepts the tag it already made.
 set -euo pipefail
 
@@ -26,6 +27,10 @@ run="$(cd "$run" && pwd -P)"
 rev="$(jq -er '.revision' "$run/candidate.json")"
 [[ "$(jq -er '.version' "$run/candidate.json")" == "$version" ]] || die "$run is not a run for $version"
 [[ -f "$key" ]] || die "no SSH signing key at $key; set NAGARE_RELEASE_SIGNING_KEY"
+# A release counts when the intranet runs it: the candidate run moved it and recorded that.
+jq -e --arg v "$version" --arg r "$rev" '.version == $v and .revision == $r and .status.compatibility == "exact"' \
+  "$run/intranet.json" >/dev/null 2>&1 \
+  || die "no intranet record for $version at $rev in $run; run just release-candidate $version, or scripts/release-intranet.sh $version"
 
 # --- preflight: the assembled attachments and the landed rehearsal record ---
 (cd "$run/dist" && shasum -a 256 -c SHA256SUMS >/dev/null) || die "SHA256SUMS does not verify in $run/dist"
@@ -86,4 +91,7 @@ step "checking github:$repository/$tag"
 nix run --refresh "github:$repository/$tag#nagarectl" -- version --json \
   | jq -e --arg version "$version" --arg revision "$rev" '.version == $version and .revision == $revision' >/dev/null \
   || die "github:$repository/$tag#nagarectl does not report $version at $rev"
-step "$tag is published. Next, by hand: switch the operator repository's flake input from the revision to the tag"
+
+# --- 5. the operator repository names the tag instead of the revision ---
+"$publish/scripts/release-intranet.sh" "$version" --run "$run" --pin-tag
+step "$tag is published"

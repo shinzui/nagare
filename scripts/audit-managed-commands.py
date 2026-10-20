@@ -129,6 +129,8 @@ ENTRYPOINTS = {
     "scripts/run-reviewed-bootstrap.sh": ("platform bootstrap plan", "platform bootstrap apply"),
     "scripts/transition-rehearsal.sh": ("platform bootstrap plan", "platform bootstrap apply", "transition plan", "inventory apply", "platform transition commit", "transition_sentinel"),
     "scripts/release-publish.sh": ("release publish", "--yes", "created draft is not yet visible"),
+    # EP-210 M5: the intranet transition of a release candidate, run by release-candidate.sh.
+    "scripts/release-intranet.sh": ("platform transition plan", "inventory apply", "inventory resume", "platform transition commit", "direnv exec"),
     "scripts/host-switch.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
     "scripts/upload-images.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD", "inventory guard-legacy upload-images"),
     "scripts/install-net-certmanager-controller.sh": ("inventory guard-legacy install-net-certmanager-controller",),

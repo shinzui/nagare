@@ -202,4 +202,6 @@ jq '.sourceRevision = "0123456789abcdef0123456789abcdef01234567"' \
 # provenance must win over that parent worktree's HEAD.
 [[ "$(nagare_release_source_tag "$metadata_fixture")" == "0123456789ab" ]]
 
+bash "$repo_root/scripts/test-release-intranet.sh"
+
 printf 'release consistency tests passed\n'

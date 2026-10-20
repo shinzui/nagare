@@ -3,8 +3,12 @@
 # gate, the transition rehearsal from the newest release the candidate accepts, both systems'
 # native attachments (aarch64-darwin here, x86_64-linux in an amd64 Apple container), and
 # two assemblies that must be byte-identical. The release gate runs alongside the other steps.
-# Then the rehearsal record is committed on
-# origin/master and landed. Every step stops at its first failure; nothing is retried.
+# Then the intranet moves to the candidate (scripts/release-intranet.sh; the rehearsal has proved
+# the transition by then), and the rehearsal record is committed on the current origin/master
+# and landed. Every step
+# runs in the run's own worktrees, never the checkout it was started from, so the operator keeps
+# working and landing beside it (EP-210 M4). Every step stops at its first failure; nothing is
+# retried.
 # `just release-publish VERSION` takes the run from here.
 #
 # --rehearsal runs every step for an already tagged or unreleased revision but lands nothing
@@ -67,23 +71,22 @@ cleanup() {
 }
 trap cleanup EXIT
 step "v$version at $rev from v$previous; run directory $run"
+git worktree add -q --detach "$worktree" "$rev"
 
 # --- 1. the release gate, in parallel with steps 2-5 (it works on the builder, they mostly
 # work here); its result is required before anything lands ---
 step "release gate (in the background, log $run/gate-release.log)"
-just gate-release "$rev" > "$run/gate-release.log" 2>&1 &
+(cd "$worktree" && just gate-release "$rev") > "$run/gate-release.log" 2>&1 &
 gate=$!
 
 # --- 2. the transition rehearsal ---
 step "transition rehearsal from v$previous"
-just release-rehearse "$rev" "$previous"
+(cd "$worktree" && NAGARE_RELEASE_REHEARSAL_RECORD="$run/transition-rehearsal.json" scripts/release-rehearse.sh "$rev" "$previous")
+[[ -f "$run/transition-rehearsal.json" ]] || die "release-rehearse left no $run/transition-rehearsal.json"
 record="docs/release-evidence/$rev/transition-rehearsal.json"
-[[ -f "$record" ]] || die "release-rehearse left no $record"
-cp "$record" "$run/transition-rehearsal.json"
 
-# --- 3. aarch64-darwin attachments, from a clean worktree of the candidate ---
+# --- 3. aarch64-darwin attachments, from the candidate's worktree ---
 step "aarch64-darwin attachments"
-git worktree add -q --detach "$worktree" "$rev"
 (cd "$worktree" && scripts/release-native.sh "$version" "$run/native/aarch64-darwin")
 
 # --- 4. x86_64-linux attachments, in an amd64 Apple container under Rosetta ---
@@ -126,12 +129,18 @@ wait "$gate" || die "the release gate failed: $run/gate-release.log"
 tail -1 "$run/gate-release.log"
 
 if $rehearsal; then
-  step "rehearsal complete; nothing landed. Attachments in $run/dist; $record is left uncommitted"
+  step "rehearsal complete; nothing landed and the intranet is untouched. Attachments in $run/dist, the rehearsal record in $run"
   exit 0
 fi
 
-# --- 6. land the rehearsal record on origin/master (never part of the candidate itself) ---
+# --- 6. the intranet on the candidate; release-publish requires its record ---
+step "the intranet"
+"$worktree/scripts/release-intranet.sh" "$version" --run "$run"
+
+# --- 7. land the rehearsal record on origin/master (never part of the candidate itself) ---
+# Fetch again: the operator may have landed during the run, and the record must go on top.
 step "rehearsal record"
+git fetch -q origin master
 if git cat-file -e "origin/master:$record" 2>/dev/null; then
   cmp -s <(git show "origin/master:$record") "$run/transition-rehearsal.json" \
     || die "origin/master already holds a different $record"
@@ -142,7 +151,7 @@ else
   git -C "$evidence" add -- "$record"
   git -C "$evidence" commit -q -m "docs(release): record the v$version transition rehearsal" \
     -m "Moved a disposable local context from v$previous to the candidate $rev; the seeded row read back unchanged."
-  just land "$(git -C "$evidence" rev-parse HEAD)"
+  (cd "$evidence" && just land HEAD)
 fi
 ln -sfn "$run" "$state/v$version/latest"
 step "v$version is ready to publish: just release-publish $version"
