@@ -578,7 +578,13 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
       service <- case [member | member <- allMembers, resourceIdText (member ^. #identity) == prefix <> "/service"] of
         [found] -> Right found
         _ -> Left "accepted app-database server has no unique Service"
-      pure (key, AppDatabaseBinding (AppDatabaseBound service credential logical engine (appName <> "-runtime")))
+      -- A runtime binding follows the users and databases, never a reader (EP-206):
+      -- a reader's binders are exactly the workloads that name it.
+      let ownMembers = [member | member <- logical, not (isReaderUser member)]
+          isReaderUser member = case member ^. #spec of
+            DatabaseUserSpec _ _ _ _ extension -> isJust (extension ^. #reader)
+            _ -> False
+      pure (key, AppDatabaseBinding (AppDatabaseBound service credential ownMembers engine (appName <> "-runtime")))
 
 -- | A reader binding's key and Secret name: @<appdb>-reader-<reader>@.
 appDatabaseReaderKey :: AppDatabaseReaderRef -> T.Text

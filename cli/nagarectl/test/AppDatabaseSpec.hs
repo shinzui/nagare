@@ -439,6 +439,12 @@ appDatabaseTests =
               case snd (bindingsFor True "gamma-probe") of
                 Left reason -> assertBool (T.unpack reason) ("app-database-reader-retired" `T.isPrefixOf` reason)
                 Right _ -> assertFailure "a retired reader was bound"
+              -- A runtime binder of the same app database is not one of its binders.
+              runtimeBindings <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings (snapshotWith [server'] [scope]) (Map.union (acceptedNative [server']) (snd (scopeAndNative server' (db & #access . #readers .~ [dash False])))) testCluster "personal" [db ^. #name])
+              (runtimeWorker, _) <- either (assertFailure . show) pure (compileWorker "alpha" (Just [db ^. #name]) runtimeBindings)
+              let runtimeDependencies = concat [m ^. #dependencies | bundle <- scopeBundles runtimeWorker, Managed m <- declarations bundle]
+              assertBool "a runtime binder is not ordered after the reader" (not (any (\r -> OrderedAfter r `elem` runtimeDependencies) readerMembers))
+              either (assertFailure . show) (const (pure ())) (compileAgainst (snapshotWith [server'] [scope, runtimeWorker]) [server'] (db & #access . #readers .~ [dash True]))
               -- Declaring it retired while a workload binds it is refused (EP-206).
               case compileAgainst (snapshotWith [server'] [scope, workerScope]) [server'] (db & #access . #readers .~ [dash True]) of
                 Left errs -> assertBool (show errs) (any ((== "app-database-reader-in-use") . (^. #code)) (NE.toList errs))
