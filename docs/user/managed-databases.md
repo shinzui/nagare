@@ -683,10 +683,11 @@ its own session, so a role default does not affect it.
 
 The deploy injects the same variables as a direct binding (the table above), with
 the host and port of the shared server and every credential variable a
-`secretKeyRef` into `<name>-runtime`. The workload never sees the migration
-credential; run migrations as a Job or task that reads `<name>-migration`
-yourself. An `Application`'s top-level `databases` cannot name an app database;
-bind it from the workloads that use it.
+`secretKeyRef` into `<name>-runtime`. A workload sees the migration credential
+only when the app database names it in `owners` (see "Privileges inside the
+app's own databases"); otherwise run migrations as a Job or task that reads
+`<name>-migration` yourself. An `Application`'s top-level `databases` cannot name
+an app database; bind it from the workloads that use it.
 
 **Rotation.** `nagarectl db app-database rotate NAME --user runtime|migration
 --save-plan DIR`, then `inventory apply`. The review writes the new password to
@@ -804,6 +805,109 @@ databases are rebuilt `--fresh`, empty), then `db app-database restore NAME
 --backup-id JOB_UID --restore-id ID --rebuilt`, which loads the backup into the
 declared databases and refuses one that already holds data. The full procedure is
 [App databases on a rebuilt server](../runbooks/inventory-operations.md#app-databases-on-a-rebuilt-server).
+
+### Privileges inside the app's own databases
+
+Some apps need their runtime user to do more inside the app's own databases than
+read and write rows. PGMQ is the common case: its server calls `pgmq.create` at
+startup, which creates the queue's tables in schema `pgmq`, and fails with
+`permission denied for schema pgmq` under the fixed grant set. An app database
+can declare such privileges in `access.privileges`, reviewed like the rest of the
+declaration. **The rule: a privilege that stays inside the app's own databases
+can be declared; server-wide access and access to another app's databases
+cannot.** Server-wide and system-table grants remain the closed allow-list of
+"Reviewed exceptions and limits".
+
+```haskell
+kansokuPg :: AppDatabase
+kansokuPg =
+  AppDatabase
+    { -- ... engine = Postgres ...
+      access =
+        noAppDatabaseAccess
+          & #monitoring .~ [PgMonitor]                         -- PGMQ's install grants pg_monitor
+          & #privileges . #runtime . #createIn .~ [ok (mkSchemaName "pgmq")]
+    }
+
+kansokuCh :: AppDatabase
+kansokuCh =
+  AppDatabase
+    { -- ... engine = ClickHouse ...
+      access =
+        noAppDatabaseAccess
+          & #privileges . #runtime . #clickhouse .~ map (ok . mkClickHousePrivilege) ["CREATE TABLE", "DROP TABLE"]
+    }
+```
+
+**PostgreSQL.** The runtime half takes `createIn`, a list of schemas of the app's
+database in which the runtime gets `CREATE`, and `createSchemas`, which gives it
+`CREATE` on the database so it can create schemas of its own. The migration user
+owns the database already, so its half takes neither.
+
+- **Pending schemas.** Nagare never creates an app's schema: the app's migrations
+  do (PGMQ's install runs `CREATE SCHEMA IF NOT EXISTS pgmq` as the migration
+  user). A declared schema that does not exist yet plans nothing, and the plan
+  prints `pending: schema pgmq` on stderr; the first plan after the migration
+  grants `CREATE` on it. So the first deploy is: apply the app database, run the
+  app's migrations, re-plan and apply, then start the server.
+- **The membership.** Whatever the runtime creates, it owns. The scheduled
+  backup's `pg_dump` and the app's later migrations run as the migration user,
+  which cannot read or alter a table it does not own. So whenever the runtime may
+  own objects, Nagare also makes the migration user a member of the runtime role
+  (`GRANT <runtime> TO <migration>`, without the admin option). It is derived,
+  never declared; the plan names it as `migration member of runtime`. The
+  migration user can then dump, alter, reassign or drop what the runtime created.
+- **Owned objects.** A table or view the runtime owns is expected only in a
+  declared `createIn` schema, or, under `createSchemas`, in a schema the runtime
+  owns. Anywhere else it is drift, even after the grant that let it be created is
+  gone. Any other grant, a membership with the admin option, and default
+  privileges set by the runtime are drift too.
+- **Removing a privilege** plans an update that revokes it, and the membership
+  when nothing needs it any more. While the runtime still owns objects in a
+  removed schema the plan refuses, naming them; reassign them first in a
+  migration (`ALTER TABLE pgmq.q_events OWNER TO kansoku_pg_migration`, which the
+  membership allows), or drop them.
+
+**ClickHouse.** Either user's half takes `clickhouse`, a list of privileges
+granted `ON <db>.*` for each of the app's logical databases, after the fixed set.
+Nagare ships no list of ClickHouse privileges: the plan reads the running server's
+own privilege tree (`system.privileges`) and accepts a privilege only when every
+leaf privilege it stands for is scoped to a database (a database, table, view,
+dictionary or column privilege). `CREATE TABLE`, `DROP TABLE`, `TRUNCATE`,
+`OPTIMIZE` and a group such as `ALTER TABLE` qualify. A global privilege such as
+`CREATE FUNCTION`, or a group that contains one (`CREATE`, `ALTER`, `ACCESS
+MANAGEMENT`, `SYSTEM`), refuses the plan with `app-database-privilege-unknown`,
+because the server would silently grant only part of it. A privilege already in
+the user's fixed set is refused when the config loads. A declared group converges:
+`ALTER TABLE` over the runtime's fixed `ALTER UPDATE` and `ALTER DELETE` is held
+as one `ALTER TABLE` and re-plans to `no operations`. Removing one revokes it and
+grants the fixed set again. A hand grant beyond the declaration is drift.
+ClickHouse 26.8 also lets `CREATE TABLE` create a view and `DROP TABLE` drop
+one, in the same database.
+
+**Owner bindings.** An app that runs its own migrations at startup can name, in
+`access.owners`, the workloads that bind its migration credential instead of the
+runtime credential:
+
+```haskell
+          & #owners .~ [ok (mkServiceName "kansoku-migrate")]
+```
+
+A workload in `owners` that lists the app database in `appDatabases` receives the
+same variables as any other binder, from `<name>-migration`; every other workload
+receives `<name>-runtime`. No workload field can ask for the migration credential:
+the app database's own reviewed declaration decides.
+
+**Lifecycle.** Rotation keeps the privileges, the membership and the owners.
+Retirement withholds the database's `CREATE` with `CONNECT` and `TEMPORARY`;
+schema `CREATE` and the membership stay, unreachable without `CONNECT`, as schema
+`USAGE` does. On ClickHouse a quiesced user's declared privileges are withheld
+with its fixed set and resume grants both. A scheduled backup keeps owners and
+ACLs, so a scratch or rebuilt restore brings the schema's `CREATE` grant and the
+runtime-owned tables back; the scratch databases get the declared database-level
+privileges (on ClickHouse each user's, on PostgreSQL `CREATE` under
+`createSchemas`). Declaring privileges or owners does not change the backup
+schedule's revision.
 
 ### Read-only readers
 

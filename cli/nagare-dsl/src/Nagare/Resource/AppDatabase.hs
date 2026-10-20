@@ -22,7 +22,7 @@ import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Database (engineToken)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Dsl.Types (databaseNameText, namespaceText)
+import Nagare.Dsl.Types (databaseNameText, namespaceText, serviceNameText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
@@ -111,6 +111,12 @@ compileAppDatabase digestOf input = do
     engine = db ^. #engine
     stateful = input ^. #server
     monitoring = db ^. #access . #monitoring
+    privileges = db ^. #access . #privileges
+    -- The workloads that bind the migration credential live on its user
+    -- (EP-208), so the binding resolves against the accepted declaration.
+    ownersOf = \case
+      MigrationRole -> db ^. #access . #owners
+      _ -> []
     namespaceDependency = map OrderedAfter (maybe [] pure (input ^. #namespaceResource))
     memberId roleText = do
       role <- first invalid (mkName roleText)
@@ -162,6 +168,7 @@ compileAppDatabase digestOf input = do
                   -- Only when declared, so an unchanged user keeps its v0.7 digest.
                   <> ["access" .= userAccess | userAccess /= noUserAccess]
                   <> ["reader" .= g | Just g <- [grant]]
+                  <> ["owners" .= map serviceNameText (ownersOf role) | not (null (ownersOf role))]
             )
       pure
         ManagedResource
@@ -170,7 +177,7 @@ compileAppDatabase digestOf input = do
           , executor = AppDatabaseExecutor
           , address = DatabaseUser stateful userName
           , aliases = []
-          , spec = DatabaseUserSpec (engineToken engine) (appDatabaseRoleToken role) login digest (UserExtension userAccess grant)
+          , spec = DatabaseUserSpec (engineToken engine) (appDatabaseRoleToken role) login digest (UserExtension userAccess grant (ownersOf role))
           , lifecycle = Retain
           , dataPolicy = Stateless
           , sensitivity = Private
@@ -199,6 +206,7 @@ compileAppDatabase digestOf input = do
                       ]
                 ]
                   <> ["monitoring" .= monitoring | not (null monitoring)]
+                  <> ["privileges" .= privileges | privileges /= noDatabasePrivileges]
             )
       pure
         ManagedResource
@@ -207,7 +215,7 @@ compileAppDatabase digestOf input = do
           , executor = AppDatabaseExecutor
           , address = DatabaseName stateful databaseName
           , aliases = []
-          , spec = LogicalDatabase (engineToken engine) migrationUser runtimeUser True digest monitoring
+          , spec = LogicalDatabase (engineToken engine) migrationUser runtimeUser True digest monitoring privileges
           , lifecycle = Retain
           , dataPolicy = Durable (input ^. #recovery)
           , sensitivity = Private

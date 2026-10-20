@@ -36,10 +36,16 @@ module Nagare.Database.AppDatabase.Catalog
   , MemberState (..)
   , UserDeclaration (..)
   , classifyUser
+  , DatabaseDeclaration (..)
   , classifyDatabase
+  , databaseRevocations
+  , PrivilegeTree
+  , expandPrivileges
+  , grantableOnDatabase
   , exceptionGrantToken
   , grantDriftCode
   , credentialMissingCode
+  , privilegeUnknownCode
   , DrainObservation (..)
   , parseDrainObservation
   , comparedIdentity
@@ -56,9 +62,11 @@ import Data.List (nub, sort, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), ResolvedObject (..), clickHouseCeilings, postgresTimeout)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), GrantException, ReaderObject (..), UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant, logicalDatabaseNameText, monitoringRoleToken, relationNameText, schemaNameText)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), ResolvedObject (..), clickHouseCeilings, clickHouseDatabaseGrants, postgresTimeout)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), GrantException, ReaderObject (..), UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, clickHousePrivilegeText, grantExceptionGrant, logicalDatabaseNameText, monitoringRoleToken, relationNameText, runtimeOwnsObjects, schemaNameText)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 
@@ -114,11 +122,13 @@ data CatalogTableGrant = CatalogTableGrant
   }
   deriving stock (Generic, Eq, Ord, Show)
 
--- | A PostgreSQL table or view, its options and the scope users' grants on it.
+-- | A PostgreSQL table or view, its owner (EP-208; absent from observations
+-- captured before it), its options and the scope users' grants on it.
 data CatalogRelation = CatalogRelation
   { schema :: !Text
   , name :: !Text
   , kind :: !Text
+  , owner :: !(Maybe Text)
   , options :: ![Text]
   , grants :: ![(Text, Text)]
   -- ^ (grantee, privilege)
@@ -152,11 +162,21 @@ data Catalog = Catalog
   { users :: !(Map Text CatalogUser)
   , databases :: !(Map Text CatalogDatabase)
   , publicSystemAccess :: !Bool
+  , memberships :: ![(Text, Text, Bool)]
+  -- ^ PostgreSQL: (role, member, admin option) between two of the scope's
+  -- own users, which the database member judges (EP-208); a membership
+  -- naming any other role is a user anomaly
+  , privilegeTree :: !PrivilegeTree
+  -- ^ ClickHouse: the server's privileges (EP-208)
   }
   deriving stock (Generic, Eq, Show)
 
+-- | Each ClickHouse privilege with its parent group and its level; a group
+-- has children, and its level is usually absent.
+type PrivilegeTree = Map Text (Maybe Text, Maybe Text)
+
 emptyCatalog :: Catalog
-emptyCatalog = Catalog Map.empty Map.empty False
+emptyCatalog = Catalog Map.empty Map.empty False [] Map.empty
 
 -- PostgreSQL --------------------------------------------------------------
 
@@ -179,11 +199,14 @@ serverParser :: Map Text ByteString -> Value -> Parser (Catalog, Map Text ByteSt
 serverParser databaseBytes = withObject "server" $ \o -> do
   -- Observations captured before EP-204 carry no connection limit or settings.
   roles <- o .: "roles" >>= traverse (withObject "role" (\r -> (,,,,,) <$> r .: "name" <*> r .: "oid" <*> r .: "login" <*> r .: "elevated" <*> r .:? "connectionLimit" .!= (-1) <*> r .:? "settings" .!= []))
-  memberships <- o .: "memberships" >>= traverse (withObject "membership" (\m -> (,) <$> m .: "role" <*> m .: "member"))
+  -- Observations captured before EP-208 carry no admin option.
+  memberships' <- o .: "memberships" >>= traverse (withObject "membership" (\m -> (,,) <$> m .: "role" <*> m .: "member" <*> m .:? "admin" .!= False))
   dbs <- o .: "databases" >>= traverse (withObject "database" (\d -> (,,,) <$> d .: "name" <*> d .: "oid" <*> d .: "owner" <*> d .: "grants"))
   publicAccess <- o .: "publicSystemAccess"
   foreign' <- o .: "foreignAccess"
-  let userMap =
+  let scopeRoles = [name | (name, _, _, _, _, _) <- roles :: [(Text, Text, Bool, [Text], Int, [Text])]]
+      internal (role, member, _) = role `elem` scopeRoles && member `elem` scopeRoles
+      userMap =
         Map.fromList
           [ ( name
             , CatalogUser
@@ -191,7 +214,7 @@ serverParser databaseBytes = withObject "server" $ \o -> do
                 (if canLogin then LoginOn else LoginOff)
                 []
                 ( map ("attribute " <>) elevated
-                    <> ["membership " <> role <> " > " <> member | (role, member) <- memberships :: [(Text, Text)], name `elem` [role, member]]
+                    <> ["membership " <> role <> " > " <> member | m@(role, member, _) <- memberships' :: [(Text, Text, Bool)], not (internal m), name `elem` [role, member]]
                     <> ["access to database " <> db | entry <- foreign' :: [Text], Just db <- [T.stripPrefix (name <> " on ") entry]]
                 )
                 []
@@ -217,7 +240,7 @@ serverParser databaseBytes = withObject "server" $ \o -> do
             )
           | (name, oid, dbOwner, dbGrants) <- dbs :: [(Text, Text, Text, [PgGrant])]
           ]
-  pure (Catalog userMap databaseMap publicAccess, Map.restrictKeys databaseBytes (Map.keysSet databaseMap))
+  pure (Catalog userMap databaseMap publicAccess (filter internal memberships') Map.empty, Map.restrictKeys databaseBytes (Map.keysSet databaseMap))
 
 insideParser :: Value -> Parser (CatalogDatabase -> CatalogDatabase)
 insideParser = withObject "database" $ \o -> do
@@ -270,6 +293,7 @@ withPostgresRelations documents catalog = do
                   <$> r .: "schema"
                   <*> r .: "name"
                   <*> r .: "kind"
+                  <*> r .:? "owner"
                   <*> r .: "options"
                   <*> (r .: "grants" >>= traverse (withObject "grant" (\g -> (,) <$> g .: "grantee" <*> g .: "privilege")))
             )
@@ -286,6 +310,8 @@ data ChRow
     ChTableGrant !Text !Text !Text !Text
   | ChSetting !Text !(Maybe CatalogSetting) !(Maybe Text)
   | ChDatabase !Text !Text
+  | -- | privilege, parent group, level
+    ChPrivilege !Text !(Maybe Text) !(Maybe Text)
 
 instance FromJSON ChRow where
   parseJSON = withObject "row" $ \o ->
@@ -316,6 +342,7 @@ instance FromJSON ChRow where
         settingElement <- traverse (\n -> CatalogSetting n <$> o .:? "value" <*> o .:? "min" <*> o .:? "max" <*> o .:? "writability") settingName
         ChSetting <$> o .: "user_name" <*> pure settingElement <*> o .:? "inherit_profile"
       "database" -> ChDatabase <$> o .: "name" <*> o .: "physical"
+      "privilege" -> ChPrivilege <$> o .: "privilege" <*> o .:? "parent_group" <*> o .:? "level"
       other -> fail ("unknown observation row " <> T.unpack other)
 
 -- | Tagged JSONEachRow rows; the users and databases the query asked for
@@ -361,7 +388,7 @@ parseClickHouseCatalog ourUsers ourDatabases bytes = do
             )
           | ChDatabase name physical' <- rows
           ]
-  pure (Catalog userMap databaseMap False)
+  pure (Catalog userMap databaseMap False [] (Map.fromList [(privilege', (parent, level)) | ChPrivilege privilege' parent level <- rows]))
   where
     loginOf hosts noNames
       | hosts == ["::/0"] && noNames = LoginOn
@@ -429,9 +456,10 @@ comparedIdentity = Map.delete "processStarted"
 -- | The refusal codes of an app-database observation. Their reasons are
 -- composed here and in the adapter from names, privileges and settings, so a
 -- plan refusal may print them.
-grantDriftCode, credentialMissingCode :: Text
+grantDriftCode, credentialMissingCode, privilegeUnknownCode :: Text
 grantDriftCode = "app-database-grant-drift"
 credentialMissingCode = "app-database-credential-missing"
+privilegeUnknownCode = "app-database-privilege-unknown"
 
 data MemberState
   = MemberAbsent
@@ -548,85 +576,225 @@ classifyUser engine declaration name own catalog = case Map.lookup name (catalog
         <> maybe "" (" MAX " <>) (s ^. #maximum)
         <> maybe "" (" " <>) (s ^. #writability)
 
-classifyDatabase :: DatabaseAccess -> Catalog -> MemberState
-classifyDatabase access catalog = case Map.lookup name (catalog ^. #databases) of
-  Nothing -> MemberAbsent
-  Just db
-    | not (null (db ^. #anomalies)) -> MemberDrift (name <> ": " <> T.intercalate "; " (db ^. #anomalies))
-    | otherwise -> case access ^. #engine of
-        ClickHouse -> clickhouse db
-        _ -> postgres db
+-- | What a logical-database member declares: the access rendered for it, and
+-- the own-database privileges the last reviewed plan declared (EP-208). A
+-- privilege only the accepted declaration names is revoked by review, not
+-- drift.
+data DatabaseDeclaration = DatabaseDeclaration
+  { access :: !DatabaseAccess
+  , accepted :: !DatabasePrivileges
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | The leaves a list of ClickHouse privileges stands for in the server's
+-- tree. A privilege the tree does not know stands for itself, so an
+-- observation without a tree compares tokens exactly.
+expandPrivileges :: PrivilegeTree -> [Text] -> Set Text
+expandPrivileges tree = foldMap expand
   where
+    children = Map.fromListWith (<>) [(parent, [child]) | (child, (Just parent, _)) <- Map.toList tree]
+    expand token = maybe (Set.singleton token) (foldMap expand) (Map.lookup token children)
+
+-- | Whether ClickHouse grants exactly what a token says on a database: it is
+-- in the tree, and every leaf it stands for is at a level inside one
+-- database. The server accepts a group with global leaves and grants only
+-- the rest (EP-208 M1), which a declaration must not hide.
+grantableOnDatabase :: PrivilegeTree -> Text -> Bool
+grantableOnDatabase tree token =
+  Map.member token tree
+    && token `notElem` ["ALL", "NONE"]
+    && all (\leaf -> maybe False (`elem` map Just ["DATABASE", "TABLE", "VIEW", "DICTIONARY", "COLUMN"]) (snd <$> Map.lookup leaf tree)) (Set.toList (expandPrivileges tree [token]))
+
+-- | The access a converge renders from the catalog just read: the declared
+-- PostgreSQL schemas that exist, and every revocation of what the runtime
+-- holds that the declaration no longer names. Grants depend only on the
+-- declaration; a revocation is sent only when observed (EP-208).
+databaseRevocations :: DatabaseAccess -> Catalog -> DatabaseAccess
+databaseRevocations access catalog = case Map.lookup (access ^. #database) (catalog ^. #databases) of
+  Nothing -> access & #createIn .~ []
+  Just db -> case access ^. #engine of
+    ClickHouse ->
+      access
+        & #revoked
+        .~ [ (who, token)
+           | access ^. #enabled
+           , (role, who) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)]
+           , who `notElem` access ^. #withheld
+           , let wanted = expandPrivileges tree (clickHouseDatabaseGrants role (access ^. #privileges))
+           , token <- heldOn who "database" db
+           , not (expandPrivileges tree [token] `Set.isSubsetOf` wanted)
+           ]
+    _ ->
+      access
+        & #createIn
+        .~ [schema | schema <- desiredCreateIn, Map.member schema (db ^. #schemaOwners)]
+        & #revokedCreateIn
+        .~ [ schema
+           | g <- db ^. #grants
+           , g ^. #grantee == runtime
+           , g ^. #privilege == "CREATE"
+           , Just schema <- [T.stripPrefix "schema:" (g ^. #target)]
+           , schema `notElem` desiredCreateIn
+           , Map.lookup schema (db ^. #schemaOwners) /= Just runtime
+           ]
+        & #revokeDatabaseCreate
+        .~ ("CREATE" `elem` heldOn runtime "database" db && (not (access ^. #enabled) || not (access ^. #privileges . #runtime . #createSchemas)))
+        & #revokeMembership
+        .~ (not (runtimeOwnsObjects (access ^. #privileges)) && any (\(role, member, _) -> role == runtime && member == access ^. #migration) (catalog ^. #memberships))
+  where
+    tree = catalog ^. #privilegeTree
+    runtime = access ^. #runtime
+    desiredCreateIn = map schemaNameText (access ^. #privileges . #runtime . #createIn)
+
+heldOn :: Text -> Text -> CatalogDatabase -> [Text]
+heldOn who target' db = sort [g ^. #privilege | g <- db ^. #grants, g ^. #grantee == who, g ^. #target == target']
+
+-- | Classify a logical database, and name the declared PostgreSQL schemas
+-- the app's migrations have not created yet (pending: nothing is planned for
+-- them until they exist).
+classifyDatabase :: DatabaseDeclaration -> Catalog -> (MemberState, [Text])
+classifyDatabase declaration catalog = case Map.lookup name (catalog ^. #databases) of
+  Nothing -> (MemberAbsent, if engine == ClickHouse then [] else desiredCreateIn)
+  Just db
+    | not (null (db ^. #anomalies)) -> (MemberDrift (name <> ": " <> T.intercalate "; " (db ^. #anomalies)), [])
+    | otherwise -> case engine of
+        ClickHouse -> (clickhouse db, [])
+        _ -> (postgres db, filter (`Map.notMember` (db ^. #schemaOwners)) desiredCreateIn)
+  where
+    access = declaration ^. #access
+    engine = access ^. #engine
     name = access ^. #database
     migration = access ^. #migration
     runtime = access ^. #runtime
     enabled = access ^. #enabled
-    held who target' db = sort [g ^. #privilege | g <- db ^. #grants, g ^. #grantee == who, g ^. #target == target']
-    declaredFor engine role target' = sort (concat [g ^. #privileges | g <- appDatabaseDatabaseGrants engine role, g ^. #objectClass == target'])
+    desired = access ^. #privileges
+    acceptedPrivileges = declaration ^. #accepted
+    desiredCreateIn = map schemaNameText (desired ^. #runtime . #createIn)
+    acceptedCreateIn = map schemaNameText (acceptedPrivileges ^. #runtime . #createIn)
+    createSchemas = desired ^. #runtime . #createSchemas
+    held who target' db = heldOn who target' db
+    declaredFor engine' role target' = sort (concat [g ^. #privileges | g <- appDatabaseDatabaseGrants engine' role, g ^. #objectClass == target'])
+    resolved = databaseRevocations access catalog
     clickhouse db
       | not (null foreign') = MemberDrift (name <> ": granted to " <> T.intercalate ", " foreign')
-      | not (null (beyond migration MigrationRole <> beyond runtime RuntimeRole)) = MemberDrift (name <> ": grants beyond the declared set")
-      | enabled && not (exact migration MigrationRole && exact runtime RuntimeRole) = MemberIncomplete (db ^. #physical) (name <> ": lacks declared grants")
+      | (who, token) : _ <- unknown = MemberRefused privilegeUnknownCode (name <> ": " <> who <> " declares " <> token <> ", which this ClickHouse server cannot grant on a database")
+      | not (null beyond) = MemberDrift (name <> ": grants beyond the declared set: " <> T.intercalate "; " beyond)
+      | enabled && not (null missing) = MemberIncomplete (db ^. #physical) (name <> ": lacks declared grants")
+      | enabled && not (null (resolved ^. #revoked)) = MemberIncomplete (db ^. #physical) (name <> ": keeps " <> T.intercalate ", " [who <> " " <> token | (who, token) <- resolved ^. #revoked])
+      | enabled && not (all exact users) = MemberIncomplete (db ^. #physical) (name <> ": lacks declared grants")
       | not enabled && not (null (held migration "database" db <> held runtime "database" db)) = MemberIncomplete (db ^. #physical) (name <> ": keeps grants after retirement")
       | otherwise = MemberComplete (db ^. #physical)
       where
+        tree = catalog ^. #privilegeTree
+        users = [(MigrationRole, migration), (RuntimeRole, runtime)]
         foreign' = nub [g ^. #grantee | g <- db ^. #grants, g ^. #grantee `notElem` [migration, runtime]]
-        beyond who role = held who "database" db \\ declaredFor ClickHouse role "database"
+        leaves = expandPrivileges tree
+        declaredOnly role = map clickHousePrivilegeText ((if role == MigrationRole then desired ^. #migration else desired ^. #runtime) ^. #clickhouse)
+        unknown = [(who, token) | (role, who) <- users, token <- declaredOnly role, not (grantableOnDatabase tree token)]
+        heldLeaves who = leaves (held who "database" db)
+        beyond =
+          [ who <> " holds " <> T.intercalate ", " (Set.toList extra)
+          | (role, who) <- users
+          , let extra = heldLeaves who `Set.difference` leaves (clickHouseDatabaseGrants role desired <> clickHouseDatabaseGrants role acceptedPrivileges)
+          , not (Set.null extra)
+          ]
         -- A quiesced user's grants are withheld until resume (EP-205).
-        exact who role
-          | who `elem` access ^. #withheld = null (held who "database" db)
-          | otherwise = held who "database" db == declaredFor ClickHouse role "database"
+        wanted (role, who) = if who `elem` access ^. #withheld then Set.empty else leaves (clickHouseDatabaseGrants role desired)
+        missing = [() | user@(_, who) <- users, not (wanted user `Set.isSubsetOf` heldLeaves who)]
+        exact user@(_, who) = heldLeaves who == wanted user
     postgres db
       | db ^. #owner /= Just migration = MemberDrift (name <> ": owned by " <> fromMaybe "nobody" (db ^. #owner))
       | not (null drifts) = MemberDrift (name <> ": " <> T.intercalate "; " (nub drifts))
       | not (null foreignSchemas) = MemberDrift (name <> ": schemas owned by another role: " <> T.intercalate ", " foreignSchemas)
       | not (null foreignDefaults) = MemberDrift (name <> ": default privileges set by " <> T.intercalate ", " foreignDefaults)
-      | enabled && not complete = MemberIncomplete (db ^. #physical) (name <> ": lacks declared access")
+      | not (null runtimeObjects) = MemberDrift (name <> ": runtime owns " <> T.intercalate ", " runtimeObjects)
+      | enabled && not complete = MemberIncomplete (db ^. #physical) (name <> ": " <> T.intercalate "; " (if null shortfalls then ["lacks declared access"] else shortfalls))
       | not enabled && not (null runtimeDatabase) = MemberIncomplete (db ^. #physical) (name <> ": runtime can still connect")
+      | not (null revocations) = MemberIncomplete (db ^. #physical) (name <> ": " <> T.intercalate "; " revocations)
       | otherwise = MemberComplete (db ^. #physical)
       where
-        verdicts = map (postgresGrant db) (db ^. #grants)
+        -- Memberships are server-wide: judge those naming this app's users.
+        ownUsers = [migration, runtime] <> access ^. #readers
+        verdicts = map (postgresGrant db) (db ^. #grants) <> [membershipVerdict m | m@(role, member, _) <- catalog ^. #memberships, role `elem` ownUsers || member `elem` ownUsers]
         drifts = [reason | Left reason <- verdicts]
         fixable = or [needsFix | Right needsFix <- verdicts]
-        foreignSchemas = [schema | (schema, schemaOwner) <- Map.toList (db ^. #schemaOwners), schema /= "public", schemaOwner /= migration]
+        runtimeOwned schema = Map.lookup schema (db ^. #schemaOwners) == Just runtime
+        foreignSchemas = [schema | (schema, schemaOwner) <- Map.toList (db ^. #schemaOwners), schema /= "public", schemaOwner /= migration, not (schemaOwner == runtime && createSchemas)]
         foreignDefaults = filter (/= migration) (db ^. #defaultAclRoles)
+        -- A runtime-owned object outlives the grant that let it be created;
+        -- it is expected only where the desired declaration lets the runtime
+        -- create (EP-208).
+        runtimeObjects =
+          [ r ^. #schema <> "." <> r ^. #name
+          | r <- db ^. #relations
+          , r ^. #owner == Just runtime
+          , r ^. #schema `notElem` desiredCreateIn
+          , not (runtimeOwned (r ^. #schema) && createSchemas)
+          ]
         publicOwned = Map.lookup "public" (db ^. #schemaOwners) == Just migration
         runtimeDatabase = held runtime "database" db
+        wantedDatabase = sort (declaredFor Postgres RuntimeRole "database" <> ["CREATE" | createSchemas])
+        membershipHeld = any (\(role, member, _) -> role == runtime && member == migration) (catalog ^. #memberships)
+        shortfalls =
+          ["lacks CREATE on schema " <> schema | schema <- resolved ^. #createIn, "CREATE" `notElem` held runtime ("schema:" <> schema) db]
+            <> ["migration is not a member of runtime" | runtimeOwnsObjects desired, not membershipHeld]
+            <> revocations
+        revocations =
+          ["keeps CREATE on schema " <> schema | schema <- resolved ^. #revokedCreateIn]
+            <> ["keeps CREATE on database" | enabled, resolved ^. #revokeDatabaseCreate]
+            <> ["migration is still a member of runtime" | resolved ^. #revokeMembership]
         complete =
-          runtimeDatabase == declaredFor Postgres RuntimeRole "database"
+          runtimeDatabase == wantedDatabase
             && all
               (\target' -> null (declaredFor Postgres RuntimeRole (classOf target') \\ held runtime target' db))
               ("schema:public" : [target' | g <- appDatabaseDatabaseGrants Postgres RuntimeRole, Just target' <- [defaultTarget (g ^. #objectClass)]])
             && publicOwned
             && not fixable
+            && null shortfalls
             && not (catalog ^. #publicSystemAccess)
+        -- The derived membership (EP-208): the migration user, without the
+        -- admin option, in the runtime role whenever the runtime may own
+        -- objects. Any other membership between the scope's users is drift.
+        membershipVerdict (role, member, admin)
+          | role == runtime && member == migration && not admin && runtimeOwnsObjects desired = Right False
+          | role == runtime && member == migration && not admin && runtimeOwnsObjects acceptedPrivileges = Right True
+          | otherwise = Left ("membership " <> role <> " > " <> member <> (if admin then " with admin option" else ""))
+        runtimeGrant db' target' what
+          | what `elem` declaredFor Postgres RuntimeRole (classOf target') = Right False
+          | target' == "database" && what == "CREATE" && createSchemas = Right False
+          | target' == "database" && what == "CREATE" && acceptedPrivileges ^. #runtime . #createSchemas = Right True
+          | Just schema <- T.stripPrefix "schema:" target'
+          , Map.lookup schema (db' ^. #schemaOwners) == Just runtime && createSchemas =
+              Right False
+          | Just schema <- T.stripPrefix "schema:" target', what == "CREATE", schema `elem` desiredCreateIn = Right False
+          | Just schema <- T.stripPrefix "schema:" target', what == "CREATE", schema `elem` acceptedCreateIn = Right True
+          | otherwise = Left ("runtime holds " <> what <> " on " <> target')
+        postgresGrant db' g
+          | who == migration = Right False
+          | who == runtime = runtimeGrant db' target' what
+          -- A declared reader's CONNECT and schema USAGE are judged by its own member.
+          | who `elem` access ^. #readers && ((target' == "database" && what == "CONNECT") || ("schema:" `T.isPrefixOf` target' && what == "USAGE")) = Right False
+          | who == "PUBLIC" && target' `elem` ["database", "schema:public"] = Right True
+          | who == "PUBLIC" && target' == "default-functions" && what == "EXECUTE" = Right False
+          | who == "pg_database_owner" && target' == "schema:public" && Map.lookup "public" (db' ^. #schemaOwners) == Just "pg_database_owner" = Right True
+          -- A declared monitoring role may read what the migration user owns:
+          -- USAGE on its schemas and SELECT in its default privileges (PGMQ).
+          | who `elem` map monitoringRoleToken (access ^. #monitoring)
+          , Just schema <- T.stripPrefix "schema:" target'
+          , Map.lookup schema (db' ^. #schemaOwners) == Just migration
+          , what == "USAGE" =
+              Right False
+          | who `elem` map monitoringRoleToken (access ^. #monitoring)
+          , target' `elem` ["default-tables", "default-sequences"]
+          , what == "SELECT" =
+              Right False
+          | otherwise = Left (who <> " holds " <> what <> " on " <> target')
+          where
+            who = g ^. #grantee
+            what = g ^. #privilege
+            target' = g ^. #target
     classOf target' = if "schema:" `T.isPrefixOf` target' then "schema" else target'
     defaultTarget objectClass = if "default-" `T.isPrefixOf` objectClass then Just objectClass else Nothing
-    -- Right True: allowed but the declared access revokes it; Left: drift.
-    postgresGrant db g
-      | who == migration = Right False
-      | who == runtime = if what `elem` declaredFor Postgres RuntimeRole (classOf target') then Right False else Left ("runtime holds " <> what <> " on " <> target')
-      -- A declared reader's CONNECT and schema USAGE are judged by its own member.
-      | who `elem` access ^. #readers && ((target' == "database" && what == "CONNECT") || ("schema:" `T.isPrefixOf` target' && what == "USAGE")) = Right False
-      | who == "PUBLIC" && target' `elem` ["database", "schema:public"] = Right True
-      | who == "PUBLIC" && target' == "default-functions" && what == "EXECUTE" = Right False
-      | who == "pg_database_owner" && target' == "schema:public" && Map.lookup "public" (db ^. #schemaOwners) == Just "pg_database_owner" = Right True
-      -- A declared monitoring role may read what the migration user owns:
-      -- USAGE on its schemas and SELECT in its default privileges (PGMQ).
-      | who `elem` map monitoringRoleToken (access ^. #monitoring)
-      , Just schema <- T.stripPrefix "schema:" target'
-      , Map.lookup schema (db ^. #schemaOwners) == Just migration
-      , what == "USAGE" =
-          Right False
-      | who `elem` map monitoringRoleToken (access ^. #monitoring)
-      , target' `elem` ["default-tables", "default-sequences"]
-      , what == "SELECT" =
-          Right False
-      | otherwise = Left (who <> " holds " <> what <> " on " <> target')
-      where
-        who = g ^. #grantee
-        what = g ^. #privilege
-        target' = g ^. #target
 
 -- Readers (EP-206) ----------------------------------------------------------
 

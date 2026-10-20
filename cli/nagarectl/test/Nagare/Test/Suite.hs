@@ -9,6 +9,7 @@ where
 import AccessCheckSpec (accessCheckTests)
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
+import AppDatabasePrivilegeSpec (appDatabasePrivilegeTests)
 import AppDatabaseSpec (appDatabaseTests)
 import AppDatabaseSqlSpec (appDatabaseSqlTests)
 import AppDatabaseWorldSpec (appDatabaseWorldTests)
@@ -209,6 +210,7 @@ main = do
             , appDatabaseTests
             , appDatabaseSqlTests
             , appDatabaseWorldTests
+            , appDatabasePrivilegeTests
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
             , inventoryWorldFaultsTests

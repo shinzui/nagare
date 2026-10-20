@@ -112,8 +112,9 @@ reviewedStandaloneDatabases active snapshot cluster namespaceName names appNames
     InventoryStatus.loadAcceptedNative store history inventory
       >>= either dieT pure
   direct <- either dieT pure (acceptedDatabaseBindings snapshot native cluster namespaceName names)
-  -- EP-202: app databases bind their runtime credential only.
-  apps <- either dieT pure (acceptedAppDatabaseBindings snapshot native cluster namespaceName appNames)
+  -- EP-202: app databases bind their runtime credential, or their migration
+  -- credential for a workload the declaration names as an owner (EP-208).
+  apps <- either dieT pure (acceptedAppDatabaseBindings snapshot native cluster namespaceName consumer appNames)
   -- EP-206: a reader binds its own credential, for a declared consumer only.
   readers <- either dieT pure (acceptedAppDatabaseReaderBindings snapshot native cluster namespaceName consumer readerRefs)
   unless (Map.disjoint direct apps && Map.disjoint (Map.union direct apps) readers) (dieT "a workload names one database twice across databases, appDatabases and appDatabaseReaders")

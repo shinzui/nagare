@@ -550,6 +550,7 @@ test-suite nagarectl-test
     AccessCheckSpec
     AccessGrantsSpec
     AccessResolveSpec
+    AppDatabasePrivilegeSpec
     AppDatabaseSpec
     AppDatabaseSqlSpec
     AppDatabaseWorldSpec

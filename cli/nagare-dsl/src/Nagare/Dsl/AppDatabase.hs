@@ -36,6 +36,17 @@ module Nagare.Dsl.AppDatabase
   , parseMonitoringRole
   , validUserAccess
 
+    -- * Privileges inside the app's own databases (EP-208)
+  , ClickHousePrivilege
+  , mkClickHousePrivilege
+  , clickHousePrivilegeText
+  , OwnPrivileges (..)
+  , DatabasePrivileges (..)
+  , noOwnPrivileges
+  , noDatabasePrivileges
+  , runtimeOwnsObjects
+  , validDatabasePrivileges
+
     -- * Readers (EP-206)
   , ReaderName
   , mkReaderName
@@ -75,8 +86,8 @@ import Data.Aeson (FromJSON (parseJSON), Object, ToJSON (toJSON), Value (Object,
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser)
-import Data.Char (isAsciiLower, isDigit)
-import Data.Foldable (traverse_)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import Data.Foldable (for_, traverse_)
 import Data.Generics.Labels ()
 import Data.List (find, nub)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -200,8 +211,81 @@ data AppDatabaseAccess = AppDatabaseAccess
   , monitoring :: ![MonitoringRole]
   , readers :: ![AppDatabaseReader]
   -- ^ named read-only users over declared objects (EP-206)
+  , privileges :: !DatabasePrivileges
+  -- ^ privileges inside the app's own databases (EP-208)
+  , owners :: ![ServiceName]
+  -- ^ workloads of the namespace that bind the migration credential (EP-208)
   }
   deriving stock (Generic, Eq, Show)
+
+-- | A ClickHouse privilege granted on each of the app's own databases
+-- (EP-208): letters and single spaces, at most 48 characters, never @ALL@
+-- or @NONE@. The server's own privilege tree decides what it stands for, so
+-- Nagare ships no list. Constructor hidden; use 'mkClickHousePrivilege'.
+newtype ClickHousePrivilege = ClickHousePrivilege Text
+  deriving stock (Eq, Ord, Show)
+
+mkClickHousePrivilege :: Text -> Either Text ClickHousePrivilege
+mkClickHousePrivilege t
+  | Text.null t || Text.length t > 48 = Left ("ClickHouse privilege is 1 to 48 characters: " <> t)
+  | not (Text.all (\c -> isAsciiLetter c || c == ' ') t) || Text.words t /= Text.splitOn " " t =
+      Left ("ClickHouse privilege is words of letters separated by single spaces: " <> t)
+  | Text.toUpper t `elem` ["ALL", "NONE"] = Left ("ClickHouse privilege must name what it grants, not " <> t)
+  | otherwise = Right (ClickHousePrivilege t)
+  where
+    isAsciiLetter c = isAsciiLower c || isAsciiUpper c
+
+clickHousePrivilegeText :: ClickHousePrivilege -> Text
+clickHousePrivilegeText (ClickHousePrivilege t) = t
+
+-- | What one user may do inside the app's own databases beyond the fixed
+-- grant set. On PostgreSQL the runtime may create in named schemas
+-- (@createIn@) and create schemas of its own (@createSchemas@); on
+-- ClickHouse either user takes privileges granted @ON \<db\>.*@.
+data OwnPrivileges = OwnPrivileges
+  { createIn :: ![SchemaName]
+  , createSchemas :: !Bool
+  , clickhouse :: ![ClickHousePrivilege]
+  }
+  deriving stock (Generic, Eq, Ord, Show)
+
+data DatabasePrivileges = DatabasePrivileges
+  { runtime :: !OwnPrivileges
+  , migration :: !OwnPrivileges
+  }
+  deriving stock (Generic, Eq, Ord, Show)
+
+noOwnPrivileges :: OwnPrivileges
+noOwnPrivileges = OwnPrivileges [] False []
+
+noDatabasePrivileges :: DatabasePrivileges
+noDatabasePrivileges = DatabasePrivileges noOwnPrivileges noOwnPrivileges
+
+-- | Whether the runtime may own objects, which makes the migration user a
+-- member of the runtime role so backups and migrations reach them.
+runtimeOwnsObjects :: DatabasePrivileges -> Bool
+runtimeOwnsObjects p = not (null (p ^. #runtime . #createIn)) || p ^. #runtime . #createSchemas
+
+-- | The privileges fit the engine: @createIn@ and @createSchemas@ are
+-- PostgreSQL and the runtime's only (the migration user owns the database),
+-- @clickhouse@ is ClickHouse, nothing repeats, and no ClickHouse token is
+-- already one of that user's fixed grants.
+validDatabasePrivileges :: Engine -> DatabasePrivileges -> Either Text ()
+validDatabasePrivileges engine' p = do
+  let migration' = p ^. #migration
+  for_ [("runtime", RuntimeRole, p ^. #runtime), ("migration", MigrationRole, migration')] $ \(who, role, own) -> do
+    let schemas = own ^. #createIn
+        tokens = map clickHousePrivilegeText (own ^. #clickhouse)
+    unless (length (nub schemas) == length schemas) (Left ("the " <> who <> " privileges repeat a schema"))
+    unless (length (nub tokens) == length tokens) (Left ("the " <> who <> " privileges repeat a ClickHouse privilege"))
+    case engine' of
+      ClickHouse -> do
+        unless (null schemas && not (own ^. #createSchemas)) (Left "createIn and createSchemas are PostgreSQL privileges")
+        case filter (`elem` concatMap (^. #privileges) (appDatabaseDatabaseGrants ClickHouse role)) tokens of
+          [] -> pure ()
+          fixed : _ -> Left ("the " <> who <> " user already holds " <> fixed <> " on its databases")
+      _ -> unless (null tokens) (Left "clickhouse privileges are ClickHouse privileges")
+  unless (null (migration' ^. #createIn) && not (migration' ^. #createSchemas)) (Left "the migration user owns the database; createIn and createSchemas are the runtime's")
 
 -- | A PostgreSQL schema or a table or view name, @[a-z][a-z0-9_]{0,62}@, so
 -- it needs no quoting or escaping in SQL.
@@ -259,16 +343,18 @@ data ReaderGrant = ReaderGrant
   }
   deriving stock (Generic, Eq, Ord, Show)
 
--- | A user spec's reviewed extension: EP-204's access, and for a reader its
--- objects and consumers.
+-- | A user spec's reviewed extension: EP-204's access, for a reader its
+-- objects and consumers, and for the migration user the workloads that bind
+-- its credential (EP-208).
 data UserExtension = UserExtension
   { access :: !UserAccess
   , reader :: !(Maybe ReaderGrant)
+  , owners :: ![ServiceName]
   }
   deriving stock (Generic, Eq, Ord, Show)
 
 noUserExtension :: UserExtension
-noUserExtension = UserExtension noUserAccess Nothing
+noUserExtension = UserExtension noUserAccess Nothing []
 
 -- | Kansoku's reader profile: 30 s, 512 MiB, 10,000 rows, 10 MiB and 4
 -- threads on ClickHouse; 5 connections and a 30 s statement timeout on
@@ -294,7 +380,7 @@ noUserAccess :: UserAccess
 noUserAccess = UserAccess [] noUserLimits
 
 noAppDatabaseAccess :: AppDatabaseAccess
-noAppDatabaseAccess = AppDatabaseAccess noUserAccess noUserAccess [] []
+noAppDatabaseAccess = AppDatabaseAccess noUserAccess noUserAccess [] [] noDatabasePrivileges []
 
 appDatabaseUserAccess :: AppDatabase -> AppDatabaseRole -> UserAccess
 appDatabaseUserAccess db RuntimeRole = db ^. #access . #runtime
@@ -395,16 +481,53 @@ instance ToJSON AppDatabaseAccess where
           <> ["migration" .= (a ^. #migration) | a ^. #migration /= noUserAccess]
           <> ["monitoring" .= (a ^. #monitoring) | not (null (a ^. #monitoring))]
           <> ["readers" .= (a ^. #readers) | not (null (a ^. #readers))]
+          <> ["privileges" .= (a ^. #privileges) | a ^. #privileges /= noDatabasePrivileges]
+          <> ["owners" .= map serviceNameText (a ^. #owners) | not (null (a ^. #owners))]
       )
 
 instance FromJSON AppDatabaseAccess where
   parseJSON = withObject "access" $ \o -> do
-    onlyKeys ["runtime", "migration", "monitoring", "readers"] o
+    onlyKeys ["runtime", "migration", "monitoring", "readers", "privileges", "owners"] o
     AppDatabaseAccess
       <$> (fromMaybe noUserAccess <$> o .:? "runtime")
       <*> (fromMaybe noUserAccess <$> o .:? "migration")
       <*> (fromMaybe [] <$> o .:? "monitoring")
       <*> (fromMaybe [] <$> o .:? "readers")
+      <*> (fromMaybe noDatabasePrivileges <$> o .:? "privileges")
+      <*> (fromMaybe [] <$> o .:? "owners" >>= traverse (checked mkServiceName))
+
+instance ToJSON ClickHousePrivilege where toJSON = String . clickHousePrivilegeText
+
+instance FromJSON ClickHousePrivilege where
+  parseJSON = withText "ClickHouse privilege" (checked mkClickHousePrivilege)
+
+instance ToJSON OwnPrivileges where
+  toJSON p =
+    object
+      ( ["createIn" .= map schemaNameText (p ^. #createIn) | not (null (p ^. #createIn))]
+          <> ["createSchemas" .= True | p ^. #createSchemas]
+          <> ["clickhouse" .= (p ^. #clickhouse) | not (null (p ^. #clickhouse))]
+      )
+
+instance FromJSON OwnPrivileges where
+  parseJSON = withObject "own-database privileges" $ \o -> do
+    onlyKeys ["createIn", "createSchemas", "clickhouse"] o
+    OwnPrivileges
+      <$> (fromMaybe [] <$> o .:? "createIn" >>= traverse (checked mkSchemaName))
+      <*> (fromMaybe False <$> o .:? "createSchemas")
+      <*> (fromMaybe [] <$> o .:? "clickhouse")
+
+instance ToJSON DatabasePrivileges where
+  toJSON p =
+    object
+      ( ["runtime" .= (p ^. #runtime) | p ^. #runtime /= noOwnPrivileges]
+          <> ["migration" .= (p ^. #migration) | p ^. #migration /= noOwnPrivileges]
+      )
+
+instance FromJSON DatabasePrivileges where
+  parseJSON = withObject "database privileges" $ \o -> do
+    onlyKeys ["runtime", "migration"] o
+    DatabasePrivileges <$> (fromMaybe noOwnPrivileges <$> o .:? "runtime") <*> (fromMaybe noOwnPrivileges <$> o .:? "migration")
 
 instance ToJSON ReaderObject where
   toJSON = \case
@@ -457,16 +580,25 @@ instance FromJSON ReaderGrant where
     consumers' <- fromMaybe [] <$> o .:? "consumers" >>= traverse (checked mkServiceName)
     pure (ReaderGrant objects' consumers')
 
--- | Written as EP-204's access object, with a @reader@ key for a reader, so a
--- runtime or migration user keeps its EP-204 bytes.
+-- | Written as EP-204's access object, with a @reader@ key for a reader and
+-- an @owners@ key for a migration user with owner bindings, so a user without
+-- them keeps its EP-204 bytes.
 instance ToJSON UserExtension where
-  toJSON e = case (toJSON (e ^. #access), e ^. #reader) of
-    (Object fields, Just grant) -> Object (KeyMap.insert "reader" (toJSON grant) fields)
-    (value, _) -> value
+  toJSON e = case toJSON (e ^. #access) of
+    Object fields ->
+      Object
+        ( maybe id (KeyMap.insert "reader" . toJSON) (e ^. #reader)
+            . (if null (e ^. #owners) then id else KeyMap.insert "owners" (toJSON (map serviceNameText (e ^. #owners))))
+            $ fields
+        )
+    value -> value
 
 instance FromJSON UserExtension where
   parseJSON = withObject "user extension" $ \o ->
-    UserExtension <$> parseJSON (Object (KeyMap.delete "reader" o)) <*> o .:? "reader"
+    UserExtension
+      <$> parseJSON (Object (KeyMap.delete "owners" (KeyMap.delete "reader" o)))
+      <*> o .:? "reader"
+      <*> (fromMaybe [] <$> o .:? "owners" >>= traverse (checked mkServiceName))
 
 checked :: (Text -> Either Text a) -> Text -> Parser a
 checked make = either (fail . Text.unpack) pure . make
@@ -486,6 +618,9 @@ validateAppDatabase db = do
   validUserAccess (db ^. #engine) (db ^. #access . #runtime)
   validUserAccess (db ^. #engine) (db ^. #access . #migration)
   traverse_ (validReader db) (db ^. #access . #readers)
+  validDatabasePrivileges (db ^. #engine) (db ^. #access . #privileges)
+  let owners' = db ^. #access . #owners
+  unless (length (nub owners') == length owners') (Left "app database repeats an owner")
   let readerNames = map (^. #name) (db ^. #access . #readers)
   unless (length (nub readerNames) == length readerNames) (Left "app database repeats a reader")
   let monitoring' = db ^. #access . #monitoring

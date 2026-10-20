@@ -24,6 +24,7 @@ module Nagare.Inventory.Adapters.AppDatabase
 where
 
 import Data.Aeson
+import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List (nub, sort)
@@ -35,9 +36,10 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Database.AppDatabase.Catalog
 import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash, ReaderAccess (..), hashPassword)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), MonitoringRole, ReaderObject (..), UserAccess, UserExtension, UserLimits, grantExceptionToken, logicalDatabaseNameText, monitoringRoleToken, noUserExtension, noUserLimits, parseAppDatabaseRole, relationNameText, schemaNameText)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, MonitoringRole, ReaderObject (..), UserAccess, UserExtension, UserLimits, clickHousePrivilegeText, grantExceptionToken, logicalDatabaseNameText, monitoringRoleToken, noDatabasePrivileges, noUserExtension, noUserLimits, parseAppDatabaseRole, relationNameText, runtimeOwnsObjects, schemaNameText)
 import Nagare.Dsl.Database (Engine (..), parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Dsl.Types (serviceNameText)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
@@ -62,9 +64,9 @@ data MemberKind
   = -- | role, user, credential Secret namespace and name, and the desired
     -- reviewed access
     UserMember !AppDatabaseRole !Text !Name !Name !UserExtension
-  | -- | database, migration user, runtime user, and the tolerated monitoring
-    -- roles
-    DatabaseMember !Text !Text !Text ![MonitoringRole]
+  | -- | database, migration user, runtime user, the tolerated monitoring
+    -- roles, and the privileges inside it (EP-208)
+    DatabaseMember !Text !Text !Text ![MonitoringRole] !DatabasePrivileges
   deriving stock (Eq, Show)
 
 data AppDatabaseMember = AppDatabaseMember
@@ -151,8 +153,8 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
           role' <- maybe (Left "app-database user has an unknown role") Right (parseAppDatabaseRole roleText)
           (secretNamespace, secretName) <- credentialOf resource
           pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName access, login)
-        (DatabaseName target db, LogicalDatabase engineText migration runtime on _ monitoring) ->
-          pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime) monitoring, if on then LoginOpen else LoginClosed)
+        (DatabaseName target db, LogicalDatabase engineText migration runtime on _ monitoring privileges) ->
+          pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime) monitoring privileges, if on then LoginOpen else LoginClosed)
         _ -> Left "app-database member has an invalid address or specification"
       engine' <- maybe (Left "app-database member has an unknown engine") Right (parseEngine engineText)
       unless (OrderedAfter stateful `elem` resource ^. #dependencies) (Left "app-database member is not ordered after its server")
@@ -313,15 +315,22 @@ mkAppDatabaseAdapter accepted members ops =
       pure plan
     catalogFor member = observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
     classify member catalog = fst (classifyWithPending member catalog)
-    -- A reader's pending objects ride beside its state (EP-206).
+    -- A reader's pending objects (EP-206) and a database's pending schemas
+    -- (EP-208) ride beside its state.
     classifyWithPending member catalog = case member ^. #kind of
       UserMember (ReaderRole _) user _ _ desired ->
-        classifyReader (member ^. #server . #engine) (readerDeclaration member desired) user catalog
+        second (map (\o -> fromMaybe (o ^. #database) (o ^. #schema) <> "." <> o ^. #relation)) (classifyReader (member ^. #server . #engine) (readerDeclaration member desired) user catalog)
       UserMember role user _ _ desired ->
         (classifyUser (member ^. #server . #engine) (UserDeclaration role (member ^. #enabled) (desired ^. #access) (acceptedAccess member ^. #access)) user (member ^. #scopeDatabases) catalog, [])
-      DatabaseMember db migration runtime monitoring -> (classifyDatabase (accessOf member db migration runtime monitoring) catalog, [])
-    accessOf member db migration runtime monitoring =
-      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled) monitoring (member ^. #withheld) (member ^. #readers)
+      DatabaseMember db migration runtime monitoring privileges ->
+        second (map ("schema " <>)) (classifyDatabase (DatabaseDeclaration (accessOf member db migration runtime monitoring privileges) (acceptedPrivileges member)) catalog)
+    accessOf member db migration runtime monitoring privileges =
+      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled) monitoring (member ^. #withheld) (member ^. #readers) privileges [] [] False False []
+    -- The privileges the last reviewed plan declared on the database; one
+    -- only they name is revoked by review rather than refused as drift.
+    acceptedPrivileges member = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
+      Just (LogicalDatabase _ _ _ _ _ _ privileges) -> privileges
+      _ -> noDatabasePrivileges
     readerSpec extension = (\grant -> ReaderSpec (NE.toList (grant ^. #objects)) (extension ^. #access . #limits)) <$> extension ^. #reader
     readerDeclaration member desired =
       ReaderDeclaration (member ^. #enabled) (fromMaybe (ReaderSpec [] noUserLimits) (readerSpec desired)) (readerSpec (acceptedAccess member))
@@ -358,9 +367,9 @@ mkAppDatabaseAdapter accepted members ops =
         catalog <- catalogFor member
         let classified = classifyWithPending member <$> catalog
             state = fst <$> classified
-            -- A reader's objects the app's migrations have not created yet.
+            -- What the app's migrations have not created yet.
             note = case classified of
-              Right (_, pending@(_ : _)) -> Just ("pending: " <> T.intercalate ", " [fromMaybe (o ^. #database) (o ^. #schema) <> "." <> o ^. #relation | o <- pending])
+              Right (_, pending@(_ : _)) -> Just ("pending: " <> T.intercalate ", " pending)
               _ -> Nothing
         credential <- case (state, catalog) of
           (Right MemberAbsent, _) -> pure (Right True)
@@ -431,11 +440,13 @@ mkAppDatabaseAdapter accepted members ops =
                       Right False -> Just (AdapterEffectFailed (KnownNoEffect "app-database user exists with a password other than its Secret's; rotate it"))
                       Left reason -> Just (AdapterEffectAmbiguous reason)
                 maybe (finish (run member (accessCommand member observed role user desired))) pure created
-          (state, DatabaseMember db migration runtime monitoring) -> do
+          (state, DatabaseMember db migration runtime monitoring privileges) -> do
             created <- case state of
               MemberAbsent -> run member (CreateDatabase db migration)
               _ -> pure Nothing
-            maybe (finish (run member (SetDatabaseAccess (accessOf member db migration runtime monitoring)))) pure created
+            -- The revocations come from the catalog just read; a database
+            -- created now has nothing to revoke.
+            maybe (finish (run member (SetDatabaseAccess (databaseRevocations (accessOf member db migration runtime monitoring privileges) observed)))) pure created
     -- Rotation: the Secret takes the new password first, then the user
     -- follows it, so a lost step never leaves a password nobody holds.
     rotate member = case member ^. #kind of
@@ -470,14 +481,27 @@ mkAppDatabaseAdapter accepted members ops =
         <> (if actionText == "rotate" then "credential of " else "")
         <> case member ^. #kind of
           UserMember _ user _ _ _ -> "user " <> user
-          DatabaseMember db _ _ _ -> "database " <> db
+          DatabaseMember db _ _ _ _ -> "database " <> db
         <> " on "
         <> nameText (member ^. #server . #name)
         <> (if member ^. #quiesced then " (quiesced: login off)" else if member ^. #enabled then "" else " (retired: access off)")
         <> case member ^. #kind of
-          UserMember _ _ _ _ extension | actionText /= "rotate" -> describeReader (extension ^. #reader) <> describeAccess (extension ^. #access)
-          DatabaseMember _ _ _ monitoring@(_ : _) -> "; tolerates grants to " <> T.intercalate ", " (map monitoringRoleToken monitoring)
+          UserMember _ _ _ _ extension | actionText /= "rotate" -> describeReader (extension ^. #reader) <> describeAccess (extension ^. #access) <> describeOwners (extension ^. #owners)
+          DatabaseMember _ _ _ monitoring privileges ->
+            mconcat ["; tolerates grants to " <> T.intercalate ", " (map monitoringRoleToken monitoring) | not (null monitoring)] <> describePrivileges privileges
           _ -> ""
+    -- The workloads that bind the migration credential (IR-35 AC-5).
+    describeOwners owners' = mconcat ["; owners " <> T.intercalate ", " (map serviceNameText owners') | not (null owners')]
+    -- Each own-database privilege and the derived membership (IR-35 AC-1).
+    describePrivileges privileges =
+      mconcat ["; createIn " <> T.intercalate ", " (map schemaNameText (privileges ^. #runtime . #createIn)) | not (null (privileges ^. #runtime . #createIn))]
+        <> mconcat ["; createSchemas" | privileges ^. #runtime . #createSchemas]
+        <> mconcat ["; migration member of runtime" | runtimeOwnsObjects privileges]
+        <> mconcat
+          [ "; " <> who <> " " <> T.intercalate ", " (map clickHousePrivilegeText tokens)
+          | (who, tokens) <- [("runtime", privileges ^. #runtime . #clickhouse), ("migration", privileges ^. #migration . #clickhouse)]
+          , not (null tokens)
+          ]
     -- A reader's objects (IR-33 AC-1).
     describeReader = \case
       Nothing -> ""

@@ -518,16 +518,19 @@ acceptedDatabaseBindings snapshot native cluster namespaceName names = do
 
 -- | EP-202: resolve each app database a workload names to its accepted
 -- @appdb-@ scope in the namespace, by its runtime credential. The binding
--- carries only that credential; the migration credential is never bindable,
--- and a retired app database is refused.
+-- carries the runtime credential, or the migration credential when the app
+-- database's accepted declaration names the workload among its owners
+-- (EP-208); no workload outside that list can bind the migration credential.
+-- A retired app database is refused.
 acceptedAppDatabaseBindings ::
   ScopeSnapshot ->
   Map ResourceId (ManagedResource, ByteString) ->
   ResourceId ->
   T.Text ->
+  Dsl.ServiceName ->
   [AppDatabaseName] ->
   Either T.Text (Map DatabaseName DatabaseBinding)
-acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
+acceptedAppDatabaseBindings snapshot native cluster namespaceName workload names = do
   pairs <- traverse resolve names
   let bindings = Map.fromList pairs
   unless
@@ -542,7 +545,7 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
       let appName = appDatabaseNameText name
       key <- mkDatabaseName appName
       secretAddress <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appName <> "-runtime")
-      (credential, scopeMembers) <-
+      (runtimeCredential, scopeMembers) <-
         case [ (credential', members scope)
              | (owner, (_, scope)) <- scopes
              , scopeKind owner == Standalone
@@ -552,6 +555,18 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
              ] of
           [found] -> Right found
           _ -> Left ("app database " <> appName <> " has no unique accepted runtime credential in namespace " <> namespaceName)
+      let logical = filter ((== AppDatabaseExecutor) . (^. #executor)) scopeMembers
+          -- EP-208: the accepted migration user names the owner workloads.
+          role = if or [workload `elem` extension ^. #owners | member <- logical, DatabaseUserSpec _ "migration" _ _ extension <- [member ^. #spec]] then "migration" else "runtime"
+          secretName = appName <> "-" <> role
+      credential <-
+        if role == "runtime"
+          then Right runtimeCredential
+          else do
+            migrationAddress <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) secretName
+            case [member | member <- scopeMembers, member ^. #address == migrationAddress] of
+              [found] -> Right found
+              _ -> Left ("app database " <> appName <> " has no unique accepted migration credential in namespace " <> namespaceName)
       (_, bytes) <- case Map.lookup (credential ^. #identity) native of
         Just pair@(member, _) | member == credential -> Right pair
         _ -> Left "accepted app-database credential has no matching private native template"
@@ -560,11 +575,10 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
       engine <- case template of
         Just found
           | found ^. #appDatabase == appName
-          , found ^. #role == "runtime"
+          , found ^. #role == role
           , found ^. #namespace == namespaceName ->
               Right (found ^. #engine)
-        _ -> Left "accepted app-database credential is not this app database's runtime credential"
-      let logical = filter ((== AppDatabaseExecutor) . (^. #executor)) scopeMembers
+        _ -> Left ("accepted app-database credential is not this app database's " <> role <> " credential")
       unless
         -- A quiesced app database still binds (EP-205): its pods fail to
         -- connect until resume, as running ones do.
@@ -584,7 +598,7 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
           isReaderUser member = case member ^. #spec of
             DatabaseUserSpec _ _ _ _ extension -> isJust (extension ^. #reader)
             _ -> False
-      pure (key, AppDatabaseBinding (AppDatabaseBound service credential ownMembers engine (appName <> "-runtime")))
+      pure (key, AppDatabaseBinding (AppDatabaseBound service credential ownMembers engine secretName))
 
 -- | A reader binding's key and Secret name: @<appdb>-reader-<reader>@.
 appDatabaseReaderKey :: AppDatabaseReaderRef -> T.Text

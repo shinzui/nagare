@@ -12,6 +12,17 @@ module AppDatabaseSpec
   , snapshot
   , snapshotWith
   , scopeAndNative
+  , kansokuPg
+  , kansokuCh
+  , kansokuPgAccess
+  , kansokuChAccess
+  , kansokuPgReader
+  , compileWorker
+  , secretKeyRefs
+  , acceptedNative
+  , testCluster
+  , known
+  , assertLeftContaining
   )
 where
 
@@ -175,7 +186,7 @@ appDatabaseTests =
             forM_ [scope, pgScope] $ \s' -> (encodeCanonicalScope <$> decodeScope (encodeCanonicalScope s')) @?= Right (encodeCanonicalScope s')
             assertBool "the runtime extension is on the wire" ("system-parts" `T.isInfixOf` TE.decodeUtf8 (encodeCanonicalScope scope))
             [access | DatabaseUserSpec _ "runtime" _ _ access <- specsOf scope] @?= [noUserExtension & #access . #exceptions .~ [SystemParts]]
-            [monitoring | LogicalDatabase _ _ _ _ _ monitoring <- specsOf pgScope] @?= [[PgMonitor]]
+            [monitoring | LogicalDatabase _ _ _ _ _ monitoring _ <- specsOf pgScope] @?= [[PgMonitor]]
             assertBool "the extension changes the user's digest" ([d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf scope] /= [d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf (scopeOf chServer (alpha ClickHouse))])
         , testCase "declared access keeps the backup schedule's revision (EP-204)" $
             forM_ [(chServer, alpha ClickHouse & #access . #runtime . #exceptions .~ [SystemParts]), (pgServer, alpha Postgres & #access . #monitoring .~ [PgMonitor])] $ \(server', declared) -> do
@@ -305,7 +316,7 @@ appDatabaseTests =
             -- the reader cannot connect to it whatever ACLs the dump restores inside.
             assertBool "revokes PUBLIC on the scratch database" ("REVOKE ALL ON DATABASE \\\"alpha_restore_r1\\\" FROM PUBLIC" `T.isInfixOf` text)
             assertBool "grants nothing to the reader" (not ("reader" `T.isInfixOf` text))
-            assertBool "the ClickHouse scratch restore grants nothing to a reader" (not ("reader" `T.isInfixOf` renderScratchRestore ClickHouse [("alpha", "alpha_restore_r1")] "a.zip" "alpha_ch_migration" "alpha_ch_runtime"))
+            assertBool "the ClickHouse scratch restore grants nothing to a reader" (not ("reader" `T.isInfixOf` renderScratchRestore ClickHouse noDatabasePrivileges [("alpha", "alpha_restore_r1")] "a.zip" "alpha_ch_migration" "alpha_ch_runtime"))
         , testCase "a run signed under an earlier converged schedule revision ingests and restores its own databases (EP-207)" $ do
             let cronOf native' = head [bytes | (m, bytes) <- Map.elems native', Kubernetes _ "batch" k _ _ <- [m ^. #address], nameText k == "cronjob"]
                 changes =
@@ -398,7 +409,7 @@ appDatabaseTests =
                 specs revised = [member ^. #spec | bundle <- scopeBundles revised, Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
             found <- either (assertFailure . T.unpack) pure (namedAppDatabaseScope accepted "alpha-pg" Nothing)
             (retired, _) <- either (assertFailure . show) pure (retireAppDatabaseScope accepted (snd (scopeAndNative pgServer (alpha Postgres))) found)
-            [on | LogicalDatabase _ _ _ on _ _ <- specs retired] @?= [False]
+            [on | LogicalDatabase _ _ _ on _ _ _ <- specs retired] @?= [False]
             [login | DatabaseUserSpec _ _ login _ _ <- specs retired] @?= [LoginClosed, LoginClosed]
             let runtime = head [member ^. #identity | bundle <- scopeBundles scope, Managed member <- declarations bundle, DatabaseUserSpec _ "runtime" _ _ _ <- [member ^. #spec]]
                 bound = snapshotWith [pgServer] [scope, boundTo runtime]
@@ -456,7 +467,7 @@ appDatabaseTests =
                 native = Map.unions (acceptedNative [pgServer, chServer] : map snd compiled)
             forM_ ["alpha", "beta"] $ \app -> do
               let names = [known (mkAppDatabaseName (app <> "-pg")), known (mkAppDatabaseName (app <> "-ch"))]
-              bindings <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings accepted native testCluster "personal" names)
+              bindings <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings accepted native testCluster "personal" (known (Dsl.mkServiceName app)) names)
               (scope, workerNative) <- either (assertFailure . show) pure (compileWorker app (Just names) bindings)
               let refs = nub (sort (concatMap (secretKeyRefs . snd) (Map.elems workerNative)))
               refs @?= [app <> "-ch-runtime", app <> "-pg-runtime"]
@@ -466,7 +477,7 @@ appDatabaseTests =
             case acceptedDatabaseBindings accepted native testCluster "personal" [dbServer "smoke-pg"] of
               Left reason -> assertBool (T.unpack reason) ("shared-server-direct-binding" `T.isPrefixOf` reason)
               Right _ -> assertFailure "a shared server was bound directly"
-            twoPostgres <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings accepted native testCluster "personal" [known (mkAppDatabaseName "alpha-pg"), known (mkAppDatabaseName "beta-pg")])
+            twoPostgres <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings accepted native testCluster "personal" (known (Dsl.mkServiceName "alpha")) [known (mkAppDatabaseName "alpha-pg"), known (mkAppDatabaseName "beta-pg")])
             case compileWorker "alpha" (Just (Map.keys twoPostgres & map (known . mkAppDatabaseName . Dsl.databaseNameText))) twoPostgres of
               Left _ -> pure ()
               Right _ -> assertFailure "a workload bound two PostgreSQL databases"
@@ -504,7 +515,7 @@ appDatabaseTests =
                 Left reason -> assertBool (T.unpack reason) ("app-database-reader-retired" `T.isPrefixOf` reason)
                 Right _ -> assertFailure "a retired reader was bound"
               -- A runtime binder of the same app database is not one of its binders.
-              runtimeBindings <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings (snapshotWith [server'] [scope]) (Map.union (acceptedNative [server']) (snd (scopeAndNative server' (db & #access . #readers .~ [dash False])))) testCluster "personal" [db ^. #name])
+              runtimeBindings <- either (assertFailure . T.unpack) pure (acceptedAppDatabaseBindings (snapshotWith [server'] [scope]) (Map.union (acceptedNative [server']) (snd (scopeAndNative server' (db & #access . #readers .~ [dash False])))) testCluster "personal" (known (Dsl.mkServiceName "alpha")) [db ^. #name])
               (runtimeWorker, _) <- either (assertFailure . show) pure (compileWorker "alpha" (Just [db ^. #name]) runtimeBindings)
               let runtimeDependencies = concat [m ^. #dependencies | bundle <- scopeBundles runtimeWorker, Managed m <- declarations bundle]
               assertBool "a runtime binder is not ordered after the reader" (not (any (\r -> OrderedAfter r `elem` runtimeDependencies) readerMembers))
@@ -566,7 +577,7 @@ appDatabaseTests =
         , testCase "a quiesced app database still binds; a retired one does not (EP-205)" $ do
             let (scope, native) = scopeAndNative pgServer (alpha Postgres)
                 names = [known (mkAppDatabaseName "alpha-pg")]
-                bindIn s' extra = acceptedAppDatabaseBindings (snapshotWith [pgServer] [s']) (Map.unions [acceptedNative [pgServer], extra, native]) testCluster "personal" names
+                bindIn s' extra = acceptedAppDatabaseBindings (snapshotWith [pgServer] [s']) (Map.unions [acceptedNative [pgServer], extra, native]) testCluster "personal" (known (Dsl.mkServiceName "alpha")) names
             (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope ["runtime"] "t1")
             either (assertFailure . T.unpack) (const (pure ())) (bindIn quiesced paused)
             (retired, retiredNative) <- either (assertFailure . show) pure (retireAppDatabaseScope (snapshotWith [pgServer] [scope]) native scope)

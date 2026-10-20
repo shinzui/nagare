@@ -13,6 +13,8 @@ module Nagare.Test.World.AppDatabase
   , worldOps
   , worldCatalog
   , secretKey
+  , clickHouseTree
+  , compressGrants
   )
 where
 
@@ -29,8 +31,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Database.AppDatabase.Catalog
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), ReaderAccess (..), clickHouseCeilings, clickhouseHashMatches, postgresTimeout, scramVerifierMatches)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), ReaderAccess (..), clickHouseCeilings, clickHouseDatabaseGrants, clickhouseHashMatches, postgresTimeout, scramVerifierMatches)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants, runtimeOwnsObjects)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.AppDatabase
@@ -84,6 +86,11 @@ data World = World
   , mutations :: ![WorldMutation]
   , server :: !(Map Text Text)
   -- ^ the server Pod's UID and start time and the engine's identity
+  , memberships :: !(Set (Text, Text, Bool))
+  -- ^ PostgreSQL: (role, member, admin option) (EP-208)
+  , privilegeTree :: !PrivilegeTree
+  -- ^ ClickHouse: the 26.8 tree M1 captured; database grants are held as
+  -- leaves and reported as their minimal cover, as system.grants does
   }
   deriving stock (Generic, Eq, Show)
 
@@ -99,8 +106,28 @@ data WorldMutation = WorldMutation
   deriving stock (Generic, Eq, Show)
 
 newWorld :: Engine -> Map Text CredentialSecret -> IO (IORef World)
-newWorld engine' secrets' =
-  newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0 Map.empty 0 [] (Map.fromList [("podUID", "pod-1"), ("podStarted", "2026-10-19T00:00:00Z"), ("serverUUID", "uuid-1"), ("processStarted", "2026-10-19 00:00:00")]))
+newWorld engine' secrets' = do
+  tree <- if engine' == ClickHouse then clickHouseTree else pure Map.empty
+  newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0 Map.empty 0 [] (Map.fromList [("podUID", "pod-1"), ("podStarted", "2026-10-19T00:00:00Z"), ("serverUUID", "uuid-1"), ("processStarted", "2026-10-19 00:00:00")]) Set.empty tree)
+
+-- | ClickHouse 26.8's privilege tree, as EP-208 M1 observed it.
+clickHouseTree :: IO PrivilegeTree
+clickHouseTree = do
+  bytes <- BS.readFile "test/fixtures/app-database/observed/clickhouse-privileges-declared.jsonl"
+  either (fail . T.unpack) (pure . (^. #privilegeTree)) (parseClickHouseCatalog [] [] bytes)
+
+-- | What system.grants reports for a set of held leaves: from the top of the
+-- tree down, a privilege whose every leaf is held, else its children.
+compressGrants :: PrivilegeTree -> Set Text -> [Text]
+compressGrants tree held
+  | Map.null tree = Set.toList held
+  | otherwise = Set.toList (Set.fromList (concatMap cover roots) <> Set.filter (`Map.notMember` tree) held)
+  where
+    roots = [privilege' | (privilege', (Nothing, _)) <- Map.toList tree]
+    children = Map.fromListWith (<>) [(parent, [child]) | (child, (Just parent, _)) <- Map.toList tree]
+    cover node
+      | expandPrivileges tree [node] `Set.isSubsetOf` held = [node]
+      | otherwise = concatMap cover (Map.findWithDefault [] node children)
 
 -- | The server as a drain observes it.
 drainObservation :: World -> [Text] -> [Text] -> DrainObservation
@@ -125,6 +152,8 @@ worldCatalog world =
     (Map.map user (world ^. #users))
     (Map.map database (world ^. #databases))
     (world ^. #publicSystemAccess)
+    (Set.toList (world ^. #memberships))
+    (world ^. #privilegeTree)
   where
     user u =
       CatalogUser
@@ -141,12 +170,17 @@ worldCatalog world =
       CatalogDatabase
         (db ^. #physical)
         (if world ^. #engine == ClickHouse then Nothing else Just (db ^. #owner))
-        (Set.toList (db ^. #grants))
+        (if world ^. #engine == ClickHouse then reported (db ^. #grants) else Set.toList (db ^. #grants))
         (if world ^. #engine == ClickHouse then Map.empty else Map.insert "public" (db ^. #publicSchemaOwner) (db ^. #otherSchemas))
         (db ^. #defaultRoles)
         []
         (db ^. #relations)
         (db ^. #functions)
+    reported grants' =
+      [ CatalogGrant who target' privilege'
+      | (who, target') <- Set.toList (Set.map (\g -> (g ^. #grantee, g ^. #target)) grants')
+      , privilege' <- compressGrants (world ^. #privilegeTree) (Set.fromList [g ^. #privilege | g <- Set.toList grants', g ^. #grantee == who, g ^. #target == target'])
+      ]
 
 worldOps :: IORef World -> IORef Adversary -> AppDatabaseOps
 worldOps ref adversary =
@@ -339,9 +373,26 @@ interpret command world = case command of
           databases'
     where
       on = access ^. #login == LoginOpen
-  SetDatabaseAccess access ->
+  SetDatabaseAccess access -> do
+    let migration = access ^. #migration
+        runtime = access ^. #runtime
+        -- As M1 proved: a GRANT keeps an admin option already held; a REVOKE
+        -- removes the membership whatever its options.
+        held = Set.filter (\(role, member, _) -> role == runtime && member == migration) (world ^. #memberships)
+        membership
+          | engine' == ClickHouse = id
+          | access ^. #revokeMembership = Set.filter (`Set.notMember` held)
+          | access ^. #enabled && runtimeOwnsObjects (access ^. #privileges) && Set.null held = Set.insert (runtime, migration, False)
+          | otherwise = id
+    -- A CREATE on a schema that does not exist stops the block (M1).
+    case Map.lookup (access ^. #database) (world ^. #databases) of
+      Just db
+        | engine' /= ClickHouse
+        , missing : _ <- [schema | schema <- access ^. #createIn <> access ^. #revokedCreateIn, Map.notMember schema (db ^. #otherSchemas)] ->
+            Left ("schema \"" <> missing <> "\" does not exist")
+      _ -> pure ()
     -- PostgreSQL access-on also revokes PUBLIC from the system databases.
-    (if access ^. #enabled then #publicSystemAccess .~ False else id) <$> withDatabase (access ^. #database) (setAccess access)
+    (if access ^. #enabled then #publicSystemAccess .~ False else id) . (#memberships %~ membership) <$> withDatabase (access ^. #database) (setAccess access)
   where
     engine' = world ^. #engine
     fresh kind' name = kind' <> ":" <> name <> ":" <> T.pack (show (Map.size (world ^. #users) + Map.size (world ^. #databases)))
@@ -351,11 +402,20 @@ interpret command world = case command of
     withDatabase name f = case Map.lookup name (world ^. #databases) of
       Nothing -> Left ("database " <> name <> " does not exist")
       Just db -> Right (world & #databases %~ Map.insert name (f db))
+    tree = world ^. #privilegeTree
+    -- ClickHouse holds leaves: a REVOKE drops every leaf of its token, a
+    -- GRANT adds every leaf of its list (M1).
     setAccess access db
       | engine' == ClickHouse =
-          let others = Set.filter (\g -> g ^. #grantee `notElem` [access ^. #migration, access ^. #runtime]) (db ^. #grants)
-              declared = Set.fromList [CatalogGrant who "database" p | (role, who) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)], who `notElem` access ^. #withheld, g <- appDatabaseDatabaseGrants ClickHouse role, p <- g ^. #privileges]
-           in db & #grants .~ (if access ^. #enabled then Set.union others declared else others)
+          let users' = [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)]
+              others = Set.filter (\g -> g ^. #grantee `notElem` map snd users') (db ^. #grants)
+              heldBy who = Set.fromList [g ^. #privilege | g <- Set.toList (db ^. #grants), g ^. #grantee == who, g ^. #target == "database"]
+              after (role, who)
+                | not (access ^. #enabled) || who `elem` access ^. #withheld = Set.empty
+                | otherwise =
+                    (heldBy who `Set.difference` expandPrivileges tree [token | (who', token) <- access ^. #revoked, who' == who])
+                      <> expandPrivileges tree (clickHouseDatabaseGrants role (access ^. #privileges))
+           in db & #grants .~ Set.union others (Set.fromList [CatalogGrant who "database" leaf | user@(_, who) <- users', leaf <- Set.toList (after user)])
       | access ^. #enabled =
           let runtime = access ^. #runtime
               migration = access ^. #migration
@@ -364,11 +424,29 @@ interpret command world = case command of
               target g = case g ^. #objectClass of
                 "schema" -> "schema:public"
                 other -> other
+              ownPrivileges =
+                Set.fromList
+                  ( [CatalogGrant runtime "database" "CREATE" | access ^. #privileges . #runtime . #createSchemas]
+                      <> [CatalogGrant runtime ("schema:" <> schema) "CREATE" | schema <- access ^. #createIn]
+                  )
+              revokedOwn = Set.fromList ([CatalogGrant runtime "database" "CREATE" | access ^. #revokeDatabaseCreate] <> [CatalogGrant runtime ("schema:" <> schema) "CREATE" | schema <- access ^. #revokedCreateIn])
            in db
                 & #grants
-                .~ Set.unions [kept, runtimeGrants, Set.fromList [CatalogGrant migration "schema:public" p | p <- ["USAGE", "CREATE"]], Set.singleton (CatalogGrant "PUBLIC" "default-functions" "EXECUTE")]
+                .~ (Set.unions [kept, runtimeGrants, ownPrivileges, Set.fromList [CatalogGrant migration "schema:public" p | p <- ["USAGE", "CREATE"]], Set.singleton (CatalogGrant "PUBLIC" "default-functions" "EXECUTE")] `Set.difference` revokedOwn)
                 & #publicSchemaOwner
                 .~ migration
                 & #defaultRoles
                 .~ [migration]
-      | otherwise = db & #grants %~ Set.filter (\g -> not (g ^. #grantee == access ^. #runtime && g ^. #target == "database"))
+      -- Retirement withholds CONNECT and TEMPORARY, and CREATE when held.
+      | otherwise =
+          db
+            & #grants
+            %~ Set.filter
+              ( \g ->
+                  not
+                    ( g ^. #grantee == access ^. #runtime
+                        && ( (g ^. #target == "database" && (g ^. #privilege /= "CREATE" || access ^. #revokeDatabaseCreate))
+                               || (g ^. #privilege == "CREATE" && g ^. #target `elem` ["schema:" <> schema | schema <- access ^. #revokedCreateIn])
+                           )
+                    )
+              )

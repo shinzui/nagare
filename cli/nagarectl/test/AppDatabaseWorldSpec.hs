@@ -2,7 +2,32 @@
 -- resume after every interruption with their original passwords, refuse
 -- drift and a credential the user no longer accepts, rotate one user, and
 -- retire one app database, against the interpreter world.
-module AppDatabaseWorldSpec (appDatabaseWorldTests) where
+module AppDatabaseWorldSpec
+  ( appDatabaseWorldTests
+  , Members
+  , setup
+  , setupWith
+  , membersFor
+  , converge
+  , convergeAgainst
+  , replan
+  , replanAgainst
+  , observeAll
+  , observeAllAgainst
+  , adapterFor
+  , planned
+  , seedPgmq
+  , user'
+  , ownPrivileges
+  , withPrivileges
+  , declaredAccess
+  , pgmqPrivileges
+  , chTokens
+  , token
+  , quiesceCycleWith
+  , catalogAccess
+  )
+where
 
 import AppDatabaseSpec (Server, alpha, beta, chServer, pgServer, scopeAndNative, scopeOf, snapshot, snapshotWith)
 import Control.Exception (try)
@@ -127,13 +152,35 @@ appDatabaseWorldTests =
             assertPasswordsOriginal world ops members
         ]
     | engine' <- [Postgres, ClickHouse]
-    , (variant, declare) <- [("", id), (" with declared access", declaredAccess engine'), (" with a reader", withReader engine' ["v1", "v2"])]
+    , (variant, declare) <- [("", id), (" with declared access", declaredAccess engine'), (" with a reader", withReader engine' ["v1", "v2"]), (" with own privileges", ownPrivileges engine')]
     ]
       <> [testGroup (show engine' <> " reviewed access (EP-204)") (accessTests engine') | engine' <- [Postgres, ClickHouse]]
       <> [testGroup (show engine' <> " readers (EP-206)") (readerTests engine') | engine' <- [Postgres, ClickHouse]]
       <> [testGroup (show engine' <> " quiesce (EP-205)") (quiesceTests engine') | engine' <- [Postgres, ClickHouse]]
   where
     expectRight = either (assertFailure . T.unpack) pure
+
+-- EP-208 ------------------------------------------------------------------
+
+-- | alpha's own-database privileges: on PostgreSQL CREATE in schema pgmq and
+-- schemas of its own (pg_monitor tolerated for PGMQ's install), on
+-- ClickHouse a group and two leaves for the runtime and one for the
+-- migration user.
+ownPrivileges :: Engine -> AppDatabase -> AppDatabase
+ownPrivileges Postgres db = db & #access . #monitoring .~ [PgMonitor] & #access . #privileges .~ pgmqPrivileges True
+ownPrivileges _ db = db & #access . #privileges .~ (chTokens ["ALTER TABLE", "CREATE TABLE", "DROP TABLE"] & #migration . #clickhouse .~ map token ["UNDROP TABLE"])
+
+pgmqPrivileges :: Bool -> DatabasePrivileges
+pgmqPrivileges schemas = noDatabasePrivileges & #runtime . #createIn .~ [either (error . T.unpack) id (mkSchemaName "pgmq")] & #runtime . #createSchemas .~ schemas
+
+chTokens :: [Text] -> DatabasePrivileges
+chTokens tokens = noDatabasePrivileges & #runtime . #clickhouse .~ map token tokens
+
+token :: Text -> ClickHousePrivilege
+token = either (error . T.unpack) id . mkClickHousePrivilege
+
+withPrivileges :: DatabasePrivileges -> AppDatabase -> AppDatabase
+withPrivileges privileges db = db & #access . #monitoring .~ [PgMonitor | db ^. #engine == Postgres] & #access . #privileges .~ privileges
 
 -- EP-206 ------------------------------------------------------------------
 
@@ -162,7 +209,7 @@ readerUser engine' = user' engine' "alpha" "reader_dash"
 -- | What an app's migration creates in alpha's database: a base table, the
 -- given views, and any extra relations.
 seedViews :: [Text] -> [CatalogRelation] -> World -> World
-seedViews names extra = #databases %~ Map.adjust (#relations %~ \existing -> existing <> [CatalogRelation "public" "base" "r" [] []] <> [CatalogRelation "public" n "v" [] [] | n <- names] <> extra) "alpha"
+seedViews names extra = #databases %~ Map.adjust (#relations %~ \existing -> existing <> [CatalogRelation "public" "base" "r" (Just "alpha_migration") [] []] <> [CatalogRelation "public" n "v" (Just "alpha_migration") [] [] | n <- names] <> extra) "alpha"
 
 -- | A first apply, then on PostgreSQL the app's migration creating the
 -- views in the new database and the plan after it.
@@ -263,7 +310,7 @@ readerTests engine' =
            -- The app revokes PUBLIC EXECUTE in a migration: the plan passes.
            writeIORef world (converged & #databases %~ Map.adjust (#functions .~ [CatalogFunction "public" "add_row" "x integer" []]) "alpha")
            replan ops members >>= (@?= [])
-           writeIORef world (converged & #databases %~ Map.adjust (#relations %~ (<> [CatalogRelation "public" "vi" "v" ["security_invoker=true"] []])) "alpha")
+           writeIORef world (converged & #databases %~ Map.adjust (#relations %~ (<> [CatalogRelation "public" "vi" "v" (Just "alpha_migration") ["security_invoker=true"] []])) "alpha")
            invoker <- membersFor engine' (withReader engine' ["v1", "v2", "vi"])
            invokerRefusals <- observeAllAgainst members ops invoker
            assertBool (show invokerRefusals) (any (T.isPrefixOf readerInvokerCode) invokerRefusals)
@@ -514,15 +561,21 @@ applySession ops review = do
 
 -- | alpha's scope and accepted native bytes, quiesced with the given users.
 quiesceAlpha :: Engine -> [Text] -> IO (ScopeDeclaration, Map ResourceId (ManagedResource, BS.ByteString), ScopeDeclaration, Map ResourceId (ManagedResource, BS.ByteString))
-quiesceAlpha engine' roles = do
-  let (scope, native) = scopeAndNative (serverOf engine') (alpha engine')
+quiesceAlpha = quiesceAlphaWith id
+
+quiesceAlphaWith :: (AppDatabase -> AppDatabase) -> Engine -> [Text] -> IO (ScopeDeclaration, Map ResourceId (ManagedResource, BS.ByteString), ScopeDeclaration, Map ResourceId (ManagedResource, BS.ByteString))
+quiesceAlphaWith declare engine' roles = do
+  let (scope, native) = scopeAndNative (serverOf engine') (declare (alpha engine'))
   (quiesced, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope roles "t1")
   pure (scope, native, quiesced, Map.union paused native)
 
 -- | Quiesce alpha's runtime user, drain, then resume: the world after each.
 quiesceCycle :: Engine -> IORef World -> AppDatabaseOps -> Members -> IO (Either Text (World, World))
-quiesceCycle engine' world ops open = do
-  (_, _, quiesced, nativeQuiesced) <- quiesceAlpha engine' ["runtime"]
+quiesceCycle = quiesceCycleWith id
+
+quiesceCycleWith :: (AppDatabase -> AppDatabase) -> Engine -> IORef World -> AppDatabaseOps -> Members -> IO (Either Text (World, World))
+quiesceCycleWith declare engine' world ops open = do
+  (_, _, quiesced, nativeQuiesced) <- quiesceAlphaWith declare engine' ["runtime"]
   drain <- sessionReviewFor engine' open quiesced DrainStep
   drained <- applySession ops drain
   case drained of

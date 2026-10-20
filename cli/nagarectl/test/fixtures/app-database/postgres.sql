@@ -1,4 +1,4 @@
--- EP-202 M1 reference fixture, extended by EP-204 M1 and EP-205 M1: the PostgreSQL 18 statements for one app database.
+-- EP-202 M1 reference fixture, extended by EP-204, EP-205, EP-206 and EP-208 M1: the PostgreSQL 18 statements for one app database.
 --
 -- App database "alpha-pg" on server "smoke-pg" (initial database "smoke_pg"), logical
 -- database "alpha", users "alpha_runtime" and "alpha_migration". Proven by hand against
@@ -124,10 +124,10 @@ ALTER ROLE "alpha_runtime" PASSWORD 'SCRAM-SHA-256$4096:EBESExQVFhcYGRobHB0eHw==
 -- grantee 0 is PUBLIC. publicSystemAccess is whether PUBLIC may still connect to the
 -- system or initial databases; foreignAccess lists "<user> on <database>" for each grant to the
 -- app's users on any other database. Each role carries its connection limit and its
--- server-wide role settings (EP-204).
+-- server-wide role settings (EP-204). Each membership carries its admin option (EP-208).
 SELECT json_build_object(
   'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL), 'connectionLimit', r.rolconnlimit, 'settings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s WHERE s.setrole = r.oid AND s.setdatabase = 0), '[]')) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.rolname IN ('alpha_migration', 'alpha_runtime')),
-  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname) ORDER BY r.rolname, m.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname IN ('alpha_migration', 'alpha_runtime') OR m.rolname IN ('alpha_migration', 'alpha_runtime')),
+  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname, 'admin', a.admin_option) ORDER BY r.rolname, m.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname IN ('alpha_migration', 'alpha_runtime') OR m.rolname IN ('alpha_migration', 'alpha_runtime')),
   'databases', (SELECT coalesce(json_agg(json_build_object('name', d.datname, 'oid', d.oid::text, 'owner', pg_get_userbyid(d.datdba), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a)) ORDER BY d.datname), '[]') FROM pg_database d WHERE d.datname IN ('alpha')),
   'publicSystemAccess', (SELECT count(*) > 0 FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname IN ('postgres', 'template1', 'smoke_pg') AND a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY')),
   'foreignAccess', (SELECT coalesce(json_agg(DISTINCT pg_get_userbyid(a.grantee) || ' on ' || d.datname), '[]') FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('alpha_migration', 'alpha_runtime')) AND d.datname NOT IN ('alpha'))
@@ -201,10 +201,86 @@ REVOKE SELECT ON "public"."v2" FROM "alpha_reader_dash";
 
 -- operation: observe-relations alpha
 -- Run with -d alpha. Every table, partitioned table, view and materialized view outside the
--- system schemas, its reloptions (security_invoker=true marks an invoker view) and the
+-- system schemas, its owner (EP-208), its reloptions (security_invoker=true marks an invoker view) and the
 -- given users' grants on it, and every SECURITY DEFINER function with the grantees among
 -- PUBLIC and the users that may execute it.
 SELECT json_build_object(
-  'relations', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', c.relname, 'kind', c.relkind::text, 'options', coalesce(to_json(c.reloptions), '[]'), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', pg_get_userbyid(a.grantee), 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('alpha_reader_dash')))) ORDER BY n.nspname, c.relname), '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'p', 'v', 'm')),
+  'relations', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', c.relname, 'kind', c.relkind::text, 'owner', pg_get_userbyid(c.relowner), 'options', coalesce(to_json(c.reloptions), '[]'), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', pg_get_userbyid(a.grantee), 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('alpha_reader_dash')))) ORDER BY n.nspname, c.relname), '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'p', 'v', 'm')),
   'definerFunctions', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', p.proname, 'signature', pg_get_function_identity_arguments(p.oid), 'executors', (SELECT coalesce(json_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END ORDER BY 1), '[]') FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.privilege_type = 'EXECUTE' AND (a.grantee = 0 OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('alpha_reader_dash'))))) ORDER BY n.nspname, p.proname), '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' AND p.prosecdef)
 );
+
+-- operation: database-access alpha on with privileges
+-- EP-208 M1. The runtime declares createIn = [pgmq] and createSchemas. PGMQ's install runs
+-- as alpha_migration (CREATE SCHEMA IF NOT EXISTS pgmq); without CREATE on it the runtime's
+-- SELECT pgmq.create('events') fails with "permission denied for schema pgmq". With it the
+-- runtime creates pgmq.q_events, pgmq.a_events, their indexes and sequence, owned by
+-- alpha_runtime, and inserts into the migration-owned pgmq.meta through the default
+-- privileges. It is still refused in public and in another migration-owned schema
+-- ("permission denied for schema other"). GRANT CREATE ON SCHEMA on a schema that does not
+-- exist fails the block ('schema "nosuch" does not exist'), so a declared schema the app's
+-- migrations have not created yet is left out until they do (pending).
+-- Without the membership, pg_dump -Fc as alpha_migration fails with "permission denied for
+-- table q_events" (its LOCK TABLE) and ALTER TABLE pgmq.q_events ADD COLUMN fails with "must
+-- be owner of table q_events"; with it both succeed, and the migration user can also
+-- reassign (ALTER TABLE ... OWNER TO alpha_migration) or drop what the runtime owns.
+-- pg_auth_members reports the pair with admin_option f, inherit_option t, set_option t. A
+-- repeated GRANT is a NOTICE ("has already been granted membership") and a REVOKE of a
+-- membership not held a WARNING; both complete under ON_ERROR_STOP. A plain GRANT keeps an
+-- admin option granted by hand.
+-- Under database CREATE the runtime creates schema scratch (owned by alpha_runtime, a NULL
+-- ACL, so observe-database reports the owner's USAGE and CREATE) and tables in it; REVOKE
+-- CREATE ON DATABASE leaves both in place. The database grant is recorded with grantor
+-- alpha_migration.
+REVOKE CONNECT, TEMPORARY ON DATABASE "postgres", "template1", "smoke_pg" FROM PUBLIC;
+REVOKE ALL ON DATABASE "alpha" FROM PUBLIC;
+GRANT CONNECT, TEMPORARY, CREATE ON DATABASE "alpha" TO "alpha_runtime";
+GRANT "alpha_runtime" TO "alpha_migration";
+\connect "alpha"
+ALTER SCHEMA public OWNER TO "alpha_migration";
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT USAGE ON SCHEMAS TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT USAGE, SELECT ON SEQUENCES TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT EXECUTE ON FUNCTIONS TO "alpha_runtime";
+GRANT CREATE ON SCHEMA "pgmq" TO "alpha_runtime";
+
+-- operation: database-access alpha on with privileges removed
+-- The accepted declaration named createIn = [pgmq] and createSchemas; the desired one names
+-- neither. Each revocation is sent only when observation shows the grant or membership
+-- held, so an app that never declared privileges keeps the v0.8.0 block. The runtime first
+-- owns nothing outside a declared schema (here the migration user reassigned the queue
+-- tables and dropped schema scratch). Repeating the block changes nothing.
+REVOKE CONNECT, TEMPORARY ON DATABASE "postgres", "template1", "smoke_pg" FROM PUBLIC;
+REVOKE ALL ON DATABASE "alpha" FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE "alpha" TO "alpha_runtime";
+REVOKE CREATE ON DATABASE "alpha" FROM "alpha_runtime";
+REVOKE "alpha_runtime" FROM "alpha_migration";
+\connect "alpha"
+ALTER SCHEMA public OWNER TO "alpha_migration";
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT USAGE ON SCHEMAS TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT USAGE, SELECT ON SEQUENCES TO "alpha_runtime";
+ALTER DEFAULT PRIVILEGES FOR ROLE "alpha_migration" GRANT EXECUTE ON FUNCTIONS TO "alpha_runtime";
+REVOKE CREATE ON SCHEMA "pgmq" FROM "alpha_runtime";
+
+-- operation: database-access alpha off with privileges
+-- Retirement withholds the database's CREATE with CONNECT and TEMPORARY. Schema CREATE and
+-- the membership stay, as schema USAGE and the default privileges do: without CONNECT the
+-- runtime cannot reach them ("permission denied for database "alpha""). The enabled block
+-- restores the database ACL exactly.
+REVOKE CONNECT, TEMPORARY, CREATE ON DATABASE "alpha" FROM "alpha_runtime";
+
+-- operation: restore-scratch with privileges
+-- With the membership held, pg_dump -Fc as alpha_migration completes. Restored as the
+-- administrator, pgmq.q_events keeps owner alpha_runtime and its row, schema pgmq keeps
+-- the runtime's CREATE (an ACL entry in the dump), and schema scratch keeps owner
+-- alpha_runtime. The runtime then sends and creates further queues in the scratch database.
+-- Into a rebuilt, empty alpha after the declared access is re-applied (pgmq pending, so no
+-- schema grant), the same dump brings schema pgmq with the runtime's CREATE and the
+-- runtime-owned tables, and re-applying the access block afterwards changes nothing.
+CREATE DATABASE "alpha_restore_m1" OWNER "alpha_migration";
+REVOKE ALL ON DATABASE "alpha_restore_m1" FROM PUBLIC;
+GRANT CONNECT, TEMPORARY, CREATE ON DATABASE "alpha_restore_m1" TO "alpha_runtime";

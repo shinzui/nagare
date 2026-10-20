@@ -31,6 +31,7 @@ import Nagare.Database.AppDatabase.Backup (appDatabaseBackupKeyPrefix)
 import Nagare.Database.AppDatabase.Sql (renderScratchRestore)
 import Nagare.Database.Backup (appDatabaseBackupExt, manualDatabaseJobName)
 import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), renderAppDatabaseRestoreJob)
+import Nagare.Dsl.AppDatabase (DatabasePrivileges, noDatabasePrivileges)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -145,6 +146,8 @@ compileAppDatabaseRestoreScope request native = do
     )
     (Left (invalid "the backup has another address or lacks exact versions"))
   scratches <- traverse (\db -> (db,) <$> first invalid (scratchDatabaseName db (request ^. #restoreId))) databases
+  -- Every logical database carries the same declared privileges (EP-208).
+  let declared = fromMaybe noDatabasePrivileges (listToMaybe [privileges | member <- appMembers, LogicalDatabase _ _ _ _ _ _ privileges <- [member ^. #spec]])
   let targets = if request ^. #target == RebuiltTarget then databases else map snd scratches
   firstScratch <- case targets of
     target : _ -> Right target
@@ -177,7 +180,7 @@ compileAppDatabaseRestoreScope request native = do
           ( renderAppDatabaseRestoreJob
               inputs
               ( case request ^. #target of
-                  ScratchTarget -> appDatabaseRestoreShell engine server scratches migration runtime
+                  ScratchTarget -> appDatabaseRestoreShell engine declared server scratches migration runtime
                   RebuiltTarget -> appDatabaseRebuiltShell engine server databases (request ^. #restoreId)
               )
           ) ::
@@ -300,8 +303,8 @@ appDatabaseRebuiltShell _ server databases _ =
 -- keeping owners and ACLs; ClickHouse restores every database under its
 -- scratch name from the archive placed on the server's volume, then grants
 -- the declared access. A leftover scratch name refuses.
-appDatabaseRestoreShell :: Engine -> Text -> [(Text, Text)] -> Text -> Text -> Text
-appDatabaseRestoreShell ClickHouse server scratches migration runtime =
+appDatabaseRestoreShell :: Engine -> DatabasePrivileges -> Text -> [(Text, Text)] -> Text -> Text -> Text
+appDatabaseRestoreShell ClickHouse declared server scratches migration runtime =
   let archive = "nagare-restore-" <> firstScratch <> ".zip"
       firstScratch = maybe "" snd (listToMaybe scratches)
    in "set -e; ARCHIVE=\"/source-data/backups/"
@@ -310,12 +313,12 @@ appDatabaseRestoreShell ClickHouse server scratches migration runtime =
         <> "clickhouse-client -h "
         <> server
         <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" --multiquery <<'SQL'\n"
-        <> renderScratchRestore ClickHouse scratches archive migration runtime
+        <> renderScratchRestore ClickHouse declared scratches archive migration runtime
         <> "SQL\nrm -- \"$ARCHIVE\""
-appDatabaseRestoreShell engine server scratches migration runtime =
+appDatabaseRestoreShell engine declared server scratches migration runtime =
   "set -e; psql -v ON_ERROR_STOP=1 -X -q -h "
     <> server
     <> " -U \"$POSTGRES_USER\" -d postgres <<'SQL'\n"
-    <> renderScratchRestore engine scratches "" migration runtime
+    <> renderScratchRestore engine declared scratches "" migration runtime
     <> "SQL\n"
     <> T.concat ["pg_restore --exit-on-error -h " <> server <> " -U \"$POSTGRES_USER\" -d " <> scratch <> " /dump/backup.sql\n" | (_, scratch) <- scratches]

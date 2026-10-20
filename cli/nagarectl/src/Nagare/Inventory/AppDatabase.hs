@@ -374,7 +374,7 @@ retireAppDatabaseScope snapshot native scope = do
       Managed member -> Managed (maybe (member & #spec %~ disable) fst (Map.lookup (member ^. #identity) suspended))
       other -> other
     disable = \case
-      LogicalDatabase engine' migration runtime _ digest monitoring -> LogicalDatabase engine' migration runtime False digest monitoring
+      LogicalDatabase engine' migration runtime _ digest monitoring privileges -> LogicalDatabase engine' migration runtime False digest monitoring privileges
       DatabaseUserSpec engine' role _ digest access -> DatabaseUserSpec engine' role LoginClosed digest access
       other -> other
 

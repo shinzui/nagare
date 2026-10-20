@@ -24,7 +24,7 @@ appDatabaseSqlTests =
     [ testCase "PostgreSQL commands match the proven fixture" $ do
         blocks <- fixture "postgres"
         let pg = hashPassword Postgres
-            access on = DatabaseAccess Postgres "smoke_pg" "alpha" "alpha_migration" "alpha_runtime" on [] [] []
+            access on = DatabaseAccess Postgres "smoke_pg" "alpha" "alpha_migration" "alpha_runtime" on [] [] [] noDatabasePrivileges [] [] False False []
         mapM_
           (uncurry (matches blocks))
           [ ("create-user alpha_migration", renderCreateUser Postgres "alpha_migration" (pg salt0 "pw-alpha_migration") "alpha")
@@ -44,7 +44,11 @@ appDatabaseSqlTests =
           , ("observe-server", renderObserveServer ["alpha_migration", "alpha_runtime"] ["alpha"] "smoke_pg")
           , ("observe-database alpha", renderObserveDatabase)
           , ("observe-password alpha_runtime", renderObservePassword "alpha_runtime")
-          , ("restore-scratch", renderScratchRestore Postgres [("alpha", "alpha_restore_r1")] "" "alpha_migration" "alpha_runtime")
+          , ("restore-scratch", renderScratchRestore Postgres noDatabasePrivileges [("alpha", "alpha_restore_r1")] "" "alpha_migration" "alpha_runtime")
+          , ("database-access alpha on with privileges", renderDatabaseAccess (access True & #privileges .~ pgPrivileges & #createIn .~ ["pgmq"]))
+          , ("database-access alpha on with privileges removed", renderDatabaseAccess (access True & #revokedCreateIn .~ ["pgmq"] & #revokeDatabaseCreate .~ True & #revokeMembership .~ True))
+          , ("database-access alpha off with privileges", renderDatabaseAccess (access False & #privileges .~ pgPrivileges & #revokeDatabaseCreate .~ True))
+          , ("restore-scratch with privileges", renderScratchRestore Postgres pgPrivileges [("alpha", "alpha_restore_m1")] "" "alpha_migration" "alpha_runtime")
           , ("reader-access alpha_reader_dash on", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [pgView "vi"] ["alpha"] [] [("alpha", "public")] []))
           , ("reader-access alpha_reader_dash off", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [] [] ["alpha"] [] [("alpha", "public")]))
           , ("observe-relations alpha", renderObserveRelations ["alpha_reader_dash"])
@@ -52,7 +56,7 @@ appDatabaseSqlTests =
     , testCase "ClickHouse commands match the proven fixture" $ do
         blocks <- fixture "clickhouse"
         let ch = hashPassword ClickHouse
-            access db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] [] []
+            access db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] [] [] noDatabasePrivileges [] [] False False []
         mapM_
           (uncurry (matches blocks))
           [ ("create-user alpha_migration", renderCreateUser ClickHouse "alpha_migration" (ch salt0 "pw-alpha_migration") "alpha")
@@ -75,7 +79,10 @@ appDatabaseSqlTests =
           , ("drain alpha_runtime", renderTerminateSessions ClickHouse ["alpha_runtime"] <> renderObserveDrain ClickHouse ["alpha_runtime"] ["alpha", "alpha_ledger"])
           , ("set-password alpha_runtime", renderSetPassword "alpha_runtime" (ch salt1 "pw2-alpha_runtime"))
           , ("observe", renderObserveClickHouse ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"])
-          , ("restore-scratch", renderScratchRestore ClickHouse [("alpha", "alpha_restore_r1"), ("alpha_ledger", "alpha_ledger_restore_r1")] "alpha-ch-backup-r1.zip" "alpha_migration" "alpha_runtime")
+          , ("restore-scratch", renderScratchRestore ClickHouse noDatabasePrivileges [("alpha", "alpha_restore_r1"), ("alpha_ledger", "alpha_ledger_restore_r1")] "alpha-ch-backup-r1.zip" "alpha_migration" "alpha_runtime")
+          , ("database-access alpha on with privileges", renderDatabaseAccess (access "alpha" True & #privileges .~ chPrivileges ["CREATE TABLE", "DROP TABLE"]))
+          , ("database-access alpha on with privileges removed", renderDatabaseAccess (access "alpha" True & #privileges .~ chPrivileges ["CREATE TABLE", "DROP TABLE"] & #revoked .~ [("alpha_runtime", "ALTER TABLE")]))
+          , ("restore-scratch with privileges", renderScratchRestore ClickHouse (chPrivileges ["CREATE TABLE", "DROP TABLE"]) [("alpha", "alpha_restore_r1"), ("alpha_ledger", "alpha_ledger_restore_r1")] "alpha-ch-backup-r1.zip" "alpha_migration" "alpha_runtime")
           , ("reader-access alpha_reader_dash on", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [chView "not_yet"] [] [] [] []))
           , ("reader-access alpha_reader_dash off", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [] [] [] [] []))
           ]
@@ -83,25 +90,25 @@ appDatabaseSqlTests =
         catalog <- postgresCatalog "converged" "alpha"
         classifyUser Postgres (plain RuntimeRole True) "alpha_runtime" [] catalog @?= MemberComplete "postgres-role:16386"
         classifyUser Postgres (plain MigrationRole True) "alpha_migration" [] catalog @?= MemberComplete "postgres-role:16385"
-        classifyDatabase (pgAccess "alpha" "alpha" True) catalog @?= MemberComplete "postgres-database:16387"
+        classifyPlain (pgAccess "alpha" "alpha" True) catalog @?= MemberComplete "postgres-database:16387"
         incomplete (classifyUser Postgres (plain RuntimeRole False) "alpha_runtime" [] catalog)
-        incomplete (classifyDatabase (pgAccess "alpha" "alpha" False) catalog)
+        incomplete (classifyPlain (pgAccess "alpha" "alpha" False) catalog)
     , testCase "a fresh PostgreSQL database is incomplete and elevated roles are drift" $ do
         catalog <- postgresCatalog "fresh" "gamma"
         drift (classifyUser Postgres (plain RuntimeRole True) "gamma_runtime" [] catalog)
         classifyUser Postgres (plain MigrationRole True) "gamma_migration" [] catalog @?= MemberComplete "postgres-role:16407"
-        incomplete (classifyDatabase (pgAccess "gamma" "gamma" True) catalog)
+        incomplete (classifyPlain (pgAccess "gamma" "gamma" True) catalog)
         classifyUser Postgres (plain RuntimeRole True) "absent_runtime" [] catalog @?= MemberAbsent
     , testCase "ClickHouse converged access is complete and foreign grants are drift" $ do
         converged <- clickHouseCatalog "converged" ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"]
         mapM_ (\role -> complete (classifyUser ClickHouse (plain role True) ("alpha_" <> roleName role) [] converged)) [RuntimeRole, MigrationRole]
-        mapM_ (\db -> complete (classifyDatabase (chAccess db True) converged)) ["alpha", "alpha_ledger"]
-        incomplete (classifyDatabase (chAccess "alpha" False) converged)
+        mapM_ (\db -> complete (classifyPlain (chAccess db True) converged)) ["alpha", "alpha_ledger"]
+        incomplete (classifyPlain (chAccess "alpha" False) converged)
         drifted <- clickHouseCatalog "drifted" ["gamma_migration", "gamma_runtime"] ["gamma", "alpha"]
         drift (classifyUser ClickHouse (plain RuntimeRole True) "gamma_runtime" [] drifted)
         drift (classifyUser ClickHouse (plain MigrationRole True) "gamma_migration" [] drifted)
-        incomplete (classifyDatabase (DatabaseAccess ClickHouse "" "gamma" "gamma_migration" "gamma_runtime" True [] [] []) drifted)
-        drift (classifyDatabase (DatabaseAccess ClickHouse "" "alpha" "gamma_migration" "gamma_runtime" True [] [] []) drifted)
+        incomplete (classifyPlain (DatabaseAccess ClickHouse "" "gamma" "gamma_migration" "gamma_runtime" True [] [] [] noDatabasePrivileges [] [] False False []) drifted)
+        drift (classifyPlain (DatabaseAccess ClickHouse "" "alpha" "gamma_migration" "gamma_runtime" True [] [] [] noDatabasePrivileges [] [] False False []) drifted)
     , testCase "access to the app's own scratch restores is not drift; to any other database it is (M7)" $ do
         catalog <- postgresCatalog "converged" "alpha"
         let with anomalies = catalog & #users . ix "alpha_runtime" . #anomalies .~ anomalies
@@ -123,7 +130,7 @@ appDatabaseSqlTests =
         incomplete (classifyUser ClickHouse (UserDeclaration RuntimeRole True (chRuntimeAccess & #limits . #maxExecutionSeconds ?~ 9) chRuntimeAccess) "alpha_runtime" [] observed)
         -- Retired: the exceptions are kept until the update revokes them.
         incomplete (classifyUser ClickHouse (UserDeclaration RuntimeRole False chRuntimeAccess chRuntimeAccess) "alpha_runtime" [] observed)
-        mapM_ (\db -> complete (classifyDatabase (chAccess db True) observed)) ["alpha", "alpha_ledger"]
+        mapM_ (\db -> complete (classifyPlain (chAccess db True) observed)) ["alpha", "alpha_ledger"]
         -- A scratch restore's grants beside the declared access are the app's own.
         let restored = observed & #users . ix "alpha_runtime" . #anomalies .~ ["grant of SELECT on database alpha_restore_r1"]
         complete (classifyUser ClickHouse (declared RuntimeRole chRuntimeAccess) "alpha_runtime" ["alpha"] restored)
@@ -137,8 +144,8 @@ appDatabaseSqlTests =
         drift (classifyUser Postgres (plain RuntimeRole True) "alpha_runtime" [] observed)
         incomplete (classifyUser Postgres (UserDeclaration RuntimeRole True noUserAccess pgRuntimeAccess) "alpha_runtime" [] observed)
         incomplete (classifyUser Postgres (plain MigrationRole True & #desired .~ pgRuntimeAccess) "alpha_migration" [] observed)
-        complete (classifyDatabase (pgAccess "alpha" "alpha" True & #monitoring .~ [PgMonitor]) observed)
-        case classifyDatabase (pgAccess "alpha" "alpha" True) observed of
+        complete (classifyPlain (pgAccess "alpha" "alpha" True & #monitoring .~ [PgMonitor]) observed)
+        case classifyPlain (pgAccess "alpha" "alpha" True) observed of
           MemberDrift reason -> assertBool (T.unpack reason) ("pg_monitor" `T.isInfixOf` reason)
           other -> assertFailure ("undeclared pg_monitor grants are not drift: " <> show other)
     , testCase "drain observations parse: running work, unfinished and failed mutations, and the server identity (EP-205)" $ do
@@ -158,10 +165,10 @@ appDatabaseSqlTests =
         pgBusy ^. #identity @?= pgIdle ^. #identity
     , testCase "a quiesced ClickHouse user's withheld grants classify by the sibling users' login (EP-205)" $ do
         converged <- clickHouseCatalog "converged" ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"]
-        incomplete (classifyDatabase (chAccess "alpha" True & #withheld .~ ["alpha_runtime"]) converged)
+        incomplete (classifyPlain (chAccess "alpha" True & #withheld .~ ["alpha_runtime"]) converged)
         let withheld = converged & #databases . ix "alpha" . #grants %~ filter ((/= "alpha_runtime") . (^. #grantee))
-        complete (classifyDatabase (chAccess "alpha" True & #withheld .~ ["alpha_runtime"]) withheld)
-        incomplete (classifyDatabase (chAccess "alpha" True) withheld)
+        complete (classifyPlain (chAccess "alpha" True & #withheld .~ ["alpha_runtime"]) withheld)
+        incomplete (classifyPlain (chAccess "alpha" True) withheld)
     , testCase "an observed ClickHouse reader classifies by its declared objects and the reader settings (EP-206)" $ do
         observed <- clickHouseCatalog "reader" ["alpha_migration", "alpha_runtime", "alpha_reader_dash"] ["alpha", "alpha_ledger"]
         let spec names = ReaderSpec [chObject n | n <- names] (defaultReaderLimits ClickHouse)
@@ -180,7 +187,7 @@ appDatabaseSqlTests =
         -- Disabled: its grants are kept until the update revokes them.
         incomplete (fst (classifyReader ClickHouse (ReaderDeclaration False (spec ["v1", "v2", "pv"]) (Just (spec ["v1", "v2", "pv"]))) "alpha_reader_dash" observed))
         -- The reader's table grants are not the database's foreign grants.
-        mapM_ (\db -> complete (classifyDatabase (chAccess db True & #readers .~ ["alpha_reader_dash"]) observed)) ["alpha", "alpha_ledger"]
+        mapM_ (\db -> complete (classifyPlain (chAccess db True & #readers .~ ["alpha_reader_dash"]) observed)) ["alpha", "alpha_ledger"]
     , testCase "an observed PostgreSQL reader classifies by its grants, refuses definer functions and invoker views, and names pending objects (EP-206)" $ do
         base <- postgresCatalogFrom "reader" "reader" "alpha"
         relations <- BS.readFile "test/fixtures/app-database/observed/postgres-relations-reader.json"
@@ -203,8 +210,87 @@ appDatabaseSqlTests =
         incomplete (fst (classify ["v1"] (Just ["v1", "v2"]) revoked))
         drift (fst (classify ["v1"] (Just ["v1"]) revoked))
         -- Its CONNECT and USAGE are judged by the reader member, not the database's.
-        complete (classifyDatabase (pgAccess "alpha" "alpha" True & #readers .~ ["alpha_reader_dash"]) revoked)
-        drift (classifyDatabase (pgAccess "alpha" "alpha" True) revoked)
+        complete (classifyPlain (pgAccess "alpha" "alpha" True & #readers .~ ["alpha_reader_dash"]) revoked)
+        drift (classifyPlain (pgAccess "alpha" "alpha" True) revoked)
+    , testCase "observed PostgreSQL privileges classify by the desired and accepted declaration (EP-208, IR-35 AC-1 to AC-3)" $ do
+        observed <- postgresPrivileges "privileges"
+        let classify desired accepted' = classifyDatabase (DatabaseDeclaration (pgmqAccess True & #privileges .~ desired) accepted') observed
+            pgmqOnly = pgPrivileges & #runtime . #createSchemas .~ False
+        classify pgPrivileges pgPrivileges @?= (MemberComplete "postgres-database:16387", [])
+        -- A declared schema the app's migrations have not created is pending.
+        classify (pgPrivileges & #runtime . #createIn <>~ [schemaOf "later"]) pgPrivileges @?= (MemberComplete "postgres-database:16387", ["later"])
+        -- Never declared: the runtime's CREATE, its schema and its tables are drift.
+        driftNaming "runtime holds CREATE on schema:pgmq" (fst (classify noDatabasePrivileges noDatabasePrivileges))
+        -- A runtime-owned schema stays drift when only the accepted declaration allowed it.
+        driftNaming "schema:scratch" (fst (classify pgmqOnly pgPrivileges))
+        -- A membership with the admin option, or between other users, is drift.
+        let withAdmin = observed & #memberships .~ [("alpha_runtime", "alpha_migration", True)]
+        driftNaming "membership alpha_runtime > alpha_migration with admin option" (fst (classifyDatabase (DatabaseDeclaration (pgmqAccess True & #privileges .~ pgPrivileges) pgPrivileges) withAdmin))
+        -- A revoked membership is restored by the update.
+        incomplete (fst (classifyDatabase (DatabaseDeclaration (pgmqAccess True & #privileges .~ pgPrivileges) pgPrivileges) (observed & #memberships .~ [])))
+        -- A table the runtime created outside a declared schema outlives the grant.
+        leaked <- postgresPrivileges "leak"
+        driftNaming "runtime owns public.leak" (fst (classifyDatabase (DatabaseDeclaration (pgmqAccess True & #privileges .~ pgPrivileges) pgPrivileges) leaked))
+        -- Retired: the database's CREATE goes with CONNECT and TEMPORARY; schema CREATE and the membership stay.
+        incomplete (fst (classifyDatabase (DatabaseDeclaration (pgmqAccess False & #privileges .~ pgPrivileges) pgPrivileges) observed))
+        let retiredAccess = pgmqAccess False & #privileges .~ pgPrivileges
+        renderDatabaseAccess (databaseRevocations retiredAccess observed) @?= "REVOKE CONNECT, TEMPORARY, CREATE ON DATABASE \"alpha\" FROM \"alpha_runtime\";\n"
+        let retired = observed & #databases . ix "alpha" . #grants %~ filter (\g -> not (g ^. #grantee == "alpha_runtime" && g ^. #target == "database"))
+        classifyDatabase (DatabaseDeclaration retiredAccess pgPrivileges) retired @?= (MemberComplete "postgres-database:16387", [])
+    , testCase "a removed PostgreSQL privilege is revoked as observed, and the removal renders the proven block (EP-208)" $ do
+        observed <- postgresPrivileges "privileges"
+        blocks <- fixture "postgres"
+        -- The app reassigned what its runtime owned before the removal.
+        let reassigned =
+              observed
+                & #databases
+                . ix "alpha"
+                . #relations
+                . traverse
+                . #owner
+                .~ Just "alpha_migration"
+                & #databases
+                . ix "alpha"
+                . #schemaOwners
+                %~ Map.delete "scratch"
+                & #databases
+                . ix "alpha"
+                . #grants
+                %~ filter ((/= "schema:scratch") . (^. #target))
+            removal = DatabaseDeclaration (pgmqAccess True) pgPrivileges
+        incomplete (fst (classifyDatabase removal reassigned))
+        matches blocks "database-access alpha on with privileges removed" (renderDatabaseAccess (databaseRevocations (removal ^. #access) reassigned))
+        matches blocks "database-access alpha on with privileges" (renderDatabaseAccess (databaseRevocations (pgmqAccess True & #privileges .~ pgPrivileges) observed))
+        -- Neither declaration names them: drift, never revoked.
+        drift (fst (classifyDatabase (DatabaseDeclaration (pgmqAccess True) noDatabasePrivileges) reassigned))
+    , testCase "observed ClickHouse privileges classify by leaves of the server's own tree (EP-208, IR-35 AC-4)" $ do
+        observed <- clickHouseCatalog "privileges-declared" ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"]
+        blocks <- fixture "clickhouse"
+        let tree = observed ^. #privilegeTree
+            declaredAs desired accepted' db = classifyDatabase (DatabaseDeclaration (chAccess db True & #privileges .~ chPrivileges desired) (chPrivileges accepted')) observed
+            full = ["ALTER TABLE", "CREATE TABLE", "DROP TABLE"]
+        Map.size tree @?= 248
+        map (grantableOnDatabase tree) ["ALTER TABLE", "SHOW", "CREATE TABLE", "TRUNCATE", "SYSTEM MERGES", "dictGet"] @?= replicate 6 True
+        map (grantableOnDatabase tree) ["ACCESS MANAGEMENT", "CREATE", "ALTER", "SYSTEM", "CREATE FUNCTION", "URL", "SHOW FILESYSTEM CACHES", "ALL", "ALTER TABEL"] @?= replicate 9 False
+        -- A declared group over the fixed ALTER UPDATE and ALTER DELETE converges.
+        mapM_ (\db -> fst (declaredAs full full db) @?= MemberComplete (observed ^?! #databases . ix db . #physical)) ["alpha", "alpha_ledger"]
+        -- Removed by review: revoked as observed, then the fixed set granted again.
+        incomplete (fst (declaredAs ["CREATE TABLE", "DROP TABLE"] full "alpha"))
+        let removal = chAccess "alpha" True & #privileges .~ chPrivileges ["CREATE TABLE", "DROP TABLE"]
+        databaseRevocations removal observed ^. #revoked @?= [("alpha_runtime", "ALTER TABLE")]
+        matches blocks "database-access alpha on with privileges removed" (renderDatabaseAccess (databaseRevocations removal observed))
+        -- Held beyond both declarations: drift.
+        drift (fst (declaredAs ["CREATE TABLE", "DROP TABLE"] ["CREATE TABLE", "DROP TABLE"] "alpha"))
+        drift (fst (declaredAs [] [] "alpha"))
+        -- A token the server cannot grant exactly on a database refuses the plan.
+        case fst (declaredAs ["ACCESS MANAGEMENT"] [] "alpha") of
+          MemberRefused code reason -> do
+            code @?= privilegeUnknownCode
+            assertBool (T.unpack reason) ("ACCESS MANAGEMENT" `T.isInfixOf` reason)
+          other -> assertFailure ("expected the unknown-privilege refusal: " <> show other)
+        -- A quiesced runtime holds nothing; its migration user keeps its set.
+        let withheld = observed & #databases . ix "alpha" . #grants %~ filter ((/= "alpha_runtime") . (^. #grantee))
+        complete (fst (classifyDatabase (DatabaseDeclaration (chAccess "alpha" True & #privileges .~ chPrivileges full & #withheld .~ ["alpha_runtime"]) (chPrivileges full)) withheld))
     , testCase "a stored verifier matches only the password it was made from" $ do
         let verifier = scramVerifier salt1 "pw2-alpha_runtime"
         scramVerifierMatches "pw2-alpha_runtime" verifier @?= True
@@ -226,11 +312,42 @@ clickHouseCatalog state users dbs = do
   bytes <- BS.readFile ("test/fixtures/app-database/observed/clickhouse-" <> T.unpack state <> ".jsonl")
   either (assertFailure . T.unpack) pure (parseClickHouseCatalog users dbs bytes)
 
+-- | Classify a database against a declaration whose accepted privileges are
+-- none.
+classifyPlain :: DatabaseAccess -> Catalog -> MemberState
+classifyPlain access catalog = fst (classifyDatabase (DatabaseDeclaration access noDatabasePrivileges) catalog)
+
+-- | The EP-208 M1 PostgreSQL observation, with its relations.
+postgresPrivileges :: Text -> IO Catalog
+postgresPrivileges relationsState = do
+  base <- postgresCatalog "privileges" "alpha"
+  relations <- BS.readFile ("test/fixtures/app-database/observed/postgres-relations-" <> T.unpack relationsState <> ".json")
+  either (assertFailure . T.unpack) pure (withPostgresRelations (Map.singleton "alpha" relations) base)
+
+-- | The privileges the EP-208 M1 blocks were proven with.
+pgPrivileges :: DatabasePrivileges
+pgPrivileges = noDatabasePrivileges & #runtime . #createIn .~ [schemaOf "pgmq"] & #runtime . #createSchemas .~ True
+
+chPrivileges :: [Text] -> DatabasePrivileges
+chPrivileges tokens = noDatabasePrivileges & #runtime . #clickhouse .~ map (ok . mkClickHousePrivilege) tokens
+
+schemaOf :: Text -> SchemaName
+schemaOf = ok . mkSchemaName
+
+driftNaming :: Text -> MemberState -> Assertion
+driftNaming fragment state = case state of
+  MemberDrift reason -> assertBool (T.unpack reason) (fragment `T.isInfixOf` reason)
+  other -> assertFailure ("expected drift naming " <> T.unpack fragment <> ": " <> show other)
+
+-- | The M1 database, where PGMQ's install granted pg_monitor read access.
+pgmqAccess :: Bool -> DatabaseAccess
+pgmqAccess on = pgAccess "alpha" "alpha" on & #monitoring .~ [PgMonitor]
+
 pgAccess :: Text -> Text -> Bool -> DatabaseAccess
-pgAccess app db on = DatabaseAccess Postgres "smoke_pg" db (app <> "_migration") (app <> "_runtime") on [] [] []
+pgAccess app db on = DatabaseAccess Postgres "smoke_pg" db (app <> "_migration") (app <> "_runtime") on [] [] [] noDatabasePrivileges [] [] False False []
 
 chAccess :: Text -> Bool -> DatabaseAccess
-chAccess db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] [] []
+chAccess db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] [] [] noDatabasePrivileges [] [] False False []
 
 -- | The M1 fixture's reader objects.
 pgView, chView :: Text -> ResolvedObject

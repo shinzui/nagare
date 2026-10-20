@@ -9,6 +9,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-20T14:59:59Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-20T15:27:40Z
+      mode: "implement"
+      note: "M1 engine proof and implementation"
 ---
 
 # Let an app database declare its runtime's privileges inside its own databases
@@ -65,18 +71,26 @@ queue and serves `/health/live` as the runtime user, with one config change in
 
 ## Progress
 
-- [ ] M1 (engine proof). Every new statement and observation is proven by hand against
+- [x] M1 (engine proof). Every new statement and observation is proven by hand against
   `postgres:18` and `clickhouse/clickhouse-server:26.8`, committed as `-- operation:` blocks in
   `cli/nagarectl/test/fixtures/app-database/postgres.sql` and `clickhouse.sql` with captured
   observations under `observed/`, including ClickHouse's `system.privileges` tree. Every
   question listed under M1 in Plan of Work is answered in the Decision Log.
-- [ ] M2 (declaration). `AppDatabaseAccess` gains `privileges` (per user: PostgreSQL
+  Done 2026-10-20 (postgres 18.6, ClickHouse 26.8.29.10): blocks `database-access alpha on
+  with privileges`, `… removed`, `… off with privileges` and `restore-scratch with privileges`
+  on both engines; observations `postgres-{server,database,relations}-privileges.json`,
+  `postgres-relations-leak.json` and `clickhouse-privileges-declared.jsonl`. The answers are in
+  the block comments and the three M1 decisions.
+- [x] M2 (declaration). `AppDatabaseAccess` gains `privileges` (per user: PostgreSQL
   `createIn` and `createSchemas`, ClickHouse `clickhouse`) and `owners`. The loader refuses a
   privilege on the wrong engine or user, a schema that is not a valid identifier, a ClickHouse
   token of the wrong shape or already in the fixed set, and an owner that is not a service
   name. A declaration without them emits byte-identical JSON. Evidence: loader goldens and
   refusals in `AppDatabaseSpec`.
-- [ ] M3 (PostgreSQL privileges and membership). The logical-database member carries the
+  Done 2026-10-20: `AppDatabasePrivilegeSpec` "declaration" group (round-trip, no key when
+  undeclared, the spec layer, and ten refusals); the loader tests sit in a new module because
+  `AppDatabaseSpec` reached the 1000-line ratchet.
+- [x] M3 (PostgreSQL privileges and membership). The logical-database member carries the
   runtime's own-database privileges and the derived membership. The adapter grants `CREATE` on
   each declared schema that exists, `CREATE` on the database when declared, and the membership;
   a declared schema that does not exist yet is pending and printed as a note. The catalog
@@ -85,23 +99,39 @@ queue and serves `/health/live` as the runtime user, with one config change in
   AC-2 and AC-3 in the interpreter, including a PGMQ-shaped flow: migration installs the
   schema, the runtime creates a queue table, the migration user alters it, and a re-plan has no
   operations.
-- [ ] M4 (ClickHouse own-database privileges). The logical-database member carries each user's
+  Done 2026-10-20: `AppDatabaseSqlSpec` pins the four PostgreSQL blocks and classifies the M1
+  observations (complete, pending, hand grant, runtime-owned schema and relation, admin option,
+  removal rendering the proven block); `AppDatabasePrivilegeSpec` "Postgres world" runs the PGMQ
+  flow, the drift cases, the removal and every fault of the grant. The world found that
+  memberships are server-wide, so a database member judges only those naming its own users.
+- [x] M4 (ClickHouse own-database privileges). The logical-database member carries each user's
   declared ClickHouse privileges. Observation reads the server's privilege tree; a declared
   token the server cannot grant on a database refuses the plan with
   `app-database-privilege-unknown`. Classification compares leaf privilege sets, so a declared
   group such as `ALTER TABLE` over the fixed `ALTER UPDATE, ALTER DELETE` converges and re-plans
   to no operations. Removal revokes through review; a hand grant beyond the declaration is
   drift. `AppDatabaseWorldSpec` proves IR-35 AC-4 in the interpreter.
-- [ ] M5 (owner bindings). A workload named in `owners` that lists the app database in
+  Done 2026-10-20: the world holds ClickHouse grants as leaves of the captured 26.8 tree and
+  reports their minimal cover; `AppDatabasePrivilegeSpec` "ClickHouse world" and
+  `AppDatabaseSqlSpec` prove AC-4 including the group, its removal and `ACCESS MANAGEMENT`.
+- [x] M5 (owner bindings). A workload named in `owners` that lists the app database in
   `appDatabases` receives `<name>-migration`; every other workload receives `<name>-runtime` as
   today; the deploy's render references exactly one of them. Render tests in `AppDatabaseSpec`
   prove IR-35 AC-5.
+  Done 2026-10-20: `acceptedAppDatabaseBindings` takes the workload's `ServiceName`; the AC-5
+  test is in `AppDatabasePrivilegeSpec` on both engines (variables identical, ordering
+  unchanged, no way to the migration Secret without the declaration).
 - [ ] M6 (lifecycle, docs and ADR). Rotation, retirement, quiesce and resume, scratch restore
   and rebuilt restore leave a declared app database complete on re-plan, on both engines, with
   the membership and owner bindings in force (IR-35 AC-6 in the world). The "Sharing one server
   between apps" section of `docs/user/managed-databases.md` states the rule and shows the PGMQ
   example (AC-7). ADR 31 records the rule. `just haskell-style-check` and `just gate-fast` are
   green and the change is landed.
+  2026-10-20: the world matrix has a "with own privileges" variant on both engines (first
+  apply, every interruption, drift, rotation, retirement, rebuild), and quiesce and resume keep
+  the privileges and the membership. The scratch restore's rendering is pinned to the M1 block
+  and owners surviving `pg_restore` were proven in M1; the native confirmation is M7. Docs,
+  ADR 31 and the capability evidence are written. Landing is next.
 - [ ] M7 (native confirmation). `scripts/local-app-database-smoke.sh` declares `CREATE` on
   schema `pgmq` for `alpha-pg`, `CREATE TABLE` and `DROP TABLE` for `alpha-ch`'s runtime, and
   one owner workload, and proves AC-1 to AC-6 natively on a disposable local context with the
@@ -282,6 +312,40 @@ queue and serves `/health/live` as the runtime user, with one config change in
   Rationale: The two ClickHouse app databases on the intranet cannot re-plan until BUG-7 is
   fixed, whatever this plan does; the PostgreSQL path is the one Kansoku's server is blocked
   on.
+  Date: 2026-10-20
+
+- Decision (M1): Every revocation is driven by the catalog just read, as a reader's already
+  are, not sent on every converge. `DatabaseAccess` carries `revokedCreateIn`,
+  `revokeDatabaseCreate`, `revokeMembership` and `revoked` (ClickHouse tokens per user); the
+  grants depend only on the desired declaration. The membership `GRANT` is sent whenever it is
+  derived. This supersedes "always sends either the GRANT or the REVOKE" above.
+  Rationale: An app database that declares nothing renders the v0.8.0 blocks byte for byte (no
+  `REVOKE` of a membership it never had, which PostgreSQL answers with a WARNING on every
+  converge). Retry safety is unchanged: a lost acknowledgement re-observes, and a revoke of
+  what is not held is a no-op on both engines (M1).
+  Date: 2026-10-20
+
+- Decision (M1): A declared ClickHouse token is accepted only when every leaf it stands for in
+  the observed tree is at `DATABASE`, `TABLE`, `VIEW`, `DICTIONARY` or `COLUMN` level, and then
+  it means exactly those leaves. Otherwise the plan refuses with
+  `app-database-privilege-unknown`.
+  Rationale: The server refuses a `GLOBAL` privilege `ON alpha.*` with 509 `INVALID_GRANT`, but
+  silently accepts a group and grants only its database-level subset: `ACCESS MANAGEMENT ON
+  alpha.*` grants the four row-policy privileges, `CREATE` and `ALTER` drop their global and
+  named-collection leaves, `SYSTEM` grants 23 leaves, and `SHOW FILESYSTEM CACHES` (a
+  `NULL`-level leaf) grants nothing. Accepting such a token would make the declaration say
+  more than the server holds and never converge. `ALTER TABLE`, `SHOW` and the leaves are
+  exact; `ACCESS MANAGEMENT` refuses, as AC-4 requires.
+  Date: 2026-10-20
+
+- Decision (M1): A relation owned by the runtime is drift unless its schema is in the desired
+  `createIn` or is a runtime-owned schema under the desired `createSchemas`; the accepted
+  declaration does not excuse it. Removing `createIn` while the runtime owns tables there
+  therefore refuses, naming them, until the app reassigns or drops them, which the migration
+  user can do through the membership (`ALTER TABLE … OWNER TO <migration>`, M1).
+  Rationale: Revoking the schema `CREATE` cannot take away objects the runtime already owns;
+  planning the removal would leave drift that the next plan refuses with no reviewed exit. The
+  refusal names the objects and the exit is the app's own migration.
   Date: 2026-10-20
 
 - Decision: The backup schedule's declaration digest keeps leaving `access` out (EP-204), so

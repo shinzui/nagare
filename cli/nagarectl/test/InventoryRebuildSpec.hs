@@ -18,6 +18,7 @@ import Data.Text.Encoding qualified as TE
 import InventoryRebuildRestoreSpec (inventoryRebuildRestoreTests)
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend), storeObjectUrl)
+import Nagare.Dsl.AppDatabase (noDatabasePrivileges)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Backup (ScheduledBackupReceipt (..))
@@ -326,7 +327,7 @@ logicalScope =
                 volumeMember
                   { executor = AppDatabaseExecutor
                   , address = DatabaseName volumeId (expectOk (mkName "alpha"))
-                  , spec = LogicalDatabase "postgres" (expectOk (mkName "alpha_migration")) (expectOk (mkName "alpha_runtime")) True (contentDigest "grants") []
+                  , spec = LogicalDatabase "postgres" (expectOk (mkName "alpha_migration")) (expectOk (mkName "alpha_runtime")) True (contentDigest "grants") [] noDatabasePrivileges
                   }
             ]
             []

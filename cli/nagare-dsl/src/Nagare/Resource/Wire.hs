@@ -32,7 +32,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Dsl.AppDatabase (noUserExtension)
+import Nagare.Dsl.AppDatabase (noDatabasePrivileges, noUserExtension)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Access (TeamKey, mkTeamKey, teamKeyText)
 import Nagare.Resource.Canonical (canonicalValue)
@@ -374,8 +374,12 @@ instance ToJSON DesiredSpec where
   toJSON = \case
     DatabaseUserSpec engine role login digest access ->
       tagged "DatabaseUserSpec" ([toJSON engine, toJSON role, toJSON login, toJSON digest] <> [toJSON access | access /= noUserExtension])
-    LogicalDatabase engine migration runtime on digest monitoring ->
-      tagged "LogicalDatabase" ([toJSON engine, toJSON migration, toJSON runtime, toJSON on, toJSON digest] <> [toJSON monitoring | not (null monitoring)])
+    LogicalDatabase engine migration runtime on digest monitoring privileges ->
+      tagged
+        "LogicalDatabase"
+        ( [toJSON engine, toJSON migration, toJSON runtime, toJSON on, toJSON digest]
+            <> (if privileges == noDatabasePrivileges then [toJSON monitoring | not (null monitoring)] else [toJSON monitoring, toJSON privileges])
+        )
     spec ->
       genericToJSON options $ case spec of
         StatefulSet count templates digest -> StatefulSet count (sortOn nameText templates) digest
@@ -398,12 +402,16 @@ instance FromJSON DesiredSpec where
             DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON login <*> parseJSON digest <*> pure access'
           _ -> fail "DatabaseUserSpec has four or five elements"
       | Just (String "LogicalDatabase") <- KM.lookup "tag" o -> appDatabaseContents o $ \case
-          [engine, migration, runtime, on, digest] -> LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> pure []
+          [engine, migration, runtime, on, digest] -> LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> pure [] <*> pure noDatabasePrivileges
           [engine, migration, runtime, on, digest, monitoring] -> do
             monitoring' <- parseJSON monitoring
             when (null monitoring') (fail "an empty monitoring-role list is written by omission")
-            LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> pure monitoring'
-          _ -> fail "LogicalDatabase has five or six elements"
+            LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> pure monitoring' <*> pure noDatabasePrivileges
+          [engine, migration, runtime, on, digest, monitoring, privileges] -> do
+            privileges' <- parseJSON privileges
+            when (privileges' == noDatabasePrivileges) (fail "empty own-database privileges are written by omission")
+            LogicalDatabase <$> parseJSON engine <*> parseJSON migration <*> parseJSON runtime <*> parseJSON on <*> parseJSON digest <*> parseJSON monitoring <*> pure privileges'
+          _ -> fail "LogicalDatabase has five to seven elements"
     _ -> genericParseJSON options value
     where
       appDatabaseContents o parse = do

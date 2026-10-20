@@ -1,4 +1,4 @@
--- EP-202 M1 reference fixture, extended by EP-204 M1 and EP-205 M1: the ClickHouse 26.8 statements for one app database.
+-- EP-202 M1 reference fixture, extended by EP-204, EP-205, EP-206 and EP-208 M1: the ClickHouse 26.8 statements for one app database.
 --
 -- App database "alpha-ch" on server "smoke-ch", logical databases "alpha" and
 -- "alpha_ledger", users "alpha_runtime" and "alpha_migration". Proven by hand against
@@ -193,11 +193,14 @@ ALTER USER alpha_runtime IDENTIFIED WITH sha256_hash BY 'BBC56EF6B104E2377EFF73C
 -- these databases is observed too. Settings rows (EP-204) are the user's own settings
 -- elements: a declared ceiling is value = min-of-1 = max with no writability; an inherited
 -- profile is a row with only inherit_profile set; a CONST setting has writability CONST.
+-- Privilege rows (EP-208) are the server's own privilege tree: each privilege, its parent
+-- group and its level, so a declared own-database privilege is judged by the running engine.
 SELECT 'user' AS kind, name, toString(id) AS physical, host_ip, host_names, host_names_regexp, host_names_like, default_database FROM system.users WHERE name IN ('alpha_migration', 'alpha_runtime') ORDER BY name FORMAT JSONEachRow;
 SELECT 'grant' AS kind, user_name, access_type, database, table, column, is_partial_revoke, grant_option FROM system.grants WHERE user_name IN ('alpha_migration', 'alpha_runtime') OR database IN ('alpha', 'alpha_ledger') ORDER BY ALL FORMAT JSONEachRow;
 SELECT 'role' AS kind, user_name, granted_role_name FROM system.role_grants WHERE user_name IN ('alpha_migration', 'alpha_runtime') ORDER BY ALL FORMAT JSONEachRow;
 SELECT 'setting' AS kind, user_name, setting_name, value, min, max, writability, inherit_profile FROM system.settings_profile_elements WHERE user_name IN ('alpha_migration', 'alpha_runtime') ORDER BY ALL FORMAT JSONEachRow;
 SELECT 'database' AS kind, name, toString(uuid) AS physical, engine FROM system.databases WHERE name IN ('alpha', 'alpha_ledger') ORDER BY name FORMAT JSONEachRow;
+SELECT 'privilege' AS kind, privilege, parent_group, level FROM system.privileges ORDER BY privilege FORMAT JSONEachRow;
 
 -- operation: backup
 -- In the backup job, with the alpha-ch-migration Secret's env, against the server Service.
@@ -244,3 +247,51 @@ REVOKE SELECT ON alpha.v1 FROM alpha_reader_dash;
 REVOKE SELECT ON alpha.v2 FROM alpha_reader_dash;
 REVOKE SELECT ON alpha.pv FROM alpha_reader_dash;
 ALTER USER alpha_reader_dash SETTINGS readonly = 2 CONST, result_overflow_mode = 'throw' CONST, max_memory_usage = 536870912 MIN 1 MAX 536870912, max_execution_time = 30 MIN 1 MAX 30, max_result_rows = 10000 MIN 1 MAX 10000, max_result_bytes = 10485760 MIN 1 MAX 10485760, max_threads = 4 MIN 1 MAX 4;
+
+-- operation: database-access alpha on with privileges
+-- EP-208 M1. The runtime declares CREATE TABLE and DROP TABLE, granted on each of the app's
+-- databases with the fixed set in one GRANT. As alpha_runtime it then creates, inserts into
+-- and drops a MergeTree table in alpha and in alpha_ledger; in beta CREATE TABLE is refused
+-- (497), as are an ENGINE = URL(...) table in alpha (497, no source privilege) and CREATE
+-- DATABASE alpha_x (497). ClickHouse 26.8 also lets CREATE TABLE create a view and DROP TABLE
+-- drop one in the same database.
+-- system.privileges has 248 rows: a privilege, its parent group and its level (GLOBAL,
+-- DATABASE, TABLE, DICTIONARY, VIEW, COLUMN, NAMED_COLLECTION, USER_NAME, TABLE_ENGINE,
+-- DEFINER, SOURCE, or NULL for most groups; CREATE ARBITRARY TEMPORARY TABLE is a group at
+-- GLOBAL). GRANT <t> ON alpha.* is refused with 509 INVALID_GRANT ("CREATE FUNCTION cannot be
+-- granted on the database level") for a GLOBAL privilege (CREATE FUNCTION, URL, CREATE
+-- TEMPORARY TABLE, INTROSPECTION, KILL QUERY); TABLE ENGINE is a syntax error (62) without
+-- its engine. A group is accepted and grants only its leaves that fit a database: ACCESS
+-- MANAGEMENT grants the four row-policy privileges, CREATE grants CREATE DATABASE, TABLE,
+-- VIEW and DICTIONARY, ALTER grants ALTER TABLE, ALTER DATABASE and ALTER VIEW, SYSTEM grants
+-- 23 SYSTEM leaves, and SHOW FILESYSTEM CACHES (a NULL-level leaf) grants nothing. So a
+-- declared token is accepted only when every leaf it stands for is at DATABASE, TABLE, VIEW,
+-- DICTIONARY or COLUMN level, and then means exactly those leaves.
+-- system.grants reports the minimal cover of what is held: the six CREATE TABLE, DROP TABLE,
+-- CREATE VIEW, DROP VIEW, TRUNCATE and OPTIMIZE come back as six rows under their own names;
+-- with the fixed ALTER UPDATE and ALTER DELETE held, a further ALTER TABLE is one ALTER TABLE
+-- row and no ALTER UPDATE or ALTER DELETE row; SHOW over SHOW TABLES and SHOW COLUMNS is one
+-- SHOW row. A restart reports the same database-level rows (only BUG-7's READ ON FILE row
+-- appears). After REVOKE ALL ON alpha.* (quiesce) the one GRANT below restores exactly the
+-- rows above.
+GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SELECT, INSERT, ALTER TABLE, ALTER VIEW, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, DROP TABLE, DROP VIEW, DROP DICTIONARY, TRUNCATE, OPTIMIZE, BACKUP, dictGet ON alpha.* TO alpha_migration;
+GRANT SHOW TABLES, SHOW COLUMNS, SELECT, INSERT, ALTER UPDATE, ALTER DELETE, dictGet, CREATE TABLE, DROP TABLE ON alpha.* TO alpha_runtime;
+
+-- operation: database-access alpha on with privileges removed
+-- The accepted declaration also named ALTER TABLE, which the runtime holds as one row. Each
+-- held token not covered by the fixed and desired sets is revoked as observation reported
+-- it, which also drops the fixed ALTER UPDATE and ALTER DELETE under it; the GRANT restores
+-- them. A revoke of a grant not held is a no-op, so a retry ends in the same rows: SHOW
+-- TABLES, SHOW COLUMNS, SELECT, INSERT, ALTER UPDATE, ALTER DELETE, CREATE TABLE, DROP TABLE,
+-- dictGet.
+GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SELECT, INSERT, ALTER TABLE, ALTER VIEW, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, DROP TABLE, DROP VIEW, DROP DICTIONARY, TRUNCATE, OPTIMIZE, BACKUP, dictGet ON alpha.* TO alpha_migration;
+REVOKE ALTER TABLE ON alpha.* FROM alpha_runtime;
+GRANT SHOW TABLES, SHOW COLUMNS, SELECT, INSERT, ALTER UPDATE, ALTER DELETE, dictGet, CREATE TABLE, DROP TABLE ON alpha.* TO alpha_runtime;
+
+-- operation: restore-scratch with privileges
+-- The scratch names get each user's fixed set and its declared privileges.
+RESTORE DATABASE alpha AS alpha_restore_r1, DATABASE alpha_ledger AS alpha_ledger_restore_r1 FROM File('alpha-ch-backup-r1.zip');
+GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SELECT, INSERT, ALTER TABLE, ALTER VIEW, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, DROP TABLE, DROP VIEW, DROP DICTIONARY, TRUNCATE, OPTIMIZE, BACKUP, dictGet ON alpha_restore_r1.* TO alpha_migration;
+GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SELECT, INSERT, ALTER TABLE, ALTER VIEW, CREATE DATABASE, CREATE TABLE, CREATE VIEW, CREATE DICTIONARY, DROP TABLE, DROP VIEW, DROP DICTIONARY, TRUNCATE, OPTIMIZE, BACKUP, dictGet ON alpha_ledger_restore_r1.* TO alpha_migration;
+GRANT SHOW TABLES, SHOW COLUMNS, SELECT, INSERT, ALTER UPDATE, ALTER DELETE, dictGet, CREATE TABLE, DROP TABLE ON alpha_restore_r1.* TO alpha_runtime;
+GRANT SHOW TABLES, SHOW COLUMNS, SELECT, INSERT, ALTER UPDATE, ALTER DELETE, dictGet, CREATE TABLE, DROP TABLE ON alpha_ledger_restore_r1.* TO alpha_runtime;

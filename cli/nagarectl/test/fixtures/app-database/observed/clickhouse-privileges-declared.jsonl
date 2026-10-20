@@ -1,0 +1,305 @@
+{"kind":"user","name":"alpha_migration","physical":"5b40dd86-4889-5a02-ac3e-17e745fc6fbb","host_ip":["::\/0"],"host_names":[],"host_names_regexp":[],"host_names_like":[],"default_database":"alpha"}
+{"kind":"user","name":"alpha_runtime","physical":"fd4080d3-7c2c-0680-6b85-00d64fdffabb","host_ip":["::\/0"],"host_names":[],"host_names_regexp":[],"host_names_like":[],"default_database":"alpha"}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW TABLES","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW TABLES","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW COLUMNS","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW COLUMNS","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW DICTIONARIES","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SHOW DICTIONARIES","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SELECT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"SELECT","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"INSERT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"INSERT","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"ALTER TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"ALTER TABLE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"ALTER VIEW","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"ALTER VIEW","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE DATABASE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE DATABASE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE TABLE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE VIEW","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE VIEW","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE DICTIONARY","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"CREATE DICTIONARY","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP TABLE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP VIEW","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP VIEW","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP DICTIONARY","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"DROP DICTIONARY","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"TRUNCATE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"TRUNCATE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"OPTIMIZE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"OPTIMIZE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"BACKUP","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"BACKUP","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"dictGet","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"dictGet","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_migration","access_type":"WRITE","database":null,"table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SHOW TABLES","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SHOW TABLES","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SHOW COLUMNS","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SHOW COLUMNS","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SELECT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"SELECT","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"INSERT","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"INSERT","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"ALTER TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"ALTER TABLE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"CREATE TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"CREATE TABLE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"DROP TABLE","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"DROP TABLE","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"dictGet","database":"alpha","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"grant","user_name":"alpha_runtime","access_type":"dictGet","database":"alpha_ledger","table":null,"column":null,"is_partial_revoke":0,"grant_option":0}
+{"kind":"database","name":"alpha","physical":"ab076f66-d941-4fad-982c-e4e844a526ef","engine":"Atomic"}
+{"kind":"database","name":"alpha_ledger","physical":"7608f235-dd95-4145-8c1c-75f3c9bb3918","engine":"Atomic"}
+{"kind":"privilege","privilege":"SHOW DATABASES","parent_group":"SHOW","level":"DATABASE"}
+{"kind":"privilege","privilege":"SHOW TABLES","parent_group":"SHOW","level":"TABLE"}
+{"kind":"privilege","privilege":"CHECK","parent_group":"ALL","level":"TABLE"}
+{"kind":"privilege","privilege":"SHOW COLUMNS","parent_group":"SHOW","level":"COLUMN"}
+{"kind":"privilege","privilege":"SHOW DICTIONARIES","parent_group":"SHOW","level":"DICTIONARY"}
+{"kind":"privilege","privilege":"SHOW","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"SHOW FILESYSTEM CACHES","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"SELECT","parent_group":"ALL","level":"COLUMN"}
+{"kind":"privilege","privilege":"INSERT","parent_group":"ALL","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER UPDATE","parent_group":"ALTER TABLE","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER DELETE","parent_group":"ALTER TABLE","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER ADD COLUMN","parent_group":"ALTER COLUMN","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER MODIFY COLUMN","parent_group":"ALTER COLUMN","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER DROP COLUMN","parent_group":"ALTER COLUMN","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER COMMENT COLUMN","parent_group":"ALTER COLUMN","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER CLEAR COLUMN","parent_group":"ALTER COLUMN","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER RENAME COLUMN","parent_group":"ALTER COLUMN","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER MATERIALIZE COLUMN","parent_group":"ALTER COLUMN","level":"COLUMN"}
+{"kind":"privilege","privilege":"ALTER COLUMN","parent_group":"ALTER TABLE","level":null}
+{"kind":"privilege","privilege":"ALTER MODIFY COMMENT","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MODIFY DATABASE COMMENT","parent_group":"ALTER DATABASE","level":"DATABASE"}
+{"kind":"privilege","privilege":"ALTER ORDER BY","parent_group":"ALTER INDEX","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER SAMPLE BY","parent_group":"ALTER INDEX","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER ADD INDEX","parent_group":"ALTER INDEX","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER DROP INDEX","parent_group":"ALTER INDEX","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MATERIALIZE INDEX","parent_group":"ALTER INDEX","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER CLEAR INDEX","parent_group":"ALTER INDEX","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER INDEX","parent_group":"ALTER TABLE","level":null}
+{"kind":"privilege","privilege":"ALTER ADD STATISTICS","parent_group":"ALTER STATISTICS","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER DROP STATISTICS","parent_group":"ALTER STATISTICS","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MODIFY STATISTICS","parent_group":"ALTER STATISTICS","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MATERIALIZE STATISTICS","parent_group":"ALTER STATISTICS","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER STATISTICS","parent_group":"ALTER TABLE","level":null}
+{"kind":"privilege","privilege":"ALTER ADD PROJECTION","parent_group":"ALTER PROJECTION","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER DROP PROJECTION","parent_group":"ALTER PROJECTION","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MODIFY PROJECTION","parent_group":"ALTER PROJECTION","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MATERIALIZE PROJECTION","parent_group":"ALTER PROJECTION","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER CLEAR PROJECTION","parent_group":"ALTER PROJECTION","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER PROJECTION","parent_group":"ALTER TABLE","level":null}
+{"kind":"privilege","privilege":"ALTER ADD CONSTRAINT","parent_group":"ALTER CONSTRAINT","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER DROP CONSTRAINT","parent_group":"ALTER CONSTRAINT","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MODIFY CONSTRAINT","parent_group":"ALTER CONSTRAINT","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER CONSTRAINT","parent_group":"ALTER TABLE","level":null}
+{"kind":"privilege","privilege":"ALTER TTL","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MATERIALIZE TTL","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER REWRITE PARTS","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER SETTINGS","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER MOVE PARTITION","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER FETCH PARTITION","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER FREEZE PARTITION","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER UNLOCK SNAPSHOT","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER EXECUTE","parent_group":"ALTER TABLE","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER DATABASE SETTINGS","parent_group":"ALTER DATABASE","level":"DATABASE"}
+{"kind":"privilege","privilege":"ALTER NAMED COLLECTION","parent_group":"NAMED COLLECTION ADMIN","level":"NAMED_COLLECTION"}
+{"kind":"privilege","privilege":"ALTER HANDLER","parent_group":"ALTER","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ALTER TABLE","parent_group":"ALTER","level":null}
+{"kind":"privilege","privilege":"ALTER DATABASE","parent_group":"ALTER","level":null}
+{"kind":"privilege","privilege":"ALTER VIEW MODIFY QUERY","parent_group":"ALTER VIEW","level":"VIEW"}
+{"kind":"privilege","privilege":"ALTER VIEW MODIFY REFRESH","parent_group":"ALTER VIEW","level":"VIEW"}
+{"kind":"privilege","privilege":"ALTER VIEW MODIFY SQL SECURITY","parent_group":"ALTER VIEW","level":"VIEW"}
+{"kind":"privilege","privilege":"ALTER VIEW","parent_group":"ALTER","level":null}
+{"kind":"privilege","privilege":"ALTER","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"CREATE DATABASE","parent_group":"CREATE","level":"DATABASE"}
+{"kind":"privilege","privilege":"CREATE TABLE","parent_group":"CREATE","level":"TABLE"}
+{"kind":"privilege","privilege":"CREATE VIEW","parent_group":"CREATE","level":"VIEW"}
+{"kind":"privilege","privilege":"CREATE DICTIONARY","parent_group":"CREATE","level":"DICTIONARY"}
+{"kind":"privilege","privilege":"CREATE TEMPORARY TABLE","parent_group":"CREATE ARBITRARY TEMPORARY TABLE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE ARBITRARY TEMPORARY TABLE","parent_group":"CREATE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE TEMPORARY VIEW","parent_group":"CREATE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE FUNCTION","parent_group":"CREATE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE WORKLOAD","parent_group":"CREATE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE RESOURCE","parent_group":"CREATE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE NAMED COLLECTION","parent_group":"NAMED COLLECTION ADMIN","level":"NAMED_COLLECTION"}
+{"kind":"privilege","privilege":"CREATE HANDLER","parent_group":"CREATE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"DROP DATABASE","parent_group":"DROP","level":"DATABASE"}
+{"kind":"privilege","privilege":"DROP TABLE","parent_group":"DROP","level":"TABLE"}
+{"kind":"privilege","privilege":"DROP VIEW","parent_group":"DROP","level":"VIEW"}
+{"kind":"privilege","privilege":"DROP DICTIONARY","parent_group":"DROP","level":"DICTIONARY"}
+{"kind":"privilege","privilege":"DROP FUNCTION","parent_group":"DROP","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DROP WORKLOAD","parent_group":"DROP","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DROP RESOURCE","parent_group":"DROP","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DROP NAMED COLLECTION","parent_group":"NAMED COLLECTION ADMIN","level":"NAMED_COLLECTION"}
+{"kind":"privilege","privilege":"DROP HANDLER","parent_group":"DROP","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DROP","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"UNDROP TABLE","parent_group":"ALL","level":"TABLE"}
+{"kind":"privilege","privilege":"TRUNCATE","parent_group":"ALL","level":"TABLE"}
+{"kind":"privilege","privilege":"OPTIMIZE","parent_group":"ALL","level":"TABLE"}
+{"kind":"privilege","privilege":"BACKUP","parent_group":"ALL","level":"TABLE"}
+{"kind":"privilege","privilege":"KILL QUERY","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"KILL TRANSACTION","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"MOVE PARTITION BETWEEN SHARDS","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE USER","parent_group":"ACCESS MANAGEMENT","level":"USER_NAME"}
+{"kind":"privilege","privilege":"ALTER USER","parent_group":"ACCESS MANAGEMENT","level":"USER_NAME"}
+{"kind":"privilege","privilege":"DROP USER","parent_group":"ACCESS MANAGEMENT","level":"USER_NAME"}
+{"kind":"privilege","privilege":"CREATE ROLE","parent_group":"ACCESS MANAGEMENT","level":"USER_NAME"}
+{"kind":"privilege","privilege":"ALTER ROLE","parent_group":"ACCESS MANAGEMENT","level":"USER_NAME"}
+{"kind":"privilege","privilege":"DROP ROLE","parent_group":"ACCESS MANAGEMENT","level":"USER_NAME"}
+{"kind":"privilege","privilege":"ROLE ADMIN","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE ROW POLICY","parent_group":"ACCESS MANAGEMENT","level":"TABLE"}
+{"kind":"privilege","privilege":"ALTER ROW POLICY","parent_group":"ACCESS MANAGEMENT","level":"TABLE"}
+{"kind":"privilege","privilege":"DROP ROW POLICY","parent_group":"ACCESS MANAGEMENT","level":"TABLE"}
+{"kind":"privilege","privilege":"CREATE MASKING POLICY","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ALTER MASKING POLICY","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DROP MASKING POLICY","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE QUOTA","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ALTER QUOTA","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DROP QUOTA","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"CREATE SETTINGS PROFILE","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ALTER SETTINGS PROFILE","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DROP SETTINGS PROFILE","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ALLOW SQL SECURITY NONE","parent_group":"ACCESS MANAGEMENT","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SHOW USERS","parent_group":"SHOW ACCESS","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SHOW ROLES","parent_group":"SHOW ACCESS","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SHOW ROW POLICIES","parent_group":"SHOW ACCESS","level":"TABLE"}
+{"kind":"privilege","privilege":"SHOW QUOTAS","parent_group":"SHOW ACCESS","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SHOW SETTINGS PROFILES","parent_group":"SHOW ACCESS","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SHOW MASKING POLICIES","parent_group":"SHOW ACCESS","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SHOW ACCESS","parent_group":"ACCESS MANAGEMENT","level":null}
+{"kind":"privilege","privilege":"IMPERSONATE","parent_group":"ACCESS MANAGEMENT","level":"USER_NAME"}
+{"kind":"privilege","privilege":"ACCESS MANAGEMENT","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"SHOW NAMED COLLECTIONS","parent_group":"NAMED COLLECTION ADMIN","level":"NAMED_COLLECTION"}
+{"kind":"privilege","privilege":"SHOW NAMED COLLECTIONS SECRETS","parent_group":"NAMED COLLECTION ADMIN","level":"NAMED_COLLECTION"}
+{"kind":"privilege","privilege":"NAMED COLLECTION","parent_group":"NAMED COLLECTION ADMIN","level":"NAMED_COLLECTION"}
+{"kind":"privilege","privilege":"NAMED COLLECTION ADMIN","parent_group":"ALL","level":"NAMED_COLLECTION"}
+{"kind":"privilege","privilege":"SHOW HANDLERS","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SET DEFINER","parent_group":"ALL","level":"DEFINER"}
+{"kind":"privilege","privilege":"TABLE ENGINE","parent_group":"ALL","level":"TABLE_ENGINE"}
+{"kind":"privilege","privilege":"SYSTEM SHUTDOWN","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP DNS CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP CONNECTIONS CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM PREWARM MARK CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP MARK CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP ICEBERG METADATA CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP PAIMON METADATA CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP AVRO SCHEMA CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP PARQUET METADATA CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP POINT IN POLYGON CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM PREWARM PRIMARY INDEX CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP PRIMARY INDEX CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP UNCOMPRESSED CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP VECTOR SIMILARITY INDEX CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP TEXT INDEX TOKENS CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP TEXT INDEX HEADER CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP TEXT INDEX POSTINGS CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP TEXT INDEX CACHES","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP MMAP CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP QUERY CONDITION CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP ENCRYPTION HEADERS CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP QUERY CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP COMPILED EXPRESSION CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP FILESYSTEM CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP DISTRIBUTED CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM SYNC FILESYSTEM CACHE","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP PAGE CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP SCHEMA CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP FORMAT SCHEMA CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP S3 CLIENT CACHE","parent_group":"SYSTEM DROP CACHE","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM DROP CACHE","parent_group":"SYSTEM","level":null}
+{"kind":"privilege","privilege":"SYSTEM RELOAD CONFIG","parent_group":"SYSTEM RELOAD","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RELOAD USERS","parent_group":"SYSTEM RELOAD","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RELOAD DICTIONARY","parent_group":"SYSTEM RELOAD","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RELOAD MODEL","parent_group":"SYSTEM RELOAD","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RELOAD FUNCTION","parent_group":"SYSTEM RELOAD","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RELOAD EMBEDDED DICTIONARIES","parent_group":"SYSTEM RELOAD","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RELOAD ASYNCHRONOUS METRICS","parent_group":"SYSTEM RELOAD","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RECONNECT ZOOKEEPER","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RELOAD","parent_group":"SYSTEM","level":null}
+{"kind":"privilege","privilege":"SYSTEM RESTART DISK","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM WAIT BLOBS CLEANUP","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM MERGES","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM TTL MERGES","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM FETCHES","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM MOVES","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM PULLING REPLICATION LOG","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM CLEANUP","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM VIEWS","parent_group":"SYSTEM BACKGROUND","level":"VIEW"}
+{"kind":"privilege","privilege":"SYSTEM STREAMING ENGINES","parent_group":"SYSTEM BACKGROUND","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM BACKGROUND","parent_group":"SYSTEM","level":null}
+{"kind":"privilege","privilege":"SYSTEM DISTRIBUTED SENDS","parent_group":"SYSTEM SENDS","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM REPLICATED SENDS","parent_group":"SYSTEM SENDS","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM SENDS","parent_group":"SYSTEM","level":null}
+{"kind":"privilege","privilege":"SYSTEM REPLICATION QUEUES","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM VIRTUAL PARTS UPDATE","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM REDUCE BLOCKING PARTS","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM DROP REPLICA","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM SYNC REPLICA","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM REPLICA READINESS","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RESTART REPLICA","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM RESTORE REPLICA","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM RESTORE DATABASE REPLICA","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM WAIT LOADING PARTS","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM WAIT QUERY RUNNER","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM SYNC DATABASE REPLICA","parent_group":"SYSTEM","level":"DATABASE"}
+{"kind":"privilege","privilege":"SYSTEM SYNC TRANSACTION LOG","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM SYNC FILE CACHE","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM FLUSH DISTRIBUTED","parent_group":"SYSTEM FLUSH","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM FLUSH LOGS","parent_group":"SYSTEM FLUSH","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM FLUSH ASYNC INSERT QUEUE","parent_group":"SYSTEM FLUSH","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM FLUSH OBJECT STORAGE QUEUE","parent_group":"SYSTEM FLUSH","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM FLUSH","parent_group":"SYSTEM","level":null}
+{"kind":"privilege","privilege":"SYSTEM THREAD FUZZER","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM UNFREEZE","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM UNLOCK SNAPSHOT","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM FAILPOINT","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM MEMORY","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM LISTEN","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM JEMALLOC","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM LOAD PRIMARY KEY","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM UNLOAD PRIMARY KEY","parent_group":"SYSTEM","level":"TABLE"}
+{"kind":"privilege","privilege":"SYSTEM INSTRUMENT ADD","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM INSTRUMENT REMOVE","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM RESET DDL WORKER","parent_group":"SYSTEM","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SYSTEM","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"dictGet","parent_group":"ALL","level":"DICTIONARY"}
+{"kind":"privilege","privilege":"displaySecretsInShowAndSelect","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"addressToLine","parent_group":"INTROSPECTION","level":"GLOBAL"}
+{"kind":"privilege","privilege":"addressToLineWithInlines","parent_group":"INTROSPECTION","level":"GLOBAL"}
+{"kind":"privilege","privilege":"addressToSymbol","parent_group":"INTROSPECTION","level":"GLOBAL"}
+{"kind":"privilege","privilege":"demangle","parent_group":"INTROSPECTION","level":"GLOBAL"}
+{"kind":"privilege","privilege":"INTROSPECTION","parent_group":"ALL","level":null}
+{"kind":"privilege","privilege":"READ","parent_group":"ALL","level":"SOURCE"}
+{"kind":"privilege","privilege":"WRITE","parent_group":"ALL","level":"SOURCE"}
+{"kind":"privilege","privilege":"CLUSTER","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"FILE","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"URL","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"REMOTE","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"MONGO","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"REDIS","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"MYSQL","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"POSTGRES","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SQLITE","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ODBC","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"JDBC","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"HDFS","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"S3","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"HIVE","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"AZURE","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"KAFKA","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"NATS","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"RABBITMQ","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"YTSAURUS","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ARROW FLIGHT","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"BIGQUERY","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"DISK","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"SOURCES","parent_group":"ALL","level":"GLOBAL"}
+{"kind":"privilege","privilege":"ALL","parent_group":null,"level":null}
+{"kind":"privilege","privilege":"NONE","parent_group":null,"level":null}

@@ -70,7 +70,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (ReaderRole), parseAppDatabaseRole, validUserAccess)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (ReaderRole), parseAppDatabaseRole, validDatabasePrivileges, validUserAccess)
 import Nagare.Dsl.Database (parseEngine)
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Access (validAccessEndpoint)
@@ -222,13 +222,17 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (BrokerTopic _ _, LogicalBrokerTopic partitions replicas retention) ->
         partitions > 0 && replicas > 0 && maybe True (> 0) retention
       (BrokerTopic {}, _) -> False
-      (DatabaseName _ _, LogicalDatabase engine _ _ _ _ monitoring) ->
-        engine `elem` ["postgres", "clickhouse"] && (engine == "postgres" || null monitoring) && length (nub monitoring) == length monitoring
+      (DatabaseName _ _, LogicalDatabase engine _ _ _ _ monitoring privileges) ->
+        engine `elem` ["postgres", "clickhouse"]
+          && (engine == "postgres" || null monitoring)
+          && length (nub monitoring) == length monitoring
+          && maybe False (\e -> isRight (validDatabasePrivileges e privileges)) (parseEngine engine)
       (DatabaseName {}, _) -> False
       (DatabaseUser _ _, DatabaseUserSpec engine role _ _ extension) ->
         engine `elem` ["postgres", "clickhouse"]
           && maybe False (\parsed -> isReader parsed == isJust (extension ^. #reader)) (parseAppDatabaseRole role)
           && maybe False (\e -> isRight (validUserAccess e (extension ^. #access))) (parseEngine engine)
+          && (null (extension ^. #owners) || role == "migration")
       (DatabaseUser {}, _) -> False
       (Helm {}, HelmRelease {}) -> True
       (Helm {}, _) -> False

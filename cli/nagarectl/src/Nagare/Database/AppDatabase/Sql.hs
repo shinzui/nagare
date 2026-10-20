@@ -24,6 +24,7 @@ module Nagare.Database.AppDatabase.Sql
   , renderCreateDatabase
   , DatabaseAccess (..)
   , renderDatabaseAccess
+  , clickHouseDatabaseGrants
   , renderScratchRestore
 
     -- * Observation
@@ -49,7 +50,7 @@ import Data.Generics.Labels ()
 import Data.List (nub)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, clickHousePrivilegeText, grantExceptionGrant, runtimeOwnsObjects)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory (UserLogin (..))
@@ -224,19 +225,50 @@ data DatabaseAccess = DatabaseAccess
   -- ^ quiesced users; on ClickHouse their grants are revoked until resume (EP-205)
   , readers :: ![Text]
   -- ^ declared readers, whose grants their own members judge (EP-206)
+  , privileges :: !DatabasePrivileges
+  -- ^ the desired privileges inside the app's own databases (EP-208)
+  , createIn :: ![Text]
+  -- ^ PostgreSQL: the declared schemas that exist; the others are pending
+  , revokedCreateIn :: ![Text]
+  -- ^ PostgreSQL: schemas where the runtime holds CREATE the declaration no
+  -- longer names
+  , revokeDatabaseCreate :: !Bool
+  -- ^ PostgreSQL: the runtime holds CREATE on the database and may not
+  , revokeMembership :: !Bool
+  -- ^ PostgreSQL: the migration user is a member of the runtime role and
+  -- the declaration no longer implies it
+  , revoked :: ![(Text, Text)]
+  -- ^ ClickHouse: (user, token) held beyond the fixed and declared sets, as
+  -- observation reported it
   }
   deriving stock (Generic, Eq, Show)
 
+-- | A ClickHouse user's grant list on one of the app's databases: the fixed
+-- set, then its declared privileges (EP-208).
+clickHouseDatabaseGrants :: AppDatabaseRole -> DatabasePrivileges -> [Text]
+clickHouseDatabaseGrants role declared =
+  concatMap (^. #privileges) (appDatabaseDatabaseGrants ClickHouse role)
+    <> map clickHousePrivilegeText (own ^. #clickhouse)
+  where
+    own = case role of
+      MigrationRole -> declared ^. #migration
+      _ -> declared ^. #runtime
+
+-- | Grants depend only on the declaration; each revocation is sent only when
+-- the catalog just read shows it held (EP-208), so an app database without
+-- privileges renders its v0.8.0 statements.
 renderDatabaseAccess :: DatabaseAccess -> Text
 renderDatabaseAccess access = case (access ^. #engine, access ^. #enabled) of
   (ClickHouse, True) ->
-    T.unlines
-      [ if user `elem` access ^. #withheld
-          then "REVOKE ALL ON " <> db <> ".* FROM " <> user <> ";"
-          else "GRANT " <> T.intercalate ", " (g ^. #privileges) <> " ON " <> db <> ".* TO " <> user <> ";"
-      | (role, user) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)]
-      , g <- appDatabaseDatabaseGrants ClickHouse role
-      ]
+    T.unlines $
+      concat
+        [ if user `elem` access ^. #withheld
+            then ["REVOKE ALL ON " <> db <> ".* FROM " <> user <> ";"]
+            else
+              ["REVOKE " <> token <> " ON " <> db <> ".* FROM " <> user <> ";" | (who, token) <- access ^. #revoked, who == user]
+                <> ["GRANT " <> T.intercalate ", " (clickHouseDatabaseGrants role (access ^. #privileges)) <> " ON " <> db <> ".* TO " <> user <> ";"]
+        | (role, user) <- [(MigrationRole, access ^. #migration), (RuntimeRole, access ^. #runtime)]
+        ]
   (ClickHouse, False) ->
     T.unlines ["REVOKE ALL ON " <> db <> ".* FROM " <> user <> ";" | user <- [access ^. #migration, access ^. #runtime]]
   (_, True) ->
@@ -244,7 +276,10 @@ renderDatabaseAccess access = case (access ^. #engine, access ^. #enabled) of
       [ "REVOKE CONNECT, TEMPORARY ON DATABASE \"postgres\", \"template1\", " <> pgIdent (access ^. #initialDatabase) <> " FROM PUBLIC;"
       , "REVOKE ALL ON DATABASE " <> pgIdent db <> " FROM PUBLIC;"
       ]
-        <> ["GRANT " <> privileges g <> " ON DATABASE " <> pgIdent db <> " TO " <> runtimeUser <> ";" | g <- runtimeGrants, g ^. #objectClass == "database"]
+        <> ["GRANT " <> T.intercalate ", " (databasePrivileges g <> ["CREATE" | createSchemas]) <> " ON DATABASE " <> pgIdent db <> " TO " <> runtimeUser <> ";" | g <- runtimeGrants, g ^. #objectClass == "database"]
+        <> ["REVOKE CREATE ON DATABASE " <> pgIdent db <> " FROM " <> runtimeUser <> ";" | access ^. #revokeDatabaseCreate]
+        <> ["GRANT " <> runtimeUser <> " TO " <> migrationUser <> ";" | runtimeOwnsObjects (access ^. #privileges)]
+        <> membershipRevoke
         <> [ "\\connect " <> pgIdent db
            , "ALTER SCHEMA public OWNER TO " <> migrationUser <> ";"
            , "REVOKE ALL ON SCHEMA public FROM PUBLIC;"
@@ -254,39 +289,52 @@ renderDatabaseAccess access = case (access ^. #engine, access ^. #enabled) of
            | g <- runtimeGrants
            , Just objects <- [T.toUpper <$> T.stripPrefix "default-" (g ^. #objectClass)]
            ]
+        <> ["GRANT CREATE ON SCHEMA " <> pgIdent schema <> " TO " <> runtimeUser <> ";" | schema <- access ^. #createIn]
+        <> schemaRevokes
+  -- Retirement withholds the database's privileges; schema CREATE and the
+  -- membership stay, unreachable without CONNECT, as schema USAGE does.
   (_, False) ->
-    T.unlines
-      [ "REVOKE " <> privileges g <> " ON DATABASE " <> pgIdent db <> " FROM " <> runtimeUser <> ";"
+    T.unlines $
+      [ "REVOKE " <> T.intercalate ", " (databasePrivileges g <> ["CREATE" | access ^. #revokeDatabaseCreate]) <> " ON DATABASE " <> pgIdent db <> " FROM " <> runtimeUser <> ";"
       | g <- runtimeGrants
       , g ^. #objectClass == "database"
       ]
+        <> membershipRevoke
+        <> ["\\connect " <> pgIdent db | not (null (access ^. #revokedCreateIn))]
+        <> schemaRevokes
   where
     db = access ^. #database
     runtimeGrants = appDatabaseDatabaseGrants (access ^. #engine) RuntimeRole
     runtimeUser = pgIdent (access ^. #runtime)
     migrationUser = pgIdent (access ^. #migration)
     privileges g = T.intercalate ", " (g ^. #privileges)
+    databasePrivileges g = g ^. #privileges
+    createSchemas = access ^. #privileges . #runtime . #createSchemas
+    membershipRevoke = ["REVOKE " <> runtimeUser <> " FROM " <> migrationUser <> ";" | access ^. #revokeMembership]
+    schemaRevokes = ["REVOKE CREATE ON SCHEMA " <> pgIdent schema <> " FROM " <> runtimeUser <> ";" | schema <- access ^. #revokedCreateIn]
 
 -- | Restore into scratch names, as the administrator, with the declared
 -- access on them: PostgreSQL creates the one scratch database owned by the
 -- migration user (pg_restore then loads it), ClickHouse restores every
--- database of the archive under its scratch name.
-renderScratchRestore :: Engine -> [(Text, Text)] -> Text -> Text -> Text -> Text
-renderScratchRestore ClickHouse scratches archive migration runtime =
+-- database of the archive under its scratch name. The declared own-database
+-- privileges come too (EP-208): on ClickHouse each user's, on PostgreSQL
+-- CREATE on the database under @createSchemas@; schema grants and owners
+-- come from the dump.
+renderScratchRestore :: Engine -> DatabasePrivileges -> [(Text, Text)] -> Text -> Text -> Text -> Text
+renderScratchRestore ClickHouse declared scratches archive migration runtime =
   T.unlines $
     ("RESTORE " <> T.intercalate ", " ["DATABASE " <> db <> " AS " <> scratch | (db, scratch) <- scratches] <> " FROM File(" <> literal archive <> ");")
-      : [ "GRANT " <> T.intercalate ", " (g ^. #privileges) <> " ON " <> scratch <> ".* TO " <> user <> ";"
+      : [ "GRANT " <> T.intercalate ", " (clickHouseDatabaseGrants role declared) <> " ON " <> scratch <> ".* TO " <> user <> ";"
         | (role, user) <- [(MigrationRole, migration), (RuntimeRole, runtime)]
-        , g <- appDatabaseDatabaseGrants ClickHouse role
         , (_, scratch) <- scratches
         ]
-renderScratchRestore engine scratches _ migration runtime =
+renderScratchRestore engine declared scratches _ migration runtime =
   T.unlines $
     concat
       [ [ "CREATE DATABASE " <> pgIdent scratch <> " OWNER " <> pgIdent migration <> ";"
         , "REVOKE ALL ON DATABASE " <> pgIdent scratch <> " FROM PUBLIC;"
         ]
-          <> [ "GRANT " <> T.intercalate ", " (g ^. #privileges) <> " ON DATABASE " <> pgIdent scratch <> " TO " <> pgIdent runtime <> ";"
+          <> [ "GRANT " <> T.intercalate ", " ((g ^. #privileges) <> ["CREATE" | declared ^. #runtime . #createSchemas]) <> " ON DATABASE " <> pgIdent scratch <> " TO " <> pgIdent runtime <> ";"
              | g <- appDatabaseDatabaseGrants engine RuntimeRole
              , g ^. #objectClass == "database"
              ]
@@ -304,7 +352,7 @@ renderObserveServer users databases initialDatabase =
   T.unlines
     [ "SELECT json_build_object("
     , "  'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL), 'connectionLimit', r.rolconnlimit, 'settings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s WHERE s.setrole = r.oid AND s.setdatabase = 0), '[]')) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.rolname IN (" <> userList <> ")),"
-    , "  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname) ORDER BY r.rolname, m.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname IN (" <> userList <> ") OR m.rolname IN (" <> userList <> ")),"
+    , "  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname, 'admin', a.admin_option) ORDER BY r.rolname, m.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname IN (" <> userList <> ") OR m.rolname IN (" <> userList <> ")),"
     , "  'databases', (SELECT coalesce(json_agg(json_build_object('name', d.datname, 'oid', d.oid::text, 'owner', pg_get_userbyid(d.datdba), 'grants', " <> grants "coalesce(d.datacl, acldefault('d', d.datdba))" <> ") ORDER BY d.datname), '[]') FROM pg_database d WHERE d.datname IN (" <> databaseList <> ")),"
     , "  'publicSystemAccess', (SELECT count(*) > 0 FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname IN ('postgres', 'template1', " <> literal initialDatabase <> ") AND a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY')),"
     , "  'foreignAccess', (SELECT coalesce(json_agg(DISTINCT pg_get_userbyid(a.grantee) || ' on ' || d.datname), '[]') FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN (" <> userList <> ")) AND d.datname NOT IN (" <> databaseList <> "))"
@@ -337,7 +385,8 @@ grants acl =
 
 -- | ClickHouse facts as tagged JSONEachRow rows: the users, the grants of the
 -- app's users anywhere and of anyone on the app's databases, role grants,
--- the users' own settings elements, and the databases.
+-- the users' own settings elements, the databases, and the server's
+-- privilege tree (EP-208).
 renderObserveClickHouse :: [Text] -> [Text] -> Text
 renderObserveClickHouse users databases =
   T.unlines
@@ -346,6 +395,7 @@ renderObserveClickHouse users databases =
     , "SELECT 'role' AS kind, user_name, granted_role_name FROM system.role_grants WHERE user_name IN (" <> userList <> ") ORDER BY ALL FORMAT JSONEachRow;"
     , "SELECT 'setting' AS kind, user_name, setting_name, value, min, max, writability, inherit_profile FROM system.settings_profile_elements WHERE user_name IN (" <> userList <> ") ORDER BY ALL FORMAT JSONEachRow;"
     , "SELECT 'database' AS kind, name, toString(uuid) AS physical, engine FROM system.databases WHERE name IN (" <> databaseList <> ") ORDER BY name FORMAT JSONEachRow;"
+    , "SELECT 'privilege' AS kind, privilege, parent_group, level FROM system.privileges ORDER BY privilege FORMAT JSONEachRow;"
     ]
   where
     userList = literals users
@@ -445,7 +495,7 @@ renderObserveRelations :: [Text] -> Text
 renderObserveRelations users =
   T.unlines
     [ "SELECT json_build_object("
-    , "  'relations', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', c.relname, 'kind', c.relkind::text, 'options', coalesce(to_json(c.reloptions), '[]'), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', pg_get_userbyid(a.grantee), 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN (" <> userList <> ")))) ORDER BY n.nspname, c.relname), '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'p', 'v', 'm')),"
+    , "  'relations', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', c.relname, 'kind', c.relkind::text, 'owner', pg_get_userbyid(c.relowner), 'options', coalesce(to_json(c.reloptions), '[]'), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', pg_get_userbyid(a.grantee), 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN (" <> userList <> ")))) ORDER BY n.nspname, c.relname), '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'p', 'v', 'm')),"
     , "  'definerFunctions', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', p.proname, 'signature', pg_get_function_identity_arguments(p.oid), 'executors', (SELECT coalesce(json_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END ORDER BY 1), '[]') FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.privilege_type = 'EXECUTE' AND (a.grantee = 0 OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN (" <> userList <> "))))) ORDER BY n.nspname, p.proname), '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema' AND p.prosecdef)"
     , ");"
     ]
