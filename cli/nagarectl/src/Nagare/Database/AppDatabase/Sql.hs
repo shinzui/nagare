@@ -50,7 +50,7 @@ import Data.Generics.Labels ()
 import Data.List (nub)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, clickHousePrivilegeText, grantExceptionGrant, runtimeOwnsObjects)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, appDatabaseServerRevokedGrants, clickHousePrivilegeText, grantExceptionGrant, runtimeOwnsObjects)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory (UserLogin (..))
@@ -144,8 +144,9 @@ renderCreateUser _ user (PostgresVerifier verifier) _ =
 renderCreateUser _ user (ClickHouseSha256 digest salt) defaultDatabase =
   "CREATE USER " <> user <> " IDENTIFIED WITH sha256_hash BY " <> literal digest <> " SALT " <> literal salt <> " HOST ANY DEFAULT DATABASE " <> defaultDatabase <> ";\n"
 
--- | Login on or off, with the user's server-wide grants, its reviewed grant
--- exceptions and its limits (EP-204). The statements depend only on the
+-- | Login on or off, with the user's server-wide grants, the privileges the
+-- engine derives from them on reload (always revoked, BUG-7), its reviewed
+-- grant exceptions and its limits (EP-204). The statements depend only on the
 -- declaration: every allow-listed exception is granted when declared and the
 -- user is enabled, and revoked otherwise; the one settings statement
 -- replaces the user's whole settings list. Limits follow the declaration
@@ -158,6 +159,10 @@ renderUserAccess ClickHouse role user login access =
           | g <- appDatabaseServerGrants ClickHouse role
           , privilege <- g ^. #privileges
           ]
+          <> [ "REVOKE " <> privilege <> " ON " <> T.toUpper (g ^. #objectClass) <> " FROM " <> user <> ";"
+             | g <- appDatabaseServerRevokedGrants ClickHouse role
+             , privilege <- g ^. #privileges
+             ]
           <> [ if enabled && exception `elem` access ^. #exceptions
                  then "GRANT " <> privilege <> " ON " <> object' <> " TO " <> user <> ";"
                  else "REVOKE " <> privilege <> " ON " <> object' <> " FROM " <> user <> ";"

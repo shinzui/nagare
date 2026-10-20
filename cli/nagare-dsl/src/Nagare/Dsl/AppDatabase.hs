@@ -78,6 +78,7 @@ module Nagare.Dsl.AppDatabase
   , Grant (..)
   , appDatabaseAttributes
   , appDatabaseServerGrants
+  , appDatabaseServerRevokedGrants
   , appDatabaseDatabaseGrants
   )
 where
@@ -717,6 +718,14 @@ appDatabaseAttributes _ _ = ["HOST ANY"]
 appDatabaseServerGrants :: Engine -> AppDatabaseRole -> [Grant]
 appDatabaseServerGrants ClickHouse MigrationRole = [Grant "file" ["WRITE"]]
 appDatabaseServerGrants _ _ = []
+
+-- | Privileges the engine adds to a user by itself from the persisted form of
+-- a fixed grant, so every user-access block revokes them and observing them is
+-- pending, never drift. ClickHouse without @enable_read_write_grants@ stores
+-- @WRITE ON FILE@ as the legacy @FILE@, which reloads as READ and WRITE (BUG-7).
+appDatabaseServerRevokedGrants :: Engine -> AppDatabaseRole -> [Grant]
+appDatabaseServerRevokedGrants ClickHouse MigrationRole = [Grant "file" ["READ"]]
+appDatabaseServerRevokedGrants _ _ = []
 
 -- | Grants on one logical database. On PostgreSQL the migration user owns the
 -- database and its @public@ schema; the runtime user reads and writes what

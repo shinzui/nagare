@@ -12,4 +12,7 @@ data:
     <clickhouse>
       <max_server_memory_usage>1610612736</max_server_memory_usage>
       <mark_cache_size>268435456</mark_cache_size>
+      <access_control_improvements>
+        <enable_read_write_grants>true</enable_read_write_grants>
+      </access_control_improvements>
     </clickhouse>

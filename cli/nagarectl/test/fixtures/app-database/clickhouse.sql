@@ -1,9 +1,11 @@
--- EP-202 M1 reference fixture, extended by EP-204, EP-205, EP-206 and EP-208 M1: the ClickHouse 26.8 statements for one app database.
+-- EP-202 M1 reference fixture, extended by EP-204, EP-205, EP-206, EP-208 M1 and EP-209 M1: the ClickHouse 26.8 statements for one app database.
 --
 -- App database "alpha-ch" on server "smoke-ch", logical databases "alpha" and
 -- "alpha_ledger", users "alpha_runtime" and "alpha_migration". Proven by hand against
 -- clickhouse/clickhouse-server:26.8 (26.8.29) on 2026-10-19 with
--- CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1. Each "-- operation:" block is one transport call:
+-- CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1; the three alpha_migration user-access blocks were
+-- re-proven on 26.8.29.10 on 2026-10-20 with the server setting
+-- access_control_improvements.enable_read_write_grants on, as Nagare renders it (BUG-7). Each "-- operation:" block is one transport call:
 -- SQL on stdin to
 -- `clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --multiquery`
 -- inside the server pod. SQL-created users and grants live under /var/lib/clickhouse/access
@@ -30,9 +32,15 @@ CREATE USER alpha_runtime IDENTIFIED WITH sha256_hash BY 'CCC85116A7D5E75E1446E5
 -- WRITE ON FILE is global but write-only: it lets BACKUP ... TO File(...) write under
 -- backups.allowed_path and INSERT INTO FUNCTION file(...) write under user_files. Without
 -- READ ON FILE nothing can be read back, RESTORE is refused, a path outside the allowed
--- one is refused, and an existing archive cannot be overwritten.
+-- one is refused, and an existing archive cannot be overwritten. Without
+-- enable_read_write_grants the server stores the grant as the legacy FILE ON *.*, which
+-- reloads as READ and WRITE after a restart; with it the grant is stored and reloaded as
+-- WRITE ON FILE. REVOKE READ ON FILE succeeds on a user that does not hold it, with or
+-- without the setting, and removes the reloaded READ from a server that stored the legacy
+-- form (BUG-7).
 ALTER USER alpha_migration HOST ANY;
 GRANT WRITE ON FILE TO alpha_migration;
+REVOKE READ ON FILE FROM alpha_migration;
 REVOKE SELECT ON system.parts FROM alpha_migration;
 REVOKE SELECT ON system.mutations FROM alpha_migration;
 REVOKE SELECT ON system.disks FROM alpha_migration;
@@ -44,6 +52,7 @@ ALTER USER alpha_migration SETTINGS NONE;
 -- HOST NONE refuses every login. Databases, data and Secrets are kept.
 ALTER USER alpha_migration HOST NONE;
 REVOKE WRITE ON FILE FROM alpha_migration;
+REVOKE READ ON FILE FROM alpha_migration;
 REVOKE SELECT ON system.parts FROM alpha_migration;
 REVOKE SELECT ON system.mutations FROM alpha_migration;
 REVOKE SELECT ON system.disks FROM alpha_migration;
@@ -124,6 +133,7 @@ ALTER USER alpha_runtime SETTINGS max_memory_usage = 268435456 MIN 1 MAX 2684354
 -- backup (it completed in 76 s).
 ALTER USER alpha_migration HOST ANY;
 GRANT WRITE ON FILE TO alpha_migration;
+REVOKE READ ON FILE FROM alpha_migration;
 REVOKE SELECT ON system.parts FROM alpha_migration;
 REVOKE SELECT ON system.mutations FROM alpha_migration;
 GRANT SELECT ON system.disks TO alpha_migration;

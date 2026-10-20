@@ -23,6 +23,8 @@ spec:
         nagare.dev/managed-by: nagarectl
         nagare.dev/database: analytics
         nagare.dev/engine: clickhouse
+      annotations:
+        nagare.dev/config-digest: eea29667cdddbf7f601b1cb42effef3e86c23fa9ef441edf0fff65023fcc0a49
     spec:
       containers:
       - name: clickhouse

@@ -10,6 +10,7 @@ module Nagare.Test.World.AppDatabase
   , WorldDatabase (..)
   , WorldMutation (..)
   , newWorld
+  , restartServer
   , worldOps
   , worldCatalog
   , secretKey
@@ -30,9 +31,10 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Read qualified as TR
 import Nagare.Database.AppDatabase.Catalog
 import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), ReaderAccess (..), clickHouseCeilings, clickHouseDatabaseGrants, clickhouseHashMatches, postgresTimeout, scramVerifierMatches)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants, runtimeOwnsObjects)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants, appDatabaseServerRevokedGrants, runtimeOwnsObjects)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.AppDatabase
@@ -91,6 +93,17 @@ data World = World
   , privilegeTree :: !PrivilegeTree
   -- ^ ClickHouse: the 26.8 tree M1 captured; database grants are held as
   -- leaves and reported as their minimal cover, as system.grants does
+  , legacySourceGrants :: !Bool
+  -- ^ ClickHouse without @enable_read_write_grants@: a source grant is
+  -- stored as the legacy @FILE@ (BUG-7). Off for the server Nagare renders
+  -- now.
+  , legacyEntities :: !(Set Text)
+  -- ^ ClickHouse: the users whose access entity was last written in the
+  -- legacy form. Turning the setting on does not rewrite them; a restart
+  -- reloads their source grants as READ and WRITE until their access is
+  -- set again (EP-209 M1, Run C). Only a user-access block rewrites an
+  -- entity here, which reports the legacy READ at least as often as the
+  -- engine does.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -108,7 +121,28 @@ data WorldMutation = WorldMutation
 newWorld :: Engine -> Map Text CredentialSecret -> IO (IORef World)
 newWorld engine' secrets' = do
   tree <- if engine' == ClickHouse then clickHouseTree else pure Map.empty
-  newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0 Map.empty 0 [] (Map.fromList [("podUID", "pod-1"), ("podStarted", "2026-10-19T00:00:00Z"), ("serverUUID", "uuid-1"), ("processStarted", "2026-10-19 00:00:00")]) Set.empty tree)
+  newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0 Map.empty 0 [] (Map.fromList [("podUID", "pod-1"), ("podStarted", "2026-10-19T00:00:00Z"), ("serverUUID", "uuid-1"), ("processStarted", "2026-10-19 00:00:00")]) Set.empty tree False Set.empty)
+
+-- | The server process restarts on a new Pod with the same data volume.
+-- ClickHouse reloads every user whose entity is in the legacy form and holds
+-- READ or WRITE on a source with both, as EP-209 M1 proved on 26.8.
+restartServer :: World -> World
+restartServer world =
+  world
+    & #server
+    %~ ( Map.insert "podUID" ("pod-" <> T.show restarts)
+           . Map.insert "podStarted" ("2026-10-20T00:00:" <> stamp <> "Z")
+           . Map.insert "processStarted" ("2026-10-20 00:00:" <> stamp)
+       )
+    & #users
+    %~ Map.mapWithKey (\name u -> if world ^. #engine == ClickHouse && Set.member name (world ^. #legacyEntities) then reload u else u)
+  where
+    -- The pods are pod-1, pod-2, ... in start order.
+    restarts = 1 + maybe 1 (either (const 1) fst . TR.decimal) (T.stripPrefix "pod-" =<< Map.lookup "podUID" (world ^. #server)) :: Int
+    stamp = T.justifyRight 2 '0' (T.show (restarts `mod` 60))
+    reload u
+      | any (`elem` ["READ", "WRITE"]) (u ^. #serverGrants) = u & #serverGrants %~ (\held -> nub (held <> ["READ", "WRITE"]))
+      | otherwise = u
 
 -- | ClickHouse 26.8's privilege tree, as EP-208 M1 observed it.
 clickHouseTree :: IO PrivilegeTree
@@ -258,11 +292,11 @@ interpret command world = case command of
   -- allow-listed one revoked (a grant outside the list stays), the one
   -- SETTINGS statement replaces the whole settings list, CONNECTION LIMIT
   -- replaces the limit, and SET or RESET touches only statement_timeout.
-  SetUserAccess role name login' access -> withUser name $ \u ->
+  SetUserAccess role name login' access -> fmap (#legacyEntities %~ (if world ^. #legacySourceGrants then Set.insert name else Set.delete name)) $ withUser name $ \u ->
     let on = login' == LoginOpen
      in if engine' == ClickHouse
           then
-            let managed = concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken [minBound .. maxBound]
+            let managed = concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role <> appDatabaseServerRevokedGrants ClickHouse role) <> map exceptionGrantToken [minBound .. maxBound]
                 granted = if on then concatMap (^. #privileges) (appDatabaseServerGrants ClickHouse role) <> map exceptionGrantToken (access ^. #exceptions) else []
              in u
                   & #login

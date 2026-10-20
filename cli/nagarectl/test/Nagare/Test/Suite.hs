@@ -10,6 +10,7 @@ import AccessCheckSpec (accessCheckTests)
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDatabasePrivilegeSpec (appDatabasePrivilegeTests)
+import AppDatabaseRestartSpec (appDatabaseRestartTests)
 import AppDatabaseSpec (appDatabaseTests)
 import AppDatabaseSqlSpec (appDatabaseSqlTests)
 import AppDatabaseWorldSpec (appDatabaseWorldTests)
@@ -207,10 +208,7 @@ main = do
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
-            , appDatabaseTests
-            , appDatabaseSqlTests
-            , appDatabaseWorldTests
-            , appDatabasePrivilegeTests
+            , testGroup "AppDatabase" [appDatabaseTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests]
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
             , inventoryWorldFaultsTests

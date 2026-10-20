@@ -26,6 +26,11 @@ module AppDatabaseWorldSpec
   , token
   , quiesceCycleWith
   , catalogAccess
+  , quiesceAlpha
+  , sessionReviewFor
+  , applySession
+  , userMember
+  , onUser
   )
 where
 

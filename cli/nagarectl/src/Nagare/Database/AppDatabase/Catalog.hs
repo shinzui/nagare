@@ -6,7 +6,9 @@
 -- A member is absent, complete, incomplete (the declared access can be
 -- reached by adding grants or by the declared revocations), or drifted
 -- (something Nagare never grants is present). Drift is never repaired:
--- planning refuses it with @app-database-grant-drift@.
+-- planning refuses it with @app-database-grant-drift@. A privilege the engine
+-- derives from a fixed grant on reload (the ClickHouse migration user's READ
+-- ON FILE, BUG-7) is not drift: every user-access block revokes it.
 module Nagare.Database.AppDatabase.Catalog
   ( Catalog (..)
   , CatalogUser (..)
@@ -66,7 +68,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), ResolvedObject (..), clickHouseCeilings, clickHouseDatabaseGrants, postgresTimeout)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), GrantException, ReaderObject (..), UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, clickHousePrivilegeText, grantExceptionGrant, logicalDatabaseNameText, monitoringRoleToken, relationNameText, runtimeOwnsObjects, schemaNameText)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), GrantException, ReaderObject (..), UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, appDatabaseServerRevokedGrants, clickHousePrivilegeText, grantExceptionGrant, logicalDatabaseNameText, monitoringRoleToken, relationNameText, runtimeOwnsObjects, schemaNameText)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 
@@ -518,7 +520,7 @@ classifyUser engine declaration name own catalog = case Map.lookup name (catalog
       exceptionsOf access = map exceptionGrantToken (access ^. #exceptions)
       -- What the user should hold now, and what review may still take away.
       wantedGrants = if enabled' then fixed <> exceptionsOf (declaration ^. #desired) else []
-      revocableGrants = fixed <> exceptionsOf (declaration ^. #desired) <> exceptionsOf (declaration ^. #accepted)
+      revocableGrants = fixed <> concatMap (^. #privileges) (appDatabaseServerRevokedGrants engine role') <> exceptionsOf (declaration ^. #desired) <> exceptionsOf (declaration ^. #accepted)
       wantedSettings = settingsOf (declaration ^. #desired)
       revocableSettings = settingsOf (declaration ^. #accepted)
       wantedRoleSettings = roleSettingsOf (declaration ^. #desired)

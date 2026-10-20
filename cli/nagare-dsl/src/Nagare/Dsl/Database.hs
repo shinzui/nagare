@@ -137,6 +137,9 @@ engineStartupSecretKeys ClickHouse = ["CLICKHOUSE_PASSWORD", "CLICKHOUSE_USER"]
 -- @e2-standard-2@ VM: an absolute @max_server_memory_usage@ cap (1.5 GiB) so the
 -- engine cannot assume it owns most of the shared host RAM and starve the rest
 -- of the cluster (EP-43 verified this keeps the node out of memory pressure).
+-- It also turns on @enable_read_write_grants@, so an app-database migration
+-- user's @WRITE ON FILE@ is stored and reloaded as written; without it the
+-- server stores the legacy @FILE@ and a restart reloads READ as well (BUG-7).
 -- 'Nothing' for engines that need no extra config.
 engineMemoryConfig :: Engine -> Maybe Text
 engineMemoryConfig ClickHouse =
@@ -144,6 +147,9 @@ engineMemoryConfig ClickHouse =
     "<clickhouse>\n\
     \  <max_server_memory_usage>1610612736</max_server_memory_usage>\n\
     \  <mark_cache_size>268435456</mark_cache_size>\n\
+    \  <access_control_improvements>\n\
+    \    <enable_read_write_grants>true</enable_read_write_grants>\n\
+    \  </access_control_improvements>\n\
     \</clickhouse>\n"
 engineMemoryConfig _ = Nothing
 

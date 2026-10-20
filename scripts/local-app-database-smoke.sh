@@ -2,7 +2,8 @@
 # scripts/local-app-database-smoke.sh (EP-202 M7) — app databases on shared servers, natively.
 #
 # On a bootstrapped LOCAL context (mode=local, a k3d cluster), with the packaged nagarectl:
-#   1. servers smoke-pg and smoke-ch;
+#   1. servers smoke-pg and smoke-ch; a smoke-ch from an earlier nagarectl is updated to the
+#      rendering with enable_read_write_grants (BUG-7) and restarts once;
 #   2. app databases alpha-pg, alpha-ch, beta-pg and beta-ch, planned and applied;
 #   3. a re-plan has no operations;
 #   4. four probe Workers, each binding one app database, on the servers' own images;
@@ -24,6 +25,8 @@
 #      prune review of alpha-pg has no runs past policy (EP-203);
 #   8a. EP-207: a run of a fresh app database taken before a logical database is added
 #      ingests, restores only the databases it holds, and does not block a prune review;
+#   8b. BUG-7: a reviewed restart of smoke-ch keeps the migration users' FILE grant
+#      write-only and the re-plan empty;
 #   9. app-database smoke: PASS.
 #
 # Usage (from an empty environment; the context names the cluster, never the ambient shell):
@@ -67,6 +70,12 @@ for pair in postgres:smoke-pg clickhouse:smoke-ch; do
     n db create "$engine" "$name" -n "$NS" --recovery-backup "$engine-backup" --recovery-key-version v1 | tail -1
   fi
 done
+# BUG-7: a smoke-ch rendered before enable_read_write_grants has no config digest on its pod
+# template; one reviewed update rolls it with the setting on.
+if [ -z "$(kubectl -n "$NS" get statefulset smoke-ch -o jsonpath='{.spec.template.metadata.annotations.nagare\.dev/config-digest}')" ]; then
+  n db create clickhouse smoke-ch -n "$NS" --recovery-backup clickhouse-backup --recovery-key-version v1 | tail -1
+  log "BUG-7: smoke-ch updated to the rendering with enable_read_write_grants"
+fi
 kubectl -n "$NS" rollout status statefulset/smoke-pg --timeout=300s >/dev/null
 kubectl -n "$NS" rollout status statefulset/smoke-ch --timeout=300s >/dev/null
 CH_ADMIN="$(secret nagare-db-smoke-ch CLICKHOUSE_USER)"; CH_ADMIN_PW="$(secret nagare-db-smoke-ch CLICKHOUSE_PASSWORD)"
@@ -776,5 +785,29 @@ grep -q "no accepted scheduled backup is past the retention policy" <<<"$prune" 
 n db app-database retire "$ZETA" -n "$NS" --save-plan "$REVIEWS/zeta-retire" >/dev/null
 apply "$REVIEWS/zeta-retire"
 log "EP-207: a run taken before a logical database was added ingested, restored only its own database and kept prune open; $ZETA retired"
+
+# --- 8b. BUG-7: a reviewed restart keeps the migration FILE grant write-only ---
+# Without enable_read_write_grants the server would print and store the legacy FILE ON *.*.
+grep -qx "GRANT WRITE ON FILE TO $CH_MIG_USER" <<<"$(ch_admin "SHOW GRANTS FOR $CH_MIG_USER")" \
+  || { ch_admin "SHOW GRANTS FOR $CH_MIG_USER" >&2; fail "BUG-7: enable_read_write_grants is not live on smoke-ch"; }
+migrations="'$CH_MIG_USER'"
+if kubectl -n "$NS" get secret beta-ch-migration >/dev/null 2>&1; then migrations="$migrations, '$(secret beta-ch-migration CLICKHOUSE_USER)'"; fi
+pod_before="$(kubectl -n "$NS" get pod smoke-ch-0 -o jsonpath='{.metadata.uid}')"
+n db restart smoke-ch -n "$NS" --save-plan "$REVIEWS/restart-smoke-ch" > "$REVIEWS/restart-smoke-ch.plan.log" 2>&1 \
+  || { tail -3 "$REVIEWS/restart-smoke-ch.plan.log" >&2; fail "BUG-7: plan the restart of smoke-ch"; }
+apply "$REVIEWS/restart-smoke-ch"
+for _ in $(seq 1 120); do [ "$(kubectl -n "$NS" get pod smoke-ch-0 -o jsonpath='{.metadata.uid}' 2>/dev/null)" != "$pod_before" ] && break; sleep 2; done
+[ "$(kubectl -n "$NS" get pod smoke-ch-0 -o jsonpath='{.metadata.uid}')" != "$pod_before" ] || fail "BUG-7: the reviewed restart did not replace smoke-ch-0"
+kubectl -n "$NS" rollout status statefulset/smoke-ch --timeout=300s >/dev/null
+for _ in $(seq 1 60); do ch_admin 'SELECT 1' >/dev/null 2>&1 && break; sleep 2; done
+expect "BUG-7: server-wide READ held by the migration users after the restart" \
+  "$(ch_admin "SELECT count() FROM system.grants WHERE user_name IN ($migrations) AND database IS NULL AND access_type = 'READ'")" "0"
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRetired.hs" 2>/dev/null)"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "BUG-7: the re-plan after the restart has operations"; }
+if read_out="$(ch_as alpha-ch-migration "SELECT * FROM file('bug7.csv', 'CSV', 'x String')" 2>&1)"; then
+  fail "BUG-7: alpha-ch migration read a file"
+fi
+grep -q 'READ ON FILE' <<<"$read_out" || { echo "$read_out" >&2; fail "BUG-7: the file read was refused for another reason"; }
+log "BUG-7: a reviewed restart of smoke-ch leaves the migration grant write-only; re-plan: no operations"
 
 echo "app-database smoke: PASS"

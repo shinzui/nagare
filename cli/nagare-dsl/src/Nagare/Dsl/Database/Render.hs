@@ -28,10 +28,13 @@ module Nagare.Dsl.Database.Render
   )
 where
 
+import Crypto.Hash (Digest, SHA256, hash)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Database
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -166,7 +169,7 @@ statefulSetValue db =
           , "selector" .= object ["matchLabels" .= object ["nagare.dev/database" .= nameText db]]
           , "template"
               .= object
-                [ "metadata" .= object ["labels" .= dbLabels db]
+                [ "metadata" .= object (["labels" .= dbLabels db] <> configDigest)
                 , "spec"
                     .= object
                       [ "containers" .= toJSON [containerValue db]
@@ -176,6 +179,12 @@ statefulSetValue db =
           ]
     ]
   where
+    -- The config file is mounted with subPath, which Kubernetes never
+    -- updates in a running container, so a config change rolls the pod.
+    configDigest =
+      [ "annotations" .= object ["nagare.dev/config-digest" .= T.pack (show (hash (TE.encodeUtf8 config) :: Digest SHA256))]
+      | Just config <- [engineMemoryConfig (db ^. #engine)]
+      ]
     retentionToken Retain = txt "Retain"
     retentionToken Delete = txt "Delete"
 
