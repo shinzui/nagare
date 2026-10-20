@@ -66,6 +66,7 @@ webService nameText imageText = do
       , volumes = []
       , databases = []
       , appDatabases = []
+      , appDatabaseReaders = []
       , brokers = []
       , access = Nothing
       , tasks = []

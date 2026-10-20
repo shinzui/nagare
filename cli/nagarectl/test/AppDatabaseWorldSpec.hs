@@ -6,7 +6,7 @@ module AppDatabaseWorldSpec (appDatabaseWorldTests) where
 
 import AppDatabaseSpec (Server, alpha, beta, chServer, pgServer, scopeAndNative, scopeOf, snapshot, snapshotWith)
 import Control.Exception (try)
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.IORef
@@ -18,11 +18,12 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Database.AppDatabase.Catalog (CatalogGrant (..), CatalogSetting (..), exceptionGrantToken)
+import Nagare.Database.AppDatabase.Catalog (CatalogFunction (..), CatalogGrant (..), CatalogRelation (..), CatalogSetting (..), CatalogTableGrant (..), exceptionGrantToken, readerDefinerCode, readerInvokerCode, readerSettings)
 import Nagare.Database.AppDatabase.Sql (PasswordHash (..))
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Types (mkReaderName, mkServiceName)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.AppDatabase
 import Nagare.Inventory.Adapters.AppDatabaseSessions
@@ -106,7 +107,8 @@ appDatabaseWorldTests =
             let betaOnly = Map.filterWithKey (\name _ -> "beta" `T.isPrefixOf` name)
             betaOnly (after ^. #users) @?= betaOnly (before ^. #users)
             betaOnly (after ^. #databases) @?= betaOnly (before ^. #databases)
-            [u ^. #login | (name, u) <- Map.toList (after ^. #users), "alpha" `T.isPrefixOf` name] @?= [False, False]
+            [u ^. #login | (name, u) <- Map.toList (after ^. #users), "alpha" `T.isPrefixOf` name] @?= [False | (name, _) <- Map.toList (after ^. #users), "alpha" `T.isPrefixOf` name]
+            assertBool "alpha has users" (any ("alpha" `T.isPrefixOf`) (Map.keys (after ^. #users)))
             after ^. #secrets @?= before ^. #secrets
             -- Retirement revokes the exceptions; the limits stay declared.
             [g | (name, u) <- Map.toList (after ^. #users), "alpha" `T.isPrefixOf` name, g <- u ^. #serverGrants, g `elem` exceptionTokens] @?= []
@@ -125,10 +127,148 @@ appDatabaseWorldTests =
             assertPasswordsOriginal world ops members
         ]
     | engine' <- [Postgres, ClickHouse]
-    , (variant, declare) <- [("", id), (" with declared access", declaredAccess engine')]
+    , (variant, declare) <- [("", id), (" with declared access", declaredAccess engine'), (" with a reader", withReader engine' ["v1", "v2"])]
     ]
       <> [testGroup (show engine' <> " reviewed access (EP-204)") (accessTests engine') | engine' <- [Postgres, ClickHouse]]
+      <> [testGroup (show engine' <> " readers (EP-206)") (readerTests engine') | engine' <- [Postgres, ClickHouse]]
       <> [testGroup (show engine' <> " quiesce (EP-205)") (quiesceTests engine') | engine' <- [Postgres, ClickHouse]]
+  where
+    expectRight = either (assertFailure . T.unpack) pure
+
+-- EP-206 ------------------------------------------------------------------
+
+-- | alpha with reader @dash@ over the given objects of its database @alpha@,
+-- with the default ceilings, for consumer @gamma@.
+withReader :: Engine -> [Text] -> AppDatabase -> AppDatabase
+withReader engine' names db =
+  db
+    & #access
+    . #readers
+    .~ [ AppDatabaseReader
+           { name = ok (mkReaderName "dash")
+           , objects = NE.fromList [ReaderRelation (ok (mkLogicalDatabaseName "alpha")) Nothing (ok (mkRelationName n)) | n <- names]
+           , limits = defaultReaderLimits engine'
+           , consumers = [ok (mkServiceName "gamma")]
+           , retired = False
+           }
+       ]
+  where
+    ok :: Either Text a -> a
+    ok = either (error . T.unpack) id
+
+readerUser :: Engine -> Text
+readerUser engine' = user' engine' "alpha" "reader_dash"
+
+-- | What an app's migration creates in alpha's database: a base table, the
+-- given views, and any extra relations.
+seedViews :: [Text] -> [CatalogRelation] -> World -> World
+seedViews names extra = #databases %~ Map.adjust (#relations %~ \existing -> existing <> [CatalogRelation "public" "base" "r" [] []] <> [CatalogRelation "public" n "v" [] [] | n <- names] <> extra) "alpha"
+
+-- | A first apply, then on PostgreSQL the app's migration creating the
+-- views in the new database and the plan after it.
+convergeWithViews :: Engine -> IORef World -> AppDatabaseOps -> Members -> [Text] -> Assertion
+convergeWithViews engine' world ops members names = do
+  converge ops members >>= either (assertFailure . T.unpack) pure
+  when (engine' == Postgres) $ do
+    modifyIORef' world (seedViews names [])
+    converge ops members >>= either (assertFailure . T.unpack) pure
+
+-- | The objects the reader holds SELECT on, as @database.relation@.
+readerSelects :: Engine -> World -> [Text]
+readerSelects ClickHouse world = sort [g ^. #database <> "." <> g ^. #table | Just u <- [Map.lookup (readerUser ClickHouse) (world ^. #users)], g <- u ^. #tableGrants, g ^. #privilege == "SELECT"]
+readerSelects engine' world =
+  sort [db <> "." <> r ^. #name | (db, wdb) <- Map.toList (world ^. #databases), r <- wdb ^. #relations, (readerUser engine', "SELECT") `elem` r ^. #grants]
+
+readerTests :: Engine -> [TestTree]
+readerTests engine' =
+  [ testCase "the reader reads exactly its declared objects within the declared ceilings (IR-33 AC-2, AC-3)" $ do
+      (world, ops, members) <- setup engine' (withReader engine' ["v1", "v2"]) []
+      convergeWithViews engine' world ops members ["v1", "v2", "v3"]
+      replan ops members >>= (@?= [])
+      after <- readIORef world
+      readerSelects engine' after @?= ["alpha.v1", "alpha.v2"]
+      let reader = after ^?! #users . ix (readerUser engine')
+      if engine' == ClickHouse
+        then do
+          sort (reader ^. #settings) @?= sort (readerSettings (defaultReaderLimits ClickHouse))
+          reader ^. #serverGrants @?= []
+        else do
+          (reader ^. #connectionLimit, sort (reader ^. #roleSettings)) @?= (5, ["default_transaction_read_only=on", "statement_timeout=30s"])
+          sort [g | g <- Set.toList (after ^?! #databases . ix "alpha" . #grants), g ^. #grantee == readerUser engine']
+            @?= sort [CatalogGrant (readerUser engine') "database" "CONNECT", CatalogGrant (readerUser engine') "schema:public" "USAGE"]
+      -- The reader is alpha's own: beta's catalog holds nothing of it.
+      [g | (name, wdb) <- Map.toList (after ^. #databases), "beta" `T.isPrefixOf` name, g <- Set.toList (wdb ^. #grants), g ^. #grantee == readerUser engine'] @?= []
+  , testCase "a reader declared before its views neither fails nor wedges, and the plan after the migration grants them (IR-33 AC-5)" $ do
+      (world, ops, members) <- setup engine' (withReader engine' ["v1", "v2"]) []
+      converge ops members >>= expectRight
+      replan ops members >>= (@?= [])
+      let reader = userMember members "alpha" "reader_dash"
+      notes <- either (assertFailure . T.unpack) (pure . observationNotes) =<< adapterObserve (adapterFor ops members) [reader]
+      if engine' == ClickHouse
+        then do
+          -- ClickHouse grants by name up front: nothing is pending.
+          notes @?= Map.empty
+          readIORef world >>= (@?= ["alpha.v1", "alpha.v2"]) . readerSelects engine'
+        else do
+          notes @?= Map.singleton reader "pending: public.v1, public.v2"
+          modifyIORef' world (seedViews ["v1", "v2"] [])
+          replan ops members >>= (@?= [reader])
+          converge ops members >>= expectRight
+          replan ops members >>= (@?= [])
+          readIORef world >>= (@?= ["alpha.v1", "alpha.v2"]) . readerSelects engine'
+  , testCase "a grant beyond the declaration or a raised ceiling is drift; an object dropped by review is revoked (IR-33 AC-4)" $ do
+      (world, ops, accepted) <- setup engine' (withReader engine' ["v1", "v2"]) []
+      convergeWithViews engine' world ops accepted ["v1", "v2", "v3"]
+      converged <- readIORef world
+      let handGrant
+            | engine' == ClickHouse = onUser (readerUser engine') (#tableGrants %~ (CatalogTableGrant "alpha" "v3" "SELECT" :))
+            | otherwise = #databases %~ Map.adjust (#relations %~ map (\r -> if r ^. #name == "v3" then r & #grants %~ ((readerUser engine', "SELECT") :) else r)) "alpha"
+          raised
+            | engine' == ClickHouse = onUser (readerUser engine') (#settings %~ map (\c -> if c ^. #name == "max_threads" then c & #value ?~ "64" & #maximum ?~ "64" else c))
+            | otherwise = onUser (readerUser engine') (#connectionLimit .~ 50)
+      forM_ [("hand grant on v3", handGrant), ("raised ceiling", raised)] $ \(label, change) -> do
+        writeIORef world (change converged)
+        refusals <- observeAll ops accepted
+        assertBool (label <> ": " <> show refusals) (any (T.isPrefixOf grantDriftCode) refusals)
+      writeIORef world converged
+      desired <- membersFor engine' (withReader engine' ["v1"])
+      replanAgainst accepted ops desired >>= (@?= [userMember desired "alpha" "reader_dash"])
+      convergeAgainst accepted ops desired >>= expectRight
+      replanAgainst desired ops desired >>= (@?= [])
+      readIORef world >>= (@?= ["alpha.v1"]) . readerSelects engine'
+  , testCase "a retired reader cannot log in and holds no grant; the runtime user and every Secret are unchanged (IR-33 AC-7)" $ do
+      (world, ops, members) <- setup engine' (withReader engine' ["v1", "v2"]) []
+      convergeWithViews engine' world ops members ["v1", "v2"]
+      before <- readIORef world
+      retired <- membersFor engine' ((#access . #readers . traverse . #retired .~ True) . withReader engine' ["v1", "v2"])
+      let reader = userMember retired "alpha" "reader_dash"
+      (^. #enabled) <$> Map.lookup reader retired @?= Just False
+      replanAgainst members ops retired >>= (@?= [reader])
+      convergeAgainst members ops retired >>= expectRight
+      replanAgainst retired ops retired >>= (@?= [])
+      after <- readIORef world
+      (^. #login) <$> Map.lookup (readerUser engine') (after ^. #users) @?= Just False
+      readerSelects engine' after @?= []
+      [g | wdb <- Map.elems (after ^. #databases), g <- Set.toList (wdb ^. #grants), g ^. #grantee == readerUser engine'] @?= []
+      Map.delete (readerUser engine') (after ^. #users) @?= Map.delete (readerUser engine') (before ^. #users)
+      after ^. #secrets @?= before ^. #secrets
+  ]
+    <> [ testCase "a SECURITY DEFINER function PUBLIC may run, or a declared security_invoker view, refuses by its code (IR-33 AC-9)" $ do
+           (world, ops, members) <- setup engine' (withReader engine' ["v1", "v2"]) []
+           convergeWithViews engine' world ops members ["v1", "v2"]
+           converged <- readIORef world
+           writeIORef world (converged & #databases %~ Map.adjust (#functions .~ [CatalogFunction "public" "add_row" "x integer" ["PUBLIC"]]) "alpha")
+           refusals <- observeAll ops members
+           assertBool (show refusals) (any (T.isPrefixOf readerDefinerCode) refusals)
+           -- The app revokes PUBLIC EXECUTE in a migration: the plan passes.
+           writeIORef world (converged & #databases %~ Map.adjust (#functions .~ [CatalogFunction "public" "add_row" "x integer" []]) "alpha")
+           replan ops members >>= (@?= [])
+           writeIORef world (converged & #databases %~ Map.adjust (#relations %~ (<> [CatalogRelation "public" "vi" "v" ["security_invoker=true"] []])) "alpha")
+           invoker <- membersFor engine' (withReader engine' ["v1", "v2", "vi"])
+           invokerRefusals <- observeAllAgainst members ops invoker
+           assertBool (show invokerRefusals) (any (T.isPrefixOf readerInvokerCode) invokerRefusals)
+       | engine' == Postgres
+       ]
   where
     expectRight = either (assertFailure . T.unpack) pure
 
@@ -602,13 +742,16 @@ seedDrift _ world = world & #users %~ Map.adjust (#serverGrants %~ ("SELECT" :))
 
 -- Driver --------------------------------------------------------------------
 
--- | Users before databases, as their dependencies order them.
+-- | Users before databases, and readers after the databases they read
+-- (EP-206), as their dependencies order them.
 ordered :: Members -> [ResourceId]
-ordered members = [r | (r, m) <- Map.toList members, isUser m] <> [r | (r, m) <- Map.toList members, not (isUser m)]
+ordered members = [r | (r, m) <- Map.toList members, rank m == 0] <> [r | (r, m) <- Map.toList members, rank m == 1] <> [r | (r, m) <- Map.toList members, rank m == 2]
   where
-    isUser m = case m ^. #kind of
-      UserMember {} -> True
-      _ -> False
+    rank :: AppDatabaseMember -> Int
+    rank m = case m ^. #kind of
+      UserMember (ReaderRole _) _ _ _ _ -> 2
+      UserMember {} -> 0
+      _ -> 1
 
 adapterFor :: AppDatabaseOps -> Members -> Adapter
 adapterFor ops members = adapterAgainst members ops members

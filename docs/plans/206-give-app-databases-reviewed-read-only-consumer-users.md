@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-19T19:58:14Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-20T01:56:28Z
+      mode: "implement"
+      note: "M1 onward: engine proof, readers, grants, bindings"
 ---
 
 # Give app databases reviewed read-only consumer users
@@ -51,28 +57,40 @@ pending, and do not wedge the app database. For Kansoku, the reader is `dashboar
 
 ## Progress
 
-- [ ] M1 (engine proof). Reader statements and observations are proven by hand against
+- [x] M1 (engine proof). Reader statements and observations are proven by hand against
   `postgres:18` and `clickhouse/clickhouse-server:26.8`. They are committed as `-- operation:`
   blocks in `cli/nagarectl/test/fixtures/app-database/clickhouse.sql` and `postgres.sql`, with
   captured observations under `observed/`. Every question listed under M1 in Plan of Work is
   answered in the Decision Log. M1 does not depend on EP-204 and may run before it lands.
-- [ ] M2 (declaration). `AppDatabase` declares readers, each with a name, objects, limits,
+  Done 2026-10-20 on 26.8.29.10 and 18. The new blocks are `reader-access alpha_reader_dash
+  on|off` (both engines) and `observe-relations alpha`. The captures are
+  `observed/clickhouse-reader.jsonl` and `postgres-{server,database,relations}-reader.json`.
+- [x] M2 (declaration). `AppDatabase` declares readers, each with a name, objects, limits,
   consumers and a `retired` flag. `AppDatabaseRole` gains `ReaderRole`, and one token parser
   serves every consumer of the role token. Derived user and Secret names fit both engines'
   identifier limits. The loader refuses an object outside the app's own databases (IR-33
   AC-1), a repeated reader, a reader named `runtime` or `migration`, an invalid object
   identifier, and a reader missing any of its five ClickHouse ceilings.
-- [ ] M3 (members, grants and classification). Each reader compiles to a credential member and
+  Done 2026-10-20. Evidence: `AppDatabaseSpec` "readers, their objects and a workload's reader
+  bindings round-trip" and "a reader outside the app's databases ... refuses before planning".
+- [x] M3 (members, grants and classification). Each reader compiles to a credential member and
   a user member. The adapter creates, grants, limits and observes readers. Logical-database
   members accept declared reader grants. Anything else stays drift. Absent PostgreSQL objects
   plan as pending and are printed by `db app-database plan`. The two PostgreSQL write-path
   refusals hold. `AppDatabaseWorldSpec` proves IR-33 AC-1, AC-2, AC-4, AC-5 and AC-9 in the
   interpreter, and AC-3 against the M1 semantics.
-- [ ] M4 (credentials and binding). `rotate --user reader-<r>` rotates one reader, and a reader
+  Done 2026-10-20. Evidence: `AppDatabaseSqlSpec` pins the M1 blocks and classifies the
+  captured observations; `AppDatabaseWorldSpec` runs the whole EP-202 matrix "with a reader"
+  (every interruption, drift, rotation, retirement, server rebuild) and the "readers (EP-206)"
+  group on both engines.
+- [x] M4 (credentials and binding). `rotate --user reader-<r>` rotates one reader, and a reader
   declared `retired` is turned off by the next plan. Neither touches other users. A workload
   binds a reader through `appDatabaseReaders` only when the owning declaration lists its app,
   and then receives only that Secret. `appDatabases` never injects a reader. Render tests prove
   IR-33 AC-6 and AC-7.
+  Done 2026-10-20. Evidence: `AppDatabaseSpec` "a reader binds its own Secret for a declared
+  consumer only, after its user and databases, until it is retired", on both engines, including
+  `app-database-reader-in-use`.
 - [ ] M5 (backup, restore and docs). Rebuilt restore brings readers and their grants back, and
   scratch restore does not extend readers to scratch databases (IR-33 AC-8), on both engines.
   The "Sharing one server between apps" section of `docs/user/managed-databases.md` documents
@@ -262,6 +280,63 @@ pending, and do not wedge the app database. For Kansoku, the reader is `dashboar
   state lives, and it needs no new command, decider or lifecycle path.
   Date: 2026-10-19
 
+
+- Decision (M1): ClickHouse accepts a grant on a table that does not exist yet and reports it
+  exactly in `system.grants`, so ClickHouse grants every declared object up front and has
+  nothing pending. Only PostgreSQL objects can be pending.
+  Date: 2026-10-20
+
+- Decision (M1): each of the five ClickHouse ceilings is enforced: time (159 at 30 s), memory
+  (241), result rows (396), result bytes (396) and threads (a `SET` above it is refused).
+  - The result-bytes probe must send its rows to the client; under `FORMAT Null` the bytes are
+    not counted.
+  - `SET readonly = 0` is refused with 164, and a `SET` above a ceiling or to 0 with 452.
+  Date: 2026-10-20
+
+- Decision (M1): the PostgreSQL boundary is grants, as planned. With both role defaults
+  overridden, every write, DDL and temporary table is refused. A migration-owned `SECURITY
+  DEFINER` function that writes is callable through PUBLIC's default `EXECUTE` and does write;
+  after the app revokes it, the reader is refused. The refusal code
+  `app-database-reader-definer-function` closes that path.
+  Date: 2026-10-20
+
+- Decision: the reader rendering grants every declared object. It also revokes each held grant
+  that only the accepted declaration named; the adapter takes that list from the catalog it
+  has just read. Revoking a grant that is not held is a no-op, so a retry is still safe.
+  Rationale: a reader's objects are named, unlike EP-204's closed exception list, so the
+  rendering cannot revoke every possible other object.
+  Date: 2026-10-20
+
+- Decision: the PostgreSQL relation observation (`observe-relations`) runs for every app
+  database. It covers every non-system schema, and restricts the reported grants to the
+  scope's users.
+  Rationale: the transport does not know which users are readers, and one query per database
+  is cheap.
+  Date: 2026-10-20
+
+- Decision: readers live in `access`, which EP-204 left out of the backup schedule's
+  declaration digest (4b5739fd). Adding or changing a reader therefore keeps the schedule
+  revision, and M5's expectation that the digest changes is dropped.
+  Rationale: a backup holds no reader bytes, and restore re-applies the readers from the
+  accepted scope, not from the backup. A changed revision would block pruning of earlier runs
+  for nothing.
+  Date: 2026-10-20
+
+- Decision: one `ReaderAccess` record carries a reader command: its login, limits, granted and
+  revoked objects, and on PostgreSQL its databases and its (database, schema) pairs, each with
+  a revoked list. A schema counts only once it exists in that database, so a reader whose
+  objects are all pending still gets `CONNECT` and never a `USAGE` on a missing schema. The
+  reader user is ordered after the database members of its objects.
+  Rationale: the positional command granted `CONNECT` only through present objects, so a reader
+  declared before its views stayed incomplete forever, and a schema or database dropped from
+  the declaration could not be revoked.
+  Date: 2026-10-20
+
+- Decision: notes print on stderr as `note: <resource>: <text>` for every inventory plan, and
+  become the finding's `reason` in `inventory status`.
+  Rationale: one place serves `db app-database plan` and every other planner, and stdout keeps
+  its contract.
+  Date: 2026-10-20
 
 ## Outcomes & Retrospective
 

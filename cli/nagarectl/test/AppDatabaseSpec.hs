@@ -46,7 +46,7 @@ import Nagare.Inventory.Adapters.CredentialTemplate (credentialDataMatches, mate
 import Nagare.Inventory.AppDatabase
 import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope, onDemandBackupJobName, validOnDemandBackupId)
 import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
-import Nagare.Inventory.Application (DatabaseBinding, acceptedAppDatabaseBindings, acceptedDatabaseBindings, compileStandaloneWorkerWithDependencies)
+import Nagare.Inventory.Application (DatabaseBinding, acceptedAppDatabaseBindings, acceptedAppDatabaseReaderBindings, acceptedDatabaseBindings, compileStandaloneWorkerWithDependencies)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
 import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledAppDatabaseReceiptExpectationFromCronJob)
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
@@ -123,6 +123,32 @@ appDatabaseTests =
             refused (kansokuCh & #access . #runtime . #limits . #maxExecutionSeconds ?~ 0) "maxExecutionSeconds must be positive"
             refused (kansokuPg & #access . #runtime . #limits . #connectionLimit ?~ (-1)) "connectionLimit must be positive"
             refused (kansokuPg & #access . #runtime . #limits . #statementTimeoutSeconds ?~ 3000000) "statementTimeoutSeconds exceeds"
+        , testCase "readers, their objects and a workload's reader bindings round-trip; none emits no key (EP-206 M2)" $ do
+            decodeAppDatabases (LBS.toStrict (encodeAppDatabases [kansokuPgReader, kansokuChReader])) @?= Right [kansokuPgReader, kansokuChReader]
+            let retiredReader = kansokuPgReader & #access . #readers . traverse . #retired .~ True
+            decodeAppDatabases (LBS.toStrict (encodeAppDatabases [retiredReader])) @?= Right [retiredReader]
+            assertBool "an active reader emits no retired key" (not ("retired" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeAppDatabases [kansokuPgReader]))))
+            assertBool "no reader emits no readers key" (not ("readers" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeAppDatabases [kansokuPgAccess, kansokuChAccess]))))
+            let plain = either error id (webWorker "probe" "registry.example.com/probe")
+                bound = plain & #appDatabaseReaders .~ [Dsl.AppDatabaseReaderRef (known (mkAppDatabaseName "kansoku-ch")) (known (Dsl.mkReaderName "dashboards"))]
+            decodeWorker (LBS.toStrict (encodeWorker bound)) @?= Right bound
+            assertBool "an unbound worker keeps its bytes" (not ("appDatabaseReaders" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeWorker plain))))
+            appDatabaseUser (known (mkAppDatabaseName "kansoku-ch")) (ReaderRole (known (Dsl.mkReaderName "dashboards"))) @?= "kansoku_ch_reader_dashboards"
+            appDatabaseSecretName (known (mkAppDatabaseName "kansoku-ch")) (ReaderRole (known (Dsl.mkReaderName "dashboards"))) @?= "kansoku-ch-reader-dashboards"
+            parseAppDatabaseRole "reader-dashboards" @?= Just (ReaderRole (known (Dsl.mkReaderName "dashboards")))
+            mapM_ (\token -> parseAppDatabaseRole token @?= Nothing) ["reader-", "reader-runtime", "reader-Bad", "reader-a-b", "admin"]
+        , testCase "a reader outside the app's databases, the engine's objects or its required ceilings refuses before planning (IR-33 AC-1)" $ do
+            let onReader f db = db & #access . #readers . traverse %~ f
+                otherDb = ReaderRelation (logical "elsewhere") Nothing (known (mkRelationName "v"))
+                schemaView = ReaderSchemaViews (logical "analytics") (known (mkSchemaName "reporting"))
+            refused (kansokuChReader & onReader (#objects .~ (otherDb :| []))) "outside the app's own databases"
+            refused (kansokuChReader & onReader (#objects .~ (schemaView :| []))) "without a schema"
+            refused (kansokuChReader & onReader (#limits . #maxThreads .~ Nothing)) "missing maxThreads"
+            refused (kansokuChReader & onReader (#limits . #maxResultRows ?~ 0)) "must be positive"
+            refused (kansokuPgReader & onReader (#limits . #connectionLimit .~ Nothing)) "sets a connection limit"
+            refused (kansokuPgReader & onReader (#objects %~ \(o :| _) -> o :| [o])) "repeats an object"
+            refused (kansokuPgReader & #access . #readers %~ \rs -> rs <> rs) "repeats a reader"
+            mapM_ (\name -> isRight' (Dsl.mkReaderName name) @?= False) ["runtime", "migration", "has-hyphen", "Upper", "", T.replicate 17 "a"]
         ]
     , testGroup
         "scope"
@@ -145,7 +171,7 @@ appDatabaseTests =
                 specsOf s' = [member ^. #spec | bundle <- scopeBundles s', Managed member <- declarations bundle, member ^. #executor == AppDatabaseExecutor]
             forM_ [scope, pgScope] $ \s' -> (encodeCanonicalScope <$> decodeScope (encodeCanonicalScope s')) @?= Right (encodeCanonicalScope s')
             assertBool "the runtime extension is on the wire" ("system-parts" `T.isInfixOf` TE.decodeUtf8 (encodeCanonicalScope scope))
-            [access | DatabaseUserSpec _ "runtime" _ _ access <- specsOf scope] @?= [noUserAccess & #exceptions .~ [SystemParts]]
+            [access | DatabaseUserSpec _ "runtime" _ _ access <- specsOf scope] @?= [noUserExtension & #access . #exceptions .~ [SystemParts]]
             [monitoring | LogicalDatabase _ _ _ _ _ monitoring <- specsOf pgScope] @?= [[PgMonitor]]
             assertBool "the extension changes the user's digest" ([d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf scope] /= [d | DatabaseUserSpec _ "runtime" _ d _ <- specsOf (scopeOf chServer (alpha ClickHouse))])
         , testCase "declared access keeps the backup schedule's revision (EP-204)" $
@@ -367,6 +393,43 @@ appDatabaseTests =
             case compileWorker "alpha" (Just (Map.keys twoPostgres & map (known . mkAppDatabaseName . Dsl.databaseNameText))) twoPostgres of
               Left _ -> pure ()
               Right _ -> assertFailure "a workload bound two PostgreSQL databases"
+        , testCase "a reader binds its own Secret for a declared consumer only, after its user and databases, until it is retired (IR-33 AC-6, AC-7)" $
+            forM_ [(pgServer, alpha Postgres, "pg"), (chServer, alpha ClickHouse, "ch")] $ \(server', db, short) -> do
+              let dash retired' =
+                    AppDatabaseReader
+                      (known (Dsl.mkReaderName "dash"))
+                      (ReaderRelation (known (mkLogicalDatabaseName "alpha")) Nothing (known (mkRelationName "v1")) :| [])
+                      (defaultReaderLimits (db ^. #engine))
+                      [known (Dsl.mkServiceName "gamma-probe")]
+                      retired'
+                  ref = Dsl.AppDatabaseReaderRef (db ^. #name) (known (Dsl.mkReaderName "dash"))
+                  bindingsFor retired' consumer =
+                    let (compiled, native') = scopeAndNative server' (db & #access . #readers .~ [dash retired'])
+                     in ( compiled
+                        , acceptedAppDatabaseReaderBindings (snapshotWith [server'] [compiled]) (Map.union (acceptedNative [server']) native') testCluster "personal" (known (Dsl.mkServiceName consumer)) [ref]
+                        )
+                  secretName = "alpha-" <> short <> "-reader-dash"
+                  (scope, accepted) = bindingsFor False "gamma-probe"
+              bindings <- either (assertFailure . T.unpack) pure accepted
+              Map.keys bindings @?= [known (Dsl.mkDatabaseName secretName)]
+              (workerScope, workerNative) <- either (assertFailure . show) pure (compileWorkerWith "gamma" Nothing [ref] bindings)
+              nub (sort (concatMap (secretKeyRefs . snd) (Map.elems workerNative))) @?= [secretName]
+              let members = [m | bundle <- scopeBundles scope, Managed m <- declarations bundle]
+                  dependencies = concat [m ^. #dependencies | bundle <- scopeBundles workerScope, Managed m <- declarations bundle]
+                  readerMembers = [m ^. #identity | m <- members, DatabaseUserSpec _ "reader-dash" _ _ _ <- [m ^. #spec]] <> [m ^. #identity | m <- members, Kubernetes _ "" _ _ n <- [m ^. #address], nameText n == secretName]
+                  runtimeUser = [m ^. #identity | m <- members, DatabaseUserSpec _ "runtime" _ _ _ <- [m ^. #spec]]
+              assertBool "ordered after the reader's user and credential" (all (\r -> OrderedAfter r `elem` dependencies) readerMembers && length readerMembers == 2)
+              assertBool "not ordered after the runtime user" (not (any (\r -> OrderedAfter r `elem` dependencies) runtimeUser))
+              case snd (bindingsFor False "delta-probe") of
+                Left reason -> assertBool (T.unpack reason) ("app-database-reader-not-a-consumer" `T.isPrefixOf` reason)
+                Right _ -> assertFailure "a workload that is not a declared consumer bound the reader"
+              case snd (bindingsFor True "gamma-probe") of
+                Left reason -> assertBool (T.unpack reason) ("app-database-reader-retired" `T.isPrefixOf` reason)
+                Right _ -> assertFailure "a retired reader was bound"
+              -- Declaring it retired while a workload binds it is refused (EP-206).
+              case compileAgainst (snapshotWith [server'] [scope, workerScope]) [server'] (db & #access . #readers .~ [dash True]) of
+                Left errs -> assertBool (show errs) (any ((== "app-database-reader-in-use") . (^. #code)) (NE.toList errs))
+                Right _ -> assertFailure "a bound reader was retired"
         , testCase "an on-demand backup is the schedule's own Job, ingests like a scheduled run, and needs the migration user (IR-31 AC-5)" $
             forM_ [(pgServer, alpha Postgres), (chServer, alpha ClickHouse)] $ \(server', db) -> do
               let (scope, native) = scopeAndNative server' db
@@ -474,6 +537,19 @@ kansokuChAccess =
     & #access
     . #migration
     .~ UserAccess [SystemDisks, SystemStoragePolicies] (noUserLimits & #maxExecutionSeconds ?~ 3600)
+
+-- | Kansoku's dashboards reader on each engine (EP-206).
+kansokuChReader, kansokuPgReader :: AppDatabase
+kansokuChReader =
+  kansokuCh
+    & #access
+    . #readers
+    .~ [AppDatabaseReader (known (Dsl.mkReaderName "dashboards")) (ReaderRelation (logical "analytics") Nothing (known (mkRelationName "events_by_day")) :| [ReaderRelation (logical "analytics") Nothing (known (mkRelationName "sessions_view"))]) (defaultReaderLimits ClickHouse) [known (Dsl.mkServiceName "grafana")] False]
+kansokuPgReader =
+  kansokuPg
+    & #access
+    . #readers
+    .~ [AppDatabaseReader (known (Dsl.mkReaderName "grafana")) (ReaderSchemaViews (logical "kansoku") (known (mkSchemaName "reporting")) :| [ReaderRelation (logical "kansoku") Nothing (known (mkRelationName "daily_totals"))]) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "grafana")] False]
 
 alpha :: Engine -> AppDatabase
 alpha Postgres = AppDatabase (known (mkAppDatabaseName "alpha-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "alpha" :| []) noAppDatabaseAccess
@@ -611,7 +687,16 @@ compileWorker ::
   Maybe [AppDatabaseName] ->
   Map.Map Dsl.DatabaseName DatabaseBinding ->
   Either (NonEmpty InventoryError) (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
-compileWorker app names bindings =
+compileWorker app names = compileWorkerWith app names []
+
+-- | A probe worker binding app databases and readers (EP-206).
+compileWorkerWith ::
+  Text ->
+  Maybe [AppDatabaseName] ->
+  [Dsl.AppDatabaseReaderRef] ->
+  Map.Map Dsl.DatabaseName DatabaseBinding ->
+  Either (NonEmpty InventoryError) (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
+compileWorkerWith app names readers bindings =
   compileStandaloneWorkerWithDependencies
     (known (mkScopeId Standalone ("worker-" <> app <> "-probe")))
     worker
@@ -626,7 +711,7 @@ compileWorker app names bindings =
     bindings
     (SourceLocation "test" "worker")
   where
-    worker = either error id (webWorker (app <> "-probe") "registry.example.com/probe") & #appDatabases .~ fromMaybe [] names
+    worker = either error id (webWorker (app <> "-probe") "registry.example.com/probe") & #appDatabases .~ fromMaybe [] names & #appDatabaseReaders .~ readers
     rollout =
       RolloutEnv
         { appName = app <> "-probe"

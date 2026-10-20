@@ -95,6 +95,10 @@ module Nagare.Dsl.Types
     -- * AppDatabaseName
   , AppDatabaseName
   , mkAppDatabaseName
+  , ReaderName
+  , mkReaderName
+  , readerNameText
+  , AppDatabaseReaderRef (..)
   , appDatabaseNameText
 
     -- * MountPath
@@ -594,6 +598,31 @@ newtype DatabaseName = DatabaseName Text
 -- the backup CronJob name @nagare-dbbackup-\<name\>@ within Kubernetes' 52
 -- characters and the derived user names within PostgreSQL's 63. Constructor
 -- hidden; use 'mkAppDatabaseName'.
+-- | An app database reader's name (EP-206), @[a-z][a-z0-9]{0,15}@, never
+-- @runtime@ or @migration@: its user is @\<appdb\>_reader_\<name\>@, at
+-- most 60 characters.
+newtype ReaderName = ReaderName Text
+  deriving stock (Eq, Ord, Show)
+
+mkReaderName :: Text -> Either Text ReaderName
+mkReaderName t
+  | t `elem` ["runtime", "migration"] = Left ("reader name is reserved: " <> t)
+  | Text.null t || Text.length t > 16 = Left ("reader name is 1 to 16 characters: " <> t)
+  | not (maybe False (isAsciiLower . fst) (Text.uncons t)) || not (Text.all (\c -> isAsciiLower c || isDigit c) t) =
+      Left ("reader name is a lowercase letter then letters or digits: " <> t)
+  | otherwise = Right (ReaderName t)
+
+readerNameText :: ReaderName -> Text
+readerNameText (ReaderName t) = t
+
+-- | A workload's binding of one app database reader (EP-206): only a reader
+-- whose declaration lists the workload's app as a consumer binds.
+data AppDatabaseReaderRef = AppDatabaseReaderRef
+  { appDatabase :: !AppDatabaseName
+  , reader :: !ReaderName
+  }
+  deriving stock (Generic, Eq, Ord, Show)
+
 newtype AppDatabaseName = AppDatabaseName Text
   deriving stock (Eq, Ord, Show)
 
@@ -716,6 +745,9 @@ data Deployment = Deployment
   , appDatabases :: ![AppDatabaseName]
   -- ^ App databases on shared servers this app connects to (EP-202). A deploy
   -- injects only each one's runtime Secret. Empty by default.
+  , appDatabaseReaders :: ![AppDatabaseReaderRef]
+  -- ^ App database readers this app connects to (EP-206); each injects only
+  -- its own reader Secret. Empty by default.
   , brokers :: ![BrokerBinding]
   -- ^ Names of messaging brokers and topics this app connects to.
   -- Empty (the backward-compatible default) means the app uses no brokers.

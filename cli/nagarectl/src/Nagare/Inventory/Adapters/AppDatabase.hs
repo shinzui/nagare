@@ -34,8 +34,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Database.AppDatabase.Catalog
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash, hashPassword)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), MonitoringRole, UserAccess, grantExceptionToken, monitoringRoleToken, noUserAccess)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash, ReaderAccess (..), hashPassword)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), MonitoringRole, ReaderObject (..), UserAccess, UserExtension, UserLimits, grantExceptionToken, logicalDatabaseNameText, monitoringRoleToken, noUserExtension, noUserLimits, parseAppDatabaseRole, relationNameText, schemaNameText)
 import Nagare.Dsl.Database (Engine (..), parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
@@ -61,7 +61,7 @@ data ServerRef = ServerRef
 data MemberKind
   = -- | role, user, credential Secret namespace and name, and the desired
     -- reviewed access
-    UserMember !AppDatabaseRole !Text !Name !Name !UserAccess
+    UserMember !AppDatabaseRole !Text !Name !Name !UserExtension
   | -- | database, migration user, runtime user, and the tolerated monitoring
     -- roles
     DatabaseMember !Text !Text !Text ![MonitoringRole]
@@ -78,6 +78,8 @@ data AppDatabaseMember = AppDatabaseMember
   -- ^ a user whose login a reviewed quiesce closed (EP-205)
   , withheld :: ![Text]
   -- ^ a database's quiesced users, whose ClickHouse grants are withheld
+  , readers :: ![Text]
+  -- ^ a database's declared readers (EP-206)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -93,6 +95,10 @@ data CredentialSecret = CredentialSecret
 data CatalogCommand
   = CreateUser !Text !PasswordHash !Text
   | SetUserAccess !AppDatabaseRole !Text !UserLogin !UserAccess
+  | -- | EP-206: a reader's login, limits, the objects it is granted (or, when
+    -- it may not log in, revoked), the further objects revoked, and on
+    -- PostgreSQL the schemas it uses
+    SetReaderAccess !ReaderAccess
   | CreateDatabase !Text !Text
   | SetDatabaseAccess !DatabaseAccess
   | SetPassword !Text !PasswordHash
@@ -123,6 +129,11 @@ data AppDatabaseOps = AppDatabaseOps
   -- ^ one poll interval of a drain
   }
 
+isReaderRole :: AppDatabaseRole -> Bool
+isReaderRole = \case
+  ReaderRole _ -> True
+  _ -> False
+
 -- | Resolve every app-database member against the declarations in view
 -- (desired and accepted): its server StatefulSet and PVC, and, for a user,
 -- its credential Secret.
@@ -137,10 +148,7 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
     bind resource = do
       (stateful, engineText, kind', login) <- case (resource ^. #address, resource ^. #spec) of
         (DatabaseUser target user, DatabaseUserSpec engineText roleText login _ access) -> do
-          role' <- case roleText of
-            "runtime" -> Right RuntimeRole
-            "migration" -> Right MigrationRole
-            _ -> Left "app-database user has an unknown role"
+          role' <- maybe (Left "app-database user has an unknown role") Right (parseAppDatabaseRole roleText)
           (secretNamespace, secretName) <- credentialOf resource
           pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName access, login)
         (DatabaseName target db, LogicalDatabase engineText migration runtime on _ monitoring) ->
@@ -162,6 +170,10 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
             (login == LoginQuiesced)
             ( case kind' of
                 DatabaseMember {} -> sort [nameText user | member <- scope, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec _ _ LoginQuiesced _ _ <- [member ^. #spec]]
+                UserMember {} -> []
+            )
+            ( case kind' of
+                DatabaseMember {} -> sort [nameText user | member <- scope, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec _ role _ _ _ <- [member ^. #spec], maybe False isReaderRole (parseAppDatabaseRole role)]
                 UserMember {} -> []
             )
         )
@@ -220,7 +232,10 @@ mkAppDatabaseAdapter accepted members ops =
     , adapterVersion = "1"
     , adapterObserve = \resources -> do
         entries <- traverse observeOne resources
-        pure (sequence entries >>= observationSet)
+        pure $ do
+          observed <- sequence entries
+          set' <- observationSet [(resource', observation) | (resource', _, observation) <- observed]
+          pure (withObservationNotes (Map.fromList [(resource', note) | (resource', Just note, _) <- observed]) set')
     , adapterPrepare = \operation' -> pure $ do
         plan <- first (PrepareRefused (plannedOperationId operation')) (planFor operation')
         bytes <- first (PrepareRefused (plannedOperationId operation')) (canonicalValue (toJSON plan))
@@ -237,6 +252,7 @@ mkAppDatabaseAdapter accepted members ops =
           ("rotate", Right (MemberComplete _)) -> Right ()
           ("rotate", Right (MemberIncomplete _ _)) -> Right ()
           (_, Right (MemberDrift reason)) -> Left (grantDriftCode <> ": " <> reason)
+          (_, Right (MemberRefused code reason)) -> Left (code <> ": " <> reason)
           _ -> Left "app-database member observation differs from the reviewed action"
     , adapterExecute = \operation' prepared -> withPlan operation' prepared (pure . AdapterEffectFailed . KnownNoEffect) $ \plan member ->
         case plan ^. #action of
@@ -264,6 +280,7 @@ mkAppDatabaseAdapter accepted members ops =
           (Right MemberAbsent, _) -> RecoverySafeToRetry
           (Right (MemberIncomplete _ _), Right True) -> RecoverySafeToRetry
           (Right (MemberDrift reason), _) -> RecoveryUnresolved (grantDriftCode <> ": " <> reason)
+          (Right (MemberRefused code reason), _) -> RecoveryUnresolved (code <> ": " <> reason)
           (Right _, Right False) -> RecoveryUnresolved "app-database user exists with a password other than its Secret's; rotate it"
           (_, Left reason) -> RecoveryUnresolved reason
           (Left reason, _) -> RecoveryUnresolved reason
@@ -295,17 +312,24 @@ mkAppDatabaseAdapter accepted members ops =
       unless (plan == expected) (Left "private app-database plan differs from the reviewed operation")
       pure plan
     catalogFor member = observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
-    classify member catalog = case member ^. #kind of
+    classify member catalog = fst (classifyWithPending member catalog)
+    -- A reader's pending objects ride beside its state (EP-206).
+    classifyWithPending member catalog = case member ^. #kind of
+      UserMember (ReaderRole _) user _ _ desired ->
+        classifyReader (member ^. #server . #engine) (readerDeclaration member desired) user catalog
       UserMember role user _ _ desired ->
-        classifyUser (member ^. #server . #engine) (UserDeclaration role (member ^. #enabled) desired (acceptedAccess member)) user (member ^. #scopeDatabases) catalog
-      DatabaseMember db migration runtime monitoring -> classifyDatabase (accessOf member db migration runtime monitoring) catalog
+        (classifyUser (member ^. #server . #engine) (UserDeclaration role (member ^. #enabled) (desired ^. #access) (acceptedAccess member ^. #access)) user (member ^. #scopeDatabases) catalog, [])
+      DatabaseMember db migration runtime monitoring -> (classifyDatabase (accessOf member db migration runtime monitoring) catalog, [])
     accessOf member db migration runtime monitoring =
-      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled) monitoring (member ^. #withheld)
+      DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled) monitoring (member ^. #withheld) (member ^. #readers)
+    readerSpec extension = (\grant -> ReaderSpec (NE.toList (grant ^. #objects)) (extension ^. #access . #limits)) <$> extension ^. #reader
+    readerDeclaration member desired =
+      ReaderDeclaration (member ^. #enabled) (fromMaybe (ReaderSpec [] noUserLimits) (readerSpec desired)) (readerSpec (acceptedAccess member))
     -- The access the last reviewed plan declared; an item only it names is
     -- revoked or reset by review rather than refused as drift.
     acceptedAccess member = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
-      Just (DatabaseUserSpec _ _ _ _ access) -> access
-      _ -> noUserAccess
+      Just (DatabaseUserSpec _ _ _ _ extension) -> extension
+      _ -> noUserExtension
     stateOf member = fmap (classify member) <$> catalogFor member
     -- The member's state and whether its user accepts its Secret's password.
     stateAndCredential member = do
@@ -332,15 +356,22 @@ mkAppDatabaseAdapter accepted members ops =
       Nothing -> pure (Left "app-database resource is absent from the reviewed declarations")
       Just member -> do
         catalog <- catalogFor member
-        let state = classify member <$> catalog
+        let classified = classifyWithPending member <$> catalog
+            state = fst <$> classified
+            -- A reader's objects the app's migrations have not created yet.
+            note = case classified of
+              Right (_, pending@(_ : _)) -> Just ("pending: " <> T.intercalate ", " [fromMaybe (o ^. #database) (o ^. #schema) <> "." <> o ^. #relation | o <- pending])
+              _ -> Nothing
         credential <- case (state, catalog) of
           (Right MemberAbsent, _) -> pure (Right True)
           (Right (MemberDrift _), _) -> pure (Right True)
+          (Right (MemberRefused _ _), _) -> pure (Right True)
           (_, Right observed) | Map.member resource' accepted -> credentialMatches member observed
           _ -> pure (Right True)
-        pure . Right . (resource',) $ case (state, credential) of
+        pure . Right . (resource',note,) $ case (state, credential) of
           (Left reason, _) -> ObservationUnavailable reason
           (Right (MemberDrift reason), _) -> ObservationUnavailable (grantDriftCode <> ": " <> reason)
+          (Right (MemberRefused code reason), _) -> ObservationUnavailable (code <> ": " <> reason)
           (Right MemberAbsent, _) -> ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource' <> ":absent")))
           (_, Left reason) -> ObservationUnavailable reason
           (_, Right False) ->
@@ -355,6 +386,24 @@ mkAppDatabaseAdapter accepted members ops =
       | member ^. #quiesced = LoginQuiesced
       | member ^. #enabled = LoginOpen
       | otherwise = LoginClosed
+    -- A reader's grants are its resolved objects; what only the accepted
+    -- declaration named is revoked (drift never reaches here).
+    accessCommand member observed role user desired = case role of
+      ReaderRole _ ->
+        let engine' = member ^. #server . #engine
+            spec = fromMaybe (ReaderSpec [] noUserLimits) (readerSpec desired)
+            (present, _) = resolveReaderObjects engine' (spec ^. #objects) observed
+            held = readerHeldSelects engine' user observed
+            databases' = if engine' == ClickHouse then [] else readerDatabases (spec ^. #objects)
+            schemas = readerSchemas engine' (spec ^. #objects) observed
+            -- What the reader holds beyond its declaration now: only the
+            -- accepted declaration named it, or the classification refused.
+            heldDatabases = [db | engine' /= ClickHouse, (db, cdb) <- Map.toList (observed ^. #databases), g <- cdb ^. #grants, g ^. #grantee == user, g ^. #target == "database"]
+            heldSchemas = [(db, T.drop 7 (g ^. #target)) | engine' /= ClickHouse, (db, cdb) <- Map.toList (observed ^. #databases), g <- cdb ^. #grants, g ^. #grantee == user, "schema:" `T.isPrefixOf` (g ^. #target)]
+         in if member ^. #enabled
+              then SetReaderAccess (ReaderAccess user LoginOpen (spec ^. #limits) present (filter (`notElem` present) held) databases' (filter (`notElem` databases') heldDatabases) schemas (filter (`notElem` schemas) heldSchemas))
+              else SetReaderAccess (ReaderAccess user (loginOf member) (spec ^. #limits) (nub (present <> held)) [] [] (nub (databases' <> heldDatabases)) [] (nub (schemas <> heldSchemas)))
+      _ -> SetUserAccess role user (loginOf member) (desired ^. #access)
     loginOff user observed = maybe False ((== LoginOff) . (^. #login)) (Map.lookup user (observed ^. #users))
     identity physical = either (error . T.unpack) id (mkPhysicalIdentity physical)
     converge member = do
@@ -363,6 +412,7 @@ mkAppDatabaseAdapter accepted members ops =
         Left reason -> pure (AdapterEffectAmbiguous reason)
         Right observed -> case (classify member observed, member ^. #kind) of
           (MemberDrift reason, _) -> pure (AdapterEffectFailed (KnownNoEffect (grantDriftCode <> ": " <> reason)))
+          (MemberRefused code reason, _) -> pure (AdapterEffectFailed (KnownNoEffect (code <> ": " <> reason)))
           (state, UserMember role user secretNamespace secretName desired) -> do
             secret <- readCredential ops secretNamespace secretName
             case secret of
@@ -380,7 +430,7 @@ mkAppDatabaseAdapter accepted members ops =
                       Right True -> Nothing
                       Right False -> Just (AdapterEffectFailed (KnownNoEffect "app-database user exists with a password other than its Secret's; rotate it"))
                       Left reason -> Just (AdapterEffectAmbiguous reason)
-                maybe (finish (run member (SetUserAccess role user (loginOf member) desired))) pure created
+                maybe (finish (run member (accessCommand member observed role user desired))) pure created
           (state, DatabaseMember db migration runtime monitoring) -> do
             created <- case state of
               MemberAbsent -> run member (CreateDatabase db migration)
@@ -413,6 +463,7 @@ mkAppDatabaseAdapter accepted members ops =
       MemberComplete _ -> "complete"
       MemberIncomplete _ reason -> reason
       MemberDrift reason -> reason
+      MemberRefused code reason -> code <> ": " <> reason
     summary actionText member =
       actionText
         <> " app-database "
@@ -424,9 +475,16 @@ mkAppDatabaseAdapter accepted members ops =
         <> nameText (member ^. #server . #name)
         <> (if member ^. #quiesced then " (quiesced: login off)" else if member ^. #enabled then "" else " (retired: access off)")
         <> case member ^. #kind of
-          UserMember _ _ _ _ access | actionText /= "rotate" -> describeAccess access
+          UserMember _ _ _ _ extension | actionText /= "rotate" -> describeReader (extension ^. #reader) <> describeAccess (extension ^. #access)
           DatabaseMember _ _ _ monitoring@(_ : _) -> "; tolerates grants to " <> T.intercalate ", " (map monitoringRoleToken monitoring)
           _ -> ""
+    -- A reader's objects (IR-33 AC-1).
+    describeReader = \case
+      Nothing -> ""
+      Just grant -> "; objects " <> T.intercalate ", " (map describeObject (NE.toList (grant ^. #objects)))
+    describeObject = \case
+      ReaderRelation db schema' relation' -> logicalDatabaseNameText db <> "." <> maybe "" ((<> ".") . schemaNameText) schema' <> relationNameText relation'
+      ReaderSchemaViews db schema' -> logicalDatabaseNameText db <> "." <> schemaNameText schema' <> ".* (views)"
     -- The saved plan names each declared exception and limit (IR-30 AC-1).
     describeAccess access =
       mconcat
@@ -442,6 +500,9 @@ mkAppDatabaseAdapter accepted members ops =
                   , ("maxConcurrentQueries", limits' ^. #maxConcurrentQueries)
                   , ("connectionLimit", limits' ^. #connectionLimit)
                   , ("statementTimeoutSeconds", limits' ^. #statementTimeoutSeconds)
+                  , ("maxResultRows", limits' ^. #maxResultRows)
+                  , ("maxResultBytes", limits' ^. #maxResultBytes)
+                  , ("maxThreads", limits' ^. #maxThreads)
                   ]
           , any (isJust . snd) limitList
           ]

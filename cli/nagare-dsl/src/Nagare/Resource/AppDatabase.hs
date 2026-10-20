@@ -17,6 +17,7 @@ import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
+import Data.Set qualified as Set
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Database (engineToken)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -76,10 +77,17 @@ appDatabaseCredentialTemplate db role =
               .= object
                 [ "nagare.dev/credential-template" .= ("app-database-v1" :: Text)
                 , "nagare.dev/app-database-user" .= appDatabaseUser (db ^. #name) role
-                , "nagare.dev/app-database-db" .= logicalDatabaseNameText (NE.head (db ^. #logicalDatabases))
+                , "nagare.dev/app-database-db" .= logicalDatabaseNameText (credentialDatabase db role)
                 ]
           ]
     ]
+
+-- | The database a credential opens: a reader's first object's, everyone
+-- else's first logical database.
+credentialDatabase :: AppDatabase -> AppDatabaseRole -> LogicalDatabaseName
+credentialDatabase db = \case
+  ReaderRole reader | Just r <- appDatabaseReader db reader -> NE.head (r ^. #objects) ^. #database
+  _ -> NE.head (db ^. #logicalDatabases)
 
 -- | Compile the members. The digest callback is supplied by nagarectl, which
 -- owns content hashing; the returned objects are the native credential
@@ -90,8 +98,8 @@ compileAppDatabase ::
   Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
 compileAppDatabase digestOf input = do
   _ <- first invalid (validateAppDatabase db)
-  credentials <- traverse credential [RuntimeRole, MigrationRole]
-  users <- traverse user [RuntimeRole, MigrationRole]
+  credentials <- traverse credential (appDatabaseRoles db)
+  users <- traverse user (appDatabaseRoles db)
   databases <- traverse logicalDatabase (NE.toList (db ^. #logicalDatabases))
   backup <- maybe (pure []) (backupBundle (map (^. #identity) databases)) (input ^. #backupSchedule)
   pure
@@ -130,8 +138,17 @@ compileAppDatabase digestOf input = do
       pure (declaration {dependencies = namespaceDependency}, value)
     user role = do
       let userAccess = appDatabaseUserAccess db role
+          declaredReader = case role of
+            ReaderRole reader -> appDatabaseReader db reader
+            _ -> Nothing
+          grant = (\r -> ReaderGrant (r ^. #objects) (r ^. #consumers)) <$> declaredReader
+          -- A retired reader keeps its Secret and declaration; its login and
+          -- grants are off (EP-206).
+          login = if maybe False (^. #retired) declaredReader then LoginClosed else LoginOpen
       resource <- roleId role "-user"
       credentialId <- roleId role "-credential"
+      -- A reader is granted inside its objects' databases, so it follows them.
+      objectDatabases <- traverse (\name -> memberId ("database-" <> name)) (Set.toList (Set.fromList [logicalDatabaseNameText (o ^. #database) | Just g <- [grant], o <- NE.toList (g ^. #objects)]))
       userName <- first invalid (mkName (appDatabaseUser (db ^. #name) role))
       digest <-
         first invalid $
@@ -144,6 +161,7 @@ compileAppDatabase digestOf input = do
                 ]
                   -- Only when declared, so an unchanged user keeps its v0.7 digest.
                   <> ["access" .= userAccess | userAccess /= noUserAccess]
+                  <> ["reader" .= g | Just g <- [grant]]
             )
       pure
         ManagedResource
@@ -152,11 +170,11 @@ compileAppDatabase digestOf input = do
           , executor = AppDatabaseExecutor
           , address = DatabaseUser stateful userName
           , aliases = []
-          , spec = DatabaseUserSpec (engineToken engine) (appDatabaseRoleToken role) LoginOpen digest userAccess
+          , spec = DatabaseUserSpec (engineToken engine) (appDatabaseRoleToken role) login digest (UserExtension userAccess grant)
           , lifecycle = Retain
           , dataPolicy = Stateless
           , sensitivity = Private
-          , dependencies = [OrderedAfter stateful, OrderedAfter credentialId]
+          , dependencies = [OrderedAfter stateful, OrderedAfter credentialId] <> map OrderedAfter objectDatabases
           , delegations = []
           , source = sourceAt (appDatabaseRoleToken role <> "-user")
           }

@@ -70,7 +70,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified
-import Nagare.Dsl.AppDatabase (validUserAccess)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (ReaderRole), parseAppDatabaseRole, validUserAccess)
 import Nagare.Dsl.Database (parseEngine)
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Access (validAccessEndpoint)
@@ -117,6 +117,12 @@ scopeConfigDigest (ScopeDeclaration _ digest _ _) = digest
 
 withScopeConfigDigest :: ContentDigest -> ScopeDeclaration -> ScopeDeclaration
 withScopeConfigDigest digest (ScopeDeclaration s _ overrides bs) = ScopeDeclaration s (Just digest) overrides bs
+
+-- | Whether a user spec's role is a reader, which alone carries a reader grant.
+isReader :: AppDatabaseRole -> Bool
+isReader = \case
+  ReaderRole _ -> True
+  _ -> False
 
 -- | Public, nonsecret command inputs that changed the compiled intent. The
 -- caller supplies only reviewed values; keys and values are sorted by Map.
@@ -219,8 +225,10 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (DatabaseName _ _, LogicalDatabase engine _ _ _ _ monitoring) ->
         engine `elem` ["postgres", "clickhouse"] && (engine == "postgres" || null monitoring) && length (nub monitoring) == length monitoring
       (DatabaseName {}, _) -> False
-      (DatabaseUser _ _, DatabaseUserSpec engine role _ _ access) ->
-        engine `elem` ["postgres", "clickhouse"] && role `elem` ["runtime", "migration"] && maybe False (\e -> isRight (validUserAccess e access)) (parseEngine engine)
+      (DatabaseUser _ _, DatabaseUserSpec engine role _ _ extension) ->
+        engine `elem` ["postgres", "clickhouse"]
+          && maybe False (\parsed -> isReader parsed == isJust (extension ^. #reader)) (parseAppDatabaseRole role)
+          && maybe False (\e -> isRight (validUserAccess e (extension ^. #access))) (parseEngine engine)
       (DatabaseUser {}, _) -> False
       (Helm {}, HelmRelease {}) -> True
       (Helm {}, _) -> False

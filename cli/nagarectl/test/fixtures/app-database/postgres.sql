@@ -167,3 +167,44 @@ GRANT CONNECT, TEMPORARY ON DATABASE "alpha_restore_r1" TO "alpha_runtime";
 --   pg_restore --exit-on-error -U "$POSTGRES_USER" -d alpha "$DUMP"
 -- Empty means: no relation outside pg_catalog and information_schema.
 SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\_toast%';
+
+-- operation: reader-access alpha_reader_dash on
+-- EP-206 M1. The read-only boundary is grants: CONNECT, USAGE on the objects' schemas and
+-- SELECT on each declared object. With default_transaction_read_only = off and
+-- statement_timeout = 0 set in the session, INSERT, UPDATE, DELETE (permission denied for
+-- table base), INSERT into a view, CREATE TABLE (permission denied for schema public) and
+-- CREATE TEMPORARY TABLE are still refused; the role defaults are advisory and stored as
+-- default_transaction_read_only=on and statement_timeout=30s. The reader reads the
+-- migration-owned views and is refused on their base table; a security_invoker=true view
+-- fails with permission denied for table base. A migration-owned SECURITY DEFINER function
+-- that inserts is callable through PUBLIC EXECUTE and writes; after REVOKE EXECUTE ... FROM
+-- PUBLIC it is refused. CONNECTION LIMIT + 1 is refused (too many connections for role).
+ALTER ROLE "alpha_reader_dash" LOGIN CONNECTION LIMIT 5;
+ALTER ROLE "alpha_reader_dash" SET statement_timeout = '30s';
+ALTER ROLE "alpha_reader_dash" SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE "alpha" TO "alpha_reader_dash";
+\connect "alpha"
+GRANT USAGE ON SCHEMA "public" TO "alpha_reader_dash";
+GRANT SELECT ON "public"."v1" TO "alpha_reader_dash";
+GRANT SELECT ON "public"."v2" TO "alpha_reader_dash";
+REVOKE SELECT ON "public"."vi" FROM "alpha_reader_dash";
+-- operation: reader-access alpha_reader_dash off
+ALTER ROLE "alpha_reader_dash" NOLOGIN CONNECTION LIMIT 5;
+ALTER ROLE "alpha_reader_dash" SET statement_timeout = '30s';
+ALTER ROLE "alpha_reader_dash" SET default_transaction_read_only = on;
+SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'alpha_reader_dash';
+REVOKE CONNECT ON DATABASE "alpha" FROM "alpha_reader_dash";
+\connect "alpha"
+REVOKE USAGE ON SCHEMA "public" FROM "alpha_reader_dash";
+REVOKE SELECT ON "public"."v1" FROM "alpha_reader_dash";
+REVOKE SELECT ON "public"."v2" FROM "alpha_reader_dash";
+
+-- operation: observe-relations alpha
+-- Run with -d alpha. Every table, partitioned table, view and materialized view outside the
+-- system schemas, its reloptions (security_invoker=true marks an invoker view) and the
+-- given users' grants on it, and every SECURITY DEFINER function with the grantees among
+-- PUBLIC and the users that may execute it.
+SELECT json_build_object(
+  'relations', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', c.relname, 'kind', c.relkind::text, 'options', coalesce(to_json(c.reloptions), '[]'), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', pg_get_userbyid(a.grantee), 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('alpha_reader_dash')))) ORDER BY n.nspname, c.relname), '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'p', 'v', 'm')),
+  'definerFunctions', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', p.proname, 'signature', pg_get_function_identity_arguments(p.oid), 'executors', (SELECT coalesce(json_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END ORDER BY 1), '[]') FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.privilege_type = 'EXECUTE' AND (a.grantee = 0 OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('alpha_reader_dash'))))) ORDER BY n.nspname, p.proname), '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' AND p.prosecdef)
+);

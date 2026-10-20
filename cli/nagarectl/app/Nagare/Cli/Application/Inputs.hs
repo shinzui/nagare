@@ -18,7 +18,9 @@ import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( AppDatabaseName
+  , AppDatabaseReaderRef
   , DatabaseName
+  , ServiceName
   , databaseNameText
   , mkServiceName
   , serviceNameText
@@ -26,6 +28,7 @@ import Nagare.Dsl.Types
 import Nagare.Inventory.Application
   ( DatabaseBinding
   , acceptedAppDatabaseBindings
+  , acceptedAppDatabaseReaderBindings
   , acceptedDatabaseBindings
   )
 import Nagare.Inventory.Command qualified as Inventory
@@ -93,9 +96,11 @@ reviewedStandaloneDatabases ::
   Text ->
   [DatabaseName] ->
   [AppDatabaseName] ->
+  ServiceName ->
+  [AppDatabaseReaderRef] ->
   IO (Map DatabaseName DatabaseBinding)
-reviewedStandaloneDatabases _ _ _ _ [] [] = pure Map.empty
-reviewedStandaloneDatabases active snapshot cluster namespaceName names appNames = do
+reviewedStandaloneDatabases _ _ _ _ [] [] _ [] = pure Map.empty
+reviewedStandaloneDatabases active snapshot cluster namespaceName names appNames consumer readerRefs = do
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   inventory <-
@@ -109,8 +114,10 @@ reviewedStandaloneDatabases active snapshot cluster namespaceName names appNames
   direct <- either dieT pure (acceptedDatabaseBindings snapshot native cluster namespaceName names)
   -- EP-202: app databases bind their runtime credential only.
   apps <- either dieT pure (acceptedAppDatabaseBindings snapshot native cluster namespaceName appNames)
-  unless (Map.disjoint direct apps) (dieT "a workload names one database twice across databases and appDatabases")
-  pure (Map.union direct apps)
+  -- EP-206: a reader binds its own credential, for a declared consumer only.
+  readers <- either dieT pure (acceptedAppDatabaseReaderBindings snapshot native cluster namespaceName consumer readerRefs)
+  unless (Map.disjoint direct apps && Map.disjoint (Map.union direct apps) readers) (dieT "a workload names one database twice across databases, appDatabases and appDatabaseReaders")
+  pure (Map.unions [direct, apps, readers])
 
 validateInlineReleaseAdoption ::
   ResourceInventory.ScopeDeclaration -> Text -> InventoryLifecycle.AdoptionInput -> IO ()

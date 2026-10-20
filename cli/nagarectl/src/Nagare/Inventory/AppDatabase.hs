@@ -246,6 +246,37 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
   unless
     (Map.size nativeById == length native && Set.fromList (map fst native) == Map.keysSet nativeById)
     (Left (invalid (Just owner) "app-database native members share an identity"))
+  -- A retired reader (EP-206) stays declared; it is refused while an accepted
+  -- workload outside the scope still binds its credential or user.
+  let members = [member | Managed member <- declarations bundle]
+      retiredRoles = [role | member <- members, DatabaseUserSpec _ role LoginClosed _ extension <- [member ^. #spec], isJust (extension ^. #reader)]
+      retiredSecrets = Set.fromList [appDatabaseNameText (db ^. #name) <> "-" <> role | role <- retiredRoles]
+      retired =
+        Set.fromList
+          ( [member ^. #identity | member <- members, Kubernetes _ "" _ _ name <- [member ^. #address], Set.member (nameText name) retiredSecrets]
+              <> [member ^. #identity | member <- members, DatabaseUserSpec _ role LoginClosed _ _ <- [member ^. #spec], role `elem` retiredRoles]
+          )
+      readerConsumers =
+        [ member
+        | (other, (_, otherScope)) <- Map.toList (snapshotScopes snapshot)
+        , other /= owner
+        , member <- scopeMembers otherScope
+        , any (\case OrderedAfter producer -> Set.member producer retired; _ -> False) (member ^. #dependencies)
+        ]
+  unless
+    (null readerConsumers)
+    ( Left
+        ( ( inventoryError "app-database-reader-in-use" "an accepted workload still binds a retired reader; remove its appDatabaseReaders binding first"
+              & #scopes
+              .~ [owner]
+              & #resources
+              .~ map (^. #identity) readerConsumers
+              & #sources
+              .~ [source]
+          )
+            :| []
+        )
+    )
   scope <- mkScopeDeclaration owner [bundle]
   pure (scope, nativeById)
   where
@@ -549,7 +580,8 @@ appDatabaseRows snapshot =
       serverNamespace
       engineText
       [nameText db | member <- members, DatabaseName _ db <- [member ^. #address]]
-      (and [login == LoginClosed | member <- members, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]])
+      -- A retired reader does not retire the app database (EP-206).
+      (and [login == LoginClosed | member <- members, DatabaseUserSpec _ "runtime" login _ _ <- [member ^. #spec]])
       (or [login == LoginQuiesced | member <- members, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]])
   | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
   , "appdb-" `T.isPrefixOf` nameText (scopeName owner)

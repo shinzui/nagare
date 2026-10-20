@@ -162,6 +162,8 @@ runWorkerPlan mctx options output = do
       (namespaceText (worker ^. #namespace))
       (worker ^. #databases)
       (worker ^. #appDatabases)
+      (worker ^. #name)
+      (worker ^. #appDatabaseReaders)
   let app =
         Application
           { name = worker ^. #name

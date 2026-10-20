@@ -17,9 +17,11 @@ module Nagare.Test.World.AppDatabase
 where
 
 import Control.Exception (throwIO)
+import Control.Monad (foldM)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.IORef
+import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -27,7 +29,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Database.AppDatabase.Catalog
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), clickHouseCeilings, clickhouseHashMatches, postgresTimeout, scramVerifierMatches)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), ReaderAccess (..), clickHouseCeilings, clickhouseHashMatches, postgresTimeout, scramVerifierMatches)
 import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
@@ -46,6 +48,8 @@ data WorldUser = WorldUser
   , inheritedProfiles :: ![Text]
   , connectionLimit :: !Int
   , roleSettings :: ![Text]
+  , tableGrants :: ![CatalogTableGrant]
+  -- ^ ClickHouse: a reader's SELECT per declared object (EP-206)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -57,6 +61,11 @@ data WorldDatabase = WorldDatabase
   , defaultRoles :: ![Text]
   , otherSchemas :: !(Map Text Text)
   -- ^ schemas an app's migration created, with their owners
+  , relations :: ![CatalogRelation]
+  -- ^ PostgreSQL: the tables and views an app's migration created, with
+  -- their readers' grants (EP-206)
+  , functions :: ![CatalogFunction]
+  -- ^ PostgreSQL: SECURITY DEFINER functions and who may execute them
   }
   deriving stock (Generic, Eq, Show)
 
@@ -127,6 +136,7 @@ worldCatalog world =
         (u ^. #inheritedProfiles)
         (if world ^. #engine == ClickHouse then Nothing else Just (u ^. #connectionLimit))
         (u ^. #roleSettings)
+        (u ^. #tableGrants)
     database db =
       CatalogDatabase
         (db ^. #physical)
@@ -135,6 +145,8 @@ worldCatalog world =
         (if world ^. #engine == ClickHouse then Map.empty else Map.insert "public" (db ^. #publicSchemaOwner) (db ^. #otherSchemas))
         (db ^. #defaultRoles)
         []
+        (db ^. #relations)
+        (db ^. #functions)
 
 worldOps :: IORef World -> IORef Adversary -> AppDatabaseOps
 worldOps ref adversary =
@@ -207,7 +219,7 @@ interpret :: CatalogCommand -> World -> Either Text World
 interpret command world = case command of
   CreateUser name hash _
     | Map.member name (world ^. #users) -> Left ("role " <> name <> " already exists")
-    | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True [] [] [] [] (-1) []))
+    | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True [] [] [] [] (-1) [] []))
   -- As M1 proved: the declared exceptions are granted and every other
   -- allow-listed one revoked (a grant outside the list stays), the one
   -- SETTINGS statement replaces the whole settings list, CONNECTION LIMIT
@@ -241,7 +253,7 @@ interpret command world = case command of
   CreateDatabase name owner'
     | Map.member name (world ^. #databases) ->
         if engine' == ClickHouse then Right world else Left ("database " <> name <> " already exists")
-    | engine' == ClickHouse -> Right (world & #databases %~ Map.insert name (WorldDatabase (fresh "database" name) owner' Set.empty "" [] Map.empty))
+    | engine' == ClickHouse -> Right (world & #databases %~ Map.insert name (WorldDatabase (fresh "database" name) owner' Set.empty "" [] Map.empty [] []))
     | otherwise ->
         Right
           ( world
@@ -261,8 +273,72 @@ interpret command world = case command of
                     "pg_database_owner"
                     []
                     Map.empty
+                    []
+                    []
                 )
           )
+  -- As M1 proved: a reader's grants are exactly its statements; on
+  -- PostgreSQL each one names an existing database, schema and relation, or
+  -- the block stops.
+  SetReaderAccess access
+    | engine' == ClickHouse -> withUser (access ^. #user) $ \u ->
+        let selects = [CatalogTableGrant (o ^. #database) (o ^. #relation) "SELECT" | o <- access ^. #granted]
+            dropped = [CatalogTableGrant (o ^. #database) (o ^. #relation) "SELECT" | o <- access ^. #revoked]
+            kept = filter (`notElem` (selects <> dropped)) (u ^. #tableGrants)
+         in u
+              & #login
+              .~ on
+              & #tableGrants
+              .~ (kept <> (if on then selects else []))
+              & #settings
+              .~ readerSettings (access ^. #limits)
+              & #inheritedProfiles
+              .~ []
+    | otherwise -> do
+        let user' = access ^. #user
+            databases' = nub (access ^. #databases <> access ^. #revokedDatabases <> map (^. #database) (access ^. #granted <> access ^. #revoked))
+        roled <-
+          withUser user' $ \u ->
+            u
+              & #login
+              .~ on
+              & #connectionLimit
+              .~ fromMaybe (-1) (access ^. #limits . #connectionLimit)
+              & #roleSettings
+              .~ ( filter (\e -> not (any (`T.isPrefixOf` e) ["statement_timeout=", "default_transaction_read_only="])) (u ^. #roleSettings)
+                     <> readerRoleSettings (access ^. #limits)
+                 )
+        let stopped = if on then roled else roled & #sessions %~ Map.insert user' 0
+        foldM
+          ( \w db -> case Map.lookup db (w ^. #databases) of
+              Nothing -> Left ("database " <> db <> " does not exist")
+              Just found -> do
+                let connect = CatalogGrant user' "database" "CONNECT"
+                    schemaGrant sc = CatalogGrant user' ("schema:" <> sc) "USAGE"
+                    exists sc = sc == "public" || Map.member sc (found ^. #otherSchemas)
+                    granted' = [o | o <- access ^. #granted, o ^. #database == db]
+                    revoked' = [o | o <- access ^. #revoked, o ^. #database == db]
+                    declaredSchemas = [sc | (db', sc) <- access ^. #schemas, db' == db]
+                    droppedSchemas = [sc | (db', sc) <- access ^. #revokedSchemas, db' == db]
+                    relationOf o r = r ^. #schema == fromMaybe "public" (o ^. #schema) && r ^. #name == o ^. #relation
+                    missing = [o ^. #relation | o <- granted' <> revoked', not (any (relationOf o) (found ^. #relations))]
+                unless (all exists (declaredSchemas <> droppedSchemas)) (Left ("schema does not exist in " <> db))
+                unless (null missing) (Left ("relation " <> T.intercalate ", " missing <> " does not exist"))
+                let grants' =
+                      (if on && db `elem` access ^. #databases then Set.insert connect else Set.delete connect)
+                        . flip (foldr (\sc -> if on then Set.insert (schemaGrant sc) else Set.delete (schemaGrant sc))) declaredSchemas
+                        . flip (foldr (Set.delete . schemaGrant)) droppedSchemas
+                        $ found ^. #grants
+                    relation' r
+                      | any (`relationOf` r) granted' = r & #grants %~ (\gs -> filter (/= (user', "SELECT")) gs <> [(user', "SELECT") | on])
+                      | any (`relationOf` r) revoked' = r & #grants %~ filter (/= (user', "SELECT"))
+                      | otherwise = r
+                Right (w & #databases %~ Map.insert db (found & #grants .~ grants' & #relations %~ map relation'))
+          )
+          stopped
+          databases'
+    where
+      on = access ^. #login == LoginOpen
   SetDatabaseAccess access ->
     -- PostgreSQL access-on also revokes PUBLIC from the system databases.
     (if access ^. #enabled then #publicSystemAccess .~ False else id) <$> withDatabase (access ^. #database) (setAccess access)

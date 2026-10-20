@@ -5,6 +5,8 @@ module Nagare.Inventory.Application.Bindings
   , acceptedBrokerBindings
   , acceptedDatabaseBindings
   , acceptedAppDatabaseBindings
+  , acceptedAppDatabaseReaderBindings
+  , appDatabaseReaderKey
   , acceptedImageBuildSecrets
   , acceptedImageResourceForDestination
   , acceptedSecretBindings
@@ -17,6 +19,7 @@ import Data.Aeson (Value (Object, String))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -28,6 +31,7 @@ import Nagare.Broker.Connection
   , brokerConnectionEnv
   , mergeBrokerConnectionEnvs
   )
+import Nagare.Dsl.AppDatabase (logicalDatabaseNameText)
 import Nagare.Dsl.Broker
   ( BrokerBinding (..)
   , BrokerName
@@ -40,6 +44,7 @@ import Nagare.Dsl.Database (dbSecretName, engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( AppDatabaseName
+  , AppDatabaseReaderRef
   , DatabaseName
   , ScopedEnvVar
   , SecretName
@@ -47,6 +52,7 @@ import Nagare.Dsl.Types
   , databaseNameText
   , mkDatabaseName
   , mkSecretName
+  , readerNameText
   )
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapters.CredentialTemplate (appDatabaseCredentialKind)
@@ -77,7 +83,7 @@ import Nagare.Resource.Inventory
   )
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-  ( ProviderAddress (Artifact, BrokerTopic, DatabaseUser, Kubernetes)
+  ( ProviderAddress (Artifact, BrokerTopic, DatabaseName, DatabaseUser, Kubernetes)
   , ResourceId
   , ScopeKind (Platform, Publication, Standalone)
   , SourceLocation (path)
@@ -562,7 +568,8 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
       unless
         -- A quiesced app database still binds (EP-205): its pods fail to
         -- connect until resume, as running ones do.
-        (and [login /= LoginClosed | member <- logical, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]])
+        -- A retired reader does not retire the app database (EP-206).
+        (and [login /= LoginClosed | member <- logical, DatabaseUserSpec _ "runtime" login _ _ <- [member ^. #spec]])
         (Left ("app database " <> appName <> " is retired"))
       stateful <- case [target | member <- logical, DatabaseUser target _ <- [member ^. #address]] of
         target : _ -> Right target
@@ -571,4 +578,80 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName names = do
       service <- case [member | member <- allMembers, resourceIdText (member ^. #identity) == prefix <> "/service"] of
         [found] -> Right found
         _ -> Left "accepted app-database server has no unique Service"
-      pure (key, AppDatabaseBinding (AppDatabaseBound service credential logical engine))
+      pure (key, AppDatabaseBinding (AppDatabaseBound service credential logical engine (appName <> "-runtime")))
+
+-- | A reader binding's key and Secret name: @<appdb>-reader-<reader>@.
+appDatabaseReaderKey :: AppDatabaseReaderRef -> T.Text
+appDatabaseReaderKey ref = appDatabaseNameText (ref ^. #appDatabase) <> "-reader-" <> readerNameText (ref ^. #reader)
+
+-- | A workload's reader bindings (EP-206): each resolves to its reader's own
+-- Secret, only when the reader's declaration lists the workload's app as a
+-- consumer and the reader is not retired. The workload is ordered after the
+-- reader's credential and user and the databases its objects live in.
+acceptedAppDatabaseReaderBindings ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  T.Text ->
+  Dsl.ServiceName ->
+  [AppDatabaseReaderRef] ->
+  Either T.Text (Map DatabaseName DatabaseBinding)
+acceptedAppDatabaseReaderBindings snapshot native cluster namespaceName consumer refs = do
+  pairs <- traverse resolve refs
+  let bindings = Map.fromList pairs
+  unless (length pairs == Map.size bindings) (Left "app database reader bindings repeat a reader")
+  pure bindings
+  where
+    scopes = Map.toList (snapshotScopes snapshot)
+    members scope = [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle]
+    allMembers = concatMap (members . snd . snd) scopes
+    resolve ref = do
+      let appName = appDatabaseNameText (ref ^. #appDatabase)
+          readerName = readerNameText (ref ^. #reader)
+          secretName = appDatabaseReaderKey ref
+          role = "reader-" <> readerName
+      key <- mkDatabaseName secretName
+      secretAddress <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) secretName
+      (credential, scopeMembers) <-
+        case [ (credential', members scope)
+             | (owner, (_, scope)) <- scopes
+             , scopeKind owner == Standalone
+             , "appdb-" `T.isPrefixOf` nameText (scopeName owner)
+             , credential' <- members scope
+             , credential' ^. #address == secretAddress
+             ] of
+          [found] -> Right found
+          _ -> Left ("app database " <> appName <> " has no accepted reader " <> readerName <> " in namespace " <> namespaceName)
+      (_, bytes) <- case Map.lookup (credential ^. #identity) native of
+        Just pair@(member, _) | member == credential -> Right pair
+        _ -> Left "accepted app-database reader credential has no matching private native template"
+      value <- first (T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      template <- appDatabaseCredentialKind value
+      engine <- case template of
+        Just found
+          | found ^. #appDatabase == appName
+          , found ^. #role == role
+          , found ^. #namespace == namespaceName ->
+              Right (found ^. #engine)
+        _ -> Left "accepted app-database credential is not this reader's credential"
+      let logical = filter ((== AppDatabaseExecutor) . (^. #executor)) scopeMembers
+      (user, grant, login) <- case [(member, extension, login') | member <- logical, DatabaseUserSpec _ role' login' _ extension <- [member ^. #spec], role' == role] of
+        [(member, extension, login')] | Just grant' <- extension ^. #reader -> Right (member, grant', login')
+        _ -> Left ("app database " <> appName <> " declares no reader " <> readerName)
+      when (login == LoginClosed) (Left ("app-database-reader-retired: reader " <> readerName <> " of app database " <> appName <> " is retired"))
+      unless
+        (consumer `elem` (grant ^. #consumers))
+        (Left ("app-database-reader-not-a-consumer: " <> Dsl.serviceNameText consumer <> " is not a declared consumer of reader " <> readerName <> " of app database " <> appName))
+      unless
+        (and [login' /= LoginClosed | member <- logical, DatabaseUserSpec _ "runtime" login' _ _ <- [member ^. #spec]])
+        (Left ("app database " <> appName <> " is retired"))
+      stateful <- case [target | member <- logical, DatabaseUser target _ <- [member ^. #address]] of
+        target : _ -> Right target
+        [] -> Left "accepted app database has no users"
+      prefix <- maybe (Left "accepted app-database server has no StatefulSet identity") Right (T.stripSuffix "/statefulset" (resourceIdText stateful))
+      service <- case [member | member <- allMembers, resourceIdText (member ^. #identity) == prefix <> "/service"] of
+        [found] -> Right found
+        _ -> Left "accepted app-database server has no unique Service"
+      let readerDatabases = [logicalDatabaseNameText (o ^. #database) | o <- NE.toList (grant ^. #objects)]
+          databases = [member | member <- logical, DatabaseName _ db <- [member ^. #address], nameText db `elem` readerDatabases]
+      pure (key, AppDatabaseBinding (AppDatabaseBound service credential (user : databases) engine secretName))

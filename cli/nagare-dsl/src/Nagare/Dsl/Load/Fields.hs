@@ -7,6 +7,8 @@ module Nagare.Dsl.Load.Fields
   , JsonHealthCheck (..)
   , JsonKindEnvelope (..)
   , JsonVolume (..)
+  , JsonAppDatabaseReaderRef (..)
+  , toAppDatabaseReaderRef
   , checkTaskApp
   , firstDuplicate
   , toAccessPolicy
@@ -41,6 +43,7 @@ import Nagare.Dsl.Static.Types (mkFilePathText)
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
   ( AccessMode (ReadWriteOnce)
+  , AppDatabaseReaderRef (..)
   , DomainSpec
   , EnvName
   , EnvScope (..)
@@ -50,12 +53,14 @@ import Nagare.Dsl.Types
   , RetentionPolicy (Delete, Retain)
   , ScopedEnvVar
   , Volume (..)
+  , mkAppDatabaseName
   , mkDomains
   , mkEnvName
   , mkHealthCheck
   , mkMountPath
   , mkPort
   , mkQuantity
+  , mkReaderName
   , mkSecretName
   , mkVolumeName
   , mountPathText
@@ -450,3 +455,19 @@ newtype JsonKindEnvelope = JsonKindEnvelope {kind :: Maybe Text}
 
 instance FromJSON JsonKindEnvelope where
   parseJSON = withObject "kinded" $ \o -> JsonKindEnvelope <$> o .:? "kind"
+
+-- | A workload's @appDatabaseReaders@ entry (EP-206).
+data JsonAppDatabaseReaderRef = JsonAppDatabaseReaderRef
+  { appDatabase :: !Text
+  , reader :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonAppDatabaseReaderRef where
+  parseJSON = withObject "AppDatabaseReaderRef" $ \o -> JsonAppDatabaseReaderRef <$> o .: "appDatabase" <*> o .: "reader"
+
+toAppDatabaseReaderRef :: JsonAppDatabaseReaderRef -> Either LoadError AppDatabaseReaderRef
+toAppDatabaseReaderRef j =
+  AppDatabaseReaderRef
+    <$> first (MarshalError "appDatabaseReaders") (mkAppDatabaseName (j ^. #appDatabase))
+    <*> first (MarshalError "appDatabaseReaders") (mkReaderName (j ^. #reader))

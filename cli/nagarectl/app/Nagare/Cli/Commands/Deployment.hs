@@ -191,6 +191,8 @@ runDeployPlan mctx options output = do
       namespaceName
       (service ^. #databases)
       (service ^. #appDatabases)
+      (service ^. #name)
+      (service ^. #appDatabaseReaders)
   let params =
         AppDeployParams
           { configPath = options ^. #file

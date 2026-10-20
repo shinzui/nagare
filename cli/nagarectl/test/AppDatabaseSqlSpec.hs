@@ -24,7 +24,7 @@ appDatabaseSqlTests =
     [ testCase "PostgreSQL commands match the proven fixture" $ do
         blocks <- fixture "postgres"
         let pg = hashPassword Postgres
-            access on = DatabaseAccess Postgres "smoke_pg" "alpha" "alpha_migration" "alpha_runtime" on [] []
+            access on = DatabaseAccess Postgres "smoke_pg" "alpha" "alpha_migration" "alpha_runtime" on [] [] []
         mapM_
           (uncurry (matches blocks))
           [ ("create-user alpha_migration", renderCreateUser Postgres "alpha_migration" (pg salt0 "pw-alpha_migration") "alpha")
@@ -45,11 +45,14 @@ appDatabaseSqlTests =
           , ("observe-database alpha", renderObserveDatabase)
           , ("observe-password alpha_runtime", renderObservePassword "alpha_runtime")
           , ("restore-scratch", renderScratchRestore Postgres [("alpha", "alpha_restore_r1")] "" "alpha_migration" "alpha_runtime")
+          , ("reader-access alpha_reader_dash on", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [pgView "vi"] ["alpha"] [] [("alpha", "public")] []))
+          , ("reader-access alpha_reader_dash off", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [] [] ["alpha"] [] [("alpha", "public")]))
+          , ("observe-relations alpha", renderObserveRelations ["alpha_reader_dash"])
           ]
     , testCase "ClickHouse commands match the proven fixture" $ do
         blocks <- fixture "clickhouse"
         let ch = hashPassword ClickHouse
-            access db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] []
+            access db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] [] []
         mapM_
           (uncurry (matches blocks))
           [ ("create-user alpha_migration", renderCreateUser ClickHouse "alpha_migration" (ch salt0 "pw-alpha_migration") "alpha")
@@ -73,6 +76,8 @@ appDatabaseSqlTests =
           , ("set-password alpha_runtime", renderSetPassword "alpha_runtime" (ch salt1 "pw2-alpha_runtime"))
           , ("observe", renderObserveClickHouse ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"])
           , ("restore-scratch", renderScratchRestore ClickHouse [("alpha", "alpha_restore_r1"), ("alpha_ledger", "alpha_ledger_restore_r1")] "alpha-ch-backup-r1.zip" "alpha_migration" "alpha_runtime")
+          , ("reader-access alpha_reader_dash on", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [chView "not_yet"] [] [] [] []))
+          , ("reader-access alpha_reader_dash off", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [] [] [] [] []))
           ]
     , testCase "a converged PostgreSQL app database observes as complete" $ do
         catalog <- postgresCatalog "converged" "alpha"
@@ -95,8 +100,8 @@ appDatabaseSqlTests =
         drifted <- clickHouseCatalog "drifted" ["gamma_migration", "gamma_runtime"] ["gamma", "alpha"]
         drift (classifyUser ClickHouse (plain RuntimeRole True) "gamma_runtime" [] drifted)
         drift (classifyUser ClickHouse (plain MigrationRole True) "gamma_migration" [] drifted)
-        incomplete (classifyDatabase (DatabaseAccess ClickHouse "" "gamma" "gamma_migration" "gamma_runtime" True [] []) drifted)
-        drift (classifyDatabase (DatabaseAccess ClickHouse "" "alpha" "gamma_migration" "gamma_runtime" True [] []) drifted)
+        incomplete (classifyDatabase (DatabaseAccess ClickHouse "" "gamma" "gamma_migration" "gamma_runtime" True [] [] []) drifted)
+        drift (classifyDatabase (DatabaseAccess ClickHouse "" "alpha" "gamma_migration" "gamma_runtime" True [] [] []) drifted)
     , testCase "access to the app's own scratch restores is not drift; to any other database it is (M7)" $ do
         catalog <- postgresCatalog "converged" "alpha"
         let with anomalies = catalog & #users . ix "alpha_runtime" . #anomalies .~ anomalies
@@ -157,6 +162,49 @@ appDatabaseSqlTests =
         let withheld = converged & #databases . ix "alpha" . #grants %~ filter ((/= "alpha_runtime") . (^. #grantee))
         complete (classifyDatabase (chAccess "alpha" True & #withheld .~ ["alpha_runtime"]) withheld)
         incomplete (classifyDatabase (chAccess "alpha" True) withheld)
+    , testCase "an observed ClickHouse reader classifies by its declared objects and the reader settings (EP-206)" $ do
+        observed <- clickHouseCatalog "reader" ["alpha_migration", "alpha_runtime", "alpha_reader_dash"] ["alpha", "alpha_ledger"]
+        let spec names = ReaderSpec [chObject n | n <- names] (defaultReaderLimits ClickHouse)
+            reader desired accepted' = fst (classifyReader ClickHouse (ReaderDeclaration True (spec desired) (spec <$> accepted')) "alpha_reader_dash" observed)
+        complete (reader ["v1", "v2", "pv"] (Just ["v1", "v2", "pv"]))
+        -- A declared object not held yet is granted up front: nothing is pending on ClickHouse.
+        classifyReader ClickHouse (ReaderDeclaration True (spec ["v1", "v2", "pv", "later"]) Nothing) "alpha_reader_dash" observed
+          @?= (MemberIncomplete "clickhouse-user:134bd01d-b46a-dd89-6156-dd34bb809ea6" "alpha_reader_dash: lacks SELECT on alpha.later", [])
+        -- Only the accepted declaration named pv: revoked by review.
+        incomplete (reader ["v1", "v2"] (Just ["v1", "v2", "pv"]))
+        -- Neither names it: a grant Nagare never made.
+        drift (reader ["v1", "v2"] (Just ["v1", "v2"]))
+        -- A raised ceiling the review did not declare is drift; a declared change is an update.
+        drift (fst (classifyReader ClickHouse (ReaderDeclaration True (spec ["v1", "v2", "pv"] & #limits . #maxThreads ?~ 8) (Just (spec ["v1", "v2", "pv"] & #limits . #maxThreads ?~ 8))) "alpha_reader_dash" observed))
+        incomplete (fst (classifyReader ClickHouse (ReaderDeclaration True (spec ["v1", "v2", "pv"] & #limits . #maxThreads ?~ 8) (Just (spec ["v1", "v2", "pv"]))) "alpha_reader_dash" observed))
+        -- Disabled: its grants are kept until the update revokes them.
+        incomplete (fst (classifyReader ClickHouse (ReaderDeclaration False (spec ["v1", "v2", "pv"]) (Just (spec ["v1", "v2", "pv"]))) "alpha_reader_dash" observed))
+        -- The reader's table grants are not the database's foreign grants.
+        mapM_ (\db -> complete (classifyDatabase (chAccess db True & #readers .~ ["alpha_reader_dash"]) observed)) ["alpha", "alpha_ledger"]
+    , testCase "an observed PostgreSQL reader classifies by its grants, refuses definer functions and invoker views, and names pending objects (EP-206)" $ do
+        base <- postgresCatalogFrom "reader" "reader" "alpha"
+        relations <- BS.readFile "test/fixtures/app-database/observed/postgres-relations-reader.json"
+        observed <- either (assertFailure . T.unpack) pure (withPostgresRelations (Map.singleton "alpha" relations) base)
+        let spec names = ReaderSpec [pgObject n | n <- names] (defaultReaderLimits Postgres)
+            classify desired accepted' catalog = classifyReader Postgres (ReaderDeclaration True (spec desired) (spec <$> accepted')) "alpha_reader_dash" catalog
+            revoked = observed & #databases . ix "alpha" . #definerFunctions .~ []
+        -- add_row is SECURITY DEFINER and PUBLIC may execute it in public.
+        case fst (classify ["v1", "v2"] (Just ["v1", "v2"]) observed) of
+          MemberRefused code reason -> do
+            code @?= readerDefinerCode
+            assertBool (T.unpack reason) ("public.add_row(x integer)" `T.isInfixOf` reason)
+          other -> assertFailure ("expected the definer refusal: " <> show other)
+        classify ["v1", "v2"] (Just ["v1", "v2"]) revoked @?= (MemberComplete "postgres-role:16432", [])
+        case fst (classify ["v1", "v2", "vi"] (Just ["v1", "v2"]) revoked) of
+          MemberRefused code _ -> code @?= readerInvokerCode
+          other -> assertFailure ("expected the invoker refusal: " <> show other)
+        -- A view the app's migrations have not created is pending, not a change.
+        classify ["v1", "v2", "later"] (Just ["v1", "v2"]) revoked @?= (MemberComplete "postgres-role:16432", [pgView "later"])
+        incomplete (fst (classify ["v1"] (Just ["v1", "v2"]) revoked))
+        drift (fst (classify ["v1"] (Just ["v1"]) revoked))
+        -- Its CONNECT and USAGE are judged by the reader member, not the database's.
+        complete (classifyDatabase (pgAccess "alpha" "alpha" True & #readers .~ ["alpha_reader_dash"]) revoked)
+        drift (classifyDatabase (pgAccess "alpha" "alpha" True) revoked)
     , testCase "a stored verifier matches only the password it was made from" $ do
         let verifier = scramVerifier salt1 "pw2-alpha_runtime"
         scramVerifierMatches "pw2-alpha_runtime" verifier @?= True
@@ -179,10 +227,22 @@ clickHouseCatalog state users dbs = do
   either (assertFailure . T.unpack) pure (parseClickHouseCatalog users dbs bytes)
 
 pgAccess :: Text -> Text -> Bool -> DatabaseAccess
-pgAccess app db on = DatabaseAccess Postgres "smoke_pg" db (app <> "_migration") (app <> "_runtime") on [] []
+pgAccess app db on = DatabaseAccess Postgres "smoke_pg" db (app <> "_migration") (app <> "_runtime") on [] [] []
 
 chAccess :: Text -> Bool -> DatabaseAccess
-chAccess db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] []
+chAccess db on = DatabaseAccess ClickHouse "" db "alpha_migration" "alpha_runtime" on [] [] []
+
+-- | The M1 fixture's reader objects.
+pgView, chView :: Text -> ResolvedObject
+pgView = ResolvedObject "alpha" (Just "public")
+chView = ResolvedObject "alpha" Nothing
+
+pgObject, chObject :: Text -> ReaderObject
+pgObject name = ReaderRelation (ok (mkLogicalDatabaseName "alpha")) Nothing (ok (mkRelationName name))
+chObject = pgObject
+
+ok :: Either Text a -> a
+ok = either (error . T.unpack) id
 
 -- | A user declaring no reviewed access, now or before.
 plain :: AppDatabaseRole -> Bool -> UserDeclaration
@@ -199,8 +259,7 @@ chMigrationAccess = UserAccess [SystemDisks, SystemStoragePolicies] (noUserLimit
 pgRuntimeAccess = UserAccess [] (noUserLimits & #connectionLimit ?~ 3 & #statementTimeoutSeconds ?~ 30)
 
 roleName :: AppDatabaseRole -> Text
-roleName RuntimeRole = "runtime"
-roleName MigrationRole = "migration"
+roleName = appDatabaseRoleToken
 
 complete, incomplete, drift :: MemberState -> Assertion
 complete state = case state of MemberComplete _ -> pure (); other -> assertFailure ("expected complete: " <> show other)

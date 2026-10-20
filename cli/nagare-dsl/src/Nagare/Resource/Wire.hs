@@ -32,7 +32,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Dsl.AppDatabase (noUserAccess)
+import Nagare.Dsl.AppDatabase (noUserExtension)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Access (TeamKey, mkTeamKey, teamKeyText)
 import Nagare.Resource.Canonical (canonicalValue)
@@ -373,7 +373,7 @@ instance FromJSON Executor where parseJSON = genericParseJSON options
 instance ToJSON DesiredSpec where
   toJSON = \case
     DatabaseUserSpec engine role login digest access ->
-      tagged "DatabaseUserSpec" ([toJSON engine, toJSON role, toJSON login, toJSON digest] <> [toJSON access | access /= noUserAccess])
+      tagged "DatabaseUserSpec" ([toJSON engine, toJSON role, toJSON login, toJSON digest] <> [toJSON access | access /= noUserExtension])
     LogicalDatabase engine migration runtime on digest monitoring ->
       tagged "LogicalDatabase" ([toJSON engine, toJSON migration, toJSON runtime, toJSON on, toJSON digest] <> [toJSON monitoring | not (null monitoring)])
     spec ->
@@ -391,10 +391,10 @@ instance FromJSON DesiredSpec where
   parseJSON value = case value of
     Object o
       | Just (String "DatabaseUserSpec") <- KM.lookup "tag" o -> appDatabaseContents o $ \case
-          [engine, role, login, digest] -> DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON login <*> parseJSON digest <*> pure noUserAccess
+          [engine, role, login, digest] -> DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON login <*> parseJSON digest <*> pure noUserExtension
           [engine, role, login, digest, access] -> do
             access' <- parseJSON access
-            when (access' == noUserAccess) (fail "an empty app-database user extension is written by omission")
+            when (access' == noUserExtension) (fail "an empty app-database user extension is written by omission")
             DatabaseUserSpec <$> parseJSON engine <*> parseJSON role <*> parseJSON login <*> parseJSON digest <*> pure access'
           _ -> fail "DatabaseUserSpec has four or five elements"
       | Just (String "LogicalDatabase") <- KM.lookup "tag" o -> appDatabaseContents o $ \case

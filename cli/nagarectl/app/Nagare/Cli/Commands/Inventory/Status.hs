@@ -434,7 +434,14 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
   unless
     (finalHead == Just (InventoryPlan.historyHead history))
     (dieT "accepted inventory changed during status; retry against the new head")
-  appDatabaseFacts <- inspect appDatabase ResourceInventory.AppDatabaseExecutor
+  -- The facts, and notes such as a reader's pending objects (EP-206).
+  (appDatabaseFacts, appDatabaseNotes) <- do
+    let requestedIds = ids ResourceInventory.AppDatabaseExecutor
+    if null requestedIds
+      then pure ([], Map.empty)
+      else do
+        observed <- InventoryAdapter.adapterObserve appDatabase requestedIds
+        pure (fst (InventoryStatus.statusFacts "adapter omitted this resource" requestedIds observed), either (const Map.empty) InventoryAdapter.observationNotes observed)
   let allFacts = appDatabaseFacts <> kubeFacts <> helmFacts <> pulumiFacts <> foundationFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts <> accessFacts
       knownFacts = Map.fromList allFacts
       remaining =
@@ -449,7 +456,7 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
         either
           (error . T.unpack)
           (\value -> value)
-          (InventoryAdapter.withStuckRollouts kubeStuck <$> InventoryAdapter.observationSet (allFacts <> remaining))
+          (InventoryAdapter.withObservationNotes appDatabaseNotes . InventoryAdapter.withStuckRollouts kubeStuck <$> InventoryAdapter.observationSet (allFacts <> remaining))
       retainedObservations =
         either
           (error . T.unpack)

@@ -33,6 +33,10 @@ module Nagare.Database.AppDatabase.Sql
   , renderObserveClickHouse
   , renderTerminateSessions
   , renderObserveDrain
+  , ResolvedObject (..)
+  , ReaderAccess (..)
+  , renderReaderAccess
+  , renderObserveRelations
   )
 where
 
@@ -42,6 +46,7 @@ import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.ByteArray.Encoding (Base (Base16, Base64), convertFromBase, convertToBase)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
+import Data.List (nub)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant)
@@ -186,6 +191,9 @@ clickHouseCeilings limits =
       [ ("max_memory_usage", limits ^. #maxMemoryBytes)
       , ("max_execution_time", limits ^. #maxExecutionSeconds)
       , ("max_concurrent_queries_for_user", limits ^. #maxConcurrentQueries)
+      , ("max_result_rows", limits ^. #maxResultRows)
+      , ("max_result_bytes", limits ^. #maxResultBytes)
+      , ("max_threads", limits ^. #maxThreads)
       ]
   ]
 
@@ -214,6 +222,8 @@ data DatabaseAccess = DatabaseAccess
   -- ^ roles whose read-only grants on the app's objects are tolerated; never granted
   , withheld :: ![Text]
   -- ^ quiesced users; on ClickHouse their grants are revoked until resume (EP-205)
+  , readers :: ![Text]
+  -- ^ declared readers, whose grants their own members judge (EP-206)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -361,6 +371,86 @@ renderObserveDrain _ users _ =
   "SELECT json_build_object('sessions', (SELECT count(*) FROM pg_stat_activity WHERE usename IN ("
     <> literals users
     <> ")), 'systemIdentifier', (SELECT system_identifier::text FROM pg_control_system()), 'started', pg_postmaster_start_time()::text);\n"
+
+-- Readers (EP-206) ----------------------------------------------------------
+
+-- | A declared object as the server names it: ClickHouse @db.table@,
+-- PostgreSQL @schema.relation@ in a database.
+data ResolvedObject = ResolvedObject
+  { database :: !Text
+  , schema :: !(Maybe Text)
+  , relation :: !Text
+  }
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | A reader's access as one command renders it: login, SELECT on the
+-- resolved objects, the revocation of what only the accepted declaration
+-- named, and its limits; on PostgreSQL also CONNECT on its databases and
+-- USAGE on their existing schemas, as (database, schema). A reader that may
+-- not log in holds none of its grants and keeps its limits.
+data ReaderAccess = ReaderAccess
+  { user :: !Text
+  , login :: !UserLogin
+  , limits :: !UserLimits
+  , granted :: ![ResolvedObject]
+  , revoked :: ![ResolvedObject]
+  , databases :: ![Text]
+  , revokedDatabases :: ![Text]
+  , schemas :: ![(Text, Text)]
+  , revokedSchemas :: ![(Text, Text)]
+  }
+  deriving stock (Generic, Eq, Show)
+
+renderReaderAccess :: Engine -> ReaderAccess -> Text
+renderReaderAccess ClickHouse access =
+  T.unlines $
+    [("ALTER USER " <> user' <> (if enabled then " HOST ANY;" else " HOST NONE;"))]
+      <> [ (if enabled then "GRANT SELECT ON " <> o ^. #database <> "." <> o ^. #relation <> " TO " else "REVOKE SELECT ON " <> o ^. #database <> "." <> o ^. #relation <> " FROM ") <> user' <> ";"
+         | o <- access ^. #granted
+         ]
+      <> ["REVOKE SELECT ON " <> o ^. #database <> "." <> o ^. #relation <> " FROM " <> user' <> ";" | o <- access ^. #revoked]
+      <> ["ALTER USER " <> user' <> " SETTINGS readonly = 2 CONST, result_overflow_mode = 'throw' CONST" <> T.concat [", " <> n <> " = " <> v <> " MIN 1 MAX " <> v | (n, v) <- clickHouseCeilings (access ^. #limits)] <> ";"]
+  where
+    user' = access ^. #user
+    enabled = access ^. #login == LoginOpen
+renderReaderAccess _ access =
+  T.unlines $
+    [ "ALTER ROLE " <> pgIdent user' <> (if enabled then " LOGIN" else " NOLOGIN") <> " CONNECTION LIMIT " <> T.show (fromMaybe (-1) (access ^. #limits . #connectionLimit)) <> ";"
+    , "ALTER ROLE " <> pgIdent user' <> maybe " RESET statement_timeout;" (\seconds -> " SET statement_timeout = " <> literal (postgresTimeout seconds) <> ";") (access ^. #limits . #statementTimeoutSeconds)
+    , "ALTER ROLE " <> pgIdent user' <> " SET default_transaction_read_only = on;"
+    ]
+      <> ["SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = " <> literal user' <> ";" | not enabled]
+      <> concat
+        [ [ (if enabled && db `elem` access ^. #databases then "GRANT CONNECT ON DATABASE " <> pgIdent db <> " TO " else "REVOKE CONNECT ON DATABASE " <> pgIdent db <> " FROM ") <> pgIdent user' <> ";"
+          , "\\connect " <> pgIdent db
+          ]
+            <> [(if enabled then "GRANT USAGE ON SCHEMA " <> pgIdent sc <> " TO " else "REVOKE USAGE ON SCHEMA " <> pgIdent sc <> " FROM ") <> pgIdent user' <> ";" | (db', sc) <- access ^. #schemas, db' == db]
+            <> ["REVOKE USAGE ON SCHEMA " <> pgIdent sc <> " FROM " <> pgIdent user' <> ";" | (db', sc) <- access ^. #revokedSchemas, db' == db]
+            <> [ (if enabled then "GRANT SELECT ON " <> qualified o <> " TO " else "REVOKE SELECT ON " <> qualified o <> " FROM ") <> pgIdent user' <> ";"
+               | o <- access ^. #granted
+               , o ^. #database == db
+               ]
+            <> ["REVOKE SELECT ON " <> qualified o <> " FROM " <> pgIdent user' <> ";" | o <- access ^. #revoked, o ^. #database == db]
+        | db <- nub (access ^. #databases <> access ^. #revokedDatabases <> map (^. #database) (access ^. #granted <> access ^. #revoked))
+        ]
+  where
+    user' = access ^. #user
+    enabled = access ^. #login == LoginOpen
+    qualified o = pgIdent (fromMaybe "public" (o ^. #schema)) <> "." <> pgIdent (o ^. #relation)
+
+-- | PostgreSQL facts inside one database for readers: every table and view
+-- outside the system schemas with the given users' grants, and every
+-- SECURITY DEFINER function with who among PUBLIC and the users may run it.
+renderObserveRelations :: [Text] -> Text
+renderObserveRelations users =
+  T.unlines
+    [ "SELECT json_build_object("
+    , "  'relations', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', c.relname, 'kind', c.relkind::text, 'options', coalesce(to_json(c.reloptions), '[]'), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', pg_get_userbyid(a.grantee), 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN (" <> userList <> ")))) ORDER BY n.nspname, c.relname), '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r', 'p', 'v', 'm')),"
+    , "  'definerFunctions', (SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'name', p.proname, 'signature', pg_get_function_identity_arguments(p.oid), 'executors', (SELECT coalesce(json_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END ORDER BY 1), '[]') FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.privilege_type = 'EXECUTE' AND (a.grantee = 0 OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN (" <> userList <> "))))) ORDER BY n.nspname, p.proname), '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema' AND p.prosecdef)"
+    , ");"
+    ]
+  where
+    userList = literals users
 
 pgIdent :: Text -> Text
 pgIdent name = "\"" <> name <> "\""

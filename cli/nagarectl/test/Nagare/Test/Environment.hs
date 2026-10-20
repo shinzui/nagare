@@ -275,6 +275,7 @@ mkDemoDep envMap =
     , volumes = []
     , databases = []
     , appDatabases = []
+    , appDatabaseReaders = []
     , brokers = []
     , access = Nothing
     , tasks = []

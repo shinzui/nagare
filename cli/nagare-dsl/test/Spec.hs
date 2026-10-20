@@ -385,19 +385,13 @@ helloDep =
     , domains = unsafe (mkDomains [("hello.example.com", True)])
     , port = unsafe (mkPort 8080)
     , env = Map.fromList [(unsafe (mkEnvName "TARGET"), runtimeScoped (EnvLiteral "Nagare"))]
-    , resources =
-        Just
-          Resources
-            { cpu = Just (unsafe (mkQuantity "250m"))
-            , memory = Just (unsafe (mkQuantity "128Mi"))
-            , cpuLimit = Nothing
-            , memoryLimit = Nothing
-            }
+    , resources = Just Resources {cpu = Just (unsafe (mkQuantity "250m")), memory = Just (unsafe (mkQuantity "128Mi")), cpuLimit = Nothing, memoryLimit = Nothing}
     , scale = Just (unsafe (mkScale 0 3))
     , healthCheck = Nothing
     , volumes = []
     , databases = []
     , appDatabases = []
+    , appDatabaseReaders = []
     , brokers = []
     , access = Nothing
     , tasks = []

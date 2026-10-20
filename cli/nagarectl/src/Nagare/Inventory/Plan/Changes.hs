@@ -16,7 +16,7 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Database.AppDatabase.Catalog (credentialMissingCode, grantDriftCode)
+import Nagare.Database.AppDatabase.Catalog (credentialMissingCode, grantDriftCode, readerDefinerCode, readerInvokerCode)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Adapter
   ( MigrationStage
@@ -286,7 +286,7 @@ planChanges candidate decisions history observations = do
     -- the user, grant or setting; other reasons may carry provider output.
     printable resource reason =
       Set.member resource accessResources
-        || (Set.member resource appDatabaseResources && any (`T.isPrefixOf` reason) [grantDriftCode, credentialMissingCode])
+        || (Set.member resource appDatabaseResources && any (`T.isPrefixOf` reason) [grantDriftCode, credentialMissingCode, readerDefinerCode, readerInvokerCode])
     unavailable = [resource | (resource, reason) <- unavailableWithReasons, not (printable resource reason)]
     unavailableAccess =
       Map.toAscList (Map.fromListWith (flip (<>)) [(reason, [resource]) | (resource, reason) <- unavailableWithReasons, printable resource reason])

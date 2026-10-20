@@ -219,3 +219,28 @@ GRANT SHOW TABLES, SHOW COLUMNS, SELECT, INSERT, ALTER UPDATE, ALTER DELETE, dic
 -- The block is refused unless the first query returns 0.
 SELECT count() FROM system.tables WHERE database IN ('alpha', 'alpha_ledger');
 RESTORE DATABASE alpha, DATABASE alpha_ledger FROM File('alpha-ch-backup-r1.zip');
+
+-- operation: reader-access alpha_reader_dash on
+-- EP-206 M1. A reader is a third user with one SELECT per declared object and the reader
+-- settings: readonly = 2 and result_overflow_mode = 'throw' CONST, five ceilings MIN 1 MAX.
+-- It reads its definer views (alpha.v1, alpha.v2, the parameterized alpha.pv(x = 1)); the
+-- base table, an undeclared table, INSERT, ALTER ... UPDATE, CREATE TABLE, CREATE TEMPORARY
+-- TABLE, CREATE USER, system.parts and beta.t are refused with 497, SET readonly = 0 with
+-- 164, and each ceiling's SET above it or to 0 with 452. Enforced: max_execution_time
+-- (159 at 30000 ms), max_memory_usage (241), max_result_rows (396), max_result_bytes (396,
+-- on rows sent to the client; a FORMAT Null probe does not count bytes). A grant on a table
+-- that does not exist yet is accepted and reported exactly in system.grants, so ClickHouse
+-- grants up front and has nothing pending. A grant the accepted declaration named and the
+-- desired one does not is revoked; revoking one not held is a no-op.
+ALTER USER alpha_reader_dash HOST ANY;
+GRANT SELECT ON alpha.v1 TO alpha_reader_dash;
+GRANT SELECT ON alpha.v2 TO alpha_reader_dash;
+GRANT SELECT ON alpha.pv TO alpha_reader_dash;
+REVOKE SELECT ON alpha.not_yet FROM alpha_reader_dash;
+ALTER USER alpha_reader_dash SETTINGS readonly = 2 CONST, result_overflow_mode = 'throw' CONST, max_memory_usage = 536870912 MIN 1 MAX 536870912, max_execution_time = 30 MIN 1 MAX 30, max_result_rows = 10000 MIN 1 MAX 10000, max_result_bytes = 10485760 MIN 1 MAX 10485760, max_threads = 4 MIN 1 MAX 4;
+-- operation: reader-access alpha_reader_dash off
+ALTER USER alpha_reader_dash HOST NONE;
+REVOKE SELECT ON alpha.v1 FROM alpha_reader_dash;
+REVOKE SELECT ON alpha.v2 FROM alpha_reader_dash;
+REVOKE SELECT ON alpha.pv FROM alpha_reader_dash;
+ALTER USER alpha_reader_dash SETTINGS readonly = 2 CONST, result_overflow_mode = 'throw' CONST, max_memory_usage = 536870912 MIN 1 MAX 536870912, max_execution_time = 30 MIN 1 MAX 30, max_result_rows = 10000 MIN 1 MAX 10000, max_result_bytes = 10485760 MIN 1 MAX 10485760, max_threads = 4 MIN 1 MAX 4;

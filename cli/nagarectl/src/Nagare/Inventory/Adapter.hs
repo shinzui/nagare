@@ -5,6 +5,8 @@ module Nagare.Inventory.Adapter
   , observationSet
   , observationMap
   , observationStuck
+  , observationNotes
+  , withObservationNotes
   , withStuckRollouts
   , MigrationObservationSet
   , migrationObservationSet
@@ -73,27 +75,40 @@ data ResourceObservation
 -- each with a description of that pod. A stuck member is still observed as
 -- it is (present), so no consumer of the observations changes meaning; a set
 -- rebuilt without the stuck members only proposes no replacement.
-data ObservationSet = ObservationSet !(Map ResourceId ResourceObservation) !(Map ResourceId Text)
+--
+-- A third map holds informational notes about a member, such as an app
+-- database reader's objects that do not exist yet (EP-206). Notes never change
+-- planning.
+data ObservationSet = ObservationSet !(Map ResourceId ResourceObservation) !(Map ResourceId Text) !(Map ResourceId Text)
   deriving stock (Eq, Show)
 
 observationSet :: [(ResourceId, ResourceObservation)] -> Either Text ObservationSet
 observationSet entries
-  | length entries == Map.size values = Right (ObservationSet values Map.empty)
+  | length entries == Map.size values = Right (ObservationSet values Map.empty Map.empty)
   | otherwise = Left "duplicate resource observation"
   where
     values = Map.fromList entries
 
 observationMap :: ObservationSet -> Map ResourceId ResourceObservation
-observationMap (ObservationSet values _) = values
+observationMap (ObservationSet values _ _) = values
 
 -- | Members whose rollout is stuck, with a description of the blocking pod.
 observationStuck :: ObservationSet -> Map ResourceId Text
-observationStuck (ObservationSet _ stuck) = stuck
+observationStuck (ObservationSet _ stuck _) = stuck
 
 -- | Record stuck rollouts for members this set observes.
 withStuckRollouts :: Map ResourceId Text -> ObservationSet -> ObservationSet
-withStuckRollouts stuck (ObservationSet values previous) =
-  ObservationSet values (Map.union (Map.restrictKeys stuck (Map.keysSet values)) previous)
+withStuckRollouts stuck (ObservationSet values previous notes) =
+  ObservationSet values (Map.union (Map.restrictKeys stuck (Map.keysSet values)) previous) notes
+
+-- | Informational notes about members this set observes.
+observationNotes :: ObservationSet -> Map ResourceId Text
+observationNotes (ObservationSet _ _ notes) = notes
+
+-- | Record notes for members this set observes.
+withObservationNotes :: Map ResourceId Text -> ObservationSet -> ObservationSet
+withObservationNotes notes (ObservationSet values stuck previous) =
+  ObservationSet values stuck (Map.union (Map.restrictKeys notes (Map.keysSet values)) previous)
 
 -- | Two observations for one logical identity must remain separate. The
 -- ordinary observation map can describe only the desired incarnation.
@@ -461,7 +476,7 @@ observeWithRegistry registry requests = do
   results <- traverse observeOne (Map.toAscList requests)
   pure $ do
     observedSets <- sequence results
-    withStuckRollouts (Map.unions (map observationStuck observedSets))
+    withObservationNotes (Map.unions (map observationNotes observedSets)) . withStuckRollouts (Map.unions (map observationStuck observedSets))
       <$> observationSet (concatMap (Map.toList . observationMap) observedSets)
   where
     observeOne (executor, resources) = case lookupAdapter registry executor of

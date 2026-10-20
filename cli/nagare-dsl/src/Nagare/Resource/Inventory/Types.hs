@@ -29,7 +29,7 @@ import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text qualified
-import Nagare.Dsl.AppDatabase (MonitoringRole, UserAccess)
+import Nagare.Dsl.AppDatabase (MonitoringRole, UserExtension)
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
@@ -62,9 +62,9 @@ data DesiredSpec
   | -- | A login user inside a server: the engine token, the role token
     -- (@runtime@ or @migration@), its login state, the digest of its
     -- declared attributes and server-wide grants, and its reviewed grant
-    -- exceptions and limits (EP-204). The password lives only in its
-    -- credential Secret.
-    DatabaseUserSpec !Text !Text !UserLogin !ContentDigest !UserAccess
+    -- exceptions and limits (EP-204) and, for a reader, its objects and
+    -- consumers (EP-206). The password lives only in its credential Secret.
+    DatabaseUserSpec !Text !Text !UserLogin !ContentDigest !UserExtension
   | DnsARecord !Text !Int
   | CloudflareRulesSpec ![CloudflareCacheIntent]
   | CloudflareZoneTlsSpec !CloudflareTlsMode

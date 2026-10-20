@@ -769,6 +769,7 @@ classifyDriftWith incarnations inventory observations =
   where
     observed = observationMap observations
     stuck = observationStuck observations
+    notes = observationNotes observations
     replaced resource uid = case checkedPhysical incarnations (resource ^. #identity) uid of
       IdentityReplaced _ _ -> True
       _ -> False
@@ -794,7 +795,7 @@ classifyDriftWith incarnations inventory observations =
             Just (ObservedPresent uid)
               | Just blocked <- Map.lookup (resource ^. #identity) stuck ->
                   (StuckRollout, HealthNotReady, Just uid, Nothing, Just ("rollout is stuck: " <> blocked <> "; the next inventory plan proposes replace-stuck-pod"))
-            Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Nothing)
+            Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Map.lookup (resource ^. #identity) notes)
             Just (ObservedDrifted uid changed) ->
               (ConfigurationDrift, HealthUnknown, Just uid, Just changed, Nothing)
             Just (ObservedReplacementRequired uid changed) ->

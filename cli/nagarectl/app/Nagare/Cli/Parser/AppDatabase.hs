@@ -40,7 +40,7 @@ appDatabaseParser =
           ( info
               ( AppDatabaseRotate
                   <$> nameOpts "Save a review that rotates one user's password"
-                  <*> strOption (long "user" <> metavar "runtime|migration" <> help "The user whose password is rotated")
+                  <*> strOption (long "user" <> metavar "runtime|migration|reader-NAME" <> help "The user whose password is rotated")
                     <**> helper
               )
               (progDesc "Review a new password for one user: the Secret first, then the user; restart bound workloads afterwards")

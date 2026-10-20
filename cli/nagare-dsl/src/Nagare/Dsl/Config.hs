@@ -192,6 +192,12 @@ appDatabasesJSON :: [AppDatabaseName] -> [(Key, Value)]
 appDatabasesJSON [] = []
 appDatabasesJSON names = ["appDatabases" .= map appDatabaseNameText names]
 
+-- | Emitted only when present (EP-206), like 'appDatabasesJSON'.
+appDatabaseReadersJSON :: [AppDatabaseReaderRef] -> [(Key, Value)]
+appDatabaseReadersJSON [] = []
+appDatabaseReadersJSON refs =
+  ["appDatabaseReaders" .= [object ["appDatabase" .= appDatabaseNameText (r ^. #appDatabase), "reader" .= readerNameText (r ^. #reader)] | r <- refs]]
+
 -- | Serialize a 'Task' to JSON and write it to stdout. Call this as the last
 -- line of a task project's @Config.hs@ @main@. The top-level @"kind": "Task"@
 -- discriminator lets the loader dispatch and report a precise
@@ -383,6 +389,7 @@ workerJSON w =
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (w ^. #logicalKey)
       <> appDatabasesJSON (w ^. #appDatabases)
+      <> appDatabaseReadersJSON (w ^. #appDatabaseReaders)
   where
     res = w ^. #resources
 
@@ -489,6 +496,7 @@ deploymentJSON dep =
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (dep ^. #logicalKey)
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
       <> appDatabasesJSON (dep ^. #appDatabases)
+      <> appDatabaseReadersJSON (dep ^. #appDatabaseReaders)
   where
     resources = dep ^. #resources
     scale = dep ^. #scale

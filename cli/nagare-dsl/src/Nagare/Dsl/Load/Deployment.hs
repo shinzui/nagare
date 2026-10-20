@@ -28,6 +28,7 @@ import Nagare.Dsl.Load.Cdn (JsonCdn (..), toCdn)
 import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Load.Fields
   ( JsonAccessPolicy (..)
+  , JsonAppDatabaseReaderRef
   , JsonBuildSpec (..)
   , JsonDomainEntry (..)
   , JsonEnvEntry (..)
@@ -37,6 +38,7 @@ import Nagare.Dsl.Load.Fields
   , checkTaskApp
   , firstDuplicate
   , toAccessPolicy
+  , toAppDatabaseReaderRef
   , toBuildSpec
   , toDomainSpecs
   , toEnvEntry
@@ -78,6 +80,7 @@ data JsonDeployment = JsonDeployment
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
   , appDatabases :: ![Text]
+  , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
   , access :: !(Maybe JsonAccessPolicy)
   , tasks :: ![JsonTask]
@@ -106,6 +109,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "appDatabases" .!= []
+      <*> o .:? "appDatabaseReaders" .!= []
       <*> o .:? "brokers" .!= []
       <*> o .:? "access"
       <*> o .:? "tasks" .!= []
@@ -131,6 +135,7 @@ toDeployment jd = do
   vols' <- toVolumes (jd ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jd ^. #databases)
   appDbRefs' <- traverse (first (MarshalError "appDatabases") . mkAppDatabaseName) (jd ^. #appDatabases)
+  readerRefs' <- traverse toAppDatabaseReaderRef (jd ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (jd ^. #brokers)
   access' <- traverse toAccessPolicy (jd ^. #access)
   -- MasterPlan 10 / EP-52: re-validate each co-located task (re-runs every smart
@@ -170,6 +175,7 @@ toDeployment jd = do
       , volumes = vols'
       , databases = dbRefs'
       , appDatabases = appDbRefs'
+      , appDatabaseReaders = readerRefs'
       , brokers = brokerRefs'
       , access = access'
       , tasks = tasks'

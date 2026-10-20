@@ -277,7 +277,7 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
         && Map.null (rollout ^. #appEnv)
     )
     (Left (invalid "standalone rollout identity, namespace, or environment differs from its service"))
-  databaseNames <- first invalid (workloadDatabaseNames (service ^. #databases) (service ^. #appDatabases))
+  databaseNames <- first invalid (workloadDatabaseNames (service ^. #databases) (service ^. #appDatabases) (service ^. #appDatabaseReaders))
   (databaseEnv, databaseIds, databaseSecrets) <-
     standaloneDatabaseEnvironment
       cluster

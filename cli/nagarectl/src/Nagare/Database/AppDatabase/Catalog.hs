@@ -13,6 +13,22 @@ module Nagare.Database.AppDatabase.Catalog
   , CatalogDatabase (..)
   , CatalogGrant (..)
   , CatalogSetting (..)
+  , CatalogTableGrant (..)
+  , CatalogRelation (..)
+  , CatalogFunction (..)
+  , withPostgresRelations
+  , ReaderDeclaration (..)
+  , ReaderSpec (..)
+  , ResolvedObject (..)
+  , resolveReaderObjects
+  , classifyReader
+  , readerHeldSelects
+  , readerDatabases
+  , readerSchemas
+  , readerDefinerCode
+  , readerInvokerCode
+  , readerSettings
+  , readerRoleSettings
   , LoginState (..)
   , emptyCatalog
   , parsePostgresCatalog
@@ -39,9 +55,10 @@ import Data.Generics.Labels ()
 import Data.List (nub, sort, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text qualified as T
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), clickHouseCeilings, postgresTimeout)
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), GrantException, UserAccess, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant, monitoringRoleToken)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), ResolvedObject (..), clickHouseCeilings, postgresTimeout)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), GrantException, ReaderObject (..), UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, grantExceptionGrant, logicalDatabaseNameText, monitoringRoleToken, relationNameText, schemaNameText)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 
@@ -84,6 +101,37 @@ data CatalogUser = CatalogUser
   -- ^ PostgreSQL: @rolconnlimit@, -1 for none
   , roleSettings :: ![Text]
   -- ^ PostgreSQL: server-wide role settings, as @statement_timeout=30s@
+  , tableGrants :: ![CatalogTableGrant]
+  -- ^ ClickHouse: table-level grants on the app's own databases, which only
+  -- a reader holds (EP-206)
+  }
+  deriving stock (Generic, Eq, Show)
+
+data CatalogTableGrant = CatalogTableGrant
+  { database :: !Text
+  , table :: !Text
+  , privilege :: !Text
+  }
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | A PostgreSQL table or view, its options and the scope users' grants on it.
+data CatalogRelation = CatalogRelation
+  { schema :: !Text
+  , name :: !Text
+  , kind :: !Text
+  , options :: ![Text]
+  , grants :: ![(Text, Text)]
+  -- ^ (grantee, privilege)
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | A PostgreSQL SECURITY DEFINER function and who among PUBLIC and the scope
+-- users may execute it.
+data CatalogFunction = CatalogFunction
+  { schema :: !Text
+  , name :: !Text
+  , signature :: !Text
+  , executors :: ![Text]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -94,6 +142,9 @@ data CatalogDatabase = CatalogDatabase
   , schemaOwners :: !(Map Text Text)
   , defaultAclRoles :: ![Text]
   , anomalies :: ![Text]
+  , relations :: ![CatalogRelation]
+  -- ^ PostgreSQL: every table and view outside the system schemas (EP-206)
+  , definerFunctions :: ![CatalogFunction]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -147,6 +198,7 @@ serverParser databaseBytes = withObject "server" $ \o -> do
                 []
                 (Just connectionLimit')
                 roleSettings'
+                []
             )
           | (name, oid, canLogin, elevated, connectionLimit', roleSettings') <- roles :: [(Text, Text, Bool, [Text], Int, [Text])]
           ]
@@ -160,6 +212,8 @@ serverParser databaseBytes = withObject "server" $ \o -> do
                 Map.empty
                 []
                 ["grant option for " <> who <> " on database" | PgGrant who _ True <- dbGrants]
+                []
+                []
             )
           | (name, oid, dbOwner, dbGrants) <- dbs :: [(Text, Text, Text, [PgGrant])]
           ]
@@ -201,12 +255,35 @@ insideParser = withObject "database" $ \o -> do
       "T" -> "types"
       other -> other
 
+-- | Add each database's relation observation (EP-206) to a parsed catalog.
+withPostgresRelations :: Map Text ByteString -> Catalog -> Either Text Catalog
+withPostgresRelations documents catalog = do
+  parsed <- traverse (\(db, bytes) -> (db,) <$> (decodeValue "PostgreSQL relation observation" bytes >>= first T.pack . parseEither relationsParser)) (Map.toList documents)
+  pure (catalog & #databases %~ \dbs -> foldr (\(db, (relations', functions)) -> Map.adjust ((#relations .~ relations') . (#definerFunctions .~ functions)) db) dbs parsed)
+  where
+    relationsParser = withObject "relations" $ \o -> do
+      relations' <-
+        o .: "relations"
+          >>= traverse
+            ( withObject "relation" $ \r ->
+                CatalogRelation
+                  <$> r .: "schema"
+                  <*> r .: "name"
+                  <*> r .: "kind"
+                  <*> r .: "options"
+                  <*> (r .: "grants" >>= traverse (withObject "grant" (\g -> (,) <$> g .: "grantee" <*> g .: "privilege")))
+            )
+      functions <- o .: "definerFunctions" >>= traverse (withObject "function" (\f -> CatalogFunction <$> f .: "schema" <*> f .: "name" <*> f .: "signature" <*> f .: "executors"))
+      pure (relations', functions)
+
 -- ClickHouse --------------------------------------------------------------
 
 data ChRow
   = ChUser !Text !Text ![Text] !Bool
   | ChGrant !Text !Text !(Maybe Text) !Bool
   | ChRole !Text !Text
+  | -- | user, privilege, database, table: a plain table-level grant
+    ChTableGrant !Text !Text !Text !Text
   | ChSetting !Text !(Maybe CatalogSetting) !(Maybe Text)
   | ChDatabase !Text !Text
 
@@ -231,6 +308,7 @@ instance FromJSON ChRow where
             | isNothing column && not partial && not option
             , token : _ <- [exceptionGrantToken e | e <- [minBound .. maxBound], grantExceptionGrant e == (privilege', "system." <> t)] ->
                 ChGrant who token Nothing False
+          (Just db', Just t) | isNothing column && not partial && not option -> ChTableGrant who privilege' db' t
           _ -> ChGrant who privilege' db (isJust table || isJust column || partial || option)
       "role" -> ChRole <$> o .: "user_name" <*> o .: "granted_role_name"
       "setting" -> do
@@ -257,6 +335,7 @@ parseClickHouseCatalog ourUsers ourDatabases bytes = do
                 [profile | ChSetting who _ (Just profile) <- rows, who == name]
                 Nothing
                 []
+                [CatalogTableGrant db table privilege' | ChTableGrant who privilege' db table <- rows, who == name, db `elem` ourDatabases]
             )
           | ChUser name physical' hosts noNames <- rows
           ]
@@ -264,6 +343,7 @@ parseClickHouseCatalog ourUsers ourDatabases bytes = do
         ["role " <> role | ChRole who role <- rows, who == name]
           <> ["grant option, partial revoke or table-level grant of " <> privilege' | ChGrant who privilege' _ True <- rows, who == name]
           <> ["grant of " <> privilege' <> " on database " <> db | ChGrant who privilege' (Just db) False <- rows, who == name, db `notElem` ourDatabases]
+          <> ["table-level grant of " <> privilege' <> " on " <> db <> "." <> table | ChTableGrant who privilege' db table <- rows, who == name, db `notElem` ourDatabases]
       databaseMap =
         Map.fromList
           [ ( name
@@ -273,7 +353,11 @@ parseClickHouseCatalog ourUsers ourDatabases bytes = do
                 [CatalogGrant who "database" privilege' | ChGrant who privilege' (Just db) False <- rows, db == name]
                 Map.empty
                 []
-                ["special grant of " <> privilege' <> " to " <> who | ChGrant who privilege' (Just db) True <- rows, db == name, who `notElem` ourUsers]
+                ( ["special grant of " <> privilege' <> " to " <> who | ChGrant who privilege' (Just db) True <- rows, db == name, who `notElem` ourUsers]
+                    <> ["table-level grant of " <> privilege' <> " on " <> db <> "." <> table <> " to " <> who | ChTableGrant who privilege' db table <- rows, db == name, who `notElem` ourUsers]
+                )
+                []
+                []
             )
           | ChDatabase name physical' <- rows
           ]
@@ -356,6 +440,9 @@ data MemberState
     MemberIncomplete !Text !Text
   | -- | present with access Nagare never grants
     MemberDrift !Text
+  | -- | present, but its declaration cannot be served safely (code, reason): a
+    -- reader whose schema exposes a write path (EP-206)
+    MemberRefused !Text !Text
   deriving stock (Eq, Show)
 
 -- | What a user member declares: its role, whether it may log in, and its
@@ -419,6 +506,7 @@ classifyUser engine declaration name own catalog = case Map.lookup name (catalog
              , Just limit /= declaredConnectionLimit (declaration ^. #accepted)
              ]
           <> ["role setting " <> entry | entry <- user ^. #roleSettings, entry `notElem` wantedRoleSettings, entry `notElem` revocableRoleSettings]
+          <> ["table-level grant of " <> g ^. #privilege <> " on " <> g ^. #database <> "." <> g ^. #table | g <- user ^. #tableGrants]
       pending =
         ["lacks server-wide " <> T.intercalate ", " missing | let missing = wantedGrants \\ user ^. #serverGrants, not (null missing)]
           <> ["keeps server-wide " <> T.intercalate ", " kept | let kept = filter (`notElem` wantedGrants) (nub (user ^. #serverGrants)), not (null kept)]
@@ -518,6 +606,8 @@ classifyDatabase access catalog = case Map.lookup name (catalog ^. #databases) o
     postgresGrant db g
       | who == migration = Right False
       | who == runtime = if what `elem` declaredFor Postgres RuntimeRole (classOf target') then Right False else Left ("runtime holds " <> what <> " on " <> target')
+      -- A declared reader's CONNECT and schema USAGE are judged by its own member.
+      | who `elem` access ^. #readers && ((target' == "database" && what == "CONNECT") || ("schema:" `T.isPrefixOf` target' && what == "USAGE")) = Right False
       | who == "PUBLIC" && target' `elem` ["database", "schema:public"] = Right True
       | who == "PUBLIC" && target' == "default-functions" && what == "EXECUTE" = Right False
       | who == "pg_database_owner" && target' == "schema:public" && Map.lookup "public" (db ^. #schemaOwners) == Just "pg_database_owner" = Right True
@@ -537,3 +627,203 @@ classifyDatabase access catalog = case Map.lookup name (catalog ^. #databases) o
         who = g ^. #grantee
         what = g ^. #privilege
         target' = g ^. #target
+
+-- Readers (EP-206) ----------------------------------------------------------
+
+-- | A ClickHouse reader's settings: read-only and throwing on overflow,
+-- fixed, and each ceiling also the default.
+readerSettings :: UserLimits -> [CatalogSetting]
+readerSettings limits =
+  [ CatalogSetting "readonly" (Just "2") Nothing Nothing (Just "CONST")
+  , CatalogSetting "result_overflow_mode" (Just "throw") Nothing Nothing (Just "CONST")
+  ]
+    <> [CatalogSetting settingName (Just value) (Just "1") (Just value) Nothing | (settingName, value) <- clickHouseCeilings limits]
+
+-- | A PostgreSQL reader's role defaults, which a session may override: the
+-- boundary is its grants.
+readerRoleSettings :: UserLimits -> [Text]
+readerRoleSettings limits = ["default_transaction_read_only=on"] <> ["statement_timeout=" <> postgresTimeout seconds | Just seconds <- [limits ^. #statementTimeoutSeconds]]
+
+readerDefinerCode, readerInvokerCode :: Text
+readerDefinerCode = "app-database-reader-definer-function"
+readerInvokerCode = "app-database-reader-invoker-view"
+
+-- | A reader's objects and limits, as one declaration names them.
+data ReaderSpec = ReaderSpec
+  { objects :: ![ReaderObject]
+  , limits :: !UserLimits
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | A reader member: whether it may log in, and its spec as desired now and
+-- as accepted. An item only the accepted spec names is revoked or reset by
+-- review; one neither names is drift.
+data ReaderDeclaration = ReaderDeclaration
+  { enabled :: !Bool
+  , desired :: !ReaderSpec
+  , accepted :: !(Maybe ReaderSpec)
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | The declared objects the server has, and on PostgreSQL the relations it
+-- does not have yet (pending: the app's migrations have not created them).
+-- A schema's views are the views and materialized views observed in it.
+resolveReaderObjects :: Engine -> [ReaderObject] -> Catalog -> ([ResolvedObject], [ResolvedObject])
+resolveReaderObjects ClickHouse objects' _ = (nub [ResolvedObject (logicalDatabaseNameText db) Nothing (relationNameText rel) | ReaderRelation db _ rel <- objects'], [])
+resolveReaderObjects _ objects' catalog = (nub (filter exists declared <> schemaViews), filter (not . exists) declared)
+  where
+    relationsOf db = maybe [] (^. #relations) (Map.lookup db (catalog ^. #databases))
+    exists o = any (\r -> Just (r ^. #schema) == o ^. #schema && r ^. #name == o ^. #relation) (relationsOf (o ^. #database))
+    declared = [ResolvedObject (logicalDatabaseNameText db) (Just (maybe "public" schemaNameText schema')) (relationNameText rel) | ReaderRelation db schema' rel <- objects']
+    schemaViews =
+      [ ResolvedObject (logicalDatabaseNameText db) (Just (schemaNameText schema')) (r ^. #name)
+      | ReaderSchemaViews db schema' <- objects'
+      , r <- relationsOf (logicalDatabaseNameText db)
+      , r ^. #schema == schemaNameText schema'
+      , r ^. #kind `elem` ["v", "m"]
+      ]
+
+-- | The databases a reader's objects live in.
+readerDatabases :: [ReaderObject] -> [Text]
+readerDatabases objects' = nub [logicalDatabaseNameText (o ^. #database) | o <- objects']
+
+-- | PostgreSQL: the schemas a reader gets USAGE on, as (database, schema),
+-- among those that exist. A schema the app's migrations have not created
+-- yet is pending with its objects; ClickHouse has none.
+readerSchemas :: Engine -> [ReaderObject] -> Catalog -> [(Text, Text)]
+readerSchemas ClickHouse _ _ = []
+readerSchemas _ objects' catalog =
+  nub
+    [ (db, sc)
+    | (db, sc) <-
+        [(logicalDatabaseNameText db, maybe "public" schemaNameText schema') | ReaderRelation db schema' _ <- objects']
+          <> [(logicalDatabaseNameText db, schemaNameText schema') | ReaderSchemaViews db schema' <- objects']
+    , Just cdb <- [Map.lookup db (catalog ^. #databases)]
+    , Map.member sc (cdb ^. #schemaOwners)
+    ]
+
+-- | The objects a reader holds SELECT on.
+readerHeldSelects :: Engine -> Text -> Catalog -> [ResolvedObject]
+readerHeldSelects engine name catalog
+  | engine == ClickHouse = [ResolvedObject (g ^. #database) Nothing (g ^. #table) | Just u <- [Map.lookup name (catalog ^. #users)], g <- u ^. #tableGrants, g ^. #privilege == "SELECT"]
+  | otherwise =
+      [ ResolvedObject db (Just (r ^. #schema)) (r ^. #name)
+      | (db, cdb) <- Map.toList (catalog ^. #databases)
+      , r <- cdb ^. #relations
+      , (who, "SELECT") <- r ^. #grants
+      , who == name
+      ]
+
+-- | Classify a reader, and name its pending objects. The boundary is its
+-- grants: SELECT on each declared object, and on PostgreSQL CONNECT and
+-- schema USAGE; its limits follow EP-204's rule. A PostgreSQL schema that
+-- gives it a SECURITY DEFINER function, or a declared security_invoker view,
+-- refuses (IR-33 AC-9).
+classifyReader :: Engine -> ReaderDeclaration -> Text -> Catalog -> (MemberState, [ResolvedObject])
+classifyReader engine declaration name catalog = case Map.lookup name (catalog ^. #users) of
+  Nothing -> (MemberAbsent, pending)
+  Just user
+    | Just refusal <- refusalOf -> (refusal, pending)
+    | not (null (user ^. #anomalies)) -> (MemberDrift (name <> ": " <> T.intercalate "; " (user ^. #anomalies)), pending)
+    | user ^. #login == LoginRestricted -> (MemberDrift (name <> ": login is restricted to particular hosts"), pending)
+    | not (null (drifts user)) -> (MemberDrift (name <> ": " <> T.intercalate "; " (drifts user)), pending)
+    | user ^. #login /= (if enabled' then LoginOn else LoginOff) -> (MemberIncomplete (user ^. #physical) (name <> (if enabled' then ": cannot log in" else ": can still log in")), pending)
+    | not (null (fixes user)) -> (MemberIncomplete (user ^. #physical) (name <> ": " <> T.intercalate "; " (fixes user)), pending)
+    | otherwise -> (MemberComplete (user ^. #physical), pending)
+  where
+    enabled' = declaration ^. #enabled
+    desiredSpec = declaration ^. #desired
+    acceptedSpec = declaration ^. #accepted
+    (present, pending) = resolveReaderObjects engine (desiredSpec ^. #objects) catalog
+    acceptedObjects = maybe [] (\spec -> fst (resolveReaderObjects engine (spec ^. #objects) catalog)) acceptedSpec
+    wanted = if enabled' then present else []
+    render o = maybe (o ^. #database) id (o ^. #schema) <> "." <> o ^. #relation
+    held =
+      if engine == ClickHouse
+        then [(ResolvedObject (g ^. #database) Nothing (g ^. #table), g ^. #privilege) | Just u <- [Map.lookup name (catalog ^. #users)], g <- u ^. #tableGrants]
+        else
+          [ (ResolvedObject db (Just (r ^. #schema)) (r ^. #name), privilege')
+          | (db, cdb) <- Map.toList (catalog ^. #databases)
+          , r <- cdb ^. #relations
+          , (who, privilege') <- r ^. #grants
+          , who == name
+          ]
+    heldSelects = [o | (o, "SELECT") <- held]
+    schemasOf spec = readerSchemas engine (spec ^. #objects) catalog
+    databasesOf spec = readerDatabases (spec ^. #objects)
+    desiredSchemas = schemasOf desiredSpec
+    revocableSchemas = maybe [] schemasOf acceptedSpec
+    -- PostgreSQL database and schema grants of the reader.
+    heldDatabase = [(db, g ^. #privilege) | (db, cdb) <- Map.toList (catalog ^. #databases), g <- cdb ^. #grants, g ^. #grantee == name, g ^. #target == "database"]
+    heldSchemas = [((db, T.drop 7 (g ^. #target)), g ^. #privilege) | (db, cdb) <- Map.toList (catalog ^. #databases), g <- cdb ^. #grants, g ^. #grantee == name, "schema:" `T.isPrefixOf` (g ^. #target)]
+    renderSchema (db, sc) = db <> "." <> sc
+    wantedSettings = if engine == ClickHouse then readerSettings (desiredSpec ^. #limits) else []
+    revocableSettings = if engine == ClickHouse then maybe [] (readerSettings . (^. #limits)) acceptedSpec else []
+    wantedRoleSettings = if engine == ClickHouse then [] else readerRoleSettings (desiredSpec ^. #limits)
+    revocableRoleSettings = if engine == ClickHouse then [] else maybe [] (readerRoleSettings . (^. #limits)) acceptedSpec
+    desiredLimit = desiredSpec ^. #limits . #connectionLimit
+    acceptedLimit = acceptedSpec >>= (^. #limits . #connectionLimit)
+    drifts user =
+      ["holds " <> p' <> " on " <> render o | (o, p') <- held, p' /= "SELECT"]
+        <> ["holds SELECT on undeclared " <> render o | o <- heldSelects, o `notElem` present, o `notElem` acceptedObjects]
+        <> ["server-wide " <> T.intercalate ", " (user ^. #serverGrants) | not (null (user ^. #serverGrants))]
+        <> ["setting " <> describe' c | c <- user ^. #settings, c `notElem` wantedSettings, c `notElem` revocableSettings]
+        <> ["inherits settings profile " <> p' | p' <- user ^. #inheritedProfiles]
+        <> [ "connection limit " <> T.show limit
+           | engine /= ClickHouse
+           , Just limit <- [user ^. #connectionLimit]
+           , limit /= -1
+           , Just limit /= desiredLimit
+           , Just limit /= acceptedLimit
+           ]
+        <> ["role setting " <> e | e <- user ^. #roleSettings, e `notElem` wantedRoleSettings, e `notElem` revocableRoleSettings]
+        <> ["holds " <> p' <> " on database " <> db | (db, p') <- heldDatabase, p' /= "CONNECT" || db `notElem` (databasesOf desiredSpec <> maybe [] databasesOf acceptedSpec)]
+        <> ["holds " <> p' <> " on schema " <> renderSchema sc | (sc, p') <- heldSchemas, p' /= "USAGE" || sc `notElem` (desiredSchemas <> revocableSchemas)]
+    fixes user =
+      ["lacks SELECT on " <> render o | o <- wanted, o `notElem` heldSelects]
+        <> ["keeps SELECT on " <> render o | o <- heldSelects, o `notElem` wanted]
+        <> ["lacks setting " <> describe' c | c <- wantedSettings, c `notElem` user ^. #settings]
+        <> ["keeps setting " <> describe' c | c <- user ^. #settings, c `notElem` wantedSettings]
+        <> [ "connection limit is " <> T.show observed <> ", declared " <> T.show want
+           | engine /= ClickHouse
+           , let want = fromMaybe (-1) desiredLimit
+           , let observed = fromMaybe (-1) (user ^. #connectionLimit)
+           , observed /= want
+           ]
+        <> ["lacks role setting " <> e | e <- wantedRoleSettings, e `notElem` user ^. #roleSettings]
+        <> ["keeps role setting " <> e | e <- user ^. #roleSettings, e `notElem` wantedRoleSettings]
+        <> ( if engine == ClickHouse
+               then []
+               else
+                 ["lacks CONNECT on database " <> db | enabled', db <- databasesOf desiredSpec, (db, "CONNECT") `notElem` heldDatabase]
+                   <> ["keeps CONNECT on database " <> db | (db, _) <- heldDatabase, not enabled' || db `notElem` databasesOf desiredSpec]
+                   <> ["lacks USAGE on schema " <> renderSchema sc | enabled', sc <- desiredSchemas, (sc, "USAGE") `notElem` heldSchemas]
+                   <> ["keeps USAGE on schema " <> renderSchema sc | (sc, _) <- heldSchemas, not enabled' || sc `notElem` desiredSchemas]
+           )
+    refusalOf
+      | engine == ClickHouse || not enabled' = Nothing
+      | not (null definers) = Just (MemberRefused readerDefinerCode (name <> ": " <> T.intercalate ", " definers <> " is SECURITY DEFINER and executable by the reader; revoke EXECUTE on it from PUBLIC in a migration"))
+      | not (null invokers) = Just (MemberRefused readerInvokerCode (name <> ": " <> T.intercalate ", " invokers <> " is a security_invoker view, which would need the reader to hold its base tables"))
+      | otherwise = Nothing
+    definers =
+      [ f ^. #schema <> "." <> f ^. #name <> "(" <> f ^. #signature <> ")"
+      | db <- databasesOf desiredSpec
+      , Just cdb <- [Map.lookup db (catalog ^. #databases)]
+      , f <- cdb ^. #definerFunctions
+      , (db, f ^. #schema) `elem` desiredSchemas
+      , "PUBLIC" `elem` f ^. #executors || name `elem` f ^. #executors
+      ]
+    invokers =
+      [ render o
+      | o <- present
+      , Just cdb <- [Map.lookup (o ^. #database) (catalog ^. #databases)]
+      , r <- cdb ^. #relations
+      , Just (r ^. #schema) == o ^. #schema && r ^. #name == o ^. #relation
+      , any (`elem` ["security_invoker=true", "security_invoker=on", "security_invoker=1"]) (r ^. #options)
+      ]
+    describe' c =
+      c ^. #name
+        <> maybe "" (" = " <>) (c ^. #value)
+        <> maybe "" (" MIN " <>) (c ^. #minimum)
+        <> maybe "" (" MAX " <>) (c ^. #maximum)
+        <> maybe "" (" " <>) (c ^. #writability)

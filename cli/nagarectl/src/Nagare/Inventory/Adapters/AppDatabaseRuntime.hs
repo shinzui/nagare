@@ -26,7 +26,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Database.AppDatabase.Catalog (parseClickHouseCatalog, parseDrainObservation, parsePostgresCatalog)
+import Nagare.Database.AppDatabase.Catalog (parseClickHouseCatalog, parseDrainObservation, parsePostgresCatalog, withPostgresRelations)
 import Nagare.Database.AppDatabase.Sql
 import Nagare.Database.Secret (b64decode, b64encode)
 import Nagare.Dsl.Database (Engine (..))
@@ -95,7 +95,11 @@ appDatabaseRuntimeOps config =
           Left reason -> pure (Left reason)
           Right (bytes, shallow) -> do
             insides <- traverse (\db -> fmap (db,) <$> psql server db renderObserveDatabase) (Map.keys (shallow ^. #databases))
-            pure (sequence insides >>= parsePostgresCatalog bytes . Map.fromList)
+            -- Readers' relations and SECURITY DEFINER functions (EP-206).
+            relations <- traverse (\db -> fmap (db,) <$> psql server db (renderObserveRelations users)) (Map.keys (shallow ^. #databases))
+            pure $ do
+              catalog <- sequence insides >>= parsePostgresCatalog bytes . Map.fromList
+              sequence relations >>= \documents -> withPostgresRelations (Map.fromList documents) catalog
     matches server user password = guarded server $ case server ^. #engine of
       ClickHouse -> do
         -- The password reaches the pod on stdin; only the server pod sees it.
@@ -144,6 +148,7 @@ appDatabaseRuntimeOps config =
     render engine' = \case
       CreateUser user hash' db -> renderCreateUser engine' user hash' db
       SetUserAccess role user on access -> renderUserAccess engine' role user on access
+      SetReaderAccess access -> renderReaderAccess engine' access
       CreateDatabase db owner' -> renderCreateDatabase engine' db owner'
       SetDatabaseAccess access -> renderDatabaseAccess access
       SetPassword user hash' -> renderSetPassword user hash'

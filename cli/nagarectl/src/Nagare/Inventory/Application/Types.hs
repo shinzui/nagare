@@ -59,13 +59,16 @@ data ServerBinding = ServerBinding
   deriving stock (Eq, Show)
 
 -- | An app database: the server Service gives the host, the runtime
--- credential is the only Secret the workload receives, and its users and
--- databases order the workload after their provisioning.
+-- credential (or a reader's, EP-206) is the only Secret the workload
+-- receives, and its users and databases order the workload after their
+-- provisioning.
 data AppDatabaseBound = AppDatabaseBound
   { appService :: !ManagedResource
   , appRuntimeCredential :: !ManagedResource
   , appMembers :: ![ManagedResource]
   , appEngine :: !Engine
+  , appCredentialName :: !Text
+  -- ^ @\<appdb\>-runtime@, or @\<appdb\>-reader-\<name\>@
   }
   deriving stock (Eq, Show)
 

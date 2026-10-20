@@ -180,6 +180,7 @@ demoDep domains =
     , volumes = []
     , databases = []
     , appDatabases = []
+    , appDatabaseReaders = []
     , brokers = []
     , access = Nothing
     , tasks = []

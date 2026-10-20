@@ -555,6 +555,10 @@ tryPrepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentit
   registry <- registryFor candidate history
   let requirements = observationRequirements candidate history
   observed <- observeWithRegistry registry (requirementsByExecutor requirements)
+  -- Notes, such as a reader's pending objects (EP-206), go to stderr.
+  forM_ observed $ \observations ->
+    forM_ (Map.toAscList (observationNotes observations)) $ \(resource, note) ->
+      TIO.hPutStrLn stderr ("note: " <> resourceIdText resource <> ": " <> note)
   case observed >>= \observations -> first renderPlanErrors (decide history observations >>= \decisions -> planChanges candidate decisions history observations) of
     Left reason -> pure (Left reason)
     Right proposal -> do

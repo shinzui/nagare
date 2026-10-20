@@ -167,7 +167,7 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
         && Map.null (rollout ^. #appEnv)
     )
     (Left (invalid "standalone worker rollout differs from its declared identity or environment"))
-  databaseNames <- first invalid (workloadDatabaseNames (worker ^. #databases) (worker ^. #appDatabases))
+  databaseNames <- first invalid (workloadDatabaseNames (worker ^. #databases) (worker ^. #appDatabases) (worker ^. #appDatabaseReaders))
   (databaseEnv, databaseIds, databaseSecrets) <-
     standaloneDatabaseEnvironment
       cluster

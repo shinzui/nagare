@@ -27,7 +27,7 @@ import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ObjectStore (resolveStoreBackend)
 import Nagare.Cli.Runtime.Process (currentTimestamp)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
-import Nagare.Dsl.AppDatabase (AppDatabase (..), AppDatabaseRole (..), appDatabaseNameText, appDatabaseSecretName)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), AppDatabaseRole (..), appDatabaseNameText, appDatabaseRoleToken, appDatabaseSecretName, parseAppDatabaseRole)
 import Nagare.Dsl.Load (loadAppDatabases, renderLoadError)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (namespaceText)
@@ -100,10 +100,9 @@ runAppDatabase mctx = \case
         )
     planReview active snapshot [backupScope] native (Just (o ^. #savePlan))
   AppDatabaseRotate o roleText -> do
-    role <- case roleText of
-      "runtime" -> pure "runtime"
-      "migration" -> pure "migration"
-      _ -> dieT "--user is runtime or migration"
+    role <- case parseAppDatabaseRole (T.pack roleText) of
+      Just parsed -> pure (appDatabaseRoleToken parsed)
+      Nothing -> dieT "--user is runtime, migration or reader-NAME"
     (active, snapshot) <- loadSnapshot mctx
     scope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack (o ^. #name)) (T.pack <$> o ^. #scopeKey))
     stamp <- currentTimestamp

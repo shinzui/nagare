@@ -34,6 +34,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), appDatabaseSecretKeys, b64decode, b64encode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
+import Nagare.Dsl.AppDatabase (parseAppDatabaseRole)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
@@ -365,9 +366,9 @@ appDatabaseCredentialKind value = case value of
         database <- fieldText "nagare.dev/app-database-db" annotations
         namespace <- fieldText "namespace" metadata
         secretName <- fieldText "name" metadata
-        unless (role `elem` ["runtime", "migration"]) (Left "app-database credential template has an unknown role")
+        unless (isJust (parseAppDatabaseRole role)) (Left "app-database credential template has an unknown role")
         unless
-          (secretName == appDatabase <> "-" <> role && user == sanitizeDbName appDatabase <> "_" <> role)
+          (secretName == appDatabase <> "-" <> role && user == sanitizeDbName appDatabase <> "_" <> T.replace "-" "_" role)
           (Left "app-database credential template names another Secret or user")
         pure (Just (AppDatabaseCredential appDatabase server namespace engine role user database))
       _ -> Right Nothing

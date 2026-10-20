@@ -9,6 +9,7 @@ module Nagare.Inventory.Application.Environment
   , standaloneBrokerEnvironment
   , standaloneDatabaseEnvironment
   , workloadDatabaseNames
+  , appDatabaseReaderKey
   , stripBuildSecretEnv
   , stripBuildSecretRefs
   , stripBuildSecretRollout
@@ -47,6 +48,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
   ( AppDatabaseName
+  , AppDatabaseReaderRef
   , DatabaseName
   , EnvScope (Build, Runtime)
   , EnvVar (EnvLiteral, EnvSecretRef)
@@ -59,11 +61,12 @@ import Nagare.Dsl.Types
   , mkEnvName
   , mkSecretName
   , namespaceText
+  , readerNameText
   , runtimeScoped
   , secretNameText
   )
 import Nagare.Dsl.Types qualified as Dsl
-import Nagare.Inventory.Application.Bindings (brokerEvidenceIds)
+import Nagare.Inventory.Application.Bindings (appDatabaseReaderKey, brokerEvidenceIds)
 import Nagare.Inventory.Application.Types (AppDatabaseBound (..), DatabaseBinding (..), ServerBinding (..))
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (Declaration (..), declarationId)
@@ -204,12 +207,14 @@ databaseConnectionEnv engine databaseName namespace = do
       extra
   pure (Map.union (Map.fromList fields) base)
 
--- | The binding keys of a workload: the servers it binds directly and the app
--- databases it names (EP-202), which share one key space.
-workloadDatabaseNames :: [DatabaseName] -> [AppDatabaseName] -> Either T.Text [DatabaseName]
-workloadDatabaseNames direct apps = do
+-- | The binding keys of a workload: the servers it binds directly, the app
+-- databases it names (EP-202) and the readers it binds (EP-206, as
+-- @\<appdb\>-reader-\<name\>@), which share one key space.
+workloadDatabaseNames :: [DatabaseName] -> [AppDatabaseName] -> [AppDatabaseReaderRef] -> Either T.Text [DatabaseName]
+workloadDatabaseNames direct apps readers = do
   appKeys <- traverse (mkDatabaseName . appDatabaseNameText) apps
-  let keys = direct <> appKeys
+  readerKeys <- traverse (mkDatabaseName . appDatabaseReaderKey) readers
+  let keys = direct <> appKeys <> readerKeys
   unless (length keys == Set.size (Set.fromList keys)) (Left "a workload names one database twice across databases and appDatabases")
   pure keys
 
@@ -248,14 +253,13 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
           (Map.lookup name bindings)
       case binding of
         ServerDatabaseBinding server -> direct name server
-        AppDatabaseBinding app -> appDatabase name app
+        AppDatabaseBinding app -> appDatabase app
     -- EP-202: the runtime credential is the only Secret; host and port are
     -- the shared server's, and the workload waits for the users and databases.
-    appDatabase name app = do
-      let appName = databaseNameText name
-          service = appService app
+    appDatabase app = do
+      let service = appService app
           credential = appRuntimeCredential app
-      expectedCredential <- first invalid (kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appName <> "-runtime"))
+      expectedCredential <- first invalid (kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appCredentialName app))
       host <- case service ^. #address of
         Kubernetes _ "" kind (Just serviceNamespace) serviceName
           | nameText kind == "service" -> Right (nameText serviceName <> "." <> nameText serviceNamespace <> ".svc.cluster.local")
@@ -263,7 +267,7 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
       unless
         (credential ^. #address == expectedCredential && scopeKind (credential ^. #owner) == Standalone)
         (Left (invalid "app database binding has a different runtime credential"))
-      secretName <- first invalid (mkSecretName (appName <> "-runtime"))
+      secretName <- first invalid (mkSecretName (appCredentialName app))
       let lit key value = (,runtimeScoped (EnvLiteral value)) <$> mkEnvName key
           ref key = (,runtimeScoped (EnvSecretRef secretName)) <$> mkEnvName key
       fields <-

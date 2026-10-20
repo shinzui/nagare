@@ -5,6 +5,16 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+### Added
+
+- **App databases declare read-only readers** (IR-33). A reader is a user with `SELECT` on
+  named tables or views of the app's own databases (or, on PostgreSQL, every view of a schema),
+  under fixed ceilings. A workload in a declared consumer app binds it with
+  `appDatabaseReaders` and receives only the reader's Secret. Readers rotate with
+  `db app-database rotate --user reader-NAME` and are retired by declaring `retired`.
+- **`Deployment` and `Worker` have an `appDatabaseReaders` field.** A config that builds either
+  record literally adds `appDatabaseReaders = []`; presets and record updates are unaffected.
+
 ## [0.7.1] - 2026-10-19
 
 ### Fixed

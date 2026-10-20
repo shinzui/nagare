@@ -72,6 +72,7 @@ dep = first show $ do
       , volumes = []
       , databases = []
       , appDatabases = []
+      , appDatabaseReaders = []
       , tasks = [syncTask]
       , cdn = Nothing
       }
