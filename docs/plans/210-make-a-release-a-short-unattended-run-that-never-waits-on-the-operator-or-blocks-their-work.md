@@ -9,6 +9,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-20T19:28:04Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-20T21:20:03Z
+      mode: "implement"
+      note: "M1-M4 implemented; M5 script, publish precondition and tests implemented, awaiting the next release"
 ---
 
 # Make a release a short unattended run that never waits on the operator or blocks their work
@@ -117,28 +123,42 @@ Causes:
 
 Ordered by payoff per effort.
 
-- [ ] M1. The release path is the three proofs and nothing else. `docs/runbooks/releases.md`,
+- [x] M1. The release path is the three proofs and nothing else. `docs/runbooks/releases.md`,
   `agents/skills/nagare-release/SKILL.md` and the Validation paragraph of the notes name the
   full gate, the upgrade rehearsal and the intranet on the candidate; the native app-database
   smoke, README and user-doc version edits and the capabilities-log line leave the release
   path. Pass: the runbook's "Prepare a candidate" lists the files M2 leaves, and the skill fits
   on one screen.
+  Done 2026-10-20: "Prepare a candidate" lists `release.json` and `docs/releases/vX.Y.Z.md` (and
+  its `CHANGELOG.md` link); the skill is 34 lines; the runbook's Validation rule is one sentence.
 - [ ] M2. The notes are not a gate input. One file per release, `docs/releases/vX.Y.Z.md`, is
   the notes and the changelog entry; `docs/releases/` and `CHANGELOG.md` leave the carry-forward
   read set; `check-release.sh` reads the notes file alone. Pass: a notes-only commit after the
   bump lands with its ancestor's record (no gate), and `just release-candidate X.Y.Z --revision
   <that commit>` accepts it.
+  Implemented 2026-10-20 in `b9600557` (fast gate green, landed): `CarryForward` classifies
+  `docs/releases/v0.10.0.md` and `CHANGELOG.md` inert (harness test "release notes and the
+  changelog are inert"); `scripts/test-release.sh` uses fixture notes; `CHANGELOG.md` is links.
+  The pass is observed on the next release.
 - [ ] M3. `release.json` is the only place the version is written. The six Cabal `version:`
   fields stay constant, `Nagare.Version` reports the version read from `release.json` at build
   time, the `PlatformSpec.hs` fixture reads it, the Nix package names take it from
   `release.json`, and `check-release.sh` drops the Cabal-equality rule. Pass: the prepare
   commit touches `release.json` and the notes; its fast gate record shows `nagarectl-build`
   under 60 s; `nagarectl version --json` and `nix build .#nagarectl` report and name X.Y.Z.
+  Implemented 2026-10-20 in `6bba9c4d`: the Cabal versions are `0.0.0`; with `release.json` set
+  to 0.9.1 a local `cabal build exe:nagarectl` recompiled `Nagare.Version` alone and relinked,
+  and reported 0.9.1; `nix build .#nagarectl` built `nagarectl-0.9.0` reporting 0.9.0. The gate
+  timing is observed on the next bump.
 - [ ] M4. A release never blocks the operator. `release-candidate.sh` fetches again before it
   creates the evidence commit, so a land during the run does not fail it; the run touches no
   checkout but its own worktrees; the operator repository receives commits by explicit path
   (M5) and never an app-config edit. Pass: during a candidate run, `just land` of an unrelated
   documentation commit succeeds and the run still lands its record.
+  Implemented 2026-10-20 in `b0b2b7a1`: the gate, rehearsal, native step, intranet step and land
+  run from the run's worktrees; the rehearsal record goes to the run directory
+  (`NAGARE_RELEASE_REHEARSAL_RECORD`); `git fetch` precedes the evidence worktree. The pass is
+  observed on the next release.
 - [ ] M5. The intranet step is part of the candidate run and the tag requires it (finishes
   EP-201). `scripts/release-intranet.sh VERSION` pins the operator repository to the candidate
   revision, runs the transition until a plan has no operations, commits it, checks an exact
@@ -146,7 +166,11 @@ Ordered by payoff per effort.
   `<run>/intranet.json`; `release-publish.sh` refuses without a record for the run's revision
   and, after the tag, pins the tag. Pass: the next release's run directory holds `intranet.json`
   dated before the tag; the operator repository shows exactly two pin commits from the release.
-
+  Implemented 2026-10-20 in `b0b2b7a1`: `scripts/test-release-intranet.sh` (run by
+  `scripts/test-release.sh`) drives the success path with one ambiguous resume, an idempotent
+  rerun, the tag pin, each refusal (dirty pin files, wrong CLI, wrong lock, active transaction,
+  config compile error, host skew, unconverged scope, unprotected URL) and publish's refusal of
+  a missing or foreign record. The pass is observed on the next release.
 
 ## Decision Log
 
@@ -189,6 +213,17 @@ Ordered by payoff per effort.
   Date: 2026-10-20
 - Decision: EP-201's M1 to M4 fold into M5 here; EP-201 is superseded.
   Rationale: one plan for the release path.
+  Date: 2026-10-20
+- Decision: The six released Cabal packages keep version `0.0.0`.
+  Rationale: a constant that is not a release, so nobody reads it as one; `nagare-harness` keeps
+  its own `0.1.0`.
+  Date: 2026-10-20
+- Decision: `release-intranet.sh` commits the pin once, after the transition commit, with
+  `flake.nix`, `flake.lock`, `hosts/<context>/flake.{nix,lock}` and `contexts/<context>.env`
+  together, as the operator runbook does; the tag pin is the same script's `--pin-tag`, called by
+  `release-publish.sh`. Its reviews live in `<run>/intranet/`.
+  Rationale: the host flake and context pin change only during the transition, so one commit
+  holds the whole upgrade; one script owns every write to the operator repository.
   Date: 2026-10-20
 
 

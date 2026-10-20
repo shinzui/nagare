@@ -14,6 +14,10 @@ provenance:
 
 # Upgrade the intranet on the release candidate before tagging
 
+**Superseded** by [EP-210](210-make-a-release-a-short-unattended-run-that-never-waits-on-the-operator-or-blocks-their-work.md)
+(2026-10-20): its M1 to M4 fold into EP-210's M5, and the `--login-confirmed` flag is not
+implemented.
+
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.

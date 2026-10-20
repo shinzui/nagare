@@ -1,134 +1,127 @@
 # Publishing and recovering Nagare releases
 
 This runbook is for maintainers. Nagare releases are immutable Nix flake tags; publication validates
-and describes an existing tag but never creates a version commit, moves a tag, or operates a cluster.
+and describes an existing tag but never creates a version commit or moves a tag. The intranet moves
+to the candidate before the tag exists.
 
-## Prepare a candidate
+## A release
 
-1. Choose an unpadded semantic version `X.Y.Z` and update root `release.json`, all three Cabal package
-   versions, the compatibility fixture in `cli/nagarectl/test/PlatformSpec.hs`, `CHANGELOG.md`, the
-   README status, and `docs/releases/vX.Y.Z.md` in one Conventional Commit,
-   `chore(release): prepare vX.Y.Z`.
-2. Check the compatibility claims. `transitionsFrom` lists the releases an installed context may move
-   from; it must include the release the intranet runs, and its newest entry is the release the
-   upgrade rehearsal starts from. Do not claim rollback from a version unless the reverse transaction is tested and listed in
-   `rollbackSupportedFrom`.
-3. Run `./scripts/check-release.sh --version X.Y.Z --source-only` and `just docs-validate`, then
-   `just gate-fast` and `just land <candidate>`. The land starts the candidate's full gate in the
-   background.
-
-## Prove and assemble the candidate
-
-A release proves three things (operator, 2026-10-10): the release gate is green, the EP-172 upgrade
-rehearsal on a disposable local context reads its seeded data back unchanged, and the real intranet
-context upgrades to the candidate and passes the deploy-and-login check. A release counts when the
-intranet runs it, not when a tag exists.
-
-When the candidate's full gate is green, run on the aarch64-darwin workstation, with the builder up:
+A release proves three things (operator, 2026-10-10): the full gate is green, the EP-172 upgrade
+rehearsal on a disposable local context reads its seeded row back unchanged, and the intranet
+runs the candidate. A release counts when the intranet runs it, not when a tag exists. Nothing
+else is a release step.
 
 ```bash
-just release-candidate X.Y.Z            # the candidate is HEAD; --revision REV names another
-```
-
-It runs unattended up to the tag. Each step stops at its first failure and nothing is retried:
-
-1. **Preflight.** `release.json` at the candidate says `X.Y.Z` and names both systems, the candidate
-   is on `origin/master`, `vX.Y.Z` is not tagged, and the newest version in `transitionsFrom` is a
-   published tag. That version is the rehearsal's source.
-2. **Release gate.** `just gate-release <candidate>`: the gate record, then the mutation sweep. The
-   recovery model's deep tier is not part of a release.
-3. **Upgrade rehearsal.** `just release-rehearse <candidate> <previous>` builds the previous
-   release's packaged `nagarectl` and the candidate's, prepares the Colima profile `nagare-mp23`
-   (VM resolver, registry forward on `127.0.0.1:15213`), and runs
-   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) from an empty
-   environment whose PATH has no Helm, so the candidate must bring every tool it pins. Every guard
-   is on. It writes
-   `docs/release-evidence/<candidate-40-character-revision>/transition-rehearsal.json`, and accepts
-   one that is already there for the same candidate and source.
-4. **aarch64-darwin attachments.** [`scripts/release-native.sh`](../../scripts/release-native.sh)
-   in a clean worktree of the candidate: the release gate's built checks (`check-release.sh`), the
-   native output identities, and the clone-free rehearsal from an exact `git+file` revision in an
-   isolated home.
-5. **x86_64-linux attachments.** The x86 outputs are built on the builder and copied into a file
-   cache under `~/.local/state/nagare/releases/x86-work`, which persists across releases. Then
-   [`scripts/release-native-container.sh`](../../scripts/release-native-container.sh) runs the
-   same native script in an amd64 `nixos/nix:2.35.2` Apple container (`container run --rosetta`,
-   4 CPUs, 16 GiB, `HOME=/root`, that directory as its only mount). Each run gets a fresh VM, so
-   there is no profile to keep in shape.
-6. **Assembly.** [`scripts/assemble-release.sh`](../../scripts/assemble-release.sh) runs twice. The
-   two outputs must be byte-identical, and `SHA256SUMS` must verify. Assembly requires every
-   supported system's native output and clone-free rehearsal, the platform metadata, and a
-   rehearsal record bound to this candidate's version and revision. That record must show a move
-   from a release in `transitionsFrom`, the seeded row read back unchanged, at least one transition
-   review applied, and the CLI, payload, context and cluster ending on the candidate with no open
-   transaction. A record for another candidate, or a changed outcome, fails even when the checksums
-   were recomputed.
-7. **Evidence.** The rehearsal record is committed on top of `origin/master` and landed with
-   `just land`. It is inert documentation, so it carries the gated ancestor's record. The candidate
-   never embeds evidence about itself.
-
-Each run lives in `~/.local/state/nagare/releases/vX.Y.Z/<time>/`, with the attachments in `dist/`;
-`latest` points to the last completed run. `--rehearsal` runs every step for a tagged or unreleased
-revision, lands nothing and never moves `latest`, so `release-publish` cannot use it.
-
-## The intranet
-
-Choosing when the intranet upgrades stays manual. In the operator repository
-(`mori://tan/tan-ng-labs`), pin the Nagare flake input to the candidate's exact revision. Then follow
-the release notes' upgrade steps: `platform transition plan --out DIR`, `inventory apply DIR --yes`,
-and a new plan until the review has no operations, then `platform transition commit --yes`. Check
-`platform status` is exact, that protected sites still require login, and that the operator's
-passkey login works. The open transition binds the candidate's payload, which is derived from its
-revision. So once the intranet starts, the tag must go on that same commit; a fix found
-mid-transition goes into the next release.
-
-## Publish
-
-```bash
+# 1. the bump: release.json and docs/releases/vX.Y.Z.md, one commit
+just gate-fast && just land HEAD
+# 2. when the landed commit's full gate is green, on the aarch64-darwin workstation
+just release-candidate X.Y.Z      # --revision REV names another candidate
+# 3.
 just release-publish X.Y.Z
 ```
 
-It publishes the `latest` run of `just release-candidate X.Y.Z`. Each step stops at its first
-failure:
+Nothing in it waits for the operator, and it runs in its own worktrees, so the operator keeps
+working and landing beside it.
 
-1. **Preflight.** `SHA256SUMS` verifies in the run's `dist/`, and the landed rehearsal record on
-   `origin/master` is byte-identical to the assembled one.
+## Prepare a candidate
+
+Choose an unpadded semantic version `X.Y.Z` and commit `chore(release): prepare vX.Y.Z` with two
+files:
+
+- `release.json`: `platformVersion`, and `transitionsFrom`, the releases an installed context may
+  move from. It must include the release the intranet runs; its newest entry is the release the
+  rehearsal starts from. Claim rollback in `rollbackSupportedFrom` only for a tested reverse
+  transaction.
+- `docs/releases/vX.Y.Z.md`: the notes, beginning `# Nagare X.Y.Z`, and the changelog entry
+  (add its link to `CHANGELOG.md`). Validation is one sentence: the three proofs passed.
+
+`release.json` is the only place the version is written: `nagarectl` embeds it at compile time and
+the Cabal package versions stay `0.0.0`. The notes are not a gate input, so a wording fix after the
+bump lands with its ancestor's gate record and `release-candidate --revision` accepts it.
+
+## The candidate run
+
+`just release-candidate X.Y.Z` runs unattended up to the tag. Each step stops at its first failure
+and nothing is retried:
+
+1. **Preflight.** `release.json` at the candidate says `X.Y.Z` and names both systems, the candidate
+   is on `origin/master`, `vX.Y.Z` is not tagged, and the newest version in `transitionsFrom` is a
+   published tag. Then a worktree of the candidate is made in the run directory; every later step
+   runs from it.
+2. **Release gate.** `just gate-release <candidate>` in the background: the gate record, then the
+   mutation sweep unless nothing it builds changed since an ancestor's clean sweep.
+3. **Upgrade rehearsal.** `scripts/release-rehearse.sh` builds the previous release's packaged
+   `nagarectl` and the candidate's and runs
+   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) on the Colima profile
+   `nagare-mp23` from an empty environment whose PATH has no Helm. The record goes into the run
+   directory.
+4. **aarch64-darwin attachments.** [`scripts/release-native.sh`](../../scripts/release-native.sh):
+   `check-release.sh`'s built checks, the native output identities, and the clone-free rehearsal.
+5. **x86_64-linux attachments.** The x86 outputs are built on the builder into a file cache under
+   `~/.local/state/nagare/releases/x86-work`, then
+   [`scripts/release-native-container.sh`](../../scripts/release-native-container.sh) runs the
+   native script in an amd64 `nixos/nix:2.35.2` Apple container.
+6. **Assembly.** [`scripts/assemble-release.sh`](../../scripts/assemble-release.sh) twice; the
+   outputs must be byte-identical and bound to the rehearsal record of this candidate.
+7. **The intranet**, once the release gate is green, under the operator's standing go-ahead.
+   [`scripts/release-intranet.sh`](../../scripts/release-intranet.sh) pins the operator repository
+   (`mori://tan/tan-ng-labs`, or `NAGARE_RELEASE_OPERATOR_REPO`) to the candidate revision, plans
+   and applies the platform transition through that repository's dev shell until a plan has no
+   operations, resuming an ambiguous stop once, and commits the transition. It requires an exact
+   platform status on the candidate, every accepted scope converged and the protected URL
+   answering 302 to the login page. Then it commits the pin files by path,
+   `feat(nagare): upgrade the intranet to the vX.Y.Z candidate`, and writes
+   `<run>/intranet.json`. It never edits app config: a config the candidate does not compile stops
+   the plan with the compiler's message, and the fix is the operator's.
+8. **Evidence.** It fetches `origin/master` again, commits the rehearsal record there as
+   `docs/release-evidence/<candidate>/transition-rehearsal.json` and lands it with `just land`.
+
+Each run lives in `~/.local/state/nagare/releases/vX.Y.Z/<time>/`, with the attachments in `dist/`;
+`latest` points to the last completed run. `--rehearsal` runs steps 1 to 6 for a tagged or
+unreleased revision, leaves the intranet alone, lands nothing and never moves `latest`.
+
+**A defect found on the intranet keeps the version.** Land the fix and run
+`just release-candidate X.Y.Z --revision NEW`: nothing is tagged yet, and the new candidate's plan
+supersedes the idle open transition ([ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md),
+2026-10-18 amendment). If a transaction is still active, the intranet step refuses; resume or close
+it with the candidate that opened it first.
+
+## Publish
+
+`just release-publish X.Y.Z` publishes the `latest` run. Each step stops at its first failure:
+
+1. **Preflight.** The run's `intranet.json` names this version and revision with an exact status,
+   `SHA256SUMS` verifies in `dist/`, and the landed rehearsal record is byte-identical to the
+   assembled one.
 2. **Tag.** An annotated tag `vX.Y.Z` on the candidate, signed with Git's SSH backend and the
-   maintainer's key (`~/.ssh/id_ed25519.pub`, or `NAGARE_RELEASE_SIGNING_KEY`). Signing stays with
-   the maintainer: the key's passphrase or agent is theirs. The tag must resolve to the candidate and
-   verify against a throwaway allowed-signers file that maps `git config user.email` to that key.
-   Never generate or register credentials during a release, and never fall back to an unsigned tag.
+   maintainer's key (`~/.ssh/id_ed25519.pub`, or `NAGARE_RELEASE_SIGNING_KEY`), verified against a
+   throwaway allowed-signers file. Never generate or register credentials during a release, and
+   never fall back to an unsigned tag.
 3. **Push.** Only the tag goes to `origin`.
 4. **Publication.** From a checkout of the tag, the candidate's own CLI runs
-   `nagarectl release publish --repo shinzui/nagare --version X.Y.Z --assets DIST --yes`. When it
-   stops with "created draft is not yet visible", it is run again, up to five times: a rerun
-   completes the draft, and it accepts an existing release only when every attachment is
-   byte-identical. Any other failure stops.
-5. **Public flake.** `nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json` must report
+   `nagarectl release publish --repo shinzui/nagare --version X.Y.Z --assets DIST --yes`, again up
+   to five times while it reports "created draft is not yet visible".
+5. **Public flake.** `nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json` reports
    `X.Y.Z` at the candidate revision.
+6. **The tag pin.** The operator repository's input moves from the revision to the tag, which
+   resolves to the same commit: `chore(nagare): pin the intranet to the published vX.Y.Z tag`,
+   `flake.nix` and `flake.lock` only.
 
 A rerun after a failure accepts the tag it already made, locally and on `origin`, as long as it is
-the same signed object on the candidate. Afterwards, switch the operator repository's flake input
-from the revision to the tag, which resolves to the same commit.
+the same signed object on the candidate. The operator's passkey login is not a release step; it
+confirms the release afterwards.
 
-The publisher checks the tag and every attachment, creates the GitHub release from the reviewed
-notes, and attaches:
-
-- `nagare-release-X.Y.Z.json`;
-- `nagare-vX.Y.Z.md`;
-- `nix-output-x86_64-linux.json` and `nix-output-aarch64-darwin.json`;
-- `clone-free-x86_64-linux.json` and `clone-free-aarch64-darwin.json`;
-- `nagare-transition-rehearsal-vX.Y.Z.json`, the candidate-bound EP-172 rehearsal record;
-- `nagare-platform-metadata-vX.Y.Z.json`, the candidate's `release.json`;
-- `SHA256SUMS`.
+The attachments are `nagare-release-X.Y.Z.json`, `nagare-vX.Y.Z.md`, one `nix-output-<system>.json`
+and one `clone-free-<system>.json` per supported system,
+`nagare-transition-rehearsal-vX.Y.Z.json`, `nagare-platform-metadata-vX.Y.Z.json` (the candidate's
+`release.json`) and `SHA256SUMS`.
 
 ## Broken release or failed publication
 
 Never move, delete, or reuse a published tag, and never overwrite its attachments. These are the
 reproducible identities of existing operator pins.
 
-- If a gate fails before publication because the source is inconsistent, fix the source and choose a
-  new version. Do not move the candidate tag after others may have fetched it.
+- If anything fails before the tag, land the fix and run the candidate again at the same version.
 - If only publication failed and the tagged source is unchanged, rerun `just release-publish X.Y.Z`.
 - If a published release is unsafe, edit its GitHub release description to lead with
   **Deprecated**, explain the impact, and point to the retained prior version or a fixed later
@@ -140,5 +133,6 @@ reproducible identities of existing operator pins.
   retained. Stateful recovery follows the [disaster-recovery runbook](disaster-recovery.md); release
   selection does not restore application data.
 
-Publication itself never changes a context or cluster. This boundary is recorded in
+Publication itself never changes a context or cluster; the candidate run moves the intranet before
+it. This boundary is recorded in
 [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md).
