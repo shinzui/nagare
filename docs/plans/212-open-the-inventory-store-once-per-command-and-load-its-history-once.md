@@ -85,14 +85,23 @@ landed.
   converging. A stale head is refused by the static checks before any history is used, as before.
   `ADR27-N8-collection-unverified` regenerated for the moved admission lines; it and the six other
   admission records still kill with their `records.json` patterns.
-- [ ] M4: ADR 22 amended with the one-open, one-pinned-head, reuse-under-equal-head rule and
-  `docs/runbooks/inventory-operations.md` naming `NAGARE_TRACE=1` (both done, `624fa813`).
-  Read-only intranet attribution, 2026-10-22, development build of `79de5b0a`,
-  `inventory status --json`: `store opens 1 (0.44 s), gcloud sessions 1 (2.04 s), head reads 1
-  (0.29 s), history loads 1 (0.02 s), remote gets 2 (0.73 s), cached gets 371, puts 0,
-  listings 0`. Open: with the operator's go-ahead, one `access grant --save-plan` and its
-  `inventory apply` on the intranet with their summaries recorded here (also the first half of
-  MasterPlan 29's gate).
+- [x] M4: ADR 22 amended with the one-open, one-pinned-head, reuse-under-equal-head rule and
+  `docs/runbooks/inventory-operations.md` naming `NAGARE_TRACE=1` (both `624fa813`). Read-only
+  attribution, development build of `79de5b0a`, `inventory status --json`: `store opens 1
+  (0.44 s), gcloud sessions 1 (2.04 s), head reads 1 (0.29 s), history loads 1 (0.02 s), remote
+  gets 2 (0.73 s), cached gets 371, listings 0`. On 2026-10-22, with the operator's go-ahead, a packaged build of `c9ebbb8b` ran a net-zero pair
+  on the intranet: revoke, then grant back, of `user_01m4py1q2fesvbtd7xnxr7yede`'s direct grant on
+  `keiro-docs.labs.topagentnetwork.net` (team `engineering`'s grant covered the host throughout;
+  `access check` afterwards: allowed, grant generation 30). Converged `tx-5f35379e…` (revoke) and
+  `tx-8a08c6a9…` (grant). A first revoke apply was refused `stale-head`/`stale-base` before
+  admission with no effect: another writer advanced the head from 7247 to 7253 while it waited.
+  Pass: the grant plan printed `store opens 1 (0.20 s), gcloud sessions 1 (2.73 s), head reads 1
+  (0.26 s), history loads 1 (0.02 s), remote gets 92 (17.04 s), cached gets 88, puts 90
+  (20.90 s), listings 0`, wall 43.2 s; its apply `store opens 1, gcloud sessions 1 (1.86 s), head
+  reads 10 (1.93 s), history loads 1 (0.03 s), remote gets 20 (59.62 s), cached gets 353, puts 10
+  (1.32 s), listings 0`, wall 67.2 s (the revoke pair: 46.3 s and 68.2 s). The plan's 90 puts were
+  EP-213's create-first publish re-sending cached scope members, fixed in `b95d479b`; the apply's
+  time is the execute path reading the whole journal, recorded in MasterPlan 29.
 
 
 ## Surprises & Discoveries

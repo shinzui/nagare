@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-22T21:56:17Z
       mode: "implement"
       note: "Implement M1-M3 and the M4 user docs"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-22T23:20:31Z
+      mode: "implement"
+      note: "Merged onto EP-212; intranet M4 confirmation recorded"
 ---
 
 # Reach the context's En through one forward and one guard per command
@@ -86,14 +91,16 @@ pair and two owner reads. `access check` and `access portal sync` use the same s
   closes 2, capability 1), "a refused capability or guard is not remembered" (guard 2,
   capability 2, opens 1), "a missing key refuses before any forward starts" (opens 0). All 19
   existing `reviewed access` tests and the full nagarectl suite pass unchanged.
-- [ ] M4: `docs/user/access.md` says the forward lasts the command, and the intranet
-  confirmation is recorded: with the kubectl PATH shim from EP-185 and `NAGARE_TRACE=1`, one
-  `access grant --save-plan` and its `inventory apply` on the intranet show one forward and one
-  guard pair each. The apply is a real reviewed change and runs with the operator's go-ahead,
-  together with EP-212's confirmation.
-  Docs done: `docs/user/access.md` says the forward lasts the command, names the commands, and
-  that owner UIDs are still read before every observation and write. Intranet confirmation not
-  yet run.
+- [x] M4: `docs/user/access.md` says the forward lasts the command, names the commands, and
+  that owner UIDs are still read before every observation and write. On 2026-10-22, with the operator's go-ahead, a packaged build of `c9ebbb8b` ran a net-zero pair
+  on the intranet: revoke, then grant back, of `user_01m4py1q2fesvbtd7xnxr7yede`'s direct grant on
+  `keiro-docs.labs.topagentnetwork.net` (team `engineering`'s grant covered the host throughout;
+  `access check` afterwards: allowed, grant generation 30). Converged `tx-5f35379e…` (revoke) and
+  `tx-8a08c6a9…` (grant). A first revoke apply was refused `stale-head`/`stale-base` before
+  admission with no effect: another writer advanced the head from 7247 to 7253 while it waited.
+  Pass, from the EP-185-style kubectl PATH shim: each plan ran `kubectl` 7 times (1
+  `port-forward`, 1 `config current-context`, 1 `get nodes`, 4 owner reads) and each apply 11
+  times (1 `port-forward`, 1 `config current-context`, 1 `get nodes`, 8 owner reads).
 
 
 ## Surprises & Discoveries
