@@ -15,6 +15,11 @@ provenance:
       at: 2026-10-22T21:29:32Z
       mode: "update"
       note: "Add held EP-216 (En through the API server's service proxy, trigger IR-1 in en); EnTransport seam ownership; tailnet exposure rejected"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-22T22:38:49Z
+      mode: "implement"
+      note: "EP-212 M1-M3 implemented; EP-213 and EP-214 merged onto it, fast gate green at db83d2b6"
 ---
 
 # Make a reviewed change cost seconds by opening the inventory once and reading it concurrently
@@ -244,7 +249,10 @@ initiative. The MasterPlan's Decision Log holds that decision; no ADR change is 
 
 ## Progress
 
-No child plan has started. The one cross-plan gate:
+EP-212 M1–M3, EP-213 M1–M4 and EP-214 M1–M3 are implemented, merged and fast-gate green together
+(`db83d2b6`). Each child's remaining milestone is its intranet confirmation (EP-212 M4, EP-213 M5,
+EP-214 M4), which keeps all three In Progress; EP-215 waits for EP-212 to complete. The one
+cross-plan gate:
 
 - [ ] On the intranet, after EP-212, EP-213 and EP-214 are in the release it runs:
   `nagarectl access team add-member --team T --user U --save-plan DIR` completes in under 5 s and
@@ -282,6 +290,12 @@ and En reads its key only from that header. IR-1 in `mori://shinzui/en` asks for
 EP-216 is held behind it. Exposing En on the tailnet (hostPort, subnet route or Tailscale
 operator) was rejected: `tailscale0` is fully trusted by the host firewall, so En's write API
 would be gated by its key alone. EP-214 stays as written.
+
+2026-10-22: The three streams were implemented in parallel and merged in the order EP-212,
+EP-214, EP-213. `Nagare.Test.Suite` sits at its 300-line limit, so EP-214's session tests run
+under the existing `Nagare.Access` group and EP-213's and EP-212's store tests share an
+"inventory object store" group. The recovery model's pinned admission faults are at store reads
+11 and 12 on the merged code, confirmed by logging the key at each counted read.
 
 2026-10-22: EP-215 is optional. It changes what one review may carry, not how fast a review is.
 It is listed because it turns a five-person onboarding into one review; the operator may cancel
