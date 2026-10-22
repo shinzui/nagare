@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-22
+* **Addition**: Record BUG-8 from the `mori://tan/tan-ng-labs` intranet on 0.9.0: one reviewed team membership or site grant takes about 100 seconds because `loadInventoryHistory` reads every accepted scope with sequential GCS GETs, twice per plan and again during apply, and every access relationship adds another scope.
+
 ## 2026-10-20
 * **Update**: BUG-7 is `fixed` in 0.9.0: the intranet's labs-clickhouse took the setting, its quiesced app databases resumed, and a reviewed restart left the migration grants write-only with both configs re-planning to no operations.
 * **Update**: Mark BUG-7 `fixed` in `unreleased` by commit `9e6ace41` (ExecPlan 209): ClickHouse servers turn on `enable_read_write_grants`, and the reloaded `READ ON FILE` on a migration user is revoked by the next plan instead of refused as drift.
