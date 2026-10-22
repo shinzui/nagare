@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-09T22:13:41Z
       mode: "update"
       note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T01:39:10Z
+      mode: "update"
+      note: "Cascade of MasterPlan 25's 2026-10-21 refresh: held as written, superseded by the destroy-to-zero shape at reopening"
 ---
 
 # Collect a retained VM together with the workloads it hosts
@@ -45,6 +50,10 @@ To see it working: on a disposable context with every scope retired, `nagarectl 
 - Decision (2026-10-09): Milestones 1 and 2 are pure and may start before the Pulumi cloud-foundation world exists. Milestone 3 is developed against EP-167's teardown-to-zero model. The VM's delete precondition reads the VM's identity through the checked accessor that EP-165 adds for cloud members.
   Rationale: [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s 2026-10-09 finish line. Interpreters find defects, and the only cloud run is G1.
   Date: 2026-10-09
+
+- Decision (2026-10-21): Held as written. At reopening, [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s destroy-to-zero shape (its Decision Log, 2026-10-21) supersedes this plan's milestones once the operator confirms it: the one transaction tombstones every hosted member with the VM, so no milestone of this plan is implemented separately.
+  Rationale: the need is a context torn down to zero, and MasterPlan 26 closed on 2026-10-14 without the Pulumi world this plan assumed.
+  Date: 2026-10-21
 
 ## Outcomes & Retrospective
 

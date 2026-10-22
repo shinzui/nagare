@@ -89,13 +89,12 @@ real work.
   it unlocks four plans, but the node-upgrade drills pass on the in-place route with reboots of a few
   minutes. Trigger: the team cannot tolerate that downtime after some weeks of use.
 - **[MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md),
-  teardown.** Trigger: a cloud context actually needs disposing. Deletion is where data risk lives,
-  so when it reopens,
-  [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M4's Pulumi
-  cloud-foundation world goes first, as
-  [MasterPlan 26](../masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md)
-  records. F33 (P1, Verifying: cloud collection rechecks its reviewed incarnation before deletion)
-  sits in that path.
+  teardown.** Trigger: a cloud context actually needs disposing (checked 2026-10-21: `tan-ng-labs`
+  holds only the intranet). Deletion is where data risk lives, so when it reopens,
+  [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M3–M4 go
+  first and the plan is re-chartered as one reviewed destroy-to-zero transaction (its Decision Log,
+  2026-10-21), run outside the intranet's project. F33 (P1, Verifying: cloud collection rechecks its
+  reviewed incarnation before deletion) sits in that path.
 - **EP-173 M3–M4, the host-transport world.** Trigger: an intranet upgrade finds a host-stage
   defect. F121–F124 all sat in providers without a world.
 - **Improvement requests.** IR-6 (the local cluster on Apple Container instead of k3d on Colima)

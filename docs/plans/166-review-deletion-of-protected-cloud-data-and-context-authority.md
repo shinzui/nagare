@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-09T22:13:41Z
       mode: "update"
       note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T01:39:11Z
+      mode: "update"
+      note: "Cascade of MasterPlan 25's 2026-10-21 refresh: held as written, superseded by the destroy-to-zero shape at reopening"
 ---
 
 # Review deletion of protected cloud data and context authority
@@ -50,6 +55,10 @@ Teardown reports these as `retention-policy` and `unsupported-collection-transpo
 - Decision (2026-10-09): Milestones 2 and 3 are developed against EP-167's teardown-to-zero model, with a fault for protected data without intent. Their native proof is part of run G1 (EP-167 M2). Delete preconditions use EP-165's cloud identity accessor.
   Rationale: [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s 2026-10-09 finish line.
   Date: 2026-10-09
+
+- Decision (2026-10-21): Held as written. At reopening, [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s destroy-to-zero shape (its Decision Log, 2026-10-21) supersedes this plan's milestones once the operator confirms it: Milestone 1's typed destruction intent and ADR survive as the intent of that transaction, and Milestones 2–3 fold into it.
+  Rationale: the need is a context torn down to zero, and MasterPlan 26 closed on 2026-10-14 without the Pulumi world this plan assumed.
+  Date: 2026-10-21
 
 ## Outcomes & Retrospective
 

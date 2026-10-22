@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-09T22:13:41Z
       mode: "update"
       note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T01:39:10Z
+      mode: "update"
+      note: "Cascade of MasterPlan 25's 2026-10-21 refresh: held as written, superseded by the destroy-to-zero shape at reopening"
 ---
 
 # Observe retained cloud members and order cloud collection by real consumption
@@ -33,7 +38,7 @@ After a cloud scope is retired, the read-only collection assessment (`nagarectl 
 
 ## Progress
 
-- [ ] Milestone 1: cloud physical identity recorded at creation and read through ADR 27's checked accessor (VM, disks, address, buckets, images; ADR 27 §4 amendment), and retained cloud observation in the collection assessment. Both are tested over the Pulumi cloud-foundation world from MasterPlan 26's EP-173 M4.
+- [ ] Milestone 1: cloud physical identity recorded at creation and read through ADR 27's checked accessor (VM, disks, address, buckets, images; ADR 27 §4 amendment), and retained cloud observation in the collection assessment. Both are tested over the Pulumi cloud-foundation world (EP-173 M4, held; MasterPlan 26 closed without it on 2026-10-14, and it is re-chartered under MasterPlan 25 at reopening).
 - [ ] Milestone 2: consumption edges distinct from Pulumi ordering, with regressions.
 - [ ] Milestone 3: the ordering is proven in EP-167's teardown-to-zero model, then confirmed natively as part of run G1 (EP-167 M2).
 
@@ -51,6 +56,10 @@ After a cloud scope is retired, the read-only collection assessment (`nagarectl 
 
   Rationale: Both this MasterPlan's delete preconditions (F33) and MasterPlan 21's candidate slots need the same primitive, and [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md) §4 currently leaves these kinds without it.
   Date: 2026-10-09
+
+- Decision (2026-10-21): Held as written. At reopening, [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s destroy-to-zero shape (its Decision Log, 2026-10-21) supersedes this plan's milestones once the operator confirms it: the Pulumi world dependency becomes EP-173 M4 re-chartered under MasterPlan 25, and leaf ordering and identity at creation are dropped.
+  Rationale: the need is a context torn down to zero, and MasterPlan 26 closed on 2026-10-14 without the Pulumi world this plan assumed.
+  Date: 2026-10-21
 
 ## Outcomes & Retrospective
 

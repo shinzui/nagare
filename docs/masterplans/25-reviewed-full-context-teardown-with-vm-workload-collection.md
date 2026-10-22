@@ -15,6 +15,17 @@ provenance:
       at: 2026-10-09T22:13:41Z
       mode: "update"
       note: "Fixed finish line; model-first EP-167; one cloud sequence G1; EP-165 owns cloud identity; local teardown as EP-168 stage"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T01:39:10Z
+      mode: "update"
+      note: "Refresh: EP-173 M3-M4 first at reopening, L3 stage on the release rehearsal, G1 outside tan-ng-labs, destroy-to-zero reopening shape recorded; stays Held"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T01:39:10Z
+      verdict: "changes-requested"
+      note: "Held plan depends on a Pulumi world MP-26 never built; item 7 names a cancelled command; G1 named the intranet's project; trigger not fired; four-child shape heavier than the to-zero need"
 ---
 
 # Reviewed full-context teardown with VM workload collection
@@ -44,18 +55,19 @@ The scope boundary:
 - **Excluded:** resources shared with other contexts (the parent DNS zone, the reusable Nix builder);
   upgrades; any automatic or default deletion of data.
 
-**Order (operator, 2026-10-09).** This plan runs after
-[MasterPlan 26](26-make-platform-changes-and-releases-routine-after-the-inventory-release.md)'s
-lane A has delivered the Pulumi cloud-foundation world (EP-173 M4), because this plan's teardown
-model is built on that world. Pure-code items that need no world may start earlier when a session is
-free.
+**Order (operator, 2026-10-09; refreshed 2026-10-21).** The plan was to run after
+[MasterPlan 26](26-make-platform-changes-and-releases-routine-after-the-inventory-release.md) had
+delivered the Pulumi cloud-foundation world (EP-173 M4). MasterPlan 26 closed on 2026-10-14 without
+it, and EP-173 M3–M4 are re-chartered when this plan reopens (its Decision Log, 2026-10-14). So the
+world is this plan's first work at reopening, not a prerequisite another plan delivers. Nothing in
+this plan is worked on while it is held.
 
 Why it matters beyond tidiness:
 - Every MP-23 acceptance context (`mp23-c3i` to `mp23-c3m`) was disposed by exact-name provider
   deletes from its stack export.
 - F33 (the cloud-collection identity recheck) and F84 (retiring a revoked access grant) remain
   Verifying, because no staged teardown has reached them natively.
-- Once local teardown is a reviewed stage of the local acceptance, every release exercises it.
+- Once local teardown is a reviewed stage of the release rehearsal, every release exercises it.
 
 ### Finish line (fixed 2026-10-09)
 
@@ -85,8 +97,9 @@ apply:
       Every reachable stop reaches zero through supported commands, and nothing protected is deleted
       without its intent. Mutation records show each guard is observed (EP-167 M1).
 - [ ] 7. **Native run L3 (cp3).** A local context is torn down to zero by review, as the final stage
-      of MasterPlan 26's `nagare-harness local-acceptance`. This adds a stage to an existing run, not
-      a separate run (EP-167 M3).
+      of the release rehearsal's disposable local context (`scripts/release-rehearse.sh`; MasterPlan
+      26's `nagare-harness local-acceptance` was cancelled on 2026-10-14). This adds a stage to an
+      existing run, not a separate run (EP-167 M3).
 - [ ] 8. **Native run G1 (one bounded cloud sequence).** A fresh disposable GCP context, holding a
       revoked access grant, is torn down to zero through saved reviews only. A read-only listing of
       the project filtered to the context's names is empty, and the exported history verifies and
@@ -96,8 +109,10 @@ apply:
       run G1, and G1 follows it verbatim.
 
 G1 is the only cloud sequence. The operator approves it once, when item 8 is reached, after the
-preflight has passed (MasterPlan 26 EP-168 was cancelled on 2026-10-14, so the runner carries its own). The project is `tan-ng-labs` unless the operator names
-another disposable project.
+preflight has passed (MasterPlan 26 EP-168 was cancelled on 2026-10-14, so the runner carries its
+own). G1 runs in a project that holds no context in real use. `tan-ng-labs` hosts the intranet
+(`nagare-intranet`, in use since 2026-10-12), so it is excluded: the project guard is per project,
+not per context. The operator names the project when item 8 is reached.
 
 ## Decomposition Strategy
 
@@ -126,6 +141,13 @@ Alternatives considered:
 - A second, MP-25-specific Pulumi fake. Rejected: EP-173 M4's cloud-foundation world is extended
   instead.
 
+**Reopening shape (2026-10-21, Decision Log).** When the trigger fires, the need is a context torn
+down to zero, not a general per-leaf cloud collection. The plan is then re-chartered as one reviewed,
+intent-bound destroy-to-zero transaction, which is not the unreviewed command rejected above. It
+drops the leaf ordering, the VM as a separately collected leaf and identity at creation, and keeps
+the typed destruction intent, the identity recheck before effect and one run of each kind. The four
+children stay Held as written until the operator confirms that shape at reopening.
+
 Relevant ADRs:
 - [0022](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md): retirement,
   collection and identity rules.
@@ -146,22 +168,40 @@ Relevant ADRs:
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Collect a retained VM together with the workloads it hosts | [docs/plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md](../plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md) | None | EP-165 | Held (operator, 2026-10-10) |
-| 2 | Observe retained cloud members and order cloud collection by real consumption | [docs/plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md](../plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md) | M1 needs MP-26 EP-173 M4 (Pulumi cloud-foundation world) | EP-164 | Held (operator, 2026-10-10) |
-| 3 | Review deletion of protected cloud data and context authority | [docs/plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md](../plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md) | M2–M3 need EP-164, EP-165 | None | Held (operator, 2026-10-10) |
-| 4 | Prove a full GCP and local context tears down to zero through reviews | [docs/plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md](../plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md) | M1: MP-26 EP-173 M4; M2: EP-164, EP-165, EP-166; M3: a scripted fresh local context (`scripts/release-rehearse.sh` bootstraps one; MP-26 EP-168 was cancelled on 2026-10-14) | None | Held (operator, 2026-10-10) |
+| 164 | Collect a retained VM together with the workloads it hosts | [docs/plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md](../plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md) | None | EP-165 | Held (operator, 2026-10-10); folded into the destroy-to-zero shape at reopening (Decision Log, 2026-10-21) |
+| 165 | Observe retained cloud members and order cloud collection by real consumption | [docs/plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md](../plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md) | EP-173 M4 | EP-164 | Held (operator, 2026-10-10); folded into the destroy-to-zero shape at reopening (Decision Log, 2026-10-21) |
+| 166 | Review deletion of protected cloud data and context authority | [docs/plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md](../plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md) | EP-164, EP-165 | None | Held (operator, 2026-10-10); M1's typed intent and ADR survive into the destroy-to-zero shape at reopening (Decision Log, 2026-10-21) |
+| 167 | Prove a full GCP and local context tears down to zero through reviews | [docs/plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md](../plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md) | EP-173 M4, EP-164, EP-165, EP-166 | None | Held (operator, 2026-10-10); its model, runner, L3 stage and G1 become the proof of the destroy-to-zero shape at reopening (Decision Log, 2026-10-21) |
+
+Milestone granularity: EP-165 needs EP-173 M4 for M1 only; EP-166 needs EP-164 and EP-165 for
+M2–M3 only; EP-167 M1 needs EP-173 M4, M2 needs EP-164 to EP-166, and M3 needs only the release
+rehearsal's disposable local context (`scripts/release-rehearse.sh`; MasterPlan 26 EP-168 was
+cancelled on 2026-10-14). EP-173 M4 is the Pulumi cloud-foundation world, held since MasterPlan 26
+closed without it on 2026-10-14 and re-chartered here at reopening.
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
 until the operator reopens it.
 
 ## Progress
 
-2026-10-09: re-scoped around the fixed finish line. No child has started.
-- **Pure items:** EP-165 M2, EP-164 M1–M2 and EP-166 M1 may start in any free session.
-- **World-dependent items:** these wait for MasterPlan 26 EP-173 M4.
+2026-10-21: held since 2026-10-10. No child has started, and the trigger has not fired.
+- **Trigger check.** A read-only listing of the active project `tan-ng-labs` on 2026-10-21 shows
+  only the intranet: `nagare-intranet` and its data disk, the stopped `nix-builder-intranet`, the
+  three intranet buckets and one address. No disposable cloud context exists, none was created since
+  the hold, and EP-183's cloud run N2 has not run. The `tan-nb-exp` context is still configured on
+  the workstation and is the foreseeable candidate; it was not inspected, because reads are scoped to
+  the active project.
+- **Premises re-checked in the tree.** Since the hold, the modules this plan touches changed only in
+  `ea2304d6` (F113, F114). `cloudCollectionTypes` still names ten stateless types, so the data disk,
+  buckets, images, registry, service account and IAM have no collection; `consumersOf` still counts
+  `OrderedAfter` edges as consumption; a retained cloud finding still has no Pulumi observation.
+- **Dependency.** The Pulumi cloud-foundation world does not exist. MasterPlan 26 closed on
+  2026-10-14 with EP-173 M3–M4 re-chartered to this plan's reopening.
 - **Already proven natively, and reused** (MP-23 C3 checkpoint, development builds
   `24320d82`–`07d203ad`): policy, retirement of every platform scope, and cloud-scope retirement.
   F84's fix (`b171712a`, in v0.4.0) unblocks retiring a context that holds a revoked access grant.
+- **F33 and F84** stay Verifying. Both close on the first native cloud collection, and none is
+  scheduled.
 
 ## Surprises & Discoveries
 
@@ -173,6 +213,24 @@ until the operator reopens it.
   that identity, so it is built once, here.
 
 ## Decision Log
+
+- 2026-10-21 (review and refresh): The plan stays Held; the trigger, a cloud context that actually
+  needs disposing, has not fired. Three refreshes: EP-173 M3–M4 are this plan's first work at
+  reopening, since MasterPlan 26 closed without the Pulumi world; item 7's stage runs on the release
+  rehearsal's disposable local context, since `nagare-harness local-acceptance` was cancelled; and
+  G1 runs outside `tan-ng-labs`, which now hosts the intranet. Reopening re-charters the plan as one
+  reviewed destroy-to-zero transaction: a saved Pulumi destroy plan over the whole stack; a typed,
+  identity-bound destruction intent with its ADR (EP-166 M1); a recheck of every stack entry's
+  physical identity and protection against the review immediately before effect (F33's check over
+  every entry); the versioned-bucket purge on EP-183's generation-pinned deletes; and a
+  last-authority stage after the history is exported. It drops leaf ordering (Pulumi orders a
+  destroy itself), the VM as a separately collected leaf (the one transaction tombstones every hosted
+  member) and identity at creation (MasterPlan 21, its other consumer, is held). The to-zero world is
+  sized like the bucket world, not like a general cloud-foundation world. The four children stay
+  Held as written until the operator confirms this shape at reopening.
+  Rationale: the need is a context torn down to zero; the five MP-23 disposals and the 2026-10-10
+  entry below show a bounded provider delete covers it today; and the four-child shape, with EP-173
+  M3–M4 in front of it, is the costliest open initiative while moving neither requirement.
 
 - 2026-10-10 (operator): The whole plan is held. Nothing in it moves the requirement "developers
   deploy and log in; the operator changes and upgrades without losing data". A disposable context is
