@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-22T21:29:32Z
       mode: "update"
       note: "Point the EnTransport seam at held EP-216"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-22T21:56:17Z
+      mode: "implement"
+      note: "Implement M1-M3 and the M4 user docs"
 ---
 
 # Reach the context's En through one forward and one guard per command
@@ -47,26 +52,48 @@ pair and two owner reads. `access check` and `access portal sync` use the same s
 
 ## Progress
 
-- [ ] M1: An `EnSession` seam in `Nagare.Inventory.AccessRuntime`: one lazily opened forward per
+- [x] M1: An `EnSession` seam in `Nagare.Inventory.AccessRuntime`: one lazily opened forward per
   session, reopened only if its `kubectl` exited, closed when the session ends; the guard,
   capability and schema checks memoized per session. Pass: a fake transport and fake owner
   reader drive `mkAccessAdapter` through observe, prepare, preflight, execute and verify for one
   tuple and count forward opens 1, guard 1, capability 1, schema 1 (team tuple) or 0 (user
   tuple), owner reads 2 per phase, queries 5, writes 1 (`InventoryAccessSpec`).
-- [ ] M2: Every command that reaches En runs inside one session: `access grant`, `access revoke`,
+  Evidence (e636ee02, `just gate-fast` green): `InventoryAccessSessionSpec` "one tuple's five
+  phases share one forward, one guard and one capability check; owners are read every phase"
+  passes for the user grant, the team membership and the team grant with exact counts: open 1,
+  close 1, guard 1, capability 1, schema 0/1/1, queries 5, writes 1, owner reads 6 per owner
+  object (five inspects plus the write's re-read: 12 for a grant, 6 for a membership, which has no
+  route). The spec is a new module beside `InventoryAccessSpec`, which is near the 1000-line bound.
+- [x] M2: Every command that reaches En runs inside one session: `access grant`, `access revoke`,
   `access team add-member`, `access team remove-member`, `access check`, `access portal sync`,
   `inventory apply`, `inventory resume`, `inventory status`. Pass: each CLI path creates the
   session at its command boundary with `bracket`, and a test that makes the action throw proves
   the forward process is terminated.
-- [ ] M3: Failure behaviour unchanged. Pass: a session whose forward never becomes ready reports
+  Evidence (e636ee02): `withContextEnSession` wraps the four access plan commands and
+  `access check` (`Nagare.Cli.Commands.Access`), `runInventoryApply` and `runInventoryResume`
+  (`Nagare.Cli.Inventory.Workflow`, via `inventoryExecutionRegistryIn`); `inventory status` wraps
+  its access lane in `withEnSession` with its own once-guard. `access portal sync` never reaches
+  En and needs no session (Decision Log). "a session whose action throws stops its forward"
+  (fake) and "kubectl's forward: a wrong first line is not ready; a thrown command terminates the
+  process" (a `kubectl` PATH shim; `kill -0` on its PID fails after the session) pass.
+- [x] M3: Failure behaviour unchanged. Pass: a session whose forward never becomes ready reports
   `en port-forward did not become ready`; a forward that dies between phases is reopened once and
   the phase succeeds; a capability or schema refusal is not memoized and the next phase re-asks;
   a missing `NAGARE_EN_API_KEY` still refuses before any process starts (`accessKeyRefusal`).
+  Evidence (e636ee02): `InventoryAccessSessionSpec` "a forward that never becomes ready is
+  reported and retried by the next phase" (opens 2, closes 0; also the real forwarder with a
+  shim), "a forward that exits between phases is reopened once and the phase succeeds" (opens 2,
+  closes 2, capability 1), "a refused capability or guard is not remembered" (guard 2,
+  capability 2, opens 1), "a missing key refuses before any forward starts" (opens 0). All 19
+  existing `reviewed access` tests and the full nagarectl suite pass unchanged.
 - [ ] M4: `docs/user/access.md` says the forward lasts the command, and the intranet
   confirmation is recorded: with the kubectl PATH shim from EP-185 and `NAGARE_TRACE=1`, one
   `access grant --save-plan` and its `inventory apply` on the intranet show one forward and one
   guard pair each. The apply is a real reviewed change and runs with the operator's go-ahead,
   together with EP-212's confirmation.
+  Docs done: `docs/user/access.md` says the forward lasts the command, names the commands, and
+  that owner UIDs are still read before every observation and write. Intranet confirmation not
+  yet run.
 
 
 ## Surprises & Discoveries
@@ -88,6 +115,21 @@ forward is terminated on every exit path.
 
 2026-10-22: Memoize successes only. A refused guard, capability or schema check is reported and
 re-asked by the next phase, so a transient refusal cannot poison a session.
+
+2026-10-22: The capability and schema checks are remembered by `accessRuntimeOpsWith`, which
+becomes `EnTransport -> ContextBinding -> IO AccessOps`, not by the session. `EnTransport` then
+keeps exactly `withEn`, `readOwner` and `clusterGuard` for EP-216, and both implementations get
+the memo. Each command builds one access adapter, so the count is the same as per session. The
+session itself remembers the guard and keeps the forward.
+
+2026-10-22: `access portal sync` gets no session: it never reaches En (its access executor is the
+manifest adapter; it plans Kubernetes rollouts only). Callers outside the commands M2 lists
+(`inventory plan` and every command that plans or converges through the shared registries) keep
+one forward per call through `kubectlTransport`; `inventoryExecutionRegistryIn` takes the
+session for `inventory apply` and `inventory resume`.
+
+2026-10-22: A kept forward drains kubectl's output after the first line, so its per-connection
+"Handling connection" lines cannot fill the pipe and stall kubectl during a long command.
 
 
 ## Outcomes & Retrospective
@@ -248,8 +290,12 @@ data EnTransport = EnTransport
   , clusterGuard :: !(IO (Either Text ()))
   }
 withEnSession :: Text -> IO (Either Text ()) -> (EnTransport -> IO a) -> IO a
-accessRuntimeOpsWith :: EnTransport -> ContextBinding -> AccessOps
+withEnSessionUsing :: EnForwarder forward -> (ManagedResource -> IO (Either Text Value)) -> IO (Either Text ()) -> (EnTransport -> IO a) -> IO a
+kubectlTransport :: Text -> IO (Either Text ()) -> EnTransport   -- one forward per call
+accessRuntimeOpsWith :: EnTransport -> ContextBinding -> IO AccessOps
 accessReviewAdapter :: InventoryStore -> ContextBinding -> EnTransport -> ReviewBundle -> IO (Either Text Adapter)
+-- cli/nagarectl/src/Nagare/Access/Reviewed.hs
+accessAdapter :: ActiveTarget -> EnTransport -> [Declaration] -> InventoryHistory -> IO Adapter
 -- EP-212 changes this function's history source at the same time; coordinate the one signature.
 ```
 

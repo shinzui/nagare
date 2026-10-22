@@ -315,9 +315,16 @@ nagarectl --context "$CONTEXT" inventory apply ./revoke-review --yes
 
 Set private `NAGARE_EN_API_KEY` for planning, apply, recovery and `inventory status`.
 Reviewed grants reach the context's En themselves, through a private port-forward to
-its Service that lasts one call, so they need no `NAGARE_EN_URL` and refuse
-`--en-url`. A grant therefore does not depend on the local port it was made through;
-grants recorded through an older forward are observed and revoked the same way.
+its Service that lasts the command, so they need no `NAGARE_EN_URL` and refuse
+`--en-url`. One `access grant`, `access revoke`, `access team add-member`,
+`access team remove-member`, `access check`, `inventory apply`, `inventory resume` or
+`inventory status` opens one forward when it first needs En, reopens it only if
+`kubectl` exited, and stops it when the command ends, including on failure. Once the
+cluster guard and En's capability check pass, the command does not repeat them; the En
+Service's and protected route's UIDs are still read before every observation and every
+write. A grant
+therefore does not depend on the local port it was made through; grants recorded
+through an older forward are observed and revoked the same way.
 Reviews contain the selected relationship, never the key; a grant named by email reads
 `grant user_… (alice@example.com) viewer on HOST`. The selected context's
 kubeconfig must be available; the CLI checks the accepted En Service and
