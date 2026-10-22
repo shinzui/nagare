@@ -287,15 +287,17 @@ recordingObjects = do
         now <- atomicModifyIORef' inFlight (\count -> (count + 1, count + 1))
         atomicModifyIORef' peak (\highest -> (max highest now, ()))
         action `finally` atomicModifyIORef' inFlight (\count -> (count - 1, ()))
+      get name@(ObjectName key) = measured $ do
+        modifyIORef' counter (+ 1)
+        blockWhileHung
+        readIORef latency >>= \micros -> when (micros > 0) (threadDelay micros)
+        gone <- Set.member key <$> readIORef missing
+        (_, objects) <- readIORef state
+        pure (if gone then ObjectAbsent else maybe ObjectAbsent (uncurry ObjectFound) (Map.lookup name objects))
   pure
     ( ObjectOps
-        { getObject = \name@(ObjectName key) -> measured $ do
-            modifyIORef' counter (+ 1)
-            blockWhileHung
-            readIORef latency >>= \micros -> when (micros > 0) (threadDelay micros)
-            gone <- Set.member key <$> readIORef missing
-            (_, objects) <- readIORef state
-            pure (if gone then ObjectAbsent else maybe ObjectAbsent (uncurry ObjectFound) (Map.lookup name objects))
+        { getObject = get
+        , getImmutableObject = fmap immutableGet . get
         , getObjects = \_ -> pure (Left "the fixture store does not list")
         , putObject = \condition name bytes -> atomicModifyIORef' state $ \(lastGeneration, objects) ->
             let existing = Map.lookup name objects
