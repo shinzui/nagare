@@ -175,7 +175,9 @@ loadObservationNativeChecked store declarations = do
           | member <- native
           , Just digest <- [nativeDigest (member ^. #spec)]
           ]
-  loaded <- traverseWithKeyRead digests
+  -- One concurrent read of every member, each with its own result (EP-218).
+  fetched <- readImmutableObjectsEach store [objectKeyFor "native" digest | digest <- Map.keys digests]
+  let loaded = Map.mapWithKey (\digest _ -> checked digest (Map.findWithDefault (Right Nothing) (objectKeyFor "native" digest) fetched)) digests
   pure $ do
     -- A missing member must not hide corruption in another selected member.
     case [reason | Left (ObservationNativeInvalid reason) <- Map.elems loaded] of
@@ -199,16 +201,14 @@ loadObservationNativeChecked store declarations = do
           )
       )
   where
-    traverseWithKeyRead = Map.traverseWithKey $ \digest _ -> do
-      result <- readObject store (objectKeyFor "native" digest)
-      pure $ do
-        bytes <-
-          first (ObservationNativeInvalid . T.pack . show) result
-            >>= maybe (Left (ObservationNativeMissing digest)) Right
-        unless
-          (contentDigest bytes == digest)
-          (Left (ObservationNativeInvalid "observation native digest mismatch"))
-        pure bytes
+    checked digest result = do
+      bytes <-
+        first (ObservationNativeInvalid . T.pack . show) result
+          >>= maybe (Left (ObservationNativeMissing digest)) Right
+      unless
+        (contentDigest bytes == digest)
+        (Left (ObservationNativeInvalid "observation native digest mismatch"))
+      pure bytes
     validate members member = do
       bytes <- case nativeDigest (member ^. #spec) of
         Just digest -> maybe (Left "selected observation bytes are absent") Right (Map.lookup digest members)

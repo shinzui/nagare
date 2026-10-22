@@ -68,6 +68,18 @@ inventoryImmutableReadTests =
           assertBool "the failed member was cached" (maybe True ((`notElem` cached) . T.unpack . digestText) (immutableKeyDigest failing))
           let absent = scopeKey (contentDigest "never published")
           readImmutableObjects store [absent] >>= (@?= Left (StoreInvalidObject absent "immutable member is missing"))
+    , testCase "every member's own result is read with at most eight in flight, a missing one among them (EP-218)" $ do
+        base <- fakeObjectOps
+        (ops, issued, highest) <- delayedImmutableReads base
+        keys <- publishMembers base 100
+        let absent = scopeKey (contentDigest "never published")
+        store <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+        results <- readImmutableObjectsEach store (absent : keys)
+        Map.lookup absent results @?= Just (Right Nothing)
+        length [() | Right (Just _) <- Map.elems results] @?= 100
+        readIORef issued >>= (@?= 101)
+        high <- readIORef highest
+        assertBool "native reads were serialized or exceeded eight in flight" (high > 1 && high <= 8)
     ]
 
 -- | Publish @count@ distinct scope members directly to the transport and
