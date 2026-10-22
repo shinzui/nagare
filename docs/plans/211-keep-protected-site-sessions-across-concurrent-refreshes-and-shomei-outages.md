@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-22T19:55:59Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-22T20:15:25Z
+      mode: "implement"
+      note: "M1 coalescer and M2 outage handling implemented with tests"
 ---
 
 # Keep protected-site sessions across concurrent refreshes and Shomei outages
@@ -62,7 +68,7 @@ with no `Set-Cookie` that clears `nagare_session` or `nagare_refresh`.
   The same pattern holds for sessions `01a12de0` (01:48:28.965), `01a16193` (04:42:17.481) and
   `01a16373` (18:50:45.813). Reuse detection revokes the whole session, so the user is signed
   out. Shomei's own log holds only sweep lines, so it gives no per-request evidence.
-- [ ] M1: Concurrent refreshes of one refresh token make one Shomei call. A new module,
+- [x] M1: Concurrent refreshes of one refresh token make one Shomei call. A new module,
   `Nagare.Access.RefreshCoalescer`, is wired around `refreshUserSession` in
   `cli/nagare-access/app/Main.hs`. Unit tests show that 8 concurrent callers make 1 upstream
   call and get the same tokens, that a caller within the reuse window after completion gets the
@@ -71,7 +77,12 @@ with no `Set-Cookie` that clears `nagare_session` or `nagare_refresh`.
   real-Shomei test reproduces the defect without the coalescer (some refresh is rejected, and
   the session is revoked) and shows it gone with the coalescer (all 8 succeed, and the next
   refresh with the rotated token succeeds).
-- [ ] M2: Shomei being unavailable never clears a session. `LoginOutcome` gains
+  Done 2026-10-22: the 6 cases of `test/RefreshCoalescerSpec.hs` pass. In the real-Shomei case
+  without the coalescer, three probe runs each produced exactly 1 winner, and the next refresh
+  with the winner's rotated token returned `LoginFailed "refresh failed"` because the session
+  was revoked, matching the intranet pattern. With the coalescer, all 8 got the same pair and
+  the session refreshed again.
+- [x] M2: Shomei being unavailable never clears a session. `LoginOutcome` gains
   `LoginUnavailable`. `refreshWithShomei`, `loginWithShomei` and `completeMfaWithShomei` return
   it for a transport error, 429, 500, 503 or an unexpected response, and keep `LoginFailed` for
   Shomei's 4xx rejections. In `cli/nagare-access/src/Nagare/Access/App.hs`:
@@ -82,6 +93,13 @@ with no `Set-Cookie` that clears `nagare_session` or `nagare_refresh`.
 
   `getCachedJwks` keeps serving the last good key set for up to 24 hours after a failed refetch.
   Tests cover each case, and the existing "refresh failed clears cookies" test still passes.
+  Done 2026-10-22: the 7 cases of `test/SessionRefreshSpec.hs` pass. They cover the document
+  and API 503s (`authentication_unavailable`, a new code in `Nagare.Contract.Problem` and
+  `docs/api/README.md`) with no `Set-Cookie`, no refresh when verification is unavailable, the
+  rotated cookies kept, the portal, the JWKS stale window, Shomei's own 401 mapping to
+  `LoginFailed`, and a closed port mapping to `LoginUnavailable`. The full suite reports
+  `All 181 tests passed`. `withRealShomeiServer` moved to `test/RealShomei.hs`, and the
+  `Spec.hs` allowance was lowered from 1720 to 1678.
 - [ ] M3: The work is gated and landed. `just haskell-style-check`, the nagare-access suite
   (`cabal test nagare-access-test` in `cli/nagare-access`, which `just gate-fast` does not run),
   `just gate-fast` and `just land` all pass. ADR 15 gains one consequence: the enforcer

@@ -7,6 +7,7 @@ module Nagare.Access.Response
   ( UpstreamFailure (..)
   , challengeResponse
   , forbiddenResponse
+  , authenticationUnavailableResponse
   , authorizationUnavailableResponse
   , upstreamFailureResponse
   , missingBackendResponse
@@ -23,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Access.BackendMap (BackendTarget, isApiPath)
 import Nagare.Access.Challenge
 import Nagare.Access.Prelude
-import Nagare.Contract.Problem (ProblemDetails, ProblemSpec, authorizationUnavailable, forbidden, problemFor, unauthenticated, upstreamTimeout, upstreamUnavailable)
+import Nagare.Contract.Problem (ProblemDetails, ProblemSpec, authenticationUnavailable, authorizationUnavailable, forbidden, problemFor, unauthenticated, upstreamTimeout, upstreamUnavailable)
 import Network.HTTP.Types
   ( Header
   , Status
@@ -75,6 +76,14 @@ forbiddenResponse req =
             & #gatewayError
             ?~ "forbidden"
         )
+
+-- | Shomei could not verify or refresh the session: not a sign-out, so the
+-- session cookies are left in place for the retry.
+authenticationUnavailableResponse :: ChallengeMode -> Response
+authenticationUnavailableResponse challenge =
+  case challenge of
+    RedirectDocument _ -> plainResponse status503 "authentication service unavailable\n"
+    JsonApi _ -> problemResponse [] (problemFor authenticationUnavailable "The authentication service did not answer; retry later.")
 
 -- | The authorizer could not answer: not a denial, so nothing was cached.
 authorizationUnavailableResponse :: RequestShape -> Response

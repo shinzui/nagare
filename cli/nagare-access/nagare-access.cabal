@@ -43,6 +43,7 @@ library
     Nagare.Access.Portal
     Nagare.Access.Prelude
     Nagare.Access.Proxy
+    Nagare.Access.RefreshCoalescer
     Nagare.Access.Response
     Nagare.Access.Shomei
     Nagare.Access.ShomeiClient
@@ -99,6 +100,9 @@ test-suite nagare-access-test
     BackendMapSpec
     DecisionCacheSpec
     EnContractSpec
+    RealShomei
+    RefreshCoalescerSpec
+    SessionRefreshSpec
     SiteAccessIntegrationSpec
     TeamAccessSpec
     TestServices

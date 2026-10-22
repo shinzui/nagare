@@ -5,6 +5,7 @@ module Nagare.Access.ShomeiClient
   , logoutWithShomei
   , refreshWithShomei
   , shomeiLoginEnvFromAuthPlane
+  , shomeiOutcome
   )
 where
 
@@ -27,16 +28,12 @@ loginWithShomei env credentials =
     Nothing -> pure (LoginFailed "invalid login")
     Just loginId -> do
       result <- Shomei.login env (DTO.LoginRequest loginId (credentials ^. #password))
-      pure $ case result of
-        Right (Shomei.ApplicationSuccess response) ->
-          case Shomei.cookieBody response of
-            DTO.LoginMfaRequiredResponse ceremonyId options _methods ->
-              LoginMfaRequired MfaChallenge {ceremonyId = ceremonyId, options = options}
-            DTO.LoginCompleteResponse _ tokenPair ->
-              tokenPairOutcome "invalid login" tokenPair
-        -- Upstream now exposes RFC 7807 details on every non-success constructor.
-        -- Preserve nagare-access's existing outward failure text in this compatibility change.
-        _ -> LoginFailed "invalid login"
+      pure $ shomeiOutcome "invalid login" result $ \response ->
+        case Shomei.cookieBody response of
+          DTO.LoginMfaRequiredResponse ceremonyId options _methods ->
+            LoginMfaRequired MfaChallenge {ceremonyId = ceremonyId, options = options}
+          DTO.LoginCompleteResponse _ tokenPair ->
+            tokenPairOutcome "invalid login" tokenPair
 
 completeMfaWithShomei :: Shomei.ClientEnv -> MfaCompletion -> IO LoginOutcome
 completeMfaWithShomei env completion = do
@@ -47,18 +44,33 @@ completeMfaWithShomei env completion = do
           (completion ^. #ceremonyId)
           (Mfa.PasskeyProof (completion ^. #assertion))
       )
-  pure $ case result of
-    Right (Shomei.ApplicationSuccess response) ->
-      tokenPairOutcome "mfa failed" (Shomei.cookieBody response)
-    _ -> LoginFailed "mfa failed"
+  pure (shomeiOutcome "mfa failed" result (tokenPairOutcome "mfa failed" . Shomei.cookieBody))
 
 refreshWithShomei :: Shomei.ClientEnv -> Text -> IO LoginOutcome
 refreshWithShomei env refreshToken = do
   result <- Shomei.refresh env (DTO.RefreshRequest (Just refreshToken))
-  pure $ case result of
-    Right (Shomei.ApplicationSuccess response) ->
-      tokenPairOutcome "refresh failed" (Shomei.cookieBody response)
-    _ -> LoginFailed "refresh failed"
+  pure (shomeiOutcome "refresh failed" result (tokenPairOutcome "refresh failed" . Shomei.cookieBody))
+
+-- | Classify one Shomei answer. Only an explicit 4xx rejection is
+-- 'LoginFailed'. A transport error, a rate limit, a 5xx or a response that
+-- does not decode is 'LoginUnavailable': the token was never judged, and
+-- every refresh reaches Shomei from this one pod's address, so a 429 says
+-- nothing about this user. The client error is not shown, because a decode
+-- failure carries Shomei's response body, which can hold tokens.
+shomeiOutcome :: Text -> Either e (Shomei.ApplicationResult a) -> (a -> LoginOutcome) -> LoginOutcome
+shomeiOutcome failure result success =
+  case result of
+    Right (Shomei.ApplicationSuccess value) -> success value
+    Right (Shomei.ApplicationBadRequest _) -> LoginFailed failure
+    Right (Shomei.ApplicationAuthenticationFailed _) -> LoginFailed failure
+    Right (Shomei.ApplicationForbidden _) -> LoginFailed failure
+    Right (Shomei.ApplicationNotFound _) -> LoginFailed failure
+    Right (Shomei.ApplicationConflict _) -> LoginFailed failure
+    Right (Shomei.ApplicationUnprocessable _) -> LoginFailed failure
+    Right (Shomei.ApplicationRateLimited _) -> LoginUnavailable "shomei rate-limited the request"
+    Right (Shomei.ApplicationInternal _) -> LoginUnavailable "shomei answered an internal error"
+    Right (Shomei.ApplicationUnavailable _) -> LoginUnavailable "shomei reported a dependency unavailable"
+    Left _ -> LoginUnavailable "shomei did not answer"
 
 -- | Revoke a Shomei session on a best-effort basis. Logout must still clear the
 -- browser cookies when Shomei is temporarily unreachable.

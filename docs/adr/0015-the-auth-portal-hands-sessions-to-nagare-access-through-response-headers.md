@@ -79,3 +79,11 @@ cookie, and a handed-off refresh token becomes useless after rotation.
 Protected apps no longer receive Nagare's session cookies. They trust
 `X-Forwarded-User` only on their cluster-internal path behind `nagare-access`. A forged
 handoff header from a protected upstream is stripped and cannot establish a session.
+
+Because the enforcer is the only holder of the refresh cookie, it is also the only place a
+browser session can be refreshed twice. Concurrent requests carrying one refresh token share
+a single Shomei refresh, and for 30 seconds afterwards a late request with the old token
+receives the pair already obtained instead of spending it again, which would trigger Shomei's
+reuse revocation. Only Shomei's explicit 4xx rejection ends a session: when Shomei or its
+keys are unavailable the enforcer answers 503 and keeps the cookies
+([ExecPlan 211](../plans/211-keep-protected-site-sessions-across-concurrent-refreshes-and-shomei-outages.md)).

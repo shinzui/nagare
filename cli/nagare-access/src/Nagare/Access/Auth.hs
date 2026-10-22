@@ -61,10 +61,15 @@ data MfaCompletion = MfaCompletion
   }
   deriving stock (Generic, Eq, Show)
 
+-- | 'LoginFailed' is Shomei's answer that the credential or token is no good;
+-- 'LoginUnavailable' is Shomei not answering at all. Only the first may end a
+-- browser session: the refresh cookie is the user's one copy of a token that
+-- may still be valid (EP-211).
 data LoginOutcome
   = LoginSucceeded !SessionTokens
   | LoginMfaRequired !MfaChallenge
   | LoginFailed !Text
+  | LoginUnavailable !Text
   deriving stock (Generic, Eq, Show)
 
 data PortalIdentity

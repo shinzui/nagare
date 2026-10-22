@@ -102,6 +102,7 @@ can succeed later. The access gateway adds the optional extension members `error
 | `unauthenticated` | 401 | false |
 | `forbidden` | 403 | false |
 | `authorization_unavailable` | 503 | true |
+| `authentication_unavailable` | 503 | true |
 | `upstream_unavailable` | 502 | true |
 | `upstream_timeout` | 504 | true |
 

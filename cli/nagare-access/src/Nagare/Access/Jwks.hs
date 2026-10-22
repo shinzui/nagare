@@ -36,6 +36,14 @@ newJwksCache ttlSeconds nowSeconds fetchJwks = do
   cacheState <- newIORef Nothing
   pure JwksCache {ttlSeconds, nowSeconds, fetchJwks, cacheState}
 
+-- | How long past its TTL a fetched key set keeps verifying while Shomei
+-- cannot be reached. Shomei rotates keys only on operator action and keeps
+-- retired keys published, so an older set still verifies the tokens it
+-- issued. Without this, once the cached set expired during a Shomei outage,
+-- every session check failed until Shomei came back (EP-211).
+jwksMaxStaleSeconds :: Int
+jwksMaxStaleSeconds = 24 * 60 * 60
+
 getCachedJwks :: JwksCache -> IO (Either Text JWKSet)
 getCachedJwks cache
   | cache ^. #ttlSeconds <= 0 =
@@ -48,12 +56,14 @@ getCachedJwks cache
           | now < expiresAt -> pure (Right jwks)
         _ -> do
           loaded <- cache ^. #fetchJwks
-          case loaded of
-            Right jwks ->
+          case (loaded, cached) of
+            (Right jwks, _) -> do
               writeIORef (cache ^. #cacheState) (Just (now + cache ^. #ttlSeconds, jwks))
-            Left _ ->
-              pure ()
-          pure loaded
+              pure loaded
+            (Left _, Just (expiresAt, jwks))
+              | now < expiresAt + jwksMaxStaleSeconds -> pure (Right jwks)
+            (Left _, _) ->
+              pure loaded
 
 fetchJwksFromShomei :: HC.Manager -> AuthPlaneConfig -> IO (Either Text JWKSet)
 fetchJwksFromShomei manager cfg = do

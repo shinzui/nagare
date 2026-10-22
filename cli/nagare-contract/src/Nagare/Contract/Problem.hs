@@ -38,6 +38,7 @@ module Nagare.Contract.Problem
   , unauthenticated
   , forbidden
   , authorizationUnavailable
+  , authenticationUnavailable
   , upstreamUnavailable
   , upstreamTimeout
   )
@@ -158,6 +159,7 @@ problemCatalog =
   , unauthenticated
   , forbidden
   , authorizationUnavailable
+  , authenticationUnavailable
   , upstreamUnavailable
   , upstreamTimeout
   ]
@@ -209,9 +211,10 @@ serverBusy = unavailable "server_busy" True
 -- authorizer or upstream that cannot answer may answer the unchanged request
 -- later.
 
-unauthenticated, forbidden, authorizationUnavailable, upstreamUnavailable, upstreamTimeout :: ProblemSpec
+unauthenticated, forbidden, authorizationUnavailable, authenticationUnavailable, upstreamUnavailable, upstreamTimeout :: ProblemSpec
 unauthenticated = ProblemSpec "unauthenticated" 401 "Unauthorized" False
 forbidden = ProblemSpec "forbidden" 403 "Forbidden" False
 authorizationUnavailable = unavailable "authorization_unavailable" True
+authenticationUnavailable = unavailable "authentication_unavailable" True
 upstreamUnavailable = ProblemSpec "upstream_unavailable" 502 "Bad Gateway" True
 upstreamTimeout = ProblemSpec "upstream_timeout" 504 "Gateway Timeout" True

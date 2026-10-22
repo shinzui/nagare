@@ -36,7 +36,7 @@ import Nagare.Access.Credential (Credential (SessionCookie), credentialToken, ex
 import Nagare.Access.DecisionCache
 import Nagare.Access.Portal
 import Nagare.Access.Prelude hiding ((.=))
-import Nagare.Access.Response (authorizationUnavailableResponse, challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFor, requestShapeFromWai)
+import Nagare.Access.Response (authenticationUnavailableResponse, authorizationUnavailableResponse, challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFor, requestShapeFromWai)
 import Network.HTTP.Types
   ( Header
   , HeaderName
@@ -229,6 +229,12 @@ authenticateRequest services req challenge =
       case verified of
         Right user ->
           pure (Right (user, []))
+        -- Without Shomei's keys an expired token cannot be told from a good
+        -- one, and refreshing would spend the user's refresh token for a
+        -- pair that cannot be verified either.
+        Left (VerificationUnavailable reason) -> do
+          putStrLn ("session verification unavailable: " <> Text.unpack reason)
+          pure (Left (authenticationUnavailableResponse challenge))
         Left _ ->
           refreshOrChallenge services req challenge
 
@@ -241,16 +247,24 @@ refreshOrChallenge services req challenge =
       outcome <- (services ^. #refreshUserSession) refreshToken
       case outcome of
         LoginSucceeded tokens -> do
+          let rotated = either (const []) id (sessionHeaders services tokens)
           verified <- (services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken))
           case verified of
             Right user ->
-              pure (Right (user, either (const []) id (sessionHeaders services tokens)))
+              pure (Right (user, rotated))
+            -- The old refresh token is spent: keep the rotated pair.
+            Left (VerificationUnavailable reason) -> do
+              putStrLn ("session verification unavailable: " <> Text.unpack reason)
+              pure (Left (addResponseHeaders rotated (authenticationUnavailableResponse challenge)))
             Left _ ->
               pure (Left (clearAuthCookies services (challengeResponse challenge)))
         LoginMfaRequired _ ->
           pure (Left (clearAuthCookies services (challengeResponse challenge)))
         LoginFailed _ ->
           pure (Left (clearAuthCookies services (challengeResponse challenge)))
+        LoginUnavailable reason -> do
+          putStrLn ("session refresh unavailable: " <> Text.unpack reason)
+          pure (Left (authenticationUnavailableResponse challenge))
 
 handlePortal :: BackendMap -> AccessServices -> Portal -> Request -> IO Response
 handlePortal backends services portal req = do
@@ -289,6 +303,7 @@ authenticatePortal services req =
       verified <- (services ^. #verifyCredential) credential
       case verified of
         Right user -> pure (PortalAuthenticated user (AccessToken (credentialToken credential)), [])
+        Left (VerificationUnavailable _) -> pure (PortalAnonymous, [])
         Left _ -> refreshPortalIdentity services req
 
 refreshPortalIdentity :: AccessServices -> Request -> IO (PortalIdentity, [Header])
@@ -299,16 +314,16 @@ refreshPortalIdentity services req =
       outcome <- (services ^. #refreshUserSession) refresh
       case outcome of
         LoginSucceeded tokens -> do
+          let rotated = either (const []) id (sessionHeaders services tokens)
           verified <- (services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken))
           case verified of
             Right user ->
-              pure
-                ( PortalAuthenticated user (AccessToken (tokens ^. #accessToken))
-                , either (const []) id (sessionHeaders services tokens)
-                )
+              pure (PortalAuthenticated user (AccessToken (tokens ^. #accessToken)), rotated)
+            Left (VerificationUnavailable _) -> pure (PortalAnonymous, rotated)
             Left _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
         LoginMfaRequired _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
         LoginFailed _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
+        LoginUnavailable _ -> pure (PortalAnonymous, [])
 
 data HandoffFailure
   = HandoffMalformed !Text
@@ -474,6 +489,8 @@ submitLogin services form =
           loginMfaResponse challenge (maybe "" id (formTextValue "csrf" form)) returnDestination
         LoginFailed _ ->
           textResponse status401 "invalid login"
+        LoginUnavailable _ ->
+          textResponse status503 "sign-in is unavailable; retry shortly"
   where
     returnDestination =
       safeReturnDestination (maybe "/" id (formTextValue "rd" form))
@@ -507,6 +524,8 @@ mfaCompleteResponse services req = do
           jsonResponse status401 (object ["error" .= ("mfa_required" :: Text)])
         LoginFailed _ ->
           jsonResponse status401 (object ["error" .= ("mfa_failed" :: Text)])
+        LoginUnavailable _ ->
+          jsonResponse status503 (object ["error" .= ("mfa_unavailable" :: Text)])
 
 decodeMfaPayload :: LBS.ByteString -> Either Text MfaPayload
 decodeMfaPayload body =

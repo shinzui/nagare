@@ -20,6 +20,7 @@ import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Prelude
 import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder)
+import Nagare.Access.RefreshCoalescer (coalesceRefresh, defaultRefreshReuseSeconds, newRefreshCoalescer)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
 import Nagare.Access.ShomeiClient (completeMfaWithShomei, loginWithShomei, logoutWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
 import Network.Wai (Application)
@@ -87,6 +88,7 @@ buildAccessServices runtime cfg = do
   enEnv <- either (fail . Text.unpack) pure =<< enClientEnvFromAuthPlane manager cfg
   shomeiLoginEnv <- shomeiLoginEnvFromAuthPlane cfg
   decisionCache <- newDecisionCache (runtime ^. #decisionTtlSeconds) currentSeconds
+  refreshCoalescer <- newRefreshCoalescer defaultRefreshReuseSeconds currentSeconds
   pure
     AccessServices
       { verifyCredential = verifyShomeiCredentialCached jwksCache cfg
@@ -94,7 +96,7 @@ buildAccessServices runtime cfg = do
       , forwardAuthorized = proxyForwarder manager
       , loginUser = loginWithShomei shomeiLoginEnv
       , completeMfa = completeMfaWithShomei shomeiLoginEnv
-      , refreshUserSession = refreshWithShomei shomeiLoginEnv
+      , refreshUserSession = coalesceRefresh refreshCoalescer (refreshWithShomei shomeiLoginEnv)
       , revokeSession = logoutWithShomei shomeiLoginEnv
       , forwardPortal = portalForwarder manager
       , fetchPortalPage = portalPageFetcher manager
