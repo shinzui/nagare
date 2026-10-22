@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-22
+* **Addition**: Propose IR-36 from mori://shinzui/tan-os/plans/77-deploy-the-network-explorer-to-the-labs-intranet-as-a-login-protected-static-site: a nagarectl command that packages a StaticSite's build context or Docker archive for app image-plan, so an operator repository no longer copies the Nginx renderer and Dockerfile or digs the typed-config GHC out of the nagarectl wrapper.
+
 ## 2026-10-20
 * **Update**: Complete IR-35 in ExecPlan 208, released in Nagare 0.9.0, which the work intranet runs: Kansoku's PostgreSQL app database declares `createIn = [pgmq]` and its server creates its queue at startup as the runtime user.
 * **Add**: Propose IR-35 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps`: let an app database declare its runtime's privileges inside its own databases (PostgreSQL schema CREATE with migration membership in the runtime role, open ClickHouse own-database privileges, and owner bindings for apps that migrate at startup), so recurring patterns such as creating a PGMQ queue at startup need a config change rather than a release. A local PostgreSQL 18.6 rehearsal with Kansoku 9127c47 shows schema CREATE plus membership is the smallest grant that keeps backups and later migrations working.
