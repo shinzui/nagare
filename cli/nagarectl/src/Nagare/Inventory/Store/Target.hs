@@ -15,10 +15,12 @@ import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import GHC.Clock (getMonotonicTimeNSec)
 import Nagare.Context.Review (ProfileReview, profileReviewContext, profileReviewLocalRoot, profileReviewOriginal)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Counters (Counter (GcloudSession), countElapsed)
 import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
@@ -91,8 +93,11 @@ openRemoteStoreWithProfile mayInitialize target stateRoot stored = do
     Right _ -> case gcsBucketOfUrl url of
       Nothing -> pure (invalid "inventory store URL has no GCS bucket")
       Just _ -> do
+        sessionStarted <- getMonotonicTimeNSec
         selected <- remoteObjectOps project url
-        case selected of
+        sessionFinished <- getMonotonicTimeNSec
+        let countSession opening = opening >>= traverse (\store -> store <$ countElapsed (storeCounters store) GcloudSession (sessionFinished - sessionStarted))
+        countSession $ case selected of
           Left reason
             | reason == gcloudLoginRequired -> pure (Left StoreAuthRequired)
             | otherwise -> pure (invalid reason)

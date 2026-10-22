@@ -219,7 +219,7 @@ inventoryTransactionTests =
           prepareReviewWithPayloadIdentity
             "nagare-bootstrap:payload-a"
             registry
-            before
+            (storeSnapshotHead before)
             proposal
             >>= expectRight
         reviewPayloadIdentity (reviewBundleDocument review) @?= "nagare-bootstrap:payload-a"
@@ -3263,7 +3263,7 @@ preparedFixtureHead payloadIdentity adjust store execution recovery customize = 
       proposal = ok (planChanges candidate noLifecycleDecisions history observations)
       registry = customize (proposalDesired proposal) (recordingRegistry execution recovery)
   snapshotBefore <- readStoreSnapshot store >>= expectRight
-  bundle <- prepareReviewWithPayloadIdentity payloadIdentity registry snapshotBefore proposal >>= expectRight
+  bundle <- prepareReviewWithPayloadIdentity payloadIdentity registry (storeSnapshotHead snapshotBefore) proposal >>= expectRight
   _ <- publishReview store bundle >>= expectRight
   snapshotAfter <- readStoreSnapshot store >>= expectRight
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshotAfter bundle)
@@ -3617,7 +3617,7 @@ preparedRegistryFixture store = do
                 )
             proposal = ok (planChanges candidate noLifecycleDecisions history observations)
         before <- readStoreSnapshot store >>= expectRight
-        bundle <- prepareReviewWithPayloadIdentity payload registry before proposal >>= expectRight
+        bundle <- prepareReviewWithPayloadIdentity payload registry (storeSnapshotHead before) proposal >>= expectRight
         _ <- publishReview store bundle >>= expectRight
         after <- readStoreSnapshot store >>= expectRight
         reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview after bundle)

@@ -26,15 +26,16 @@ import Nagare.Contract.V1 (ImagePublicationResult (..), Outcome (..), PublishedR
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterExecution (..), AdapterRegistry, mkAdapterRegistry)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
-import Nagare.Inventory.Command (convergeInventoryCandidateResult, loadTargetSnapshot, openTargetStore, planInventoryCandidateWith)
+import Nagare.Inventory.Command (applyInventoryWithFactory, convergeInventoryCandidateResult, loadTargetSnapshot, openInventoryForPlanning, openTargetStore, openedSnapshot, planInventoryCandidateLoaded, planInventoryCandidateWith)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..))
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
-import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle)
+import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle, ReviewInventory)
 import Nagare.Inventory.Publications (readPublications)
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store (InventoryStore, StoreError (StoreAuthRequired), initializeStore, readHead)
+import Nagare.Inventory.Store.Counters (Counter (..), collectStoreCounters, countOf)
 import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
 import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, composeInventory, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -113,6 +114,17 @@ contractCommandTests =
         let (spec, detailText) = storeRefusal StoreAuthRequired
         refuse spec detailText
           >>= \(exited, documents) -> (exited, fmap (\problem -> (problem ^. #code, problem ^. #detail)) <$> documents) @?= (Left (ExitFailure 2), [Right ("reauthentication_required", gcloudLoginRequired)])
+    , testCase "a plan opens one store, one head and one history and lists nothing; its apply loads one history (EP-212)" $ withFixture $ \fixture -> do
+        _ <- convergeInventoryCandidateResult (fixturePlan fixture) (fixtureApply fixture) (fixtureTarget fixture) (fixtureCandidate fixture)
+        let target = fixtureTarget fixture
+            directory = fixtureRoot fixture </> "second"
+        (_, planned) <- collectStoreCounters . collecting $ do
+          opened <- openInventoryForPlanning target
+          snapshot <- openedSnapshot opened
+          planInventoryCandidateLoaded (fixturePlan fixture) target opened (ok (composeInventory snapshot (ReplaceScope fixtureScope :| []))) directory
+        map (\counts -> map (`countOf` counts) [StoreOpen, HeadRead, HistoryLoad, Listing]) planned @?= [[1, 1, 1, 0]]
+        (_, applied) <- collectStoreCounters (collecting (applyInventoryWithFactory (fixtureApply fixture) target directory True))
+        map (\counts -> map (`countOf` counts) [StoreOpen, HistoryLoad, Listing]) applied @?= [[1, 1, 0]]
     , testCase "inventory publications reads the recorded state alone" $ withFixture $ \fixture -> do
         listing <- readPublications (fixtureTarget fixture) >>= either (\(_, reason) -> fail (T.unpack reason)) pure
         listing ^. #publications @?= []
@@ -126,7 +138,7 @@ data Fixture = Fixture
   , fixtureTarget :: !ActiveTarget
   , fixtureCandidate :: !CompositionCandidate
   , fixturePlan :: !(CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  , fixtureApply :: !(InventoryStore -> ReviewBundle -> IO AdapterRegistry)
+  , fixtureApply :: !(ReviewInventory -> ReviewBundle -> IO AdapterRegistry)
   , fixtureResource :: !Resource.ResourceId
   }
 

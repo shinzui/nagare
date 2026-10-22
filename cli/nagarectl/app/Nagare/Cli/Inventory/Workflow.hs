@@ -302,10 +302,10 @@ runInventoryResume mctx transaction yes takeOver = do
 -- Apply and resume refuse an access review before admission when the private
 -- key is missing. Recover and close keep the bare factory: nothing gates
 -- recovery of an uncertain prerequisite.
-requireAccessKey :: (InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry) -> InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-requireAccessKey registryFor store bundle = do
+requireAccessKey :: (InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry) -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+requireAccessKey registryFor inventory bundle = do
   key <- lookupEnv "NAGARE_EN_API_KEY"
-  maybe (registryFor store bundle) dieT (accessKeyRefusal key bundle)
+  maybe (registryFor inventory bundle) dieT (accessKeyRefusal key bundle)
 
 -- The first foundation transaction precedes the remote inventory format. Only
 -- its exact immutable review can authorize recovery from the local journal.

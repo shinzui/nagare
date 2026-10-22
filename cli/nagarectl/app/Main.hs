@@ -2,7 +2,7 @@
 module Main (main) where
 
 import GHC.IO.Encoding (setLocaleEncoding)
-import Nagare.Cli.Dispatch (dispatch)
+import Nagare.Cli.Dispatch (dispatchTraced)
 import Nagare.Cli.Parser (opts)
 import Nagare.Dsl.Prelude
 import Options.Applicative (execParser)
@@ -13,4 +13,4 @@ main = do
   setLocaleEncoding utf8
   hSetEncoding stdout utf8
   hSetEncoding stderr utf8
-  execParser opts >>= dispatch
+  execParser opts >>= dispatchTraced

@@ -69,13 +69,13 @@ runPlatformBootstrapApply mctx reviewDirectory yes = do
           (InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument publicBundle))
   stageTarget <- if foundationStage then foundationStageTarget active else pure active
   Inventory.applyInventoryWithFactory
-    ( \store bundle -> do
+    ( \inventory bundle -> do
         unless
           ( "nagare-bootstrap:"
               `T.isPrefixOf` InventoryPlan.reviewPayloadIdentity (InventoryPlan.reviewBundleDocument bundle)
           )
           (dieT "platform bootstrap apply requires a payload-bound bootstrap review")
-        inventoryExecutionRegistry mctx store bundle
+        inventoryExecutionRegistry mctx inventory bundle
     )
     stageTarget
     reviewDirectory

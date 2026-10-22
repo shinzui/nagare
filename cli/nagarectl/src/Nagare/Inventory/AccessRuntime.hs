@@ -31,7 +31,7 @@ import Nagare.Inventory.Access
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.Plan (ReviewBundle, ReviewDocument (reviewOperations), ReviewOperation (reviewPlannedOperation), loadInventoryHistory, reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions)
+import Nagare.Inventory.Plan (ReviewBundle, ReviewDocument (reviewOperations), ReviewInventory, ReviewOperation (reviewPlannedOperation), reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions, reviewInventoryHistory)
 import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Store (InventoryStore, readObject, revisionDigest, scopeKey)
 import Nagare.Resource.Access (teamKeyText)
@@ -364,10 +364,10 @@ parseEnForwardPort line = do
 
 -- Select immutable desired/base members by digest; admitted state must not turn
 -- a new grant into prior ownership during recovery.
-accessReviewAdapter :: InventoryStore -> ContextBinding -> Text -> IO (Either Text ()) -> ReviewBundle -> IO (Either Text Adapter)
-accessReviewAdapter store binding context guard bundle = do
+accessReviewAdapter :: ReviewInventory -> ContextBinding -> Text -> IO (Either Text ()) -> ReviewBundle -> IO (Either Text Adapter)
+accessReviewAdapter inventory binding context guard bundle = do
   desiredResult <- declarationsFor (reviewDesiredRevisions document)
-  history <- loadInventoryHistory store
+  history <- reviewInventoryHistory inventory
   previousResult <- declarationsFor (reviewBaseRevisions document)
   pure $ do
     desired <- desiredResult
@@ -387,6 +387,7 @@ accessReviewAdapter store binding context guard bundle = do
             ]
     pure (mkAccessAdapter accepted specs (accessRuntimeOps binding context guard))
   where
+    store = inventory ^. #executionStore
     document = reviewBundleDocument bundle
     declarationsFor revisions =
       fmap sequence $

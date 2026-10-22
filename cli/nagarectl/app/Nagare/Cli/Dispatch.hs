@@ -1,6 +1,7 @@
 -- | Dispatch. Executable-private CLI boundary.
 module Nagare.Cli.Dispatch
   ( dispatch
+  , dispatchTraced
   )
 where
 
@@ -102,18 +103,18 @@ import Nagare.Cli.Platform.Upgrade
 import Nagare.Contract.Sink (withContract, withReadContract)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Store.Counters (withStoreTrace)
+
+-- | Under @NAGARE_TRACE=1@ a command reports its store operations (EP-212).
+dispatchTraced :: (Maybe String, Command) -> IO ()
+dispatchTraced = withStoreTrace . dispatch
 
 dispatch :: (Maybe String, Command) -> IO ()
 dispatch (mctx, cmd0) = case cmd0 of
   Version versionOpts -> runVersion versionOpts
   ReleasePublish repository version assets yes -> runReleasePublish (T.pack repository) (T.pack version) assets yes Nothing
   ReleaseCleanupStarter repository version assets releaseId assetId assetName yes ->
-    runReleasePublish
-      (T.pack repository)
-      (T.pack version)
-      assets
-      yes
-      (Just (releaseId, assetId, T.pack assetName))
+    runReleasePublish (T.pack repository) (T.pack version) assets yes (Just (releaseId, assetId, T.pack assetName))
   PlatformRoot asJson -> runPlatformRoot mctx asJson
   PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
   PlatformGuard -> runPlatformGuard mctx

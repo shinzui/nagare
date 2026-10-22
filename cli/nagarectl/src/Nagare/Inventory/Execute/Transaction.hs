@@ -3,6 +3,7 @@
 -- | Transaction responsibilities; internal implementation behind Nagare.Inventory.Execute.
 module Nagare.Inventory.Execute.Transaction
   ( applyReviewed
+  , applyReviewedWithHistory
   , execute
   , resumeTransaction
   , resumeTransactionWithTakeover
@@ -17,7 +18,7 @@ import Data.Text qualified as T
 import Nagare.Contract.Sink (markExecuting)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterRegistry)
-import Nagare.Inventory.Execute.Admission (admit)
+import Nagare.Inventory.Execute.Admission (admit, admitWithHistory)
 import Nagare.Inventory.Execute.Claims
   ( acquireResumeClaim
   , observeCurrentHead
@@ -57,7 +58,8 @@ import Nagare.Inventory.Journal
   , transactionIdText
   )
 import Nagare.Inventory.Plan
-  ( RebindProof (rebindLive)
+  ( InventoryHistory
+  , RebindProof (rebindLive)
   , RetentionProof
     ( retentionOwner
     , retentionPhysical
@@ -211,9 +213,14 @@ finalizeCollections locked transaction document
         _ -> pure False
 
 applyReviewed :: InventoryStore -> AdapterRegistry -> ReviewedPlan -> IO (Either (NonEmpty AdmissionError) TransactionResult)
-applyReviewed store registry reviewed = do
+applyReviewed store registry reviewed = applyReviewedWithHistory store registry reviewed Nothing
+
+-- | 'applyReviewed' with the history the command loaded at its pinned head;
+-- admission reuses it only while the locked head is that head (EP-212).
+applyReviewedWithHistory :: InventoryStore -> AdapterRegistry -> ReviewedPlan -> Maybe InventoryHistory -> IO (Either (NonEmpty AdmissionError) TransactionResult)
+applyReviewedWithHistory store registry reviewed pinned = do
   locked <- withProcessLock store $ \lock -> do
-    admitted <- admit lock registry reviewed
+    admitted <- admitWithHistory lock registry reviewed pinned
     case admitted of
       Left errors -> pure (Left errors)
       Right executable -> do

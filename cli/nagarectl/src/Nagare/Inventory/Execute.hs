@@ -9,6 +9,7 @@ module Nagare.Inventory.Execute
   , admit
   , execute
   , applyReviewed
+  , applyReviewedWithHistory
   , resumeTransaction
   , resumeTransactionWithTakeover
   , OperatorRecoveryInput (..)
@@ -45,6 +46,7 @@ import Nagare.Inventory.Execute.Recovery
 import Nagare.Inventory.Execute.Settle (settleReviewedOperation)
 import Nagare.Inventory.Execute.Transaction
   ( applyReviewed
+  , applyReviewedWithHistory
   , execute
   , resumeTransaction
   , resumeTransactionWithTakeover

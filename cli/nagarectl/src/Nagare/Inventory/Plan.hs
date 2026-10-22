@@ -2,10 +2,15 @@
 module Nagare.Inventory.Plan
   ( InventoryHistory
   , loadInventoryHistory
+  , loadInventoryHistoryAt
   , loadInventoryPlanningHistory
+  , loadInventoryPlanningHistoryFrom
+  , ReviewInventory (..)
+  , reviewInventoryHistory
   , loadUnstartedApplicationCreates
   , historyHead
   , seedInventoryHistory
+  , seedInventoryHistoryAt
   , historyAccepted
   , historyConverged
   , historyRetained
@@ -72,10 +77,15 @@ import Nagare.Inventory.Plan.Changes
   , planChanges
   )
 import Nagare.Inventory.Plan.History
-  ( loadInventoryHistory
+  ( ReviewInventory (..)
+  , loadInventoryHistory
+  , loadInventoryHistoryAt
   , loadInventoryPlanningHistory
+  , loadInventoryPlanningHistoryFrom
   , loadUnstartedApplicationCreates
+  , reviewInventoryHistory
   , seedInventoryHistory
+  , seedInventoryHistoryAt
   )
 import Nagare.Inventory.Plan.Lifecycle
   ( approveMigrations

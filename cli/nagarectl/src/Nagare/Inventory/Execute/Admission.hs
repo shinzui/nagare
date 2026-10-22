@@ -3,11 +3,13 @@
 -- | Admission responsibilities; internal implementation behind Nagare.Inventory.Execute.
 module Nagare.Inventory.Execute.Admission
   ( admit
+  , admitWithHistory
   )
 where
 
 import Control.Monad (forM, forM_)
 import Data.Generics.Labels ()
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -88,7 +90,7 @@ import Nagare.Inventory.Plan
     )
   , ReviewOperation (reviewPlannedOperation)
   , ReviewedPlan
-  , loadInventoryHistory
+  , loadInventoryHistoryAt
   , loadUnstartedApplicationCreates
   , reviewedDocument
   )
@@ -112,6 +114,7 @@ import Nagare.Inventory.Store
   , LockedStore
   , RetainedIncarnation (RetainedIncarnation)
   , ScopeRevision (revisionDigest)
+  , StoreError
   , TransitionMarker (..)
   , lockedStore
   , parseTransitionReviewIdentity
@@ -127,7 +130,14 @@ import Nagare.Resource.Types (ResourceId, digestText)
 import Nagare.Resource.Wire (decodeScope)
 
 admit :: LockedStore s -> AdapterRegistry -> ReviewedPlan -> IO (Either (NonEmpty AdmissionError) (ExecutablePlan s))
-admit locked registry reviewed = do
+admit locked registry reviewed = admitWithHistory locked registry reviewed Nothing
+
+-- | 'admit' with the history the command loaded before taking the lock. It
+-- is used only when the head observed under the lock is the head it was
+-- loaded from; otherwise admission loads the history of the locked head, once
+-- (EP-212, ADR 22).
+admitWithHistory :: LockedStore s -> AdapterRegistry -> ReviewedPlan -> Maybe InventoryHistory -> IO (Either (NonEmpty AdmissionError) (ExecutablePlan s))
+admitWithHistory locked registry reviewed pinned = do
   let store = lockedStore locked
       document = reviewedDocument reviewed
       transaction = transactionFor document
@@ -167,14 +177,25 @@ admit locked registry reviewed = do
       case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
-          retention <- scheduledPruneRetention store headValue document
+          historyAt <- lockedHistory store headValue
+          retention <- scheduledPruneRetention store historyAt headValue document
           case retention of
             Left err -> pure (failure "retention-policy" err)
             Right () -> do
-              coverage <- retentionCoverage store document
-              continueAdmission store document transaction observed headValue coverage
+              coverage <- retentionCoverage store historyAt document
+              continueAdmission store historyAt document transaction observed headValue coverage
   where
-    continueAdmission store document transaction observed headValue coverage = case coverage of
+    lockedHistory store headValue = case pinned of
+      Just history | historyHead history == headValue -> pure (pure (Right history))
+      _ -> do
+        memo <- newIORef Nothing
+        pure $
+          readIORef memo >>= \case
+            Just loaded -> pure loaded
+            Nothing -> do
+              loaded <- loadInventoryHistoryAt store headValue
+              loaded <$ writeIORef memo (Just loaded)
+    continueAdmission store historyAt document transaction observed headValue coverage = case coverage of
       Left err -> pure (failure "retention-coverage" err)
       Right retentionRequests -> do
         -- ADR 27 (N8): a collection deletes only the retained incarnation its
@@ -194,7 +215,7 @@ admit locked registry reviewed = do
             -- EP-183 M4: a rebuild recreates a member reviewed as absent.
             rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document) <> Map.keys (reviewRebuilds document)) | not (Map.null (reviewRebinds document) && Map.null (reviewRebuilds document))]
             retainedRequests = Map.unionsWith (<>) [retentionRequests, collectionRequests, rebindRequests]
-        migrationChecked <- migrationCoverage store document
+        migrationChecked <- migrationCoverage store historyAt document
         migrationSourceErrors <- case migrationChecked of
           Left _ -> pure []
           Right () -> migrationAdmissionChecks registry reviewed
@@ -320,10 +341,11 @@ transitionAdmission open identity = case (open, parseTransitionReviewIdentity id
 -- preflight.
 scheduledPruneRetention ::
   InventoryStore ->
+  IO (Either StoreError InventoryHistory) ->
   HeadManifest ->
   ReviewDocument ->
   IO (Either Text ())
-scheduledPruneRetention store headValue document = do
+scheduledPruneRetention store historyAt headValue document = do
   checked <- forM changed $ \(_, revision) -> do
     member <- readObject store (scopeKey (revisionDigest revision))
     pure $ do
@@ -337,7 +359,7 @@ scheduledPruneRetention store headValue document = do
     Left err -> pure (Left err)
     Right [] -> pure (Right ())
     Right prunes -> do
-      historical <- loadInventoryHistory store
+      historical <- historyAt
       now <- getCurrentTime
       pure $ do
         history <- first showText historical
@@ -355,9 +377,9 @@ scheduledPruneRetention store headValue document = do
 -- confirmed-absent member that holds no data may instead carry an absence
 -- proof (F58): a stateless member, or a durable member whose create never
 -- started in a stopped application review.
-retentionCoverage :: InventoryStore -> ReviewDocument -> IO (Either Text (Map Executor [ResourceId]))
-retentionCoverage store document = do
-  historical <- loadInventoryHistory store
+retentionCoverage :: InventoryStore -> IO (Either StoreError InventoryHistory) -> ReviewDocument -> IO (Either Text (Map Executor [ResourceId]))
+retentionCoverage store historyAt document = do
+  historical <- historyAt
   desired <- traverse loadDesired (Map.elems (reviewDesiredRevisions document))
   unstartedResult <- case historical of
     Right loaded
@@ -473,10 +495,10 @@ migrationAdmissionChecks registry reviewed = fmap concat $ forM sources $ \entry
 -- | Reconstruct both declarations from immutable scope members before the
 -- accepted head can advance. migrationAdmissionChecks rechecks source identity
 -- while the writer lock is held, before this authority transfer.
-migrationCoverage :: InventoryStore -> ReviewDocument -> IO (Either Text ())
-migrationCoverage _ document | Map.null (reviewMigrations document) = pure (Right ())
-migrationCoverage store document = do
-  historical <- loadInventoryHistory store
+migrationCoverage :: InventoryStore -> IO (Either StoreError InventoryHistory) -> ReviewDocument -> IO (Either Text ())
+migrationCoverage _ _ document | Map.null (reviewMigrations document) = pure (Right ())
+migrationCoverage store historyAt document = do
+  historical <- historyAt
   desired <- traverse loadDesired (Map.elems (reviewDesiredRevisions document))
   pure $ do
     history <- first showText historical

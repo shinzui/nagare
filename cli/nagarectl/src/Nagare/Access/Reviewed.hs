@@ -72,7 +72,9 @@ planTeamMember active guard team user =
   planRelationship active guard (\snapshot -> compileTeamMemberScope snapshot team user)
 
 -- | Every reviewed relationship is one independent scope composed against
--- the accepted snapshot and planned through the common journal.
+-- the accepted snapshot and planned through the common journal. The store is
+-- opened once and the history loaded once, at the head the review binds
+-- (EP-212).
 planRelationship ::
   ActiveTarget ->
   IO (Either Text ()) ->
@@ -82,10 +84,11 @@ planRelationship ::
   FilePath ->
   IO ()
 planRelationship active guard compile configuredKey present output = do
-  snapshot <- Command.loadTargetSnapshotReadOnly active
+  opened <- Command.openInventoryForPlanning active
+  snapshot <- Command.openedSnapshot opened
   scope <- either (fail . T.unpack) pure (compile snapshot present)
   candidate <- either (fail . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
-  withEnApiKey configuredKey (Command.planInventoryCandidateWith (accessPlanRegistry active guard) active candidate output)
+  withEnApiKey configuredKey (Command.planInventoryCandidateLoaded (accessPlanRegistry active guard) active opened candidate output)
 
 -- | Run an action with @--en-api-key@ exported as the private key, restoring
 -- the environment afterwards; without the option the environment stands.
@@ -183,7 +186,8 @@ accessAdapter active guard declarations history = do
 -- check the resulting objects; they never discover or discard contributors.
 planPortalSync :: ActiveTarget -> IO (Either Text ()) -> FilePath -> IO ()
 planPortalSync active guard output = do
-  snapshot <- Command.loadTargetSnapshotReadOnly active
+  opened <- Command.openInventoryForPlanning active
+  snapshot <- Command.openedSnapshot opened
   owner <- either (fail . T.unpack) pure (mkScopeId Platform "auth")
   (_, scope) <-
     maybe
@@ -191,8 +195,8 @@ planPortalSync active guard output = do
       pure
       (Map.lookup owner (snapshotScopes snapshot))
   inventory <- either (fail . show) pure (composeSnapshot snapshot)
-  store <- Command.openTargetStoreReadOnly active >>= either (fail . show) pure
-  history <- loadInventoryHistory store >>= either (fail . show) pure
+  let store = opened ^. #inventoryStore
+      history = opened ^. #loadedHistory
   let workloads =
         [ resource
         | Managed resource <- inventoryDeclarations inventory
@@ -229,7 +233,7 @@ planPortalSync active guard output = do
   unless
     (Map.keysSet maps == Map.keysSet expected)
     (fail "portal sync requires exactly the accepted auth backend and Shomei settings grants")
-  Command.planInventoryCandidateWith
+  Command.planInventoryCandidateLoaded
     ( \_ history -> do
         accepted <- maybe (fail "portal auth revision is missing") (pure . fst) (Map.lookup owner (historyAccepted history))
         unless
@@ -278,5 +282,6 @@ planPortalSync active guard output = do
           )
     )
     active
+    opened
     candidate
     output

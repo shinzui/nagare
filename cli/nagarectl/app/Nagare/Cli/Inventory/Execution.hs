@@ -166,8 +166,8 @@ import System.Environment (setEnv)
 import System.Exit (ExitCode)
 import System.FilePath ((</>))
 
-inventoryExecutionRegistry :: Maybe String -> InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryExecutionRegistry mctx store bundle
+inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryExecutionRegistry mctx inventory bundle
   | not (null operations)
   , all ((== ResourceInventory.AccessExecutor) . InventoryAdapter.plannedExecutor) operations = do
       active <- activeTarget mctx
@@ -177,7 +177,7 @@ inventoryExecutionRegistry mctx store bundle
       setEnv "KUBECONFIG" selected
       adapter <-
         accessReviewAdapter
-          store
+          inventory
           (InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle))
           (contextNameText (active ^. #contextName))
           (fmap (fmap (const ())) (guardKubernetesContext active))
@@ -189,7 +189,8 @@ inventoryExecutionRegistry mctx store bundle
       map
         InventoryPlan.reviewPlannedOperation
         (InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle))
-inventoryExecutionRegistry mctx store bundle = do
+inventoryExecutionRegistry mctx inventory bundle = do
+  let store = inventory ^. #executionStore
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let document = InventoryPlan.reviewBundleDocument bundle
       operations =
@@ -269,7 +270,7 @@ inventoryExecutionRegistry mctx store bundle = do
   appDatabaseHistory <-
     if Set.null (selected ResourceInventory.AppDatabaseExecutor)
       then pure Nothing
-      else Just <$> (InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure)
+      else Just <$> (InventoryPlan.reviewInventoryHistory inventory >>= either (dieT . T.pack . show) pure)
   appDatabaseMembers <- case appDatabaseHistory of
     Nothing -> pure Map.empty
     Just accepted -> do
@@ -284,7 +285,7 @@ inventoryExecutionRegistry mctx store bundle = do
   dnsUniverse <-
     if any isDnsRecord declarations
       then do
-        accepted <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+        accepted <- InventoryPlan.reviewInventoryHistory inventory >>= either (dieT . T.pack . show) pure
         let byId = Map.fromList . map (\declaration -> (ResourceInventory.declarationId declaration, declaration))
         pure (Map.elems (Map.union (byId declarations) (byId (InventoryPlan.historyDeclarations accepted))))
       else pure declarations
@@ -414,7 +415,7 @@ inventoryExecutionRegistry mctx store bundle = do
   retainedHistory <-
     if Map.null (InventoryPlan.reviewRetentions document)
       then pure Nothing
-      else Just <$> (InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure)
+      else Just <$> (InventoryPlan.reviewInventoryHistory inventory >>= either (dieT . T.pack . show) pure)
   let historicalExecutors =
         Map.fromList
           [ (resource ^. #identity, resource ^. #executor)
@@ -453,7 +454,7 @@ inventoryExecutionRegistry mctx store bundle = do
     if Set.null retiredIds
       then pure (Map.empty, Map.empty)
       else do
-        history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+        history <- InventoryPlan.reviewInventoryHistory inventory >>= either (dieT . T.pack . show) pure
         acceptedSnapshot <-
           either
             (dieT . T.pack . show)
@@ -592,7 +593,7 @@ inventoryExecutionRegistry mctx store bundle = do
         if Map.null topicSpecs
           then pure Map.empty
           else do
-            history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+            history <- InventoryPlan.reviewInventoryHistory inventory >>= either (dieT . T.pack . show) pure
             pure (acceptedTopicResources history)
       broker <- inventoryBrokerAdapter active binding topicSpecs acceptedTopics
       appDatabase <-
@@ -663,7 +664,7 @@ inventoryExecutionRegistry mctx store bundle = do
           )
       access <-
         accessReviewAdapter
-          store
+          inventory
           binding
           (contextNameText (active ^. #contextName))
           (fmap (fmap (const ())) (guardKubernetesContext active))

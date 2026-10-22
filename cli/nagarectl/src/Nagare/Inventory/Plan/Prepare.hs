@@ -51,10 +51,12 @@ import Nagare.Resource.Types (digestText, resourceIdText)
 import Nagare.Resource.Wire (canonicalValue)
 
 prepareReview :: AdapterRegistry -> StoreSnapshot -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
-prepareReview = prepareReviewWithPayloadIdentity "operator-cli"
+prepareReview registry snapshot = prepareReviewWithPayloadIdentity "operator-cli" registry (storeSnapshotHead snapshot)
 
-prepareReviewWithPayloadIdentity :: Text -> AdapterRegistry -> StoreSnapshot -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
-prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
+-- | The review binds the head it was planned from: the caller's pinned head,
+-- never a second read (EP-212).
+prepareReviewWithPayloadIdentity :: Text -> AdapterRegistry -> HeadManifest -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
+prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal = do
   prepared <- traverse prepareOne (proposalOperations proposal)
   let (errors, successes) = partitionEithers prepared
   case errors of
@@ -68,7 +70,6 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
               , member <- members
               ]
           barriers = [barrier | (_, _, Just barrier) <- successes]
-          headValue = storeSnapshotHead snapshot
           document =
             ReviewDocument
               { reviewSchemaVersion = 1

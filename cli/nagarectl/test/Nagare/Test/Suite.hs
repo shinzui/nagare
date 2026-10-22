@@ -71,6 +71,7 @@ import InventoryServiceStoreSpec (inventoryServiceStoreTests)
 import InventorySettleSpec (inventorySettleTests)
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
+import InventoryStoreOnceSpec (inventoryStoreOnceTests)
 import InventoryStuckPodSpec (inventoryStuckPodTests)
 import InventoryTransactionSpec
   ( inventoryTransactionTests
@@ -205,6 +206,7 @@ main = do
             , inventoryGogolTests
             , inventoryServiceStoreTests
             , inventoryObjectOpsTests
+            , inventoryStoreOnceTests
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests

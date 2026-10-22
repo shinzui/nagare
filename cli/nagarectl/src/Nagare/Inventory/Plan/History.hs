@@ -1,9 +1,14 @@
 -- | History responsibilities; internal implementation behind Nagare.Inventory.Plan.
 module Nagare.Inventory.Plan.History
   ( loadInventoryHistory
+  , loadInventoryHistoryAt
   , loadInventoryPlanningHistory
+  , loadInventoryPlanningHistoryFrom
+  , ReviewInventory (..)
+  , reviewInventoryHistory
   , loadUnstartedApplicationCreates
   , seedInventoryHistory
+  , seedInventoryHistoryAt
   )
 where
 
@@ -84,6 +89,7 @@ import Nagare.Inventory.Store
     )
   , ScopeRevision (ScopeRevision, revisionDigest)
   , StoreError (StoreConditionFailed, StoreInvalidObject)
+  , countStore
   , publishIfAbsent
   , readHead
   , readJournalPrefix
@@ -93,6 +99,7 @@ import Nagare.Inventory.Store
   , scopeKey
   )
 import Nagare.Inventory.Store qualified as InventoryStore
+import Nagare.Inventory.Store.Counters (Counter (HistoryLoad))
 import Nagare.Resource.Inventory
   ( CompositionCandidate
   , Declaration (Managed)
@@ -126,70 +133,88 @@ import Nagare.Resource.Types
   )
 import Nagare.Resource.Wire (decodeScope, encodeCanonicalScope)
 
+-- | What an execution registry builds adapters against: the command's store
+-- and, when the command already loaded it, the history of the head it pinned.
+-- Without one, a factory loads the history as it always did (EP-212).
+data ReviewInventory = ReviewInventory
+  { executionStore :: !InventoryStore
+  , pinnedHistory :: !(Maybe InventoryHistory)
+  }
+  deriving stock (Generic)
+
+reviewInventoryHistory :: ReviewInventory -> IO (Either StoreError InventoryHistory)
+reviewInventoryHistory (ReviewInventory store pinned) = maybe (loadInventoryHistory store) (pure . Right) pinned
+
 loadInventoryHistory :: InventoryStore -> IO (Either StoreError InventoryHistory)
 loadInventoryHistory store = do
   headResult <- readHead store
   case headResult of
     Left err -> pure (Left err)
     Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-    Right (Just headValue) -> do
-      loaded <- traverse (loadScope store) (Map.toAscList (headAccepted headValue))
-      retained <- traverse (loadRetained store) (Map.toAscList (headRetained headValue))
-      collected <- traverse (loadCollected store) (Map.toAscList (headCollected headValue))
-      migrations <-
-        traverse
-          (loadMigrationReview store)
-          [ (resource, digest)
-          | (resource, incarnation) <- Map.toAscList (headRetained headValue)
-          , Just digest <- [retainedMigrationReview incarnation]
-          ]
-      pure $ do
-        accepted <- Map.fromList <$> sequence loaded
-        historical <- Map.fromList <$> sequence retained
-        _ <- sequence collected
-        migrationProofs <- Map.fromList <$> sequence migrations
-        let reservations = retainedReservations historical
-            claimHolders =
-              Map.fromListWith
-                (<>)
-                [ (claim, [Managed resource])
-                | (_, resource) <- Map.elems historical
-                , (_, claim) <- NE.toList (claimsOf (Managed resource))
-                ]
-        unless
-          (all (\(claim, holders) -> length holders == 1 || pairedDnsRouteClaim claim holders) (Map.toList claimHolders))
-          (Left (StoreInvalidObject "head.json" "retained address claims overlap"))
-        acceptedDeclarations <-
-          first
-            (StoreInvalidObject "head.json" . T.pack . show)
-            (composedDeclarations (fmap snd accepted))
-        let acceptedIds = Set.fromList (map declarationId acceptedDeclarations)
-            activeManaged =
-              Map.fromList
-                [(resource ^. #identity, resource) | Managed resource <- acceptedDeclarations]
-            activeRetained = Set.intersection acceptedIds (Map.keysSet historical)
-        unless
-          (Set.null (Set.intersection acceptedIds (Map.keysSet (headCollected headValue))))
-          (Left (StoreInvalidObject "head.json" "collected resource is also active"))
-        forM_ (Set.toAscList activeRetained) $ \resource ->
-          case ( Map.lookup resource historical
-               , Map.lookup resource activeManaged
-               , Map.lookup resource migrationProofs
-               ) of
-            (Just (incarnation, source), Just destination, Just proof)
-              | retainedOwner incarnation == migrationProofOwner proof
-              , retainedRevision incarnation == migrationProofRevision proof
-              , retainedPhysical incarnation == migrationProofPhysical proof
-              , source ^. #address == migrationProofSourceAddress proof
-              , destination ^. #address == migrationProofDestinationAddress proof
-              , Set.null
-                  ( Set.intersection
-                      (Set.fromList (map snd (NE.toList (claimsOf (Managed source)))))
-                      (Set.fromList (map snd (NE.toList (claimsOf (Managed destination)))))
-                  ) ->
-                  pure ()
-            _ -> Left (StoreInvalidObject "head.json" "active retained resource lacks a disjoint reviewed migration")
-        pure (InventoryHistory headValue accepted (headConverged headValue) historical Set.empty)
+    Right (Just headValue) -> loadInventoryHistoryAt store headValue
+
+-- | The history of a head the caller already read. It never reads the head:
+-- the result is a function of that head's bytes and the immutable members it
+-- names, so equal heads give equal histories (EP-212).
+loadInventoryHistoryAt :: InventoryStore -> HeadManifest -> IO (Either StoreError InventoryHistory)
+loadInventoryHistoryAt store headValue = countStore store HistoryLoad $ do
+  loaded <- traverse (loadScope store) (Map.toAscList (headAccepted headValue))
+  retained <- traverse (loadRetained store) (Map.toAscList (headRetained headValue))
+  collected <- traverse (loadCollected store) (Map.toAscList (headCollected headValue))
+  migrations <-
+    traverse
+      (loadMigrationReview store)
+      [ (resource, digest)
+      | (resource, incarnation) <- Map.toAscList (headRetained headValue)
+      , Just digest <- [retainedMigrationReview incarnation]
+      ]
+  pure $ do
+    accepted <- Map.fromList <$> sequence loaded
+    historical <- Map.fromList <$> sequence retained
+    _ <- sequence collected
+    migrationProofs <- Map.fromList <$> sequence migrations
+    let reservations = retainedReservations historical
+        claimHolders =
+          Map.fromListWith
+            (<>)
+            [ (claim, [Managed resource])
+            | (_, resource) <- Map.elems historical
+            , (_, claim) <- NE.toList (claimsOf (Managed resource))
+            ]
+    unless
+      (all (\(claim, holders) -> length holders == 1 || pairedDnsRouteClaim claim holders) (Map.toList claimHolders))
+      (Left (StoreInvalidObject "head.json" "retained address claims overlap"))
+    acceptedDeclarations <-
+      first
+        (StoreInvalidObject "head.json" . T.pack . show)
+        (composedDeclarations (fmap snd accepted))
+    let acceptedIds = Set.fromList (map declarationId acceptedDeclarations)
+        activeManaged =
+          Map.fromList
+            [(resource ^. #identity, resource) | Managed resource <- acceptedDeclarations]
+        activeRetained = Set.intersection acceptedIds (Map.keysSet historical)
+    unless
+      (Set.null (Set.intersection acceptedIds (Map.keysSet (headCollected headValue))))
+      (Left (StoreInvalidObject "head.json" "collected resource is also active"))
+    forM_ (Set.toAscList activeRetained) $ \resource ->
+      case ( Map.lookup resource historical
+           , Map.lookup resource activeManaged
+           , Map.lookup resource migrationProofs
+           ) of
+        (Just (incarnation, source), Just destination, Just proof)
+          | retainedOwner incarnation == migrationProofOwner proof
+          , retainedRevision incarnation == migrationProofRevision proof
+          , retainedPhysical incarnation == migrationProofPhysical proof
+          , source ^. #address == migrationProofSourceAddress proof
+          , destination ^. #address == migrationProofDestinationAddress proof
+          , Set.null
+              ( Set.intersection
+                  (Set.fromList (map snd (NE.toList (claimsOf (Managed source)))))
+                  (Set.fromList (map snd (NE.toList (claimsOf (Managed destination)))))
+              ) ->
+              pure ()
+        _ -> Left (StoreInvalidObject "head.json" "active retained resource lacks a disjoint reviewed migration")
+    pure (InventoryHistory headValue accepted (headConverged headValue) historical Set.empty)
   where
     loadScope inventoryStore (scope, revision) = do
       bytesResult <- readObject inventoryStore (scopeKey (revisionDigest revision))
@@ -284,13 +309,18 @@ loadInventoryPlanningHistory ::
   InventoryStore ->
   CompositionCandidate ->
   IO (Either StoreError InventoryHistory)
-loadInventoryPlanningHistory store candidate = do
-  loaded <- loadInventoryHistory store
-  case loaded of
-    Left err -> pure (Left err)
-    Right history -> do
-      unstarted <- loadUnstartedApplicationCreates store selected (historyHead history)
-      pure ((\proof -> history {historyUnstartedCreates = proof}) <$> unstarted)
+loadInventoryPlanningHistory store candidate =
+  loadInventoryHistory store >>= either (pure . Left) (\history -> loadInventoryPlanningHistoryFrom store history candidate)
+
+-- | 'loadInventoryPlanningHistory' over a history already loaded (EP-212).
+loadInventoryPlanningHistoryFrom ::
+  InventoryStore ->
+  InventoryHistory ->
+  CompositionCandidate ->
+  IO (Either StoreError InventoryHistory)
+loadInventoryPlanningHistoryFrom store history candidate = do
+  unstarted <- loadUnstartedApplicationCreates store selected (historyHead history)
+  pure ((\proof -> history {historyUnstartedCreates = proof}) <$> unstarted)
   where
     -- A retirement may also leave never-started members behind (F58).
     selected =
@@ -352,36 +382,41 @@ seedInventoryHistory store candidate = do
   case headResult of
     Left err -> pure (Left err)
     Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-    Right (Just headValue)
-      | not (Map.null (headAccepted headValue)) -> pure (Right headValue)
-      | otherwise -> do
-          let desired = inventoryScopes (candidateInventory candidate)
-              unchanged =
-                [ (scope, generation, declaration)
-                | (scope, generation) <- Map.toAscList (candidateBase candidate)
-                , Map.lookup scope (candidateGenerations candidate) == Just generation
-                , Just declaration <- [Map.lookup scope desired]
-                ]
-              reconstructable = Map.keysSet (candidateBase candidate) == Set.fromList [scope | (scope, _, _) <- unchanged]
-          if not reconstructable
-            then pure (Left (StoreConditionFailed "new inventory store cannot reconstruct a changed or retired base scope"))
-            else do
-              published <- forM unchanged $ \(_, _, declaration) -> do
-                let bytes = encodeCanonicalScope declaration
-                publishIfAbsent store (scopeKey (contentDigest bytes)) bytes
-              case sequence published of
-                Left err -> pure (Left err)
-                Right _ -> do
-                  let revisions =
-                        Map.fromList
-                          [ (scope, ScopeRevision generation (contentDigest (encodeCanonicalScope declaration)))
-                          | (scope, generation, declaration) <- unchanged
-                          ]
-                      replacement =
-                        headValue
-                          { headGeneration = headGeneration headValue + 1
-                          , headAccepted = revisions
-                          , headConverged = revisions
-                          }
-                  replaced <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
-                  pure (replacement <$ replaced)
+    Right (Just headValue) -> seedInventoryHistoryAt store headValue candidate
+
+-- | 'seedInventoryHistory' from a head the caller already read (EP-212). It
+-- returns that head unchanged unless the store is new and was seeded.
+seedInventoryHistoryAt :: InventoryStore -> HeadManifest -> CompositionCandidate -> IO (Either StoreError HeadManifest)
+seedInventoryHistoryAt store headValue candidate
+  | not (Map.null (headAccepted headValue)) = pure (Right headValue)
+  | otherwise = do
+      let desired = inventoryScopes (candidateInventory candidate)
+          unchanged =
+            [ (scope, generation, declaration)
+            | (scope, generation) <- Map.toAscList (candidateBase candidate)
+            , Map.lookup scope (candidateGenerations candidate) == Just generation
+            , Just declaration <- [Map.lookup scope desired]
+            ]
+          reconstructable = Map.keysSet (candidateBase candidate) == Set.fromList [scope | (scope, _, _) <- unchanged]
+      if not reconstructable
+        then pure (Left (StoreConditionFailed "new inventory store cannot reconstruct a changed or retired base scope"))
+        else do
+          published <- forM unchanged $ \(_, _, declaration) -> do
+            let bytes = encodeCanonicalScope declaration
+            publishIfAbsent store (scopeKey (contentDigest bytes)) bytes
+          case sequence published of
+            Left err -> pure (Left err)
+            Right _ -> do
+              let revisions =
+                    Map.fromList
+                      [ (scope, ScopeRevision generation (contentDigest (encodeCanonicalScope declaration)))
+                      | (scope, generation, declaration) <- unchanged
+                      ]
+                  replacement =
+                    headValue
+                      { headGeneration = headGeneration headValue + 1
+                      , headAccepted = revisions
+                      , headConverged = revisions
+                      }
+              replaced <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
+              pure (replacement <$ replaced)

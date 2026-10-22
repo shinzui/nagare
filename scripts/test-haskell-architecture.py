@@ -86,7 +86,7 @@ class ArchitectureTests(unittest.TestCase):
         self.assert_error('import cycle')
 
     def test_old_large_module_cannot_grow(self):
-        relative = 'cli/nagarectl/src/Nagare/Inventory/Store.hs'
+        relative = 'cli/nagarectl/src/Nagare/Inventory/DataFence/KubernetesExclusion.hs'
         target = self.root / relative
         target.write_text(target.read_text() + '\n')
         self.assert_error('exceeds ' + str(self.limits[relative]))

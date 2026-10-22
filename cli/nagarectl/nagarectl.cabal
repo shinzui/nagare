@@ -200,6 +200,7 @@ library
     Nagare.Inventory.Collection.Runtime
     Nagare.Inventory.CollectionPolicy
     Nagare.Inventory.Command
+    Nagare.Inventory.Command.Open
     Nagare.Inventory.Components.AdminApi
     Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.ControllerImage
@@ -302,10 +303,12 @@ library
     Nagare.Inventory.Site.Release
     Nagare.Inventory.Status
     Nagare.Inventory.Store
+    Nagare.Inventory.Store.Counters
     Nagare.Inventory.Store.Discovery
     Nagare.Inventory.Store.FileIO
     Nagare.Inventory.Store.GcloudAuth
     Nagare.Inventory.Store.Gogol
+    Nagare.Inventory.Store.Manifest
     Nagare.Inventory.Store.Migrate
     Nagare.Inventory.Store.ObjectOps
     Nagare.Inventory.Store.Remote
@@ -631,6 +634,7 @@ test-suite nagarectl-test
     InventorySpec
     InventoryStatusSpec
     InventoryStoreBackupSpec
+    InventoryStoreOnceSpec
     InventoryStuckPodSpec
     InventoryTransactionSpec
     InventoryTransferScriptSpec

@@ -861,7 +861,7 @@ planWith identity store registry change decide = do
         Left err -> pure (Left err)
         Right proposal -> do
           before <- readStoreSnapshot store >>= orTrouble "read snapshot"
-          prepared <- prepareReviewWithPayloadIdentity identity registry before proposal
+          prepared <- prepareReviewWithPayloadIdentity identity registry (storeSnapshotHead before) proposal
           case prepared of
             -- B6: the refused members, named only when every refused operation is a verify.
             Left err ->

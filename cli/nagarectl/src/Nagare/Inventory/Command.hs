@@ -4,6 +4,9 @@ module Nagare.Inventory.Command
   , loadCandidate
   , loadTargetSnapshot
   , loadTargetSnapshotReadOnly
+  , OpenedInventory (..)
+  , openInventoryForPlanning
+  , openedSnapshot
   , openTargetStore
   , openTargetStoreReadOnly
   , openProfileReviewStoreReadOnly
@@ -14,6 +17,7 @@ module Nagare.Inventory.Command
   , planInventoryWithRetirements
   , planInventoryCandidateWithRetirements
   , planInventoryCandidateWith
+  , planInventoryCandidateLoaded
   , planInventoryCandidateQuiet
   , convergeInventoryCandidateResult
   , planInventoryCandidateWithDecider
@@ -75,6 +79,7 @@ import Nagare.Contract.Project (savedReview)
 import Nagare.Contract.Sink (contractSinkSet, emitDocument, progressLine, refuseWith, reportTransaction)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Command.Open
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
@@ -428,6 +433,15 @@ planInventoryCandidateWith :: (CompositionCandidate -> InventoryHistory -> IO Ad
 planInventoryCandidateWith registryFor =
   planInventoryCandidateWithDecider registryFor (\_ _ -> Right noLifecycleDecisions)
 
+-- | 'planInventoryCandidateWith' against an inventory the command already
+-- opened (EP-212).
+planInventoryCandidateLoaded :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> OpenedInventory -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateLoaded registryFor target opened candidate output = do
+  (_, bundle, digest) <-
+    tryPrepareInventoryCandidateLoaded registryFor (\_ _ -> Right noLifecycleDecisions) "operator-cli" target opened candidate
+      >>= either dieText pure
+  writePlannedReview output bundle digest
+
 -- | Bootstrap stages record their immutable selected payload even when the
 -- current review has no final cluster marker yet.
 planInventoryCandidateWithPayloadIdentity ::
@@ -486,7 +500,7 @@ printPlannedReview bundle digest = do
 -- Lifecycle decisions still require a separately reviewed command.
 convergeInventoryCandidateWith ::
   (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
-  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) ->
+  (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) ->
   ActiveTarget ->
   CompositionCandidate ->
   IO ()
@@ -498,7 +512,7 @@ convergeInventoryCandidateWith planningRegistry executionRegistry target candida
 -- @--contract 1@.
 convergeInventoryCandidateResult ::
   (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
-  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) ->
+  (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) ->
   ActiveTarget ->
   CompositionCandidate ->
   IO (ContentDigest, TransactionResult)
@@ -509,7 +523,7 @@ convergeInventoryCandidateResult planningRegistry executionRegistry target candi
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))
   progressLine ("Published review " <> digestText digest)
   forM_ (reviewOperations (reviewBundleDocument bundle)) (progressLine . reviewPublicSummary)
-  registry <- executionRegistry store bundle
+  registry <- executionRegistry (ReviewInventory store Nothing) bundle
   snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   (,) digest <$> (applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure)
@@ -547,11 +561,34 @@ tryPrepareInventoryCandidateWithDeciderPayload ::
 tryPrepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate = do
   rejectReentry
   validateTarget target candidate
-  store <- openTargetStore target
+  (store, observed) <- openTargetStoreAtHead target
   let binding = inventoryBinding (candidateInventory candidate)
-  _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
-  _ <- seedInventoryHistory store candidate >>= either (dieText . showText) pure
-  history <- loadInventoryPlanningHistory store candidate >>= either (dieText . showText) pure
+  headValue <- initializeStoreFrom store binding (clientIdentity target) observed >>= either (dieText . showText) pure
+  history <- loadInventoryHistoryAt store headValue >>= either (dieText . showText) pure
+  tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target (OpenedInventory store headValue history) candidate
+
+-- | Plan a candidate against an inventory the command already opened, at the
+-- head it pinned: no second open, head read, history load or listing
+-- (EP-212). Only a new store that is seeded here is loaded again.
+tryPrepareInventoryCandidateLoaded ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  T.Text ->
+  ActiveTarget ->
+  OpenedInventory ->
+  CompositionCandidate ->
+  IO (Either Text (InventoryStore, ReviewBundle, ContentDigest))
+tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target opened candidate = do
+  rejectReentry
+  validateTarget target candidate
+  let store = opened ^. #inventoryStore
+      pinned = opened ^. #pinnedHead
+  headValue <- seedInventoryHistoryAt store pinned candidate >>= either (dieText . showText) pure
+  loaded <-
+    if headValue == pinned
+      then pure (opened ^. #loadedHistory)
+      else loadInventoryHistoryAt store headValue >>= either (dieText . showText) pure
+  history <- loadInventoryPlanningHistoryFrom store loaded candidate >>= either (dieText . showText) pure
   registry <- registryFor candidate history
   let requirements = observationRequirements candidate history
   observed <- observeWithRegistry registry (requirementsByExecutor requirements)
@@ -562,8 +599,7 @@ tryPrepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentit
   case observed >>= \observations -> first renderPlanErrors (decide history observations >>= \decisions -> planChanges candidate decisions history observations) of
     Left reason -> pure (Left reason)
     Right proposal -> do
-      snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
-      prepared <- prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal
+      prepared <- prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal
       case prepared of
         Left errors -> pure (Left (showText (NE.toList errors)))
         Right bundle -> do
@@ -578,24 +614,29 @@ applyInventoryWith registry = applyInventoryWithFactory (\_ _ -> pure registry)
 
 -- | Construct adapters only after the private, immutable review has been
 -- loaded. Public review directories intentionally omit native provider bytes.
-applyInventoryWithFactory :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> Bool -> IO ()
+applyInventoryWithFactory :: (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventoryWithFactory registryFor target reviewDirectory yes = do
   rejectReentry
   unless yes (dieText "inventory apply requires --yes after reviewing the bound plan")
   publicBundle <- loadReviewBundle reviewDirectory >>= either dieText pure
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument publicBundle))
-  store <- openTargetStore target
-  requireTransitionOwner store
+  (store, observed) <- openTargetStoreAtHead target
+  requireTransitionOwnerAt observed
   bundle <- loadPublishedReview store (reviewDigest publicBundle) >>= either (dieCoded reviewChanged . showText) pure
   unless
     ( reviewBundleDocument bundle == reviewBundleDocument publicBundle
         && reviewBundleScopes bundle == reviewBundleScopes publicBundle
     )
     (dieCoded reviewChanged "review directory differs from the immutable review published by this store")
-  registry <- registryFor store bundle
-  snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieCoded storeUnavailable . showText) pure
+  headValue <- maybe (dieCoded storeUnavailable (showText (StoreConditionFailed "inventory store is not initialized"))) pure observed
+  -- EP-212: one history, loaded at the head this command read, serves the
+  -- registry and admission; admission reloads if the locked head moved. A
+  -- failed load is left to them, so every refusal stays as it was.
+  pinned <- either (const Nothing) Just <$> loadInventoryHistoryAt store headValue
+  registry <- registryFor (ReviewInventory store pinned) bundle
+  snapshot <- readReviewSnapshotAt store headValue (reviewDigest bundle) >>= either (dieCoded storeUnavailable . showText) pure
   reviewed <- either (dieCoded reviewChanged . showText . NE.toList) pure (verifyReview snapshot bundle)
-  result <- applyReviewed store registry reviewed >>= either (dieCoded admissionRefused . showText . NE.toList) pure
+  result <- applyReviewedWithHistory store registry reviewed pinned >>= either (dieCoded admissionRefused . showText . NE.toList) pure
   reportTransaction (renderTransactionResult result) result
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
@@ -604,11 +645,11 @@ resumeInventory = resumeInventoryWith executionBlockedRegistry
 resumeInventoryWith :: AdapterRegistry -> ActiveTarget -> Text -> Bool -> IO ()
 resumeInventoryWith registry = resumeInventoryWithFactory (\_ _ -> pure registry)
 
-resumeInventoryWithFactory :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> IO ()
+resumeInventoryWithFactory :: (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> IO ()
 resumeInventoryWithFactory registryFor target transactionToken yes =
   resumeInventoryWithFactoryTakeover registryFor target transactionToken yes False
 
-resumeInventoryWithFactoryTakeover :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> Bool -> IO ()
+resumeInventoryWithFactoryTakeover :: (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> Bool -> IO ()
 resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeOver = do
   rejectReentry
   unless yes (dieText "inventory resume requires --yes")
@@ -620,13 +661,13 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
     Just headValue | headActiveTransaction headValue == Just (transactionIdText transaction) -> do
       digest <- either dieText pure (mkContentDigest (T.drop 3 (transactionIdText transaction)))
       bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
-      registryFor store bundle
+      registryFor (ReviewInventory store Nothing) bundle
     _ -> either dieText pure (mkAdapterRegistry [])
   result <- resumeTransactionWithTakeover store registry transaction takeOver >>= either (dieCoded admissionRefused . showText . NE.toList) pure
   reportTransaction (renderTransactionResult result) result
 
 prepareRegistryRecoveryWithFactory ::
-  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) ->
+  (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) ->
   ActiveTarget ->
   Text ->
   Text ->
@@ -639,7 +680,7 @@ prepareRegistryRecoveryWithFactory registryFor target transactionToken operation
   digest <- either dieText pure (mkContentDigest (T.drop 3 transactionToken))
   store <- openTargetStore target
   bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
-  registry <- registryFor store bundle
+  registry <- registryFor (ReviewInventory store Nothing) bundle
   input <-
     prepareBootstrapRegistryRecovery store registry transaction operation
       >>= either dieText pure
@@ -672,7 +713,7 @@ prepareRegistryRecoveryWithFactory registryFor target transactionToken operation
   TIO.putStrLn "Replay accepted nagare-registries-refresh.service and restart k3s.service only; workload readiness remains independently required"
 
 recoverInventoryWithFactory ::
-  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
+  (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
 recoverInventoryWithFactory registryFor target transactionToken operationToken decisionFile takeOver = do
   rejectReentry
   transaction <- either dieText pure (mkTransactionId transactionToken)
@@ -685,7 +726,7 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
   store <- openTargetStore target
   requireTransitionOwner store
   bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
-  registry <- registryFor store bundle
+  registry <- registryFor (ReviewInventory store Nothing) bundle
   if recoveryAction input `elem` closeAliases
     then do
       -- ADR 26: the stop and abandon actions are aliases of close, which
@@ -703,7 +744,7 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
 
 -- | ADR 26: close a stopped transaction by per-operation proof.
 closeInventoryWithFactory ::
-  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> Maybe FilePath -> Bool -> IO ()
+  (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> Maybe FilePath -> Bool -> IO ()
 closeInventoryWithFactory registryFor target transactionToken reviewToken attestFile takeOver = do
   rejectReentry
   transaction <- either dieText pure (mkTransactionId transactionToken)
@@ -714,7 +755,7 @@ closeInventoryWithFactory registryFor target transactionToken reviewToken attest
   store <- openTargetStore target
   requireTransitionOwner store
   bundle <- loadPublishedReview store review >>= either (dieText . showText) pure
-  registry <- registryFor store bundle
+  registry <- registryFor (ReviewInventory store Nothing) bundle
   record <- closeTransaction store registry (CloseInput transaction review takeOver attestation) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure
   TIO.putStr (renderCloseRecord record)
 
@@ -788,147 +829,6 @@ restoreInventory target backup yes = do
         Right (Left err) -> dieText (showText err)
         Right (Right ()) -> TIO.putStrLn "Private inventory history restored; inspect inventory store status before mutation."
 
-openTargetStore :: ActiveTarget -> IO InventoryStore
-openTargetStore target = do
-  stateRoot <- nagareStateDir
-  let path = stateRoot </> T.unpack (contextNameText (target ^. #contextName)) </> "inventory"
-  case effectiveInventoryStore (target ^. #profile) of
-    InventoryStoreLocal -> do
-      store <- openFilesystemStore path >>= either (dieText . showText) pure
-      headResult <- readHead store >>= either (dieText . showText) pure
-      case headResult >>= headMigration of
-        Just marker -> dieText ("inventory history migrated to " <> migrationDestination marker <> "; reload the context shell")
-        Nothing -> pure store
-    InventoryStoreGcs -> do
-      local <- openFilesystemStoreReadOnly path
-      migrated <- case local of
-        Right localStore -> do
-          localHead <- readHead localStore
-          case localHead of
-            Right (Just headValue) -> case headMigration headValue of
-              Just marker | migrationDestination marker == remoteInventoryUrl target -> pure True
-              Nothing | not (hasSubstantiveHistory headValue) -> pure False
-              _ -> dieText "local inventory history exists; migrate it before selecting the GCS store"
-            Left err -> dieText (showText err)
-            Right Nothing -> pure False
-        Left (StoreConditionFailed _) -> pure False
-        Left err -> dieText (showText err)
-      remote <- openRemoteStore (not migrated) target stateRoot >>= either (dieText . showText) pure
-      when migrated $ do
-        remoteHead <- readHead remote >>= either (dieText . showText) pure
-        when (isNothing remoteHead) (dieText "migrated remote inventory head is missing; refusing a new history")
-      pure remote
-
--- | Select authority once before bootstrap work. This probe never creates local
--- state, remote format/head, cache, or client identity; migration stays explicit.
-selectFoundationStore :: ActiveTarget -> IO (Either StoreError ActiveTarget)
-selectFoundationStore target
-  | effectiveInventoryStore (target ^. #profile) == InventoryStoreLocal = pure (Right target)
-  | otherwise = do
-      bounded <- timeout 60000000 discover
-      pure (fromMaybe (Left (StoreIoError "inventory discovery exceeded 60 seconds; remote absence is not proved")) bounded)
-  where
-    localTarget = target & #profile . #inventoryStore .~ InventoryStoreLocal
-    contextText = contextNameText (target ^. #contextName)
-    project = target ^. #profile . #project
-    refused = Left . StoreConditionFailed
-    discover = do
-      stateRoot <- nagareStateDir
-      let path = stateRoot </> T.unpack contextText </> "inventory"
-      exists <- doesPathExist path
-      local <-
-        if not exists
-          then pure (Right Nothing)
-          else do
-            opened <- openFilesystemStoreReadOnly path
-            case opened of
-              Left err -> pure (Left err)
-              Right store ->
-                readHead store >>= \case
-                  Right Nothing -> pure (refused "local inventory directory has no head; inspect incomplete history before bootstrap")
-                  result -> pure result
-      stored <- readContextProfile (target ^. #contextName)
-      ambient <- lookupEnv "CLOUDSDK_CORE_PROJECT"
-      case (mkContextId contextText, mkName project, stored, local) of
-        (Right context, Right provider, Right persisted, Right localHead)
-          | persisted ^. #project /= project -> pure (refused "active project disagrees with the stored inventory context")
-          | remoteInventoryUrl (target & #profile .~ persisted) /= remoteInventoryUrl target ->
-              pure (refused "active remote inventory URL disagrees with the stored context")
-          | Just actual <- ambient, T.pack actual /= project -> pure (refused "ambient gcloud project disagrees with the inventory context")
-          | maybe False ((/= ContextBinding context provider) . headBinding) localHead ->
-              pure (refused "local inventory head belongs to another context or provider project")
-          | Just marker <- localHead >>= headMigration
-          , migrationDestination marker /= remoteInventoryUrl target ->
-              pure (refused "local inventory migration destination differs from the selected remote store")
-          | otherwise -> do
-              remote <- Remote.remoteDiscoveryOps project (remoteInventoryUrl target)
-              case remote of
-                Left reason -> pure (Left (StoreIoError reason))
-                Right (Remote.BucketUnavailable reason, _, _) -> pure (Left (StoreIoError reason))
-                Right (Remote.BucketForeign reason, _, _) -> pure (refused reason)
-                Right (Remote.BucketAbsent, _, _) -> pure (choose localHead DiscoveredMissingBucket)
-                Right (Remote.BucketOwned _, ops, empty) ->
-                  discoverInventoryObjects ops empty (ContextBinding context provider) >>= \case
-                    DiscoveryUnavailable reason -> pure (Left (StoreIoError reason))
-                    DiscoveryForeign reason -> pure (refused reason)
-                    DiscoveryIncomplete reason -> pure (refused reason)
-                    result -> pure (choose localHead result)
-        (_, _, _, Left err) -> pure (Left err)
-        (_, _, Left reason, _) -> pure (refused reason)
-        (Left reason, _, _, _) -> pure (refused reason)
-        (_, Left reason, _, _) -> pure (refused reason)
-    choose localHead result = case chooseHistoryAuthority (remoteInventoryUrl target) localHead result of
-      Left reason -> refused reason
-      Right UseLocalFoundation -> Right localTarget
-      Right UseRemoteHistory -> Right target
-
--- | Use the accepted complete scopes as the base of a freshly compiled
--- component candidate. The planner still checks unresolved transactions.
-loadTargetSnapshot :: ActiveTarget -> IO ScopeSnapshot
-loadTargetSnapshot target = do
-  context <- either dieText pure (mkContextId (contextNameText (target ^. #contextName)))
-  project <- either dieText pure (mkName (target ^. #profile . #project))
-  let binding = ContextBinding context project
-  store <- openTargetStore target
-  _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
-  history <- loadInventoryHistory store >>= either (dieText . showText) pure
-  either
-    (dieText . showText . NE.toList)
-    pure
-    ( mkScopeSnapshot
-        binding
-        (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
-        (historyReservations history)
-    )
-
--- | Local credential recovery requires accepted history and never initializes
--- a new authority. An unresolved writer or data fence keeps recovery explicit.
-loadTargetSnapshotReadOnly :: ActiveTarget -> IO ScopeSnapshot
-loadTargetSnapshotReadOnly target = do
-  context <- either dieText pure (mkContextId (contextNameText (target ^. #contextName)))
-  project <- either dieText pure (mkName (target ^. #profile . #project))
-  let binding = ContextBinding context project
-  store <- openTargetStoreReadOnly target >>= either (dieText . showText) pure
-  headValue <- readHead store >>= either (dieText . showText) pure
-  observed <- maybe (dieText "accepted inventory history is absent") pure headValue
-  unless (headBinding observed == binding) (dieText "inventory head belongs to another context or project")
-  when
-    ( isJust (headActiveTransaction observed)
-        || isJust (headExecutorClaim observed)
-        || isJust (headDataFence observed)
-        || isJust (headMigration observed)
-    )
-    (dieText "accepted inventory has an unresolved transaction, claim, fence or migration; recover it first")
-  history <- loadInventoryHistory store >>= either (dieText . showText) pure
-  either
-    (dieText . showText . NE.toList)
-    pure
-    ( mkScopeSnapshot
-        binding
-        (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
-        (historyReservations history)
-    )
-
 validateTarget :: ActiveTarget -> CompositionCandidate -> IO ()
 validateTarget target candidate = do
   let binding = inventoryBinding (candidateInventory candidate)
@@ -946,16 +846,14 @@ validateReviewTarget target binding = do
 -- nagarectl applies, resumes, recovers or closes; any other refuses and
 -- names it, unless the store is idle (F130: a newer release supersedes). The running payload is read only when a transition is open.
 requireTransitionOwner :: InventoryStore -> IO ()
-requireTransitionOwner store = do
-  current <- readHead store >>= either (dieText . showText) pure
+requireTransitionOwner store = readHead store >>= either (dieText . showText) pure >>= requireTransitionOwnerAt
+
+requireTransitionOwnerAt :: Maybe HeadManifest -> IO ()
+requireTransitionOwnerAt current =
   forM_ current $ \headValue -> forM_ (headTransition headValue) $ \marker -> do
     paths <- resolvePlatformPaths Nothing >>= either (dieText . renderPlatformPathError) pure
     manifest <- readPayloadManifest paths >>= either (dieText . renderWorkspaceError) pure
     forM_ (transitionContinueRefusal headValue marker (manifest ^. #payloadId)) dieText
-
-clientIdentity :: ActiveTarget -> Text
-clientIdentity target =
-  "client-" <> T.take 24 (digestText (contentDigest (TE.encodeUtf8 (contextNameText (target ^. #contextName)))))
 
 executionBlockedRegistry :: AdapterRegistry
 executionBlockedRegistry =
@@ -988,13 +886,3 @@ rejectReentry :: IO ()
 rejectReentry = do
   active <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (maybe False (not . null) active) (dieText "an adapter child may not re-enter an inventory command")
-
--- | A refusal: its line on stderr, or under @--contract 1@ a coded outcome.
-dieText :: Text -> IO a
-dieText message = refuseWith message unclassified message
-
-dieCoded :: ProblemSpec -> Text -> IO a
-dieCoded spec message = refuseWith message spec message
-
-showText :: (Show a) => a -> Text
-showText = T.pack . show

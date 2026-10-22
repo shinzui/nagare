@@ -18,6 +18,8 @@ module Nagare.Inventory.Store
   , transitionReviewIdentity
   , parseTransitionReviewIdentity
   , StoreSnapshot (..)
+  , storeCounters
+  , countStore
   , openFilesystemStore
   , openFilesystemStoreReadOnly
   , newMemoryStore
@@ -29,6 +31,7 @@ module Nagare.Inventory.Store
   , storeRetryPause
   , inventoryStoreRoot
   , initializeStore
+  , initializeStoreFrom
   , readHead
   , ObservedHead
   , observeHead
@@ -37,6 +40,7 @@ module Nagare.Inventory.Store
   , inspectHeadSchema
   , readStoreSnapshot
   , readReviewSnapshot
+  , readReviewSnapshotAt
   , publishIfAbsent
   , readObject
   , cacheObservationBytes
@@ -83,7 +87,9 @@ import Data.Text qualified as T
 import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hTryLock, hUnlock)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Store.Counters
 import Nagare.Inventory.Store.FileIO (atomicWrite, readPrivateFile, syncDirectory, syncFile)
+import Nagare.Inventory.Store.Manifest
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -109,139 +115,6 @@ data StoreError
   | StoreAuthRequired
   deriving stock (Eq, Show)
 
-data ScopeRevision = ScopeRevision
-  { revisionGeneration :: !ScopeGeneration
-  , revisionDigest :: !ContentDigest
-  }
-  deriving stock (Eq, Ord, Show, Generic)
-
-data ExecutorClaim = ExecutorClaim
-  { claimTransaction :: !Text
-  , claimClientIdentity :: !Text
-  , claimEpoch :: !Integer
-  , claimTimestamp :: !Text
-  }
-  deriving stock (Eq, Show, Generic)
-
-data MigrationTombstone = MigrationTombstone
-  { migrationDestination :: !Text
-  , migrationHeadDigest :: !ContentDigest
-  }
-  deriving stock (Eq, Show, Generic)
-
--- | Historical ownership kept after a scope or one of its members leaves the
--- accepted vector.
--- The scope member remains immutable in the store; this record binds the
--- exact live incarnation and keeps its provider claims reserved.
-data RetainedIncarnation = RetainedIncarnation
-  { retainedOwner :: !ScopeId
-  , retainedRevision :: !ScopeRevision
-  , retainedPhysical :: !PhysicalIdentity
-  , retainedAt :: !Text
-  , retainedMigrationReview :: !(Maybe ContentDigest)
-  , retainedReplacedBy :: !(Maybe PhysicalIdentity)
-  }
-  deriving stock (Eq, Show, Generic)
-
-data DeletionTombstone = DeletionTombstone
-  { tombstoneOwner :: !ScopeId
-  , tombstoneRevision :: !ScopeRevision
-  , tombstonePhysical :: !PhysicalIdentity
-  , tombstoneAt :: !Text
-  , tombstoneReview :: !ContentDigest
-  }
-  deriving stock (Eq, Show, Generic)
-
--- | A live data target stays reserved across process loss. The record is
--- private inventory history, never part of a public reviewed scope.
-data DataFencePhase
-  = FenceAcquiring
-  | FenceExcluded
-  | FenceChanging
-  | FenceVerifying
-  | FenceUnresolved
-  | FenceReleasing
-  deriving stock (Eq, Show, Generic)
-
-data DataFenceRecord = DataFenceRecord
-  { fenceContext :: !ContextBinding
-  , fenceSession :: !Text
-  , fenceTransaction :: !(Maybe Text)
-  , fenceAccepted :: !(Map ScopeId ScopeRevision)
-  , fencePhysical :: !(Map ResourceId PhysicalIdentity)
-  , fenceTargets :: !(Set ResourceId)
-  , fenceAffected :: !(Set ResourceId)
-  , fenceRecoveryArtifact :: !Text
-  , fenceRecoveryDigest :: !ContentDigest
-  , fenceSavedWriters :: !(Map ResourceId Value)
-  , fenceProviderIntent :: !(Maybe Value)
-  , fencePhase :: !DataFencePhase
-  , fenceAcquiredAt :: !Text
-  }
-  deriving stock (Eq, Show, Generic)
-
--- | An open release transition (EP-172): the pinned source release, the
--- target payload, and when its first review was admitted. While it is open,
--- only reviews carrying 'transitionReviewIdentity' are admitted, and only the
--- target payload's CLI applies, resumes, recovers or closes; the pin step clears it.
-data TransitionMarker = TransitionMarker
-  { transitionSource :: !Text
-  , transitionTarget :: !Text
-  , transitionStartedAt :: !Text
-  }
-  deriving stock (Eq, Show, Generic)
-
-data HeadManifest = HeadManifest
-  { headSchemaVersion :: !Int
-  , headGeneration :: !Integer
-  , headSequence :: !Integer
-  , headBinding :: !ContextBinding
-  , headClientIdentity :: !Text
-  , headAccepted :: !(Map ScopeId ScopeRevision)
-  , headConverged :: !(Map ScopeId ScopeRevision)
-  , headRetained :: !(Map ResourceId RetainedIncarnation)
-  , headCollected :: !(Map ResourceId DeletionTombstone)
-  , headActiveTransaction :: !(Maybe Text)
-  , headExecutorClaim :: !(Maybe ExecutorClaim)
-  , headMigration :: !(Maybe MigrationTombstone)
-  , headDataFence :: !(Maybe DataFenceRecord)
-  , headIncarnations :: !(Map ResourceId PhysicalIdentity)
-  -- ^ Physical identity of each accepted durable member, recorded when its
-  -- transaction converges and never silently replaced (F49).
-  , headTransition :: !(Maybe TransitionMarker)
-  -- ^ The open release transition, if any (EP-172).
-  }
-  deriving stock (Eq, Show, Generic)
-
--- | Legacy platform mutations have no component receipts and may run only before
--- this store accepted or retained any resource work: an untouched head is safe
--- for the older path; an admitted transaction is not, even before a commit.
-hasSubstantiveHistory :: HeadManifest -> Bool
-hasSubstantiveHistory headValue =
-  headGeneration headValue > 0
-    || headSequence headValue > 0
-    || not (Map.null (headAccepted headValue))
-    || not (Map.null (headConverged headValue))
-    || not (Map.null (headRetained headValue))
-    || not (Map.null (headCollected headValue))
-    || isJust (headActiveTransaction headValue)
-    || isJust (headExecutorClaim headValue)
-    || isJust (headMigration headValue)
-    || isJust (headDataFence headValue)
-    || isJust (headTransition headValue)
-
--- | The payload identity of a release transition's reviews (EP-172): the
--- pinned source release and the target payload.
-transitionReviewIdentity :: Text -> Text -> Text
-transitionReviewIdentity source target = "nagare-transition:" <> source <> "->" <> target
-
-parseTransitionReviewIdentity :: Text -> Maybe (Text, Text)
-parseTransitionReviewIdentity identity = do
-  pair <- T.stripPrefix "nagare-transition:" identity
-  let (source, rest) = T.breakOn "->" pair
-  target <- T.stripPrefix "->" rest
-  if T.null source || T.null target then Nothing else Just (source, target)
-
 data StoreSnapshot = StoreSnapshot
   { storeSnapshotHead :: !HeadManifest
   , storeSnapshotReviewDigests :: !(Set ContentDigest)
@@ -257,320 +130,13 @@ data Backend
   | MemoryBackend !(MVar MemoryState) !(MVar ()) !(MVar ())
   | ObjectBackend !ObjectOps !Text !(Maybe FilePath) !(Maybe FilePath) !(MVar ()) !(MVar ())
 
-newtype InventoryStore = InventoryStore Backend
+-- | A backend and the counters of the operations made through it (EP-212).
+data InventoryStore = InventoryStore !Backend !StoreCounters
 
 newtype LockedStore (s :: Type) = LockedStore InventoryStore
 
 lockedStore :: LockedStore s -> InventoryStore
 lockedStore (LockedStore store) = store
-
-instance ToJSON ScopeRevision where
-  toJSON revision = object ["generation" .= revisionGeneration revision, "digest" .= revisionDigest revision]
-
-instance FromJSON ScopeRevision where
-  parseJSON = withObject "ScopeRevision" $ \o -> ScopeRevision <$> o .: "generation" <*> o .: "digest"
-
-instance ToJSON ExecutorClaim where
-  toJSON claim =
-    object
-      [ "transaction" .= claimTransaction claim
-      , "clientIdentity" .= claimClientIdentity claim
-      , "epoch" .= claimEpoch claim
-      , "timestamp" .= claimTimestamp claim
-      ]
-
-instance FromJSON ExecutorClaim where
-  parseJSON = withObject "ExecutorClaim" $ \o ->
-    ExecutorClaim <$> o .: "transaction" <*> o .: "clientIdentity" <*> o .: "epoch" <*> o .: "timestamp"
-
-instance ToJSON MigrationTombstone where
-  toJSON marker = object ["destination" .= migrationDestination marker, "headDigest" .= migrationHeadDigest marker]
-
-instance FromJSON MigrationTombstone where
-  parseJSON = withObject "MigrationTombstone" $ \o ->
-    MigrationTombstone <$> o .: "destination" <*> o .: "headDigest"
-
-instance ToJSON TransitionMarker where
-  toJSON marker = object ["from" .= transitionSource marker, "to" .= transitionTarget marker, "startedAt" .= transitionStartedAt marker]
-
-instance FromJSON TransitionMarker where
-  parseJSON = withObject "TransitionMarker" $ \o -> do
-    unless (all (`elem` ["from", "to", "startedAt"]) (KM.keys o)) (fail "transition marker has an unknown field")
-    TransitionMarker <$> o .: "from" <*> o .: "to" <*> o .: "startedAt"
-
-instance ToJSON RetainedIncarnation where
-  toJSON retained =
-    object
-      ( [ "owner" .= retainedOwner retained
-        , "revision" .= retainedRevision retained
-        , "physical" .= retainedPhysical retained
-        , "retainedAt" .= retainedAt retained
-        ]
-          <> ["migrationReview" .= digest | Just digest <- [retainedMigrationReview retained]]
-          <> ["replacedBy" .= replacement | Just replacement <- [retainedReplacedBy retained]]
-      )
-
-instance FromJSON RetainedIncarnation where
-  parseJSON = withObject "RetainedIncarnation" $ \o -> do
-    unless
-      (all (`elem` ["owner", "revision", "physical", "retainedAt", "migrationReview", "replacedBy"]) (KM.keys o))
-      (fail "retained incarnation has an unknown field")
-    RetainedIncarnation
-      <$> o .: "owner"
-      <*> o .: "revision"
-      <*> o .: "physical"
-      <*> o .: "retainedAt"
-      <*> o .:? "migrationReview"
-      <*> o .:? "replacedBy"
-
-instance ToJSON DeletionTombstone where
-  toJSON tombstone =
-    object
-      [ "owner" .= tombstoneOwner tombstone
-      , "revision" .= tombstoneRevision tombstone
-      , "physical" .= tombstonePhysical tombstone
-      , "deletedAt" .= tombstoneAt tombstone
-      , "review" .= tombstoneReview tombstone
-      ]
-
-instance FromJSON DeletionTombstone where
-  parseJSON = withObject "DeletionTombstone" $ \o -> do
-    unless
-      (all (`elem` ["owner", "revision", "physical", "deletedAt", "review"]) (KM.keys o))
-      (fail "deletion tombstone has an unknown field")
-    DeletionTombstone
-      <$> o .: "owner"
-      <*> o .: "revision"
-      <*> o .: "physical"
-      <*> o .: "deletedAt"
-      <*> o .: "review"
-
-instance ToJSON DataFencePhase where
-  toJSON phase = String $ case phase of
-    FenceAcquiring -> "acquiring"
-    FenceExcluded -> "excluded"
-    FenceChanging -> "changing"
-    FenceVerifying -> "verifying"
-    FenceUnresolved -> "unresolved"
-    FenceReleasing -> "releasing"
-
-instance FromJSON DataFencePhase where
-  parseJSON = withText "DataFencePhase" $ \case
-    "acquiring" -> pure FenceAcquiring
-    "excluded" -> pure FenceExcluded
-    "changing" -> pure FenceChanging
-    "verifying" -> pure FenceVerifying
-    "unresolved" -> pure FenceUnresolved
-    "releasing" -> pure FenceReleasing
-    _ -> fail "unknown data fence phase"
-
-instance ToJSON DataFenceRecord where
-  toJSON fence =
-    object $
-      [ "context" .= fenceContext fence
-      , "session" .= fenceSession fence
-      , "transaction" .= fenceTransaction fence
-      , "accepted"
-          .= [ object ["scope" .= scope, "revision" .= revision]
-             | (scope, revision) <- Map.toAscList (fenceAccepted fence)
-             ]
-      , "physical"
-          .= [ object ["resource" .= resource, "identity" .= physical]
-             | (resource, physical) <- Map.toAscList (fencePhysical fence)
-             ]
-      , "targets" .= Set.toAscList (fenceTargets fence)
-      , "affected" .= Set.toAscList (fenceAffected fence)
-      , "recoveryArtifact" .= fenceRecoveryArtifact fence
-      , "recoveryDigest" .= fenceRecoveryDigest fence
-      , "savedWriters"
-          .= [ object ["resource" .= resource, "configuration" .= configuration]
-             | (resource, configuration) <- Map.toAscList (fenceSavedWriters fence)
-             ]
-      , "phase" .= fencePhase fence
-      , "acquiredAt" .= fenceAcquiredAt fence
-      ]
-        <> maybe
-          []
-          (\intent -> ["providerIntent" .= intent])
-          (fenceProviderIntent fence)
-
-instance FromJSON DataFenceRecord where
-  parseJSON = withObject "DataFenceRecord" $ \o -> do
-    unless
-      ( all
-          ( `elem`
-              [ "context"
-              , "session"
-              , "transaction"
-              , "accepted"
-              , "physical"
-              , "targets"
-              , "affected"
-              , "recoveryArtifact"
-              , "recoveryDigest"
-              , "savedWriters"
-              , "providerIntent"
-              , "phase"
-              , "acquiredAt"
-              ]
-          )
-          (KM.keys o)
-      )
-      (fail "data fence has an unknown field")
-    accepted <-
-      uniqueEntries "accepted scope"
-        =<< traverse
-          (withObject "fence scope" (\v -> (,) <$> v .: "scope" <*> v .: "revision"))
-        =<< o .: "accepted"
-    physical <-
-      uniqueEntries "physical resource"
-        =<< traverse
-          (withObject "fence physical" (\v -> (,) <$> v .: "resource" <*> v .: "identity"))
-        =<< o .: "physical"
-    targetList <- o .: "targets"
-    affectedList <- o .: "affected"
-    unless
-      ( not (null targetList)
-          && length targetList == Set.size (Set.fromList targetList)
-          && length affectedList == Set.size (Set.fromList affectedList)
-          && Set.fromList (targetList <> affectedList) `Set.isSubsetOf` Map.keysSet physical
-      )
-      (fail "data fence target and affected identities must be complete and unique")
-    saved <-
-      uniqueEntries "saved writer"
-        =<< traverse
-          (withObject "fence writer" (\v -> (,) <$> v .: "resource" <*> v .: "configuration"))
-        =<< o .: "savedWriters"
-    unless
-      (Map.keysSet saved == Set.fromList affectedList)
-      (fail "data fence does not preserve every writer configuration")
-    session <- o .: "session"
-    recovery <- o .: "recoveryArtifact"
-    unless
-      (not (T.null session) && not (T.null recovery) && not (Map.null physical))
-      (fail "data fence lacks its session, recovery artifact, or physical target")
-    providerIntent <- o .:? "providerIntent"
-    unless
-      (maybe True isObject providerIntent)
-      (fail "data fence provider intent must be an object")
-    DataFenceRecord
-      <$> o .: "context"
-      <*> pure session
-      <*> o .:? "transaction"
-      <*> pure accepted
-      <*> pure physical
-      <*> pure (Set.fromList targetList)
-      <*> pure (Set.fromList affectedList)
-      <*> pure recovery
-      <*> o .: "recoveryDigest"
-      <*> pure saved
-      <*> pure providerIntent
-      <*> o .: "phase"
-      <*> o .: "acquiredAt"
-    where
-      isObject (Object _) = True
-      isObject _ = False
-      uniqueEntries label entries = do
-        let selected = Map.fromList entries
-        unless (length entries == Map.size selected) (fail ("duplicate " <> label))
-        pure selected
-
-instance ToJSON HeadManifest where
-  toJSON headValue =
-    object
-      ( [ "version" .= headSchemaVersion headValue
-        , "generation" .= headGeneration headValue
-        , "sequence" .= headSequence headValue
-        , "binding" .= headBinding headValue
-        , "clientIdentity" .= headClientIdentity headValue
-        , "accepted" .= revisionsValue (headAccepted headValue)
-        , "converged" .= revisionsValue (headConverged headValue)
-        , "activeTransaction" .= headActiveTransaction headValue
-        , "executorClaim" .= headExecutorClaim headValue
-        ]
-          <> ["retained" .= retainedValue (headRetained headValue) | not (Map.null (headRetained headValue))]
-          <> ["collected" .= collectedValue (headCollected headValue) | not (Map.null (headCollected headValue))]
-          <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue)
-          <> maybe [] (\fence -> ["dataFence" .= fence]) (headDataFence headValue)
-          <> maybe [] (\marker -> ["transition" .= marker]) (headTransition headValue)
-          <> ["incarnations" .= [object ["resource" .= r, "physical" .= p] | (r, p) <- Map.toAscList (headIncarnations headValue)] | not (Map.null (headIncarnations headValue))]
-      )
-    where
-      revisionsValue revisions = [object ["scope" .= scope, "revision" .= revision] | (scope, revision) <- Map.toAscList revisions]
-      retainedValue entries =
-        [ object ["resource" .= resource, "incarnation" .= incarnation]
-        | (resource, incarnation) <- Map.toAscList entries
-        ]
-      collectedValue entries =
-        [ object ["resource" .= resource, "tombstone" .= tombstone]
-        | (resource, tombstone) <- Map.toAscList entries
-        ]
-
-instance FromJSON HeadManifest where
-  parseJSON = withObject "HeadManifest" $ \o -> do
-    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence", "incarnations", "transition"]
-    unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
-    version <- o .: "version"
-    unless (version == 1) (fail "unsupported inventory head schema version")
-    generation <- o .: "generation"
-    sequenceNumber <- o .: "sequence"
-    unless (generation >= 0 && sequenceNumber >= 0) (fail "head counters must not be negative")
-    accepted <- parseRevisions =<< o .: "accepted"
-    converged <- parseRevisions =<< o .: "converged"
-    retained <- parseRetained =<< o .:? "retained" .!= []
-    collected <- parseCollected =<< o .:? "collected" .!= []
-    incarnations <- traverse (withObject "incarnation" (\v -> (,) <$> v .: "resource" <*> v .: "physical")) =<< o .:? "incarnations" .!= []
-    unless (length incarnations == Map.size (Map.fromList incarnations)) (fail "duplicate incarnation resource")
-    unless
-      (Map.null (Map.intersection retained collected))
-      (fail "resource cannot be retained and collected in the same head")
-    active <- o .: "activeTransaction"
-    unless
-      (isJust active || all (`Map.member` accepted) (Map.keys converged))
-      (fail "converged scopes must also be accepted when no transaction is active")
-    binding <- o .: "binding"
-    fence <- o .:? "dataFence"
-    transition <- o .:? "transition"
-    unless
-      ( maybe
-          True
-          ( \entry ->
-              fenceContext entry == binding
-                && fenceAccepted entry == accepted
-                && maybe
-                  (isNothing active)
-                  (\transaction -> active == Just transaction)
-                  (fenceTransaction entry)
-          )
-          fence
-      )
-      (fail "data fence differs from its context, accepted head, or linked transaction")
-    HeadManifest version generation sequenceNumber
-      <$> pure binding
-      <*> o .: "clientIdentity"
-      <*> pure accepted
-      <*> pure converged
-      <*> pure retained
-      <*> pure collected
-      <*> pure active
-      <*> o .: "executorClaim"
-      <*> o .:? "migration"
-      <*> pure fence
-      <*> pure (Map.fromList incarnations)
-      <*> pure transition
-    where
-      parseRevisions values = do
-        revisions <- traverse (withObject "scope revision" (\v -> (,) <$> v .: "scope" <*> v .: "revision")) values
-        unless (length revisions == Map.size (Map.fromList revisions)) (fail "duplicate scope revision")
-        pure (Map.fromList revisions)
-      parseRetained values = do
-        entries <- traverse (withObject "retained entry" (\v -> (,) <$> v .: "resource" <*> v .: "incarnation")) values
-        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate retained resource")
-        pure (Map.fromList entries)
-      parseCollected values = do
-        entries <- traverse (withObject "collected entry" (\v -> (,) <$> v .: "resource" <*> v .: "tombstone")) values
-        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate collected resource")
-        pure (Map.fromList entries)
 
 openFilesystemStore :: FilePath -> IO (Either StoreError InventoryStore)
 openFilesystemStore root = ioResult $ do
@@ -583,7 +149,7 @@ openFilesystemStore root = ioResult $ do
   createDirectoryIfMissing True root
   setFileMode root 0o700
   guardVar <- newMVar ()
-  pure (InventoryStore (FilesystemBackend root guardVar))
+  opened "filesystem" (FilesystemBackend root guardVar)
 
 -- | Open an existing catalogue for status without creating files or changing
 -- permissions. Missing history is an explicit absence, never an empty head.
@@ -598,10 +164,34 @@ openFilesystemStoreReadOnly root = do
       status <- getFileStatus root
       unless (isDirectory status) (ioError (userError "inventory store root is not a directory"))
       guardVar <- newMVar ()
-      pure (InventoryStore (FilesystemBackend root guardVar))
+      opened "filesystem" (FilesystemBackend root guardVar)
 
 newMemoryStore :: IO InventoryStore
-newMemoryStore = InventoryStore <$> (MemoryBackend <$> newMVar (MemoryState Map.empty) <*> newMVar () <*> newMVar ())
+newMemoryStore = (MemoryBackend <$> newMVar (MemoryState Map.empty) <*> newMVar () <*> newMVar ()) >>= opened "memory"
+
+-- | A store over a backend, with fresh counters that count this open.
+opened :: Text -> Backend -> IO InventoryStore
+opened kind backend = do
+  counters <- newStoreCounters kind
+  countElapsed counters StoreOpen 0
+  pure (InventoryStore backend counters)
+
+-- | Count every remote operation a transport makes for this store.
+countingObjectOps :: StoreCounters -> ObjectOps -> ObjectOps
+countingObjectOps counters ops =
+  ops
+    { getObject = counted counters RemoteGet . getObject ops
+    , getObjects = counted counters RemoteGet . getObjects ops
+    , putObject = \condition name bytes -> counted counters RemotePut (putObject ops condition name bytes)
+    , listObjects = counted counters Listing . listObjects ops
+    }
+
+storeCounters :: InventoryStore -> StoreCounters
+storeCounters (InventoryStore _ counters) = counters
+
+-- | Count one store operation and its time.
+countStore :: InventoryStore -> Counter -> IO a -> IO a
+countStore store = counted (storeCounters store)
 
 -- | Bind an object prefix to one context before exposing its store. A URL
 -- accidentally reused for another context cannot inherit deletion authority.
@@ -618,61 +208,69 @@ openObjectStoreReadOnlyWithLock :: ObjectOps -> ContextBinding -> Text -> Maybe 
 openObjectStoreReadOnlyWithLock ops binding client cache lockPath = openObjectStore False ops binding client cache (Just lockPath)
 
 openObjectStore :: Bool -> ObjectOps -> ContextBinding -> Text -> Maybe FilePath -> Maybe FilePath -> IO (Either StoreError InventoryStore)
-openObjectStore mayInitialize ops binding client cache lockPath = case canonicalValue (object ["version" .= (1 :: Int), "binding" .= binding]) of
+openObjectStore mayInitialize transport binding client cache lockPath = case canonicalValue (object ["version" .= (1 :: Int), "binding" .= binding]) of
   Left reason -> pure (Left (StoreInvalidObject "format.json" reason))
   Right expected -> do
-    observed <- getObject ops (ObjectName "format.json")
-    case observed of
-      GetUnknown reason -> pure (Left (StoreIoError reason))
-      ObjectFound _ bytes
-        | bytes == expected -> Right <$> build
-        | otherwise -> pure (Left (StoreConditionFailed "inventory object prefix belongs to a different context or format"))
-      ObjectAbsent
-        | not mayInitialize ->
-            pure (Left (StoreConditionFailed "inventory object prefix is not initialized"))
-      ObjectAbsent -> do
-        outcome <- putObject ops IfAbsent (ObjectName "format.json") expected
-        case outcome of
-          PutWritten _ -> Right <$> build
-          PutPreconditionFailed -> do
-            raced <- getObject ops (ObjectName "format.json")
-            case raced of
-              ObjectFound _ bytes | bytes == expected -> Right <$> build
-              _ -> pure (Left (StoreConditionFailed "inventory object prefix format changed during open"))
-          PutNoEffect reason -> pure (Left (StoreConditionFailed reason))
-          PutUnknown reason -> pure (Left (StoreIoError reason))
+    counters <- newStoreCounters "object"
+    let ops = countingObjectOps counters transport
+        build = InventoryStore <$> (ObjectBackend ops client cache lockPath <$> newMVar () <*> newMVar ()) <*> pure counters
+    counted counters StoreOpen (checkFormat ops expected build)
   where
-    build = InventoryStore <$> (ObjectBackend ops client cache lockPath <$> newMVar () <*> newMVar ())
+    checkFormat ops expected build = do
+      observed <- getObject ops (ObjectName "format.json")
+      case observed of
+        GetUnknown reason -> pure (Left (StoreIoError reason))
+        ObjectFound _ bytes
+          | bytes == expected -> Right <$> build
+          | otherwise -> pure (Left (StoreConditionFailed "inventory object prefix belongs to a different context or format"))
+        ObjectAbsent
+          | not mayInitialize ->
+              pure (Left (StoreConditionFailed "inventory object prefix is not initialized"))
+        ObjectAbsent -> do
+          outcome <- putObject ops IfAbsent (ObjectName "format.json") expected
+          case outcome of
+            PutWritten _ -> Right <$> build
+            PutPreconditionFailed -> do
+              raced <- getObject ops (ObjectName "format.json")
+              case raced of
+                ObjectFound _ bytes | bytes == expected -> Right <$> build
+                _ -> pure (Left (StoreConditionFailed "inventory object prefix format changed during open"))
+            PutNoEffect reason -> pure (Left (StoreConditionFailed reason))
+            PutUnknown reason -> pure (Left (StoreIoError reason))
 
 storeClientIdentity :: InventoryStore -> Maybe Text
-storeClientIdentity (InventoryStore (ObjectBackend _ client _ _ _ _)) = Just client
+storeClientIdentity (InventoryStore (ObjectBackend _ client _ _ _ _) _) = Just client
 storeClientIdentity _ = Nothing
 
 storeRetryPause :: InventoryStore -> Maybe (Int -> IO ())
-storeRetryPause (InventoryStore (ObjectBackend ops _ _ _ _ _)) = Just (pauseBeforeRetry ops)
+storeRetryPause (InventoryStore (ObjectBackend ops _ _ _ _ _) _) = Just (pauseBeforeRetry ops)
 storeRetryPause _ = Nothing
 
 inventoryStoreRoot :: InventoryStore -> Maybe FilePath
-inventoryStoreRoot (InventoryStore (FilesystemBackend root _)) = Just root
+inventoryStoreRoot (InventoryStore (FilesystemBackend root _) _) = Just root
 inventoryStoreRoot _ = Nothing
 
 initializeStore :: InventoryStore -> ContextBinding -> Text -> IO (Either StoreError HeadManifest)
-initializeStore store binding clientIdentity = do
-  existing <- readHead store
+initializeStore store binding clientIdentity =
+  readHead store >>= either (pure . Left) (initializeStoreFrom store binding clientIdentity)
+
+-- | 'initializeStore' from a head the caller already read, without reading it
+-- again. A new head is still written by compare-and-swap against absence.
+initializeStoreFrom :: InventoryStore -> ContextBinding -> Text -> Maybe HeadManifest -> IO (Either StoreError HeadManifest)
+initializeStoreFrom store binding clientIdentity existing =
   case existing of
-    Left err -> pure (Left err)
-    Right (Just headValue)
+    Just headValue
       | Just marker <- headMigration headValue ->
           pure (Left (StoreConditionFailed ("inventory store migrated to " <> migrationDestination marker <> "; reload the context shell")))
       | headBinding headValue == binding -> pure (Right headValue)
       | otherwise -> pure (Left (StoreConditionFailed "inventory store is bound to a different context or provider target"))
-    Right Nothing -> do
+    Nothing -> do
       let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing
       replaced <- replaceHeadIfGenerationMatches store Nothing initial
       pure (initial <$ replaced)
 
 readHead :: InventoryStore -> IO (Either StoreError (Maybe HeadManifest))
-readHead store = do
+readHead store = countStore store HeadRead $ do
   loaded <- readObject store "head.json"
   pure $ loaded >>= traverse decodeHead
 
@@ -726,24 +324,29 @@ readReviewSnapshot store digest = do
   case headResult of
     Left err -> pure (Left err)
     Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-    Right (Just headValue) -> do
-      let key = reviewKey digest
-      -- Cached content proves integrity, not publication in this store. Never
-      -- let a prepopulated local cache manufacture publication authority.
-      loaded <- case store of
-        InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
-          result <- getObject ops (ObjectName (T.pack key))
-          pure $ case result of
-            ObjectFound _ bytes -> Right (Just bytes)
-            ObjectAbsent -> Right Nothing
-            GetUnknown reason -> Left (StoreIoError reason)
-        _ -> readObject store key
-      pure $ do
-        bytes <- loaded >>= maybe (Left (StoreInvalidObject key "selected review is not published")) Right
-        unless
-          (contentDigest bytes == digest)
-          (Left (StoreInvalidObject key "selected review digest mismatch"))
-        pure (StoreSnapshot headValue (Set.singleton digest))
+    Right (Just headValue) -> readReviewSnapshotAt store headValue digest
+
+-- | 'readReviewSnapshot' at a head the command already read (EP-212). The
+-- review's publication is still read directly, never from the cache.
+readReviewSnapshotAt :: InventoryStore -> HeadManifest -> ContentDigest -> IO (Either StoreError StoreSnapshot)
+readReviewSnapshotAt store headValue digest = do
+  let key = reviewKey digest
+  -- Cached content proves integrity, not publication in this store. Never
+  -- let a prepopulated local cache manufacture publication authority.
+  loaded <- case store of
+    (InventoryStore (ObjectBackend ops _ _ _ _ _) _) -> do
+      result <- getObject ops (ObjectName (T.pack key))
+      pure $ case result of
+        ObjectFound _ bytes -> Right (Just bytes)
+        ObjectAbsent -> Right Nothing
+        GetUnknown reason -> Left (StoreIoError reason)
+    _ -> readObject store key
+  pure $ do
+    bytes <- loaded >>= maybe (Left (StoreInvalidObject key "selected review is not published")) Right
+    unless
+      (contentDigest bytes == digest)
+      (Left (StoreInvalidObject key "selected review digest mismatch"))
+    pure (StoreSnapshot headValue (Set.singleton digest))
 
 publishIfAbsent :: InventoryStore -> FilePath -> ByteString -> IO (Either StoreError ContentDigest)
 publishIfAbsent store key bytes = withBackendGuard store $
@@ -802,9 +405,9 @@ observedHeadManifest :: ObservedHead -> Maybe HeadManifest
 observedHeadManifest (ObservedHead _ current _) = current
 
 observeHead :: InventoryStore -> IO (Either StoreError ObservedHead)
-observeHead store = do
+observeHead store = countStore store HeadRead $ do
   observed <- case store of
-    InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
+    (InventoryStore (ObjectBackend ops _ _ _ _ _) _) -> do
       result <- getObject ops (ObjectName "head.json")
       pure $ case result of
         GetUnknown reason -> Left (StoreIoError reason)
@@ -838,7 +441,7 @@ replaceObservedHeadUnlocked (ObservedHead store current providerGeneration) repl
   | otherwise = case canonicalValue (toJSON replacement) of
       Left err -> pure (Left (StoreInvalidObject "head.json" err))
       Right bytes -> case store of
-        InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
+        (InventoryStore (ObjectBackend ops _ _ _ _ _) _) -> do
           outcome <-
             putObject
               ops
@@ -900,13 +503,13 @@ withProcessLock store action = do
   if maybe False (not . null) inherited
     then pure (Left StoreReentry)
     else case store of
-      InventoryStore (MemoryBackend _ _ processLock) ->
+      (InventoryStore (MemoryBackend _ _ processLock) _) ->
         maskMVar processLock (Right <$> action (LockedStore store))
-      InventoryStore (ObjectBackend _ _ _ lockPath _ processLock) ->
+      (InventoryStore (ObjectBackend _ _ _ lockPath _ processLock) _) ->
         maskMVar processLock $ case lockPath of
           Nothing -> Right <$> action (LockedStore store)
           Just path -> fileLock path
-      InventoryStore (FilesystemBackend root _) -> do
+      (InventoryStore (FilesystemBackend root _) _) -> do
         createDirectoryIfMissing True root
         fileLock (root </> "process.lock")
   where
@@ -1034,7 +637,7 @@ installMigrationHead destination sourceLabel label bytes = withBackendGuard dest
             Nothing -> writeHead Nothing staged
   where
     writeHead oldHead staged = case destination of
-      InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops oldHead staged
+      (InventoryStore (ObjectBackend ops _ _ _ _ _) _) -> replaceObjectHead ops oldHead staged
       _ -> writeObjectUnlocked destination (isJust oldHead) "head.json" staged
 
 activateMigrationHead :: InventoryStore -> Text -> ContentDigest -> IO (Either StoreError ())
@@ -1058,7 +661,7 @@ activateMigrationHead destination sourceLabel expectedDigest = withBackendGuard 
                 | contentDigest active /= expectedDigest ->
                     pure (Left (StoreConditionFailed "staged destination head differs"))
               Right active -> case destination of
-                InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops (Just old) active
+                (InventoryStore (ObjectBackend ops _ _ _ _ _) _) -> replaceObjectHead ops (Just old) active
                 _ -> writeObjectUnlocked destination True "head.json" active
       _ -> pure (Left (StoreConditionFailed "destination head migration marker differs"))
 
@@ -1107,27 +710,27 @@ journalKey sequenceNumber = "journal" </> pad 20 (show sequenceNumber) <.> "json
     pad width value = replicate (max 0 (width - length value)) '0' <> value
 
 withBackendGuard :: InventoryStore -> IO (Either StoreError a) -> IO (Either StoreError a)
-withBackendGuard (InventoryStore (FilesystemBackend _ guardVar)) action = withMVar guardVar (const action)
-withBackendGuard (InventoryStore (MemoryBackend _ guardVar _)) action = withMVar guardVar (const action)
-withBackendGuard (InventoryStore (ObjectBackend _ _ _ _ guardVar _)) action = withMVar guardVar (const action)
+withBackendGuard (InventoryStore (FilesystemBackend _ guardVar) _) action = withMVar guardVar (const action)
+withBackendGuard (InventoryStore (MemoryBackend _ guardVar _) _) action = withMVar guardVar (const action)
+withBackendGuard (InventoryStore (ObjectBackend _ _ _ _ guardVar _) _) action = withMVar guardVar (const action)
 
 -- | Remember reconstructed observation data in the optional private local cache.
 -- The content hash names the entry; accepted declarations must still bind it.
 -- This never publishes a remote object or supplies review-publication authority.
 -- Cache failure is harmless: callers retain the original compatibility reader.
 cacheObservationBytes :: InventoryStore -> ByteString -> IO ()
-cacheObservationBytes (InventoryStore (ObjectBackend _ _ (Just root) _ _ _)) bytes =
+cacheObservationBytes (InventoryStore (ObjectBackend _ _ (Just root) _ _ _) _) bytes =
   void (ioResult (atomicWrite (root </> T.unpack (digestText (contentDigest bytes))) bytes))
 cacheObservationBytes _ _ = pure ()
 
 readObjectUnlocked :: InventoryStore -> FilePath -> IO (Either StoreError (Maybe ByteString))
-readObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _)) key =
+readObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _) _) key =
   Right . Map.lookup key . memoryObjects <$> readMVar stateVar
-readObjectUnlocked (InventoryStore (FilesystemBackend root _)) key = do
+readObjectUnlocked (InventoryStore (FilesystemBackend root _) _) key = do
   let path = root </> key
   exists <- doesPathExist path
   if not exists then pure (Right Nothing) else fmap Just <$> readVerifiedFile path
-readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _)) key = do
+readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _) counters) key = do
   let expected = immutableKeyDigest key
       cachedPath = case (cache, expected) of
         (Just root, Just digest) -> Just (root </> T.unpack (digestText digest))
@@ -1144,7 +747,7 @@ readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _)) key = do
             (Right bytes, Just digest) | contentDigest bytes == digest -> Just bytes
             _ -> Nothing
   case cached of
-    Just bytes -> pure (Right (Just bytes))
+    Just bytes -> Right (Just bytes) <$ countElapsed counters CachedGet 0
     Nothing -> do
       observed <- getObject ops (ObjectName (T.pack key))
       case observed of
@@ -1166,7 +769,7 @@ readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _)) key = do
 readJournalPrefix :: InventoryStore -> Integer -> IO (Either StoreError [ByteString])
 readJournalPrefix _ count | count < 0 = pure (Left (StoreConditionFailed "negative journal length"))
 readJournalPrefix _ 0 = pure (Right [])
-readJournalPrefix store@(InventoryStore backend) count = case backend of
+readJournalPrefix store@(InventoryStore backend _) count = case backend of
   ObjectBackend ops _ _ _ _ _ -> do
     loaded <- getObjects ops (ObjectName "journal")
     pure $ do
@@ -1198,19 +801,19 @@ readVerifiedFile :: FilePath -> IO (Either StoreError ByteString)
 readVerifiedFile path = first (StoreInvalidObject path . T.pack . show) <$> readPrivateFile path
 
 writeObjectUnlocked :: InventoryStore -> Bool -> FilePath -> ByteString -> IO (Either StoreError ())
-writeObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _)) replace key bytes = do
+writeObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _) _) replace key bytes = do
   modifyMVar stateVar $ \state ->
     let objects = memoryObjects state
      in if not replace && Map.member key objects
           then pure (state, Left (StoreObjectConflict key))
           else pure (state {memoryObjects = Map.insert key bytes objects}, Right ())
-writeObjectUnlocked (InventoryStore (FilesystemBackend root _)) replace key bytes = do
+writeObjectUnlocked (InventoryStore (FilesystemBackend root _) _) replace key bytes = do
   let path = root </> key
   exists <- doesPathExist path
   if exists && not replace
     then pure (Left (StoreObjectConflict key))
     else ioResult (atomicWrite path bytes)
-writeObjectUnlocked (InventoryStore (ObjectBackend ops _ _ _ _ _)) replace key bytes
+writeObjectUnlocked (InventoryStore (ObjectBackend ops _ _ _ _ _) _) replace key bytes
   | replace = pure (Left (StoreConditionFailed "object replacement requires an explicit generation"))
   | otherwise = do
       outcome <- putObject ops IfAbsent (ObjectName (T.pack key)) bytes
@@ -1224,12 +827,12 @@ listObjectKeys :: InventoryStore -> IO (Either StoreError [FilePath])
 listObjectKeys store = withBackendGuard store (listObjectKeysUnlocked store)
 
 listObjectKeysUnlocked :: InventoryStore -> IO (Either StoreError [FilePath])
-listObjectKeysUnlocked (InventoryStore (MemoryBackend stateVar _ _)) =
-  Right . sort . Map.keys . memoryObjects <$> readMVar stateVar
-listObjectKeysUnlocked (InventoryStore (ObjectBackend ops _ _ _ _ _)) = do
+listObjectKeysUnlocked (InventoryStore (MemoryBackend stateVar _ _) counters) =
+  counted counters Listing (Right . sort . Map.keys . memoryObjects <$> readMVar stateVar)
+listObjectKeysUnlocked (InventoryStore (ObjectBackend ops _ _ _ _ _) _) = do
   listed <- listObjects ops (ObjectName "")
   pure (first StoreIoError (sort . map (\(ObjectName name) -> T.unpack name) <$> listed))
-listObjectKeysUnlocked (InventoryStore (FilesystemBackend root _)) = ioResult (sort <$> walk root "")
+listObjectKeysUnlocked (InventoryStore (FilesystemBackend root _) counters) = counted counters Listing (ioResult (sort <$> walk root ""))
   where
     walk base relative = do
       let directory = if null relative then base else base </> relative
