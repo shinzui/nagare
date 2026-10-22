@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-22T20:22:26Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T21:29:32Z
+      mode: "update"
+      note: "Point the EnTransport seam at held EP-216"
 ---
 
 # Reach the context's En through one forward and one guard per command
@@ -246,6 +252,9 @@ accessRuntimeOpsWith :: EnTransport -> ContextBinding -> AccessOps
 accessReviewAdapter :: InventoryStore -> ContextBinding -> EnTransport -> ReviewBundle -> IO (Either Text Adapter)
 -- EP-212 changes this function's history source at the same time; coordinate the one signature.
 ```
+
+EP-216 (held) later implements `EnTransport` over the API server's service proxy and deletes
+`openEnForward`; keep the seam's shape stable for it.
 
 No hard dependency. EP-212 edits `accessReviewAdapter` and `accessAdapter` too (it passes the
 loaded history in instead of loading it); whichever lands second rebases onto the other's

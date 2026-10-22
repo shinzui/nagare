@@ -9,6 +9,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-22T20:22:15Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T21:29:32Z
+      mode: "update"
+      note: "Add held EP-216 (En through the API server's service proxy, trigger IR-1 in en); EnTransport seam ownership; tailnet exposure rejected"
 ---
 
 # Make a reviewed change cost seconds by opening the inventory once and reading it concurrently
@@ -169,6 +175,7 @@ only prior measurement of the store open on the intranet.
 | 213 | Read immutable inventory members concurrently in one round trip each | [EP-213](../plans/213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md) | None | EP-212 M1 counters for its intranet confirmation | Not Started |
 | 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | Not Started |
 | 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
+| 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
@@ -182,6 +189,11 @@ to complete: both change `planRelationship` in `cli/nagarectl/src/Nagare/Access/
 EP-212 to take the opened store and pinned history, EP-215 to compile a non-empty list of scopes.
 The cross-plan gate in Progress runs once EP-212, EP-213 and EP-214 are in a release the intranet
 runs.
+
+EP-216 is held. It replaces EP-214's kubectl transport behind the same `EnTransport` seam with
+plain HTTPS to the API server's service proxy, and can start only when an En release that accepts
+`X-En-Api-Key` (IR-1 in `mori://shinzui/en`) is pinned by the auth plane and rolled onto the
+context. It is not part of the gate.
 
 
 ## Integration Points
@@ -217,6 +229,11 @@ read rule once EP-213 lands.
 **Counters — EP-212 owns.** A counting `ObjectOps` wrapper and a subprocess counter, summarized
 on stderr under `NAGARE_TRACE=1`. EP-213 and EP-214 cite those lines as their live evidence; their
 fixture-level proofs use the counters the fixtures already have.
+
+**`EnTransport` seam — EP-214 owns, EP-216 implements.** EP-214 defines `EnTransport`
+(`withEn`, `readOwner`, `clusterGuard`) and the command-boundary session; EP-216 adds a second
+implementation over the API server's service proxy and removes the kubectl one. Neither changes
+the adapter above the seam.
 
 **`planRelationship` — EP-212 then EP-215.** EP-212 lands its signature first; EP-215 extends it
 to a `NonEmpty` of compiled scopes.
@@ -257,6 +274,14 @@ in scope as EP-213, with the cold cache named as the case they fix.
 apply breakdown was never instrumented and the gate is a measured number. Fakes and fixtures
 prove the counts (ADR 25); the intranet run confirms. The confirming apply is a real reviewed
 change on the intranet and needs the operator's go-ahead once.
+
+2026-10-22: En stays behind the API server; the forward goes later, not onto the tailnet. A
+read-only probe showed the API server's service proxy reaches En in 0.10 to 0.12 s with the
+kubeconfig's client certificate, but the API server deletes `Authorization` after authenticating,
+and En reads its key only from that header. IR-1 in `mori://shinzui/en` asks for `X-En-Api-Key`;
+EP-216 is held behind it. Exposing En on the tailnet (hostPort, subnet route or Tailscale
+operator) was rejected: `tailscale0` is fully trusted by the host firewall, so En's write API
+would be gated by its key alone. EP-214 stays as written.
 
 2026-10-22: EP-215 is optional. It changes what one review may carry, not how fast a review is.
 It is listed because it turns a five-person onboarding into one review; the operator may cancel
