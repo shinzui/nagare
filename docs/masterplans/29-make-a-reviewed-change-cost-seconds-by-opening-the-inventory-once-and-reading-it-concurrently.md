@@ -181,6 +181,8 @@ only prior measurement of the store open on the intranet.
 | 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | Complete |
 | 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
+| 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | In Progress |
+| 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
@@ -250,7 +252,8 @@ initiative. The MasterPlan's Decision Log holds that decision; no ADR change is 
 ## Progress
 
 EP-212, EP-213 and EP-214 are complete and on master (`b95d479b`). EP-215 is unblocked and
-optional. The cross-plan gate is not met and cannot be met within the current scope: on the
+optional. EP-217 and EP-218 (added 2026-10-22) address what the confirmation found. The cross-plan gate is
+not yet met: on the
 intranet a grant plan took 43.2 s and its apply 67.2 s (EP-212 M4). The plan's cost was a
 regression from EP-213's publish, fixed in `b95d479b`; the apply's is the journal read below.
 The one
@@ -305,6 +308,12 @@ anything this MasterPlan changed. `Nagare.Inventory.Execute.Transaction` reads t
 of one apply summed to about 60 s of its 67 s. Each command also spends 2 to 3 s creating its
 gcloud session. The journal is excluded from this MasterPlan's scope, so the gate's 15 s apply
 needs a scope decision before it can be met.
+
+2026-10-22: Scope expanded by the operator after the intranet confirmation. EP-217 serves the
+committed journal from a verified local copy and fetches only the new tail (approach A: the chain
+is still validated in full; the copy is anchored by one read of its newest event). EP-218 reads
+`inventory status`'s native evidence concurrently instead of deferring it. Both build on EP-213's
+reads; the gate is measured after them.
 
 2026-10-22: EP-215 is optional. It changes what one review may carry, not how fast a review is.
 It is listed because it turns a five-person onboarding into one review; the operator may cancel

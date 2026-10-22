@@ -44,6 +44,7 @@ module Nagare.Inventory.Store
   , publishIfAbsent
   , readObject
   , readImmutableObjects
+  , readImmutableObjectsEach
   , cacheObservationBytes
   , readJournalPrefix
   , appendAtSequence
@@ -70,7 +71,7 @@ where
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar
 import Control.Exception (IOException, bracket, catch, finally, try)
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (parseEither)
@@ -428,6 +429,15 @@ readImmutableObjects store keys = case traverse member (Set.toAscList (Set.fromL
         bytes <- loaded >>= maybe (Left (StoreInvalidObject key "immutable member is missing")) Right
         unless (contentDigest bytes == digest) (Left (StoreInvalidObject key "immutable member digest mismatch"))
         pure (key, bytes)
+
+-- | Every key's own result, read in the same waves of eight (EP-218), for a
+-- caller that tells a missing member from an invalid one. Nothing stops early.
+readImmutableObjectsEach :: InventoryStore -> [FilePath] -> IO (Map FilePath (Either StoreError (Maybe ByteString)))
+readImmutableObjectsEach store keys = Map.fromList . concat <$> traverse wave (chunks (Set.toAscList (Set.fromList keys)))
+  where
+    chunks [] = []
+    chunks pending = let (now, later) = splitAt immutableReadWidth pending in now : chunks later
+    wave = mapConcurrently (\key -> (,) key <$> readObject store key)
 
 -- | Like the journal batch's eight workers in "Nagare.Inventory.Store.Gogol".
 immutableReadWidth :: Int
@@ -836,25 +846,78 @@ readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _) counters) k
 readJournalPrefix :: InventoryStore -> Integer -> IO (Either StoreError [ByteString])
 readJournalPrefix _ count | count < 0 = pure (Left (StoreConditionFailed "negative journal length"))
 readJournalPrefix _ 0 = pure (Right [])
-readJournalPrefix store@(InventoryStore backend _) count = case backend of
-  ObjectBackend ops _ _ _ _ _ -> do
-    loaded <- getObjects ops (ObjectName "journal")
-    pure $ do
-      objects <- first StoreIoError loaded
-      traverse
-        ( \sequenceNumber ->
-            let key = journalKey sequenceNumber
-             in maybe
-                  (Left (StoreInvalidObject key "committed journal event is missing"))
-                  Right
-                  (Map.lookup (ObjectName (T.pack key)) objects)
-        )
-        [0 .. count - 1]
+readJournalPrefix store@(InventoryStore backend counters) count = case backend of
+  ObjectBackend ops _ (Just root) _ _ _ -> readJournalCached ops counters root count
+  ObjectBackend ops _ Nothing _ _ _ -> readJournalBatch ops count
   _ -> do
     loaded <- traverse (readObject store . journalKey) [0 .. count - 1]
     pure $ do
       values <- sequence loaded
       traverse (maybe (Left (StoreInvalidObject "journal" "committed journal event is missing")) Right) values
+
+readJournalBatch :: ObjectOps -> Integer -> IO (Either StoreError [ByteString])
+readJournalBatch ops count = do
+  loaded <- getObjects ops (ObjectName "journal")
+  pure $ do
+    objects <- first StoreIoError loaded
+    traverse
+      ( \sequenceNumber ->
+          let key = journalKey sequenceNumber
+           in maybe (Left (StoreInvalidObject key "committed journal event is missing")) Right (Map.lookup (ObjectName (T.pack key)) objects)
+      )
+      [0 .. count - 1]
+
+-- | EP-217: events are written once, so a command serves the contiguous
+-- prefix it cached earlier and fetches only the events after it. One read of
+-- the newest cached event binds the copy to the store: rewriting an older
+-- event under a valid chain changes that event. Callers still validate the
+-- whole chain. An empty cache, a long tail or a differing anchor reads the
+-- whole prefix as before and refills the copy.
+readJournalCached :: ObjectOps -> StoreCounters -> FilePath -> Integer -> IO (Either StoreError [ByteString])
+readJournalCached ops counters root count = do
+  cached <- cachedPrefix 0
+  anchored <- case reverse cached of
+    [] -> pure False
+    newest : _ -> (== ImmutableFound newest) <$> getImmutableObject ops (journalName (fromIntegral (length cached) - 1))
+  let known = if anchored then cached else []
+      next = fromIntegral (length known)
+  fetched <-
+    if not anchored || count - next > journalTailLimit
+      then fmap (drop (length known)) <$> readJournalBatch ops count
+      else fetchTail [next .. count - 1]
+  case fetched of
+    Left err -> pure (Left err)
+    Right events -> do
+      forM_ (zip [next ..] events) $ \(sequenceNumber, bytes) -> void (ioResult (atomicWrite (cachedEvent sequenceNumber) bytes))
+      pure (Right (known <> events))
+  where
+    cachedEvent sequenceNumber = root </> "journal" </> takeFileName (journalKey sequenceNumber)
+    journalName = ObjectName . T.pack . journalKey
+    cachedPrefix sequenceNumber
+      | sequenceNumber >= count = pure []
+      | otherwise = do
+          exists <- doesPathExist (cachedEvent sequenceNumber)
+          loaded <- if exists then readVerifiedFile (cachedEvent sequenceNumber) else pure (Left (StoreInvalidPath ""))
+          case loaded of
+            Right bytes -> countElapsed counters CachedGet 0 >> (bytes :) <$> cachedPrefix (sequenceNumber + 1)
+            Left _ -> pure []
+    fetchTail [] = pure (Right [])
+    fetchTail pending = do
+      let (wave, rest) = splitAt immutableReadWidth pending
+      loaded <- mapConcurrently fetchOne wave
+      case sequence loaded of
+        Left err -> pure (Left err)
+        Right events -> fmap (events <>) <$> fetchTail rest
+    fetchOne sequenceNumber = do
+      observed <- getImmutableObject ops (journalName sequenceNumber)
+      pure $ case observed of
+        ImmutableFound bytes -> Right bytes
+        ImmutableMissing -> Left (StoreInvalidObject (journalKey sequenceNumber) "committed journal event is missing")
+        ImmutableUnknown reason -> Left (StoreIoError reason)
+
+-- | The longest tail read event by event; a longer one uses the batch.
+journalTailLimit :: Integer
+journalTailLimit = 64
 
 immutableKeyDigest :: FilePath -> Maybe ContentDigest
 immutableKeyDigest key = case splitDirectories key of
