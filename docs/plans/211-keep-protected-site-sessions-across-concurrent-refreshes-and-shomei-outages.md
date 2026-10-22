@@ -100,10 +100,15 @@ with no `Set-Cookie` that clears `nagare_session` or `nagare_refresh`.
   `LoginFailed`, and a closed port mapping to `LoginUnavailable`. The full suite reports
   `All 181 tests passed`. `withRealShomeiServer` moved to `test/RealShomei.hs`, and the
   `Spec.hs` allowance was lowered from 1720 to 1678.
-- [ ] M3: The work is gated and landed. `just haskell-style-check`, the nagare-access suite
+- [x] M3: The work is gated and landed. `just haskell-style-check`, the nagare-access suite
   (`cabal test nagare-access-test` in `cli/nagare-access`, which `just gate-fast` does not run),
   `just gate-fast` and `just land` all pass. ADR 15 gains one consequence: the enforcer
   coalesces refreshes of one refresh token.
+  Done 2026-10-22: the fix is in `0e6d8663`, with the ADR 15 paragraph. `just haskell-style-check`
+  and the architecture check pass, the nagare-access suite reports `All 181 tests passed`,
+  `just gate-fast 0e6d8663` reported `fast gate green`, and `just land 0e6d8663` pushed it to
+  master. The post-land full gate runs in the background (log
+  `post-land-0e6d86630f1ea1946121ca0a25eeeb6a59bacea4.log`).
 - [ ] Intranet (release work, needs the operator's go-ahead): the intranet runs a release with
   this change. A day of normal use afterwards records no `refresh_token_reuse_detected` in
   `shomei.shomei_auth_events`, and the operator's passkey sign-in still works.
