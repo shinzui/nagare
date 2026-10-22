@@ -171,9 +171,9 @@ only prior measurement of the store open on the intranet.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 212 | Open the inventory store once per command and load its history once | [EP-212](../plans/212-open-the-inventory-store-once-per-command-and-load-its-history-once.md) | None | None | Not Started |
-| 213 | Read immutable inventory members concurrently in one round trip each | [EP-213](../plans/213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md) | None | EP-212 M1 counters for its intranet confirmation | Not Started |
-| 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | Not Started |
+| 212 | Open the inventory store once per command and load its history once | [EP-212](../plans/212-open-the-inventory-store-once-per-command-and-load-its-history-once.md) | None | None | In Progress |
+| 213 | Read immutable inventory members concurrently in one round trip each | [EP-213](../plans/213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md) | None | EP-212 M1 counters for its intranet confirmation | In Progress |
+| 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | In Progress |
 | 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
 

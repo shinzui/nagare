@@ -1830,3 +1830,24 @@ against the number the deployment supplies. The shared node identity has unrelat
 and therefore does not satisfy that boundary. Service reads must not require bucket listing,
 initialize a missing store or make an unavailable/corrupt store appear empty. Native permission
 and metadata-isolation evidence is required before claiming that deployment meets the boundary.
+
+## Amendment — 2026-10-22: one open, one pinned head, one history per command
+
+[MasterPlan 29](../masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md)
+([EP-212](../plans/212-open-the-inventory-store-once-per-command-and-load-its-history-once.md))
+fixes the shape of a command that reads the inventory. A command opens its store once and proves
+bucket ownership once (ADR 9: once, never skipped). It reads the head once, pins it, and loads the
+accepted history from that head; every consumer in the command takes that history instead of
+loading its own. A review binds the pinned head's generation and sequence. Planning does not list
+the prefix.
+
+A history is a function of the head's canonical bytes and the immutable members it names, so it is
+reusable exactly when the head in hand is byte-identical to the head it was loaded from. Admission
+observes the head again under the writer lock; it uses a history loaded before the lock only when
+that observed head is the history's head, and otherwise loads the locked head's history once. It
+never decides from a history of another head. Every conditional write still observes the head
+under the writer lock first. Recovery paths (resume, recover, close) keep loading the history
+themselves.
+
+Each opened store counts its operations; `NAGARE_TRACE=1` prints one summary line per store on
+stderr when the command ends. The counts are how a change to this shape is measured.

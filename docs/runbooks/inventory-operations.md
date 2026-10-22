@@ -37,7 +37,8 @@ nagarectl --context "$CONTEXT" context guard
 nagarectl --context "$CONTEXT" inventory store status --json
 ```
 
-The selected context, project and store binding must agree. Keep the context's
+The selected context, project and store binding must agree. With `NAGARE_TRACE=1`, any
+inventory command prints its store operation counts and times on stderr when it ends. Keep the context's
 mode-0600 kubeconfig private. A fresh workstation without that credential uses
 `nagarectl --context "$CONTEXT" kubeconfig recover`; recovery checks the accepted
 host and content rather than admitting new infrastructure. Supply the context

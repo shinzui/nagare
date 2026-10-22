@@ -52,25 +52,33 @@ landed.
 
 ## Progress
 
-- [ ] M1: Per-command counters. A store counts remote gets, cached gets, puts, listings, head
-  reads, history loads, opens and gcloud sessions, with the time spent in each; `NAGARE_TRACE=1`
-  prints one summary line on stderr when the command ends. Pass: a store over the counting fake
-  reports the exact counts for a known sequence (`InventoryObjectOpsSpec`); a plan through the
-  `ContractCommands` fixture prints the line; and, from a development build, a read-only
-  `NAGARE_TRACE=1 nagarectl --context intranet inventory status --json` summary is recorded here
-  as the pre-fix attribution. BUG-8's 27.3 s plan and 68 s apply stand as the wall-clock baseline;
-  no second baseline is taken.
-- [ ] M2: One open, one head, one history, no listing, for a plan. Pass: the `ContractCommands`
-  fixture's plan reports opens 1, head reads 1, history loads 1, listings 0; `planRelationship`
-  opens the store once and derives the snapshot from the pinned history with the same refusals as
-  `loadTargetSnapshotReadOnly`; the review's `reviewHeadGeneration` and `reviewHeadSequence` are
-  the pinned head's; all `InventoryTransactionSpec`, `InventoryAccessSpec` and
-  `ContractCommands` tests pass.
-- [ ] M3: One history per apply, reused under an unchanged head. Pass: the fixture's apply reports
-  history loads 1 with the registry factory and admission sharing it; a store whose head is
-  advanced by another writer between the pre-lock load and the lock reports history loads 2 and
-  admission refuses `stale-head` as today; `InventoryRecoveryModelSpec` and the fast model tier
-  are green.
+- [x] M1: Per-command counters (`Nagare.Inventory.Store.Counters`). Every opened store counts
+  opens, gcloud sessions, head reads, history loads, remote gets, cached gets, puts and listings
+  with their time; `NAGARE_TRACE=1` prints one line per store and the wall time when the command
+  ends (`Nagare.Cli.Dispatch`). Pass: `InventoryStoreOnceSpec` "a store counts its open, head
+  reads, cached and remote gets and puts" asserts opens 1, head reads 1, history loads 0, remote
+  gets 5, cached gets 1, puts 1, listings 0 for a known sequence over `fakeObjectOps`. The
+  intranet attribution run is recorded under M4.
+- [x] M2: One open, one head, one history, no listing, for a plan. `Command.openInventoryForPlanning`
+  opens once (never initializing, with `loadTargetSnapshotReadOnly`'s refusals, which it now
+  implements), reads the head once and loads the history at it; `planInventoryCandidateLoaded`
+  plans against it and `prepareReviewWithPayloadIdentity` takes the pinned head, so the review
+  carries its generation and sequence and nothing lists the prefix. `planRelationship` and
+  `planPortalSync` use it. Pass: `ContractCommands` "a plan opens one store, one head and one
+  history and lists nothing" gives one store with `[opens, head reads, history loads, listings]`
+  = `[1, 1, 1, 0]` (the code review behind MasterPlan 29 read two opens, at least five head
+  reads, two loads and a listing on this path before).
+- [x] M3: One history per apply, reused under an unchanged head. `applyInventoryWithFactory`
+  reads the head once, loads the history at it and passes it to the registry factory
+  (`ReviewInventory`, whose `pinnedHistory` is `Nothing` for resume, recover and close, which load
+  as before) and to `applyReviewedWithHistory`; admission uses it only when the head observed
+  under the lock equals its head and otherwise loads the locked head's history once for all three
+  coverage checks. Pass: `ContractCommands` apply gives `[opens, history loads, listings]` =
+  `[1, 1, 0]`; `InventoryStoreOnceSpec` "admission reuses a pinned history only under the head it
+  was loaded from" counts 0 admission loads for the equal head and 1 for another head, both
+  converging. A stale head is refused by the static checks before any history is used, as before.
+  `ADR27-N8-collection-unverified` regenerated for the moved admission lines; it and the six other
+  admission records still kill with their `records.json` patterns.
 - [ ] M4: ADR 22 amended with the one-open, one-pinned-head, reuse-under-equal-head rule;
   `docs/runbooks/inventory-operations.md` names `NAGARE_TRACE=1` beside `inventory store status`.
   Intranet confirmation, with the operator's go-ahead for the apply: one `access grant --save-plan`
@@ -102,6 +110,16 @@ decides from a history of another head (ADR 26, ADR 27).
 uses only `storeSnapshotHead`; the prefix listing that `readStoreSnapshot` performs stays
 available for the callers that need review digests (`inventory status --legacy`, materialize,
 app-database evidence, bootstrap recovery) and leaves the plan path.
+
+2026-10-22: The registry factory takes a `ReviewInventory` (store and optional pinned history),
+not the `OpenedInventory` the plan named. Resume, recover and close have no pinned history and
+must keep loading exactly as before, and the old `seedInventoryHistory`,
+`loadInventoryPlanningHistory` and `prepareReview` keep their signatures beside new `…At`/`…From`
+variants so tests and other callers are unchanged.
+
+2026-10-22: To keep the module size ratchet, the head-manifest types moved to
+`Nagare.Inventory.Store.Manifest` (re-exported by `Nagare.Inventory.Store`, whose allowance is
+removed) and store opening to `Nagare.Inventory.Command.Open`.
 
 2026-10-22: Counters live in the store and the summary follows `Nagare.Contract.Sink`'s
 process-wide pattern. A store created by `openObjectStore` carries its counters; the transport
