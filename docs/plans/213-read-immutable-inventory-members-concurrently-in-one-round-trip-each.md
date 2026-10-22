@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-22T20:22:26Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-22T22:09:02Z
+      mode: "implement"
+      note: "Implement M1-M4: waves of eight immutable reads, one-request immutable GET, create-first publish"
 ---
 
 # Read immutable inventory members concurrently in one round trip each
@@ -45,25 +51,46 @@ command) is EP-212; the two land independently.
 
 ## Progress
 
-- [ ] M1: `Nagare.Inventory.Store.readImmutableObjects` reads a list of immutable keys through
+- [x] M1: `Nagare.Inventory.Store.readImmutableObjects` reads a list of immutable keys through
   the cache with bounded concurrency. Pass: a delaying fake `ObjectOps` records at most eight
   concurrent gets for 100 keys and zero gets when every key is cached; a key that is not
   digest-named is refused before any request; one failed get stops scheduling and the call returns
   `Left` with no partial map (`InventoryObjectOpsSpec`).
-- [ ] M2: `loadInventoryHistory` reads accepted, retained, collected and migration members with
+  Evidence: `InventoryImmutableReadSpec` (split from `InventoryObjectOpsSpec` for its size
+  allowance). "immutable members load with at most eight reads in flight, and none from a warm
+  cache": 100 reads cold, peak in flight between 2 and 8, 0 reads warm, and `head.json` in the
+  list refused with 0 reads. "one failed immutable read schedules no further read, returns no
+  partial map, and caches nothing for its key": a failure at the third key returns `Left`
+  after 8 reads (its wave) with 7 cache files, none for the failed key; a missing member is
+  `StoreInvalidObject "immutable member is missing"`. Pass.
+- [x] M2: `loadInventoryHistory` reads accepted, retained, collected and migration members with
   one `readImmutableObjects` call and decodes them as today. Pass: `InventoryTransactionSpec`,
   `InventoryMigrationSpec`, `InventoryCloseSpec` and `InventoryAccessSpec` unchanged and green;
   the Gogol fixture counts 100 member requests and at most eight in flight for a 100-scope head.
-- [ ] M3: The SDK transport fetches an immutable object with one media request and no metadata
+  Evidence: those suites unchanged and green, with the recovery model (248 selected tests).
+  `InventoryGogolSpec` "a 100-scope history reads each member with one media request, eight in
+  flight, and none from a warm cache": cold load 102 requests, 101 of them media (100 members and
+  the head's pinned download), peak in flight at most 8; warm load 2 requests (the head). Pass.
+- [x] M3: The SDK transport fetches an immutable object with one media request and no metadata
   request, verified by digest in the store. Pass: fixture `mediaGets` equals `requests` for
   member reads; `head.json` and `format.json` still use the generation-bound two-step read; a
   media response whose digest differs is `StoreInvalidObject`, never cached.
-- [ ] M4: `publishIfAbsent` attempts the conditional create first. Pass: a new object costs one
+  Evidence: `ObjectOps.getImmutableObject`. `InventoryGogolSpec` "an immutable member is one media
+  request, its absence one 404, and a digest mismatch is never cached": a member is 1 request and
+  1 media GET, an absent member 1 request (no listing), a forged member `StoreInvalidObject
+  "remote immutable member digest mismatch"` with only the good member in the cache, and the head
+  2 requests. The fixture now refuses an unpinned media GET of `head.json` or `format.json`, so
+  every existing head test proves the two-step read. Pass.
+- [x] M4: `publishIfAbsent` attempts the conditional create first. Pass: a new object costs one
   request on the fixture; an identical existing object costs a refused PUT and one read and
   succeeds idempotently; a different existing object is `StoreObjectConflict`; an unacknowledged
   PUT is classified by read-back as today (`InventoryGogolSpec` "conditional create is idempotent
   and competing values conflict", "landed write with failed acknowledgement is read back, never
   retried").
+  Evidence: `InventoryGogolSpec` "a publish creates first and reads back only when the create is
+  refused": after the writer's head check (2 requests), a new object is 1 request and 1 write; an
+  identical one a refused create and the transport's read-back (3 requests) returning the digest;
+  a different one `StoreObjectConflict`. The two named tests are unchanged and green. Pass.
 - [ ] M5: Intranet confirmation, read-only. With the `intranet` blob cache moved aside and
   `NAGARE_TRACE=1`, `nagarectl --context intranet inventory status --json` reports one remote GET
   per accepted, retained and collected member and a history load under 5 s; the cache is restored
@@ -85,6 +112,19 @@ same calls. The Gogol transport's eight-worker journal batch stays as it is.
 2026-10-22: Immutable objects are verified by digest, so they need no generation pin. The
 two-step metadata-then-media read stays for `head.json` and `format.json`, whose generation the
 compare-and-swap protocol needs.
+
+2026-10-22 (implementation): Reads go in waves of eight, not a semaphore pool. The recovery model
+places store faults by the ordinal of each get and compares whole runs; a pool that cancels on a
+failure issues a schedule-dependent number of gets after the fault. A wave issues the same gets
+whatever order its members finish in, so a fault anywhere in it gives the same run. The cost is
+that one slow member holds its wave. The faulting store counts immutable reads as store gets and
+the adversary takes a fault's boundary atomically. Admission's pinned store faults move from gets
+20 and 21 to 11 and 12, since a publish no longer reads first.
+
+2026-10-22 (implementation): An identical republish costs a refused create plus the transport's
+existing read-back of the refused create (metadata and a pinned download), not one media read.
+The Gogol `put` already classifies a refused `IfAbsent` create by read-back; the store adds no
+read of its own unless that read-back reports a conflict.
 
 2026-10-22: A digest-named publish tries the conditional create before reading. The create's
 `ifGenerationMatch=0` is the absence proof; a 412 is followed by a read-back that accepts equal
