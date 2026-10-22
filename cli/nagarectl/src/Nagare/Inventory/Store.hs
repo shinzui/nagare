@@ -366,6 +366,11 @@ publishIfAbsent store key bytes = withBackendGuard store $
     -- idempotent success; different bytes conflict. An unacknowledged write is
     -- already classified by read-back in the transport ('classifyPutReadback').
     publishChecked safeKey = do
+      -- A member this context already read is in the verified digest cache;
+      -- publishing it again costs nothing remote, as before EP-213.
+      cached <- cachedImmutable store safeKey
+      if cached == Just bytes then pure (Right (contentDigest bytes)) else createFirst safeKey
+    createFirst safeKey = do
       written <- writeObjectUnlocked store False safeKey bytes
       case written of
         Right () -> pure (Right (contentDigest bytes))
@@ -376,6 +381,18 @@ publishIfAbsent store key bytes = withBackendGuard store $
             Right (Just old) | old == bytes -> Right (contentDigest bytes)
             Right _ -> Left (StoreObjectConflict safeKey)
         Left err -> pure (Left err)
+
+-- | The verified bytes of an immutable member in the local digest cache.
+cachedImmutable :: InventoryStore -> FilePath -> IO (Maybe ByteString)
+cachedImmutable (InventoryStore (ObjectBackend _ _ (Just root) _ _ _) counters) key
+  | Just digest <- immutableKeyDigest key = do
+      let path = root </> T.unpack (digestText digest)
+      exists <- doesPathExist path
+      loaded <- if exists then readVerifiedFile path else pure (Left (StoreInvalidPath path))
+      case loaded of
+        Right bytes | contentDigest bytes == digest -> Just bytes <$ countElapsed counters CachedGet 0
+        _ -> pure Nothing
+cachedImmutable _ _ = pure Nothing
 
 readObject :: InventoryStore -> FilePath -> IO (Either StoreError (Maybe ByteString))
 readObject store key = case checkedKey key of
