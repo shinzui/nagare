@@ -43,6 +43,7 @@ import Nagare.Contract.Problem (unknownScope)
 import Nagare.Contract.Project (inventoryStatusReport, storeRefusal, workspaceRefusal)
 import Nagare.Contract.Sink (contractSinkSet, emitDocument)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.AccessRuntime (withEnSession)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.AppDatabase (appDatabaseMembersFromDeclarations)
 import Nagare.Inventory.Adapters.Broker
@@ -330,11 +331,12 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
         pulumiFacts <- inspect pulumi ResourceInventory.PulumiExecutor
         foundation <- foundationAdapter
         (pulumiFacts,foundation,) <$> inspect foundation ResourceInventory.CloudFoundationExecutor
-      accessLane = do
+      -- One en forward for every access tuple, closed with the lane (EP-214).
+      accessLane = withEnSession (contextNameText (active ^. #contextName)) clusterGuard $ \en -> do
         access <-
           ReviewedAccess.accessAdapter
             active
-            clusterGuard
+            en
             (ResourceInventory.inventoryDeclarations inventory)
             history
         (access,) <$> inspect access ResourceInventory.AccessExecutor

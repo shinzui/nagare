@@ -35,41 +35,41 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 
 planAccess ::
   ActiveTarget ->
-  IO (Either Text ()) ->
+  EnTransport ->
   Text ->
   ShomeiUser ->
   Maybe Text ->
   Bool ->
   FilePath ->
   IO ()
-planAccess active guard host user =
-  planRelationship active guard (\snapshot -> compileAccessScope snapshot host user)
+planAccess active en host user =
+  planRelationship active en (\snapshot -> compileAccessScope snapshot host user)
 
 -- | A team's viewer grant on a protected host (EP-187).
 planTeamAccess ::
   ActiveTarget ->
-  IO (Either Text ()) ->
+  EnTransport ->
   Text ->
   TeamKey ->
   Maybe Text ->
   Bool ->
   FilePath ->
   IO ()
-planTeamAccess active guard host team =
-  planRelationship active guard (\snapshot -> compileTeamAccessScope snapshot host team)
+planTeamAccess active en host team =
+  planRelationship active en (\snapshot -> compileTeamAccessScope snapshot host team)
 
 -- | One user's membership in a team (EP-187).
 planTeamMember ::
   ActiveTarget ->
-  IO (Either Text ()) ->
+  EnTransport ->
   TeamKey ->
   ShomeiUser ->
   Maybe Text ->
   Bool ->
   FilePath ->
   IO ()
-planTeamMember active guard team user =
-  planRelationship active guard (\snapshot -> compileTeamMemberScope snapshot team user)
+planTeamMember active en team user =
+  planRelationship active en (\snapshot -> compileTeamMemberScope snapshot team user)
 
 -- | Every reviewed relationship is one independent scope composed against
 -- the accepted snapshot and planned through the common journal. The store is
@@ -77,18 +77,18 @@ planTeamMember active guard team user =
 -- (EP-212).
 planRelationship ::
   ActiveTarget ->
-  IO (Either Text ()) ->
+  EnTransport ->
   (ScopeSnapshot -> Bool -> Either Text ScopeDeclaration) ->
   Maybe Text ->
   Bool ->
   FilePath ->
   IO ()
-planRelationship active guard compile configuredKey present output = do
+planRelationship active en compile configuredKey present output = do
   opened <- Command.openInventoryForPlanning active
   snapshot <- Command.openedSnapshot opened
   scope <- either (fail . T.unpack) pure (compile snapshot present)
   candidate <- either (fail . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
-  withEnApiKey configuredKey (Command.planInventoryCandidateLoaded (accessPlanRegistry active guard) active opened candidate output)
+  withEnApiKey configuredKey (Command.planInventoryCandidateLoaded (accessPlanRegistry active en) active opened candidate output)
 
 -- | Run an action with @--en-api-key@ exported as the private key, restoring
 -- the environment afterwards; without the option the environment stands.
@@ -104,29 +104,29 @@ withEnApiKey configuredKey action = case configuredKey of
 -- | @access check@ (EP-188 M1): one fully consistent en check of a user on a
 -- host this context protects, through the same private transport reviewed
 -- writes use. The user's login token is never an en credential.
-checkEffectiveAccess :: ActiveTarget -> IO (Either Text ()) -> Text -> Text -> Maybe Text -> IO CheckReport
-checkEffectiveAccess active guard host subject configuredKey = do
+checkEffectiveAccess :: ActiveTarget -> EnTransport -> Text -> Text -> Maybe Text -> IO CheckReport
+checkEffectiveAccess active en host subject configuredKey = do
   snapshot <- Command.loadTargetSnapshotReadOnly active
   protected <- either (fail . T.unpack) pure (acceptedProtectedHost snapshot host)
-  guarded <- guard
+  guarded <- clusterGuard en
   case guarded of
     Left reason -> pure (CheckReport (nameText protected) subject (Unavailable ("context guard refused: " <> reason)))
     Right () -> do
       answer <-
         withEnApiKey configuredKey $
-          withContextEn (contextNameText (active ^. #contextName)) $ \call ->
+          withEn en $ \call ->
             effectiveAccess (\path body -> call "POST" path (toJSON body)) (nameText protected) subject
       pure (either (CheckReport (nameText protected) subject . Unavailable) id answer)
 
 accessPlanRegistry ::
   ActiveTarget ->
-  IO (Either Text ()) ->
+  EnTransport ->
   CompositionCandidate ->
   InventoryHistory ->
   IO AdapterRegistry
-accessPlanRegistry active guard candidate history = do
+accessPlanRegistry active en candidate history = do
   let inventory = candidateInventory candidate
-  access <- accessAdapter active guard (inventoryDeclarations inventory) history
+  access <- accessAdapter active en (inventoryDeclarations inventory) history
   either
     (fail . T.unpack)
     pure
@@ -148,20 +148,20 @@ accessPlanRegistry active guard candidate history = do
         )
     )
 
-accessAdapter :: ActiveTarget -> IO (Either Text ()) -> [Declaration] -> InventoryHistory -> IO Adapter
-accessAdapter active guard declarations history = do
+accessAdapter :: ActiveTarget -> EnTransport -> [Declaration] -> InventoryHistory -> IO Adapter
+accessAdapter active en declarations history = do
   desiredSpecs <- either (fail . T.unpack) pure (accessBindings declarations)
   -- A retirement removes a tuple from the desired declarations; it is still
   -- observed through its accepted binding.
   let specs = Map.union desiredSpecs (acceptedAccessBindings (historyDeclarations history))
   selectedGuard <-
     if Map.null specs
-      then pure guard
+      then pure (clusterGuard en)
       else do
         selected <- kubeconfigPath (active ^. #contextName)
         exists <- doesFileExist selected
         if exists
-          then setEnv "KUBECONFIG" selected >> pure guard
+          then setEnv "KUBECONFIG" selected >> pure (clusterGuard en)
           else pure (pure (Left "selected context kubeconfig is missing for access observation"))
   let accepted =
         Map.fromList
@@ -171,16 +171,8 @@ accessAdapter active guard declarations history = do
           , Managed r <- bundle ^. #declarations
           , r ^. #executor == AccessExecutor
           ]
-  pure
-    ( mkAccessAdapter
-        accepted
-        specs
-        ( accessRuntimeOps
-            (headBinding (historyHead history))
-            (contextNameText (active ^. #contextName))
-            selectedGuard
-        )
-    )
+  ops <- accessRuntimeOpsWith (en {clusterGuard = selectedGuard}) (headBinding (historyHead history))
+  pure (mkAccessAdapter accepted specs ops)
 
 -- The accepted owner and all accepted contributors supply authority. Live reads
 -- check the resulting objects; they never discover or discard contributors.

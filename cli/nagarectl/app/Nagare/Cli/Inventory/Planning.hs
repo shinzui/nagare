@@ -43,6 +43,7 @@ import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.AccessRuntime (kubectlTransport)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.AppDatabase (appDatabaseMembersFromDeclarations)
 import Nagare.Inventory.Adapters.ArtifactRuntime
@@ -444,7 +445,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
   access <-
     ReviewedAccess.accessAdapter
       active
-      (fmap (fmap (const ())) (guardKubernetesContext active))
+      (kubectlTransport (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active)))
       declarations
       history
   let runtime =

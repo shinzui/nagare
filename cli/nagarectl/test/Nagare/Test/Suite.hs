@@ -20,6 +20,7 @@ import Data.ByteString qualified as BS
 import DataFenceSpec (dataFenceTests)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
+import InventoryAccessSessionSpec (inventoryAccessSessionTests)
 import InventoryAccessSpec (inventoryAccessTests)
 import InventoryActionPublicationSpec (inventoryActionPublicationTests)
 import InventoryApplicationSpec (inventoryApplicationTests)
@@ -293,7 +294,7 @@ main = do
             , clusterGuardTests
             , domainBindingTests
             , testGroup "Nagare.Ops.CertificateChain" certificateChainTests
-            , testGroup "Nagare.Access" [accessGrantsTests, accessCheckTests]
+            , testGroup "Nagare.Access" [accessGrantsTests, accessCheckTests, inventoryAccessSessionTests]
             , accessResolveTests
             , appDeployTests
             ]

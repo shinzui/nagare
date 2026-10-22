@@ -1,4 +1,4 @@
-module InventoryAccessSpec (inventoryAccessTests) where
+module InventoryAccessSpec (inventoryAccessTests, accessBinding, teamBindings, context) where
 
 import Control.Monad (forM_, void)
 import Data.Aeson (Value (..), encode, object, toJSON, (.=))

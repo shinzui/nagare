@@ -33,12 +33,13 @@ import Nagare.Cli.Inventory.Adapters
   )
 import Nagare.Cli.Inventory.Execution
   ( inventoryExecutionRegistry
+  , inventoryExecutionRegistryIn
   )
 import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inventoryPlanRegistry)
 import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutation
   )
-import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
+import Nagare.Cli.Runtime.Cluster (guardKubernetesContext, withContextEnSession)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Cli.Runtime.Target
@@ -277,13 +278,16 @@ runInventoryCollect mctx rawResources output descendants = do
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do
   target <- activeTarget mctx
-  Inventory.applyInventoryWithFactory (requireAccessKey (inventoryExecutionRegistry mctx)) target reviewDirectory yes
+  -- One en forward and one cluster guard for every access phase (EP-214).
+  withContextEnSession target $ \en ->
+    Inventory.applyInventoryWithFactory (requireAccessKey (inventoryExecutionRegistryIn (Just en) mctx)) target reviewDirectory yes
 
 runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
 runInventoryResume mctx transaction yes takeOver = do
   target <- activeTarget mctx
   selected <- foundationResumeTarget target transaction
-  Inventory.resumeInventoryWithFactoryTakeover (requireAccessKey (inventoryExecutionRegistry mctx)) selected transaction yes takeOver
+  withContextEnSession target $ \en ->
+    Inventory.resumeInventoryWithFactoryTakeover (requireAccessKey (inventoryExecutionRegistryIn (Just en) mctx)) selected transaction yes takeOver
   when
     ( effectiveInventoryStore (target ^. #profile) == InventoryStoreGcs
         && effectiveInventoryStore (selected ^. #profile) == InventoryStoreLocal

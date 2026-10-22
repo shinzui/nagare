@@ -28,7 +28,7 @@ import Nagare.Access.Resolve
 import Nagare.Access.Reviewed qualified as ReviewedAccess
 import Nagare.Access.ShomeiUser (ShomeiUser (..), UserRef (..), lookupShomeiEmail, parseUserRef)
 import Nagare.Cli.Options (AccessCommand (..), AccessGrantOpts, PortalCommand (..), TeamCommand (..), TeamMemberOpts)
-import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
+import Nagare.Cli.Runtime.Cluster (guardKubernetesContext, withContextEnSession)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Ownership
   ( refuseDirectAccessOwnerIfManaged
@@ -63,12 +63,13 @@ runAccess mctx = \case
     user <- resolveUser (o ^. #user)
     active <- selectedContext "access check"
     report <-
-      ReviewedAccess.checkEffectiveAccess
-        active
-        (fmap (fmap (const ())) (guardKubernetesContext active))
-        (T.pack (o ^. #host))
-        (user ^. #userId)
-        (T.pack <$> o ^. #enApiKey)
+      withContextEnSession active $ \en ->
+        ReviewedAccess.checkEffectiveAccess
+          active
+          en
+          (T.pack (o ^. #host))
+          (user ^. #userId)
+          (T.pack <$> o ^. #enApiKey)
     if o ^. #json
       then LBS.putStr (encode report) >> TIO.putStrLn ""
       else TIO.putStr (renderCheckReport report)
@@ -125,14 +126,15 @@ runAccess mctx = \case
         when (isJust (o ^. #enUrl)) (dieT "reviewed access reaches the context's en itself; drop --en-url")
         team <- teamKeyOf rawTeam
         active <- selectedContext "reviewed access"
-        ReviewedAccess.planTeamAccess
-          active
-          (fmap (fmap (const ())) (guardKubernetesContext active))
-          (T.pack (o ^. #host))
-          team
-          (T.pack <$> o ^. #enApiKey)
-          granted
-          output
+        withContextEnSession active $ \en ->
+          ReviewedAccess.planTeamAccess
+            active
+            en
+            (T.pack (o ^. #host))
+            team
+            (T.pack <$> o ^. #enApiKey)
+            granted
+            output
       (Nothing, Just _, Nothing) -> dieT "a team grant is always reviewed: add --save-plan DIR, then inventory apply DIR --yes"
     membership :: Bool -> TeamMemberOpts -> IO ()
     membership present o = do
@@ -140,29 +142,32 @@ runAccess mctx = \case
       team <- teamKeyOf (o ^. #team)
       user <- resolveUser (o ^. #user)
       active <- selectedContext "reviewed team membership"
-      ReviewedAccess.planTeamMember
-        active
-        (fmap (fmap (const ())) (guardKubernetesContext active))
-        team
-        user
-        (T.pack <$> o ^. #enApiKey)
-        present
-        output
+      withContextEnSession active $ \en ->
+        ReviewedAccess.planTeamMember
+          active
+          en
+          team
+          user
+          (T.pack <$> o ^. #enApiKey)
+          present
+          output
     teamKeyOf :: String -> IO TeamKey
     teamKeyOf raw = either dieT pure (mkTeamKey (T.pack raw))
     runReviewed granted options rawUser output = do
-      -- Reviewed grants reach the context's en through their own port-forward (F97).
+      -- Reviewed grants reach the context's en through the command's one
+      -- port-forward (F97, EP-214).
       when (isJust (options ^. #enUrl)) (dieT "reviewed access reaches the context's en itself; drop --en-url")
       user <- resolveUser rawUser
       active <- selectedContext "reviewed access"
-      ReviewedAccess.planAccess
-        active
-        (fmap (fmap (const ())) (guardKubernetesContext active))
-        (T.pack (options ^. #host))
-        user
-        (T.pack <$> options ^. #enApiKey)
-        granted
-        output
+      withContextEnSession active $ \en ->
+        ReviewedAccess.planAccess
+          active
+          en
+          (T.pack (options ^. #host))
+          user
+          (T.pack <$> options ^. #enApiKey)
+          granted
+          output
     -- The selected context's kubeconfig, exported for every reviewed read and write.
     selectedContext :: Text -> IO ActiveTarget
     selectedContext purpose = do

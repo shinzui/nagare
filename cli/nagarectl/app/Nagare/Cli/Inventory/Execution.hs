@@ -1,6 +1,7 @@
 -- | Inventory / Execution. Executable-private CLI boundary.
 module Nagare.Cli.Inventory.Execution
   ( inventoryExecutionRegistry
+  , inventoryExecutionRegistryIn
   )
 where
 
@@ -60,7 +61,7 @@ import Nagare.Cli.Runtime.Target
   )
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.AccessRuntime (accessReviewAdapter)
+import Nagare.Inventory.AccessRuntime (EnTransport, accessReviewAdapter, kubectlTransport)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.AppDatabase (appDatabaseMembersFromDeclarations)
 import Nagare.Inventory.Adapters.Broker
@@ -167,7 +168,13 @@ import System.Exit (ExitCode)
 import System.FilePath ((</>))
 
 inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryExecutionRegistry mctx inventory bundle
+inventoryExecutionRegistry = inventoryExecutionRegistryIn Nothing
+
+-- | The registry inside a command's en session (EP-214): @inventory apply@ and
+-- @inventory resume@ pass theirs, so every access phase shares one forward and
+-- one guard. Without one, each access call opens its own forward.
+inventoryExecutionRegistryIn :: Maybe EnTransport -> Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryExecutionRegistryIn session mctx inventory bundle
   | not (null operations)
   , all ((== ResourceInventory.AccessExecutor) . InventoryAdapter.plannedExecutor) operations = do
       active <- activeTarget mctx
@@ -179,8 +186,7 @@ inventoryExecutionRegistry mctx inventory bundle
         accessReviewAdapter
           inventory
           (InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle))
-          (contextNameText (active ^. #contextName))
-          (fmap (fmap (const ())) (guardKubernetesContext active))
+          (contextEn session active)
           bundle
           >>= either dieT pure
       either dieT pure (InventoryAdapter.mkAdapterRegistry [adapter])
@@ -189,7 +195,7 @@ inventoryExecutionRegistry mctx inventory bundle
       map
         InventoryPlan.reviewPlannedOperation
         (InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle))
-inventoryExecutionRegistry mctx inventory bundle = do
+inventoryExecutionRegistryIn session mctx inventory bundle = do
   let store = inventory ^. #executionStore
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let document = InventoryPlan.reviewBundleDocument bundle
@@ -666,8 +672,7 @@ inventoryExecutionRegistry mctx inventory bundle = do
         accessReviewAdapter
           inventory
           binding
-          (contextNameText (active ^. #contextName))
-          (fmap (fmap (const ())) (guardKubernetesContext active))
+          (contextEn session active)
           bundle
           >>= either dieT pure
       let runtime =
@@ -783,3 +788,10 @@ bootstrapRegistryRecovery active store bundle kubernetes =
         plan
         deployment
         saved
+
+-- The command's session, or a forward per call for a caller without one.
+contextEn :: Maybe EnTransport -> ActiveTarget -> EnTransport
+contextEn session active =
+  fromMaybe
+    (kubectlTransport (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active)))
+    session

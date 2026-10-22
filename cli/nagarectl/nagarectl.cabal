@@ -566,6 +566,7 @@ test-suite nagarectl-test
     DataFenceSpec
     DomainBindingSpec
     HostSpec
+    InventoryAccessSessionSpec
     InventoryAccessSpec
     InventoryActionPublicationSpec
     InventoryAdminApiSpec
