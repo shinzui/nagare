@@ -85,10 +85,13 @@ landed.
   converging. A stale head is refused by the static checks before any history is used, as before.
   `ADR27-N8-collection-unverified` regenerated for the moved admission lines; it and the six other
   admission records still kill with their `records.json` patterns.
-- [ ] M4: ADR 22 amended with the one-open, one-pinned-head, reuse-under-equal-head rule;
-  `docs/runbooks/inventory-operations.md` names `NAGARE_TRACE=1` beside `inventory store status`.
-  Intranet confirmation, with the operator's go-ahead for the apply: one `access grant --save-plan`
-  and its `inventory apply` with their summaries recorded here (this is also the first half of
+- [ ] M4: ADR 22 amended with the one-open, one-pinned-head, reuse-under-equal-head rule and
+  `docs/runbooks/inventory-operations.md` naming `NAGARE_TRACE=1` (both done, `624fa813`).
+  Read-only intranet attribution, 2026-10-22, development build of `79de5b0a`,
+  `inventory status --json`: `store opens 1 (0.44 s), gcloud sessions 1 (2.04 s), head reads 1
+  (0.29 s), history loads 1 (0.02 s), remote gets 2 (0.73 s), cached gets 371, puts 0,
+  listings 0`. Open: with the operator's go-ahead, one `access grant --save-plan` and its
+  `inventory apply` on the intranet with their summaries recorded here (also the first half of
   MasterPlan 29's gate).
 
 

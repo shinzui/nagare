@@ -1851,3 +1851,11 @@ themselves.
 
 Each opened store counts its operations; `NAGARE_TRACE=1` prints one summary line per store on
 stderr when the command ends. The counts are how a change to this shape is measured.
+
+Immutable members are read by content ([EP-213](../plans/213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md)):
+a history load reads every member its head names in waves of at most eight, each with one media
+request verified against the digest in its name and never cached on a mismatch, and stops at the
+first failure without a partial result. Only `head.json` and `format.json` keep the
+generation-bound read, because compare-and-swap needs their generation. A digest-named publish
+attempts the conditional create first; a refusal is resolved by reading back, equal bytes being
+success and different bytes a conflict.

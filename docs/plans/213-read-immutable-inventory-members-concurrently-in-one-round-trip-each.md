@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-22T22:09:02Z
       mode: "implement"
       note: "Implement M1-M4: waves of eight immutable reads, one-request immutable GET, create-first publish"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-22T22:40:58Z
+      mode: "implement"
+      note: "Merged onto EP-212/214 and recorded the read-only intranet M5 trace"
 ---
 
 # Read immutable inventory members concurrently in one round trip each
@@ -91,10 +96,15 @@ command) is EP-212; the two land independently.
   refused": after the writer's head check (2 requests), a new object is 1 request and 1 write; an
   identical one a refused create and the transport's read-back (3 requests) returning the digest;
   a different one `StoreObjectConflict`. The two named tests are unchanged and green. Pass.
-- [ ] M5: Intranet confirmation, read-only. With the `intranet` blob cache moved aside and
-  `NAGARE_TRACE=1`, `nagarectl --context intranet inventory status --json` reports one remote GET
-  per accepted, retained and collected member and a history load under 5 s; the cache is restored
-  afterwards. Evidence: the trace line, recorded here.
+- [x] M5: Intranet confirmation, read-only. With `NAGARE_TRACE=1`,
+  `nagarectl --context intranet inventory status --json` from a development build of `79de5b0a`
+  (the cache was left in place; an empty `XDG_CACHE_HOME` stood in for the moved-aside cache).
+  Pass, 2026-10-22: cold, `store opens 1 (0.23 s), gcloud sessions 1 (2.07 s), head reads 1
+  (0.26 s), history loads 1 (2.18 s), remote gets 373 (49.81 s summed across workers), cached
+  gets 0, puts 0, listings 0`, and 371 blobs in the empty cache afterwards: one GET per member
+  plus `format.json` and the head. Warm, the same command: `history loads 1 (0.02 s), remote gets
+  2 (0.73 s), cached gets 371, listings 0`. The cold command's 45.8 s wall is `inventory status`
+  reading accepted native payloads one at a time after the history load, outside this plan.
 
 
 ## Surprises & Discoveries

@@ -177,7 +177,7 @@ only prior measurement of the store open on the intranet.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 212 | Open the inventory store once per command and load its history once | [EP-212](../plans/212-open-the-inventory-store-once-per-command-and-load-its-history-once.md) | None | None | In Progress |
-| 213 | Read immutable inventory members concurrently in one round trip each | [EP-213](../plans/213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md) | None | EP-212 M1 counters for its intranet confirmation | In Progress |
+| 213 | Read immutable inventory members concurrently in one round trip each | [EP-213](../plans/213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md) | None | EP-212 M1 counters for its intranet confirmation | Complete |
 | 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | In Progress |
 | 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
@@ -250,8 +250,9 @@ initiative. The MasterPlan's Decision Log holds that decision; no ADR change is 
 ## Progress
 
 EP-212 M1–M3, EP-213 M1–M4 and EP-214 M1–M3 are implemented, merged and fast-gate green together
-(`db83d2b6`). Each child's remaining milestone is its intranet confirmation (EP-212 M4, EP-213 M5,
-EP-214 M4), which keeps all three In Progress; EP-215 waits for EP-212 to complete. The one
+(`db83d2b6`), landed at `79de5b0a`. EP-213 is complete: its read-only intranet confirmation loads a
+cold history of 371 members in 2.18 s. EP-212 M4 and EP-214 M4 are one reviewed grant planned and
+applied on the intranet, which needs the operator's go-ahead; EP-215 waits for EP-212. The one
 cross-plan gate:
 
 - [ ] On the intranet, after EP-212, EP-213 and EP-214 are in the release it runs:
