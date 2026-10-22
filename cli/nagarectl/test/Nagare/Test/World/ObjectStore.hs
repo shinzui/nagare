@@ -5,6 +5,7 @@ module Nagare.Test.World.ObjectStore
   ( FakeObjects
   , fakeObjectOps
   , fakeObjectState
+  , immutableThroughGet
   )
 where
 
@@ -31,6 +32,9 @@ fakeObjectState = do
       { getObject = \name -> do
           (_, objects) <- readIORef state
           pure $ maybe ObjectAbsent (uncurry ObjectFound) (Map.lookup name objects)
+      , getImmutableObject = \name -> do
+          (_, objects) <- readIORef state
+          pure $ maybe ImmutableMissing (ImmutableFound . snd) (Map.lookup name objects)
       , getObjects = \(ObjectName prefix) -> do
           (_, objects) <- readIORef state
           pure (Right (Map.map snd (Map.filterWithKey (\(ObjectName name) _ -> (prefix <> "/") `T.isPrefixOf` name) objects)))
@@ -56,3 +60,8 @@ fakeObjectState = do
             )
       , pauseBeforeRetry = threadDelay
       }
+
+-- | Answer immutable reads with the store's own 'getObject', so a test that
+-- counts or faults 'getObject' sees every member read too (EP-213).
+immutableThroughGet :: ObjectOps -> ObjectOps
+immutableThroughGet ops = ops {getImmutableObject = fmap immutableGet . getObject ops}

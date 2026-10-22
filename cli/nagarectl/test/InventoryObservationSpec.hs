@@ -32,6 +32,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Policy (DelegatedOperation (RefreshCredential), Delegation (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Test.World.ObjectStore (immutableThroughGet)
 import System.Directory (removeFile)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -72,7 +73,7 @@ inventoryObservationTests =
                   { getObject = \key -> modifyIORef' gets (<> [key]) >> getObject base key
                   , listObjects = \prefix -> modifyIORef' lists (+ 1) >> listObjects base prefix
                   }
-          fresh <- must (newObjectStore counted binding "reader" Nothing)
+          fresh <- must (newObjectStore (immutableThroughGet counted) binding "reader" Nothing)
           writeIORef gets []
           result <- must (loadObservationNative fresh [fst selected, fst helm])
           Map.elems (observationKubernetes result) @?= [selected]
@@ -94,7 +95,7 @@ inventoryObservationTests =
                 }
         -- Construct first using valid ops; uninitialized stores are sufficient.
         _ <- must (loadObservationNative store [])
-        fresh <- must (openObjectStoreReadOnly refuse binding "reader" Nothing)
+        fresh <- must (openObjectStoreReadOnly (immutableThroughGet refuse) binding "reader" Nothing)
         _ <- must (loadObservationNative fresh [])
         pure ()
     , testCase "selected missing or corrupt native evidence refuses without review scan" $ do
@@ -111,7 +112,7 @@ inventoryObservationTests =
                         else getObject base key
                   , listObjects = \_ -> assertFailure "missing evidence triggered a scan" >> error "unreachable"
                   }
-          fresh <- must (newObjectStore broken binding "reader" Nothing)
+          fresh <- must (newObjectStore (immutableThroughGet broken) binding "reader" Nothing)
           loaded <- loadObservationNative fresh [fst selected]
           case loaded of
             Left _ -> pure ()
@@ -256,7 +257,7 @@ executionSourceRead mode = withSystemTempDirectory "nagare-observation-cache" $ 
           , listObjects = \prefix -> modifyIORef' lists (+ 1) >> listObjects base prefix
           }
   let readOnlyOps = ops {putObject = \_ _ _ -> assertFailure "observation wrote remote history" >> error "unreachable"}
-  fresh <- must (openObjectStoreReadOnly readOnlyOps binding "reader" cache)
+  fresh <- must (openObjectStoreReadOnly (immutableThroughGet readOnlyOps) binding "reader" cache)
   writeIORef gets []
   result <- loadAcceptedNativeSelected (Set.fromList (rid "selected" : [rid "helm" | mode == "mixed"])) fresh history inventory
   if mode `elem` ["corrupt", "mixed"]
@@ -278,7 +279,7 @@ executionSourceRead mode = withSystemTempDirectory "nagare-observation-cache" $ 
         let unrelated = "later unrelated corrupt review " <> encodeNumber i
         _ <- must (publishIfAbsent store (reviewKey (contentDigest unrelated)) unrelated)
         pure ()
-    again <- must (openObjectStoreReadOnly readOnlyOps binding "another-reader" cache)
+    again <- must (openObjectStoreReadOnly (immutableThroughGet readOnlyOps) binding "another-reader" cache)
     writeIORef gets []
     writeIORef lists 0
     (native, helms) <- must (loadAcceptedNativeSelected (Set.singleton (rid "selected")) again history inventory)

@@ -1,4 +1,4 @@
-module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, preparedFixtureHead, preparedFixtureRecording, preparedFixtureWith, preparedFixtureWithRegistry, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
+module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, modelScope, preparedFixtureHead, preparedFixtureRecording, preparedFixtureWith, preparedFixtureWithRegistry, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)

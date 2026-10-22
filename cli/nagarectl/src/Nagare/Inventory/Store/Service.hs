@@ -145,6 +145,7 @@ readOnlyObjectOps :: ReaderEnv -> Text -> Text -> ObjectOps
 readOnlyObjectOps env bucket root =
   ObjectOps
     { getObject = get
+    , getImmutableObject = fmap immutableGet . get
     , putObject = \_ _ _ -> pure (PutNoEffect "the admin API's inventory store is read-only")
     , getObjects = \_ -> pure (Left "the admin API's inventory store does not list")
     , listObjects = \_ -> pure (Left "the admin API's inventory store does not list")

@@ -270,6 +270,17 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
                     Right objects | Map.notMember name objects -> ObjectAbsent
                     _ -> GetUnknown "inventory object absence could not be confirmed"
             Left _ -> pure (GetUnknown "inventory object metadata could not be read")
+      -- A content-addressed member needs no generation pin: the store checks its
+      -- bytes against the digest in its name. One media request, and the
+      -- provider's 404 answers absence without a listing (EP-213).
+      immutable name = case validateKey False name of
+        Left reason -> pure (ImmutableUnknown reason)
+        Right () -> do
+          result <- sdk $ \env -> G.runResourceT $ G.download env (request name) >>= G.sinkLBS
+          pure $ case result of
+            Right bytes -> ImmutableFound (LBS.toStrict bytes)
+            Left (Failure (Just 404)) -> ImmutableMissing
+            Left _ -> ImmutableUnknown "inventory immutable object could not be downloaded"
       put condition name bytes = case (validateKey False name, conditionNumber condition) of
         (Left reason, _) -> pure (PutNoEffect reason)
         (_, Left reason) -> pure (PutNoEffect reason)
@@ -328,6 +339,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
   pure
     ObjectOps
       { getObject = get
+      , getImmutableObject = immutable
       , putObject = put
       , getObjects = batch
       , listObjects = \key -> case validateKey True key of

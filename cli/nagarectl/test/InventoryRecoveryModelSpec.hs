@@ -172,7 +172,7 @@ inventoryRecoveryModelTests =
     , testCase "create-scenario fault pairs that had no exit now have one (EP-177, F66)" $ do
         let create = Scenario "create" [Deploy "v1"] [] True plainShape False
         -- Store faults on both attempts of admission: re-run until it lands (no stop).
-        pinned create [(Boundary StoreGetCall 20, GetFailedOnce), (Boundary StoreGetCall 21, GetFailedOnce)] []
+        pinned create [(Boundary StoreGetCall 11, GetFailedOnce), (Boundary StoreGetCall 12, GetFailedOnce)] []
         pinned create [(Boundary MutateCall 1, LandsUnready), (Boundary StorePutCall 13, ClaimLost)] [[CloseTakeOver]]
         -- The landed Service deleted outside Nagare: resume recreates it.
         pinned create [(Boundary MutateCall 1, LandsUnready), (Boundary ObserveCall 7, Deleted)] [[Resume, Close]]

@@ -43,6 +43,7 @@ module Nagare.Inventory.Store
   , readReviewSnapshotAt
   , publishIfAbsent
   , readObject
+  , readImmutableObjects
   , cacheObservationBytes
   , readJournalPrefix
   , appendAtSequence
@@ -66,6 +67,7 @@ module Nagare.Inventory.Store
   )
 where
 
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar
 import Control.Exception (IOException, bracket, catch, finally, try)
 import Control.Monad (forM)
@@ -181,6 +183,7 @@ countingObjectOps :: StoreCounters -> ObjectOps -> ObjectOps
 countingObjectOps counters ops =
   ops
     { getObject = counted counters RemoteGet . getObject ops
+    , getImmutableObject = counted counters RemoteGet . getImmutableObject ops
     , getObjects = counted counters RemoteGet . getObjects ops
     , putObject = \condition name bytes -> counted counters RemotePut (putObject ops condition name bytes)
     , listObjects = counted counters Listing . listObjects ops
@@ -358,21 +361,60 @@ publishIfAbsent store key bytes = withBackendGuard store $
         Left err -> pure (Left err)
         Right () -> publishChecked safeKey
   where
+    -- The conditional create is the absence proof: try it first, and read
+    -- back only when the store refuses it (EP-213). Equal bytes are an
+    -- idempotent success; different bytes conflict. An unacknowledged write is
+    -- already classified by read-back in the transport ('classifyPutReadback').
     publishChecked safeKey = do
-      existing <- readObjectUnlocked store safeKey
-      case existing of
+      written <- writeObjectUnlocked store False safeKey bytes
+      case written of
+        Right () -> pure (Right (contentDigest bytes))
+        Left (StoreObjectConflict _) -> do
+          existing <- readObjectUnlocked store safeKey
+          pure $ case existing of
+            Left err -> Left err
+            Right (Just old) | old == bytes -> Right (contentDigest bytes)
+            Right _ -> Left (StoreObjectConflict safeKey)
         Left err -> pure (Left err)
-        Right (Just old)
-          | old == bytes -> pure (Right (contentDigest bytes))
-          | otherwise -> pure (Left (StoreObjectConflict safeKey))
-        Right Nothing -> do
-          written <- writeObjectUnlocked store False safeKey bytes
-          pure (contentDigest bytes <$ written)
 
 readObject :: InventoryStore -> FilePath -> IO (Either StoreError (Maybe ByteString))
 readObject store key = case checkedKey key of
   Left err -> pure (Left err)
   Right safeKey -> readObjectUnlocked store safeKey
+
+-- | Read content-addressed members through the digest cache, at most eight
+-- remote reads in flight. Every key must name its digest; a missing member or
+-- a failed read returns 'Left' and never a partial map (EP-213).
+--
+-- The reads go in waves of eight, and a failed wave schedules no further
+-- read. A wave makes the same reads whatever order its members finish in, so
+-- the recovery model's store-call count stays deterministic under a fault.
+readImmutableObjects :: InventoryStore -> [FilePath] -> IO (Either StoreError (Map FilePath ByteString))
+readImmutableObjects store keys = case traverse member (Set.toAscList (Set.fromList keys)) of
+  Left err -> pure (Left err)
+  Right members -> waves Map.empty members
+  where
+    member key = do
+      safeKey <- checkedKey key
+      digest <- maybe (Left (StoreInvalidObject key "not a content-addressed member")) Right (immutableKeyDigest safeKey)
+      pure (safeKey, digest)
+    waves found [] = pure (Right found)
+    waves found pending = do
+      let (wave, rest) = splitAt immutableReadWidth pending
+      loaded <- mapConcurrently readMember wave
+      case sequence loaded of
+        Left err -> pure (Left err)
+        Right values -> waves (Map.union found (Map.fromList values)) rest
+    readMember (key, digest) = do
+      loaded <- readObjectUnlocked store key
+      pure $ do
+        bytes <- loaded >>= maybe (Left (StoreInvalidObject key "immutable member is missing")) Right
+        unless (contentDigest bytes == digest) (Left (StoreInvalidObject key "immutable member digest mismatch"))
+        pure (key, bytes)
+
+-- | Like the journal batch's eight workers in "Nagare.Inventory.Store.Gogol".
+immutableReadWidth :: Int
+immutableReadWidth = 8
 
 appendAtSequence :: InventoryStore -> Integer -> ByteString -> IO (Either StoreError ContentDigest)
 appendAtSequence store sequenceNumber bytes
@@ -748,20 +790,28 @@ readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _) counters) k
             _ -> Nothing
   case cached of
     Just bytes -> Right (Just bytes) <$ countElapsed counters CachedGet 0
-    Nothing -> do
-      observed <- getObject ops (ObjectName (T.pack key))
-      case observed of
-        ObjectAbsent -> pure (Right Nothing)
-        GetUnknown reason -> pure (Left (StoreIoError reason))
-        ObjectFound _ bytes -> case expected of
-          Just digest
+    Nothing -> case expected of
+      -- A content-addressed member is verified by its digest: one media
+      -- request, no generation (EP-213). A mismatch is never cached.
+      Just digest -> do
+        observed <- getImmutableObject ops (ObjectName (T.pack key))
+        case observed of
+          ImmutableMissing -> pure (Right Nothing)
+          ImmutableUnknown reason -> pure (Left (StoreIoError reason))
+          ImmutableFound bytes
             | contentDigest bytes /= digest ->
                 pure (Left (StoreInvalidObject key "remote immutable member digest mismatch"))
-          _ -> do
-            case cachedPath of
-              Nothing -> pure ()
-              Just path -> void (ioResult (atomicWrite path bytes))
-            pure (Right (Just bytes))
+            | otherwise -> do
+                case cachedPath of
+                  Nothing -> pure ()
+                  Just path -> void (ioResult (atomicWrite path bytes))
+                pure (Right (Just bytes))
+      Nothing -> do
+        observed <- getObject ops (ObjectName (T.pack key))
+        pure $ case observed of
+          ObjectAbsent -> Right Nothing
+          GetUnknown reason -> Left (StoreIoError reason)
+          ObjectFound _ bytes -> Right (Just bytes)
 
 -- | Journal members are immutable once appended. Read the committed prefix in
 -- one object-store transfer, then require every name bound by the head. The

@@ -6,6 +6,8 @@ module Nagare.Inventory.Store.ObjectOps
   , Generation (..)
   , PutCondition (..)
   , GetOutcome (..)
+  , ImmutableGet (..)
+  , immutableGet
   , PutOutcome (..)
   , ObjectOps (..)
   , objectUrl
@@ -56,6 +58,22 @@ data GetOutcome
   | GetUnknown !Text
   deriving stock (Eq, Show)
 
+-- | One read of a content-addressed object. Its name carries the digest the
+-- store verifies, so the read needs no generation and a missing answer is the
+-- provider's own 404, not a listing.
+data ImmutableGet
+  = ImmutableFound !ByteString
+  | ImmutableMissing
+  | ImmutableUnknown !Text
+  deriving stock (Eq, Show)
+
+-- | An immutable read answered by a transport's generation-bound read.
+immutableGet :: GetOutcome -> ImmutableGet
+immutableGet outcome = case outcome of
+  ObjectFound _ bytes -> ImmutableFound bytes
+  ObjectAbsent -> ImmutableMissing
+  GetUnknown reason -> ImmutableUnknown reason
+
 data PutOutcome
   = PutWritten !Generation
   | PutPreconditionFailed
@@ -65,6 +83,9 @@ data PutOutcome
 
 data ObjectOps = ObjectOps
   { getObject :: !(ObjectName -> IO GetOutcome)
+  , getImmutableObject :: !(ObjectName -> IO ImmutableGet)
+  -- ^ A content-addressed member: one media request, verified by the store
+  -- against the digest in its name (EP-213).
   , getObjects :: !(ObjectName -> IO (Either Text (Map ObjectName ByteString)))
   , putObject :: !(PutCondition -> ObjectName -> ByteString -> IO PutOutcome)
   , listObjects :: !(ObjectName -> IO (Either Text [ObjectName]))
@@ -258,6 +279,7 @@ gcloudObjectOps prefix = do
   pure
     ObjectOps
       { getObject = get
+      , getImmutableObject = fmap immutableGet . get
       , getObjects = getPrefix
       , putObject = put
       , listObjects = \(ObjectName requested) -> do

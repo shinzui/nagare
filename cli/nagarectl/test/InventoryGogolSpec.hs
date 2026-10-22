@@ -6,7 +6,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (wait, withAsync)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
 import Control.Exception (bracket_, finally)
-import Control.Monad (forM_, join)
+import Control.Monad (forM, forM_, join)
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -20,22 +20,25 @@ import Gogol qualified as G
 import Gogol.Auth qualified as Auth
 import Gogol.Env qualified as Env
 import Gogol.Storage qualified as S
-import InventoryTransactionSpec (exerciseStore, fixtureBinding, preparedFixtureWith)
+import InventoryTransactionSpec (exerciseStore, fixtureBinding, modelScope, preparedFixtureWith)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal (operationIdText)
+import Nagare.Inventory.Plan (InventoryHistory (historyAccepted), loadInventoryHistory)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Gogol
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (encodeCanonicalScope)
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
+import System.Directory (listDirectory)
 import System.IO (hClose)
-import System.IO.Temp (withSystemTempFile)
+import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
 import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -100,6 +103,70 @@ inventoryGogolTests =
         replay <- newObjectStore ops fixtureBinding "sdk-client" Nothing >>= either (assertFailure . show) pure
         resumeTransaction replay registry transaction >>= either (assertFailure . show) pure >>= (@?= Converged transaction)
         readIORef effects >>= (@?= 1)
+    , testCase "a 100-scope history reads each member with one media request, eight in flight, and none from a warm cache (EP-213)" $
+        withSystemTempDirectory "inventory-gogol-cache" $ \cache -> fixture $ \f ops -> do
+          store <- newObjectStore ops fixtureBinding "sdk-client" (Just cache) >>= either (assertFailure . show) pure
+          initial <- initializeStore store fixtureBinding "sdk-client" >>= either (assertFailure . show) pure
+          revisions <- fmap Map.fromList . forM [1 .. 100 :: Int] $ \n -> do
+            let owner = either (error . T.unpack) id (mkScopeId Standalone ("scope-" <> T.pack (show n)))
+                bytes = encodeCanonicalScope (modelScope owner "member" "v1")
+            digest <- publishIfAbsent store (scopeKey (contentDigest bytes)) bytes >>= either (assertFailure . show) pure
+            pure (owner, ScopeRevision (either (error . T.unpack) id (mkScopeGeneration 1)) digest)
+          replaceHeadIfGenerationMatches store (Just (headGeneration initial)) initial {headGeneration = 1, headAccepted = revisions, headConverged = revisions}
+            >>= either (assertFailure . show) pure
+          let load = do
+                writeIORef (requests f) 0
+                writeIORef (mediaGets f) 0
+                writeIORef (maximumFlight f) 0
+                history <- loadInventoryHistory store >>= either (assertFailure . show) pure
+                Map.size (historyAccepted history) @?= 100
+                (,,) <$> readIORef (requests f) <*> readIORef (mediaGets f) <*> readIORef (maximumFlight f)
+          -- The head is a metadata read and a pinned download; each member is
+          -- one media request and nothing else.
+          (requested, media, high) <- load
+          (requested, media) @?= (102, 101)
+          assertBool "member reads were serialized" (high > 1)
+          assertBool "more than eight member reads in flight" (high <= 8)
+          (warm, warmMedia, _) <- load
+          (warm, warmMedia) @?= (2, 1)
+    , testCase "an immutable member is one media request, its absence one 404, and a digest mismatch is never cached (EP-213)" $
+        withSystemTempDirectory "inventory-gogol-mismatch" $ \cache -> fixture $ \f ops -> do
+          store <- newObjectStore ops fixtureBinding "sdk-client" (Just cache) >>= either (assertFailure . show) pure
+          _ <- initializeStore store fixtureBinding "sdk-client" >>= either (assertFailure . show) pure
+          let bytes = "member bytes"
+              key = scopeKey (contentDigest bytes)
+              forged = scopeKey (contentDigest "other bytes")
+              absent = scopeKey (contentDigest "never published")
+              stored name = "private/inventory/" <> T.pack name
+          modifyIORef' (objects f) (Map.insert (stored key) (1, bytes) . Map.insert (stored forged) (1, bytes))
+          let counted action = do
+                writeIORef (requests f) 0
+                writeIORef (mediaGets f) 0
+                result <- action
+                (result,,) <$> readIORef (requests f) <*> readIORef (mediaGets f)
+          counted (readObject store key) >>= (@?= (Right (Just bytes), 1, 1))
+          counted (readObject store absent) >>= (@?= (Right Nothing, 1, 0))
+          counted (readObject store forged) >>= (@?= (Left (StoreInvalidObject forged "remote immutable member digest mismatch"), 1, 1))
+          listDirectory cache >>= (@?= [T.unpack (digestText (contentDigest bytes))])
+          -- The head keeps its generation-bound read: metadata, then a pinned download.
+          counted (readObject store "head.json") >>= \(_, requested, media) -> (requested, media) @?= (2, 1)
+    , testCase "a publish creates first and reads back only when the create is refused (EP-213)" $ fixture $ \f ops -> do
+        store <- newObjectStore ops fixtureBinding "sdk-client" Nothing >>= either (assertFailure . show) pure
+        _ <- initializeStore store fixtureBinding "sdk-client" >>= either (assertFailure . show) pure
+        let bytes = "published review"
+            key = reviewKey (contentDigest bytes)
+            counted action = do
+              writeIORef (requests f) 0
+              writeIORef (writes f) 0
+              result <- action
+              (result,,) <$> readIORef (requests f) <*> readIORef (writes f)
+        -- Each publish first reads the head (two requests). A new object is
+        -- then one create; an identical one a refused create and the
+        -- transport's read-back (two); a different one a conflict.
+        counted (publishIfAbsent store key bytes) >>= (@?= (Right (contentDigest bytes), 3, 1))
+        counted (publishIfAbsent store key bytes) >>= (@?= (Right (contentDigest bytes), 5, 1))
+        counted (publishIfAbsent store key "competing bytes") >>= \(result, _, written) -> (result, written) @?= (Left (StoreObjectConflict key), 1)
+        readObject store key >>= (@?= Right (Just bytes))
     , testCase "generation-bound GET and private key encoding round trip" $ fixture $ \f ops -> do
         let key = ObjectName "native/a b%?#λ.json"
         putObject ops IfAbsent key "payload" >>= (@?= PutWritten (Generation 1))
@@ -259,7 +326,12 @@ server f req respond = do
                   Nothing -> bad status404
                   Just (gen, bytes)
                     | Just expected <- number "generation", expected /= gen -> bad status404
-                    | query "alt" == Just "media", isNothing (number "generation" :: Maybe Integer) -> bad status400
+                    -- The mutable head and format are read only at a pinned
+                    -- generation; a content-addressed member needs none (EP-213).
+                    | query "alt" == Just "media"
+                    , isNothing (number "generation" :: Maybe Integer)
+                    , any (`T.isSuffixOf` name) ["/head.json", "/format.json"] ->
+                        bad status400
                     | query "alt" == Just "media" -> bracket_
                         ( do
                             count <- atomicModifyIORef' (inFlight f) (\n -> (n + 1, n + 1))

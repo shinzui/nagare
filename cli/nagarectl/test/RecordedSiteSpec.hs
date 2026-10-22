@@ -27,7 +27,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire (encodeCanonicalScope)
 import Nagare.Test.SiteInventory.Access (SiteFixture (..), protectedSiteFixture, publicSiteScope)
-import Nagare.Test.World.ObjectStore (fakeObjectOps)
+import Nagare.Test.World.ObjectStore (fakeObjectOps, immutableThroughGet)
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (ExitCode (..))
 import System.FilePath ((<.>), (</>))
@@ -114,7 +114,7 @@ recordedSiteTests =
         fixture <- protectedSiteFixture
         base <- fakeObjectOps
         reads <- newIORef (0 :: Int)
-        let counted = base {getObject = \name -> modifyIORef' reads (+ 1) >> getObject base name}
+        let counted = immutableThroughGet base {getObject = \name -> modifyIORef' reads (+ 1) >> getObject base name}
         store <- newObjectStore counted (siteContext fixture) "client-recorded" Nothing >>= either (assertFailure . show) pure
         seed store fixture [updatedPublicSite fixture] [] (allConverged fixture)
         reader <- newRecordedReader defaultRecordedReaderConfig store (siteContext fixture) (readHead store)

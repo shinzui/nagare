@@ -92,8 +92,8 @@ import Nagare.Inventory.Store
   , countStore
   , publishIfAbsent
   , readHead
+  , readImmutableObjects
   , readJournalPrefix
-  , readObject
   , replaceHeadIfGenerationMatches
   , reviewKey
   , scopeKey
@@ -158,16 +158,19 @@ loadInventoryHistory store = do
 -- names, so equal heads give equal histories (EP-212).
 loadInventoryHistoryAt :: InventoryStore -> HeadManifest -> IO (Either StoreError InventoryHistory)
 loadInventoryHistoryAt store headValue = countStore store HistoryLoad $ do
-  loaded <- traverse (loadScope store) (Map.toAscList (headAccepted headValue))
-  retained <- traverse (loadRetained store) (Map.toAscList (headRetained headValue))
-  collected <- traverse (loadCollected store) (Map.toAscList (headCollected headValue))
-  migrations <-
-    traverse
-      (loadMigrationReview store)
-      [ (resource, digest)
-      | (resource, incarnation) <- Map.toAscList (headRetained headValue)
-      , Just digest <- [retainedMigrationReview incarnation]
-      ]
+  -- One bounded concurrent read of every member the head names (EP-213).
+  fetched <- readImmutableObjects store (historyMemberKeys headValue)
+  let member key = Map.lookup key <$> fetched
+      loaded = map (loadScope member) (Map.toAscList (headAccepted headValue))
+      retained = map (loadRetained member) (Map.toAscList (headRetained headValue))
+      collected = map (loadCollected member) (Map.toAscList (headCollected headValue))
+      migrations =
+        map
+          (loadMigrationReview member)
+          [ (resource, digest)
+          | (resource, incarnation) <- Map.toAscList (headRetained headValue)
+          , Just digest <- [retainedMigrationReview incarnation]
+          ]
   pure $ do
     accepted <- Map.fromList <$> sequence loaded
     historical <- Map.fromList <$> sequence retained
@@ -216,53 +219,57 @@ loadInventoryHistoryAt store headValue = countStore store HistoryLoad $ do
         _ -> Left (StoreInvalidObject "head.json" "active retained resource lacks a disjoint reviewed migration")
     pure (InventoryHistory headValue accepted (headConverged headValue) historical Set.empty)
   where
-    loadScope inventoryStore (scope, revision) = do
-      bytesResult <- readObject inventoryStore (scopeKey (revisionDigest revision))
-      pure $ do
-        declaration <- bytesResult >>= decodeScopeMember scope (revisionDigest revision)
-        pure (scope, (revision, declaration))
-    loadRetained inventoryStore (resourceId, retained) = do
+    historyMemberKeys headValue =
+      [scopeKey (revisionDigest revision) | revision <- Map.elems (headAccepted headValue)]
+        <> [scopeKey (revisionDigest (retainedRevision retained)) | retained <- Map.elems (headRetained headValue)]
+        <> concat
+          [ [scopeKey (revisionDigest (tombstoneRevision tombstone)), reviewKey (tombstoneReview tombstone)]
+          | tombstone <- Map.elems (headCollected headValue)
+          ]
+        <> [reviewKey digest | retained <- Map.elems (headRetained headValue), Just digest <- [retainedMigrationReview retained]]
+    loadScope member (scope, revision) = do
+      declaration <- member (scopeKey (revisionDigest revision)) >>= decodeScopeMember scope (revisionDigest revision)
+      pure (scope, (revision, declaration))
+    loadRetained member (resourceId, retained) = do
       let revision = retainedRevision retained
           key = scopeKey (revisionDigest revision)
-      bytesResult <- readObject inventoryStore key
-      pure $ do
-        bytes <- bytesResult >>= maybe (Left (StoreInvalidObject key "retained scope member is missing")) Right
-        unless
-          (contentDigest bytes == revisionDigest revision)
-          (Left (StoreInvalidObject key "retained scope member digest mismatch"))
-        declaration <- first (StoreInvalidObject key . T.pack . show) (decodeScope bytes)
-        unless
-          (scopeId declaration == retainedOwner retained)
-          (Left (StoreInvalidObject key "retained scope owner mismatch"))
-        -- A contribution target (for example the access backend map) exists only
-        -- in composition. Consumers that contribute to it retire before its owner,
-        -- so composing the owner scope alone reproduces the retained member (F40).
-        let composedAlone =
-              either
-                (const [])
-                id
-                (composedDeclarations (Map.singleton (scopeId declaration) declaration))
-        managed <-
-          maybe
-            (Left (StoreInvalidObject key "retained resource declaration is missing"))
-            Right
-            ( listToMaybe
-                ( [ resource
-                  | bundle <- scopeBundles declaration
-                  , Managed resource <- bundle ^. #declarations
-                  , resource ^. #identity == resourceId
-                  ]
-                    <> [ resource
-                       | Managed resource <- composedAlone
-                       , resource ^. #identity == resourceId
-                       ]
-                )
-            )
-        unless
-          (managed ^. #owner == retainedOwner retained)
-          (Left (StoreInvalidObject key "retained resource owner mismatch"))
-        pure (resourceId, (retained, managed))
-    loadCollected inventoryStore (resourceId, tombstone) = do
+      bytes <- member key >>= maybe (Left (StoreInvalidObject key "retained scope member is missing")) Right
+      unless
+        (contentDigest bytes == revisionDigest revision)
+        (Left (StoreInvalidObject key "retained scope member digest mismatch"))
+      declaration <- first (StoreInvalidObject key . T.pack . show) (decodeScope bytes)
+      unless
+        (scopeId declaration == retainedOwner retained)
+        (Left (StoreInvalidObject key "retained scope owner mismatch"))
+      -- A contribution target (for example the access backend map) exists only
+      -- in composition. Consumers that contribute to it retire before its owner,
+      -- so composing the owner scope alone reproduces the retained member (F40).
+      let composedAlone =
+            either
+              (const [])
+              id
+              (composedDeclarations (Map.singleton (scopeId declaration) declaration))
+      managed <-
+        maybe
+          (Left (StoreInvalidObject key "retained resource declaration is missing"))
+          Right
+          ( listToMaybe
+              ( [ resource
+                | bundle <- scopeBundles declaration
+                , Managed resource <- bundle ^. #declarations
+                , resource ^. #identity == resourceId
+                ]
+                  <> [ resource
+                     | Managed resource <- composedAlone
+                     , resource ^. #identity == resourceId
+                     ]
+              )
+          )
+      unless
+        (managed ^. #owner == retainedOwner retained)
+        (Left (StoreInvalidObject key "retained resource owner mismatch"))
+      pure (resourceId, (retained, managed))
+    loadCollected member (resourceId, tombstone) = do
       let historical =
             InventoryStore.RetainedIncarnation
               (tombstoneOwner tombstone)
@@ -273,33 +280,28 @@ loadInventoryHistoryAt store headValue = countStore store HistoryLoad $ do
               Nothing
           digest = tombstoneReview tombstone
           key = reviewKey digest
-      declaration <- loadRetained inventoryStore (resourceId, historical)
-      review <- readObject inventoryStore key
-      pure $ do
-        _ <- declaration
-        bytes <- review >>= maybe (Left (StoreInvalidObject key "collection review is missing")) Right
-        unless
-          (contentDigest bytes == digest)
-          (Left (StoreInvalidObject key "collection review digest mismatch"))
-        pure ()
-    loadMigrationReview inventoryStore (resourceId, digest) = do
+      _ <- loadRetained member (resourceId, historical)
+      bytes <- member key >>= maybe (Left (StoreInvalidObject key "collection review is missing")) Right
+      unless
+        (contentDigest bytes == digest)
+        (Left (StoreInvalidObject key "collection review digest mismatch"))
+      pure ()
+    loadMigrationReview member (resourceId, digest) = do
       let key = reviewKey digest
-      review <- readObject inventoryStore key
-      pure $ do
-        bytes <- review >>= maybe (Left (StoreInvalidObject key "migration review is missing")) Right
-        unless
-          (contentDigest bytes == digest)
-          (Left (StoreInvalidObject key "migration review digest mismatch"))
-        document <- first (StoreInvalidObject key . T.pack) (eitherDecodeStrict' bytes)
-        unless
-          (encodeReviewDocument document == bytes)
-          (Left (StoreInvalidObject key "migration review is not canonical"))
-        proof <-
-          maybe
-            (Left (StoreInvalidObject key "migration proof is missing"))
-            Right
-            (Map.lookup resourceId (reviewMigrations document))
-        pure (resourceId, proof)
+      bytes <- member key >>= maybe (Left (StoreInvalidObject key "migration review is missing")) Right
+      unless
+        (contentDigest bytes == digest)
+        (Left (StoreInvalidObject key "migration review digest mismatch"))
+      document <- first (StoreInvalidObject key . T.pack) (eitherDecodeStrict' bytes)
+      unless
+        (encodeReviewDocument document == bytes)
+        (Left (StoreInvalidObject key "migration review is not canonical"))
+      proof <-
+        maybe
+          (Left (StoreInvalidObject key "migration proof is missing"))
+          Right
+          (Map.lookup resourceId (reviewMigrations document))
+      pure (resourceId, proof)
 
 -- Only an idle, unconverged application needs this exceptional history proof.
 -- Fetch one committed journal prefix, not a remote read per event. Neither an

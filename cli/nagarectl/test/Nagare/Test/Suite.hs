@@ -41,6 +41,7 @@ import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryGcloudAuthSpec (inventoryGcloudAuthTests)
 import InventoryGogolSpec (inventoryGogolTests)
 import InventoryHostSpec (inventoryHostTests)
+import InventoryImmutableReadSpec (inventoryImmutableReadTests)
 import InventoryIncarnationSpec (inventoryIncarnationTests)
 import InventoryIntegrationSpec (inventoryIntegrationTests)
 import InventoryJournalHeadAdvanceSpec (inventoryJournalHeadAdvanceTests)
@@ -206,8 +207,7 @@ main = do
             , inventoryGcloudAuthTests
             , inventoryGogolTests
             , inventoryServiceStoreTests
-            , inventoryObjectOpsTests
-            , inventoryStoreOnceTests
+            , testGroup "inventory object store" [inventoryObjectOpsTests, inventoryStoreOnceTests, inventoryImmutableReadTests]
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests

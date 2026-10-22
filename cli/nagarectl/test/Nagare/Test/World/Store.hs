@@ -42,6 +42,11 @@ faultingObjectOps adversary base =
         case snd <$> placement of
           Just GetFailedOnce -> traverse_ (noteActed adversary) placement >> pure (GetUnknown "injected: store read failed")
           _ -> getObject base name
+    , getImmutableObject = \name -> do
+        placement <- nextFaultAt adversary StoreGetCall
+        case snd <$> placement of
+          Just GetFailedOnce -> traverse_ (noteActed adversary) placement >> pure (ImmutableUnknown "injected: store read failed")
+          _ -> getImmutableObject base name
     }
   where
     -- Another client's claim lands at the generation this write expects, so

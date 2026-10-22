@@ -140,10 +140,7 @@ newAdversary faults = newIORef (Adversary faults Map.empty False [] [])
 
 -- | Count one call and return the fault scheduled at its boundary, if any.
 nextFault :: IORef Adversary -> Call -> IO (Maybe Fault)
-nextFault ref operation = atomicModifyIORef' ref $ \adversary ->
-  if operation `elem` [StorePutCall, StoreGetCall] && not (storeArmed adversary)
-    then (adversary, Nothing)
-    else countCall adversary operation
+nextFault ref operation = fmap snd <$> nextFaultAt ref operation
 
 countCall :: Adversary -> Call -> (Adversary, Maybe Fault)
 countCall adversary operation =
@@ -154,16 +151,20 @@ countCall adversary operation =
       , fault
       )
 
--- | Like 'nextFault', with the boundary the fault fired at.
+-- | Like 'nextFault', with the boundary the fault fired at. The count and the
+-- boundary are taken in one step, since store reads run concurrently (EP-213).
 nextFaultAt :: IORef Adversary -> Call -> IO (Maybe (Boundary, Fault))
-nextFaultAt ref operation = do
-  fault <- nextFault ref operation
-  count <- Map.findWithDefault 0 operation . counts <$> readIORef ref
-  pure ((Boundary operation count,) <$> fault)
+nextFaultAt ref operation = atomicModifyIORef' ref $ \adversary ->
+  if operation `elem` [StorePutCall, StoreGetCall] && not (storeArmed adversary)
+    then (adversary, Nothing)
+    else
+      let (counted, fault) = countCall adversary operation
+          boundary = Boundary operation (Map.findWithDefault 0 operation (counts counted))
+       in (counted, (boundary,) <$> fault)
 
 -- | Record that a fault changed the world or the caller's answer.
 noteActed :: IORef Adversary -> (Boundary, Fault) -> IO ()
-noteActed ref placement = modifyIORef' ref (\adversary -> adversary {acted = placement : acted adversary})
+noteActed ref placement = atomicModifyIORef' ref (\adversary -> (adversary {acted = placement : acted adversary}, ()))
 
 -- | Scheduled faults that did not act: never fired, or fired and changed
 -- nothing.
