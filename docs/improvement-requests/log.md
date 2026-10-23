@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-23
+* **Created**: Add IR-37 to profile the full image publication and protected site deployment sequence, extending existing store traces and accounting separately for operator gaps.
+
 ## 2026-10-22
 * **Addition**: Propose IR-36 from mori://shinzui/tan-os/plans/77-deploy-the-network-explorer-to-the-labs-intranet-as-a-login-protected-static-site: a nagarectl command that packages a StaticSite's build context or Docker archive for app image-plan, so an operator repository no longer copies the Nginx renderer and Dockerfile or digs the typed-config GHC out of the nagarectl wrapper.
 
