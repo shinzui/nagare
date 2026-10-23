@@ -270,6 +270,17 @@ release containing these runs on the intranet:
   `nagarectl inventory apply DIR --yes` in under 15 s, each with its `NAGARE_TRACE=1` summary
   recorded here, and a second pair after the context has accepted at least 50 more scopes shows
   the same counts and no measurable change in wall time.
+  First measurement, 2026-10-23, the intranet on the published v0.10.0 (`16f0d7be`), released
+  `nagarectl`, `access team remove-member` then `add-member` back of `user_01m4py1q2fesvbtd7xnxr7yede`
+  in `engineering` (net zero; that user's direct keiro-docs grant covers the team's host).
+  Plans: 5.88 s and 6.69 s (`store opens 1, gcloud sessions 1 (1.77 s, 2.11 s), head reads 1,
+  history loads 1, remote gets 5, cached gets 193, puts 3, listings 0`): **fails** the 5 s bound.
+  Applies: `tx-168063db…` 111.85 s, the first apply after the release's own transition appended
+  more than 64 journal events, so it read the whole journal once (`remote gets 21 (89.58 s)`,
+  gcloud 17.43 s while publication ran beside it); `tx-1ec057f1…` 10.70 s (`remote gets 24
+  (4.58 s), cached gets 7822, listings 0`): passes the 15 s bound on a current journal copy. The
+  50-more-scopes pair is not run. Open: the plan's fixed cost (gcloud session, owner reads, En
+  calls) and the journal tail after a large transition.
 
 
 ## Surprises & Discoveries
