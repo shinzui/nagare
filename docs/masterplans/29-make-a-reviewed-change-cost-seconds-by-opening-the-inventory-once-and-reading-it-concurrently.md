@@ -20,6 +20,11 @@ provenance:
       at: 2026-10-22T22:38:49Z
       mode: "implement"
       note: "EP-212 M1-M3 implemented; EP-213 and EP-214 merged onto it, fast gate green at db83d2b6"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-23T00:23:39Z
+      mode: "update"
+      note: "Added EP-217 and EP-218 at the operator's direction; both complete"
 ---
 
 # Make a reviewed change cost seconds by opening the inventory once and reading it concurrently
@@ -181,8 +186,8 @@ only prior measurement of the store open on the intranet.
 | 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | Complete |
 | 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
-| 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | In Progress |
-| 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Not Started |
+| 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | Complete |
+| 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
@@ -251,15 +256,16 @@ initiative. The MasterPlan's Decision Log holds that decision; no ADR change is 
 
 ## Progress
 
-EP-212, EP-213 and EP-214 are complete and on master (`b95d479b`). EP-215 is unblocked and
-optional. EP-217 and EP-218 (added 2026-10-22) address what the confirmation found. The cross-plan gate is
-not yet met: on the
-intranet a grant plan took 43.2 s and its apply 67.2 s (EP-212 M4). The plan's cost was a
-regression from EP-213's publish, fixed in `b95d479b`; the apply's is the journal read below.
-The one
-cross-plan gate:
+EP-212, EP-213, EP-214, EP-217 and EP-218 are complete and on master (`98886b22`); EP-215 is
+optional and not started. Pre-release measurement on the intranet, 2026-10-22, packaged build of
+`98886b22` with a warm cache and journal copy, a net-zero revoke and grant of one direct access
+grant: plans 7.31 s and 5.46 s (`store opens 1, head reads 1, history loads 1, remote gets 3,
+puts 1, listings 0`; about 2 to 3 s of each is the gcloud session), applies 11.80 s and 10.85 s
+(`history loads 1, remote gets 38 and 22, cached gets about 7,300, listings 0`), one En
+port-forward and one guard pair each. Before: 43.2 s and 67.2 s. The gate below is judged once a
+release containing these runs on the intranet:
 
-- [ ] On the intranet, after EP-212, EP-213 and EP-214 are in the release it runs:
+- [ ] On the intranet, after EP-212, EP-213, EP-214, EP-217 and EP-218 are in the release it runs:
   `nagarectl access team add-member --team T --user U --save-plan DIR` completes in under 5 s and
   `nagarectl inventory apply DIR --yes` in under 15 s, each with its `NAGARE_TRACE=1` summary
   recorded here, and a second pair after the context has accepted at least 50 more scopes shows
@@ -314,6 +320,10 @@ committed journal from a verified local copy and fetches only the new tail (appr
 is still validated in full; the copy is anchored by one read of its newest event). EP-218 reads
 `inventory status`'s native evidence concurrently instead of deferring it. Both build on EP-213's
 reads; the gate is measured after them.
+
+2026-10-22: After EP-217 and EP-218 the plan's remaining fixed cost is the gcloud session
+(2 to 3 s per command, `Nagare.Inventory.Store.GcloudAuth.newGcloudSession` and the two
+ownership reads). It is not addressed here; the plan threshold of 5 s is judged after release.
 
 2026-10-22: EP-215 is optional. It changes what one review may carry, not how fast a review is.
 It is listed because it turns a five-person onboarding into one review; the operator may cancel
