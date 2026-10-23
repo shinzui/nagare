@@ -1859,3 +1859,15 @@ first failure without a partial result. Only `head.json` and `format.json` keep 
 generation-bound read, because compare-and-swap needs their generation. A digest-named publish
 attempts the conditional create first; a refusal is resolved by reading back, equal bytes being
 success and different bytes a conflict.
+A member already in the verified cache is published without any remote call, since nothing is
+written.
+
+The committed journal is served from a verified local copy
+([EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md)).
+Events are written once, so a command keeps the contiguous prefix it read in the context's cache,
+re-reads the newest cached event from the store to bind the copy to it (a rewrite of an older event
+under a valid chain changes that event), and fetches only the events after it; a long tail, an
+empty cache or a differing anchor reads the whole prefix. Every reader still validates the whole
+hash chain. Accepted trade-off: an older remote event corrupted without repairing the chain is not
+noticed by a client whose copy predates the corruption, because that client validates its own
+copy.

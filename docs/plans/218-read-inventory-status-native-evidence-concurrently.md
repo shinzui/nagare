@@ -32,14 +32,17 @@ eight, so a cold status costs a few seconds more than its history load; a warm o
 
 ## Progress
 
-- [ ] M1: `Nagare.Inventory.ObservationNative.loadObservationNativeChecked` reads its native
-  members with one concurrent batch that keeps a per-member result, so a missing member still
-  selects the legacy reader and an invalid one is still reported first. Pass: a test over the
-  counting fake with 100 native members reads them in at most eight in flight; a missing member
-  returns `ObservationNativeMissing`; a corrupt one returns `ObservationNativeInvalid` even when
-  another is missing; `InventoryStatusSpec` and every existing suite pass.
-- [ ] M2: Intranet confirmation, read-only: `inventory status --json` with an empty
-  `XDG_CACHE_HOME` and `NAGARE_TRACE=1`, recorded here with its wall time.
+- [x] M1: `loadObservationNativeChecked` reads its native members with one call to the new
+  `Nagare.Inventory.Store.readImmutableObjectsEach` (waves of eight, every key read, each result
+  kept) and applies today's per-member checks, so a missing member still selects the legacy
+  reader and an invalid one is reported first. Pass: `InventoryImmutableReadSpec` "every member's
+  own result is read with at most eight in flight, a missing one among them (EP-218)": 101 reads
+  for 100 members and one absent key, the absent one `Right Nothing`, at most eight in flight;
+  the full `nagarectl-test` suite passes (`bee3babc`).
+- [x] M2: Intranet, read-only, 2026-10-22, development build of `bee3babc`, empty
+  `XDG_CACHE_HOME`, `inventory status --json`: `store opens 1 (0.60 s), gcloud sessions 1
+  (2.60 s), head reads 1 (0.21 s), history loads 1 (1.93 s), remote gets 375 (40.59 s summed
+  across workers), cached gets 0, listings 0`, wall 11.75 s, down from 45.8 s.
 
 
 ## Decision Log

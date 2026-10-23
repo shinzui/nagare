@@ -44,19 +44,23 @@ journal.
 
 ## Progress
 
-- [ ] M1: `readJournalPrefix` on an object store with a cache serves the cached prefix, anchors
-  it with one read of the newest cached event, fetches the tail in waves of eight with one media
-  request each, and writes what it fetched to the cache. A full prefix read (the existing batch)
-  remains for an empty cache, a long tail, or an anchor that differs. Pass: over the counting fake,
-  a second read of a 500-event journal after 3 appends makes 1 anchor read and 3 tail reads; an
-  anchor whose remote bytes differ falls back to the full read and rewrites the cache; a tampered
-  cached event fails the caller's chain validation; a cold cache reads as today.
-- [ ] M2: every journal reader (execute, admission's unstarted-create proof, status, lineage,
-  schedule history, bootstrap registry recovery) goes through it unchanged, and the recovery
-  model's fast tier and every existing suite pass. Mutation records that touch the journal still
-  kill.
-- [ ] M3: ADR 22 records the rule; intranet confirmation with the operator's go-ahead: one reviewed
-  access change's apply with `NAGARE_TRACE=1`, recorded here.
+- [x] M1: `readJournalPrefix` on an object store with a cache serves the cached contiguous prefix
+  (`<cache>/journal/<n>.json`), re-reads the newest cached event with one `getImmutableObject`,
+  fetches a tail of at most 64 events in waves of eight, and falls back to the batch for an empty
+  cache, a longer tail or a differing anchor, writing what it fetched. Pass:
+  `InventoryStoreOnceSpec` "a cached journal is anchored by one read and only its new tail is
+  fetched (EP-217)": a cold read of 500 events is one batch; after 3 appends a read of 503 is 0
+  batches and 4 single reads and returns the store's bytes; a tampered cached event (anchor
+  intact) fails `validateJournal`; a differing newest event refills from one batch and validates.
+- [x] M2: every journal reader goes through `readJournalPrefix` unchanged; the full
+  `nagarectl-test` suite (including the recovery model's fast tier) passes and every mutation
+  record still applies (`bee3babc`).
+- [x] M3: ADR 22 records the rule (this commit). Intranet, 2026-10-22, packaged build of `bee3babc`, the same
+  net-zero revoke and grant-back pair as EP-212 M4 under the operator's go-ahead. Cold copy (the
+  revoke, `tx-bc378524…`): apply `remote gets 18 (69.11 s), cached gets 355`, wall 79.5 s, which
+  filled 6,919 cached events. Warm copy (the grant, `tx-6a1406ad…`): apply `store opens 1,
+  gcloud sessions 1 (2.14 s), head reads 10 (2.53 s), history loads 1 (0.03 s), remote gets 22
+  (4.50 s), cached gets 7274, puts 10 (1.55 s), listings 0`, wall 12.5 s, against 67.2 s before.
 
 
 ## Decision Log
