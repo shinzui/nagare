@@ -118,7 +118,9 @@ step "pinning $operator to $rev"
 pin "$rev"
 N version --json | jq -e --arg v "$version" --arg r "$rev" '.version == $v and .revision == $r' >/dev/null \
   || die "the operator shell's nagarectl is not $version at $rev"
-N inventory status --json | jq -e '.activeTransaction == null' >/dev/null \
+# The head alone answers this; full status needs the candidate's workspace,
+# which the first plan below prepares.
+N inventory store status --json | jq -e '.activeTransaction == null' >/dev/null \
   || die "the $context store has an active transaction; resume or close it with the release that opened it"
 
 # --- 2. plan and apply until a plan has no operations, then commit the transition ---
