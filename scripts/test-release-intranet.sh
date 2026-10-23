@@ -74,6 +74,7 @@ operator="$operator"
 case "\$*" in
   "version --json") cat "\$state/version.json" ;;
   "inventory status --json") cat "\$state/inventory.json" ;;
+  "inventory store status --json") jq '{activeTransaction}' "\$state/inventory.json" ;;
   "platform status --json") cat "\$state/platform.json" ;;
   "platform transition plan --out "*)
     out="\$5"
