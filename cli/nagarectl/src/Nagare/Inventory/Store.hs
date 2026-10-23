@@ -357,20 +357,22 @@ publishIfAbsent store key bytes = withBackendGuard store $
   case checkedKey key of
     Left err -> pure (Left err)
     Right safeKey -> do
-      active <- mutableHeadAllowed store
-      case active of
-        Left err -> pure (Left err)
-        Right () -> publishChecked safeKey
+      -- A member this context already read is in the verified digest cache;
+      -- publishing it again writes nothing, so it needs no remote call, not
+      -- even the head's migration check.
+      cached <- cachedImmutable store safeKey
+      if cached == Just bytes
+        then pure (Right (contentDigest bytes))
+        else do
+          active <- mutableHeadAllowed store
+          case active of
+            Left err -> pure (Left err)
+            Right () -> createFirst safeKey
   where
     -- The conditional create is the absence proof: try it first, and read
     -- back only when the store refuses it (EP-213). Equal bytes are an
     -- idempotent success; different bytes conflict. An unacknowledged write is
     -- already classified by read-back in the transport ('classifyPutReadback').
-    publishChecked safeKey = do
-      -- A member this context already read is in the verified digest cache;
-      -- publishing it again costs nothing remote, as before EP-213.
-      cached <- cachedImmutable store safeKey
-      if cached == Just bytes then pure (Right (contentDigest bytes)) else createFirst safeKey
     createFirst safeKey = do
       written <- writeObjectUnlocked store False safeKey bytes
       case written of

@@ -46,11 +46,11 @@ inventoryStoreOnceTests =
           _ <- publishIfAbsent store (scopeKey (contentDigest member)) member >>= either (assertFailure . show) pure
           _ <- publishIfAbsent store (scopeKey (contentDigest fresh)) fresh >>= either (assertFailure . show) pure
           counts <- snapshotCounters (storeCounters store)
-          -- Remote gets: format.json at open, the head, the miss, and each
-          -- publication's head check; a new object is created without a
-          -- read first (EP-213), a cached one is not written at all.
+          -- Remote gets: format.json at open, the head, the miss, and the new
+          -- object's head check; it is created without a read first
+          -- (EP-213), and a cached one costs no remote call at all.
           map (`countOf` counts) [StoreOpen, HeadRead, HistoryLoad, RemoteGet, CachedGet, RemotePut, Listing]
-            @?= [1, 1, 0, 5, 2, 1, 0]
+            @?= [1, 1, 0, 4, 2, 1, 0]
     , testCase "admission reuses a pinned history only under the head it was loaded from" $
         forM_ [(False, 0), (True, 1)] $ \(otherHead, admissionLoads) -> do
           store <- newMemoryStore
