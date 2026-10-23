@@ -375,11 +375,12 @@ mutation-check rev="HEAD" base="":
 # landing batch's `just gate`. Exits non-zero when any record survives.
 # Sweep every mutation record at a commit on the remote builder.
 [group('test')]
-mutation-sweep rev="HEAD" width="4":
+mutation-sweep rev="HEAD" base="" width="4":
     #!/usr/bin/env bash
     set -euo pipefail
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
-    scripts/harness.sh mutations sweep --rev "$commit" --width '{{width}}'
+    base='{{base}}'
+    scripts/harness.sh mutations sweep --rev "$commit" ${base:+--base "$base"} --width '{{width}}'
 
 # EP-184 M4: the release gate for a fully gated revision. The deep tier is not
 # part of it (operator, 2026-10-12): it took over six hours. Run `just gate-deep`
@@ -406,7 +407,9 @@ gate-release rev="HEAD":
       echo "gate-release: $commit has a green full gate, and nothing the mutation sweep builds changed since its clean sweep on $base"
       exit 0
     fi
-    just mutation-sweep "$commit"
+    # Only the records whose patched files changed since the clean sweep can
+    # have stopped failing; a revision with no clean ancestor sweeps them all.
+    just mutation-sweep "$commit" "$base"
     mkdir -p "$records"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$records/$commit"
     echo "gate-release: $commit has a green full gate and a clean mutation sweep"

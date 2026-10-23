@@ -25,7 +25,7 @@ data Command
   | MutationsCheck
   | MutationsPatterns
   | MutationsProve !Text !(Maybe Text) !Int ![Text]
-  | MutationsSweep !Text !Int
+  | MutationsSweep !Text !(Maybe Text) !Int
   | RouteCheck !RouteCheckOptions
   deriving stock (Eq, Show)
 
@@ -75,6 +75,7 @@ mutationsParser =
           ( info
               ( MutationsSweep
                   <$> (T.pack <$> strOption (long "rev" <> metavar "REV" <> help "Committed revision to sweep"))
+                  <*> optional (T.pack <$> strOption (long "base" <> metavar "BASE" <> help "Sweep only records the range BASE..REV could affect; default: every record"))
                   <*> option auto (long "width" <> metavar "N" <> value 4 <> showDefault <> help "Workers in the remote build")
               )
               (progDesc "Prove every record in one remote build that compiles the revision once per worker")
@@ -173,12 +174,13 @@ main = do
       let failed = [result | result <- results, result ^. #outcome /= Killed]
       TIO.putStrLn ("mutations prove: " <> T.pack (show (length results - length failed)) <> " killed, " <> T.pack (show (length failed)) <> " not")
       unless (null failed) exitFailure
-    MutationsSweep revision width -> do
+    MutationsSweep revision base width -> do
       loaded <- loadRecords root
-      entries <- either (refuse . ("mutations sweep: " <>)) pure loaded
+      everything <- either (refuse . ("mutations sweep: " <>)) pure loaded
+      entries <- selectRecords root ((,revision) <$> base) everything
       logDir <- newLogDir
-      TIO.putStrLn ("mutations sweep: " <> T.pack (show (length entries)) <> " records at " <> revision <> ", logs in " <> T.pack logDir)
-      swept <- sweepRecords root logDir revision width entries
+      TIO.putStrLn ("mutations sweep: " <> T.pack (show (length entries)) <> " of " <> T.pack (show (length everything)) <> " records at " <> revision <> ", logs in " <> T.pack logDir)
+      swept <- if null entries then pure (Right []) else sweepRecords root logDir revision width entries
       results <- either (refuse . ("mutations sweep: " <>)) pure swept
       forM_ [result | result <- results, result ^. #outcome /= Killed] $ \result ->
         TIO.putStrLn ("mutations sweep: " <> T.pack (show (result ^. #outcome)) <> " " <> result ^. #record <> " (" <> result ^. #detail <> ")")

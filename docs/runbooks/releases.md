@@ -49,7 +49,8 @@ and nothing is retried:
    published tag. Then a worktree of the candidate is made in the run directory; every later step
    runs from it.
 2. **Release gate.** `just gate-release <candidate>` in the background: the gate record, then the
-   mutation sweep unless nothing it builds changed since an ancestor's clean sweep.
+   mutation sweep of the records whose patched files changed since the nearest ancestor's clean
+   sweep (every record when there is none), skipped when nothing it builds changed.
 3. **Upgrade rehearsal.** `scripts/release-rehearse.sh` builds the previous release's packaged
    `nagarectl` and the candidate's and runs
    [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) on the Colima profile
