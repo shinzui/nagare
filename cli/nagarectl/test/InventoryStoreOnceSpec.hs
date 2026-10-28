@@ -3,10 +3,13 @@
 -- command serves the journal it cached and fetches only the new tail.
 module InventoryStoreOnceSpec (inventoryStoreOnceTests) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (forM_, replicateM_)
 import Data.ByteString qualified as BS
 import Data.Either (isLeft, isRight)
-import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
+import Data.List (sort)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import InventoryTransactionSpec (fixtureBinding, preparedFixtureWith)
 import Nagare.Dsl.Prelude
@@ -19,7 +22,7 @@ import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Counters
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types (digestText)
-import Nagare.Test.World.ObjectStore (fakeObjectOps)
+import Nagare.Test.World.ObjectStore (fakeObjectOps, fakeObjectState)
 import System.FilePath (takeFileName, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
@@ -107,7 +110,98 @@ inventoryStoreOnceTests =
           refreshed @?= map encodeJournalEvent events
           assertBool "the refilled journal fails the chain check" (isRight (chainChecks refreshed))
           fst <$> calls >>= (@?= 1)
+    , testCase "every anchored suffix reads the anchor and exactly the missing events, whatever its length (EP-217 M4)" $ do
+        forM_ [(500, 0), (500, 1), (500, 64), (500, 65), (500, 1024), (5000, 65)] $ \(prefix, suffix) -> do
+          reads <- anchoredSuffixReads prefix suffix
+          (prefix, suffix, readsBatches reads, readsListings reads, readsKeys reads)
+            @?= (prefix, suffix, 0, 0, [prefix - 1 .. prefix + suffix - 1])
+          readsBytes reads @?= sum (map (BS.length . encodeJournalEvent) (take (suffix + 1) (drop (prefix - 1) (chainedEvents (prefix + suffix)))))
+          assertBool "more than eight event reads in flight" (readsFlight reads <= 8)
+          when (suffix >= 8) $ assertBool "event reads were serialized" (readsFlight reads > 1)
+        -- The cached prefix's length changes neither the keys nor the bytes
+        -- requested beyond the anchor.
+        short <- anchoredSuffixReads 500 65
+        long <- anchoredSuffixReads 5000 65
+        map (subtract 500) (readsKeys short) @?= map (subtract 5000) (readsKeys long)
+    , testCase "a missing or unreadable tail event refuses with no partial journal and a retry succeeds (EP-217 M4)" $
+        withSystemTempDirectory "journal-tail-failure" $ \cache -> do
+          (base, state) <- fakeObjectState
+          let events = chainedEvents 600
+              insert (sequenceNumber, event) = modifyIORef' state (fmap (Map.insert (journalName sequenceNumber) (Generation 1, encodeJournalEvent event)))
+          mapM_ insert (zip [0 ..] (take 500 events))
+          failing <- newIORef (Nothing :: Maybe (Integer, ImmutableGet))
+          requested <- newIORef ([] :: [Integer])
+          let ops =
+                base
+                  { getImmutableObject = \name@(ObjectName key) -> do
+                      let sequenceNumber = read (T.unpack (T.takeWhile (/= '.') (T.drop 8 key)))
+                      modifyIORef' requested (sequenceNumber :)
+                      readIORef failing >>= \case
+                        Just (failed, outcome) | failed == sequenceNumber -> pure outcome
+                        _ -> getImmutableObject base name
+                  }
+          reader <- newObjectStore ops fixtureBinding "client-b" (Just cache) >>= either (assertFailure . show) pure
+          _ <- readJournalPrefix reader 500 >>= either (assertFailure . show) pure
+          mapM_ insert (drop 500 (zip [0 ..] events))
+          forM_ [ImmutableMissing, ImmutableUnknown "transport reset"] $ \outcome -> do
+            writeIORef failing (Just (530, outcome))
+            writeIORef requested []
+            readJournalPrefix reader 600 >>= assertBool "a failed tail read returned a journal" . isLeft
+            -- The wave holding the failed event finishes; no later wave starts.
+            maximum <$> readIORef requested >>= (@?= 531)
+          writeIORef failing Nothing
+          readJournalPrefix reader 600 >>= (@?= Right (map encodeJournalEvent events))
     ]
+
+data SuffixReads = SuffixReads
+  { readsKeys :: ![Int]
+  , readsBytes :: !Int
+  , readsBatches :: !Int
+  , readsListings :: !Int
+  , readsFlight :: !Int
+  }
+
+-- | Cache a journal of @prefix@ events, append @suffix@ more, and record what
+-- the warm read of the whole journal asks the store for.
+anchoredSuffixReads :: Int -> Int -> IO SuffixReads
+anchoredSuffixReads prefix suffix =
+  withSystemTempDirectory "journal-suffix" $ \cache -> do
+    (base, state) <- fakeObjectState
+    let events = chainedEvents (prefix + suffix)
+        insert (sequenceNumber, event) = modifyIORef' state (fmap (Map.insert (journalName sequenceNumber) (Generation 1, encodeJournalEvent event)))
+    mapM_ insert (zip [0 ..] (take prefix events))
+    keys <- newIORef ([] :: [Int])
+    bytes <- newIORef 0
+    batches <- newIORef 0
+    listings <- newIORef 0
+    inFlight <- newIORef (0 :: Int)
+    flight <- newIORef 0
+    let ops =
+          base
+            { getImmutableObject = \name@(ObjectName key) -> do
+                now <- atomicModifyIORef' inFlight (\n -> (n + 1, n + 1))
+                atomicModifyIORef' flight (\n -> (max n now, ()))
+                threadDelay 100
+                observed <- getImmutableObject base name
+                atomicModifyIORef' inFlight (\n -> (n - 1, ()))
+                let sequenceNumber = read (T.unpack (T.takeWhile (/= '.') (T.drop 8 key)))
+                atomicModifyIORef' keys (\seen -> (sequenceNumber : seen, ()))
+                case observed of
+                  ImmutableFound found -> atomicModifyIORef' bytes (\n -> (n + BS.length found, ()))
+                  _ -> pure ()
+                pure observed
+            , getObjects = \name -> modifyIORef' batches (+ 1) >> getObjects base name
+            , listObjects = \name -> modifyIORef' listings (+ 1) >> listObjects base name
+            }
+    reader <- newObjectStore ops fixtureBinding "client-b" (Just cache) >>= either (assertFailure . show) pure
+    _ <- readJournalPrefix reader (fromIntegral prefix) >>= either (assertFailure . show) pure
+    mapM_ insert (drop prefix (zip [0 ..] events))
+    writeIORef keys [] >> writeIORef bytes 0 >> writeIORef batches 0 >> writeIORef listings 0 >> writeIORef flight 0
+    readJournalPrefix reader (fromIntegral (prefix + suffix)) >>= (@?= Right (map encodeJournalEvent events))
+    SuffixReads <$> (sort <$> readIORef keys) <*> readIORef bytes <*> readIORef batches <*> readIORef listings <*> readIORef flight
+
+journalName :: Integer -> ObjectName
+journalName = ObjectName . T.pack . journalKey
 
 -- | A valid hash-chained journal of the given length.
 chainedEvents :: Int -> [JournalEvent]

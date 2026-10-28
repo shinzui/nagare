@@ -13,6 +13,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.IORef
+import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -57,6 +58,8 @@ data Fixture = Fixture
   , inFlight :: !(IORef Int)
   , maximumFlight :: !(IORef Int)
   , mediaGets :: !(IORef Int)
+  , mediaNames :: !(IORef [T.Text])
+  , mediaBytes :: !(IORef Int)
   , releaseFirst :: !(MVar ())
   , ninthStarted :: !(MVar ())
   }
@@ -234,6 +237,21 @@ inventoryGogolTests =
           high <- readIORef (maximumFlight f)
           assertBool "downloads serialized" (high > 1)
           assertBool "unbounded download concurrency" (high <= 8)
+    , testCase "a 65-event journal tail is one anchor and 65 event downloads, never the cached prefix (EP-217 M4)" $
+        withSystemTempDirectory "inventory-gogol-journal" $ \cache -> fixture $ \f ops -> do
+          let event n = "event " <> BC.pack (show (n :: Int))
+          writeIORef (objects f) (Map.fromList [(journalName n, (toInteger (n + 1), event n)) | n <- [0 .. 99]])
+          store <- newObjectStore ops fixtureBinding "sdk-client" (Just cache) >>= either (assertFailure . show) pure
+          _ <- readJournalPrefix store 100 >>= either (assertFailure . show) pure
+          modifyIORef' (objects f) (<> Map.fromList [(journalName n, (toInteger (n + 1), event n)) | n <- [100 .. 164]])
+          forM_ [requests f, mediaGets f, maximumFlight f, mediaBytes f] (`writeIORef` 0)
+          writeIORef (mediaNames f) []
+          readJournalPrefix store 165 >>= (@?= Right (map event [0 .. 164]))
+          -- Every request is a media download of the anchor or a new event.
+          (,) <$> readIORef (requests f) <*> readIORef (mediaGets f) >>= (@?= (66, 66))
+          readIORef (mediaNames f) >>= (@?= map journalName [99 .. 164]) . sort
+          readIORef (mediaBytes f) >>= (@?= sum (map (BS.length . event) [99 .. 164]))
+          readIORef (maximumFlight f) >>= \high -> assertBool "unbounded download concurrency" (high > 1 && high <= 8)
     , testCase "looped, duplicate, and foreign listing pages refuse before downloading" $ fixture $ \f ops -> do
         forM_ [LoopPages, ForeignPage, DuplicatePage] $ \modeValue -> do
           writeIORef (objects f) (Map.fromList [(journalName n, (toInteger (n + 1), "event")) | n <- [0 .. 8]])
@@ -345,7 +363,10 @@ server f req respond = do
                             when (count >= 9) $ void (tryPutMVar (ninthStarted f) ())
                             when (name == "private/inventory/journal/00000000000000000000.json") (takeMVar (releaseFirst f))
                           threadDelay 2000
-                          respond (Wai.responseLBS status200 [] (LBS.fromStrict (if modeValue == PartialMedia then BS.take 1 bytes else bytes)))
+                          let body = if modeValue == PartialMedia then BS.take 1 bytes else bytes
+                          atomicModifyIORef' (mediaNames f) (\seen -> (name : seen, ()))
+                          atomicModifyIORef' (mediaBytes f) (\n -> (n + BS.length body, ()))
+                          respond (Wai.responseLBS status200 [] (LBS.fromStrict body))
                     | otherwise -> send status200 (metadata name gen bytes)
               ("GET", Nothing) | Wai.rawPathInfo req == listPath -> do
                 if modeValue == ListDenied
@@ -394,7 +415,7 @@ server f req respond = do
               _ -> bad status404
 
 newFixture :: IO Fixture
-newFixture = Fixture <$> newIORef Map.empty <*> newIORef Normal <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newEmptyMVar <*> newEmptyMVar
+newFixture = Fixture <$> newIORef Map.empty <*> newIORef Normal <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef [] <*> newIORef 0 <*> newEmptyMVar <*> newEmptyMVar
 
 -- An immediately expired first token exercises real SDK refresh without a sleep.
 -- Replacing the source file must not silently select a different user on refresh.

@@ -1880,7 +1880,7 @@ exceeded 64 events. The released run in
 [MasterPlan 29](../masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md)
 showed why that policy defeats the intended bound: a normal platform transition made the next
 apply take 111.85 seconds. The previous amendment's long-tail fallback is superseded by this
-accepted rule; implementation is pending
+accepted rule, implemented by
 [EP-217 M4](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md).
 
 When a cached contiguous prefix has a matching remote anchor, read only that anchor and the

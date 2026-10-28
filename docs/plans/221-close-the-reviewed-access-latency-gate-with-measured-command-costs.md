@@ -10,6 +10,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-10-28T19:18:09Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-28T21:13:15Z
+      mode: "implement"
+      note: "Prerequisites met after EP-217 M4"
 ---
 
 # Close the reviewed access latency gate with measured command costs
@@ -51,8 +57,7 @@ separate evidence; they cannot replace the warm-path gate or be silently counted
   confirmation separately, all raw timings and transfer counts, and the release/fixture identity.
   MasterPlan 29's Progress links this evidence and closes its gate only when every criterion passes.
 
-No implementation or new live measurement has been performed for this child. Its hard
-prerequisites include EP-217 Complete, so the next implementation work belongs to EP-217 M4.
+EP-217 is Complete (2026-10-28), so every hard prerequisite is met and M1 is next.
 
 
 ## Surprises & Discoveries
@@ -257,7 +262,7 @@ Hard dependencies are Complete
 [EP-217](217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md)
 and [EP-218](218-read-inventory-status-native-evidence-concurrently.md). Their artifacts are the
 opened/pinned store, bounded reads, command En session, exact anchored journal suffix and native
-reader. EP-217 is currently reopened, so this child waits for its M4 acceptance.
+reader. EP-217 M4 is accepted.
 
 This child owns extensions to `Store.Counters`/SDK transfer attribution and the benchmark
 artifact schema, preserving logical-counter meanings. EP-217 owns the journal read algorithm;

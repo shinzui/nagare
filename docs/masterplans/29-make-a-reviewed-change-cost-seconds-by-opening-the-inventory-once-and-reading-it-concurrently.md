@@ -30,6 +30,11 @@ provenance:
       at: 2026-10-28T19:28:11Z
       mode: "update"
       note: "Apply review: reopen EP-217, assign remaining latency and benchmark to new EP-221, reconcile scope, dependencies, ownership and growth acceptance."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-28T21:13:15Z
+      mode: "implement"
+      note: "EP-217 Complete after M4; EP-221 next"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -217,7 +222,7 @@ only prior measurement of the store open on the intranet.
 | 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | Complete |
 | 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
-| 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | In Progress |
+| 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | Complete |
 | 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Complete |
 | 221 | Close the reviewed access latency gate with measured command costs | [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) | EP-212, EP-213, EP-214, EP-217, EP-218 | None | Not Started |
 
@@ -228,8 +233,8 @@ Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
 EP-212, EP-213 and EP-214 were implemented as independent streams; their integration is accepted.
 EP-217 depends on the completed EP-212 and EP-213, and EP-218 depends on the completed EP-213.
-EP-217 M1-M3 are implemented, but its long-tail acceptance in M4 is outstanding. The required
-execution order now is EP-217 M4, then EP-221 M1-M3. EP-221's whole-child prerequisites include
+EP-217 is Complete, including M4's long-tail acceptance (2026-10-28). The required execution
+order now is EP-221 M1-M3. EP-221's whole-child prerequisites include
 EP-217 Complete; its final milestone owns the release and growth gate described in Progress.
 
 EP-215 depends on EP-212 Complete because it extends the accepted `planRelationship` planner;
@@ -302,9 +307,9 @@ its transport lands. ADR 29's one-scope-per-relationship model stays unchanged.
 
 ## Progress
 
-EP-212, EP-213, EP-214 and EP-218 are Complete. EP-217 is In Progress again: its original
-M1-M3 shipped, but M4 must remove the long-tail cliff. EP-221 is Not Started, blocked on EP-217
-Complete, and owns closure of the latency gate. EP-215 is optional and not started; EP-216 is
+EP-212, EP-213, EP-214, EP-217 and EP-218 are Complete; EP-217 M4 (2026-10-28) fetches only
+the anchor and the exact missing suffix at every tail length. EP-221 is next and owns closure of
+the latency gate. EP-215 is optional and not started; EP-216 is
 held. No new benchmark or implementation success is claimed by the 2026-10-28 plan update.
 
 Historical evidence: the initial five implemented children were on master at `98886b22`.

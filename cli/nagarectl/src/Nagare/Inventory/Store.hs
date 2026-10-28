@@ -873,8 +873,8 @@ readJournalBatch ops count = do
 -- prefix it cached earlier and fetches only the events after it. One read of
 -- the newest cached event binds the copy to the store: rewriting an older
 -- event under a valid chain changes that event. Callers still validate the
--- whole chain. An empty cache, a long tail or a differing anchor reads the
--- whole prefix as before and refills the copy.
+-- whole chain. Every new event is fetched by its key, however many there
+-- are; only an empty cache or a differing anchor reads the whole prefix.
 readJournalCached :: ObjectOps -> StoreCounters -> FilePath -> Integer -> IO (Either StoreError [ByteString])
 readJournalCached ops counters root count = do
   cached <- cachedPrefix 0
@@ -884,7 +884,7 @@ readJournalCached ops counters root count = do
   let known = if anchored then cached else []
       next = fromIntegral (length known)
   fetched <-
-    if not anchored || count - next > journalTailLimit
+    if not anchored
       then fmap (drop (length known)) <$> readJournalBatch ops count
       else fetchTail [next .. count - 1]
   case fetched of
@@ -916,10 +916,6 @@ readJournalCached ops counters root count = do
         ImmutableFound bytes -> Right bytes
         ImmutableMissing -> Left (StoreInvalidObject (journalKey sequenceNumber) "committed journal event is missing")
         ImmutableUnknown reason -> Left (StoreIoError reason)
-
--- | The longest tail read event by event; a longer one uses the batch.
-journalTailLimit :: Integer
-journalTailLimit = 64
 
 immutableKeyDigest :: FilePath -> Maybe ContentDigest
 immutableKeyDigest key = case splitDirectories key of
