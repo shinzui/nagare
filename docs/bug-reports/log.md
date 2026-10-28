@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-28
+* **Addition**: Record BUG-9 from `mori://tan/tan-ng-labs/plans/12-keep-labs-sign-ins-alive-and-add-a-remember-me-option` on the 0.11.0 candidate: a new Shomei image pin renames the auth migration Job, so the accepted `shomei-migrate-<old>` member drops out of the desired scope and every platform plan refuses with `retirement-required`, stopping the intranet transition after the host activation.
+
 ## 2026-10-22
 * **Update**: Plan BUG-8 in `docs/masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md` (ExecPlans 212 to 215). The review corrected the diagnosis: the digest cache already makes warm scope reads local; the cost is one store open per phase, one head read per consumer, one whole-prefix listing per plan, one port-forward and cluster guard per En call, and two round trips per cold read.
 * **Addition**: Record BUG-8 from the `mori://tan/tan-ng-labs` intranet on 0.9.0: one reviewed team membership or site grant takes about 100 seconds because `loadInventoryHistory` reads every accepted scope with sequential GCS GETs, twice per plan and again during apply, and every access relationship adds another scope.
