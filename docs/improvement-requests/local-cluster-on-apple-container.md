@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Support native Apple container Kubernetes through reviewed local bootstrap
 description: Add a native Apple container Kubernetes backend for reviewed substrate, registry, kubeconfig and platform bootstrap while retaining k3d as an explicit alternative.
-timestamp: "2026-10-28T04:34:17Z"
+timestamp: "2026-10-28T12:30:00Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T13:45:00Z"
 requestId: IR-6
-status: proposed
+status: accepted
+acceptedAt: "2026-10-28T12:30:00Z"
+targetPlan: docs/plans/220-run-reviewed-local-bootstrap-on-native-apple-container-kubernetes.md
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -44,6 +46,9 @@ verified:
 ---
 
 # Support native Apple container Kubernetes through reviewed local bootstrap
+
+**Status:** accepted on 2026-10-28; implemented by
+[ExecPlan 220](../plans/220-run-reviewed-local-bootstrap-on-native-apple-container-kubernetes.md).
 
 ## Request and priority
 

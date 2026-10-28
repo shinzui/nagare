@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-28
+* **Accept**: Accept IR-6 and target ExecPlan 220 (docs/plans/220-run-reviewed-local-bootstrap-on-native-apple-container-kubernetes.md).
 * **IR-6**: Refresh the existing Apple request for native Kubernetes and reviewed substrate/registry/kubeconfig bootstrap; retain k3d temporarily without blocking Kotei Plan 84.
 
 ## 2026-10-23
