@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-28
+* **IR-6**: Refresh the existing Apple request for native Kubernetes and reviewed substrate/registry/kubeconfig bootstrap; retain k3d temporarily without blocking Kotei Plan 84.
+
 ## 2026-10-23
 * **Created**: Add IR-37 to profile the full image publication and protected site deployment sequence, extending existing store traces and accounting separately for operator gaps.
 

@@ -1,8 +1,8 @@
 ---
 type: Improvement Request
-title: Run the local cluster on Apple Container instead of k3d on Colima
-description: Replace the k3d-on-Colima local substrate with k3s launched directly as an Apple Container, and make local image builds work without a Docker daemon.
-timestamp: "2026-09-13T13:45:00Z"
+title: Support native Apple container Kubernetes through reviewed local bootstrap
+description: Add a native Apple container Kubernetes backend for reviewed substrate, registry, kubeconfig and platform bootstrap while retaining k3d as an explicit alternative.
+timestamp: "2026-10-28T04:34:17Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T13:45:00Z"
@@ -24,23 +24,112 @@ reviews:
       Docker image-build, and local-mode surfaces and the stated portability
       constraints; no implementation decision or target plan exists, so the
       proposed status and local-platform fit remain accurate.
+  - kind: model
+    reviewer: process:codex-cli
+    reviewed_at: "2026-10-28T04:34:17Z"
+    document_timestamp: "2026-10-28T04:34:17Z"
+    scope: content-and-metadata
+    outcome: commented
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    context: >-
+      Refresh IR-6 with the v0.10.0 bootstrap failure and native Apple Kubernetes
+      qualification from Kotei Plan 84. The operator explicitly permits temporary
+      k3d qualification without waiting for this request. Historical spike evidence
+      is retained; this is an author review, not independent acceptance.
 verified:
   by: process:openai-codex
   at: "2026-09-14T14:45:36Z"
 ---
 
-# Improvement Request: run the local cluster on Apple Container instead of k3d on Colima
+# Support native Apple container Kubernetes through reviewed local bootstrap
 
-**Authored by:** a `claude-code` research session on 2026-09-13, including a hands-on spike on the
-operator's workstation (macOS 26, Apple silicon, `container` CLI 1.2.2).
-**Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed. **Undecided**: the operator has not yet decided whether this is worth
-implementing. This request exists to keep the research; accepting it means writing an ExecPlan
-with the gates under Required verification.
-**Created:** 2026-09-13.
+## Request and priority
 
+Add a supported Apple container Kubernetes backend to the reviewed local platform
+bootstrap. Prefer the native `container k8s` / `container cluster` command group
+selected from the installed CLI's help. Retain k3d as an explicit alternative.
+The older direct-k3s experiment below is historical evidence, not the required design.
 
-## Why
+The operator requested this follow-up on 2026-10-28 while implementing
+`mori://shinzui/kotei/plans/84-deploy-to-nagare-through-its-reviewed-resource-inventory`.
+The same instruction authorizes temporary k3d use to finish that plan. **IR-6 does
+not block Kotei's reviewed-inventory acceptance or require Apple bootstrap to ship
+first.** Preserve Kotei's Apple backend and qualification evidence in the meantime.
+
+## Concrete released limitation
+
+Kotei pins Nagare v0.10.0, source
+`16f0d7be4ab03a44716c81b03c6b433103e32651`. Its native Apple fixture
+`kotei-nagare84` is Ready on arm64 Kubernetes v1.35.5. Packaged Kotei execution,
+output/replay, normal release, targeted/run stop and cleanup-deadline recovery pass
+there with namespace-scoped runtime authority. That proves a usable Kubernetes
+substrate; it does not establish Nagare's reviewed foundation.
+
+On that fixture, `nagarectl --context local platform bootstrap plan --out DIR`
+fails in artifact observation: `k3d cluster list` cannot contact Docker. Source at
+the pin also hardcodes k3d publication, registry naming, runtime labels and
+`k3d kubeconfig get` in:
+
+- `cli/nagarectl/app/Nagare/Cli/Bootstrap/Local.hs`
+- `cli/nagarectl/app/Nagare/Cli/Bootstrap/Host.hs`
+- `scripts/inventory-artifact-transport.sh`
+- `cli/nagarectl/src/Nagare/Inventory/Adapters/ArtifactRuntime.hs`
+- `cli/nagarectl/src/Nagare/Inventory/Components/LocalObjectStore.hs`
+- `cluster/bootstrap/local-substrate.json`
+
+Changing the launcher alone therefore cannot satisfy reviewed bootstrap.
+
+## Requested behavior
+
+1. Make the local substrate specification and context select the backend, named
+   cluster, immutable node image and registry settings. Do not identify an Apple
+   cluster solely by a reused Kubernetes context name.
+2. Implement Apple cluster/registry observation and reviewed provisioning. Preserve
+   digest-bound reviews, resource ownership and lifecycle protection, identity and
+   drift checks, accepted retry behavior and journal-driven recovery. Existing
+   unrelated clusters or registries must not be adopted implicitly.
+3. Export a private kubeconfig through the selected native command group, select
+   the returned context explicitly, and preserve context/cluster identity guards
+   and reviewed credential publication. Do not merge into the ambient kubeconfig.
+4. Make registry publication and pulls work from both the workstation and the
+   Linux Kubernetes node. Verify TLS/plain-HTTP trust explicitly, ingress reachability,
+   Knative/Kourier, local object storage and bootstrap image architecture support.
+   Remove k3d-specific host assumptions from the selected Apple path. Verify the
+   optional admin API's read-only inventory mount when that feature is selected.
+5. Support prebuilt Docker/dockerTools archives without a Docker daemon. Any
+   bootstrap images or optional build paths required by Apple bootstrap must also
+   work without Colima. Node image loading cannot substitute for the reviewed OCI
+   publication contract being qualified.
+
+## Acceptance
+
+- On an authorized Apple silicon Mac with Docker/Colima stopped, plan and apply
+  supported reviewed bootstrap through the native Apple Kubernetes backend.
+- Record CLI and plugin versions, selected command group, node image digest,
+  Kubernetes version, context identity and review/transaction evidence.
+- Publish a prebuilt image through the ordinary inventory path, pull it from the
+  node and reach a ready application through the installed platform ingress.
+- Repeated unchanged bootstrap converges without replacement. Changed identities,
+  foreign ownership, changed review inputs and incorrect kubeconfigs refuse before
+  unrelated resources are changed. Exercise interrupted apply and supported recovery.
+- Keep the k3d local smoke/qualification path passing as an explicit backend.
+- Publish a release containing the backend and operator instructions so consumers
+  can pin immutable released source and repeat their deployment/rollback/drift tests.
+
+Kotei owns its two-release/rollback/drift acceptance. Passing this upstream request
+supplies its future Apple bootstrap prerequisite, not a substitute for that proof.
+Cloud substrate changes, broad automatic adoption and a Docker-API compatibility
+shim are outside this request.
+
+## Historical research: direct k3s experiment, September 2026
+
+The original IR-6 experiment used Apple container 1.2.2 and a directly launched k3s
+image. The following findings describe that earlier spike; commands and alternatives
+below are not current implementation or acceptance requirements.
+
+### Original motivation
 
 The local development substrate (MasterPlan 16, ExecPlan 82) is a k3d cluster, and k3d requires a
 Docker daemon. On the operator's Mac that daemon comes from Colima: a Linux VM that holds memory
@@ -54,9 +143,9 @@ own lightweight VM that exists only while the container runs, which is the resou
 motivates this request.
 
 
-## Findings
+### Findings
 
-### k3d cannot use Apple Container
+#### k3d cannot use Apple Container
 
 k3d starts no containers itself. It drives the Docker Engine API over a socket
 (`DOCKER_HOST=unix://~/.colima/docker.sock` today). Apple Container 1.2.2 has no Docker-compatible
@@ -65,7 +154,7 @@ socket. Third-party shims such as socktainer exist, but k3d depends on many Dock
 was not pursued. The Redpanda setup avoided the same problem by calling `container run` directly.
 That is the approach assessed here.
 
-### k3s runs directly as an Apple Container (spike, 2026-09-13)
+#### k3s runs directly as an Apple Container (spike, 2026-09-13)
 
 k3d is only a launcher for the `rancher/k3s` image, so the spike ran that image directly, using the
 pin from the `justfile` (`rancher/k3s:v1.34.6-k3s1`).
@@ -105,7 +194,7 @@ pin from the `justfile` (`rancher/k3s:v1.34.6-k3s1`).
 
 The spike container was removed afterwards. Nothing in the repository was changed.
 
-### What nagare uses from k3d today
+#### What nagare uses from k3d today
 
 Most of k3d is unused. `just local-up` creates one server with no agents. Four things are used and
 would need a replacement:
@@ -120,7 +209,7 @@ would need a replacement:
 Also k3d-specific: the docs. Roughly ten pages under `docs/user/` and
 `docs/capabilities/local-platform-substrate.md` name k3d. `host.k3d.internal` is referenced nowhere.
 
-### Image builds are the larger dependency on Docker
+#### Image builds are the larger dependency on Docker
 
 Even with the cluster moved, these still call the `docker` CLI and need a daemon:
 
@@ -134,7 +223,7 @@ for any local deploy, and most of the saving is lost. Pushing to a plain-HTTP lo
 `container image push` has not been checked.
 
 
-## What would be lost versus k3d
+### What would be lost versus k3d
 
 - **Portability.** k3d runs anywhere Docker runs, including Linux and Intel Macs. Apple Container
   requires Apple silicon, and user-defined networks (needed for the registry) require macOS 26. If
@@ -149,59 +238,3 @@ Gained: launching plain k3s is arguably closer to production. nagare-01 runs k3s
 so `registries.yaml` and server flags would be handled the same way locally and in the cloud.
 
 
-## Requested change
-
-If accepted:
-
-- Add an Apple Container launcher for the local cluster (`just local-up` variant or a runtime
-  switch): k3s server container with the `/proc/sys` remount, a registry container on a shared
-  network, published ports 80/443/6443/5000, a named volume for k3s state, kubeconfig export, and a
-  matching teardown.
-- Keep k3d on Colima (or any Docker) working as a selectable fallback until the new path passes
-  every gate below, and indefinitely if portability matters.
-- Let local image builds and pushes run without a Docker daemon: `nagarectl`'s build step and the
-  two bootstrap build scripts gain an Apple Container path (`container build`, `container image push`).
-- Keep the local-mode guardrail in `scripts/lib/target.sh` intact. The registry host must still pass
-  the loopback assertion that lets `_require_target_project` step aside, so a local context can
-  never point at a real `*.pkg.dev` registry.
-- Update `docs/user/local-development.md`, `docs/capabilities/local-platform-substrate.md` and the
-  other k3d mentions to describe both runtimes.
-
-
-## Required verification
-
-- `just local-smoke` passes end to end on the Apple Container substrate, including Knative Serving
-  with Kourier reachable on host ports 80/443 and the local auth plane from ExecPlan 85.
-- An image built and pushed with no Docker daemon running (Colima stopped) is pulled by the cluster
-  from `k3d-registry.localhost:5000` and serves traffic.
-- Cluster state survives `local-down`-style stop followed by start when the named volume is kept, or
-  the documentation says plainly that it does not.
-- The k3d path still passes `just local-smoke`.
-- A before/after measurement of host memory with the cluster running (Colima + k3d vs Apple
-  Container), so the decision rests on numbers rather than the expectation that it uses less.
-
-
-## Open questions
-
-- Does Kourier / Knative's networking work with the missing netfilter modules, and would
-  NetworkPolicy enforcement behave the same as on nagare-01 if nagare starts relying on it?
-- Does k3s servicelb bind host-published ports correctly inside an Apple Container VM?
-- Can `container image push` push to a plain-HTTP registry, or does the local registry need TLS?
-- Is `--platform linux/amd64` cross-building (ExecPlan 67) usable through `container build` with
-  Rosetta, or must local builds stay native arm64?
-- Is a Docker-API shim (for example socktainer) mature enough that k3d and the existing `docker`
-  calls could run unchanged? That would be a smaller change than rewriting the launcher, if it holds up.
-
-
-## Acceptance
-
-An operator on an Apple silicon Mac can bring up the local cluster, build and deploy an app, and
-pass `just local-smoke` with Colima stopped. The k3d path remains available and tested, and the
-memory difference between the two is recorded.
-
-
-## Non-goals
-
-This request does not ask to remove k3d, Colima or Docker from the supported toolchain, to support
-multi-node local clusters, to change the cloud substrate on nagare-01, or to relax the cloud-mode
-guardrail in any way.
