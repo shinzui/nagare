@@ -47,7 +47,7 @@ separate evidence; they cannot replace the warm-path gate or be silently counted
   store opening, En setup/reads, immutable hydration and journal transfer. A controlled fixture
   proves logical calls, actual HTTP requests, downloaded objects/bytes and subprocess counts
   are distinct and correctly attributed, including a batch containing many events.
-- [ ] M2: Measured fixed costs are reduced while fresh ownership, frozen credentials, locked-head
+- [x] M2: Measured fixed costs are reduced while fresh ownership, frozen credentials, locked-head
   admission and owner UID rechecks still refuse the same unsafe cases. Start with overlapping
   the independent bucket/project ownership probes. Deterministic recording fakes prove the
   overlap and refusals; a representative reviewed membership path proves the integrated result.
@@ -95,9 +95,35 @@ intranet inventory publications`, three runs: `gcloud sessions 1` 2.22 s (first,
 credential helper` 0.44-0.45 s, `bucket ownership` 0.73-0.75 s and `project ownership` 0.74-0.75 s
 overlapped (`gcloud ownership read 2`, 1.48 s summed), `transport setup` 0.03 s; store open 0.27 s
 and head read 0.22-0.24 s, each a metadata and a media request (`http: metadata control 2, media
-control 2 (2 bodies, 76813 bytes)`); wall 1.78-1.80 s warm. The remaining plan budget (En
-forward, cluster guard, publication puts, local hydration) needs a traced reviewed plan, which
-publishes a review and so waits for the operator's go-ahead before M2's next reduction is chosen.
+control 2 (2 bodies, 76813 bytes)`); wall 1.78-1.80 s warm.
+
+Traced reviewed membership, 2026-10-28, operator go-ahead: the net-zero pair `access team
+remove-member` then `add-member` of `user_01m4py1q2fesvbtd7xnxr7yede` in `engineering`, each
+`--save-plan` and `inventory apply --yes` back to back, packaged build, clean `env -i`,
+`NAGARE_TRACE=1`; `access check` on `keiro-docs.labs.topagentnetwork.net` answered `allowed`
+before and after every pair. With `7624c5e4`: plans 4.94 s and 4.62 s (trace wall 4.89 and
+4.57 s): gcloud session 1.20-1.22 s, store open, head and two reads 0.74-0.80 s (`http: metadata
+control 3, media control 3 (3 bodies, 153555 bytes), upload reviews 1`), put 0.14-0.24 s, then
+`cluster guard` 0.44-0.85 s, `en forward` 0.48-0.98 s, `en request 4` 0.48-0.49 s and `owner read
+2` 0.31-0.33 s one after the other; five kubectl calls each. Applies 26.17 s and 10.35 s. The
+first caught up 431 journal events written by other commands since 2026-10-23 (`media journal 431
+(431 bodies, 165022 bytes)`; anchor and missing suffix only, EP-217 M4) and had one slow
+`project ownership` read (4.94 s); the second `head reads 10` 2.34 s, `remote gets 22` 4.58 s,
+`puts 10` 1.48 s, `media control 11 (11 bodies, 769747 bytes)`, `media journal 9`.
+
+The En session's guard and forward started only after the store was open, so `93c67277` prepares
+them while it opens: `AccessRuntime.prepareEnSession` runs the remembered guard, then opens the
+forward through the session's own first-use path, and the session waits for it before release.
+`InventoryAccessSessionSpec` "(EP-221)": the forward opens while the command has not reached en
+and the command then shares the one guard and one forward (user and team bindings); a refused
+guard or a missing or empty key opens no forward and first use asks the guard again; a command
+that throws during preparation still stops the forward. A mutant that opens the forward after a
+refused guard fails the second test. Access plans and `access check` use it; `Reviewed.accessAdapter`
+sets `KUBECONFIG` only when the command has not already selected that file, so it never races the
+prepared kubectl. Re-measured with the packaged `93c67277`, two more pairs: plans 5.89 s (first
+run of the new binary; trace wall 4.18 s), 3.13 s, 3.59 s and 3.30 s, with guard and forward
+summing 0.64-2.24 s and overlapping the store open; applies 11.74 s, 10.01 s, 10.43 s and 10.87
+s; `access check` 2.12 s. Apply still opens its session lazily (decision below).
 
 
 ## Surprises & Discoveries
@@ -122,6 +148,13 @@ scope size, keep every sample below the original thresholds, and allow growth of
 at most max(0.25 s, 5% of baseline median). Local cached reads and full-chain validation may grow;
 remote reads of unchanged immutable members must not. These are finite benchmark criteria, not
 a claim that all work is constant for arbitrarily large histories.
+
+
+2026-10-28: M2's second reduction prepares the En session (guard, then forward) while the
+store opens, chosen from the traced membership plan, where they ran after it for 0.9-1.8 s. Only
+commands that always reach en prepare it: access plans and `access check`. `inventory apply` keeps
+opening its session on first use, because most applies have no access operation and their warm
+membership apply is 10.0-10.9 s against 15 s. M2 is complete; M3 remains.
 
 
 ## Outcomes & Retrospective

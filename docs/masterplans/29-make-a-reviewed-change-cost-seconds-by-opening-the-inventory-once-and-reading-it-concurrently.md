@@ -308,12 +308,12 @@ its transport lands. ADR 29's one-scope-per-relationship model stays unchanged.
 ## Progress
 
 EP-212, EP-213, EP-214, EP-217 and EP-218 are Complete; EP-217 M4 (2026-10-28) fetches only
-the anchor and the exact missing suffix at every tail length. EP-221 is In Progress: M1
-(command trace of phases and wire transfers) and M2's first reduction (bucket and project
-ownership reads overlapped) are in `7624c5e4`; read-only on the intranet the gcloud session fell
-from 1.77-2.11 s to 1.23 s. Choosing any further reduction needs a traced reviewed plan, which
-publishes a review and waits for the operator's go-ahead; M3 needs a release on the intranet. EP-215 is optional and not started; EP-216 is
-held. No new benchmark or implementation success is claimed by the 2026-10-28 plan update.
+the anchor and the exact missing suffix at every tail length. EP-221 is In Progress with M1 and M2
+done: the command trace of phases and wire transfers and the overlapped ownership reads are in
+`7624c5e4`; the En session prepared while the store opens is in `93c67277`. Pre-release, on the
+intranet, with the packaged build: warm team-membership plans of 3.13-3.59 s and applies of
+10.0-10.9 s (EP-221 Progress). M3 needs a release on the intranet and the five-sample benchmark
+at both scope sizes. EP-215 is optional and not started; EP-216 is held. No new benchmark or implementation success is claimed by the 2026-10-28 plan update.
 
 Historical evidence: the initial five implemented children were on master at `98886b22`.
 Pre-release measurement on the intranet, 2026-10-22, packaged build of
