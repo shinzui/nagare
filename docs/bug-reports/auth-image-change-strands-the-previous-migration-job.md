@@ -6,7 +6,17 @@ generated:
   by: process:claude-code
   at: "2026-10-28T19:20:00Z"
 bugId: BUG-9
-status: confirmed
+status: fixed
+fixedVersion: unreleased
+resolution: >-
+  Fixed on master by commit 1db2be79. The planner's supersededMigrationJobs
+  (cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs) selects a stateless
+  member that an accepted SchemaMigration operation affected and that a
+  ReplaceScope no longer declares; such a member needs no lifecycle decision and
+  receives a retention proof, so it is retained, never deleted. Any other
+  removed member still refuses with retirement-required. Regression tests in
+  cli/nagarectl/test/InventoryContributionRetirementSpec.hs fail without the fix
+  with the intranet's exact error.
 severity: unusable
 origin: mori://tan/tan-ng-labs/plans/12-keep-labs-sign-ins-alive-and-add-a-remember-me-option
 affects: mori://shinzui/nagare/packages/nagarectl
