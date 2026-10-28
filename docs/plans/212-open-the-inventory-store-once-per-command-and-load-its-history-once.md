@@ -16,6 +16,17 @@ provenance:
       at: 2026-10-22T22:38:49Z
       mode: "implement"
       note: "EP-212 M1-M3 implemented; EP-213 and EP-214 merged onto it, fast gate green at db83d2b6"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:28:11Z
+      mode: "update"
+      note: "Reconcile completed API signatures, logical counter semantics and stale-head acceptance; assign remaining latency work to EP-221."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:15:39Z
+      verdict: "comments"
+      note: "One-open and locked-head reuse are present with focused proofs; historical Interfaces and Validation sections still disagree with the implemented signatures and counters."
 ---
 
 # Open the inventory store once per command and load its history once
@@ -63,7 +74,8 @@ landed.
   with their time; `NAGARE_TRACE=1` prints one line per store and the wall time when the command
   ends (`Nagare.Cli.Dispatch`). Pass: `InventoryStoreOnceSpec` "a store counts its open, head
   reads, cached and remote gets and puts" asserts opens 1, head reads 1, history loads 0, remote
-  gets 5, cached gets 1, puts 1, listings 0 for a known sequence over `fakeObjectOps`. The
+  gets 4, cached gets 2, puts 1, listings 0 for the current sequence over `fakeObjectOps`
+  (including the verified-cache republish added after initial integration). The
   intranet attribution run is recorded under M4.
 - [x] M2: One open, one head, one history, no listing, for a plan. `Command.openInventoryForPlanning`
   opens once (never initializing, with `loadTargetSnapshotReadOnly`'s refusals, which it now
@@ -146,12 +158,21 @@ wrapper counts remote operations; the summary is printed by the CLI at exit only
 from code.
 
 
+2026-10-28 revision: Reconciled implementation signatures, counter values and stale-head
+acceptance with the current code; explicitly labeled the old context walkthrough as historical.
+The completed one-open/pinned-history work remains accepted; EP-221 owns the failed latency gate.
+
+
 ## Outcomes & Retrospective
 
 (Not used; operator decision 2026-10-10.)
 
 
 ## Context and Orientation
+
+The following call-site walkthrough describes the pre-change baseline at `4e0efd38`; its line
+numbers and old signatures are historical. Progress, Plan of Work and Interfaces describe the
+accepted implementation. EP-221 owns the still-open end-to-end latency target.
 
 **The store.** `cli/nagarectl/src/Nagare/Inventory/Store.hs` is the inventory store: a
 `HeadManifest` (`head.json`, line 194; it derives `Eq`) names the accepted and converged
@@ -245,75 +266,38 @@ generic-lens labels).
 
 ## Plan of Work
 
-**M1, counters.** Add `Nagare.Inventory.Store.Counters`: a `StoreCounters` record of `IORef Int`
-pairs (count and nanoseconds) per `Counter` (`RemoteGet`, `CachedGet`, `RemotePut`,
-`RemoteList`, `HeadRead`, `HistoryLoad`, `StoreOpen`, `GcloudSession`), with `newStoreCounters`,
-`counted :: StoreCounters -> Counter -> IO a -> IO a` (bumps the count and adds the elapsed
-monotonic time) and `snapshotCounters`. `ObjectBackend` gains a `StoreCounters` field;
-`openObjectStore` creates it and counts itself as one `StoreOpen`; `remoteObjectOps` wraps the
-transport so that `getObject`, `getObjects`, `putObject` and `listObjects` count as remote
-operations and the gcloud session creation counts once. `readObjectUnlocked` counts a cache hit as
-`CachedGet`; `readHead` counts `HeadRead`; `loadInventoryHistory` counts `HistoryLoad`. The
-summary: `Nagare.Inventory.Store.Counters.registerForTrace` records every created counters
-record in a process-wide list (the `Contract.Sink` pattern) when `NAGARE_TRACE` is set, and
-`Nagare.Cli.Main` prints one line per store at exit, for example
-`nagarectl trace: store opens 1 (5.1 s), gcloud sessions 1 (0.6 s), head reads 1 (0.3 s), history loads 1 (0.4 s), remote gets 3, cached gets 86, puts 3, listings 0, wall 7.9 s`.
-Expose `storeCounters :: InventoryStore -> Maybe StoreCounters` for tests. The memory and
-filesystem backends can carry counters too (cheaply) so the `ContractCommands` fixture, which
-uses a local store, can assert head reads and history loads.
+These milestones are implemented. This section records the accepted shape for follow-up work;
+it does not instruct a future contributor to replace compatibility wrappers with old sketches.
 
-**M2, the plan path.** In `Nagare.Inventory.Plan.History` add
-`loadInventoryHistoryAt :: InventoryStore -> HeadManifest -> IO (Either StoreError InventoryHistory)`
-(the body of today's loader after the head read) and make `loadInventoryHistory` read the head
-and call it. Make `seedInventoryHistory` take the `HeadManifest` it already read, and
-`loadInventoryPlanningHistory` take the loaded `InventoryHistory` instead of loading. In
-`Nagare.Inventory.Command` add
+M1 added `Nagare.Inventory.Store.Counters`. Every backend carries `StoreCounters` and
+`Nagare.Cli.Dispatch` uses `withStoreTrace` to print summaries on stderr when `NAGARE_TRACE=1`.
+`countingObjectOps` counts logical remote operations: one `getObjects` batch counts as one
+`RemoteGet`, regardless of HTTP requests or bytes. The `GcloudSession` interval currently
+includes ownership reads and transport construction. Subprocess/forward counts use EP-185's
+PATH shim. EP-221 owns finer attribution; the logical counter meanings stay stable.
 
-```haskell
-data OpenedInventory = OpenedInventory
-  { openedStore :: !InventoryStore
-  , openedHead :: !HeadManifest
-  , openedHistory :: !InventoryHistory
-  }
+M2 added `OpenedInventory` in `Nagare.Inventory.Command.Open`, re-exported through Command.
+`openInventoryForPlanning` opens read-only, requires an existing idle head belonging to the
+context, and returns `inventoryStore`, `pinnedHead` and `loadedHistory`. It never seeds an absent
+store. `planRelationship` and `planPortalSync` use `openedSnapshot` and
+`planInventoryCandidateLoaded`. `loadTargetSnapshotReadOnly`, also used by effective-access
+checks, delegates to the same opener. The loaded planner calls `seedInventoryHistoryAt` and
+`loadInventoryPlanningHistoryFrom`; old wrappers retain their signatures for other callers.
+`prepareReviewWithPayloadIdentity` takes the pinned `HeadManifest`, so planning needs no prefix
+listing. `prepareReview` retains its snapshot compatibility wrapper.
 
-openInventoryForPlanning :: ActiveTarget -> IO OpenedInventory
-```
+M3 passes `ReviewInventory` to registry factories. It contains `executionStore` and optional
+`pinnedHistory`; apply supplies the loaded history, while resume/recover/close without one keep
+loading through `reviewInventoryHistory`. `applyReviewedWithHistory` and `admitWithHistory`
+accept the optional history; the original `applyReviewed` and `admit` remain wrappers. Admission
+first checks the locked head, reuses history only if equal, and otherwise memoizes one reload for
+the coverage checks. Static stale-head refusals precede history use; they do not promise a second
+load. Writes retain their locked-head observations and review publication proof.
 
-which opens once with `openTargetStore`, reads the head once, applies
-`loadTargetSnapshotReadOnly`'s refusals (absent head, foreign binding, unresolved transaction,
-claim, fence or migration), and loads the history once. Add
-`tryPrepareInventoryCandidateLoaded`, which takes an `OpenedInventory` and does what
-`tryPrepareInventoryCandidateWithDeciderPayload` does minus the open, `initializeStore`,
-`seedInventoryHistory` (the head is non-empty, or the opener seeded and reloaded) and
-`readStoreSnapshot`; it computes the planning history from the loaded one and passes the pinned
-head to `prepareReviewWithPayloadIdentity`, whose `StoreSnapshot` parameter becomes a
-`HeadManifest`. Keep `tryPrepareInventoryCandidateWithDeciderPayload` as the opener-plus-loaded
-composition so every existing caller is unchanged except for the counts. `planRelationship`
-becomes: open once, build the snapshot from `openedHistory` with `mkScopeSnapshot`, compile,
-compose, `withEnApiKey` around `planInventoryCandidateLoaded`. `planPortalSync` and
-`checkEffectiveAccess` use the same opener.
-
-**M3, the apply path.** `applyInventoryWithFactory` reads the head once after
-`requireTransitionOwner` (fold that function's read into it), loads the history at that head, and
-passes both to the factory and to `applyReviewed`. The factory type becomes
-`OpenedInventory -> ReviewBundle -> IO AdapterRegistry` for every `…WithFactory` function;
-`inventoryExecutionRegistry` and `accessReviewAdapter` take the history from it instead of loading
-(coordinate the latter's signature with EP-214, which changes its transport argument at the same
-time). `applyReviewed` and `admit` take `Maybe InventoryHistory`; after `observeCurrentHead`,
-`admit` uses the given history when `historyHead given == headValue` and otherwise calls
-`loadInventoryHistoryAt store headValue`, and hands the chosen history to
-`scheduledPruneRetention`, `retentionCoverage` and `migrationCoverage`, which stop loading
-themselves. `readReviewSnapshot`'s head read folds into the same single read where the review
-digest check keeps its direct, uncached GET. Resume, recover and close pass `Nothing` unless they
-already hold a history.
-
-**M4, durable context and confirmation.** Amend ADR 22 with a dated paragraph: a command opens its
-store once and asserts ownership once; it pins the head it read and loads history from that head;
-a loaded history is reused only under a byte-identical head; a mutation re-observes the head under
-the writer lock before every conditional write. Add one sentence to
-`docs/runbooks/inventory-operations.md` where `inventory store status --json` is described:
-`NAGARE_TRACE=1` prints the store's operation counts and times on stderr. Then the intranet
-confirmation (Progress M4), with the operator's go-ahead for the apply.
+M4 amended ADR 22 and the operations runbook and recorded the attribution evidence in Progress.
+It proved this child's command-count contract, not the MasterPlan's wall-time target. That
+remaining acceptance is assigned to
+[EP-221](221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md).
 
 
 ## Concrete Steps
@@ -350,16 +334,17 @@ ExecPlan: docs/plans/212-open-the-inventory-store-once-per-command-and-load-its-
 
 ## Validation and Acceptance
 
-- `InventoryObjectOpsSpec`: a store over `fakeObjectOps` with counters, after `readHead`, one
-  cached read, one remote read and one `publishIfAbsent`, snapshots head reads 1, cached gets 1,
-  remote gets 2 (the miss and the publish's read; EP-213 M4 later makes the publish 0 reads) and
-  puts 1.
+- `InventoryStoreOnceSpec`: the current fixture's open/read/cache/republish/new-publish sequence
+  reports `[StoreOpen, HeadRead, HistoryLoad, RemoteGet, CachedGet, RemotePut, Listing]` =
+  `[1, 1, 0, 4, 2, 1, 0]`. A verified cached republish makes no remote call.
 - `ContractCommands`: the plan reports opens 1, head reads 1, history loads 1, listings 0; the
   apply reports history loads 1. Before M2 the same assertions show the current counts, which is
   the evidence that the test measures the right thing.
 - `InventoryTransactionSpec` over the object backend: a plan's review carries the pinned head's
   generation and sequence; an apply after another writer's head advance is refused `stale-head`
-  with history loads 2 and no claim taken.
+  before a claim or admission history load. Separately, an injected mismatching pinned-history
+  head with an otherwise admissible review reloads once; an equal pinned-history head reloads
+  zero times, as `InventoryStoreOnceSpec` proves.
 - Every existing `nagarectl-test` test passes, `InventoryRecoveryModelSpec`'s fast tier passes and
   `just gate-fast` is green. Mutation records under `cli/nagarectl/test/mutation` that name
   `admit`, `retentionCoverage`, `loadInventoryHistory` or `tryPrepareInventoryCandidateWithDeciderPayload`
@@ -381,36 +366,39 @@ anyway; if it stops, `inventory resume` finishes it as for any review.
 ## Interfaces and Dependencies
 
 ```haskell
--- cli/nagarectl/src/Nagare/Inventory/Store/Counters.hs (new)
-data Counter = RemoteGet | CachedGet | RemotePut | RemoteList | HeadRead | HistoryLoad | StoreOpen | GcloudSession
-newStoreCounters :: IO StoreCounters
-counted :: StoreCounters -> Counter -> IO a -> IO a
-snapshotCounters :: StoreCounters -> IO (Map Counter (Int, Double))   -- count, seconds
-
--- cli/nagarectl/src/Nagare/Inventory/Store.hs
-storeCounters :: InventoryStore -> Maybe StoreCounters
+-- cli/nagarectl/src/Nagare/Inventory/Store/Counters.hs
+data Counter = StoreOpen | GcloudSession | HeadRead | HistoryLoad | RemoteGet | CachedGet | RemotePut | Listing
+newStoreCounters :: Text -> IO StoreCounters
+snapshotCounters :: StoreCounters -> IO CounterSnapshot
+-- Store.hs: all backends carry counters
+storeCounters :: InventoryStore -> StoreCounters
 
 -- cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
 loadInventoryHistoryAt :: InventoryStore -> HeadManifest -> IO (Either StoreError InventoryHistory)
-seedInventoryHistory :: InventoryStore -> HeadManifest -> CompositionCandidate -> IO (Either StoreError HeadManifest)
-loadInventoryPlanningHistory :: InventoryStore -> InventoryHistory -> CompositionCandidate -> IO (Either StoreError InventoryHistory)
+seedInventoryHistoryAt :: InventoryStore -> HeadManifest -> CompositionCandidate -> IO (Either StoreError HeadManifest)
+loadInventoryPlanningHistoryFrom :: InventoryStore -> InventoryHistory -> CompositionCandidate -> IO (Either StoreError InventoryHistory)
+data ReviewInventory = ReviewInventory
+  { executionStore :: !InventoryStore
+  , pinnedHistory :: !(Maybe InventoryHistory)
+  }
+
+-- cli/nagarectl/src/Nagare/Inventory/Command/Open.hs; re-exported by Command
+-- OpenedInventory fields: inventoryStore, pinnedHead, loadedHistory
+openInventoryForPlanning :: ActiveTarget -> IO OpenedInventory
+openedSnapshot :: OpenedInventory -> IO ScopeSnapshot
+
+-- cli/nagarectl/src/Nagare/Inventory/Command.hs
+tryPrepareInventoryCandidateLoaded :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Text -> ActiveTarget -> OpenedInventory -> CompositionCandidate -> IO (Either Text (InventoryStore, ReviewBundle, ContentDigest))
+applyInventoryWithFactory :: (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> Bool -> IO ()
 
 -- cli/nagarectl/src/Nagare/Inventory/Plan/Prepare.hs
 prepareReviewWithPayloadIdentity :: Text -> AdapterRegistry -> HeadManifest -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
 
--- cli/nagarectl/src/Nagare/Inventory/Command.hs
-data OpenedInventory = OpenedInventory { openedStore :: !InventoryStore, openedHead :: !HeadManifest, openedHistory :: !InventoryHistory }
-openInventoryForPlanning :: ActiveTarget -> IO OpenedInventory
-tryPrepareInventoryCandidateLoaded :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Text -> OpenedInventory -> CompositionCandidate -> IO (Either Text (InventoryStore, ReviewBundle, ContentDigest))
-applyInventoryWithFactory :: (OpenedInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> Bool -> IO ()
-
 -- cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs and Admission.hs
-applyReviewed :: InventoryStore -> AdapterRegistry -> ReviewedPlan -> Maybe InventoryHistory -> IO (Either (NonEmpty AdmissionError) TransactionResult)
-admit :: LockedStore s -> AdapterRegistry -> ReviewedPlan -> Maybe InventoryHistory -> IO (Either (NonEmpty AdmissionError) (ExecutablePlan s))
--- reuse only when historyHead given == the head observed under the lock
+applyReviewedWithHistory :: InventoryStore -> AdapterRegistry -> ReviewedPlan -> Maybe InventoryHistory -> IO (Either (NonEmpty AdmissionError) TransactionResult)
+admitWithHistory :: LockedStore s -> AdapterRegistry -> ReviewedPlan -> Maybe InventoryHistory -> IO (Either (NonEmpty AdmissionError) (ExecutablePlan s))
 ```
 
-No hard dependency. EP-213 edits the member reads inside `loadInventoryHistoryAt`'s body and
-adds store read functions; this plan does not touch those lines. EP-214 edits
-`accessReviewAdapter`'s transport argument while this plan edits its history argument; the second
-to land rebases. EP-215 waits for this plan's `planRelationship`.
+No hard dependency. EP-213 owns member reads inside the history loader; EP-214 owns transport
+arguments. Both are integrated. EP-215 consumes the accepted planner, EP-217 consumes the store
+and counters, and EP-221 owns further fixed-cost work. This child remains Complete.

@@ -25,6 +25,17 @@ provenance:
       at: 2026-10-23T00:23:39Z
       mode: "update"
       note: "Added EP-217 and EP-218 at the operator's direction; both complete"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:28:11Z
+      mode: "update"
+      note: "Apply review: reopen EP-217, assign remaining latency and benchmark to new EP-221, reconcile scope, dependencies, ownership and growth acceptance."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:15:39Z
+      verdict: "changes-requested"
+      note: "Assign the failed latency gate to executable follow-up work; reconcile added scope and integration ownership; define growth metrics that distinguish local reads and actual remote transfers."
 ---
 
 # Make a reviewed change cost seconds by opening the inventory once and reading it concurrently
@@ -37,8 +48,8 @@ and the Decision Log holds dated decisions that change scope or design (operator
 ## Vision & Scope
 
 After this initiative, saving and applying one team membership or one site grant on the intranet
-costs a few seconds each, and that cost does not grow with the number of scopes the context has
-accepted. The trigger is
+costs a few seconds each, with no material growth over the specified 50-scope benchmark
+increase. Local hydration and validation still grow with accepted history. The trigger is
 [BUG-8](../bug-reports/reviewed-access-change-reloads-inventory-history-sequentially.md): on
 2026-10-22, thirteen `access team add-member` reviews took 26 minutes on the `tan-ng-labs`
 intranet (context `intranet` on the operator's workstation), one `access grant --save-plan` took
@@ -111,31 +122,39 @@ event and compare-and-swaps the head.
 **Growth comes from the model, and the model stays.**
 [ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md) makes every
 relationship its own reviewed scope, so a context that uses teams adds a scope per membership.
-After this initiative a scope costs one local cache read, so that growth is harmless into the
-thousands; the model is not changed.
+Warm scopes require local reads and decoding, and the complete journal is still validated locally.
+Those costs grow with history; the gate measures whether the specified 50-scope increase stays
+within its wall-time tolerance. The model is not changed, and constant total work is not claimed.
 
 ### Scope boundary
 
-Included: the command-shape fix (EP-212), the store's cold-read and publish path (EP-213), the
-En session (EP-214), and an optional multi-relationship review (EP-215). Excluded: the
-one-scope-per-relationship model; the admin API's recorded reader, which already reads with
-eight workers and a bounded decode cache (MasterPlan 28); the journal and head compare-and-swap
-protocol; the legacy `NAGARE_INVENTORY_GCS_TRANSPORT=gcloud` transport beyond keeping its tests
-green; and `inventory status` beyond what it inherits from one open and one load.
+Included: the command-shape fix (EP-212), concurrent immutable reads and publication (EP-213),
+the command-scoped En session (EP-214), verified journal caching including long tails (EP-217),
+concurrent status native evidence (EP-218), and the remaining fixed-cost reduction and release
+benchmark (EP-221). EP-215 is an optional multi-relationship review. EP-216 is a held transport
+replacement, outside the required latency gate until its upstream trigger is satisfied.
+
+Excluded: changing the one-scope-per-relationship model; the admin API's recorded reader under
+MasterPlan 28; changing the journal format, full-chain validation or head compare-and-swap
+protocol; and optimizing the legacy `NAGARE_INVENTORY_GCS_TRANSPORT=gcloud` transport beyond
+preserving its behavior. Journal reads and status native evidence are explicitly in scope; the
+2026-10-22 expansion supersedes their original exclusions.
 
 
 ## Decomposition Strategy
 
-The work splits by functional concern into three independent streams and one optional extension,
-each with its own proof fixture.
+The original three streams are complete. Two follow-on read paths were added after measurement;
+EP-217 is reopened for its long-tail gap, and EP-221 owns the remaining latency acceptance.
+Optional batching and the held service-proxy transport remain separate from that required work.
 
 EP-212 owns the command: one open, one ownership proof, one pinned head, one history load, the
 history passed to every consumer, admission reusing it only while the locked head is the pinned
 head, and the whole-prefix listing gone from planning. Its first milestone adds per-command
-counters (store gets split into cached and remote, puts, lists, head reads, gcloud and kubectl
-spawns, forwards, wall time) printed on stderr under `NAGARE_TRACE=1`, because BUG-8's apply
-breakdown was never instrumented and this MasterPlan's gate is measured with those counters. Its
-proof is a fake object store that counts operations per command path.
+counters (store gets split into cached and remote, puts, lists, head reads and wall time) printed
+on stderr under `NAGARE_TRACE=1`. Subprocess and forward counts come from EP-185-style PATH
+shims. The existing `remote gets` counter counts ObjectOps calls, including one call for a whole
+journal batch; it is not an HTTP-request count. EP-221 adds transfer and phase attribution.
+EP-212's proof is a fake object store that counts operations per command path.
 
 EP-213 owns the store's remote read and publish path: immutable members read through the digest
 cache with bounded concurrency, one media round trip per immutable object verified by digest, and
@@ -153,13 +172,25 @@ relationships, so onboarding five people to a team is one review instead of five
 independent of the speed fix and the operator may cancel it; it waits for EP-212 because both
 rewrite `planRelationship`.
 
+EP-217 owns `readJournalCached`, its anchor and exact tail range, and full-chain validation
+through every existing journal consumer. M1-M3 remain accepted historical evidence; M4 removes
+the 64-event full-prefix fallback and proves the same behavior for short and long valid tails.
+
+EP-218 owns `readImmutableObjectsEach` and `loadObservationNativeChecked`: bounded reads retain
+each member's result so an invalid member cannot be hidden by a missing one. It is complete.
+
+EP-221 owns attribution of the remaining fixed command costs, safe reductions that preserve
+fresh ownership checks, and the reproducible 100-scope/50-more-scopes release benchmark. It starts
+after EP-217 completes and is the owner of this MasterPlan's still-failing latency gate.
+
 Alternatives considered. A process-wide memo of the gcloud session alone would remove three
 gcloud calls per plan but leave the repeated head reads, the second format check, the listing and
 the double history load; EP-212 threads the opened store and history through the command and
-keeps a memo only as the backstop for paths that still open twice. One plan for everything was
-rejected because the three fixtures and the three modules are disjoint and the streams can land
-in any order. Bundling relationships into one scope to slow the growth was rejected because the
-scope is the reviewed unit under ADR 29 and the fix removes the per-scope cost instead.
+does not add a process-wide credential memo. Other command paths keep their existing shape.
+The three initial streams had distinct proofs and could land in either order after reconciling
+the shared history and adapter interfaces. Bundling relationships into one scope was rejected
+because the scope is the reviewed unit under ADR 29; this work reduces repeated setup and remote
+reads while retaining per-scope local work.
 
 Relevant durable context: [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md)
 owns the store contract (immutable digest-named members, a canonical head, conditional writes)
@@ -186,78 +217,98 @@ only prior measurement of the store open on the intranet.
 | 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | Complete |
 | 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
-| 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | Complete |
+| 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | In Progress |
 | 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Complete |
+| 221 | Close the reviewed access latency gate with measured command costs | [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) | EP-212, EP-213, EP-214, EP-217, EP-218 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
 
 ## Dependency Graph
 
-EP-212, EP-213 and EP-214 start together and land in any order. EP-212 M1 (the counters) is the
-first thing to land because the other two use it to attribute their intranet confirmation, but
-neither needs it to implement or to prove itself against its fixture. EP-215 waits for EP-212
-to complete: both change `planRelationship` in `cli/nagarectl/src/Nagare/Access/Reviewed.hs`,
-EP-212 to take the opened store and pinned history, EP-215 to compile a non-empty list of scopes.
-The cross-plan gate in Progress runs once EP-212, EP-213 and EP-214 are in a release the intranet
-runs.
+EP-212, EP-213 and EP-214 were implemented as independent streams; their integration is accepted.
+EP-217 depends on the completed EP-212 and EP-213, and EP-218 depends on the completed EP-213.
+EP-217 M1-M3 are implemented, but its long-tail acceptance in M4 is outstanding. The required
+execution order now is EP-217 M4, then EP-221 M1-M3. EP-221's whole-child prerequisites include
+EP-217 Complete; its final milestone owns the release and growth gate described in Progress.
 
-EP-216 is held. It replaces EP-214's kubectl transport behind the same `EnTransport` seam with
-plain HTTPS to the API server's service proxy, and can start only when an En release that accepts
-`X-En-Api-Key` (IR-1 in `mori://shinzui/en`) is pinned by the auth plane and rolled onto the
-context. It is not part of the gate.
+EP-215 depends on EP-212 Complete because it extends the accepted `planRelationship` planner;
+it benefits from EP-214's session but is optional and does not displace the required sequence.
+
+EP-216 remains held behind EP-214 Complete and an En release that accepts `X-En-Api-Key`
+(`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned by the auth plane and rolled
+onto the context. It replaces all context En transport construction sites, including callers
+outside command sessions. It is not a prerequisite for EP-221; if fixed-cost evidence requires
+it, revise this graph explicitly and keep the latency gate open rather than silently waiting for
+an optional upstream change.
 
 
 ## Integration Points
 
-**Store opening — EP-212 owns.** `Nagare.Inventory.Store`, `Nagare.Inventory.Store.Target`,
-`Nagare.Inventory.Store.Remote` and `Nagare.Inventory.Command.openTargetStore`. EP-212 decides
-how an opened store and its gcloud session live for the command and how a second open in the same
-process becomes a local check. EP-213 adds read and publish functions to `Nagare.Inventory.Store`
-and must not change the open path or the `Backend` constructor; its worker bound is a constant,
-like the journal batch's eight workers in `Nagare.Inventory.Store.Gogol`.
+**Store opening — EP-212 defines; EP-221 extends cost attribution.**
+`Nagare.Inventory.Command.Open`, `Store.Target`, `Store.Remote` and `Store.GcloudAuth` own the
+opened store and frozen command identity. EP-212's `OpenedInventory` contains `inventoryStore`,
+`pinnedHead` and `loadedHistory`; it is not a process-wide memo. EP-221 may reduce measured
+opening costs while retaining fresh ownership proof and the existing credential contract.
 
-**History loading — split by line.** In `cli/nagarectl/src/Nagare/Inventory/Plan/History.hs`,
-EP-212 owns the entry points: it adds `loadInventoryHistoryAt`, which takes an already-read
-`HeadManifest` and never reads the head, and makes `seedInventoryHistory` and
-`loadInventoryPlanningHistory` take the head too. EP-213 owns the member reads inside the loader:
-the four sequential `traverse` calls over accepted, retained, collected and migration members
-become one bounded concurrent read of the needed immutable keys through the new store function.
-Neither plan edits the other's lines; the representative check is `InventoryTransactionSpec` and
-`InventoryAccessSpec` passing with both changes applied.
+**History loading — EP-212 defines entry points; EP-213 owns member reads.**
+`Nagare.Inventory.Plan.History.loadInventoryHistoryAt` accepts the pinned head;
+`seedInventoryHistoryAt` and `loadInventoryPlanningHistoryFrom` reuse existing state. Original
+wrappers remain available. EP-213's `readImmutableObjects` hydrates the members in waves of
+eight. `InventoryTransactionSpec` and `InventoryAccessSpec` are the shared consumer checks.
 
-**Access adapter construction — split by argument.** `Nagare.Inventory.AccessRuntime.accessReviewAdapter`
-and `Nagare.Access.Reviewed.accessAdapter` both load the history and both build
-`accessRuntimeOps`. EP-212 changes where the history comes from (a parameter, not a load);
-EP-214 changes what `accessRuntimeOps` is built from (a command-scoped En session and a memoized
-guard). The existing `InventoryAccessSpec` plan and apply tests are the shared check.
+**Access adapter construction — EP-212 owns history; EP-214 owns transport.**
+`accessReviewAdapter` takes `ReviewInventory`, containing an opened store and optional pinned
+history, plus `EnTransport`; `accessAdapter` takes the loaded `InventoryHistory` and transport.
+`accessRuntimeOpsWith` returns `IO AccessOps`. Recovery paths without pinned history load as
+before. `InventoryAccessSpec` and `InventoryAccessSessionSpec` exercise the combined contract.
 
-**Admission reuse rule — EP-212 owns, ADR 22 records.** `Nagare.Inventory.Execute.Admission.admit`
-may reuse a history loaded before the writer lock only when the head observed under the lock is
-byte-identical to the head that history was loaded from; otherwise it reloads at the locked head.
-This rule is the durable context EP-212 writes into ADR 22 when it lands, together with EP-213's
-read rule once EP-213 lands.
+**Admission reuse — EP-212 owns.** `admitWithHistory` reuses history only when its head equals
+the head observed under the writer lock; otherwise it loads at that locked head. ADR 22 records
+this rule. Neither performance follow-up may weaken it or the conditional-write checks.
 
-**Counters — EP-212 owns.** A counting `ObjectOps` wrapper and a subprocess counter, summarized
-on stderr under `NAGARE_TRACE=1`. EP-213 and EP-214 cite those lines as their live evidence; their
-fixture-level proofs use the counters the fixtures already have.
+**Store counters — EP-212 defines; EP-221 owns extensions.** `Store.Counters` and the counting
+`ObjectOps` wrapper retain logical operation counts. EP-221 adds separately named HTTP request,
+downloaded-object/byte and phase measurements; it must not relabel a batch as one object.
+Subprocess counts use recording runners or PATH shims. EP-217 proves exact journal keys fetched
+in its own fixture before EP-221 integrates transport-level attribution.
 
-**`EnTransport` seam — EP-214 owns, EP-216 implements.** EP-214 defines `EnTransport`
-(`withEn`, `readOwner`, `clusterGuard`) and the command-boundary session; EP-216 adds a second
-implementation over the API server's service proxy and removes the kubectl one. Neither changes
-the adapter above the seam.
+**Journal cache — EP-217 owns.** `Store.readJournalCached`, its cache files and anchor policy
+remain under EP-217. It consumes EP-213's `getImmutableObject` and eight-read bound. M4 fetches
+only the exact missing suffix for every valid anchor, with no long-tail full-prefix fallback;
+the cold/unanchored path and every reader's chain validation stay intact. The early consumer
+proof is `InventoryStoreOnceSpec` through `readJournalPrefix` and `validateJournal`, followed
+by the recovery model and `InventoryGogolSpec` counting actual downloads. EP-221 consumes this
+accepted behavior and adds the end-to-end release measurements.
 
-**`planRelationship` — EP-212 then EP-215.** EP-212 lands its signature first; EP-215 extends it
-to a `NonEmpty` of compiled scopes.
+**Native evidence — EP-218 owns.** `Store.readImmutableObjectsEach` and
+`ObservationNative.loadObservationNativeChecked` share EP-213's cache and concurrency bound,
+but retain per-key outcomes rather than stopping at the first failed wave. Missing evidence may
+select the legacy reader; invalid evidence must refuse. `InventoryImmutableReadSpec` and native
+observation tests are the shared checks. EP-221 must preserve these semantics.
 
-Deliberate exclusion worth recording: ADR 29 §5 (one scope per relationship) is unchanged by this
-initiative. The MasterPlan's Decision Log holds that decision; no ADR change is needed for it.
+**En transport — EP-214 defines; EP-216 replaces every constructor path.** `EnTransport`
+keeps `withEn`, `readOwner` and `clusterGuard`. EP-216 owns migration of `Runtime.Cluster`,
+`Commands.Access`, `Commands.Inventory.Status`, `Inventory.Workflow`, `Inventory.Planning` and
+`Inventory.Execution`, including the latter modules' `kubectlTransport` fallback. It removes
+port-forwards only after all callers use the proxy; owner reads and guards still run through
+kubectl. EP-221 measures the current session and does not assume EP-216 has landed.
+
+**Planner and durable context.** EP-212 defines `planRelationship`; EP-215 extends it to several
+scopes. EP-221 keeps the single-relationship benchmark. EP-217 owns ADR 22's journal-read rule;
+EP-221 records any further durable cost/authority decisions there. EP-216 updates ADR 29 when
+its transport lands. ADR 29's one-scope-per-relationship model stays unchanged.
 
 
 ## Progress
 
-EP-212, EP-213, EP-214, EP-217 and EP-218 are complete and on master (`98886b22`); EP-215 is
-optional and not started. Pre-release measurement on the intranet, 2026-10-22, packaged build of
+EP-212, EP-213, EP-214 and EP-218 are Complete. EP-217 is In Progress again: its original
+M1-M3 shipped, but M4 must remove the long-tail cliff. EP-221 is Not Started, blocked on EP-217
+Complete, and owns closure of the latency gate. EP-215 is optional and not started; EP-216 is
+held. No new benchmark or implementation success is claimed by the 2026-10-28 plan update.
+
+Historical evidence: the initial five implemented children were on master at `98886b22`.
+Pre-release measurement on the intranet, 2026-10-22, packaged build of
 `98886b22` with a warm cache and journal copy, a net-zero revoke and grant of one direct access
 grant: plans 7.31 s and 5.46 s (`store opens 1, head reads 1, history loads 1, remote gets 3,
 puts 1, listings 0`; about 2 to 3 s of each is the gcloud session), applies 11.80 s and 10.85 s
@@ -265,11 +316,27 @@ puts 1, listings 0`; about 2 to 3 s of each is the gcloud session), applies 11.8
 port-forward and one guard pair each. Before: 43.2 s and 67.2 s. The gate below is judged once a
 release containing these runs on the intranet:
 
-- [ ] On the intranet, after EP-212, EP-213, EP-214, EP-217 and EP-218 are in the release it runs:
-  `nagarectl access team add-member --team T --user U --save-plan DIR` completes in under 5 s and
-  `nagarectl inventory apply DIR --yes` in under 15 s, each with its `NAGARE_TRACE=1` summary
-  recorded here, and a second pair after the context has accepted at least 50 more scopes shows
-  the same counts and no measurable change in wall time.
+- [ ] EP-221 M3: on a released build containing the required children, a single team-membership
+  plan takes under 5 s and its apply under 15 s at a baseline of at least 100 accepted scopes.
+  Repeat after at least 50 additional accepted scopes. For each size, measure five actual
+  `add-member` plan/apply samples using a controlled membership removed between samples, after
+  one untimed warm-up pair. Keep the machine, release, context, operation and cache policy fixed;
+  record all raw times, scope/journal sizes and competing work. Every measured sample must meet
+  its threshold. The grown-state median may exceed baseline by at most the larger of 0.25 s or
+  5% of baseline median; report the range too. Failed or stale-head runs are reported separately
+  and repeated after quiescence, never silently discarded. EP-221 owns a machine-readable result
+  artifact and a summary here.
+
+  For the repeated operation, store opens = 1, gcloud sessions = 1, plan head reads = 1,
+  history loads = 1 and inventory listings = 0 remain invariant. Check apply head reads/puts
+  against the same operation's baseline rather than imposing the plan's head-read count.
+  Separately record actual HTTP requests, journal keys/bytes downloaded, subprocesses and
+  forward opens. Warm immutable-member downloads stay zero for unchanged members; journal
+  downloads are one anchor plus the missing suffix, independent of cached-prefix length.
+  Cached reads, decoding and full-chain validation may grow and are reported, not required to
+  be constant. Cold-cache results and long-tail results are reported separately, with EP-217's
+  64/65-event fixture proving that no full-prefix download is hidden by an ObjectOps batch count.
+
   First measurement, 2026-10-23, the intranet on the published v0.10.0 (`16f0d7be`), released
   `nagarectl`, `access team remove-member` then `add-member` back of `user_01m4py1q2fesvbtd7xnxr7yede`
   in `engineering` (net zero; that user's direct keiro-docs grant covers the team's host).
@@ -279,8 +346,8 @@ release containing these runs on the intranet:
   more than 64 journal events, so it read the whole journal once (`remote gets 21 (89.58 s)`,
   gcloud 17.43 s while publication ran beside it); `tx-1ec057f1…` 10.70 s (`remote gets 24
   (4.58 s), cached gets 7822, listings 0`): passes the 15 s bound on a current journal copy. The
-  50-more-scopes pair is not run. Open: the plan's fixed cost (gcloud session, owner reads, En
-  calls) and the journal tail after a large transition.
+  50-more-scopes pair is not run. EP-221 owns the fixed-cost failure and rerun; EP-217 M4 owns
+  the long-tail failure. These measurements remain failures, not acceptance of the revised gate.
 
 
 ## Surprises & Discoveries
@@ -339,6 +406,15 @@ ownership reads). It is not addressed here; the plan threshold of 5 s is judged 
 2026-10-22: EP-215 is optional. It changes what one review may carry, not how fast a review is.
 It is listed because it turns a five-person onboarding into one review; the operator may cancel
 it without affecting the gate.
+
+
+2026-10-28 revision: Applied the plan review. Reopened EP-217 for exact suffix reads at every
+valid-anchor tail length, added EP-221 as owner of fixed-cost reduction and release acceptance,
+and reconciled scope, dependencies and shared interfaces with EP-217/218. The growth gate now
+separates invariant command/remote-work counts from growing local work and defines five-sample
+thresholds and a median tolerance. EP-216 must migrate all transport callers and retain owner
+and guard subprocesses. Existing completed evidence and the optional/held boundaries remain.
+The original statement that the remaining fixed cost is unowned is superseded by EP-221.
 
 
 ## Outcomes & Retrospective

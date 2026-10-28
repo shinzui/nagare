@@ -26,6 +26,17 @@ provenance:
       at: 2026-10-22T23:20:31Z
       mode: "implement"
       note: "Merged onto EP-212; intranet M4 confirmation recorded"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:28:11Z
+      mode: "update"
+      note: "Reconcile session memo ownership, IO signatures and owner-read counts; name all transport callers for EP-216 migration."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:15:39Z
+      verdict: "comments"
+      note: "Command sessions and owner rechecks are present with focused proofs; reconcile owner-read counts and the stale pure accessRuntimeOpsWith signature with implementation."
 ---
 
 # Reach the context's En through one forward and one guard per command
@@ -50,9 +61,10 @@ kubectl processes and about 9 s for one `inventory apply` of one tuple, and five
 After this plan a command opens one forward on first use and keeps it until the command ends,
 runs the cluster guard once, checks capability and schema once, and still reads the owner
 objects' UIDs at every phase and before every write, because that comparison is the safety
-property that stops a write against a replaced auth service or route. An apply of one tuple
-spawns one forward, one guard pair and eight owner reads; a plan spawns one forward, one guard
-pair and two owner reads. `access check` and `access portal sync` use the same session.
+property that stops a write against a replaced auth service or route. The recorded direct-grant command path uses one forward and one guard pair, with eight
+owner reads for apply and four for planning. The full five-inspect fixture plus its write reread
+uses six reads per owner object: twelve for a host grant, six for a membership. Counts must name
+the path and tuple kind rather than treating all lifecycles as identical. `access check` uses the session; `access portal sync` does not reach En.
 
 
 ## Progress
@@ -139,12 +151,20 @@ session for `inventory apply` and `inventory resume`.
 "Handling connection" lines cannot fill the pipe and stall kubectl during a long command.
 
 
+2026-10-28 revision: Reconciled memo ownership, IO signatures, portal-sync exclusion and the
+fixture-versus-command owner-read counts. Named the non-session callers that held EP-216 must
+replace. This child remains Complete and EP-221 owns the release latency gate.
+
+
 ## Outcomes & Retrospective
 
 (Not used; operator decision 2026-10-10.)
 
 
 ## Context and Orientation
+
+The initial walkthrough below describes the pre-session baseline. Progress and Plan of Work
+record the implementation, including the correction that portal sync does not call En.
 
 `cli/nagarectl/src/Nagare/Inventory/AccessRuntime.hs` holds the runtime. `withContextEn`
 (line 292) checks `NAGARE_EN_API_KEY`, spawns `kubectl --context C -n nagare-system port-forward
@@ -192,42 +212,29 @@ and `mori://shinzui/haskell-jitsurei/docs/core-standards` govern the Haskell.
 
 ## Plan of Work
 
-M1 introduces the seam and the session. Define in `Nagare.Inventory.AccessRuntime`:
+M1 implemented `EnTransport { withEn, readOwner, clusterGuard }` and a bracketed `withEnSession`
+in `Nagare.Inventory.AccessRuntime`. The session holds a lazy forward, reopens it when its
+process exits, drains its output and closes it on every exit. It remembers only a successful
+guard. `accessRuntimeOpsWith :: EnTransport -> ContextBinding -> IO AccessOps` allocates the
+capability and schema success memos per adapter; those memos are not fields of the session.
+Owner reads are never memoized, and every write still re-reads and compares owner identity.
 
-```haskell
-data EnTransport = EnTransport
-  { withEn :: !(forall a. (EnCall -> IO a) -> IO (Either Text a))
-  , readOwner :: !(ManagedResource -> IO (Either Text Value))
-  , clusterGuard :: !(IO (Either Text ()))
-  }
-```
+M2 wrapped access planning/effective-check commands in `withContextEnSession`, apply/resume in
+`Inventory.Workflow` with `inventoryExecutionRegistryIn`, and the inventory status access lane
+in `withEnSession`. `accessAdapter` receives `InventoryHistory`; `accessReviewAdapter` receives
+EP-212's `ReviewInventory`. Portal sync uses the manifest adapter and receives no En session.
+Generic planning and execution/recovery callers outside these boundaries still use
+`kubectlTransport`, which opens a forward per call. Held EP-216 must migrate those paths as well
+as the command-session paths before removing the forward implementation.
 
-`accessRuntimeOpsWith :: EnTransport -> ContextBinding -> AccessOps` builds the same `AccessOps`
-as today from the transport, and `accessRuntimeOps` becomes
-`accessRuntimeOpsWith (kubectlTransport kubectlContext guard)`. The session is
-`withEnSession :: Text -> IO (Either Text ()) -> (EnTransport -> IO a) -> IO a`: it holds an
-`MVar (Maybe Forward)`; `withEn` opens the forward on first use (same readiness wait and port
-parsing as today), reuses it while `getProcessExitCode` is `Nothing`, reopens once if the process
-has exited, and the bracket's release terminates whatever forward is open. Inside the session,
-`clusterGuard`, the capability check and the schema check are memoized on success with one
-`MVar` each (`Nothing` until a `Right`). `readOwner` is not memoized. `accessInspect` keeps its
-order: owners, then capability, then schema for a team tuple, then the query; `accessWrite` keeps
-its owner comparison before the POST.
+M3's `InventoryAccessSessionSpec` tests prove the full five-inspect lifecycle and before-write
+owner reread, forward restart, failed capability/guard rechecks, missing key refusal and cleanup
+on exceptions. Its owner count is `6 * owners binding`: twelve for a host grant, six for a team
+membership. This fixture is distinct from the four-inspect released apply path's eight owner
+reads for a direct grant. Keep both observations explicit.
 
-M2 moves the session to the command boundary. `planAccess`, `planTeamAccess`, `planTeamMember`,
-`checkEffectiveAccess` and `planPortalSync` in `Nagare.Access.Reviewed` take an `EnTransport`
-(or open the session themselves at their top, since each is one command). `accessAdapter` and
-`accessReviewAdapter` take the transport instead of a kubectl context and a guard.
-`inventoryExecutionRegistry` receives it from `runInventoryApply` and `runInventoryResume`, which
-wrap their body in `withEnSession`; `runInventoryStatus` does the same for its access lane. A
-command with no access operations never opens a forward: the session is lazy, so this falls out.
-
-M3 is the failure-behaviour proof listed in Progress, written against the fake transport: a
-`withEn` that returns `Left "en port-forward did not become ready"`, a forward that "dies" after
-the second phase (the fake flips a flag so the next `withEn` reopens and counts two opens), and a
-capability check that fails once then succeeds (two capability calls counted).
-
-M4 updates `docs/user/access.md` and records the intranet confirmation with EP-212's.
+M4 updated the user documentation and recorded the command-path counts in Progress. The
+remaining MasterPlan wall-time acceptance belongs to EP-221; this session child stays Complete.
 
 
 ## Concrete Steps
@@ -262,11 +269,11 @@ ExecPlan: docs/plans/214-reach-the-context-s-en-through-one-forward-and-one-guar
 
 ## Validation and Acceptance
 
-- `InventoryAccessSpec`: driving `mkAccessAdapter` built from `accessRuntimeOpsWith` and a
+- `InventoryAccessSessionSpec`: driving the operations from `accessRuntimeOpsWith` and a
   counting fake transport through one tuple's observe, prepare, preflight, execute and verify
   gives forward opens 1, guard 1, capability 1, schema 1 for a team tuple and 0 for a user tuple,
-  owner reads 10 (two per inspect), queries 5, writes 1. Today's code would give 5 forwards and 5
-  guards.
+  owner reads six per owner object (five inspects plus the write reread), queries 5, writes 1.
+  That is twelve reads for a host grant and six for a membership.
 - The same test with the fake forward "exited" after preflight gives forward opens 2 and the same
   outcome.
 - A fake whose capability check fails on the first call gives capability calls 2 and a prepare
@@ -300,16 +307,16 @@ withEnSession :: Text -> IO (Either Text ()) -> (EnTransport -> IO a) -> IO a
 withEnSessionUsing :: EnForwarder forward -> (ManagedResource -> IO (Either Text Value)) -> IO (Either Text ()) -> (EnTransport -> IO a) -> IO a
 kubectlTransport :: Text -> IO (Either Text ()) -> EnTransport   -- one forward per call
 accessRuntimeOpsWith :: EnTransport -> ContextBinding -> IO AccessOps
-accessReviewAdapter :: InventoryStore -> ContextBinding -> EnTransport -> ReviewBundle -> IO (Either Text Adapter)
+accessReviewAdapter :: ReviewInventory -> ContextBinding -> EnTransport -> ReviewBundle -> IO (Either Text Adapter)
 -- cli/nagarectl/src/Nagare/Access/Reviewed.hs
 accessAdapter :: ActiveTarget -> EnTransport -> [Declaration] -> InventoryHistory -> IO Adapter
--- EP-212 changes this function's history source at the same time; coordinate the one signature.
+-- EP-212 and EP-214 are integrated: the history and transport are both supplied.
 ```
 
 EP-216 (held) later implements `EnTransport` over the API server's service proxy and deletes
 `openEnForward`; keep the seam's shape stable for it.
 
-No hard dependency. EP-212 edits `accessReviewAdapter` and `accessAdapter` too (it passes the
-loaded history in instead of loading it); whichever lands second rebases onto the other's
-signature. EP-215 observes several tuples per plan and benefits from one forward but does not
+No hard dependency. EP-212's loaded-history arguments are integrated with the transport
+arguments. EP-221 owns remaining cost attribution; EP-216 owns eventual replacement of all
+transport constructors, including non-session registry callers. EP-215 observes several tuples per plan and benefits from one forward but does not
 need it.

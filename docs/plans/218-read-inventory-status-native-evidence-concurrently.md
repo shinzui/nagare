@@ -10,6 +10,18 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-22T23:31:41Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:15:40Z
+      verdict: "approved"
+      note: "Concurrent per-member native reads preserve missing-versus-invalid handling; implementation, focused concurrency proof, and recorded live evidence align."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:28:11Z
+      mode: "update"
+      note: "Clarify implemented native reader, EP-213 prerequisite, per-member-result ownership and EP-221 integration."
 ---
 
 # Read inventory status native evidence concurrently
@@ -53,10 +65,15 @@ the first failure, because this reader's semantics distinguish a missing member 
 legacy review reader) from an invalid one (refuse).
 
 
+2026-10-28 revision: Made the completed implementation and shared-interface ownership explicit,
+including its EP-213 prerequisite and EP-221 consumer. No acceptance or implementation changed.
+
+
 ## Context and Orientation
 
-`cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs` `loadObservationNativeChecked` reads
-each `objectKeyFor "native" digest` with `readObject` inside `Map.traverseWithKey`.
+`cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs` `loadObservationNativeChecked` now
+collects native keys, calls `readImmutableObjectsEach` and performs the original member checks.
+The sequential `Map.traverseWithKey` read described at creation is the pre-change baseline.
 `Nagare.Inventory.Status.loadNativeFor` calls it for status, recovery and planning.
 `cli/nagarectl/src/Nagare/Inventory/Store.hs` holds `readImmutableObjects` (EP-213's waves of
 eight over the cache-aware read). Proofs live in fakes
@@ -84,3 +101,15 @@ just gate-fast
 ## Validation and Acceptance
 
 M1's tests, every existing suite green, and M2's trace.
+
+
+## Interfaces and Dependencies
+
+Hard dependency: completed
+[EP-213](213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md), which
+supplies cache-aware immutable reads and the eight-read bound. This child owns
+`readImmutableObjectsEach` and `loadObservationNativeChecked`; the former retains every per-key
+result while EP-213's `readImmutableObjects` stops after a failing wave. Invalid bytes remain a
+refusal even when another selected member is missing. EP-217 owns journal caching separately;
+EP-221 consumes this completed native reader for the combined latency benchmark and must not
+change its fallback/error semantics.

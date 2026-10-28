@@ -21,6 +21,17 @@ provenance:
       at: 2026-10-22T22:40:58Z
       mode: "implement"
       note: "Merged onto EP-212/214 and recorded the read-only intranet M5 trace"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:28:11Z
+      mode: "update"
+      note: "Reconcile waves, cached republish and HTTP counts; replace unsafe cache move/restore recipe with isolated XDG_CACHE_HOME."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:15:39Z
+      verdict: "comments"
+      note: "Concurrent digest-verified reads and create-first publish are present; reconcile semaphore/cancellation prose with waves, cached republish behavior, and the cache restoration commands."
 ---
 
 # Read immutable inventory members concurrently in one round trip each
@@ -142,12 +153,20 @@ bytes as idempotent success and reports different bytes as a conflict, which is 
 `classifyPutReadback` already decides for an unacknowledged write.
 
 
+2026-10-28 revision: Aligned the executable instructions with waves, cache-aware republishing
+and real HTTP request counts. Replaced the cache move/restore commands with an isolated cache.
+This child remains Complete; EP-217 and EP-221 own the outstanding performance work.
+
+
 ## Outcomes & Retrospective
 
 (Not used; operator decision 2026-10-10.)
 
 
 ## Context and Orientation
+
+The walkthrough below is the pre-change baseline. Progress and Plan of Work describe the
+implemented transport and waves; historical line numbers are not current source locations.
 
 The inventory store (`cli/nagarectl/src/Nagare/Inventory/Store.hs`) keeps a context's recorded
 state as objects under one prefix of a GCS bucket (or a local directory, or memory in tests). Two
@@ -201,15 +220,13 @@ the fixtures prove the counts, the intranet run confirms.
 
 ## Plan of Work
 
-M1 adds `readImmutableObjects :: InventoryStore -> [FilePath] -> IO (Either StoreError (Map FilePath ByteString))`
-to `Nagare.Inventory.Store`. It refuses any key without an `immutableKeyDigest` before touching
-the store. It serves cached keys first, then fetches the misses under a `QSem` of eight with
-`mapConcurrently`, through `readObjectUnlocked` so the digest check and the cache write stay in
-one place. The first `Left` cancels the remaining work (`mapConcurrently` propagates the exception
-of a failing sibling; wrap the per-key result so a `Left` becomes a thrown `StoreError` inside the
-batch and is caught once at the boundary) and the call returns that error, never a partial map. A
-missing object is `StoreInvalidObject key "immutable member is missing"`. The memory and
-filesystem backends use the same function; their reads are local and the bound costs nothing.
+M1 implemented `readImmutableObjects` in `Nagare.Inventory.Store`. It validates all keys as
+digest-named, deduplicates/sorts them and reads through the verified cache in waves of at most
+eight using `mapConcurrently`. Every member of the current wave finishes; on any `Left`, no
+later wave is scheduled and the result is `Left`, never a partial map. Successful reads in that
+wave may populate the cache. There is no semaphore pool or sibling cancellation on `Left`.
+A missing member is `StoreInvalidObject key "immutable member is missing"`. Memory and
+filesystem backends retain the same result contract.
 
 M2 rewrites the body of `loadInventoryHistory` so that it first collects the keys it will need
 (accepted scope digests, retained scope digests, collected tombstones' scope and review digests,
@@ -229,13 +246,16 @@ it and verifies the digest; a mismatch is `StoreInvalidObject` and is not cached
 (the fake by lookup, the service store by its existing exact GET). `getObject` keeps its
 two-step semantics for the mutable keys.
 
-M4 reorders `publishIfAbsent`: after `checkedKey` and `mutableHeadAllowed`, call
-`writeObjectUnlocked store False key bytes` (the conditional create) first. `PutWritten` is
-success. `PutPreconditionFailed` reads the key back: equal bytes return `Right digest`, different
-bytes return `StoreObjectConflict`. `PutUnknown` and `PutNoEffect` are classified by read-back as
-`writeObjectUnlocked` already does through `classifyPutReadback`. `appendAtSequence` and
-`seedInventoryHistory` call `publishIfAbsent` and inherit the change; the Gogol fixture's
-conditional-create tests are the proof that nothing about idempotence or conflict detection moved.
+M4 implemented create-first publication for uncached members. `publishIfAbsent` first checks
+whether the verified local cache already contains the exact bytes; if so it returns the digest
+without a remote call or write. Otherwise it performs the mutable-head guard and attempts the
+conditional create. The transport classifies uncertain/refused writes by read-back; equal bytes
+are idempotent success and different bytes conflict. An identical uncached republish costs the
+refused PUT plus the transport's metadata and generation-bound media read (three HTTP requests,
+excluding the head guard), not one media read. A remaining `StoreObjectConflict` is checked by
+the store's existing read-back path. Journal keys are not digest-cached and retain their normal
+conditional-create behavior. Existing Gogol conditional-write and lost-acknowledgement tests
+prove these classifications.
 
 M5 is the read-only intranet confirmation described in Progress. It uses the `NAGARE_TRACE=1`
 summary EP-212 M1 adds; if EP-212 M1 has not landed, use `/usr/bin/time -l` and the gcloud and
@@ -258,12 +278,14 @@ Run the focused suites while iterating:
 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p "/ObjectOps/||/Gogol/||/Transaction/||/Access/"' --test-show-details=direct
 ```
 
-For M5, on the operator's workstation, read-only:
+For M5, on the operator's workstation, use an isolated cache for a cold then warm read. The
+normal cache is untouched; retain the temporary path with the evidence and remove only that
+disposable directory when finished:
 
 ```bash
-mv ~/.cache/nagare/intranet/inventory-blobs ~/.cache/nagare/intranet/inventory-blobs.bak
-NAGARE_TRACE=1 nagarectl --context intranet inventory status --json > /dev/null
-mv ~/.cache/nagare/intranet/inventory-blobs.bak ~/.cache/nagare/intranet/inventory-blobs
+mp29_cache=$(mktemp -d)
+XDG_CACHE_HOME="$mp29_cache" NAGARE_TRACE=1 nagarectl --context intranet inventory status --json > /dev/null
+XDG_CACHE_HOME="$mp29_cache" NAGARE_TRACE=1 nagarectl --context intranet inventory status --json > /dev/null
 ```
 
 Commit with Conventional Commits and both trailers, for example:
@@ -279,16 +301,17 @@ ExecPlan: docs/plans/213-read-immutable-inventory-members-concurrently-in-one-ro
 ## Validation and Acceptance
 
 - A 100-scope head on the Gogol fixture with an empty cache loads with `requests` equal to 100
-  member GETs plus the head reads, `mediaGets` equal to the member count, and `maximumFlight` at
-  most eight. With the cache populated the same load makes no member request.
+  member GETs plus two head requests (102 total), `mediaGets` = 101 including the head
+  download, and `maximumFlight` at most eight. With the cache populated the same load makes
+  no member request.
 - A delaying fake (`fakeObjectOps` wrapped to sleep 20 ms per get and record concurrency) proves
   the bound without the HTTP server; `faultingObjectOps` with `GetFailedOnce` proves one failure
   returns `Left` and no cache entry for the failed key.
 - A member whose media bytes do not match its digest is reported as `StoreInvalidObject` and the
   cache has no file for that digest afterwards.
-- `publishIfAbsent` of a new object is one fixture request; of an identical existing object is a
-  refused PUT then one read and returns the digest; of a different existing object is
-  `StoreObjectConflict`.
+- Excluding the head guard, an uncached new publish costs one request; an identical uncached
+  existing object costs a refused PUT plus metadata/media read-back (three requests). A verified
+  cached identical republish costs zero remote calls. A different existing object conflicts.
 - Every existing `nagarectl-test` test passes; `just gate-fast` is green; the mutation records in
   `cli/nagarectl/test/mutation` that name `publishIfAbsent` or the history loader still kill
   (prove with their exact `records.json` pattern).
@@ -298,9 +321,8 @@ ExecPlan: docs/plans/213-read-immutable-inventory-members-concurrently-in-one-ro
 ## Idempotence and Recovery
 
 Every step is a code change under test. The cache write stays atomic (`atomicWrite`), so an
-interrupted batch leaves either a verified file or none. Moving the intranet blob cache aside is
-reversible by moving it back; the cache is a convenience and the store rebuilds it on the next
-read. Reverting the landed commit restores today's sequential reads.
+interrupted batch leaves either a verified file or none. Cold measurements use a temporary
+`XDG_CACHE_HOME`; no move/restore step can nest the old cache inside a newly populated one. Reverting the landed commit restores today's sequential reads.
 
 
 ## Interfaces and Dependencies
@@ -323,5 +345,7 @@ data ObjectOps = ObjectOps
 ```
 
 Depends on nothing. EP-212 owns the loader's entry points and the `Backend` constructor; this
-plan does not change either. `Control.Concurrent.Async` and `Control.Concurrent.QSem` are already
-dependencies of `nagarectl` (`Nagare.Inventory.Recorded`, `Nagare.Inventory.Store.Gogol`).
+plan does not change either. `Control.Concurrent.Async` is already used in the repository. The implementation uses waves,
+not `Control.Concurrent.QSem`. EP-217 consumes the immutable transport for sequence-named
+journal keys, and EP-218 owns the separate per-member-result reader; neither may weaken this
+function's digest-key validation or fail-without-partial-result contract.

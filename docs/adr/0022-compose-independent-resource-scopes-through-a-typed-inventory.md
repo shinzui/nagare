@@ -1871,3 +1871,29 @@ empty cache or a differing anchor reads the whole prefix. Every reader still val
 hash chain. Accepted trade-off: an older remote event corrupted without repairing the chain is not
 noticed by a client whose copy predates the corruption, because that client validates its own
 copy.
+
+
+## Amendment — 2026-10-28: anchored tails do not redownload accepted history
+
+The 2026-10-22 journal-cache implementation fetched the entire prefix when the missing suffix
+exceeded 64 events. The released run in
+[MasterPlan 29](../masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md)
+showed why that policy defeats the intended bound: a normal platform transition made the next
+apply take 111.85 seconds. The previous amendment's long-tail fallback is superseded by this
+accepted rule; implementation is pending
+[EP-217 M4](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md).
+
+When a cached contiguous prefix has a matching remote anchor, read only that anchor and the
+exact suffix named by the pinned head, with bounded concurrency, regardless of suffix length.
+A missing/unusable anchor may still require a complete refill. Every reader continues to decode
+and validate the whole chain, with the same previously accepted limitation concerning corruption
+of older remote bytes. No event format, write protocol or authority boundary changes.
+
+Performance evidence distinguishes logical ObjectOps calls from HTTP attempts, downloaded
+objects and bytes: a batch call is not one object transfer. Local cache reads and whole-chain
+validation are allowed to grow with history and are measured separately. The command-level
+fixed-cost and finite growth benchmark are owned by
+[EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md), not
+by changing the one-scope-per-relationship model or bypassing fresh ownership checks. Opening
+cost optimizations retain one fresh command identity and fresh bucket/project proof; no
+cross-command credential or ownership cache is authorized by this decision.

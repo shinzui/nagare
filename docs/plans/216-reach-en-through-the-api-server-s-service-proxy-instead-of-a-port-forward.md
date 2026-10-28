@@ -10,6 +10,18 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-22T21:24:47Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:15:40Z
+      verdict: "changes-requested"
+      note: "Migrate Planning and Execution callers of kubectlTransport before deleting forward code; reconcile zero-kubectl acceptance with retained owner and guard subprocesses."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:28:11Z
+      mode: "update"
+      note: "Migrate every context transport caller, retain owner/guard subprocesses and lazy no-access paths, and isolate proxy capability checks from direct clients."
 ---
 
 # Reach En through the API server's service proxy instead of a port-forward
@@ -41,16 +53,19 @@ After this plan a command that touches En makes plain HTTPS requests to the API 
 kubeconfig's identity and En's key in `X-En-Api-Key`. No `kubectl` process is spawned for En, no
 forward is opened, and En stays unreachable except through the API server's authentication and
 RBAC, which is a stronger gate than exposing it on the tailnet. The observable outcome is the
-same reviewed grant, membership, check and portal sync with `NAGARE_TRACE=1` showing zero
-forwards and En calls of about a tenth of a second.
+same reviewed grant, membership and effective-access check with the subprocess shim showing
+zero port-forwards; owner reads and cluster guards still use kubectl. `NAGARE_TRACE=1` supplies
+store costs, not forward counts. Record En call times separately. Portal sync does not reach En
+and must remain unchanged.
 
 
 ## Progress
 
 - [ ] M0 (trigger): Nagare's auth plane pins an En release whose `/v1/openapi.json` declares an
   `apiKeyAuth` security scheme in header `X-En-Api-Key` beside `bearerAuth`, and a reviewed
-  platform update has rolled it onto the intranet. Pass: `access check` through the existing
-  forward sees the scheme in En's OpenAPI document; recorded here with the En version.
+  platform update has rolled it onto the intranet. Pass: an authenticated GET of
+  `/v1/openapi.json` through the existing forward sees the scheme; record the En source/image
+  pin, released version and rolled context. `access check` alone does not read this document.
 - [ ] M1: A TLS client built from the prepared kubeconfig. `Nagare.Cluster.ApiServer` reads the
   context's kubeconfig (one cluster with `server` and `certificate-authority-data`, one user with
   `client-certificate-data` and `client-key-data`) and gives an `http-client` manager that
@@ -62,14 +77,17 @@ forwards and En calls of about a tenth of a second.
   private `NAGARE_EN_API_KEY`, never `Authorization`; the capability check verifies En's OpenAPI
   document declares `apiKeyAuth` and refuses otherwise with a reason naming IR-1. Pass: a Warp
   fixture that mimics the proxy (strips `Authorization`, forwards the rest) proves the key
-  arrives and the forward is never spawned; the EP-214 counting tests pass with this transport
-  substituted.
+  arrives and the forward is never spawned. Cover all command-session boundaries and the
+  `Inventory.Planning` and `Inventory.Execution` callers that currently use `kubectlTransport`
+  without a session. Lifecycle/owner-check expectations from EP-214 pass with zero forward
+  opens and with the same required owner reads and guard.
 - [ ] M3: The forward is gone. `openEnForward`, `closeEnForward` and `parseEnForwardPort` are
   removed; the direct `--en-url` forms are unchanged; `docs/user/access.md` and
   `docs/user/accessing-the-host.md` describe the proxy path and the `services/proxy` RBAC it needs.
-  Pass: `grep port-forward cli/nagarectl/src` finds nothing under the access path; intranet
-  confirmation shows zero `kubectl` processes for one grant plan and apply and En call times under
-  0.2 s, recorded here.
+  Pass: no access-path call site constructs `kubectlTransport` or opens a forward, including
+  library and executable-private modules. Intranet confirmation shows zero `port-forward`
+  subprocesses, the retained owner/guard subprocesses, and En call times under 0.2 s. The source
+  audit covers `cli/nagarectl/src` and `cli/nagarectl/app`; comments are not executable call sites.
 
 
 ## Surprises & Discoveries
@@ -95,6 +113,12 @@ forward is kept once this lands: an En without the header refuses with a reason.
 discovery of each kind's resource path and is a separate change.
 
 
+2026-10-28 revision: Cover every context transport constructor, including shared planning and
+execution fallback paths, before deleting the forward. The accepted subprocess target is zero
+port-forwards, not zero kubectl processes. Keep no-access commands lazy and direct bearer clients
+unchanged; proxy preflight also covers `access check`. The upstream/pin/roll trigger is unchanged.
+
+
 ## Outcomes & Retrospective
 
 (Not used; operator decision 2026-10-10.)
@@ -102,13 +126,20 @@ discovery of each kind's resource path and is a separate change.
 
 ## Context and Orientation
 
-**Today's En path.** `cli/nagarectl/src/Nagare/Inventory/AccessRuntime.hs`: `withContextEn`
-spawns `kubectl --context C -n nagare-system port-forward svc/en :80 --address 127.0.0.1`, waits
+**Today's En path.** `cli/nagarectl/src/Nagare/Inventory/AccessRuntime.hs`: `withEnSession`
+uses `kubectlForwarder`/`openEnForward`, which spawn `kubectl --context C -n nagare-system port-forward svc/en :80 --address 127.0.0.1`, waits
 for the "Forwarding from" line, and runs the action with an `EnCall` built by `enRequest`, which
 sends `Authorization: Bearer <NAGARE_EN_API_KEY>` with a 10 s timeout and no redirects. After
 EP-214 this lives behind `EnTransport { withEn, readOwner, clusterGuard }` and
 `accessRuntimeOpsWith`; this plan supplies a second `EnTransport` implementation and deletes the
-first.
+first. `kubectlTransport` opens a fresh session per call for registries without an explicit
+session. The complete caller inventory is:
+`cli/nagarectl/app/Nagare/Cli/Runtime/Cluster.hs` (`withContextEnSession`),
+`Commands/Access.hs`, `Commands/Inventory/Status.hs`, `Inventory/Workflow.hs`,
+`Inventory/Planning.hs` (direct `kubectlTransport`) and `Inventory/Execution.hs`
+(`contextEn` supplies the fallback for `Nothing`). Resolve these last five relative module paths
+under `cli/nagarectl/app/Nagare/Cli/`. Migration must include the shared planning and recovery
+registries, not only access grant/apply commands.
 
 **The API server proxy.** Kubernetes serves
 `/api/v1/namespaces/{ns}/services/{name}:{port}/proxy/{path}` by forwarding the request to one
@@ -124,8 +155,8 @@ the route and the header removal.
 
 **The kubeconfig.** `Nagare.Cluster.Kubeconfig` (`cli/nagarectl/src/Nagare/Cluster/Kubeconfig.hs`)
 fetches the cluster's kubeconfig, normalizes it to one cluster named after the context with
-`server = https://<host name>:6443` and one user, and writes it under the context's state
-directory; `kubeconfigPath` names it. The cloud form carries `certificate-authority-data`,
+`server = https://<host name>:6443` and one user, and writes it under the Nagare config directory
+as `kubeconfigs/<context>.yaml`; `kubeconfigPath` names it. The cloud form carries `certificate-authority-data`,
 `client-certificate-data` and `client-key-data`; `normalizeLocalKubeconfig` keeps a k3d
 loopback endpoint for local mode. The host name resolves over the tailnet (MagicDNS), which is
 how `kubectl` reaches the API server today (`docs/user/accessing-the-host.md`).
@@ -168,15 +199,33 @@ M2 adds `proxyEnTransport :: ApiServerIdentity -> Manager -> Text -> IO (Either 
 in `Nagare.Inventory.AccessRuntime`: `withEn` builds the `EnCall` whose requests go to
 `<server>/api/v1/namespaces/nagare-system/services/en:80/proxy<path>` with
 `X-En-Api-Key: <key>` and `Content-Type: application/json`, 10 s timeout, no redirects, and
-never an `Authorization` header. The capability check (`parseAccessCapabilities`) additionally
-requires `components.securitySchemes.apiKeyAuth` with `in: header` and `name: X-En-Api-Key`;
-a document without it refuses with "En does not accept X-En-Api-Key; roll the auth plane that
-ships IR-1". `readOwner` and `clusterGuard` keep EP-214's kubectl implementations. The command
-boundaries that EP-214 wrapped in `withEnSession` construct this transport instead; the private
-key is still required before any request (`accessKeyRefusal`).
+never an `Authorization` header. A proxy-specific capability check first runs the unchanged
+`parseAccessCapabilities` tuple-precondition check and additionally requires `components.securitySchemes.apiKeyAuth` with `type: apiKey`, `in: header` and
+`name: X-En-Api-Key`; a document without it refuses with "En does not accept X-En-Api-Key; roll the auth plane that
+ships IR-1". `readOwner` and `clusterGuard` keep EP-214's kubectl implementations.
 
-M3 deletes the forward code and updates the two user documents, then runs the intranet
-confirmation with `NAGARE_TRACE=1` and EP-185's kubectl PATH shim.
+Introduce one context transport constructor in `Nagare.Cli.Runtime.Cluster` that loads the
+prepared context's kubeconfig and brackets its manager, retaining the once-per-command guard.
+Use it at every command boundary listed above and thread `EnTransport` explicitly into both
+planning and execution registries. Remove the `contextEn Nothing` fallback and direct
+`kubectlTransport` construction; update every factory caller, including recovery/close and other
+workflows using the shared registries. Keep construction lazy for commands with no En operations,
+so those commands do not suddenly require an En key or kubeconfig. The key must be present before
+an En request, and context/owner checks retain their existing ordering and refusals.
+
+Before deleting forward code, run representative access planning, apply/resume, generic inventory
+planning, an execution-registry path without the old explicit session, inventory status and
+`access check` through the fixture proxy. The latter bypasses `accessRuntimeOpsWith`, so the
+proxy's authentication/capability preflight must cover it too. Keep the proxy-only header check
+at the proxy boundary rather than imposing it on direct `--en-url` bearer clients. No command may
+silently fall back to a forward or the ambient kubeconfig. A final reference search must account
+for every remaining old transport reference.
+
+M3 deletes the unused forward implementation only after M2's all-caller proof, updates the
+user documents and ADR 29's pending transport note, then runs the intranet confirmation with
+`NAGARE_TRACE=1` and EP-185's kubectl PATH shim. Do not require total kubectl count zero: the
+retained guard and owner reads are part of acceptance. Measure the En calls separately from
+store tracing and confirm a command with no access operations opens no En transport.
 
 
 ## Concrete Steps
@@ -194,10 +243,17 @@ Focused suites:
 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p "/Access/||/ApiServer/"' --test-show-details=direct
 ```
 
-Read-only check that the trigger has fired, on the intranet (through the existing forward):
+Read-only check that the trigger has fired, using the prepared intranet kubeconfig selected as
+`KUBECONFIG`. Keep the forward in a separate foreground terminal and stop it after the check;
+wait for its ready message before running the second command. Do not use the ambient context:
 
 ```bash
-kubectl -n nagare-system port-forward svc/en 18082:80 &
+kubectl --context intranet -n nagare-system port-forward svc/en 18082:80
+```
+
+In the second terminal:
+
+```bash
 curl -sS -H "Authorization: Bearer $NAGARE_EN_API_KEY" http://127.0.0.1:18082/v1/openapi.json | jq '.components.securitySchemes'
 ```
 
@@ -217,14 +273,18 @@ ExecPlan: docs/plans/216-reach-en-through-the-api-server-s-service-proxy-instead
   user, an `exec` user, two clusters or a missing CA refuses with the field named.
 - A Warp fixture standing in for the API server requires the client certificate, strips any
   `Authorization` header, forwards `X-En-Api-Key`, and records that the En side saw the key:
-  the full adapter lifecycle for one tuple passes through it with zero forwards opened (the
-  EP-214 counting test with the transport swapped).
+  the full adapter lifecycle for one tuple passes through it with zero forwards opened, one
+  guard and unchanged per-phase/before-write owner checks. Add the same proxy proof for the
+  non-session planning/execution registries and `access check`; a command with no access
+  operations must not acquire En credentials or open its manager.
 - An En OpenAPI document without `apiKeyAuth` makes prepare refuse with the IR-1 reason and
   sends no write.
 - No `Authorization` header is ever sent to the API server by the En path (the fixture asserts
-  its absence).
+  its absence). Direct `--en-url` clients retain their existing bearer behavior and do not
+  require `apiKeyAuth`. Wrong CA/server identity, wrong client certificate, missing key and
+  unsupported OpenAPI scheme all refuse without a relationship write.
 - Intranet: one grant plan and apply with `NAGARE_TRACE=1` and the kubectl shim show zero
-  `port-forward` processes and En calls under 0.2 s; the apply is a real reviewed change and runs
+  `port-forward` processes, retained guard/owner processes and En calls under 0.2 s; the apply is a real reviewed change and runs
   with the operator's go-ahead.
 
 

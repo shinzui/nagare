@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-22T20:22:26Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-28T19:15:39Z
+      verdict: "approved"
+      note: "The optional multi-relationship review has a coherent scope, satisfied prerequisite, duplicate checks, and partial-failure/resume acceptance."
 ---
 
 # Let one access review carry several memberships or grants

@@ -108,3 +108,26 @@ The API's grants route reports accepted recorded viewer relationships, including
 user/team subject relation and convergence facts. It is not En's live relationship listing or
 an effective-access check, and must not silently filter recorded grants merely because their
 route cannot currently be bound. Team membership is a separate relationship, not a host grant.
+
+
+## Amendment — 2026-10-28: context En transport has complete caller coverage
+
+[EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md)
+implemented a command-scoped En forward, with successful guard/capability/schema checks reused
+inside the command and owner UIDs still rechecked at each phase and before writes. Generic
+planning and execution/recovery registries still have per-call forward constructors.
+
+The held [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md)
+will replace every context transport constructor, including those registry fallbacks, with the
+API-server service proxy only after En's header support
+(`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`) is released, pinned and rolled.
+This is an accepted pending design, not a claim that the proxy is deployed. Delete the forward
+only after command and registry consumers pass the same lifecycle/identity checks through the
+proxy; keep no implicit forward fallback. Direct `--en-url` bearer clients remain unchanged,
+and commands without En operations must not acquire new En credential requirements.
+
+The target is zero En port-forward processes, not zero kubectl processes. Owner reads and
+cluster guards stay on kubectl and retain their safety checks. The En API remains behind the
+Kubernetes API server's authentication and authorization; this change does not expose it on the
+tailnet. [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md)
+measures the current transport independently and does not assume this held change has landed.
