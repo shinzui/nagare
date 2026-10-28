@@ -22,6 +22,7 @@ import Nagare.Inventory.AccessRuntime
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
+import Nagare.Inventory.Store.Counters (collectCommandTrace)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -41,10 +42,15 @@ inventoryAccessSessionTests =
     [ testCase "one tuple's five phases share one forward, one guard and one capability check; owners are read every phase" $
         forM_ (("user: ", accessBinding True) : teamBindings) $ \(label, binding) -> do
           world <- newWorld
-          withSession world $ \en -> do
+          (_, traced) <- collectCommandTrace . withSession world $ \en -> do
             ops <- accessRuntimeOpsWith en context
             driveAll ops binding
             counted world "close" >>= (@?= 0)
+          -- EP-221: the command trace attributes the same work by phase.
+          counts <- readIORef (world ^. #counts)
+          let requests = sum (map (\name -> Map.findWithDefault 0 name counts) ["capability", "schema", "query", "write"])
+          Map.map fst (traced ^. #phases)
+            @?= Map.fromList [("en forward", 1), ("cluster guard", 1), ("owner read", 6 * owners binding), ("en request", requests)]
           readIORef (world ^. #counts)
             >>= ( @?=
                     expected

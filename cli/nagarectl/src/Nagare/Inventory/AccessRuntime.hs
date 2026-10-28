@@ -42,6 +42,7 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan (ReviewBundle, ReviewDocument (reviewOperations), ReviewInventory, ReviewOperation (reviewPlannedOperation), reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions, reviewInventoryHistory)
 import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Store (InventoryStore, readObject, revisionDigest, scopeKey)
+import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Resource.Access (teamKeyText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
@@ -367,8 +368,8 @@ withEnSessionUsing forwarder owners contextGuard action =
     action
       EnTransport
         { withEn = sessionCall current
-        , readOwner = owners
-        , clusterGuard = rememberSuccess passed contextGuard
+        , readOwner = tracePhase "owner read" . owners
+        , clusterGuard = rememberSuccess passed (tracePhase "cluster guard" contextGuard)
         }
   where
     release current = readMVar current >>= traverse_ (stopForward forwarder . fst)
@@ -380,7 +381,7 @@ withEnSessionUsing forwarder owners contextGuard action =
           ready <- modifyMVar current reuseOrOpen
           case ready of
             Left reason -> pure (Left reason)
-            Right base -> first (\(_ :: IOException) -> "en port-forward failed") <$> try (call (forwardRequest forwarder key base))
+            Right base -> first (\(_ :: IOException) -> "en port-forward failed") <$> try (call (\verb suffix body -> tracePhase "en request" (forwardRequest forwarder key base verb suffix body)))
         _ -> pure (Left "reviewed access requires private NAGARE_EN_API_KEY")
     reuseOrOpen open = do
       running <- case open of
@@ -391,7 +392,7 @@ withEnSessionUsing forwarder owners contextGuard action =
       case running of
         Just base -> pure (open, Right base)
         Nothing -> do
-          started <- try (startForward forwarder)
+          started <- try (tracePhase "en forward" (startForward forwarder))
           pure $ case started of
             Right (Right (forward, base)) -> (Just (forward, base), Right base)
             Right (Left reason) -> (Nothing, Left reason)

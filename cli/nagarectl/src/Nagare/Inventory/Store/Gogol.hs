@@ -44,6 +44,7 @@ import Gogol.Storage.Objects.Get qualified as Get
 import Gogol.Storage.Objects.Insert qualified as Insert
 import Gogol.Storage.Objects.List qualified as List
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.Counters (ObjectClass (..), WireRequest (..), objectClass, traceWire)
 import Nagare.Inventory.Store.ObjectOps
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.TLS (tlsManagerSettings)
@@ -152,7 +153,7 @@ newGogolDiscoveryWithToken token configureEnv project url = case location projec
     let sdk :: (StorageEnv -> IO a) -> IO (Either Failure a)
         sdk action = attempt (environment >>= action . Env.configure (G.serviceTimeout ?~ 20))
         probe = do
-          result <- sdk $ \env ->
+          result <- traced MetadataRequest BucketObjects (const Nothing) . sdk $ \env ->
             G.runResourceT $
               G.send
                 env
@@ -167,7 +168,7 @@ newGogolDiscoveryWithToken token configureEnv project url = case location projec
             Left (Failure (Just 404)) -> Right Nothing
             Left _ -> Left "bucket metadata is unavailable; absence is not proved"
         empty = do
-          result <- sdk $ \env ->
+          result <- traced ListingRequest OtherObjects (const Nothing) . sdk $ \env ->
             G.runResourceT $
               G.send
                 env
@@ -192,6 +193,9 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
   let sdk :: (StorageEnv -> IO a) -> IO (Either Failure a)
       sdk action = attempt (environment >>= action . Env.configure (G.serviceTimeout ?~ 20))
       full (ObjectName key) = root <> "/" <> key
+      -- EP-221: every request is one wire attempt, attributed by object class.
+      wire :: WireRequest -> ObjectName -> (a -> Maybe Int) -> (StorageEnv -> IO a) -> IO (Either Failure a)
+      wire kind (ObjectName key) size = traced kind (objectClass key) size . sdk
       request name =
         (S.newStorageObjectsGet bucket (encodePart (full name)))
           { Get.userProject = Just project
@@ -207,7 +211,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
       download name object = case metadata name object of
         Left reason -> pure (Left reason)
         Right (gen, size) -> do
-          result <- sdk $ \env -> G.runResourceT $ G.download env ((request name) {Get.generation = Just gen}) >>= G.sinkLBS
+          result <- wire MediaRequest name bodySize $ \env -> G.runResourceT $ G.download env ((request name) {Get.generation = Just gen}) >>= G.sinkLBS
           pure $ case result of
             Right bytes | toInteger (LBS.length bytes) == toInteger size -> Right (Generation (toInteger gen), LBS.toStrict bytes)
             _ -> Left "inventory object generation could not be downloaded completely"
@@ -218,7 +222,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
           prefix = full requested
           pages tokens found token = do
             result <-
-              sdk $ \env ->
+              wire ListingRequest requested (const Nothing) $ \env ->
                 G.runResourceT $
                   G.send
                     env
@@ -245,13 +249,13 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
       get name = case validateKey False name of
         Left reason -> pure (GetUnknown reason)
         Right () -> do
-          result <- sdk $ \env -> G.runResourceT $ G.send env (request name)
+          result <- wire MetadataRequest name (const Nothing) $ \env -> G.runResourceT $ G.send env (request name)
           case result of
             Right object -> either GetUnknown (uncurry ObjectFound) <$> download name object
             Left (Failure (Just 404)) -> do
               if boundedAbsence
                 then do
-                  listed <- sdk $ \env ->
+                  listed <- wire ListingRequest name (const Nothing) $ \env ->
                     G.runResourceT $
                       G.send
                         env
@@ -276,7 +280,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
       immutable name = case validateKey False name of
         Left reason -> pure (ImmutableUnknown reason)
         Right () -> do
-          result <- sdk $ \env -> G.runResourceT $ G.download env (request name) >>= G.sinkLBS
+          result <- wire MediaRequest name bodySize $ \env -> G.runResourceT $ G.download env (request name) >>= G.sinkLBS
           pure $ case result of
             Right bytes -> ImmutableFound (LBS.toStrict bytes)
             Left (Failure (Just 404)) -> ImmutableMissing
@@ -286,7 +290,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
         (_, Left reason) -> pure (PutNoEffect reason)
         (Right (), Right expected) -> do
           result <-
-            sdk $ \env ->
+            wire UploadRequest name (const Nothing) $ \env ->
               G.runResourceT $
                 G.upload
                   env
@@ -377,6 +381,16 @@ location project url = do
     (Left "inventory GCS bucket is invalid")
   validateKey False (ObjectName root)
   pure (bucket, root)
+
+-- | Record one wire attempt and the body it downloaded, if any (EP-221).
+traced :: WireRequest -> ObjectClass -> (a -> Maybe Int) -> IO (Either Failure a) -> IO (Either Failure a)
+traced kind objects size action = do
+  result <- action
+  traceWire kind objects (either (const Nothing) size result)
+  pure result
+
+bodySize :: LBS.ByteString -> Maybe Int
+bodySize = Just . fromIntegral . LBS.length
 
 validateGogolLocation :: Text -> Text -> Either Text ()
 validateGogolLocation project url = () <$ location project url

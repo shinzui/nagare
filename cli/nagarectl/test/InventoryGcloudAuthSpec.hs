@@ -1,18 +1,23 @@
 module InventoryGcloudAuthSpec (inventoryGcloudAuthTests) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (IOException, try)
 import Control.Monad (forM_)
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Store.Counters (collectCommandTrace)
 import Nagare.Inventory.Store.GcloudAuth
+import Nagare.Inventory.Store.Remote (provenOwnership)
+import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -54,10 +59,13 @@ inventoryGcloudAuthTests =
                 lookup "CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT" variables @?= Just "delegate@example.invalid"
               now <- readIORef clock
               pure (Right (response now "selected@example.invalid" "delegate@example.invalid" (if n == 1 then "old" else "new") []))
-        session <- newGcloudSessionWith (readIORef clock) run [] "project" >>= right
-        writeIORef clock (addUTCTime 3550 start)
-        mapConcurrently (const (sessionToken session)) [1 .. 16 :: Int] >>= (@?= replicate 16 "new")
+        (_, traced) <- collectCommandTrace $ do
+          session <- newGcloudSessionWith (readIORef clock) run [] "project" >>= right
+          writeIORef clock (addUTCTime 3550 start)
+          mapConcurrently (const (sessionToken session)) [1 .. 16 :: Int] >>= (@?= replicate 16 "new")
         readIORef calls >>= (@?= 2)
+        -- EP-221: each helper subprocess is one traced credential phase.
+        Map.map fst (traced ^. #phases) @?= Map.fromList [("gcloud credential helper", 2)]
     , testCase "refresh cannot switch account or impersonated identity" $ do
         forM_ [("other@example.invalid", "delegate@example.invalid"), ("selected@example.invalid", "other@example.invalid")] $ \(account, delegate) -> do
           clock <- newIORef start
@@ -111,6 +119,27 @@ inventoryGcloudAuthTests =
         (reasonOf <$> session "ERROR: (gcloud.config.config-helper) network unreachable")
           >>= (@?= "gcloud credential or ownership command failed or timed out")
         assertBool "the login reason names gcloud auth login" ("gcloud auth login" `T.isInfixOf` gcloudLoginRequired)
+    , testCase "the bucket and project ownership reads overlap, and both must answer and agree (EP-221)" $ do
+        -- Each read waits until both have started: in a serial pair the first
+        -- read answers nothing and is retried, so it takes three reads.
+        arrived <- newIORef (0 :: Int)
+        let meeting _ = do
+              atomicModifyIORef' arrived (\n -> (n + 1, ()))
+              met <- timeout 2000000 (let wait = readIORef arrived >>= \n -> unless (n >= 2) (threadDelay 1000 >> wait) in wait)
+              pure ("12345" <$ met)
+        provenOwnership (const (pure ())) meeting "bucket" "project" >>= (@?= Right ())
+        readIORef arrived >>= (@?= 2)
+        -- A different, missing, empty or malformed number refuses after the
+        -- same bounded retries of that read.
+        forM_ [(Just "12345", Just "99999"), (Nothing, Just "12345"), (Just "12345", Just ""), (Just "abc", Just "12345")] $ \(bucketNumber, projectNumber) -> do
+          reads <- newIORef (0 :: Int)
+          let capture args = do
+                atomicModifyIORef' reads (\n -> (n + 1, ()))
+                pure (if "buckets" `elem` args then bucketNumber else projectNumber)
+              numeric = maybe False (\v -> not (T.null v) && T.all (`elem` ['0' .. '9']) v)
+          result <- provenOwnership (const (pure ())) capture "bucket" "project"
+          assertBool ("ownership accepted " <> show (bucketNumber, projectNumber)) (isLeft result)
+          readIORef reads >>= (@?= sum [if numeric value then 1 else 3 | value <- [bucketNumber, projectNumber]])
     ]
   where
     right = either (assertFailure . T.unpack) pure

@@ -1,6 +1,7 @@
 -- | One shared transport/ownership boundary for ordinary commands and migration.
-module Nagare.Inventory.Store.Remote (remoteObjectOps, BucketDiscovery (..), remoteDiscoveryOps, probeRemoteBucket) where
+module Nagare.Inventory.Store.Remote (remoteObjectOps, BucketDiscovery (..), remoteDiscoveryOps, probeRemoteBucket, provenOwnership) where
 
+import Control.Concurrent.Async (concurrently)
 import Data.Aeson (eitherDecodeStrict', withObject, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
@@ -10,6 +11,7 @@ import Gogol qualified as G
 import Gogol.Env qualified as Env
 import Gogol.Storage qualified as S
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Inventory.Store.GcloudAuth
 import Nagare.Inventory.Store.Gogol
 import Nagare.Inventory.Store.ObjectOps
@@ -80,10 +82,10 @@ remoteObjectOps project url = do
           Right auth -> case endpointOverride (sessionStorageEndpoint auth) of
             Left reason -> pure (Left reason)
             Right configureEnv -> do
-              owned <- ownership (sessionCapture auth)
+              owned <- ownership (tracePhase "gcloud ownership read" . sessionCapture auth)
               case owned of
                 Left reason -> pure (Left reason)
-                Right () -> newGogolObjectOpsWithToken (sessionToken auth) configureEnv project url
+                Right () -> tracePhase "transport setup" (newGogolObjectOpsWithToken (sessionToken auth) configureEnv project url)
     _ -> pure (Left "NAGARE_INVENTORY_GCS_TRANSPORT must be gogol or gcloud")
   where
     legacy = do
@@ -91,10 +93,19 @@ remoteObjectOps project url = do
       pure (owned >> gcloudObjectOps url)
     ownership capture = case gcsBucketOfUrl url of
       Nothing -> pure (Left "inventory store URL has no GCS bucket")
-      Just bucket -> do
-        bucketNumber <- readProjectNumber ownershipReadPause capture (bucketProjectNumberArgs bucket)
-        projectNumber <- readProjectNumber ownershipReadPause capture (projectNumberArgs project)
-        pure (bucketOwnershipVerdict bucket project bucketNumber projectNumber)
+      Just bucket -> provenOwnership ownershipReadPause capture bucket project
+
+-- | EP-221: the bucket's owning project number and the project's own number
+-- are independent reads, so both run at once, each with its own retries.
+-- Both must answer and agree before any store exists; the verdict is the
+-- one every path uses.
+provenOwnership :: (Int -> IO ()) -> ([String] -> IO (Maybe T.Text)) -> T.Text -> T.Text -> IO (Either T.Text ())
+provenOwnership pause capture bucket project = do
+  (bucketNumber, projectNumber) <-
+    concurrently
+      (tracePhase "bucket ownership" (readProjectNumber pause capture (bucketProjectNumberArgs bucket)))
+      (tracePhase "project ownership" (readProjectNumber pause capture (projectNumberArgs project)))
+  pure (bucketOwnershipVerdict bucket project bucketNumber projectNumber)
 
 -- The ordinary Google endpoint and explicit loopback emulators are supported.
 -- Do not silently ignore a configured custom endpoint or forward tokens to an

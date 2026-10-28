@@ -21,6 +21,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, addUTCTime, getCurrentTime)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.Counters (tracePhase)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
@@ -85,7 +86,7 @@ newGcloudSessionWith clock run inherited project = do
           ]
       helper = ["config", "config-helper", "--format=json", "--min-expiry=120s", "--quiet"]
       acquire variables = do
-        output <- first classifyFailure <$> run variables helper
+        output <- first classifyFailure <$> tracePhase "gcloud credential helper" (run variables helper)
         now <- clock
         pure (output >>= parseSnapshot project now)
   initial <- acquire base

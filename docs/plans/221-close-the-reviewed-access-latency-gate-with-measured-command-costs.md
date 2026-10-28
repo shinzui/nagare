@@ -43,7 +43,7 @@ separate evidence; they cannot replace the warm-path gate or be silently counted
 
 ## Progress
 
-- [ ] M1: Command costs can be attributed to credential acquisition, bucket/project ownership,
+- [x] M1: Command costs can be attributed to credential acquisition, bucket/project ownership,
   store opening, En setup/reads, immutable hydration and journal transfer. A controlled fixture
   proves logical calls, actual HTTP requests, downloaded objects/bytes and subprocess counts
   are distinct and correctly attributed, including a batch containing many events.
@@ -57,7 +57,36 @@ separate evidence; they cannot replace the warm-path gate or be silently counted
   confirmation separately, all raw timings and transfer counts, and the release/fixture identity.
   MasterPlan 29's Progress links this evidence and closes its gate only when every criterion passes.
 
-EP-217 is Complete (2026-10-28), so every hard prerequisite is met and M1 is next.
+EP-217 is Complete (2026-10-28), so every hard prerequisite is met.
+
+M1 evidence, 2026-10-28 (fixtures). `Store.Counters` keeps the logical counters and adds a
+command trace: named phases (count and time) and wire transfers keyed by request kind (metadata,
+media, listing, upload) and object class (control, scopes, reviews, native, journal, bucket,
+other), with downloaded bodies and bytes. `NAGARE_TRACE=1` prints them as `nagarectl trace:
+phases:` and `nagarectl trace: http:` lines beside the store lines. Phases recorded: `gcloud
+credential helper`, `bucket ownership`, `project ownership`, `gcloud ownership read` (each
+subprocess, so retries count), `transport setup`, `en forward`, `en request`, `owner read`,
+`cluster guard`. No credential, header or body is traced. Tests: `InventoryGogolSpec` "a 100-event
+journal batch is one logical remote get and 100 media downloads on the wire (EP-221)" (logical
+`RemoteGet` +1; wire listing/journal 15 requests, media/journal 100 requests, 100 bodies, exact
+bytes); `InventoryGcloudAuthSpec` "concurrent expiry performs one refresh" now also proves two
+`gcloud credential helper` phases; `InventoryAccessSessionSpec` "one tuple's five phases" proves
+`en forward` 1, `cluster guard` 1, `owner read` 6 per owner and `en request` equal to the En
+calls the fake served. The released-command phase budget is taken with the packaged build below.
+
+Baseline subprocess timings, intranet (`tan-ng-labs`, clean `env -i`, read-only), three runs:
+`gcloud config config-helper` 0.50-0.53 s; `storage buckets describe` 0.83-1.44 s; `projects
+describe` 0.73-0.79 s; the two ownership reads one after the other 1.62-2.17 s, together
+0.88-0.93 s.
+
+M2 evidence, 2026-10-28. `Store.Remote.provenOwnership` runs the bucket and project reads with
+`concurrently`, each keeping `readProjectNumber`'s retries, and returns
+`bucketOwnershipVerdict` before any store is built; the SDK and legacy paths both use it.
+`InventoryGcloudAuthSpec` "the bucket and project ownership reads overlap, and both must answer
+and agree (EP-221)": with a barrier each read waits for the other, the pair succeeds in exactly 2
+reads (a serial implementation, tried by hand, takes 3 and fails); a different, missing, empty or
+malformed number refuses after the same retries (1 read for a number, 3 otherwise). Credential
+identity and refresh tests are unchanged and green.
 
 
 ## Surprises & Discoveries

@@ -12,6 +12,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
@@ -29,6 +30,7 @@ import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Plan (InventoryHistory (historyAccepted), loadInventoryHistory)
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Counters (Counter (RemoteGet), ObjectClass (..), WireRequest (..), collectCommandTrace, countOf, snapshotCounters)
 import Nagare.Inventory.Store.Gogol
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types
@@ -252,6 +254,20 @@ inventoryGogolTests =
           readIORef (mediaNames f) >>= (@?= map journalName [99 .. 164]) . sort
           readIORef (mediaBytes f) >>= (@?= sum (map (BS.length . event) [99 .. 164]))
           readIORef (maximumFlight f) >>= \high -> assertBool "unbounded download concurrency" (high > 1 && high <= 8)
+    , testCase "a 100-event journal batch is one logical remote get and 100 media downloads on the wire (EP-221)" $ fixture $ \f ops -> do
+        let event n = "event " <> BC.pack (show (n :: Int))
+        writeIORef (objects f) (Map.fromList [(journalName n, (toInteger (n + 1), event n)) | n <- [0 .. 99]])
+        store <- newObjectStore ops fixtureBinding "sdk-client" Nothing >>= either (assertFailure . show) pure
+        logicalBefore <- countOf RemoteGet <$> snapshotCounters (storeCounters store)
+        (events, traced) <- collectCommandTrace (readJournalPrefix store 100 >>= either (assertFailure . show) pure)
+        logicalAfter <- countOf RemoteGet <$> snapshotCounters (storeCounters store)
+        events @?= map event [0 .. 99]
+        logicalAfter - logicalBefore @?= 1
+        traced ^. #wire
+          @?= Map.fromList
+            [ ((ListingRequest, JournalObjects), (15, 0, 0))
+            , ((MediaRequest, JournalObjects), (100, 100, sum (map (BS.length . event) [0 .. 99])))
+            ]
     , testCase "looped, duplicate, and foreign listing pages refuse before downloading" $ fixture $ \f ops -> do
         forM_ [LoopPages, ForeignPage, DuplicatePage] $ \modeValue -> do
           writeIORef (objects f) (Map.fromList [(journalName n, (toInteger (n + 1), "event")) | n <- [0 .. 8]])
