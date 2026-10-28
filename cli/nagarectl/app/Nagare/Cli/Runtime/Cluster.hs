@@ -2,13 +2,14 @@
 module Nagare.Cli.Runtime.Cluster
   ( guardKubernetesContext
   , withContextEnSession
+  , withPreparedContextEnSession
   )
 where
 
 import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (readContextHostName)
-import Nagare.Inventory.AccessRuntime (EnTransport, withEnSession)
+import Nagare.Inventory.AccessRuntime (EnTransport, prepareEnSession, withEnSession)
 import Nagare.Ops.ClusterGuard
   ( clusterGuardVerdict
   , defaultClusterGuardOps
@@ -44,3 +45,9 @@ withContextEnSession active =
   withEnSession
     (contextNameText (active ^. #contextName))
     (fmap (fmap (const ())) (guardKubernetesContext active))
+
+-- | The same session, with its guard and forward prepared while the command
+-- opens the inventory (EP-221). For commands that always reach en.
+withPreparedContextEnSession :: ActiveTarget -> (EnTransport -> IO a) -> IO a
+withPreparedContextEnSession active body =
+  withContextEnSession active (\en -> prepareEnSession en (body en))

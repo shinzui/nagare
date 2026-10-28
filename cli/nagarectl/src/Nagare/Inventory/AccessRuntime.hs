@@ -7,6 +7,7 @@ module Nagare.Inventory.AccessRuntime
   , kubectlTransport
   , withEnSession
   , withEnSessionUsing
+  , prepareEnSession
   , accessKeyRefusal
   , accessQuery
   , accessMutation
@@ -18,6 +19,7 @@ module Nagare.Inventory.AccessRuntime
 where
 
 import Control.Concurrent (forkIO)
+import Control.Concurrent.Async (async, waitCatch)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
 import Control.Exception (IOException, bracket, catch, onException, try)
 import Control.Monad (join)
@@ -397,6 +399,21 @@ withEnSessionUsing forwarder owners contextGuard action =
             Right (Right (forward, base)) -> (Just (forward, base), Right base)
             Right (Left reason) -> (Nothing, Left reason)
             Left (_ :: IOException) -> (Nothing, Left "en port-forward failed")
+
+-- | EP-221: run the session's cluster guard and then open its forward while
+-- the command does other work, such as opening the inventory store. The rules
+-- are those of first use: the guard passes before a forward opens, no forward
+-- opens without the private key, a refusal is not remembered (the command's own
+-- first use asks again and refuses as before), and no request is sent. The
+-- command waits for the preparation before its session ends, so the session's
+-- release stops every forward it opened.
+prepareEnSession :: EnTransport -> IO a -> IO a
+prepareEnSession transport body =
+  bracket (async prepare) waitCatch (const body)
+  where
+    prepare = do
+      guarded <- clusterGuard transport
+      when (isRight guarded) (void (withEn transport (\_ -> pure ())))
 
 -- | kubectl's port-forward to the context's en Service. After its first line
 -- names the local port, the rest of its output is drained, so a long

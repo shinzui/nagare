@@ -161,7 +161,12 @@ accessAdapter active en declarations history = do
         selected <- kubeconfigPath (active ^. #contextName)
         exists <- doesFileExist selected
         if exists
-          then setEnv "KUBECONFIG" selected >> pure (clusterGuard en)
+          then do
+            -- The command selected this file before its session began; setting
+            -- it again would race the prepared session's kubectl (EP-221).
+            current <- lookupEnv "KUBECONFIG"
+            when (current /= Just selected) (setEnv "KUBECONFIG" selected)
+            pure (clusterGuard en)
           else pure (pure (Left "selected context kubeconfig is missing for access observation"))
   let accepted =
         Map.fromList

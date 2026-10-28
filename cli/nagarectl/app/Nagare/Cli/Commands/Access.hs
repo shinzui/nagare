@@ -28,7 +28,7 @@ import Nagare.Access.Resolve
 import Nagare.Access.Reviewed qualified as ReviewedAccess
 import Nagare.Access.ShomeiUser (ShomeiUser (..), UserRef (..), lookupShomeiEmail, parseUserRef)
 import Nagare.Cli.Options (AccessCommand (..), AccessGrantOpts, PortalCommand (..), TeamCommand (..), TeamMemberOpts)
-import Nagare.Cli.Runtime.Cluster (guardKubernetesContext, withContextEnSession)
+import Nagare.Cli.Runtime.Cluster (guardKubernetesContext, withPreparedContextEnSession)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Ownership
   ( refuseDirectAccessOwnerIfManaged
@@ -63,7 +63,7 @@ runAccess mctx = \case
     user <- resolveUser (o ^. #user)
     active <- selectedContext "access check"
     report <-
-      withContextEnSession active $ \en ->
+      withPreparedContextEnSession active $ \en ->
         ReviewedAccess.checkEffectiveAccess
           active
           en
@@ -126,7 +126,7 @@ runAccess mctx = \case
         when (isJust (o ^. #enUrl)) (dieT "reviewed access reaches the context's en itself; drop --en-url")
         team <- teamKeyOf rawTeam
         active <- selectedContext "reviewed access"
-        withContextEnSession active $ \en ->
+        withPreparedContextEnSession active $ \en ->
           ReviewedAccess.planTeamAccess
             active
             en
@@ -142,7 +142,7 @@ runAccess mctx = \case
       team <- teamKeyOf (o ^. #team)
       user <- resolveUser (o ^. #user)
       active <- selectedContext "reviewed team membership"
-      withContextEnSession active $ \en ->
+      withPreparedContextEnSession active $ \en ->
         ReviewedAccess.planTeamMember
           active
           en
@@ -159,7 +159,7 @@ runAccess mctx = \case
       when (isJust (options ^. #enUrl)) (dieT "reviewed access reaches the context's en itself; drop --en-url")
       user <- resolveUser rawUser
       active <- selectedContext "reviewed access"
-      withContextEnSession active $ \en ->
+      withPreparedContextEnSession active $ \en ->
         ReviewedAccess.planAccess
           active
           en

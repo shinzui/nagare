@@ -3,6 +3,8 @@
 -- objects are still read at every phase and before every write.
 module InventoryAccessSessionSpec (inventoryAccessSessionTests) where
 
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (ErrorCall (..), bracket, throwIO, try)
 import Control.Monad (forM_)
 import Data.Aeson (Value (..), encode, object, (.:), (.=))
@@ -32,6 +34,7 @@ import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
+import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -127,6 +130,48 @@ inventoryAccessSessionTests =
             reached @?= Right ()
             throwIO (ErrorCall "command failed")
         thrown @?= (Left (ErrorCall "command failed") :: Either ErrorCall ())
+        counted world "open" >>= (@?= 1)
+        counted world "close" >>= (@?= 1)
+        readIORef (world ^. #running) >>= (@?= False)
+    , testCase "a prepared session guards and opens its forward while the command works, then shares both (EP-221)" $
+        forM_ (("user: ", accessBinding True) : teamBindings) $ \(label, binding) -> do
+          world <- newWorld
+          opened <- newEmptyMVar
+          let signalled = (forwarder world) {startForward = startForward (forwarder world) <* putMVar opened ()}
+          withEnSessionUsing signalled (ownerObject world) (guardOf world) $ \en -> prepareEnSession en $ do
+            -- The command has not reached en yet; the forward still opens.
+            timeout 5000000 (takeMVar opened) >>= (@?= Just ())
+            counted world "guard" >>= (@?= 1)
+            ops <- accessRuntimeOpsWith en context
+            driveAll ops binding
+          readIORef (world ^. #counts)
+            >>= assertEqual label (Map.fromList [("open", 1), ("close", 1), ("guard", 1)])
+              . Map.filterWithKey (\name _ -> name `elem` ["open", "close", "guard"])
+    , testCase "a prepared session opens no forward after a refused guard or without a key; first use asks again (EP-221)" $ do
+        forM_ [Nothing, Just ""] $ \credential -> do
+          world <- newWorld
+          writeIORef (world ^. #key) credential
+          withSession world $ \en -> do
+            prepareEnSession en (pure ())
+            ops <- accessRuntimeOpsWith en context
+            accessInspect ops (accessBinding True) >>= (@?= Left "reviewed access requires private NAGARE_EN_API_KEY")
+          counted world "open" >>= (@?= 0)
+        world <- newWorld
+        writeIORef (world ^. #guardRefusals) 1
+        withSession world $ \en -> do
+          prepareEnSession en (pure ())
+          counted world "open" >>= (@?= 0)
+          ops <- accessRuntimeOpsWith en context
+          accessInspect ops (accessBinding True) >>= assertBool "the second guard was not asked" . isRight'
+        counted world "guard" >>= (@?= 2)
+        counted world "open" >>= (@?= 1)
+    , testCase "a command that throws while its session is prepared still stops the forward (EP-221)" $ do
+        world <- newWorld
+        let slow = (forwarder world) {startForward = threadDelay 100000 >> startForward (forwarder world)}
+        thrown <-
+          try $ withEnSessionUsing slow (ownerObject world) (guardOf world) $ \en ->
+            prepareEnSession en (throwIO (ErrorCall "store open refused"))
+        thrown @?= (Left (ErrorCall "store open refused") :: Either ErrorCall ())
         counted world "open" >>= (@?= 1)
         counted world "close" >>= (@?= 1)
         readIORef (world ^. #running) >>= (@?= False)
