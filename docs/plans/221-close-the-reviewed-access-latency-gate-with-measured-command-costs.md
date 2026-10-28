@@ -88,6 +88,17 @@ reads (a serial implementation, tried by hand, takes 3 and fails); a different, 
 malformed number refuses after the same retries (1 read for a number, 3 otherwise). Credential
 identity and refresh tests are unchanged and green.
 
+Re-measured, 2026-10-28, packaged build of `7624c5e4` (`nix build git+file://…?rev=…#nagarectl`),
+clean `env -i` with `nagarectl context env`, read-only `NAGARE_TRACE=1 nagarectl --context
+intranet inventory publications`, three runs: `gcloud sessions 1` 2.22 s (first, credential helper
+1.08 s), then 1.23 s and 1.23 s, against 1.77-2.11 s in the released plans; phases `gcloud
+credential helper` 0.44-0.45 s, `bucket ownership` 0.73-0.75 s and `project ownership` 0.74-0.75 s
+overlapped (`gcloud ownership read 2`, 1.48 s summed), `transport setup` 0.03 s; store open 0.27 s
+and head read 0.22-0.24 s, each a metadata and a media request (`http: metadata control 2, media
+control 2 (2 bodies, 76813 bytes)`); wall 1.78-1.80 s warm. The remaining plan budget (En
+forward, cluster guard, publication puts, local hydration) needs a traced reviewed plan, which
+publishes a review and so waits for the operator's go-ahead before M2's next reduction is chosen.
+
 
 ## Surprises & Discoveries
 

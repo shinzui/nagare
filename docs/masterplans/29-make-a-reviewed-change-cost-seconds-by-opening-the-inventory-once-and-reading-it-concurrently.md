@@ -224,7 +224,7 @@ only prior measurement of the store open on the intranet.
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
 | 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | Complete |
 | 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Complete |
-| 221 | Close the reviewed access latency gate with measured command costs | [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) | EP-212, EP-213, EP-214, EP-217, EP-218 | None | Not Started |
+| 221 | Close the reviewed access latency gate with measured command costs | [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) | EP-212, EP-213, EP-214, EP-217, EP-218 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
@@ -308,8 +308,11 @@ its transport lands. ADR 29's one-scope-per-relationship model stays unchanged.
 ## Progress
 
 EP-212, EP-213, EP-214, EP-217 and EP-218 are Complete; EP-217 M4 (2026-10-28) fetches only
-the anchor and the exact missing suffix at every tail length. EP-221 is next and owns closure of
-the latency gate. EP-215 is optional and not started; EP-216 is
+the anchor and the exact missing suffix at every tail length. EP-221 is In Progress: M1
+(command trace of phases and wire transfers) and M2's first reduction (bucket and project
+ownership reads overlapped) are in `7624c5e4`; read-only on the intranet the gcloud session fell
+from 1.77-2.11 s to 1.23 s. Choosing any further reduction needs a traced reviewed plan, which
+publishes a review and waits for the operator's go-ahead; M3 needs a release on the intranet. EP-215 is optional and not started; EP-216 is
 held. No new benchmark or implementation success is claimed by the 2026-10-28 plan update.
 
 Historical evidence: the initial five implemented children were on master at `98886b22`.
