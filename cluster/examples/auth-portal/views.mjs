@@ -47,6 +47,7 @@ export function loginPage(config, { csrf, returnTo = "", message = "", noticeTex
   <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}">
   <label>Login or email<input name="loginId" autocomplete="username" required></label>
   <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+  <label><input name="remember" type="checkbox" checked> Keep me signed in</label>
   <button type="submit">Sign in</button>
 </form>
 <meta name="portal-csrf" content="${escapeHtml(csrf)}">
@@ -55,8 +56,8 @@ export function loginPage(config, { csrf, returnTo = "", message = "", noticeTex
 <script type="module" src="/public/passkey.js"></script>`);
 }
 
-export function mfaPage(config, { csrf, ceremonyId, options, returnTo = "" }) {
-  const payload = safeJson({ kind: "mfa", csrf, ceremonyId, options, returnTo });
+export function mfaPage(config, { csrf, ceremonyId, options, returnTo = "", remember = false }) {
+  const payload = safeJson({ kind: "mfa", csrf, ceremonyId, options, returnTo, remember });
   return layout(config, "Use your passkey", `<p>Finish signing in with your passkey.</p>
 <script id="passkey-data" type="application/json">${payload}</script>
 <button type="button" data-passkey-action="embedded">Continue</button>

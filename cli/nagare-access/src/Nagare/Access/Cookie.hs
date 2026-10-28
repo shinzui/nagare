@@ -51,7 +51,9 @@ signedCookieSettings domain key =
     , cookieKey = Just key
     }
 
-sessionCookieHeader :: CookieSettings -> Text -> Int -> Either Text Header
+-- | The access-token cookie. 'Nothing' for the max age makes a browser-session
+-- cookie, which the browser drops when it closes.
+sessionCookieHeader :: CookieSettings -> Text -> Maybe Int -> Either Text Header
 sessionCookieHeader settings token maxAgeSeconds = do
   domain <- safeCookiePart "cookie domain" (settings ^. #cookieDomain)
   value <- safeCookiePart "session cookie value" token
@@ -62,8 +64,8 @@ sessionCookieHeader settings token maxAgeSeconds = do
           <> Builder.byteString value
           <> Builder.byteString "; Domain="
           <> Builder.byteString domain
-          <> Builder.byteString "; Path=/; Max-Age="
-          <> Builder.intDec maxAgeSeconds
+          <> Builder.byteString "; Path=/"
+          <> maxAgePart maxAgeSeconds
           <> Builder.byteString "; HttpOnly"
           <> securePart settings
           <> Builder.byteString "; SameSite=Lax"
@@ -81,7 +83,9 @@ clearSessionCookieHeader settings = do
         <> "; SameSite=Lax"
     )
 
-refreshCookieHeader :: CookieSettings -> Text -> Int -> Either Text Header
+-- | The signed refresh-token cookie; 'Nothing' for the max age makes a
+-- browser-session cookie, as for 'sessionCookieHeader'.
+refreshCookieHeader :: CookieSettings -> Text -> Maybe Int -> Either Text Header
 refreshCookieHeader settings refreshToken maxAgeSeconds = do
   domain <- safeCookiePart "cookie domain" (settings ^. #cookieDomain)
   key <- maybe (Left "NAGARE_ACCESS_COOKIE_KEY is required for refresh cookies") Right (settings ^. #cookieKey)
@@ -93,8 +97,8 @@ refreshCookieHeader settings refreshToken maxAgeSeconds = do
           <> Builder.byteString value
           <> Builder.byteString "; Domain="
           <> Builder.byteString domain
-          <> Builder.byteString "; Path=/; Max-Age="
-          <> Builder.intDec maxAgeSeconds
+          <> Builder.byteString "; Path=/"
+          <> maxAgePart maxAgeSeconds
           <> Builder.byteString "; HttpOnly"
           <> securePart settings
           <> Builder.byteString "; SameSite=Lax"
@@ -130,6 +134,9 @@ securePart settings =
   if settings ^. #cookieSecure
     then Builder.byteString "; Secure"
     else mempty
+
+maxAgePart :: Maybe Int -> Builder.Builder
+maxAgePart = maybe mempty (\seconds -> Builder.byteString "; Max-Age=" <> Builder.intDec seconds)
 
 safeCookiePart :: Text -> Text -> Either Text BC.ByteString
 safeCookiePart label value

@@ -330,6 +330,23 @@ browser sees the response, verifies the access token, immediately exchanges the 
 token for a new pair, validates `returnTo` against registered hosts, and sets its own
 cookies. The portal must not put tokens in URLs, HTML, JavaScript storage, or logs.
 
+### Staying signed in
+
+The password form, the MFA step and passkey sign-in may carry `remember`: a checkbox that
+posts `on` when checked, or a JSON boolean from a script. Forward it to Shomei as the boolean
+`remember` on `POST /v1/auth/login`, `/v1/auth/mfa/complete` and
+`/v1/auth/login/passkey/complete`. A password sign-in that answers `mfa_required` issues no
+session yet, so carry the choice through the MFA step. The reference portal offers "Keep me
+signed in", checked by default.
+
+Shomei records the choice on the session. A remembered session lasts Shomei's
+`rememberedSessionTTL` (365 days by default) and `nagare-access` gives it persistent cookies,
+`nagare_session` for the access token's lifetime and `nagare_refresh` for 30 days, renewed on
+every refresh. Any other session lasts `sessionTTL` (30 days) and gets browser-session cookies
+that end when the browser closes. Either way, a browser that does not use a protected site for
+30 days signs in again, because the refresh token expires. A sign-in without `remember`,
+including the built-in `/_nagare/login`, is not remembered.
+
 A portal may send `Nagare-Session-Clear` to ask the enforcer to clear and revoke the
 current session. The normal sign-out link is `/_nagare/logout`, which does the same and
 then returns the user to `/login?logged_out=1`.

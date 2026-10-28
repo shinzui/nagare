@@ -65,6 +65,12 @@ function suppliedCsrf(request, body) {
   return String(body.csrf || request.headers["x-portal-csrf"] || "");
 }
 
+// "Keep me signed in": a checked checkbox posts "on", a script posts a JSON boolean. Anything
+// else, including an absent field, asks Shomei for an unremembered, browser-session sign-in.
+function rememberField(body) {
+  return body.remember === true || body.remember === "on";
+}
+
 function requireCsrf(request, body) {
   const cookie = parseCookies(request.headers.cookie).portal_csrf;
   if (!equalSecret(cookie, suppliedCsrf(request, body))) throw Object.assign(new Error("CSRF check failed"), { status: 403 });
@@ -179,10 +185,11 @@ export function createPortal(overrides = {}) {
         const body = await readBody(request);
         requireCsrf(request, body);
         try {
-          const result = await callShomei(config, "/v1/auth/login", { method: "POST", body: { loginId: body.loginId, password: body.password } });
+          const remember = rememberField(body);
+          const result = await callShomei(config, "/v1/auth/login", { method: "POST", body: { loginId: body.loginId, password: body.password, remember } });
           if (result?.status === "mfa_required") {
             const csrf = pageCsrf(response);
-            return sendHtml(response, 200, mfaPage(config, { csrf, ceremonyId: result.ceremonyId, options: result.options, returnTo: body.return_to || "" }));
+            return sendHtml(response, 200, mfaPage(config, { csrf, ceremonyId: result.ceremonyId, options: result.options, returnTo: body.return_to || "", remember }));
           }
           return establish(response, result, body.return_to);
         } catch {
@@ -193,7 +200,7 @@ export function createPortal(overrides = {}) {
       if (method === "POST" && url.pathname === "/login/mfa") {
         const body = await readBody(request);
         requireCsrf(request, body);
-        const result = await callShomei(config, "/v1/auth/mfa/complete", { method: "POST", body: { ceremonyId: body.ceremonyId, proof: { type: "passkey", assertion: body.assertion } } });
+        const result = await callShomei(config, "/v1/auth/mfa/complete", { method: "POST", body: { ceremonyId: body.ceremonyId, proof: { type: "passkey", assertion: body.assertion }, remember: rememberField(body) } });
         return establish(response, result, body.return_to);
       }
       if (method === "POST" && url.pathname === "/login/passkey/begin") {
@@ -204,7 +211,7 @@ export function createPortal(overrides = {}) {
       if (method === "POST" && url.pathname === "/login/passkey/complete") {
         const body = await readBody(request);
         requireCsrf(request, body);
-        const result = await callShomei(config, "/v1/auth/login/passkey/complete", { method: "POST", body: { ceremonyId: body.ceremonyId, assertion: body.assertion } });
+        const result = await callShomei(config, "/v1/auth/login/passkey/complete", { method: "POST", body: { ceremonyId: body.ceremonyId, assertion: body.assertion, remember: rememberField(body) } });
         return establish(response, result, body.return_to);
       }
 

@@ -71,7 +71,7 @@ sessionRefreshTests =
                        _ -> Left ExpiredCredential
                    )
                 & #refreshUserSession
-                .~ (\_ -> pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900}))
+                .~ (\_ -> pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered = True}))
         res <- protectedRequest services (withHeader hAccept "text/html")
         simpleStatus res @?= status503
         lookup "nagare_session" (map (BS.break (== 61)) (setCookies res)) @?= Just "=access.new; Domain=.example.test; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax"
@@ -146,7 +146,7 @@ setCookies res = [value | (name, value) <- simpleHeaders res, name == ("Set-Cook
 
 refreshCookieValue :: Text -> IO ByteString
 refreshCookieValue token = do
-  hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".example.test" "cookie-secret") token 2592000)
+  hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".example.test" "cookie-secret") token (Just 2592000))
   maybe (assertFailure "missing refresh cookie value") pure (BS.stripPrefix "nagare_refresh=" (snd hdr) >>= Just . fst . BS.break (== 59))
 
 assertRight :: (HasCallStack, Show a) => Either a b -> IO b

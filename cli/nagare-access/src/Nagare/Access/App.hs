@@ -573,10 +573,16 @@ validateMfaPayload _services req payload =
     Just stored | stored == payload ^. #csrf -> Right payload
     _ -> Left "csrf validation failed"
 
+-- | The cookies for a session. A remembered session (Shomei's "keep me signed
+-- in") gets persistent cookies that outlive the browser; any other session
+-- gets browser-session cookies, so it ends when the browser closes. Every
+-- refresh reissues both with the same choice, because Shomei reports it with
+-- every token pair.
 sessionHeaders :: AccessServices -> SessionTokens -> Either Text [Header]
 sessionHeaders services tokens = do
   settings <- maybe (Left "login is not configured") Right (services ^. #cookieSettings)
-  sessionHeader <- sessionCookieHeader settings (tokens ^. #accessToken) (tokens ^. #expiresIn)
+  let persistent maxAge = if tokens ^. #remembered then Just maxAge else Nothing
+  sessionHeader <- sessionCookieHeader settings (tokens ^. #accessToken) (persistent (tokens ^. #expiresIn))
   refreshHeaders <-
     case tokens ^. #refreshToken of
       Nothing ->
@@ -585,7 +591,7 @@ sessionHeaders services tokens = do
         case settings ^. #cookieKey of
           Nothing -> Right []
           Just _ -> do
-            refreshHeader <- refreshCookieHeader settings refresh defaultRefreshCookieMaxAgeSeconds
+            refreshHeader <- refreshCookieHeader settings refresh (persistent defaultRefreshCookieMaxAgeSeconds)
             Right [refreshHeader]
   Right (sessionHeader : refreshHeaders)
 

@@ -102,6 +102,7 @@ test-suite nagare-access-test
     EnContractSpec
     RealShomei
     RefreshCoalescerSpec
+    RememberedSessionSpec
     SessionRefreshSpec
     SiteAccessIntegrationSpec
     TeamAccessSpec

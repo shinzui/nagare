@@ -82,6 +82,7 @@ import Network.Wai.Handler.Warp (testWithApplication)
 import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
 import RealShomei (withRealShomeiServer)
 import RefreshCoalescerSpec (refreshCoalescerTests)
+import RememberedSessionSpec (rememberedSessionTests)
 import Servant.Client (ClientError (..))
 import SessionRefreshSpec (sessionRefreshTests)
 import Shomei.Account.Dto qualified as ShomeiAccountDTO
@@ -121,6 +122,7 @@ main =
       , appTests
       , refreshCoalescerTests
       , sessionRefreshTests
+      , rememberedSessionTests
       ]
 
 configTests :: TestTree
@@ -227,7 +229,7 @@ cookieTests =
   testGroup
     "cookies"
     [ testCase "session cookie includes domain and security flags" $ do
-        hdr <- assertRight (sessionCookieHeader (defaultCookieSettings ".apps.example.com") "jwt.token" 900)
+        hdr <- assertRight (sessionCookieHeader (defaultCookieSettings ".apps.example.com") "jwt.token" (Just 900))
         hdr
           @?= ( "Set-Cookie"
               , "nagare_session=jwt.token; Domain=.apps.example.com; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax"
@@ -242,13 +244,13 @@ cookieTests =
         hdr <- assertRight (csrfCookieHeader "csrf-token" 600)
         hdr @?= ("Set-Cookie", "__Host-nagare_csrf=csrf-token; Path=/; Max-Age=600; Secure; SameSite=Lax")
     , testCase "cookie values reject header separators" $
-        assertBool "expected Left" (isLeft (sessionCookieHeader (defaultCookieSettings ".apps.example.com") "bad;token" 900))
+        assertBool "expected Left" (isLeft (sessionCookieHeader (defaultCookieSettings ".apps.example.com") "bad;token" (Just 900)))
     , testCase "refresh cookie wraps the token with an authenticated value" $ do
-        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" (Just 2592000))
         value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
         decodeRefreshCookieValue "cookie-secret" (TE.decodeUtf8 value) @?= Just "refresh.token"
     , testCase "refresh cookie rejects a tampered value" $ do
-        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" (Just 2592000))
         value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
         decodeRefreshCookieValue "cookie-secret" (TE.decodeUtf8 (value <> "x")) @?= Nothing
     , -- The old implementation round-tripped the MAC through
@@ -256,7 +258,7 @@ cookieTests =
       -- comparison. BA.constEq subsumes that: it returns False on a length
       -- mismatch, without an early exit.
       testCase "refresh cookie rejects a MAC of the wrong length" $ do
-        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" (Just 2592000))
         value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
         let text = TE.decodeUtf8 value
         case Text.splitOn "." text of
@@ -267,7 +269,7 @@ cookieTests =
               @?= Nothing
           other -> assertFailure ("unexpected refresh cookie shape: " <> show other)
     , testCase "refresh cookie rejects the right-length MAC of a different key" $ do
-        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" (Just 2592000))
         value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
         decodeRefreshCookieValue "other-secret" (TE.decodeUtf8 value) @?= Nothing
     ]
@@ -364,14 +366,7 @@ shomeiTests =
               , email = Nothing
               , password = "secret"
               }
-            >>= ( @?=
-                    LoginSucceeded
-                      SessionTokens
-                        { accessToken = "access.from-login"
-                        , refreshToken = Just "refresh.from-login"
-                        , expiresIn = 900
-                        }
-                )
+            >>= (@?= LoginSucceeded SessionTokens {accessToken = "access.from-login", refreshToken = Just "refresh.from-login", expiresIn = 900, remembered = True})
 
           loginWithShomei
             env
@@ -389,24 +384,10 @@ shomeiTests =
                 )
 
           refreshWithShomei env "refresh.old"
-            >>= ( @?=
-                    LoginSucceeded
-                      SessionTokens
-                        { accessToken = "access.from-refresh"
-                        , refreshToken = Just "refresh.from-refresh"
-                        , expiresIn = 901
-                        }
-                )
+            >>= (@?= LoginSucceeded SessionTokens {accessToken = "access.from-refresh", refreshToken = Just "refresh.from-refresh", expiresIn = 901, remembered = False})
 
           completeMfaWithShomei env MfaCompletion {ceremonyId = "ceremony-1", assertion = object ["id" .= ("credential-1" :: Text)]}
-            >>= ( @?=
-                    LoginSucceeded
-                      SessionTokens
-                        { accessToken = "access.from-mfa"
-                        , refreshToken = Just "refresh.from-mfa"
-                        , expiresIn = 902
-                        }
-                )
+            >>= (@?= LoginSucceeded SessionTokens {accessToken = "access.from-mfa", refreshToken = Just "refresh.from-mfa", expiresIn = 902, remembered = True})
 
           logoutWithShomei env (AccessToken "access.to-revoke")
     ]
@@ -644,6 +625,7 @@ portalTests =
                                { accessToken = "refreshed-access"
                                , refreshToken = Just "refreshed-refresh"
                                , expiresIn = 900
+                               , remembered = True
                                }
                          )
                    )
@@ -881,7 +863,7 @@ appTests =
                 & #loginUser
                 .~ ( \credentials -> do
                        modifyIORef' seen (<> [credentials])
-                       pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
+                       pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900, remembered = True})
                    )
             req =
               SRequest
@@ -940,7 +922,7 @@ appTests =
                 & #completeMfa
                 .~ ( \completion -> do
                        modifyIORef' seen (<> [completion])
-                       pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
+                       pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900, remembered = True})
                    )
             req =
               SRequest
@@ -1019,7 +1001,7 @@ appTests =
                 & #refreshUserSession
                 .~ ( \token -> do
                        token @?= "refresh.old"
-                       pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900})
+                       pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered = True})
                    )
         res <-
           runSession
@@ -1272,7 +1254,7 @@ cookieValueFromSetCookie name (_, value) =
 
 refreshCookieValue :: Text -> Text -> IO ByteString
 refreshCookieValue key token = do
-  hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" key) token 2592000)
+  hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" key) token (Just 2592000))
   maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
 
 setCookieValue :: ByteString -> SResponse -> IO ByteString
@@ -1330,9 +1312,11 @@ shomeiAdapterStubApp req respond =
     ("POST", ["v1", "auth", "login"]) -> do
       body <- Wai.strictRequestBody req
       case decode body of
-        Just (ShomeiSessionDTO.LoginRequest "alice" "secret") ->
-          respondJson status200 (ShomeiSessionDTO.LoginCompleteResponse shomeiUser (ShomeiSessionDTO.TokenPairResponse (Just "access.from-login") (Just "refresh.from-login") 900))
-        Just (ShomeiSessionDTO.LoginRequest "mfa" "secret") ->
+        -- The built-in login page never asks Shomei to remember the session.
+        -- This answer omits "remembered", as a Shomei that predates it does.
+        Just (ShomeiSessionDTO.LoginRequest "alice" "secret" Nothing) ->
+          respondJson status200 (ShomeiSessionDTO.LoginCompleteResponse shomeiUser (ShomeiSessionDTO.TokenPairResponse (Just "access.from-login") (Just "refresh.from-login") 900 Nothing))
+        Just (ShomeiSessionDTO.LoginRequest "mfa" "secret" Nothing) ->
           respondJson status200 (ShomeiSessionDTO.LoginMfaRequiredResponse "ceremony-1" (object ["challenge" .= ("abc" :: Text)]) ["passkey"])
         _ ->
           respondJson status401 (object ["error" .= ("invalid_login" :: Text)])
@@ -1340,14 +1324,14 @@ shomeiAdapterStubApp req respond =
       body <- Wai.strictRequestBody req
       case decode body of
         Just (ShomeiSessionDTO.RefreshRequest (Just "refresh.old")) ->
-          respondJson status200 (ShomeiSessionDTO.TokenPairResponse (Just "access.from-refresh") (Just "refresh.from-refresh") 901)
+          respondJson status200 (ShomeiSessionDTO.TokenPairResponse (Just "access.from-refresh") (Just "refresh.from-refresh") 901 (Just False))
         _ ->
           respondJson status401 (object ["error" .= ("invalid_refresh" :: Text)])
     ("POST", ["v1", "auth", "mfa", "complete"]) -> do
       body <- Wai.strictRequestBody req
       case decode body of
-        Just (ShomeiMfaDTO.MfaCompleteRequest "ceremony-1" (ShomeiMfaDTO.PasskeyProof _)) ->
-          respondJson status200 (ShomeiSessionDTO.TokenPairResponse (Just "access.from-mfa") (Just "refresh.from-mfa") 902)
+        Just (ShomeiMfaDTO.MfaCompleteRequest "ceremony-1" (ShomeiMfaDTO.PasskeyProof _) Nothing) ->
+          respondJson status200 (ShomeiSessionDTO.TokenPairResponse (Just "access.from-mfa") (Just "refresh.from-mfa") 902 (Just True))
         _ ->
           respondJson status401 (object ["error" .= ("invalid_mfa" :: Text)])
     ("POST", ["v1", "auth", "logout"]) -> do
@@ -1660,6 +1644,7 @@ successfulHandoffServices returnTo =
                    { accessToken = "refreshed-access"
                    , refreshToken = Just "refreshed-refresh"
                    , expiresIn = 900
+                   , remembered = True
                    }
              )
        )

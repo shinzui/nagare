@@ -39,6 +39,9 @@ before(async () => {
     if (request.url === "/v1/auth/login") {
       return json(response, 200, { status: "complete", user: { loginId: "eve" }, token: { accessToken: "access-1", refreshToken: "refresh-1", expiresIn: 300 } });
     }
+    if (request.url === "/v1/auth/mfa/complete" || request.url === "/v1/auth/login/passkey/complete") {
+      return json(response, 200, { accessToken: "access-2", refreshToken: "refresh-2", expiresIn: 300, remembered: body.remember === true });
+    }
     if (request.url === "/v1/auth/me") {
       return json(response, 200, { userId: "user-1", loginId: "<b>eve</b>", displayName: "Eve", email: "eve@example.test", status: "active" });
     }
@@ -128,4 +131,48 @@ test("403 page escapes the protected host", async () => {
 test("signup is disabled by default", async () => {
   const response = await fetch(portalUrl + "/signup");
   assert.equal(response.status, 404);
+});
+
+async function postJson(path, values, cookie, csrf) {
+  return fetch(portalUrl + path, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "Content-Type": "application/json", Accept: "application/json", Cookie: cookie, "X-Portal-CSRF": csrf },
+    body: JSON.stringify({ ...values, csrf }),
+  });
+}
+
+const lastBody = (path) => calls.findLast((call) => call.path === path)?.body;
+
+test("the sign-in form offers Keep me signed in, checked", async () => {
+  const { html } = await loginForm();
+  assert.match(html, /<input name="remember" type="checkbox" checked> Keep me signed in/);
+});
+
+test("a native sign-in forwards remember: true when checked and false when not", async () => {
+  const { csrf, cookie } = await loginForm();
+  assert.equal((await postForm("/login", { csrf, loginId: "eve", password: "secret", remember: "on" }, cookie)).status, 204);
+  assert.deepEqual(lastBody("/v1/auth/login"), { loginId: "eve", password: "secret", remember: true });
+  assert.equal((await postForm("/login", { csrf, loginId: "eve", password: "secret" }, cookie)).status, 204);
+  assert.deepEqual(lastBody("/v1/auth/login"), { loginId: "eve", password: "secret", remember: false });
+});
+
+test("the passkey second step carries remember from the password step", async () => {
+  const { csrf, cookie } = await loginForm();
+  const page = await postForm("/login", { csrf, loginId: "mfa", password: "secret", remember: "on" }, cookie);
+  assert.match(await page.text(), /"remember":true/);
+  for (const remember of [true, false]) {
+    const done = await postJson("/login/mfa", { ceremonyId: "ceremony-1", assertion: { id: "x" }, remember }, cookie, csrf);
+    assert.equal(done.status, 204);
+    assert.equal(lastBody("/v1/auth/mfa/complete").remember, remember);
+  }
+});
+
+test("passkey sign-in forwards remember", async () => {
+  const { csrf, cookie } = await loginForm();
+  for (const remember of [true, false]) {
+    const done = await postJson("/login/passkey/complete", { ceremonyId: "ceremony-2", assertion: { id: "x" }, remember }, cookie, csrf);
+    assert.equal(done.status, 204);
+    assert.deepEqual(lastBody("/v1/auth/login/passkey/complete"), { ceremonyId: "ceremony-2", assertion: { id: "x" }, remember });
+  }
 });

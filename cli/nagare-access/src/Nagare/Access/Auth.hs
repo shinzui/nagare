@@ -46,6 +46,10 @@ data SessionTokens = SessionTokens
   { accessToken :: !Text
   , refreshToken :: !(Maybe Text)
   , expiresIn :: !Int
+  , remembered :: !Bool
+  -- ^ Shomei's answer to "keep me signed in", fixed for the session's life.
+  -- A remembered session gets persistent cookies, any other session
+  -- browser-session cookies.
   }
   deriving stock (Generic, Eq, Show)
 

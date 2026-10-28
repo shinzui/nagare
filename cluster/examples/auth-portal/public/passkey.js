@@ -47,9 +47,9 @@ async function jsonRequest(path, body) {
   return data;
 }
 
-async function finishLogin(path, ceremonyId, options, returnTo, csrfValue = csrf) {
+async function finishLogin(path, ceremonyId, options, returnTo, remember, csrfValue = csrf) {
   const assertion = encodeCredential(await navigator.credentials.get({ publicKey: decodeOptions(options) }));
-  const result = await jsonRequest(path, { csrf: csrfValue, ceremonyId, assertion, return_to: returnTo });
+  const result = await jsonRequest(path, { csrf: csrfValue, ceremonyId, assertion, return_to: returnTo, remember });
   window.location.assign(result.redirect || returnTo || "/account");
 }
 
@@ -58,10 +58,11 @@ async function act(button) {
   try {
     if (button.dataset.passkeyAction === "embedded") {
       const data = JSON.parse(document.querySelector("#passkey-data").textContent);
-      await finishLogin("/login/mfa", data.ceremonyId, data.options, data.returnTo, data.csrf);
+      await finishLogin("/login/mfa", data.ceremonyId, data.options, data.returnTo, data.remember === true, data.csrf);
     } else if (button.dataset.passkeyAction === "login") {
       const begun = await jsonRequest("/login/passkey/begin", { csrf });
-      await finishLogin("/login/passkey/complete", begun.ceremonyId, begun.options, button.dataset.returnTo || "");
+      const remember = document.querySelector('input[name="remember"]')?.checked === true;
+      await finishLogin("/login/passkey/complete", begun.ceremonyId, begun.options, button.dataset.returnTo || "", remember);
     } else if (button.dataset.passkeyAction === "register") {
       const begun = await jsonRequest("/account/passkeys/begin", { csrf });
       const credential = encodeCredential(await navigator.credentials.create({ publicKey: decodeOptions(begun.options) }));

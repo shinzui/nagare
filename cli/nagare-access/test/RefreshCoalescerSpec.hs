@@ -146,7 +146,7 @@ alicePassword :: Text
 alicePassword = "A-long-random-password-42"
 
 succeeded :: Text -> LoginOutcome
-succeeded token = LoginSucceeded SessionTokens {accessToken = "access." <> token, refreshToken = Just token, expiresIn = 900}
+succeeded token = LoginSucceeded SessionTokens {accessToken = "access." <> token, refreshToken = Just token, expiresIn = 900, remembered = True}
 
 isSucceeded :: LoginOutcome -> Bool
 isSucceeded (LoginSucceeded _) = True

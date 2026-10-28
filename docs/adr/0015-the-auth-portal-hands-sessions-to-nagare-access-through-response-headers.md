@@ -87,3 +87,12 @@ receives the pair already obtained instead of spending it again, which would tri
 reuse revocation. Only Shomei's explicit 4xx rejection ends a session: when Shomei or its
 keys are unavailable the enforcer answers 503 and keeps the cookies
 ([ExecPlan 211](../plans/211-keep-protected-site-sessions-across-concurrent-refreshes-and-shomei-outages.md)).
+
+A sign-in may ask to stay signed in. The portal forwards the person's choice to Shomei as
+`remember` on password sign-in, MFA completion and passkey completion; Shomei records it on
+the session, gives a remembered session its longer `rememberedSessionTTL`, and reports
+`remembered` with every token pair, including every refresh. The enforcer keeps no state of
+its own for it: a remembered session gets persistent cookies, any other session
+browser-session cookies without `Max-Age`, and the choice survives every renewal because each
+refresh reports it again. An absent `remembered`, from a Shomei that predates it, keeps the
+cookies persistent. The handoff header is unchanged.

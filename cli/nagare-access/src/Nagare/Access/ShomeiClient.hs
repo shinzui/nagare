@@ -27,7 +27,9 @@ loginWithShomei env credentials =
   case credentials ^. #credentialId <|> credentials ^. #email of
     Nothing -> pure (LoginFailed "invalid login")
     Just loginId -> do
-      result <- Shomei.login env (DTO.LoginRequest loginId (credentials ^. #password))
+      -- The built-in login page has no "keep me signed in", so its sessions
+      -- are not remembered.
+      result <- Shomei.login env (DTO.LoginRequest loginId (credentials ^. #password) Nothing)
       pure $ shomeiOutcome "invalid login" result $ \response ->
         case Shomei.cookieBody response of
           DTO.LoginMfaRequiredResponse ceremonyId options _methods ->
@@ -43,6 +45,7 @@ completeMfaWithShomei env completion = do
       ( Mfa.MfaCompleteRequest
           (completion ^. #ceremonyId)
           (Mfa.PasskeyProof (completion ^. #assertion))
+          Nothing
       )
   pure (shomeiOutcome "mfa failed" result (tokenPairOutcome "mfa failed" . Shomei.cookieBody))
 
@@ -91,11 +94,14 @@ shomeiLoginEnvFromAuthPlane cfg =
   Shomei.shomeiClientEnv (Text.unpack (cfg ^. #shomeiUrl))
 
 tokenPairOutcome :: Text -> DTO.TokenPairResponse -> LoginOutcome
-tokenPairOutcome _ (DTO.TokenPairResponse (Just access) refresh expires) =
+tokenPairOutcome _ (DTO.TokenPairResponse (Just access) refresh expires remembered) =
   LoginSucceeded
     SessionTokens
       { accessToken = access
       , refreshToken = refresh
       , expiresIn = expires
+      , -- A Shomei that predates remembered sessions keeps every session's
+        -- cookies persistent, as before.
+        remembered = fromMaybe True remembered
       }
 tokenPairOutcome failureMessage _ = LoginFailed failureMessage
