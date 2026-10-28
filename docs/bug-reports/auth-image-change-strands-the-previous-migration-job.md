@@ -7,7 +7,7 @@ generated:
   at: "2026-10-28T19:20:00Z"
 bugId: BUG-9
 status: fixed
-fixedVersion: unreleased
+fixedVersion: 0.11.0
 resolution: >-
   Fixed on master by commit 1db2be79. The planner's supersededMigrationJobs
   (cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs) selects a stateless
@@ -16,7 +16,10 @@ resolution: >-
   receives a retention proof, so it is retained, never deleted. Any other
   removed member still refuses with retirement-required. Regression tests in
   cli/nagarectl/test/InventoryContributionRetirementSpec.hs fail without the fix
-  with the intranet's exact error.
+  with the intranet's exact error. Released in 0.11.0 (signed tag on
+  5ccf0026). On the intranet the 0.11.0 transition then rolled Shomei to a new
+  image: shomei-migrate-77aee8be3bf4 ran migration 0037, and the superseded
+  shomei-migrate-319565fb220f was retained, not deleted.
 severity: unusable
 origin: mori://tan/tan-ng-labs/plans/12-keep-labs-sign-ins-alive-and-add-a-remember-me-option
 affects: mori://shinzui/nagare/packages/nagarectl

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-28
+* **Update**: BUG-9 is `fixed` in 0.11.0: the intranet transition rolled Shomei to a new image, ran its new migration Job and retained the superseded one without a decision.
 * **Update**: Mark BUG-9 `fixed` in `unreleased` by commit `1db2be79`: a completed migration Job that a scope replacement no longer declares is retained without a lifecycle decision, and any other removed member still needs one.
 * **Addition**: Record BUG-9 from `mori://tan/tan-ng-labs/plans/12-keep-labs-sign-ins-alive-and-add-a-remember-me-option` on the 0.11.0 candidate: a new Shomei image pin renames the auth migration Job, so the accepted `shomei-migrate-<old>` member drops out of the desired scope and every platform plan refuses with `retirement-required`, stopping the intranet transition after the host activation.
 
