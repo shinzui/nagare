@@ -382,6 +382,35 @@ removingScopes candidate =
         ]
     ]
 
+-- | BUG-9: completed migration Jobs a scope replacement no longer declares.
+-- A migration Job is named after its image so a new image runs its
+-- migrations in a new Job; the previous one is an execution record holding
+-- no data. It is retained, never deleted, without an operator decision, so
+-- an image change cannot strand it. Only a stateless member that an accepted
+-- schema migration ran on qualifies, and only under 'ReplaceScope'.
+supersededMigrationJobs :: CompositionCandidate -> InventoryHistory -> Set ResourceId
+supersededMigrationJobs candidate history =
+  Set.fromList
+    [ resource ^. #identity
+    | Managed resource <- historyDeclarations history
+    , Set.notMember (resource ^. #identity) desired
+    , Set.member (resource ^. #owner) replaced
+    , resource ^. #dataPolicy == Stateless
+    , Set.member (resource ^. #identity) migrated
+    ]
+  where
+    desired = Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))
+    replaced = Set.fromList [scopeId scope | ReplaceScope scope <- NE.toList (candidateChanges candidate)]
+    migrated =
+      Set.fromList
+        [ resource
+        | (_, declaration) <- Map.elems (historyAccepted history)
+        , bundle <- scopeBundles declaration
+        , operation <- bundle ^. #operations
+        , operation ^. #operationKind == SchemaMigration
+        , resource <- NE.toList (operation ^. #affects)
+        ]
+
 buildRetentionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
 buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observations = do
   unless
@@ -396,6 +425,7 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
       , Set.notMember resource desired
       ]
     absent = buildAbsenceProofs candidate history observations
+    superseded = supersededMigrationJobs candidate history
     -- Admission counts removed members over composed history, which includes
     -- contribution targets owned by the scope; prove exactly that set (F40).
     selected =
@@ -414,6 +444,10 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
             -- F51: retain the accepted incarnation. An object that replaced it
             -- outside review never enters retained history; N1: the proof
             -- names it, so admission verifies the replacement still stands.
+            Right (resourceId, retentionFor (resource ^. #owner) revision (headIncarnations (historyHead history)) resourceId physical)
+      (Nothing, Just (ObservedPresent physical), Just (revision, _))
+        | Set.member resourceId superseded ->
+            -- BUG-9: a superseded migration Job is retained the same way.
             Right (resourceId, retentionFor (resource ^. #owner) revision (headIncarnations (historyHead history)) resourceId physical)
       _ -> Left (PlanError "retention-proof" "retired resource lacks a reviewed present incarnation" [resourceId] :| [])
 
@@ -892,6 +926,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
           [PlanError "durable-resource-missing" "accepted durable resource is absent; recover its data before retiring it" [resource]]
     retireError (resource, _)
       | decisionIs ApproveRetirement resource || decisionIs ApproveCollection resource = []
+      | Set.member resource (supersededMigrationJobs candidate history) = []
       | otherwise = [PlanError "retirement-required" "accepted resource is absent from desired inventory without a lifecycle decision" [resource]]
     retireOperation (resource, Managed old)
       | decisionIs ApproveCollection resource = Just (resourceOperation RetireResource old)

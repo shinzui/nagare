@@ -1,12 +1,16 @@
 -- | F40: a scope that owns a composed contribution target (here the access
 -- backend map granted by 'BackendMapGrant') retires with that target retained,
 -- and the retained member reloads from history although no raw bundle lists it.
+-- BUG-9: a migration Job named after its image is retained, without a
+-- decision, when a new image replaces it.
 module InventoryContributionRetirementSpec (inventoryContributionRetirementTests) where
 
 import Data.Aeson (toJSON)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding)
@@ -19,7 +23,7 @@ import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
-import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), RetirementIntent (..), Sensitivity (Public))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), RecoveryClass (VerifyBeforeRetry), RetirementIntent (..), Sensitivity (Public))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
@@ -31,7 +35,104 @@ inventoryContributionRetirementTests =
     "scope retirement of composed and host members (F40)"
     [ testCase "scope retirement retains its composed contribution target and reloads it (F40)" contributionTarget
     , testCase "scope retirement retains a host system as history (F40)" hostSystem
+    , testGroup
+        "superseded migration Jobs (BUG-9)"
+        [ testCase "a new migration Job image retains the previous Job without a decision" supersededJob
+        , testCase "any other removed member still needs a lifecycle decision" unrelatedRemoval
+        ]
     ]
+
+supersededJob :: Assertion
+supersededJob = do
+  store <- acceptedAuth [authJob "shomei-migrate-old"] [authMigration "shomei-migrate-old"]
+  history <- loadInventoryHistory store >>= expectRight
+  let next = authReplacement history [authJob "shomei-migrate-new"] [authMigration "shomei-migrate-new"]
+      observed =
+        ok
+          ( observationSet
+              [ (authJobId "shomei-migrate-old", ObservedPresent oldJobPhysical)
+              , (authJobId "shomei-migrate-new", ConfirmedAbsent (contentDigest "absent"))
+              ]
+          )
+  proposal <- expectRight (planChanges next noLifecycleDecisions history observed)
+  assertBool
+    "the previous Job is retained, never deleted"
+    (RetireResource `notElem` map plannedAction (proposalOperations proposal))
+  acceptWith (observingRegistry KubernetesExecutor oldJobPhysical) store proposal
+  retained <- loadInventoryHistory store >>= expectRight
+  fmap (retainedPhysical . fst) (Map.lookup (authJobId "shomei-migrate-old") (historyRetained retained))
+    @?= Just oldJobPhysical
+
+unrelatedRemoval :: Assertion
+unrelatedRemoval = do
+  store <- acceptedAuth [authJob "shomei-migrate-old", authJob "settings"] [authMigration "shomei-migrate-old"]
+  history <- loadInventoryHistory store >>= expectRight
+  let next = authReplacement history [authJob "shomei-migrate-old"] [authMigration "shomei-migrate-old"]
+      observed = ok (observationSet [(authJobId name, ObservedPresent oldJobPhysical) | name <- ["shomei-migrate-old", "settings"]])
+  case planChanges next noLifecycleDecisions history observed of
+    Left errors -> map planErrorCode (NE.toList errors) @?= ["retirement-required"]
+    Right _ -> assertFailure "a removed Job no migration ran on was retained without a decision"
+
+authOwner :: ScopeId
+authOwner = ok (mkScopeId Platform "auth")
+
+authJobId :: Text -> ResourceId
+authJobId name = mintResourceId authOwner (ok (mkLogicalKey "auth")) (ok (mkName name))
+
+authJob :: Text -> Declaration
+authJob name =
+  Managed
+    ManagedResource
+      { identity = authJobId name
+      , owner = authOwner
+      , executor = KubernetesExecutor
+      , address =
+          Kubernetes
+            (mintResourceId authOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster")))
+            "batch"
+            (ok (mkName "job"))
+            (Just (ok (mkName "nagare-system")))
+            (ok (mkName name))
+      , aliases = []
+      , spec = NativeObject (contentDigest (TE.encodeUtf8 name))
+      , lifecycle = Retain
+      , dataPolicy = Stateless
+      , sensitivity = Public
+      , dependencies = []
+      , delegations = []
+      , source = SourceLocation "test" name
+      }
+
+authMigration :: Text -> DeclaredOperation
+authMigration name =
+  DeclaredOperation
+    (mintResourceId authOwner (ok (mkLogicalKey "auth")) (ok (mkName ("proof-" <> name))))
+    (authJobId name :| [])
+    [ContentInput (contentDigest (TE.encodeUtf8 name))]
+    VerifyBeforeRetry
+    SchemaMigration
+
+authDeclaration :: [Declaration] -> [DeclaredOperation] -> ScopeDeclaration
+authDeclaration declarations operations = ok (mkScopeDeclaration authOwner [ResourceBundle declarations [] [] [] operations []])
+
+-- | A store whose auth scope declares these members, created and converged.
+acceptedAuth :: [Declaration] -> [DeclaredOperation] -> IO InventoryStore
+acceptedAuth declarations operations = do
+  store <- newMemoryStore
+  _ <- initializeStore store fixtureBinding "migration-supersession" >>= expectRight
+  emptyHistory <- loadInventoryHistory store >>= expectRight
+  let initial = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope (authDeclaration declarations operations) :| []))
+      absent = ok (observationSet [(declarationId declaration, ConfirmedAbsent (contentDigest "absent")) | declaration <- declarations])
+  acceptWith (observingRegistry KubernetesExecutor oldJobPhysical) store (ok (planChanges initial noLifecycleDecisions emptyHistory absent))
+  pure store
+
+authReplacement :: InventoryHistory -> [Declaration] -> [DeclaredOperation] -> CompositionCandidate
+authReplacement history declarations operations =
+  let accepted = Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history)
+   in ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty)) (ReplaceScope (authDeclaration declarations operations) :| []))
+
+oldJobPhysical :: PhysicalIdentity
+oldJobPhysical = ok (mkPhysicalIdentity "job-uid-old")
 
 hostSystem :: Assertion
 hostSystem = do
