@@ -52,10 +52,16 @@ separate evidence; they cannot replace the warm-path gate or be silently counted
   the independent bucket/project ownership probes. Deterministic recording fakes prove the
   overlap and refusals; a representative reviewed membership path proves the integrated result.
   Record before/after phase costs and any evidence-driven further implementation decision.
-- [ ] M3: The released five-sample membership benchmark passes under 5 s per plan and 15 s per
-  apply at both scope sizes; growth stays within the defined median tolerance. Record the long-tail
-  confirmation separately, all raw timings and transfer counts, and the release/fixture identity.
-  MasterPlan 29's Progress links this evidence and closes its gate only when every criterion passes.
+- [x] M3 (reduced scope, operator decision 2026-10-29): the released v0.11.1 five-sample
+  membership benchmark at 103 accepted scopes, 2026-10-29, `scripts/benchmark-reviewed-access.py`,
+  result [`docs/audits/mp29-latency-2026-10-29/baseline.json`](../audits/mp29-latency-2026-10-29/baseline.json).
+  Plans 3.30, 3.34, 19.12, 3.40, 3.54 s (median 3.40); applies 24.26, 9.17, 9.27, 9.88, 9.90 s
+  (median 9.88). Invariants held in every sample (store opens 1, gcloud sessions 1, plan head
+  reads 1, history loads 1, listings 0, one En forward and one guard). The two over-threshold
+  samples are each one `gcloud projects describe` (project ownership) that took 16.3 s and 14.9 s
+  instead of about 0.6 s; every other phase was normal. Long-tail confirmation: the untimed
+  warm-up apply fetched 429 journal events (`media journal 429`, 22.0 s). No stale-head or failed
+  runs. The growth run was not done (Decision Log).
 
 EP-217 is Complete (2026-10-28), so every hard prerequisite is met.
 
@@ -156,12 +162,18 @@ commands that always reach en prepare it: access plans and `access check`. `inve
 opening its session on first use, because most applies have no access operation and their warm
 membership apply is 10.0-10.9 s against 15 s. M2 is complete; M3 remains.
 
+2026-10-29: The operator reduced M3 to the baseline run to unblock other work: the 50-scope
+growth run is not done, and the plan is closed with two over-threshold samples whose cause is
+named. Follow-ups, not owned here: the `gcloud projects describe` ownership read stalls about
+15 s in roughly one command in four (read the project number with the session's token or keep
+it per project; it is immutable), and an apply after a gap fetches every journal event written
+since the last cached one (429 after the v0.11.1 transition). Both belong to the platform-speed
+work in EP-224 or MasterPlan 30.
+
 
 ## Outcomes & Retrospective
 
-Pending implementation. Preserve failures as evidence and keep this child open until the
-released-command and growth criteria pass. Completing attribution or fixtures alone is not
-completion of the latency objective.
+(Not used; operator decision 2026-10-10.)
 
 
 ## Context and Orientation

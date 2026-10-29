@@ -1,0 +1,2606 @@
+{
+  "scenario": "reviewed access team add-member plan/apply (EP-221 M3)",
+  "label": "baseline",
+  "context": "intranet",
+  "team": "engineering",
+  "user": "user_01m4py1q2fesvbtd7xnxr7yede",
+  "nagarectl": {
+    "contracts": [
+      1
+    ],
+    "platformVersion": "0.11.1",
+    "revision": "ef5a537c77ab97ef466dab4ce4a533dd75ef4e91",
+    "version": "0.11.1"
+  },
+  "machine": {
+    "system": "Darwin",
+    "machine": "arm64",
+    "node": "sungkyung"
+  },
+  "note": "v0.11.1 packaged, 103 accepted scopes; a parallel docs session is active on this machine",
+  "startedAt": "2026-10-29T16:10:19+00:00",
+  "journalCachedBefore": 8415,
+  "warmup": {
+    "plan": {
+      "step": 1,
+      "name": "warmup-remove-plan",
+      "argv": [
+        "access",
+        "team",
+        "remove-member",
+        "--team",
+        "engineering",
+        "--user",
+        "user_01m4py1q2fesvbtd7xnxr7yede",
+        "--save-plan",
+        "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/01-warmup-remove-plan-review"
+      ],
+      "exit": 0,
+      "seconds": 4.591,
+      "trace": {
+        "object store": {
+          "store opens": {
+            "count": 1,
+            "seconds": 0.29
+          },
+          "gcloud sessions": {
+            "count": 1,
+            "seconds": 2.28
+          },
+          "head reads": {
+            "count": 1,
+            "seconds": 0.29
+          },
+          "history loads": {
+            "count": 1,
+            "seconds": 0.06
+          },
+          "remote gets": {
+            "count": 3,
+            "seconds": 0.84
+          },
+          "cached gets": {
+            "count": 208
+          },
+          "puts": {
+            "count": 1,
+            "seconds": 0.18
+          },
+          "listings": {
+            "count": 0
+          }
+        },
+        "phases": {
+          "bucket ownership": {
+            "count": 1,
+            "seconds": 1.01
+          },
+          "cluster guard": {
+            "count": 1,
+            "seconds": 0.8
+          },
+          "en forward": {
+            "count": 1,
+            "seconds": 0.43
+          },
+          "en request": {
+            "count": 4,
+            "seconds": 0.49
+          },
+          "gcloud credential helper": {
+            "count": 1,
+            "seconds": 1.23
+          },
+          "gcloud ownership read": {
+            "count": 2,
+            "seconds": 1.69
+          },
+          "owner read": {
+            "count": 2,
+            "seconds": 0.3
+          },
+          "project ownership": {
+            "count": 1,
+            "seconds": 0.68
+          },
+          "transport setup": {
+            "count": 1,
+            "seconds": 0.03
+          }
+        },
+        "http": {
+          "metadata control": {
+            "count": 3
+          },
+          "media control": {
+            "count": 3,
+            "bodies": 3,
+            "bytes": 154403
+          },
+          "upload reviews": {
+            "count": 1
+          }
+        },
+        "wall": 4.53
+      },
+      "stale": false,
+      "output": "01-warmup-remove-plan.out"
+    },
+    "apply": {
+      "step": 2,
+      "name": "warmup-remove-apply",
+      "argv": [
+        "inventory",
+        "apply",
+        "--yes",
+        "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/01-warmup-remove-plan-review"
+      ],
+      "exit": 0,
+      "seconds": 22.012,
+      "trace": {
+        "filesystem store": {
+          "store opens": {
+            "count": 1,
+            "seconds": 0.0
+          },
+          "gcloud sessions": {
+            "count": 0
+          },
+          "head reads": {
+            "count": 1,
+            "seconds": 0.0
+          },
+          "history loads": {
+            "count": 0
+          },
+          "remote gets": {
+            "count": 0
+          },
+          "cached gets": {
+            "count": 0
+          },
+          "puts": {
+            "count": 0
+          },
+          "listings": {
+            "count": 0
+          }
+        },
+        "object store": {
+          "store opens": {
+            "count": 1,
+            "seconds": 0.24
+          },
+          "gcloud sessions": {
+            "count": 1,
+            "seconds": 1.23
+          },
+          "head reads": {
+            "count": 10,
+            "seconds": 3.12
+          },
+          "history loads": {
+            "count": 1,
+            "seconds": 0.03
+          },
+          "remote gets": {
+            "count": 442,
+            "seconds": 58.68
+          },
+          "cached gets": {
+            "count": 8831
+          },
+          "puts": {
+            "count": 10,
+            "seconds": 1.63
+          },
+          "listings": {
+            "count": 0
+          }
+        },
+        "phases": {
+          "bucket ownership": {
+            "count": 1,
+            "seconds": 0.75
+          },
+          "cluster guard": {
+            "count": 1,
+            "seconds": 0.38
+          },
+          "en forward": {
+            "count": 1,
+            "seconds": 0.38
+          },
+          "en request": {
+            "count": 6,
+            "seconds": 0.77
+          },
+          "gcloud credential helper": {
+            "count": 1,
+            "seconds": 0.45
+          },
+          "gcloud ownership read": {
+            "count": 2,
+            "seconds": 1.49
+          },
+          "owner read": {
+            "count": 4,
+            "seconds": 0.59
+          },
+          "project ownership": {
+            "count": 1,
+            "seconds": 0.75
+          },
+          "transport setup": {
+            "count": 1,
+            "seconds": 0.03
+          }
+        },
+        "http": {
+          "metadata control": {
+            "count": 11
+          },
+          "metadata reviews": {
+            "count": 1
+          },
+          "metadata journal": {
+            "count": 4
+          },
+          "media control": {
+            "count": 11,
+            "bodies": 11,
+            "bytes": 773995
+          },
+          "media reviews": {
+            "count": 2,
+            "bodies": 2,
+            "bytes": 77018
+          },
+          "media journal": {
+            "count": 429,
+            "bodies": 429,
+            "bytes": 164107
+          },
+          "upload control": {
+            "count": 6
+          },
+          "upload journal": {
+            "count": 4
+          }
+        },
+        "wall": 21.95
+      },
+      "stale": false,
+      "output": "02-warmup-remove-apply.out"
+    }
+  },
+  "samples": [
+    {
+      "sample": 1,
+      "plan": {
+        "step": 3,
+        "name": "sample1-add-plan",
+        "argv": [
+          "access",
+          "team",
+          "add-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/03-sample1-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.304,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.23
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.29
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.17
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.04
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.69
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.09
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.77
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.24
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.36
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.49
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.46
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.57
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.3
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.8
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.26
+        },
+        "stale": false,
+        "output": "03-sample1-add-plan.out"
+      },
+      "apply": {
+        "step": 4,
+        "name": "sample1-add-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/03-sample1-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 24.263,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.19
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 15.4
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.72
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 4.66
+            },
+            "cached gets": {
+              "count": 9255
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.59
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.77
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.32
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.34
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.71
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.46
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 15.68
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.61
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 14.91
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77010
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 24.2
+        },
+        "stale": false,
+        "output": "04-sample1-add-apply.out"
+      }
+    },
+    {
+      "sample": 2,
+      "plan": {
+        "step": 7,
+        "name": "sample2-add-plan",
+        "argv": [
+          "access",
+          "team",
+          "add-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/07-sample2-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.338,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.21
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.23
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.27
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.05
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.73
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.1
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.79
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.42
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.39
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.51
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.41
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.51
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.29
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.72
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.28
+        },
+        "stale": false,
+        "output": "07-sample2-add-plan.out"
+      },
+      "apply": {
+        "step": 8,
+        "name": "sample2-add-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/07-sample2-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 9.171,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.18
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.14
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.34
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 3.9
+            },
+            "cached gets": {
+              "count": 9263
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.38
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.7
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.27
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.39
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.72
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.41
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.28
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.59
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.58
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77010
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 9.11
+        },
+        "stale": false,
+        "output": "08-sample2-add-apply.out"
+      }
+    },
+    {
+      "sample": 3,
+      "plan": {
+        "step": 11,
+        "name": "sample3-add-plan",
+        "argv": [
+          "access",
+          "team",
+          "add-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/11-sample3-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 19.118,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.28
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 16.79
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.36
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.04
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.93
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.15
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.72
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.24
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.42
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.5
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.43
+            },
+            "gcloud ownership read": {
+              "count": 3,
+              "seconds": 16.55
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.31
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 16.33
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 19.06
+        },
+        "stale": false,
+        "output": "11-sample3-add-plan.out"
+      },
+      "apply": {
+        "step": 12,
+        "name": "sample3-add-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/11-sample3-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 9.269,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.24
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.23
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.08
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 3.77
+            },
+            "cached gets": {
+              "count": 9271
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.29
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.74
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.27
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.55
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.7
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.44
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.5
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.63
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.76
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77010
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 9.21
+        },
+        "stale": false,
+        "output": "12-sample3-add-apply.out"
+      }
+    },
+    {
+      "sample": 4,
+      "plan": {
+        "step": 15,
+        "name": "sample4-add-plan",
+        "argv": [
+          "access",
+          "team",
+          "add-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/15-sample4-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.404,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.25
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.21
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.28
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.04
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.78
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.13
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.74
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.31
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.38
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.53
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.43
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.48
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.31
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.74
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.34
+        },
+        "stale": false,
+        "output": "15-sample4-add-plan.out"
+      },
+      "apply": {
+        "step": 16,
+        "name": "sample4-add-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/15-sample4-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 9.883,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.19
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.17
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.36
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 4.17
+            },
+            "cached gets": {
+              "count": 9279
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.47
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.71
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.25
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.54
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.89
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.4
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.44
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.65
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.74
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77010
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 9.83
+        },
+        "stale": false,
+        "output": "16-sample4-add-apply.out"
+      }
+    },
+    {
+      "sample": 5,
+      "plan": {
+        "step": 19,
+        "name": "sample5-add-plan",
+        "argv": [
+          "access",
+          "team",
+          "add-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/19-sample5-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.539,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.24
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.37
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.25
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.75
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.13
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.73
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.25
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.4
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.54
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.44
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.64
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.29
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.91
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.47
+        },
+        "stale": false,
+        "output": "19-sample5-add-plan.out"
+      },
+      "apply": {
+        "step": 20,
+        "name": "sample5-add-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/19-sample5-add-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 9.901,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.25
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.24
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.55
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 4.31
+            },
+            "cached gets": {
+              "count": 9287
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.32
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.75
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.52
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.42
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.7
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.46
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.48
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.61
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.73
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77010
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 9.83
+        },
+        "stale": false,
+        "output": "20-sample5-add-apply.out"
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "plan": {
+        "step": 5,
+        "name": "sample1-remove-plan",
+        "argv": [
+          "access",
+          "team",
+          "remove-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/05-sample1-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.126,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.19
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.2
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.17
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.05
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.53
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.11
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.73
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.61
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.47
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.52
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.44
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.34
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.29
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.61
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.06
+        },
+        "stale": false,
+        "output": "05-sample1-remove-plan.out"
+      },
+      "apply": {
+        "step": 6,
+        "name": "sample1-remove-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/05-sample1-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 10.077,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.24
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.26
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.47
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 4.18
+            },
+            "cached gets": {
+              "count": 9259
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.52
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.77
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.31
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.76
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.69
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.46
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.48
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.65
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.71
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77020
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 10.03
+        },
+        "stale": false,
+        "output": "06-sample1-remove-apply.out"
+      }
+    },
+    {
+      "plan": {
+        "step": 9,
+        "name": "sample2-remove-plan",
+        "argv": [
+          "access",
+          "team",
+          "remove-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/09-sample2-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.356,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.26
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.21
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.31
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.84
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.13
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.74
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.35
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.7
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.48
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.44
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.48
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.29
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.73
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.31
+        },
+        "stale": false,
+        "output": "09-sample2-remove-plan.out"
+      },
+      "apply": {
+        "step": 10,
+        "name": "sample2-remove-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/09-sample2-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 9.757,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.21
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.18
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.7
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 4.33
+            },
+            "cached gets": {
+              "count": 9267
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.39
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.73
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.25
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.6
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.69
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.42
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.46
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.58
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.73
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77020
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 9.69
+        },
+        "stale": false,
+        "output": "10-sample2-remove-apply.out"
+      }
+    },
+    {
+      "plan": {
+        "step": 13,
+        "name": "sample3-remove-plan",
+        "argv": [
+          "access",
+          "team",
+          "remove-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/13-sample3-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.484,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.21
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.28
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.27
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.04
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.75
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.11
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.78
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.22
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.46
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.54
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.47
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.45
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.3
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.67
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.41
+        },
+        "stale": false,
+        "output": "13-sample3-remove-plan.out"
+      },
+      "apply": {
+        "step": 14,
+        "name": "sample3-remove-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/13-sample3-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 10.114,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.26
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.17
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 2.58
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 4.58
+            },
+            "cached gets": {
+              "count": 9275
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.45
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.72
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.33
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.49
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.73
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.42
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.31
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.64
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.6
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77020
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 10.04
+        },
+        "stale": false,
+        "output": "14-sample3-remove-apply.out"
+      }
+    },
+    {
+      "plan": {
+        "step": 17,
+        "name": "sample4-remove-plan",
+        "argv": [
+          "access",
+          "team",
+          "remove-member",
+          "--team",
+          "engineering",
+          "--user",
+          "user_01m4py1q2fesvbtd7xnxr7yede",
+          "--save-plan",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/17-sample4-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 3.255,
+        "trace": {
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.24
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.16
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.25
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.04
+            },
+            "remote gets": {
+              "count": 3,
+              "seconds": 0.74
+            },
+            "cached gets": {
+              "count": 208
+            },
+            "puts": {
+              "count": 1,
+              "seconds": 0.13
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.7
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.51
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 0.45
+            },
+            "en request": {
+              "count": 4,
+              "seconds": 0.48
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.44
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.3
+            },
+            "owner read": {
+              "count": 2,
+              "seconds": 0.29
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.61
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 3
+            },
+            "media control": {
+              "count": 3,
+              "bodies": 3,
+              "bytes": 154407
+            },
+            "upload reviews": {
+              "count": 1
+            }
+          },
+          "wall": 3.2
+        },
+        "stale": false,
+        "output": "17-sample4-remove-plan.out"
+      },
+      "apply": {
+        "step": 18,
+        "name": "sample4-remove-apply",
+        "argv": [
+          "inventory",
+          "apply",
+          "--yes",
+          "/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/9210e319-85cb-47b1-832a-bd1a4fc5a3a7/scratchpad/bench-out/baseline/17-sample4-remove-plan-review"
+        ],
+        "exit": 0,
+        "seconds": 9.989,
+        "trace": {
+          "filesystem store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "gcloud sessions": {
+              "count": 0
+            },
+            "head reads": {
+              "count": 1,
+              "seconds": 0.0
+            },
+            "history loads": {
+              "count": 0
+            },
+            "remote gets": {
+              "count": 0
+            },
+            "cached gets": {
+              "count": 0
+            },
+            "puts": {
+              "count": 0
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "object store": {
+            "store opens": {
+              "count": 1,
+              "seconds": 0.18
+            },
+            "gcloud sessions": {
+              "count": 1,
+              "seconds": 1.17
+            },
+            "head reads": {
+              "count": 10,
+              "seconds": 1.98
+            },
+            "history loads": {
+              "count": 1,
+              "seconds": 0.03
+            },
+            "remote gets": {
+              "count": 22,
+              "seconds": 3.49
+            },
+            "cached gets": {
+              "count": 9283
+            },
+            "puts": {
+              "count": 10,
+              "seconds": 1.24
+            },
+            "listings": {
+              "count": 0
+            }
+          },
+          "phases": {
+            "bucket ownership": {
+              "count": 1,
+              "seconds": 0.71
+            },
+            "cluster guard": {
+              "count": 1,
+              "seconds": 0.74
+            },
+            "en forward": {
+              "count": 1,
+              "seconds": 1.21
+            },
+            "en request": {
+              "count": 6,
+              "seconds": 0.73
+            },
+            "gcloud credential helper": {
+              "count": 1,
+              "seconds": 0.41
+            },
+            "gcloud ownership read": {
+              "count": 2,
+              "seconds": 1.43
+            },
+            "owner read": {
+              "count": 4,
+              "seconds": 0.64
+            },
+            "project ownership": {
+              "count": 1,
+              "seconds": 0.72
+            },
+            "transport setup": {
+              "count": 1,
+              "seconds": 0.03
+            }
+          },
+          "http": {
+            "metadata control": {
+              "count": 11
+            },
+            "metadata reviews": {
+              "count": 1
+            },
+            "metadata journal": {
+              "count": 4
+            },
+            "media control": {
+              "count": 11,
+              "bodies": 11,
+              "bytes": 774007
+            },
+            "media reviews": {
+              "count": 2,
+              "bodies": 2,
+              "bytes": 77020
+            },
+            "media journal": {
+              "count": 9,
+              "bodies": 9,
+              "bytes": 3407
+            },
+            "upload control": {
+              "count": 6
+            },
+            "upload journal": {
+              "count": 4
+            }
+          },
+          "wall": 9.91
+        },
+        "stale": false,
+        "output": "18-sample4-remove-apply.out"
+      }
+    }
+  ],
+  "failed": [],
+  "finishedAt": "2026-10-29T16:13:14+00:00",
+  "journalCachedAfter": 8875,
+  "verdict": {
+    "passed": false,
+    "problems": [
+      "sample 3 plan 19.118 s >= 5.0 s",
+      "sample 1 apply 24.263 s >= 15.0 s"
+    ],
+    "plan": {
+      "values": [
+        3.304,
+        3.338,
+        19.118,
+        3.404,
+        3.539
+      ],
+      "median": 3.404,
+      "min": 3.304,
+      "max": 19.118
+    },
+    "apply": {
+      "values": [
+        24.263,
+        9.171,
+        9.269,
+        9.883,
+        9.901
+      ],
+      "median": 9.883,
+      "min": 9.171,
+      "max": 24.263
+    }
+  }
+}

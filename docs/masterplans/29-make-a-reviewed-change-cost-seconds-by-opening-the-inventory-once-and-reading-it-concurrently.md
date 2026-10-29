@@ -224,7 +224,7 @@ only prior measurement of the store open on the intranet.
 | 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
 | 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | Complete |
 | 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Complete |
-| 221 | Close the reviewed access latency gate with measured command costs | [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) | EP-212, EP-213, EP-214, EP-217, EP-218 | None | In Progress |
+| 221 | Close the reviewed access latency gate with measured command costs | [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) | EP-212, EP-213, EP-214, EP-217, EP-218 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
@@ -307,7 +307,10 @@ its transport lands. ADR 29's one-scope-per-relationship model stays unchanged.
 
 ## Progress
 
-EP-212, EP-213, EP-214, EP-217 and EP-218 are Complete; EP-217 M4 (2026-10-28) fetches only
+Complete (2026-10-29): every required child is Complete, EP-221 at reduced scope (Decision Log);
+v0.11.1 runs on the intranet. EP-215 is optional and not started; EP-216 is held.
+
+Earlier snapshot: EP-212, EP-213, EP-214, EP-217 and EP-218 are Complete; EP-217 M4 (2026-10-28) fetches only
 the anchor and the exact missing suffix at every tail length. EP-221 is In Progress with M1 and M2
 done: the command trace of phases and wire transfers and the overlapped ownership reads are in
 `7624c5e4`; the En session prepared while the store opens is in `93c67277`. Pre-release, on the
@@ -324,7 +327,14 @@ puts 1, listings 0`; about 2 to 3 s of each is the gcloud session), applies 11.8
 port-forward and one guard pair each. Before: 43.2 s and 67.2 s. The gate below is judged once a
 release containing these runs on the intranet:
 
-- [ ] EP-221 M3: on a released build containing the required children, a single team-membership
+- [x] EP-221 M3, closed at reduced scope (operator, 2026-10-29): v0.11.1 on the intranet, 103
+  accepted scopes, five samples; plan median 3.40 s, apply median 9.88 s, invariants held. Two
+  samples exceeded their threshold (plan 19.1 s, apply 24.3 s), each from one stalled
+  `gcloud projects describe`; the growth run was not done. Evidence:
+  [`docs/audits/mp29-latency-2026-10-29/baseline.json`](../audits/mp29-latency-2026-10-29/baseline.json)
+  and the EP-221 Progress. The original gate text follows.
+
+  Original gate: on a released build containing the required children, a single team-membership
   plan takes under 5 s and its apply under 15 s at a baseline of at least 100 accepted scopes.
   Repeat after at least 50 additional accepted scopes. For each size, measure five actual
   `add-member` plan/apply samples using a controlled membership removed between samples, after
@@ -423,6 +433,13 @@ separates invariant command/remote-work counts from growing local work and defin
 thresholds and a median tolerance. EP-216 must migrate all transport callers and retain owner
 and guard subprocesses. Existing completed evidence and the optional/held boundaries remain.
 The original statement that the remaining fixed cost is unowned is superseded by EP-221.
+
+
+2026-10-29: MasterPlan 29 is closed. The operator reduced EP-221 M3 to the baseline run at
+103 scopes so other work can proceed; the growth run is not done. A reviewed membership change
+now plans in about 3.4 s and applies in about 9.9 s (from 43.2 s and 67.2 s). Remaining costs
+moved out of this initiative: the occasional 15 s `gcloud projects describe` ownership stall and
+the journal catch-up after a gap (EP-224 or MasterPlan 30). EP-215 stays optional and EP-216 held.
 
 
 ## Outcomes & Retrospective
