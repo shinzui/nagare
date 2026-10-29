@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-29T16:53:33Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T19:13:16Z
+      mode: "implement"
+      note: "Implemented M1-M3: Haskell release runner, plan summary and run index, Python-free rehearsal"
 ---
 
 # Own candidate, intranet and rehearsal orchestration in Haskell
@@ -50,12 +56,26 @@ the ported runner with a preparation manifest, progress and cost records.
   rollout and the eight intranet refusals; `just gate-fast 4a3bb3e6` green. `just
   release-rehearse ef5a537c 0.11.0` (the v0.11.1 move, through the ported drill on nagare-mp23)
   wrote a record byte-identical to the v0.11.1 release's apart from the sentinel timestamp.
-- [ ] M2: Every decision the scripts took from text (the ambiguous transaction ID, operation and
+- [x] M2: Every decision the scripts took from text (the ambiguous transaction ID, operation and
   re-acceptance counts, version and revision checks) is read from a typed outcome document
   through a version-one run index; no `jq`, `sed` or Python JSON decision remains on these paths.
-- [ ] M3: The release path runs with no Python executable: the rehearsal's empty environment no
+  Evidence (commits 451dc528, 8e4e300a): `platform transition plan --summary`; the intranet and
+  the drill's candidate loop decide from it and from `--contract 1` outcomes, and the fixtures
+  check every index stage and attempt; `grep -E 'jq|sed -n|python'` over the four wrappers and
+  `Release/*.hs` finds only comments; `just gate-fast` green on both commits. In the disposable
+  rehearsal below the candidate's three transition stages (0, 214 and 0 operations; 1, 6 and 0
+  re-accepts, the v0.11.1 shape) were decided from the candidate's summaries, and the drill
+  index records each attempt's transaction and outcome.
+- [x] M3: The release path runs with no Python executable: the rehearsal's empty environment no
   longer lists `python3`, the fake transport fails on any Python launch, and the runbook and
   ADR 24 describe the ported path.
+  Evidence (commit 1025c156): `ReleaseTransitionSpec` (29 cases) passes with the Python detector
+  on every fake call and the candidate fixtures under a PATH with no Python; `just
+  release-rehearse 1025c156 0.11.0` passed on nagare-mp23 from the environment without
+  `python3`, writing a record with the v0.11.1 record's shape (3 bootstrap reviews, 2
+  transition reviews, 214 operations, sentinel read back). `docs/runbooks/releases.md` and the
+  ADR 24 amendment name the harness commands. `just gate-release` still runs the repository's
+  Python checks, which are outside this plan.
 
 
 ## Surprises & Discoveries
