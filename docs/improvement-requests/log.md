@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-29
+* **Accept**: Accept IR-36 and link ExecPlan 222 (docs/plans/222-package-and-publish-static-site-updates-through-a-fast-repeatable-workflow.md) for static-site packaging and fast repeat publication; implementation remains pending.
+
 ## 2026-10-28
 * **Accept**: Accept IR-6 and target ExecPlan 220 (docs/plans/220-run-reviewed-local-bootstrap-on-native-apple-container-kubernetes.md).
 * **IR-6**: Refresh the existing Apple request for native Kubernetes and reviewed substrate/registry/kubeconfig bootstrap; retain k3d temporarily without blocking Kotei Plan 84.

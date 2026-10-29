@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Add a command that packages a StaticSite's image for reviewed publication
 description: Let an operator turn a StaticSite's typed config and output directory into the build context or Docker archive a static release uses, so app image-plan can publish it without hand-copying Nagare's Nginx renderer and Dockerfile.
-timestamp: "2026-10-22T19:09:06Z"
+timestamp: "2026-10-29T14:19:15Z"
 generated:
   by: process:claude-code
   at: "2026-10-22T19:09:06Z"
 requestId: IR-36
-status: proposed
+status: accepted
+acceptedAt: "2026-10-29T14:19:15Z"
+targetPlan: docs/plans/222-package-and-publish-static-site-updates-through-a-fast-repeatable-workflow.md
 origin: mori://shinzui/tan-os
 acceptanceCriteria:
   - id: AC-1
@@ -39,6 +41,10 @@ reviews:
 ---
 
 # Add a command that packages a StaticSite's image for reviewed publication
+
+**Status:** accepted for implementation in
+[ExecPlan 222](../plans/222-package-and-publish-static-site-updates-through-a-fast-repeatable-workflow.md).
+The plan covers packaging, repeat publication, recovery, and timing validation; implementation has not started.
 
 **Authored by:** a `claude-code` session planning
 `mori://shinzui/tan-os/plans/77-deploy-the-network-explorer-to-the-labs-intranet-as-a-login-protected-static-site`
