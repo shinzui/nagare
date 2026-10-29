@@ -1897,3 +1897,52 @@ fixed-cost and finite growth benchmark are owned by
 by changing the one-scope-per-relationship model or bypassing fresh ownership checks. Opening
 cost optimizations retain one fresh command identity and fresh bucket/project proof; no
 cross-command credential or ownership cache is authorized by this decision.
+
+## Amendment — 2026-10-29: incremental rollouts separate meaning, observation and proof
+
+The operator authorized an architectural repair of platform-transition latency, coordinated by
+[MasterPlan 30](../masterplans/30-make-nagare-rollouts-fast-incremental-and-recoverable.md).
+The v0.11.1 intranet stage reviewed 205 unchanged Kubernetes members and five Helm members as
+individual verification operations alongside one Kubernetes update. Source inspection found both
+source-sensitive scope comparison and blanket verification caused by an unsettled bootstrap stamp.
+This amendment accepts the target boundaries below; it does not claim their implementation or
+performance acceptance. The child plans own that evidence.
+
+Deployment meaning and diagnostic provenance have distinct roles. Compare meaning through an
+explicit typed projection that retains identities, desired content, dependencies and safety
+policies. An equivalent scope keeps its exact accepted bytes and revision; do not redefine the
+digest of persisted documents or recursively strip arbitrary JSON fields. Record the new release
+provenance separately. Semantic equivalence does not establish live health.
+
+A release stamp requires fresh validation of the resources it attests to, but validation of
+unchanged resources is not a set of mutation intents. Represent the validation requirements
+explicitly in the review, collect bounded phase-local observations, and retain per-resource proof
+in a digest-bound aggregate. Changed operations and their required health remain prerequisites
+of the stamp. A saved planning observation is never sufficient apply evidence, and an observation
+epoch is not an atomic snapshot of Kubernetes.
+
+A command owns one explicitly bound cluster session per stable identity generation. Its requests
+must use the endpoint and connection material that passed the guard. Host activation, connection
+configuration changes, detected identity replacement and freshness renewal invalidate prior
+observation authority. This session must preserve ADR 18's guards and ADR 27's exact identities;
+a memo keyed only by an ambient file digest is insufficient.
+
+One coordinator owns the remote executor claim and journal head. Read-only proofs may commit
+in bounded batches, with individually recoverable outcomes and a validated contiguous committed
+prefix. Uploaded but uncommitted events are not authority. Mutation intent remains durable before
+an effect and its receipt records exact outcome afterward. Independent stateless workloads may
+overlap readiness only through explicit adapter capabilities, bounded outstanding work and
+dependency barriers. Host, Helm, cloud, destructive and data-fenced operations remain exclusive
+until their own tested contracts authorize otherwise.
+
+Review, transaction and finalization protocol extensions require version/capability negotiation
+that makes unsupported old writers refuse before mutation, while supported old open transactions
+retain their original execution and recovery semantics. The local context pin and remote transition
+marker finalize through durable intent and conditional recovery; a local lock does not make their
+writes atomic. A crash must not force raw store edits or replay a successful provider effect.
+
+The rollout runner, cost records and release history tools are Haskell under ADR 24. The extended
+candidate/intranet/rehearsal path removes its embedded and transitively used transition-specific
+Python; shell remains process glue. Completion requires unchanged and changed rollout budgets,
+growth and interruption tests, and native measurements bound to the exact candidate. A trace
+dashboard, a faster synthetic fixture, or a recorded performance blocker is not completion.

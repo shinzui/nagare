@@ -3,330 +3,303 @@ id: 224
 slug: make-a-platform-transition-take-minutes-and-keep-its-cost-traced
 title: "Make a platform transition take minutes and keep its cost traced"
 kind: exec-plan
+intention: "intention_01m641jy1vem4rk38mpvk6ksp8"
+master_plan: "docs/masterplans/30-make-nagare-rollouts-fast-incremental-and-recoverable.md"
 created_at: 2026-10-29T14:31:55Z
 provenance:
   created_by:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-29T14:31:55Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-29T14:58:45Z
+      verdict: "changes-requested"
+      note: "Architecture review found blanket bootstrap verification, source-sensitive scope revisions, an incorrect verify-path diagnosis, missing crash and changed-rollout gates, and Python tooling conflicting with ADR 24; applied through MasterPlan 30."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-29T14:58:45Z
+      mode: "update"
+      note: "Make EP-224 the measurement and final acceptance child of MasterPlan 30; assign semantic identity, sessions, journal proof and rollout orchestration to EP-225–228, with Haskell-only tooling and a Rei intention."
 ---
 
 # Make a platform transition take minutes and keep its cost traced
 
-This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
-Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
-If durable project context changes, update or create ADRs in docs/adr/ in the same change.
-Record friction met while implementing in the friction-log bundle as it occurs (see FRICTION.md).
+This ExecPlan is a living document. It is the measurement and final acceptance child of the
+MasterPlan named in frontmatter. Implementation progress must remain distinct from planning work.
 
 
 ## Purpose / Big Picture
 
-Moving the intranet to a new Nagare release is a reviewed platform transition: `nagarectl
-platform transition plan` reviews every platform scope against the live cluster, `nagarectl
-inventory apply` applies the review, and the loop repeats until a plan has no operations. On
-2026-10-29 the v0.11.1 candidate, which changes no Kubernetes object the intranet runs, spent
-most of its intranet step in this loop. The operator called it unusable. After this plan:
 
-- a transition that changes no Kubernetes object takes a few minutes on the intranet: every stage's
-  plan finishes in under 60 s, and the whole step from the candidate pin to `platform transition
-  commit` takes under 5 minutes;
-- every plan and apply can say where its time went. With `NAGARE_TRACE=1` the command prints, and
-  with `NAGARE_TRACE_FILE=PATH` it writes as JSON, its kubectl calls by verb and purpose (cluster
-  guard, object read, readiness, write, wait), its store transfers, and each operation's time by
-  executor, action and phase;
-- every release records its intranet transition cost next to its rehearsal record, and one command
-  prints the trend across releases;
-- a fixture test fixes the exact number of kubectl calls and store writes for a representative
-  transition review. An improvement lowers the numbers in that test; a regression fails the fast
-  gate. That is how the cost keeps falling instead of drifting back.
+Make transition cost explainable and prevent latency from returning after the architecture is
+fixed. A developer sees the changed scopes, provider work, readiness waits, store traffic and
+elapsed time for both successful and stopped rollouts. A release carries comparable evidence and
+fails the performance check when an applicable target regresses. The root fixes are owned by
+EP-225 through EP-228; this plan measures them through production paths.
 
-To see it: run `just release-candidate X.Y.Z` (or `platform transition plan` / `inventory apply`
-with `NAGARE_TRACE=1`) and read `<run>/intranet-cost.json`, then run `scripts/transition-cost.py`
-for the history.
+An unchanged-content, artifact-ready transition must plan each stage in under 60 seconds and
+finish candidate-pin start through transition commit in under 300 seconds. A single stateless
+update and four independent stateless updates must complete plan plus apply within 300 seconds
+when provider readiness takes at most 60 seconds per resource, with at most 60 seconds of
+Nagare-owned overhead. Measure preparation separately and also report the full end-to-end total.
+No local timing fixture proves intranet performance. Five consecutive warm native samples must
+all pass; report their median and maximum and at least one cold run. Provider failures remain
+failed samples with their cause, not silently omitted observations.
+
+New tooling is Haskell in the existing cabal workspace. The previously proposed
+`scripts/transition-cost.py` is withdrawn. The intended reporting command is
+`nagare-harness transition-cost history --root docs/release-evidence`; it is not implemented yet.
 
 
 ## Progress
 
-- [ ] M1: Cost attribution and the budget fixture. `NAGARE_TRACE=1` and `NAGARE_TRACE_FILE` report
-  kubectl calls by verb and purpose and per-operation time by executor, action and phase.
-  `release-intranet.sh` keeps each stage's trace file and writes `<run>/intranet-cost.json`;
-  `release-candidate.sh` lands it beside the rehearsal record; `scripts/transition-cost.py`
-  prints the history. A Kubernetes interpreter fixture (205 verifies, one update, one Helm verify)
-  asserts the current exact counts. Pass: the fixture's counts equal a by-hand reading of today's
-  code, and one traced transition (a local `just release-rehearse` run) shows the same per-operation
-  counts.
-- [ ] M2: One cluster guard per command, bound to the kubeconfig file it checked. Pass: the
-  fixture shows one guard for a whole plan and one for a whole apply; changing the kubeconfig file
-  between operations runs the guard again; a refusal is not remembered and refuses the same as today.
-- [ ] M3: Plan observation reads each kind and namespace once. `platform transition plan` and
-  `inventory plan` observe through EP-185's snapshot runtime (one `kubectl get` per kind and
-  namespace, at most eight at a time). Pass: the fixture plan makes one read per kind and namespace;
-  the same inputs give a byte-identical review with the snapshot and with single reads.
-- [ ] M4: Verify-only operations cost one live read each, and their store writes are the minimum the
-  journal needs. The change is chosen from M1's trace. Pass: lower fixture counts per verify
-  operation; the recovery model and transaction tests are unchanged and green.
-- [ ] M5: A release that changes no platform content re-accepts no Kubernetes scope. Find why
-  v0.11.1 re-declared six scopes with 205 unchanged members, and remove the cause if the scope
-  content is otherwise identical. Pass: a transition rehearsal between two such revisions plans no
-  Kubernetes `VerifyResource` operation; a release that does change a member still verifies it.
-- [ ] M6: Released on the intranet. A release containing M1-M5 records `intranet-cost.json` with
-  every stage plan under 60 s and the transition step under 5 minutes, or the measured blocker and
-  the next reduction.
+
+- [ ] M1: A versioned command trace and production-interpreter fixture distinguish logical calls,
+  actual network traffic, critical-path duration and failure outcomes for no-op and changed work.
+- [ ] M2: A Haskell cost-record producer, validator and history command consume actual CLI output,
+  enforce structural budgets and retain failed/incomplete attempts without exposing secrets.
+- [ ] M3: Completed architectural children pass the interpreter, compatibility, growth and native
+  latency matrix, with evidence bound to the final candidate and no Python in the rollout path.
+
+2026-10-29 handoff: the original plan was authored by `claude-opus-5-5` and had no recorded reviews.
+This architecture review corrects source claims and distributes its former M2–M5 across four new
+children. None of the original implementation milestones was complete or has been counted as done.
 
 
 ## Surprises & Discoveries
 
-2026-10-29, v0.11.1 candidate `ef5a537c` on the intranet (`~/.local/state/nagare/releases/v0.11.1/
-20261029T140458Z/intranet/`). Stage 1 (host only) planned 2 operations. Stage 2's plan took
-about 3.5 minutes and produced 211 operations: 205 Kubernetes `VerifyResource`, 5 Helm
-`VerifyResource` and 1 Kubernetes `UpdateResource`. That's 58 serving, 49 cert-manager, 31 auth, 25
-observability-vmks, 13 kourier, 11 net-certmanager and a few others, all in the six scopes the stage
-re-accepts. Process samples of the plan and the apply showed one `kubectl` process at a time, about
-two per second, with `kubectl get nodes` (the cluster guard) before most object reads: 17 of 42
-calls in a 20-second sample of the apply. A verify-only operation read its object twice, each read
-behind its own guard. Earlier on 2026-10-28, `NAGARE_TRACE=1` on one access-membership apply
-showed `head reads 10` and `puts 10` for one operation (about 4 s of store I/O), so per-operation
-journal writes also need attribution before a fix is chosen.
+
+The reported v0.11.1 candidate incident used revision `ef5a537c` and local run directory
+`~/.local/state/nagare/releases/v0.11.1/20261029T140458Z/intranet/`. Stage 1 reportedly had two
+operations; stage 2 reportedly planned for about 3.5 minutes. This review read stage 2's saved
+`review.json` and confirmed 211 operations: 205 Kubernetes `VerifyResource`, five Helm
+`VerifyResource`, and one Kubernetes `UpdateResource`. Earlier reports sampled repeated
+`kubectl get nodes` and ten head reads/ten puts for a single access apply. Those timings and
+counts are incident leads, not a measured baseline for this fixture.
+
+The 2026-10-29 source review at `5c57e81785cd04d03dee424e7b70966987b9814b` found that the driver
+already bypasses `adapterExecute` for `VerifyResource`; preflight and verification each observe.
+A changed bootstrap marker triggers broad verifies in `Plan/Changes.hs`, independently of
+source-location churn. `Bootstrap/Platform.hs` still compares canonical scope bytes including
+provenance. The original plan therefore understated the causal work and misidentified one read.
+
+`Store/Counters.hs` currently has process-global aggregate phase and wire counters; `tracePhase`
+does not record a phase that throws. `invokeKubectl` can invoke an in-memory interpreter, so
+counting every call there as a remote request would count snapshot hits as network traffic.
+Existing release/rehearsal scripts also contain embedded Python, contrary to the target tooling
+contract. A local rehearsal currently writes a transition rehearsal record, not an intranet cost
+record at the glob the old plan specified.
 
 
 ## Decision Log
 
-- Decision: A standalone plan, not a child of MasterPlan 29.
-  Rationale: MasterPlan 29's gate is a single access-membership change. This is the platform
-  transition path, which no plan measured. It reuses MasterPlan 29's command trace
-  (`Store.Counters`) and EP-185's snapshot reads.
-  Date: 2026-10-29
 
-- Decision: Measure first, and fix the budget in a test before any optimization.
-  Rationale: the operator asked for a plan that helps trace and keep improving. The fixture's exact
-  counts work as a ratchet: they only go down, as `scripts/check-haskell-architecture.py` does for
-  module sizes. The release record keeps the real wall times per release.
-  Date: 2026-10-29
-
-- Decision: The cluster guard runs once per command and is bound to the kubeconfig file's path and
-  content digest; any change runs it again, and a refusal is never remembered.
-  Rationale: EP-214 already made access commands guard once per command. Every Kubernetes write still
-  carries its UID and resourceVersion preconditions, and every call names `--context` explicitly. What
-  the repeated guard protects against is the kubeconfig changing during a command, and the digest
-  check catches that without a cluster round trip. ADR 18's "apply reruns the cluster guard before
-  mutation" still holds per command.
-  Date: 2026-10-29
+- 2026-10-29: Supersede the standalone-plan decision with MasterPlan 30. The user authorized
+  architectural expansion, and the source review requires independent semantic, session, journal
+  and coordinator contracts.
+- 2026-10-29: Measure one representative real path before optimizing, then keep operation-count
+  bounds and native latency gates. Do not demand that every counter only decrease: a justified
+  safety check can increase one count while reducing total cost, with reviewed budget rationale.
+- 2026-10-29: Replace the proposed Python report with typed Haskell tooling under ADR 24 and the
+  user's instruction. The runner port belongs to EP-228; this plan owns its record schema.
+- 2026-10-29: Failure, cold preparation, retries and time waiting on the provider are first-class
+  measurements. Partial records never count as passing evidence.
 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+
+Planning revision only. The architecture has been reviewed and implementation ownership assigned;
+no runtime optimization or performance gate has yet been demonstrated.
 
 
 ## Context and Orientation
 
-Terms used here:
 
-- A **platform transition** moves a context (here the work intranet, context `intranet`, GCP project
-  `tan-ng-labs`) from one Nagare release to another. `scripts/release-intranet.sh`, run by `just
-  release-candidate`, pins the operator repository (`mori://tan/tan-ng-labs`) to the candidate,
-  then loops `nagarectl platform transition plan --out DIR` and `nagarectl inventory apply DIR
-  --yes` until a plan has no operations, then runs `platform transition commit`. Each loop pass is a
-  **stage**. Stage reviews and logs go to `~/.local/state/nagare/releases/vX.Y.Z/<time>/intranet/`.
-- A **review** (`review.json`) lists **operations**. Each names an **executor** (Kubernetes, Helm,
-  Pulumi, host, …) and an **action** (`CreateResource`, `UpdateResource`, `VerifyResource`,
-  `RetireResource`, …). `VerifyResource` proves an unchanged accepted member is still live as
-  declared, so its scope can be re-accepted under a new revision.
-- The **executor driver**, `cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs`
-  (`runOperationsWith`), runs operations one at a time. Each operation goes through the adapter's
-  prepare, preflight, execute and verify phases, and the driver journals its progress to the
-  inventory store (GCS for the intranet) between them.
-- The **cluster guard** proves that the ambient kubeconfig's current context is the selected context
-  and that its node is the context's host (`cli/nagarectl/src/Nagare/Ops/ClusterGuard.hs`,
-  `observeClusterGuard`: `kubectl config current-context` and `kubectl get nodes`). The CLI builds it
-  in `cli/nagarectl/app/Nagare/Cli/Runtime/Cluster.hs` (`guardKubernetesContext`) and hands it to the
-  Kubernetes runtime as `runtimeGuard` in `KubernetesRuntimeConfig`
-  (`cli/nagarectl/src/Nagare/Inventory/KubernetesTransport.hs`).
-- The **Kubernetes runtime**, `cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs`,
-  talks to the cluster with one `kubectl` subprocess per request (`invokeKubectl` through the
-  `Kubectl` effect in `KubernetesTransport.hs`). Its `observe` and `mutate` both call `runtimeGuard`
-  first; a comment above `observeKubernetesBatchWithGuard` says each effect path keeps its own fresh
-  guard. The phase logic for each action is in
-  `cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs`. For `VerifyResource`, `execute` reads
-  the object (`observeMutation`), checks UID, owner and digest, and completes without writing;
-  `verify` reads it again.
-- The **snapshot runtime** (EP-185, `docs/plans/185-make-inventory-status-answer-in-seconds.md`)
-  is in `cli/nagarectl/src/Nagare/Inventory/KubernetesSnapshot.hs`. `snapshotRuntime` reads a run's
-  objects with one `kubectl get KIND NAME… -n NS -o json --ignore-not-found` per kind and namespace,
-  at most eight at a time, and answers the single-object reads from it. Only `inventory status` uses
-  it (`cli/nagarectl/app/Nagare/Cli/Commands/Inventory/Status.hs`). It serves read-only runs only,
-  because it never sees the run's own writes.
-- The **command trace** (MasterPlan 29, EP-221,
-  `docs/plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md`) is in
-  `cli/nagarectl/src/Nagare/Inventory/Store/Counters.hs`. `tracePhase NAME action` times a named
-  phase, `traceWire` counts store requests by kind and object class, and `withStoreTrace` prints
-  `nagarectl trace:` lines when `NAGARE_TRACE=1`.
+A scope is an independently accepted group of declared resources. A review binds the desired
+scope revisions, planned operations and live evidence to an inventory head. The head is the
+mutable pointer to committed immutable state; conditional replacement prevents two writers
+from committing against the same old state. The journal records each operation's outcome.
 
-Relevant ADRs:
+`cli/nagarectl/app/Nagare/Cli/Commands/Transition.hs` calls
+`cli/nagarectl/app/Nagare/Cli/Bootstrap/Sequence.hs` to plan the next stage and commits the
+context pin after convergence. `scripts/release-intranet.sh` pins the operator input, loops
+plan/apply, also applies declaration-only changes, then commits the transition. It stops only
+when both operation count and non-stamp re-acceptance count are zero, not merely on zero operations.
+The operator project is `mori://tan/tan-ng-labs`; no private contents belong in public evidence.
 
-- [ADR 18](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md): the
-  upgrade transaction is as guarded as the recipes it replaced. Kubernetes apply reruns the cluster
-  guard and rejects wrong-context or stale evidence before mutation. M2 keeps that per command and
-  amends this ADR with the kubeconfig binding.
-- [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md): scopes,
-  reviews, the journal, and re-acceptance of scopes. M4 and M5 must keep its rules: a re-accepted
-  member is proved live; the journal records every operation's outcome.
-- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md): defects
-  are found with effect interpreters, and native runs only confirm. M1's fixture is a `Kubectl`
-  interpreter plus a fake object store; the intranet only confirms.
-- [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md): a stopped transaction
-  closes by per-operation proof. M4 must not reduce what the journal needs for that proof.
-- [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md):
-  physical identity (UID) checks stay on every write.
+`cli/nagarectl/src/Nagare/Inventory/Store/Counters.hs` measures logical store work and actual
+HTTP request classes. `cli/nagarectl/src/Nagare/Inventory/KubernetesTransport.hs` is the
+injectable Kubernetes request boundary. `cli/nagarectl/src/Nagare/Ops/ClusterGuard.hs` currently
+launches its own kubectl calls. `cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs` owns
+operation execution and `cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs` appends events.
+`cli/nagarectl/src/Nagare/Inventory/KubernetesSnapshot.hs` currently batches status reads.
+
+`cli/nagare-harness/app/Main.hs` and `cli/nagare-harness/nagare-harness.cabal` host maintainer
+commands outside the platform payload. Add a library dependency on the existing nagarectl
+library for shared codecs; do not duplicate review JSON decoding. Register new test modules in
+`cli/nagarectl/test/Spec.hs`, `cli/nagarectl/nagarectl.cabal`,
+`cli/nagare-harness/test/Spec.hs` and the harness cabal file.
+
+[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) preserves
+review and journal authority. [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md)
+requires Haskell tooling. [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)
+requires production interpreters and currently uses the fast model tier; native runs confirm.
+[ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and
+[ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)
+prohibit replacing recovery evidence with performance assertions.
 
 
 ## Plan of Work
 
-**M1, attribution and the budget fixture.** Extend `CommandTrace` in
-`cli/nagarectl/src/Nagare/Inventory/Store/Counters.hs` with:
 
-- kubectl requests keyed by verb (`get`, `apply`, `create`, `patch`, `delete`, `wait`, `config`)
-  and purpose (`guard`, `observe`, `readiness`, `ownership`, `write`, `wait`);
-- per-operation records: executor, action and per-phase durations, plus the store requests made
-  while that operation was current.
+### M1 — Trace the work that really happens
 
-Count kubectl requests at the single `invokeKubectl` boundary and in `observeClusterGuard`, with the
-purpose passed by the caller; that keeps them in one place. Add `NAGARE_TRACE_FILE=PATH`, which
-writes the whole trace as one JSON document when the command ends, whatever its outcome. The
-printed lines stay as they are, plus one `nagarectl trace: kubectl:` line and a per-executor summary
-line.
 
-In `scripts/release-intranet.sh`, set `NAGARE_TRACE_FILE=$review.plan.trace.json` and
-`$review.apply.trace.json` for each stage. At the end, write `$run/intranet-cost.json`: per stage,
-wall time, operation counts by executor and action, kubectl calls by purpose, and store
-puts/reads. `scripts/release-candidate.sh`'s evidence step already lands
-`docs/release-evidence/<rev>/transition-rehearsal.json`; it lands `intranet-cost.json` beside it in
-the same commit. `scripts/transition-cost.py` reads every `docs/release-evidence/*/intranet-cost.json`
-and prints one row per release: release, stages, operations, transition wall time, slowest stage,
-kubectl calls, store writes.
+Extend counters and add `cli/nagarectl/src/Nagare/Inventory/Trace.hs` for a versioned JSON codec.
+Use monotonic elapsed time and explicit span identities with parent command, stage, operation,
+epoch and attempt. Capture result class, retries, queue time, provider wait, cache hit, bytes,
+store metadata/media/uploads, external-process count and actual Kubernetes requests by purpose.
+Preserve existing human trace lines. `NAGARE_TRACE_FILE` alone enables collection. Flush a private,
+atomic JSON file on normal completion, handled failure and cancellation; a hard kill may leave
+no final file and must be reported as incomplete by the runner. Trace failures must not mask an
+operation's real result. Do not store native bodies, credentials, kubeconfig contents or raw argv.
 
-Build the fixture in a new `cli/nagarectl/test/TransitionCostSpec.hs`. Assemble a review like stage
-2 (205 Kubernetes verifies across several kinds and namespaces, one update, one Helm verify).
-Execute it through the real driver against a `Kubectl` interpreter (`runKubectlWith`) that answers
-from an in-memory cluster and a fake guard, and against the existing fake object store. Assert the
-exact trace counts: guards, kubectl calls by purpose, store puts. These numbers are the budget.
-Each later milestone lowers them in the same commit as its fix. Also run the fixture's plan side
-through `platform transition plan`'s observation entry point with the same cluster, and fix the
-plan's counts too.
+Instrument the actual interpreter/transport dispatch as well as logical observation. A snapshot
+hit increments reuse, not network. Route guard subprocess attribution through the same recorder
+without double counting. Measure runtime setup, inventory opening, compilation/rendering,
+planning, publication, admission, proof, effects, readiness and finalization. Sum neither nested
+spans nor concurrent durations as elapsed wall time. Explicitly include unclassified elapsed
+time and make uncovered phases visible.
 
-**M2, one guard per command.** In `cli/nagarectl/app/Nagare/Cli/Runtime/Cluster.hs`, wrap
-`guardKubernetesContext` in a per-command memo:
+Add `cli/nagarectl/test/TransitionCostSpec.hs` using the production planner, adapter registry,
+driver, fake API server and fault-capable object store. Start with the confirmed 205 Kubernetes
+verifies, five Helm verifies and one update, then separate unchanged, one-change, four-independent-
+change and interrupted scenarios. Retain a compact sanitized fixture generated from real review
+output. Do not dump the private review bundle. Assert baseline exact counts only after observing
+this path; no hand-guessed numbers. A clock/interpreter with deterministic delays proves that
+the critical path and concurrent attribution are correct without slow sleeps. Acceptance includes
+a thrown phase, denied guard, a cache hit, lost store reply and two overlapping operations.
 
-- it records the kubeconfig path and the SHA-256 of its bytes at the moment the guard passed;
-- before each later use it re-reads and hashes the file (no cluster round trip) and runs the guard
-  again if either differs;
-- a refusal is not stored.
+### M2 — Turn traces into durable budgets
 
-Every `KubernetesRuntimeConfig` built in one command shares the memo. Remove the per-effect
-re-guard comment and behavior in `KubernetesRuntime.hs`, and keep `observeKubernetesBatchWithGuard`'s
-before/after pair for read-only batches. Add an amendment to ADR 18 recording the binding.
 
-**M3, batched plan reads.** Route the plan's Kubernetes observation through
-`KubernetesSnapshot.snapshotRuntime` over the addresses the plan will observe, as `inventory status`
-does. The plan never writes, so the snapshot is valid for the whole plan. Readiness reads
-(`observeKubernetesHealth`) are answered from the same snapshot. The equivalence test builds the
-same review with and without the snapshot against one fake cluster and compares the bytes.
+Add `cli/nagare-harness/src/Nagare/Harness/TransitionCost.hs` and
+`cli/nagare-harness/test/TransitionCostSpec.hs`. Implement `transition-cost fixture --out DIR`
+to export a sanitized codec fixture for the collector examples, `transition-cost collect --run DIR
+--out FILE`, `transition-cost check --record FILE`, and `transition-cost history --root DIR`.
+The runner's run index supplies stable relative trace paths, source/target revisions, environment,
+candidate and artifact identities, stage/attempt IDs and start/end outcomes. Collection must work
+on records produced by actual CLI invocations, including failure and resume, before EP-228 uses it.
+Output `schemaVersion`, measurement profile, sample IDs, command/stage intervals, preparation and
+activation totals, operations by action/executor, physical requests, reuse, retries and budget
+results. Unknown schema versions refuse; absent traces are incomplete; local rehearsal and
+intranet profiles are never conflated. Atomic failure records coexist with the last passing record.
 
-**M4, verify-only operations.** Use M1's trace to pick the smallest change that removes repeated
-work without weakening proof. The expected candidates, in order:
+The structural suite uses 205 and 2,050 unchanged members with fixed kind/namespace distribution,
+then increases that distribution and tests request chunking separately. Also add 50 unrelated
+application scopes and grow journal history from 100 to 10,000 events. A no-op release creates no
+per-member verify operations or per-member journal writes; its live platform proof may scale by
+bounded observation groups and bytes. A one-member change creates no unrelated mutation or
+re-acceptance. Journal control-plane round trips for V required verifies scale with chunks of
+64, not V; immutable event bytes/uploads may remain linear. Unrelated scopes add zero provider
+calls or warm remote immutable reads. Record local hydration CPU and bytes instead of asserting
+constant total CPU. Warm historical journal transfers must not grow with untouched old history;
+cold transfers remain explicit. Retain MP-29's reviewed-access checks.
 
-- `VerifyResource`'s `execute` and `verify` read the same object back to back with no write between,
-  so the verify phase can reuse the execute phase's read;
-- a run of consecutive verify-only operations with no pending writes can be read as one fresh
-  snapshot taken when the run starts;
-- verify-only operations can journal their outcomes in fewer store writes, if ADR 26's per-operation
-  proof still holds.
+Budget constants live with fixtures and have a rationale. Planned limits are one guard admission
+per stable session generation, at most eight concurrent Kubernetes reads, at most four concurrently
+waiting independent stateless effects, and bounded retries. Count the guard's subprocesses
+separately. Wire-level failures have their own request/retry limits, not the happy-path budget.
 
-Any change to journaling needs the recovery model tests and a Decision Log entry. Lower the fixture
-counts in the same commit.
+### M3 — Close the rollout performance gate
 
-**M5, unnecessary re-acceptance.** Diff the stage-2 review's `baseRevisions` against its
-`desiredRevisions` for the six scopes, and find which declaration bytes changed between v0.11.0
-and v0.11.1 (for example a payload version or identity embedded in a scope). If the change carries
-no cluster meaning, stop embedding it in the scope, so an unchanged scope keeps its revision. If it
-does carry meaning, record that, and the verifies stay, at M4's cost. Prove it with `just
-release-rehearse` between two revisions that differ only in non-platform files.
 
-**M6, intranet confirmation.** Release through the normal workflow. `intranet-cost.json` from that
-release is the evidence, and `scripts/transition-cost.py` shows the before (v0.11.1) and after.
+After EP-225–228 are Complete, run the packaged previous-release to candidate rehearsal and the
+native matrix specified in Purpose. Reuse immutable artifact preparation across warm samples,
+but create a valid source context for each transition; a second “already at target” invocation is
+not another successful sample. Keep data sentinels and exact source/target identities. Record the
+operator workstation, context, object counts, store backend, artifact/cache state and provider
+latency. Publish sanitized `transition-cost.json` for local confirmation and `intranet-cost.json`
+beside `docs/release-evidence/<candidate-revision>/transition-rehearsal.json` through the normal
+release evidence path. Historical v0.11.1 values remain unknown where no trace exists.
+
+Run the release path with Python unavailable. Verify the user sees a stage/progress update at
+least every five seconds while waiting and an exact resume/close command on interruption.
+Budget failure keeps this plan and its parent open with a measured next fix. Neither a passing
+fixture nor “slowest phase identified” substitutes for the native latency requirement.
 
 
 ## Concrete Steps
 
-From the repository root:
+
+From the repository root, after adding the named tests and commands:
 
 ```bash
+cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p TransitionCost' --test-show-details=direct
+cabal test nagare-harness-test --project-dir=cli/nagare-harness --test-options='-p TransitionCost' --test-show-details=direct
+cabal run --project-dir=cli/nagare-harness nagare-harness -- transition-cost fixture --out /tmp/nagare-transition-run
+cabal run --project-dir=cli/nagare-harness nagare-harness -- transition-cost collect --run /tmp/nagare-transition-run --out /tmp/nagare-transition-cost.json
+cabal run --project-dir=cli/nagare-harness nagare-harness -- transition-cost check --record /tmp/nagare-transition-cost.json
+cabal run --project-dir=cli/nagare-harness nagare-harness -- transition-cost history --root docs/release-evidence
+```
+
+The fixture command creates `/tmp/nagare-transition-run` from the same sanitized sample used by
+the codec tests; it refuses an incompatible existing run directory. It makes the collect example
+reproducible, but synthetic fixture output is never eligible for native acceptance.
+Expected output distinguishes `passed`, `failed` and `incomplete`, includes sample counts, and
+returns nonzero for failed/incomplete checks. No illustrative timing is presented as a result.
+
+For native confirmation, substitute the actual revision and previous version:
+
+```bash
+just release-rehearse <candidate-revision> <previous-version>
 just haskell-style-check
-cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p "/TransitionCost/||/Kubernetes/||/inventory/"' --test-show-details=direct
-just gate-fast
+just gate-fast <committed-candidate-revision>
 ```
 
-A traced local transition (disposable Colima context, no cloud), after M1:
-
-```bash
-just release-rehearse <candidate-rev> <previous-release-tag>
-jq '.stages[] | {stage, planSeconds, applySeconds, kubectl}' ~/.local/state/nagare/releases/rehearse/*/intranet-cost.json
-```
-
-A traced intranet command, for one plan only (it publishes a review, so it needs the operator's
-go-ahead):
-
-```bash
-NAGARE_TRACE=1 NAGARE_TRACE_FILE=/tmp/plan.trace.json nagarectl --context intranet platform transition plan --out /tmp/stage
-```
-
-The cost history after any release:
-
-```bash
-scripts/transition-cost.py
-```
-
-Expected shape (numbers illustrative):
-
-```text
-release  stages  ops  transition  slowest-stage  kubectl  store-writes
-0.11.1   3       213  21m40s      stage-2 apply  1900     2150
-0.12.0   3       8    3m10s       stage-1 apply  60       90
-```
+EP-228 preserves this recipe while moving its logic to Haskell. A committed-candidate gate checks
+that revision, not uncommitted edits. Use the normal release runbook for an intranet candidate;
+this planning task does not run one. Do not search or read `/nix/store` to inspect dependencies.
 
 
 ## Validation and Acceptance
 
-- The M1 fixture passes with the current counts before any optimization. Each of M2-M5 lowers
-  specific numbers in it, and each commit says which.
-- M2: one guard per plan and per apply in the fixture. Rewriting the kubeconfig file mid-apply
-  produces a second guard. A refusing guard refuses the next operation exactly as today.
-- M3: the plan's kubectl calls equal the number of (kind, namespace) groups plus two guards, with at
-  most eight in flight. The reviews are byte-identical.
-- M4: verify-only operations make one live read each in the fixture. The recovery model, transaction
-  and close tests pass unchanged.
-- M5: a rehearsal between revisions with identical platform content plans no Kubernetes verify.
-- M6: on the intranet, with a release that changes no Kubernetes object, every stage plan takes
-  under 60 s and the step from pin to commit under 5 minutes, as recorded in `intranet-cost.json`.
-  If not, the record names the slowest phase and this plan stays open with the next reduction.
+
+M1 passes when counts come from the production path, interpreter timing catches missing/overlapping
+spans, exceptions leave an honest record, and private bytes never appear. M2 passes when real
+command records round-trip, history rejects incompatible profiles, structural growth budgets
+fail deliberately regressed fixtures, and missing evidence cannot yield green. M3 requires all
+five warm samples for each native workload, a cold report, bounded failure recovery, the final
+candidate's release gates and Python-free execution. Preserve source output used to establish
+each assertion and document any environment-specific limitation without weakening the gate.
 
 
 ## Idempotence and Recovery
 
-Tracing is read-only and writes only the named trace file. Fixtures use interpreters and a fake
-store. A failed transition apply follows the existing path: `release-intranet.sh` resumes an
-ambiguous stop once, otherwise `nagarectl inventory resume TX` or the close workflow per ADR 26.
-None of these changes alter a review's format or the journal's on-disk format, so a candidate that
-fails can be replaced by `release-candidate --revision` as usual.
+
+Use a new run/attempt directory for each invocation. Never overwrite accepted evidence on retry.
+Records are observations, not permission to replay a provider mutation. Resume uses the existing
+transaction identity and authoritative journal; the cost collector merely links attempts.
+Redact evidence before committing it. Keep original failed traces locally. No fixture contacts
+the intranet or changes its pin.
 
 
 ## Interfaces and Dependencies
 
-- `Nagare.Inventory.Store.Counters`: `CommandTrace` gains kubectl and per-operation fields, and a
-  JSON encoding written by `NAGARE_TRACE_FILE`.
-- `Nagare.Inventory.KubernetesTransport`: `invokeKubectl` records each request with its purpose.
-- `Nagare.Cli.Runtime.Cluster`: the per-command guard memo, shared by every runtime in a command.
-- `Nagare.Inventory.KubernetesSnapshot.snapshotRuntime`: reused for plan observation.
-- `scripts/release-intranet.sh`, `scripts/release-candidate.sh`: trace files and
-  `intranet-cost.json` as outputs of the existing steps; no new release step.
-- New: `cli/nagarectl/test/TransitionCostSpec.hs`, `scripts/transition-cost.py`.
+
+This plan owns the trace codec and harness cost schema. The hard dependency for M3 is completion
+of [EP-225](225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md),
+[EP-226](226-share-bounded-cluster-observations-through-a-guarded-command-session.md),
+[EP-227](227-commit-verification-proofs-without-per-resource-remote-transactions.md), and
+[EP-228](228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md).
+M1 and M2 have no such dependency and unblock those children. Reuse existing Haskell dependencies;
+before selecting any new API or bounds, discover source with Mori and verify released versions
+against upstream and the authoritative package registry.
+
+Revision note, 2026-10-29: replaced the standalone optimization sequence with the measurement
+child of MasterPlan 30, corrected the verify path and rehearsal assumptions, added changed-rollout,
+growth, failure and compatibility gates, and removed the Python tooling proposal.
