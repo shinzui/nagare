@@ -54,12 +54,20 @@ closed with a bounded number of requests and a useful explanation.
   address keys, bounded chunking/fallback and tested freshness boundaries.
 - [ ] M3: Kubernetes, Helm and relevant access integration share sessions without caching writes
   or readiness across phases; adversarial guard and observation fixtures pass.
-- [ ] M4: Opening the inventory store proves bucket ownership without a per-command
+- [x] M4: Opening the inventory store proves bucket ownership without a per-command
   `gcloud projects describe`. The project number is immutable, so read it with the session's
   token or keep it per project; the bucket's owning number stays a live read and the comparison
   still fails closed. Independent of M1–M3. Pass: the ownership fixtures in
-  `test/InventoryAccessSessionSpec.hs` and the store ownership refusals pass unchanged, and a
-  traced intranet command shows no `project ownership` gcloud subprocess. Evidence for the need:
+  `test/InventoryGcloudAuthSpec.hs` and the store ownership refusals pass unchanged, and a
+  traced intranet command shows no `project ownership` gcloud subprocess.
+  Pass, 2026-10-29, landed `ff2e12f2` (fast gate green): `Nagare.Inventory.Store.ProjectNumbers`
+  keeps each project's number in `~/.cache/nagare/project-numbers/<project>` (0600); a
+  remembered number that disagrees with the live bucket owner is reread before the verdict. The
+  EP-221 overlap/refusal case runs unchanged and a new EP-226 M4 case covers recall, foreign and
+  unreadable buckets, a wrong entry and unsafe IDs. Intranet `inventory store status`, traced
+  twice: the first run read `project ownership` (0.91 s) and filled the cache; the second had no
+  `project ownership` phase, two gcloud processes instead of three and 3.08 s wall instead of
+  3.45 s. Evidence for the need:
   [`docs/audits/mp29-latency-2026-10-29/baseline.json`](../audits/mp29-latency-2026-10-29/baseline.json),
   where that read took 16.3 s and 14.9 s in two of ten commands instead of about 0.6 s.
 

@@ -119,12 +119,12 @@ dependency on MP-29.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|---|---|---|---|---|
-| EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–229 Complete | MP-29 tracing | Not Started |
-| EP-225 | Stable deployment meaning and incremental reviews | [225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md) | EP-224 M1 | None | Not Started |
-| EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | Not Started |
+| EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–229 Complete | MP-29 tracing | In Progress (M1 done) |
+| EP-225 | Stable deployment meaning and incremental reviews | [225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md) | EP-224 M1 | None | In Progress |
+| EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | In Progress (M4 done) |
 | EP-227 | Durable batched verification with per-operation recovery | [227](../plans/227-commit-verification-proofs-without-per-resource-remote-transactions.md) | EP-224 M1; EP-225 M2 and EP-226 M1–M2 before its M2 | None | Not Started |
 | EP-228 | Incremental rollout coordinator and Haskell release runner | [228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) | EP-225, EP-226, EP-227 and EP-229 Complete; EP-224 M2 | None | Not Started |
-| EP-229 | Haskell ownership of candidate, intranet and rehearsal orchestration | [229](../plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) | None | EP-224 M2 reads its run index | Not Started |
+| EP-229 | Haskell ownership of candidate, intranet and rehearsal orchestration | [229](../plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) | None | EP-224 M2 reads its run index | In Progress |
 
 
 ## Dependency Graph
@@ -225,10 +225,11 @@ review is generated only from an idle head; never rewrite an admitted review to 
 ## Progress
 
 
-2026-10-29: architecture review and decomposition drafted; no implementation milestone has started.
-The next work is EP-224 M1; EP-226 M4 and EP-229 can start now in parallel. Final acceptance
-includes unchanged and changed rollouts, recovery, growth limits, Python-free release tooling and
-five warm intranet measurements.
+2026-10-29: EP-226 M4 landed (no per-command project-number read; confirmed on the intranet).
+EP-224 M1 is done: the versioned trace and the production-path baseline fixture. EP-225 is next;
+EP-229 runs in parallel and EP-224 M2 follows its run index. Final acceptance includes unchanged
+and changed rollouts, recovery, growth limits, Python-free release tooling and five warm intranet
+measurements.
 
 
 ## Surprises & Discoveries
