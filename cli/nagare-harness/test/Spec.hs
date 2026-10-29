@@ -22,6 +22,7 @@ import Nagare.Harness.RouteCheck
 import Nagare.Harness.Slot (runningRevisions, withRunMarker, withSlot)
 import Nagare.Harness.Step
 import Nagare.Harness.Verify
+import ReleaseTransitionSpec (releaseTransitionTests)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -39,6 +40,7 @@ tests =
   testGroup
     "nagare-harness"
     [ flakeCheckTests
+    , releaseTransitionTests
     , testGroup
         "steps"
         [ testCase "stops at the first failure and keeps its exit code" $

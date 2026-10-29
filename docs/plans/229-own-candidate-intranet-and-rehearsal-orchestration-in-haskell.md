@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-29T16:53:33Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T19:13:16Z
+      mode: "implement"
+      note: "Implemented M1-M3: Haskell release runner, plan summary and run index, Python-free rehearsal"
 ---
 
 # Own candidate, intranet and rehearsal orchestration in Haskell
@@ -39,16 +45,37 @@ the ported runner with a preparation manifest, progress and cost records.
 ## Progress
 
 
-- [ ] M1: `nagare-harness release candidate`, `transition run`, `transition pin-tag` and
+- [x] M1: `nagare-harness release candidate`, `transition run`, `transition pin-tag` and
   `transition rehearse` reproduce the four scripts' behavior, proven by fixtures of recorded
   command order, and the scripts are argument-preserving `exec` wrappers; `just release-rehearse`
   on the disposable context writes the same transition-rehearsal record as before.
-- [ ] M2: Every decision the scripts took from text (the ambiguous transaction ID, operation and
+  Evidence (commit 4a3bb3e6): `ReleaseTransitionSpec` (28 cases, `-p ReleaseTransition`) passes,
+  with the scripts' invocation orders for all four commands, the converged rule on the sanitized
+  v0.11.1 intranet reviews (2, 211 and 0 operations; 1, 6 and 0 re-accepts), the twelve-stage
+  bound, one resume of an ambiguous apply, `--rehearsal` landing nothing, pin-tag without a
+  rollout and the eight intranet refusals; `just gate-fast 4a3bb3e6` green. `just
+  release-rehearse ef5a537c 0.11.0` (the v0.11.1 move, through the ported drill on nagare-mp23)
+  wrote a record byte-identical to the v0.11.1 release's apart from the sentinel timestamp.
+- [x] M2: Every decision the scripts took from text (the ambiguous transaction ID, operation and
   re-acceptance counts, version and revision checks) is read from a typed outcome document
   through a version-one run index; no `jq`, `sed` or Python JSON decision remains on these paths.
-- [ ] M3: The release path runs with no Python executable: the rehearsal's empty environment no
+  Evidence (commits 451dc528, 8e4e300a): `platform transition plan --summary`; the intranet and
+  the drill's candidate loop decide from it and from `--contract 1` outcomes, and the fixtures
+  check every index stage and attempt; `grep -E 'jq|sed -n|python'` over the four wrappers and
+  `Release/*.hs` finds only comments; `just gate-fast` green on both commits. In the disposable
+  rehearsal below the candidate's three transition stages (0, 214 and 0 operations; 1, 6 and 0
+  re-accepts, the v0.11.1 shape) were decided from the candidate's summaries, and the drill
+  index records each attempt's transaction and outcome.
+- [x] M3: The release path runs with no Python executable: the rehearsal's empty environment no
   longer lists `python3`, the fake transport fails on any Python launch, and the runbook and
   ADR 24 describe the ported path.
+  Evidence (commit 1025c156): `ReleaseTransitionSpec` (29 cases) passes with the Python detector
+  on every fake call and the candidate fixtures under a PATH with no Python; `just
+  release-rehearse 1025c156 0.11.0` passed on nagare-mp23 from the environment without
+  `python3`, writing a record with the v0.11.1 record's shape (3 bootstrap reviews, 2
+  transition reviews, 214 operations, sentinel read back). `docs/runbooks/releases.md` and the
+  ADR 24 amendment name the harness commands. `just gate-release` still runs the repository's
+  Python checks, which are outside this plan.
 
 
 ## Surprises & Discoveries
@@ -69,6 +96,43 @@ the ported runner with a preparation manifest, progress and cost records.
   `exec`s the harness with its arguments.
 - 2026-10-29: The harness may depend on `nagare-contract` (EP-224 adds it for the trace codec)
   but never on the nagarectl library; typed outcomes come from small additive nagarectl output.
+- 2026-10-29 (M1): The harness commands take the scripts' own grammars so each wrapper is a bare
+  `exec scripts/harness.sh … "$@"`: `release candidate VERSION [--revision REV] [--rehearsal]`,
+  `transition run VERSION [--run DIR] [--context NAME] [--revision REV] [--pin-tag]` (with
+  `--pin-tag` it is `transition pin-tag`; `--context` defaults to `NAGARE_RELEASE_CONTEXT`, else
+  `intranet`, and `--revision` only refuses a run for another revision),
+  `transition pin-tag VERSION [--run DIR] [--context NAME]`,
+  `transition rehearse REV PREV_VERSION [--run DIR]`, and `transition drill` for
+  `scripts/transition-rehearsal.sh`, configured by its `NAGARE_REHEARSAL_*` variables. Usage
+  errors exit 2 for every harness command, as the scripts' did.
+- 2026-10-29 (M1): `transition rehearse` starts the drill as `nagare-harness transition drill`
+  with exactly the old `env -i` variables and tees its output to `rehearsal.log`, so the drill
+  still runs from the empty environment. Every invocation resolves its program on the child's
+  PATH, not the harness's. The drill's `docker save | docker load` of a missing pinned image is
+  `docker save -o` and `docker load -i` through a file in the root.
+- 2026-10-29 (M1): `scripts/audit-managed-commands.py` registers the drill and intranet entry
+  points at their Haskell modules (a data-only edit of the frozen audit). The intranet cases of
+  `scripts/test-release-intranet.sh` moved to `ReleaseTransitionSpec`; the script keeps only
+  release-publish's intranet precondition, which this plan does not port.
+- 2026-10-29 (M2): The apply outcome needs no nagarectl change: `inventory apply` and `inventory
+  resume` already print a `transaction-outcome` document under `--contract 1` (EP-192) with the
+  transaction, operation and `StoppedAmbiguous` reason. The one nagarectl addition is
+  `platform transition plan --summary FILE`, which writes a `TransitionPlanSummary`
+  (`cli/nagare-contract/src/Nagare/Contract/Release.hs`, outside the public `--contract 1`
+  documents and the OpenAPI schema; the review directory itself must hold only its three
+  members). The harness decodes it, `TransactionOutcome` and `VersionInfo` from
+  `nagare-contract`.
+- 2026-10-29 (M2): A published source release cannot gain new output. The drill's bootstrap
+  loop on the source therefore decodes the source's `review.json` in the harness and reads its
+  `platform bootstrap apply` stop from the human `ambiguous TX at OP` line, in Haskell; the
+  candidate's bootstrap replan decodes its `review.json` the same way. Every candidate-side
+  decision reads a nagarectl document.
+- 2026-10-29 (M2): The run index is one file per command run, rewritten after every step,
+  stage and attempt: `<run>/index.json` (candidate), `<run>/intranet-index.json` (intranet),
+  `<work>/index.json` (rehearsal) and `<work>/run/index.json` (drill). The candidate passes the
+  rehearsal a fresh `/private/tmp/nagare-release-rehearse.XXXXXX` work directory with `--run`,
+  so it can name the rehearsal's index as a child; the drill root stays under `/private/tmp`.
+  `transition pin-tag` writes none: it has no stage.
 
 
 ## Outcomes & Retrospective

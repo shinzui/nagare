@@ -7,6 +7,11 @@ import Nagare.Harness.FixtureSmoke (runFixtureSmoke)
 import Nagare.Harness.Gate (coveredRevision, fastGateAt, fullGateAt, landableRevision, newLogDir, postLandGate, repositoryRoot, verifyRevision)
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
+import Nagare.Harness.Release.Candidate (CandidateOptions (..), releaseCandidate)
+import Nagare.Harness.Release.Intranet (IntranetOptions (..), transitionPinTag, transitionRun)
+import Nagare.Harness.Release.Process (realRuntime, refusing)
+import Nagare.Harness.Release.Rehearse (RehearseOptions (..), transitionRehearse)
+import Nagare.Harness.Release.TransitionDrill (transitionDrill)
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
 import Nagare.Harness.Step (stepSucceeded)
 import Options.Applicative
@@ -27,6 +32,11 @@ data Command
   | MutationsProve !Text !(Maybe Text) !Int ![Text]
   | MutationsSweep !Text !(Maybe Text) !Int
   | RouteCheck !RouteCheckOptions
+  | ReleaseCandidate !CandidateOptions
+  | TransitionRun !IntranetOptions !Bool
+  | TransitionPinTag !IntranetOptions
+  | TransitionRehearse !RehearseOptions
+  | TransitionDrillCommand
   deriving stock (Eq, Show)
 
 commandParser :: Parser Command
@@ -36,7 +46,70 @@ commandParser =
         <> command "fixture-smoke" (info smokeParser (progDesc "Run every fixture application locally with its declared bindings"))
         <> command "mutations" (info mutationsParser (progDesc "Check and prove the mutation records (EP-180 M8)"))
         <> command "route-check" (info routeCheckParser (progDesc "Check a protected route over verified HTTPS: login, grant and revoke (EP-183 M1)"))
+        <> command "release" (info releaseParser (progDesc "Prepare a release candidate up to the tag (EP-229)"))
+        <> command "transition" (info transitionParser (progDesc "Move the intranet, pin its tag, or rehearse a release transition (EP-229)"))
     )
+
+releaseParser :: Parser Command
+releaseParser =
+  hsubparser
+    ( command
+        "candidate"
+        ( info
+            ( fmap ReleaseCandidate $
+                CandidateOptions
+                  <$> versionArgument
+                  <*> (T.pack <$> strOption (long "revision" <> metavar "REV" <> value "HEAD" <> showDefault <> help "The candidate revision, on origin/master"))
+                  <*> switch (long "rehearsal" <> help "Run every step but land nothing and leave the intranet untouched")
+            )
+            (progDesc "Everything up to the tag, unattended: gate, transition rehearsal, attachments, assembly, the intranet, the rehearsal record (scripts/release-candidate.sh)")
+        )
+    )
+
+-- | The scripts' own grammars, so each wrapper is a bare @exec … "$\@"@.
+transitionParser :: Parser Command
+transitionParser =
+  hsubparser
+    ( command
+        "run"
+        ( info
+            (TransitionRun <$> intranetOptions <*> switch (long "pin-tag" <> help "Pin the published tag instead, as transition pin-tag"))
+            (progDesc "Move the intranet to a candidate run (scripts/release-intranet.sh)")
+        )
+        <> command
+          "pin-tag"
+          ( info
+              (TransitionPinTag <$> intranetOptions)
+              (progDesc "Pin the intranet's operator repository to the published tag; the rollout is not repeated")
+          )
+        <> command
+          "rehearse"
+          ( info
+              ( fmap TransitionRehearse $
+                  RehearseOptions
+                    <$> (T.pack <$> strArgument (metavar "REV" <> help "The candidate revision"))
+                    <*> (T.pack <$> strArgument (metavar "PREV_VERSION" <> help "The published release it moves from"))
+                    <*> optional (strOption (long "run" <> metavar "DIR" <> help "Work directory (default: a fresh /private/tmp/nagare-release-rehearse.XXXXXX)"))
+              )
+              (progDesc "Rehearse the transition from a published release to a candidate on nagare-mp23 (scripts/release-rehearse.sh)")
+          )
+        <> command
+          "drill"
+          ( info
+              (pure TransitionDrillCommand)
+              (progDesc "The transition drill on a disposable Docker daemon, configured by NAGARE_REHEARSAL_* (scripts/transition-rehearsal.sh)")
+          )
+    )
+  where
+    intranetOptions =
+      IntranetOptions
+        <$> versionArgument
+        <*> optional (strOption (long "run" <> metavar "DIR" <> help "The candidate run (default: the version's latest run)"))
+        <*> optional (T.pack <$> strOption (long "context" <> metavar "NAME" <> help "Default: NAGARE_RELEASE_CONTEXT, else intranet"))
+        <*> optional (T.pack <$> strOption (long "revision" <> metavar "REV" <> help "Refuse unless the run is for this revision"))
+
+versionArgument :: Parser Text
+versionArgument = T.pack <$> strArgument (metavar "VERSION" <> help "major.minor.patch")
 
 routeCheckParser :: Parser Command
 routeCheckParser =
@@ -127,8 +200,17 @@ gateParser =
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
-  parsed <- execParser (info (commandParser <**> helper) (fullDesc <> progDesc "Nagare release and gate harness"))
-  root <- repositoryRoot
+  parsed <- execParser (info (commandParser <**> helper) (fullDesc <> failureCode 2 <> progDesc "Nagare release and gate harness"))
+  case parsed of
+    ReleaseCandidate options -> realRuntime >>= \runtime -> refusing "release-candidate" (releaseCandidate runtime options)
+    TransitionRun options pinTag -> realRuntime >>= \runtime -> refusing "release-intranet" ((if pinTag then transitionPinTag else transitionRun) runtime options)
+    TransitionPinTag options -> realRuntime >>= \runtime -> refusing "release-intranet" (transitionPinTag runtime options)
+    TransitionRehearse options -> realRuntime >>= \runtime -> refusing "release-rehearse" (transitionRehearse runtime options)
+    TransitionDrillCommand -> realRuntime >>= \runtime -> refusing "rehearsal" (transitionDrill runtime)
+    _ -> repositoryRoot >>= \root -> harnessMain root parsed
+
+harnessMain :: FilePath -> Command -> IO ()
+harnessMain root parsed =
   case parsed of
     GateFast revision -> do
       outcome <- fastGateAt root revision
@@ -193,6 +275,12 @@ main = do
     FixtureSmoke manifest allowShared -> do
       green <- runFixtureSmoke (fromMaybe (root </> "fixtures/inventory-release/local/fixture-smoke.json") manifest) allowShared
       unless green exitFailure
+    -- The release commands run before the repository root is read.
+    ReleaseCandidate _ -> pure ()
+    TransitionRun _ _ -> pure ()
+    TransitionPinTag _ -> pure ()
+    TransitionRehearse _ -> pure ()
+    TransitionDrillCommand -> pure ()
   where
     refuse message = TIO.hPutStrLn stderr message >> exitFailure
     report label problems = do

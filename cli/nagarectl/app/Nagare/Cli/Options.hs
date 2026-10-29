@@ -369,7 +369,7 @@ data Command
   | PlatformStamp
   | PlatformBootstrapPlan FilePath
   | PlatformBootstrapApply FilePath Bool
-  | PlatformTransitionPlan FilePath
+  | PlatformTransitionPlan FilePath (Maybe FilePath)
   | PlatformTransitionCommit Bool
   | PlatformAdopt String Bool Bool
   | PlatformRepin String Bool
