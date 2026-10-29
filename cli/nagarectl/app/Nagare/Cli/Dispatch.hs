@@ -105,9 +105,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Trace (withCommandTrace)
 
--- | Under @NAGARE_TRACE=1@ a command reports its store operations (EP-212);
--- under @NAGARE_TRACE_FILE@ it writes its trace document (EP-224), named by
--- the command constructor alone so no argument reaches the trace.
+-- | Trace a command (EP-212, EP-224), named by its constructor, never its arguments.
 dispatchTraced :: (Maybe String, Command) -> IO ()
 dispatchTraced selected@(_, command) = withCommandTrace (T.pack (takeWhile (/= ' ') (show command))) (dispatch selected)
 

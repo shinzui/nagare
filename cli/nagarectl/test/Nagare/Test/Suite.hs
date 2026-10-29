@@ -159,8 +159,7 @@ main = do
   case (effectRoot, effectReview, effectTransaction) of
     (Just root, Just review, Just transaction) -> runEffectfulResumeProbe root review transaction >>= exitWith
     _ -> pure ()
-  sitesFixture <- lookupEnv "NAGARE_RECORDED_SITES_FIXTURE"
-  mapM_ (\root -> runRecordedSitesFixture root >>= exitWith) sitesFixture
+  lookupEnv "NAGARE_RECORDED_SITES_FIXTURE" >>= mapM_ (\root -> runRecordedSitesFixture root >>= exitWith)
   lockHolder <- lookupEnv "NAGARE_INVENTORY_LOCK_HOLD"
   lockReady <- lookupEnv "NAGARE_INVENTORY_LOCK_READY"
   lockProbe <- lookupEnv "NAGARE_INVENTORY_LOCK_PROBE"
@@ -205,8 +204,7 @@ main = do
             , inventoryVolumeRestorePinTests
             , inventoryStatusTests
             , inventoryObservationTests
-            , inventoryGcloudAuthTests
-            , transitionCostTests
+            , testGroup "inventory command cost" [inventoryGcloudAuthTests, transitionCostTests]
             , inventoryGogolTests
             , inventoryServiceStoreTests
             , testGroup "inventory object store" [inventoryObjectOpsTests, inventoryStoreOnceTests, inventoryImmutableReadTests]
