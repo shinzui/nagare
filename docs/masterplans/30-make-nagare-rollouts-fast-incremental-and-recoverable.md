@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-29T16:45:25Z
       mode: "update"
       note: "Apply review: EP-226 M4 freed from EP-224 M1 in registry and graph; Admission/Driver ordered ownership and test registration path added to Integration Points; MP-29 close reflected"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T19:47:51Z
+      mode: "implement"
+      note: "Registry: EP-226 M4, EP-224 M1, EP-225 M1-M2 landed; EP-229 merged complete"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"

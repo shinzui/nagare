@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-29T16:45:25Z
       mode: "update"
       note: "Interfaces: M4 has no prerequisite and may land first"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T19:47:52Z
+      mode: "implement"
+      note: "M4: per-project number cache, confirmed on the intranet"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"

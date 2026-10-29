@@ -17,6 +17,12 @@ provenance:
       at: 2026-10-29T16:44:53Z
       verdict: "approved"
       note: "Canonical-bytes comparison, bootstrapReview verify expansion and sameDeclarationsModuloSource usage verified at HEAD; ADR 22 amendment present"
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T19:47:52Z
+      mode: "implement"
+      note: "M1 typed deployment meaning; M2 admission validations replace bootstrap verifies"
 ---
 
 # Keep platform revisions stable when deployment meaning is unchanged

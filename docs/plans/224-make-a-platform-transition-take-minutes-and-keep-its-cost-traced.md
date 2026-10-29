@@ -33,6 +33,11 @@ provenance:
       at: 2026-10-29T16:45:25Z
       mode: "update"
       note: "Correct the test registration path and state the harness cabal.project change the nagarectl dependency needs"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T19:47:51Z
+      mode: "implement"
+      note: "M1: versioned command trace and production-path baseline fixture"
 ---
 
 # Make a platform transition take minutes and keep its cost traced
