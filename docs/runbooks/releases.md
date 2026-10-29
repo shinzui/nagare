@@ -42,7 +42,13 @@ bump lands with its ancestor's gate record and `release-candidate --revision` ac
 ## The candidate run
 
 `just release-candidate X.Y.Z` runs unattended up to the tag. Each step stops at its first failure
-and nothing is retried:
+and nothing is retried. The run is `nagare-harness release candidate`
+([`Release/Candidate.hs`](../../cli/nagare-harness/src/Nagare/Harness/Release/Candidate.hs), EP-229);
+`scripts/release-candidate.sh`, `release-rehearse.sh`, `transition-rehearsal.sh` and
+`release-intranet.sh` only `exec` the harness commands with their arguments, and no step of the run
+starts a Python interpreter. Every decision reads a document nagarectl writes, and each command keeps
+a version-one run index (`index.json` in the run directory, `intranet-index.json` beside it, and one
+in the rehearsal's work directory) that names every step, reviewed stage and apply attempt:
 
 1. **Preflight.** `release.json` at the candidate says `X.Y.Z` and names both systems, the candidate
    is on `origin/master`, `vX.Y.Z` is not tagged, and the newest version in `transitionsFrom` is a
@@ -51,11 +57,12 @@ and nothing is retried:
 2. **Release gate.** `just gate-release <candidate>` in the background: the gate record, then the
    mutation sweep of the records whose patched files changed since the nearest ancestor's clean
    sweep (every record when there is none), skipped when nothing it builds changed.
-3. **Upgrade rehearsal.** `scripts/release-rehearse.sh` builds the previous release's packaged
-   `nagarectl` and the candidate's and runs
-   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) on the Colima profile
-   `nagare-mp23` from an empty environment whose PATH has no Helm. The record goes into the run
-   directory.
+3. **Upgrade rehearsal.** `nagare-harness transition rehearse` (`scripts/release-rehearse.sh`)
+   builds the previous release's packaged `nagarectl` and the candidate's and runs the transition
+   drill, `nagare-harness transition drill` ([`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh)),
+   on the Colima profile `nagare-mp23` from an empty environment whose PATH has no Helm and no
+   Python. The candidate's stages are decided from `platform transition plan --summary` and the
+   `--contract 1` outcome of each apply. The record goes into the run directory.
 4. **aarch64-darwin attachments.** [`scripts/release-native.sh`](../../scripts/release-native.sh):
    `check-release.sh`'s built checks, the native output identities, and the clone-free rehearsal.
 5. **x86_64-linux attachments.** The x86 outputs are built on the builder into a file cache under
@@ -65,7 +72,8 @@ and nothing is retried:
 6. **Assembly.** [`scripts/assemble-release.sh`](../../scripts/assemble-release.sh) twice; the
    outputs must be byte-identical and bound to the rehearsal record of this candidate.
 7. **The intranet**, once the release gate is green, under the operator's standing go-ahead.
-   [`scripts/release-intranet.sh`](../../scripts/release-intranet.sh) pins the operator repository
+   `nagare-harness transition run` ([`scripts/release-intranet.sh`](../../scripts/release-intranet.sh))
+   pins the operator repository
    (`mori://tan/tan-ng-labs`, or `NAGARE_RELEASE_OPERATOR_REPO`) to the candidate revision, plans
    and applies the platform transition through that repository's dev shell until a plan has no
    operations, resuming an ambiguous stop once, and commits the transition. It requires an exact

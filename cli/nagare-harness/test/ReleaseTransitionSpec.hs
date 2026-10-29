@@ -87,8 +87,9 @@ fake environment' respond = do
         pure (Result code (if command ^. #stdoutTo == Capture then bytes else ""))
       transport' =
         Transport
-          { run = \command -> record False command >> answer command
+          { run = \command -> noPython command >> record False command >> answer command
           , spawn = \command -> do
+              noPython command
               record True command
               result <- answer command
               pure Background {finished = pure (result ^. #exit), stop = pure ()}
@@ -111,6 +112,23 @@ fake environment' respond = do
       Inherited -> []
       Extended extra -> map fst extra
       Exactly exact -> map fst exact
+
+-- | M3: the release path starts no Python interpreter, by name, by absolute
+-- path, through @env@ or inside a shell command line.
+noPython :: Invocation -> IO ()
+noPython command =
+  when (any python (command ^. #program : command ^. #arguments)) $
+    assertFailure ("a Python interpreter was launched: " <> unwords (command ^. #program : command ^. #arguments))
+  where
+    python word = any (\token -> "python" `isPrefixOf` takeFileName token) (words word)
+
+-- | A search path with no Python on it, for the commands' own lookups.
+withoutPython :: FilePath -> IO [(String, String)]
+withoutPython root' = do
+  createDirectoryIfMissing True (root' </> "bin")
+  found <- searchPath (root' </> "bin") "python3"
+  found @?= Nothing
+  pure [("PATH", root' </> "bin")]
 
 recorded :: World -> IO [Call]
 recorded world = reverse <$> readIORef (world ^. #calls)
@@ -230,6 +248,13 @@ releaseTransitionTests =
         , testCase "the newest accepted source is picked by version, and versions are unpadded" $ do
             newestVersion ["0.9.0", "0.11.0", "0.10.0"] @?= Just "0.11.0"
             map validVersion ["0.11.1", "1.0.0", "01.0.0", "1.0", "1.0.0-rc1"] @?= [True, True, False, False, False]
+        , testCase "the rehearsal's tool PATH has no Python, and the fake transport fails any Python launch (M3)" $ do
+            assertBool "python3 is a rehearsal tool" ("python3" `notElem` rehearsalTools)
+            forM_ [invocation "python3" ["-I", "-"], invocation "/nix/store/x-python3/bin/python3.12" [], invocation "env" ["python3", "x.py"], invocation "bash" ["-c", "python3 -c 1"]] $ \command ->
+              try @HUnitFailure (noPython command) >>= \case
+                Left _ -> pure ()
+                Right () -> assertFailure ("not detected: " <> show command)
+            noPython (invocation "nix" ["build", "nixpkgs#jq"])
         , testCase "pinning rewrites only the nagare input's url" $ do
             repoint "github:shinzui/nagare/abc" "  inputs.nagare.url = \"github:shinzui/nagare/v9.8.6\"; # pin" @?= "  inputs.nagare.url = \"github:shinzui/nagare/abc\"; # pin"
             repoint "github:shinzui/nagare/abc" "  inputs.other.url = \"x\";" @?= "  inputs.other.url = \"x\";"
@@ -580,7 +605,8 @@ candidateTests =
     [ testCase "--rehearsal runs every step in the script's order, gates in the background in the worktree, and lands nothing" $
         withSystemTempDirectory "candidate" $ \raw -> do
           root' <- canonicalizePath raw
-          (runtime, world) <- fake [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] =<< candidateWorld root'
+          pathless <- withoutPython root'
+          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root'
           releaseCandidate runtime (CandidateOptions version' "HEAD" True)
           calls' <- recorded world
           rendered root' calls' @?= candidateOrder True
@@ -594,7 +620,8 @@ candidateTests =
     , testCase "a candidate moves the intranet, lands the rehearsal record from an evidence worktree, and points latest at its run" $
         withSystemTempDirectory "candidate" $ \raw -> do
           root' <- canonicalizePath raw
-          (runtime, world) <- fake [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] =<< candidateWorld root'
+          pathless <- withoutPython root'
+          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root'
           releaseCandidate runtime (CandidateOptions version' "HEAD" False)
           calls' <- recorded world
           rendered root' calls' @?= candidateOrder False
@@ -613,7 +640,8 @@ candidateTests =
           root' <- canonicalizePath raw
           base <- candidateWorld root'
           let red command = if command ^. #arguments == ["gate-release", T.unpack rev] then pure (1, "gate: red\n") else base command
-          (runtime, world) <- fake [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] red
+          pathless <- withoutPython root'
+          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) red
           refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False)) >>= assertMentions "the release gate failed"
           calls' <- rendered root' <$> recorded world
           filter ("release-intranet.sh" `T.isInfixOf`) (map T.pack calls') @?= []

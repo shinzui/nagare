@@ -48,7 +48,7 @@ colimaProfile = "nagare-mp23"
 -- | The nixpkgs tools on the drill's PATH, from the candidate's lock.
 rehearsalTools :: [String]
 rehearsalTools =
-  ["bash", "coreutils", "findutils", "gnugrep", "gnused", "gawk", "gnutar", "gzip", "curl", "git", "openssl", "jq", "python3", "docker-client", "k3d", "kubectl", "sops", "age", "skopeo", "socat"]
+  ["bash", "coreutils", "findutils", "gnugrep", "gnused", "gawk", "gnutar", "gzip", "curl", "git", "openssl", "jq", "docker-client", "k3d", "kubectl", "sops", "age", "skopeo", "socat"]
 
 note :: Runtime -> Text -> IO ()
 note runtime message = do

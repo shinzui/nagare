@@ -50,3 +50,23 @@ MasterPlan 23 showed what this costs:
 - The F42 class of defect, where a check is right only against invented input, becomes unlikely.
 - There is one language and one standard to maintain. Reviewers apply the same rules to tooling as to the CLI.
 - Until the ports land, the frozen scripts remain in use. The runbook's procedure, not the scripts, is the reference for how a run must be done.
+
+## Amendment — 2026-10-29: the release path is ported
+
+[EP-229](../plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) ported the
+release path. `nagare-harness release candidate`, `transition run`, `transition pin-tag`,
+`transition rehearse` and `transition drill` under `cli/nagare-harness/src/Nagare/Harness/Release/`
+are the candidate run, the intranet move, the tag pin, the upgrade rehearsal and its transition
+drill. `scripts/release-candidate.sh`, `release-intranet.sh`, `release-rehearse.sh` and
+`transition-rehearsal.sh` only `exec` them with their arguments.
+
+- Every external command goes through one process transport, and `ReleaseTransitionSpec`
+  interprets each command with a recording fake, as [ADR 25](0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)
+  asks. The fake fails any Python launch, and the rehearsal's empty environment has no `python3`.
+- Point 2 holds through `nagare-contract`, not the nagarectl library: the harness decodes
+  `TransitionPlanSummary` (`platform transition plan --summary`), `TransactionOutcome`
+  (`inventory apply|resume --contract 1`) and `VersionInfo` with the types nagarectl encodes them
+  with. A published source release cannot gain output, so the drill still decodes the source's
+  review and its human ambiguous-stop line, in Haskell.
+- Each command writes a version-one run index that later cost and progress tooling reads.
+- `release-publish.sh`, the gate's checks and the other frozen tools are unchanged.
