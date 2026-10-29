@@ -29,7 +29,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), countedTransport, invokeKubectl, runKubectlWith, withKubectlInterpreter)
-import Nagare.Inventory.Store (HeadManifest (headActiveTransaction, headGeneration), StoreError (StoreIoError), initializeStore, newObjectStore, readHead)
+import Nagare.Inventory.Store (HeadManifest (headActiveTransaction, headGeneration, headSequence), StoreError (StoreIoError), initializeStore, newObjectStore, readHead)
 import Nagare.Inventory.Store.Counters (CommandTrace, collectCommandTrace, labelled, rootContext, withSpan)
 import Nagare.Inventory.Store.ObjectOps (ObjectName (..), ObjectOps (..), PutOutcome (PutUnknown))
 import Nagare.Inventory.Trace (commandTraceDocument, withCommandTrace)
@@ -152,6 +152,7 @@ transitionCostTests =
           assertBool "the put was not counted" (maybe False (> 0) (lookup "puts" (countsIn CategoryStore document)))
           map (^. #phase) (document ^. #spans) @?= ["store initialization"]
     , testCase "the production path counts a no-op, a verify sweep and changed rollouts" productionCosts
+    , testCase "a marker sweep's journal writes do not grow with members and unrelated scopes cost nothing" structuralGrowth
     ]
 
 -- | A command run under 'withCommandTrace' with only @NAGARE_TRACE_FILE@.
@@ -305,7 +306,10 @@ owner :: Resource.ScopeId
 owner = ok (Resource.mkScopeId Resource.Application "cost-fixture")
 
 scopeOf :: [(ManagedResource, ByteString)] -> ScopeDeclaration
-scopeOf declared = ok (mkScopeDeclaration owner [ResourceBundle [Managed member | (member, _) <- declared] [] [] [] [] []])
+scopeOf = scopeOwnedBy owner
+
+scopeOwnedBy :: Resource.ScopeId -> [(ManagedResource, ByteString)] -> ScopeDeclaration
+scopeOwnedBy scope declared = ok (mkScopeDeclaration scope [ResourceBundle [Managed member | (member, _) <- declared] [] [] [] [] []])
 
 -- | The marker stands for a platform stage's generated record: changing it
 -- asks for the bootstrap-wide verification.
@@ -316,12 +320,15 @@ configMap :: Int -> Text -> (ManagedResource, ByteString)
 configMap n value = configMapFrom ("member-" <> T.pack (show n)) value "fixture/Config.hs"
 
 configMapFrom :: Text -> Text -> Text -> (ManagedResource, ByteString)
-configMapFrom name value source =
+configMapFrom = configMapOf owner
+
+configMapOf :: Resource.ScopeId -> Text -> Text -> Text -> (ManagedResource, ByteString)
+configMapOf scope name value source =
   ok
     ( bindKubernetesObject
         ( KubernetesInput
             identity
-            owner
+            scope
             cluster
             object
             (contentDigest (ok (canonicalValue object)))
@@ -332,7 +339,7 @@ configMapFrom name value source =
         )
     )
   where
-    identity = Resource.mintResourceId owner (ok (Resource.mkLogicalKey name)) (ok (Resource.mkName "configmap"))
+    identity = Resource.mintResourceId scope (ok (Resource.mkLogicalKey name)) (ok (Resource.mkName "configmap"))
     foundation = ok (Resource.mkScopeId Resource.Platform "foundation")
     cluster = Resource.mintResourceId foundation (ok (Resource.mkLogicalKey "cluster")) (ok (Resource.mkName "resource"))
     object =
@@ -351,3 +358,74 @@ configMapYaml name = "{\"apiVersion\":\"v1\",\"kind\":\"ConfigMap\",\"metadata\"
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
+
+-- * Structural growth (EP-224 M2)
+
+-- | One marker sweep over @members@ accepted members, beside @unrelated@
+-- accepted application scopes of one member each: its planned verifies and
+-- validations, executed verifies, journal events the apply appended and
+-- transported Kubernetes reads while planning.
+data Growth = Growth !Int !Int !Int !Int !Int
+  deriving stock (Eq, Show)
+
+sweepGrowth :: Int -> Int -> IO Growth
+sweepGrowth members unrelated = withSystemTempDirectory "transition-growth" $ \root -> do
+  previous <- lookupEnv "XDG_STATE_HOME"
+  setEnv "XDG_STATE_HOME" root
+  flip finally (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME") previous) $ do
+    cluster <- newCluster emptyServer =<< newAdversary []
+    store <- openTargetStore target
+    _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-growth" >>= either (fail . show) pure
+    let registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
+        registryOf declared = either (error . show) id (registryFor (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared]))
+        applyFactory _ bundle = pure (either (error . show) id (registryFor (either (error . show) id (kubernetesSpecsFromReview bundle))))
+        others =
+          [ (scope, [configMapOf scope ("unrelated-" <> T.pack (show k)) "value" "fixture/Other.hs"])
+          | k <- [1 .. unrelated]
+          , let scope = ok (Resource.mkScopeId Resource.Application ("unrelated-" <> T.pack (show k)))
+          ]
+        fixture label = marker label : [configMap n "value" | n <- [1 .. members]]
+    before <- loadTargetSnapshot target
+    let initial = fixture "first"
+        everything = initial <> concatMap snd others
+        first' = ok (composeInventory before (ReplaceScope (scopeOf initial) :| [ReplaceScope (scopeOwnedBy scope declared) | (scope, declared) <- others]))
+    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> pure (registryOf everything)) applyFactory target first'
+    case converged of
+      Converged _ -> pure ()
+      other -> assertFailure ("the growth fixture did not converge: " <> show other)
+    accepted <- loadTargetSnapshot target
+    let swept = fixture "second"
+        candidate = ok (composeInventory accepted (ReplaceScope (scopeOf swept) :| []))
+    (_, planned) <- collectCommandTrace (planInventoryCandidateWith (\_ _ -> pure (registryOf swept)) target candidate (root </> "sweep"))
+    plannedDocument <- documentOf planned
+    let sequenceNow = headSequence <$> (openTargetStore target >>= readHead >>= either (fail . show) (maybe (fail "no head") pure))
+    journalBefore <- sequenceNow
+    (_, applied) <- collectCommandTrace (applyInventoryWithFactory applyFactory target (root </> "sweep") True)
+    journalAfter <- sequenceNow
+    appliedDocument <- documentOf applied
+    pure
+      ( Growth
+          (operationTotal RecordPlanned "VerifyResource" plannedDocument)
+          (operationTotal RecordPlanned "ValidateResource" plannedDocument)
+          (operationTotal RecordExecuted "VerifyResource" appliedDocument)
+          (fromIntegral (journalAfter - journalBefore))
+          (fromMaybe 0 (lookup "get configmap" (countsIn CategoryKubernetesTransport plannedDocument)))
+      )
+
+-- | A marker sweep journals no per-member work, so its journal events do not
+-- grow from 205 to 2,050 members; its proofs and reads still do, until
+-- EP-226 groups the reads. Unrelated accepted scopes cost the sweep nothing.
+structuralGrowth :: Assertion
+structuralGrowth = do
+  small <- sweepGrowth 205 0
+  large <- sweepGrowth 2050 0
+  beside <- sweepGrowth 205 50
+  let Growth smallVerifies smallValidations smallExecuted smallPuts smallReads = small
+      Growth largeVerifies largeValidations largeExecuted largePuts largeReads = large
+  putStrLn ("growth: " <> show (small, large, beside))
+  (smallVerifies, largeVerifies, smallExecuted, largeExecuted) @?= (0, 0, 0, 0)
+  (smallValidations, largeValidations) @?= (205, 2050)
+  largePuts @?= smallPuts
+  -- Reads are still per member (two each): the bound EP-226 must lower.
+  (smallReads, largeReads) @?= (2 * 206, 2 * 2051)
+  beside @?= small
