@@ -4,7 +4,6 @@ slug: reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward
 title: "Reach En through the API server's service proxy instead of a port-forward"
 kind: exec-plan
 created_at: 2026-10-22T21:24:47Z
-master_plan: "docs/masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md"
 provenance:
   created_by:
     model: "claude-fable-5-1"
@@ -22,15 +21,20 @@ provenance:
       at: 2026-10-28T19:28:11Z
       mode: "update"
       note: "Migrate every context transport caller, retain owner/guard subprocesses and lazy no-access paths, and isolate proxy capability checks from direct clients."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T16:43:23Z
+      mode: "update"
+      note: "Detached from MasterPlan 29 as a standalone plan"
 ---
 
 # Reach En through the API server's service proxy instead of a port-forward
 
 This ExecPlan is a living document. Progress holds the deliverables with pass/fail evidence and
 the Decision Log holds dated decisions that change scope or design (operator decision,
-2026-10-10). It is a child of
+2026-10-10). It is a standalone plan, split out of
 [MasterPlan 29](../masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md)
-and is **Held** behind a trigger: an En release that accepts its API key in the `X-En-Api-Key`
+on 2026-10-29 when that MasterPlan closed, and is **Held** behind a trigger: an En release that accepts its API key in the `X-En-Api-Key`
 header (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`) is pinned by Nagare's auth plane
 and rolled onto the context. Until then EP-214's one-forward-per-command design is the En path.
 
@@ -117,6 +121,8 @@ discovery of each kind's resource path and is a separate change.
 execution fallback paths, before deleting the forward. The accepted subprocess target is zero
 port-forwards, not zero kubectl processes. Keep no-access commands lazy and direct bearer clients
 unchanged; proxy preflight also covers `access check`. The upstream/pin/roll trigger is unchanged.
+
+2026-10-29: Detached from MasterPlan 29 as a standalone held plan (operator); MasterPlan 29 closed without it.
 
 
 ## Outcomes & Retrospective
@@ -262,7 +268,6 @@ Commit message shape:
 ```text
 feat(access): reach en through the API server's service proxy with the kubeconfig identity
 
-MasterPlan: docs/masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md
 ExecPlan: docs/plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md
 ```
 

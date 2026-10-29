@@ -4,7 +4,6 @@ slug: let-one-access-review-carry-several-memberships-or-grants
 title: "Let one access review carry several memberships or grants"
 kind: exec-plan
 created_at: 2026-10-22T20:22:26Z
-master_plan: "docs/masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md"
 provenance:
   created_by:
     model: "claude-fable-5-1"
@@ -16,15 +15,21 @@ provenance:
       at: 2026-10-28T19:15:39Z
       verdict: "approved"
       note: "The optional multi-relationship review has a coherent scope, satisfied prerequisite, duplicate checks, and partial-failure/resume acceptance."
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T16:43:23Z
+      mode: "update"
+      note: "Detached from MasterPlan 29 as a standalone plan"
 ---
 
 # Let one access review carry several memberships or grants
 
 This ExecPlan is a living document. Progress holds the deliverables with pass/fail evidence and
 the Decision Log holds dated decisions that change scope or design (operator decision,
-2026-10-10). It is a child of
+2026-10-10). It is a standalone, optional plan, split out of
 [MasterPlan 29](../masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md)
-and is optional: the operator may cancel it without affecting the MasterPlan's gate.
+on 2026-10-29 when that MasterPlan closed; it never gated it.
 
 
 ## Purpose / Big Picture
@@ -74,6 +79,8 @@ retirement, observation and ADR 29's identity rules do not change; the review co
 
 2026-10-22: One host per `grant` and `revoke`. Repeating `--host` would make a review span sites
 and read less clearly; the per-host review is the unit the access runbook explains.
+
+2026-10-29: Detached from MasterPlan 29 as a standalone optional plan (operator); MasterPlan 29 closed without it.
 
 
 ## Outcomes & Retrospective
@@ -144,7 +151,6 @@ Commit message shape:
 ```text
 feat(access): plan several memberships or grants in one review
 
-MasterPlan: docs/masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md
 ExecPlan: docs/plans/215-let-one-access-review-carry-several-memberships-or-grants.md
 ```
 

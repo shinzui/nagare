@@ -220,13 +220,17 @@ only prior measurement of the store open on the intranet.
 | 212 | Open the inventory store once per command and load its history once | [EP-212](../plans/212-open-the-inventory-store-once-per-command-and-load-its-history-once.md) | None | None | Complete |
 | 213 | Read immutable inventory members concurrently in one round trip each | [EP-213](../plans/213-read-immutable-inventory-members-concurrently-in-one-round-trip-each.md) | None | EP-212 M1 counters for its intranet confirmation | Complete |
 | 214 | Reach the context's En through one forward and one guard per command | [EP-214](../plans/214-reach-the-context-s-en-through-one-forward-and-one-guard-per-command.md) | None | EP-212 M1 counters for its intranet confirmation | Complete |
-| 215 | Let one access review carry several memberships or grants | [EP-215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) | EP-212 | EP-214 | Not Started |
-| 216 | Reach En through the API server's service proxy instead of a port-forward | [EP-216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md) | EP-214; trigger: En accepts `X-En-Api-Key` (`mori://shinzui/en/okf/improvement-requests/concepts/IR-1`), pinned and rolled | None | Held |
 | 217 | Serve the committed journal from a verified local copy and fetch only its new tail | [EP-217](../plans/217-serve-the-committed-journal-from-a-verified-local-copy-and-fetch-only-its-new-tail.md) | EP-212, EP-213 | None | Complete |
 | 218 | Read inventory status native evidence concurrently | [EP-218](../plans/218-read-inventory-status-native-evidence-concurrently.md) | EP-213 | None | Complete |
 | 221 | Close the reviewed access latency gate with measured command costs | [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) | EP-212, EP-213, EP-214, EP-217, EP-218 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
+
+
+Detached 2026-10-29 (operator): EP-215 (optional, Not Started) and EP-216 (Held) are standalone
+plans now, [215](../plans/215-let-one-access-review-carry-several-memberships-or-grants.md) and
+[216](../plans/216-reach-en-through-the-api-server-s-service-proxy-instead-of-a-port-forward.md).
+Neither gated this MasterPlan.
 
 
 ## Dependency Graph
@@ -308,7 +312,7 @@ its transport lands. ADR 29's one-scope-per-relationship model stays unchanged.
 ## Progress
 
 Complete (2026-10-29): every required child is Complete, EP-221 at reduced scope (Decision Log);
-v0.11.1 runs on the intranet. EP-215 is optional and not started; EP-216 is held.
+v0.11.1 runs on the intranet. EP-215 and EP-216 are detached as standalone plans.
 
 Earlier snapshot: EP-212, EP-213, EP-214, EP-217 and EP-218 are Complete; EP-217 M4 (2026-10-28) fetches only
 the anchor and the exact missing suffix at every tail length. EP-221 is In Progress with M1 and M2
@@ -440,6 +444,10 @@ The original statement that the remaining fixed cost is unowned is superseded by
 now plans in about 3.4 s and applies in about 9.9 s (from 43.2 s and 67.2 s). Remaining costs
 moved out of this initiative: the occasional 15 s `gcloud projects describe` ownership stall and
 the journal catch-up after a gap (EP-224 or MasterPlan 30). EP-215 stays optional and EP-216 held.
+
+
+2026-10-29: Detach EP-215 (optional) and EP-216 (held) as standalone plans at the operator's
+request, so the closed MasterPlan holds only the children that gated it.
 
 
 ## Outcomes & Retrospective
