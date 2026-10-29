@@ -47,6 +47,7 @@ library
     Nagare.Harness.RouteCheck
     Nagare.Harness.Slot
     Nagare.Harness.Step
+    Nagare.Harness.TransitionCost
     Nagare.Harness.Verify
 
   build-depends:
@@ -91,6 +92,7 @@ test-suite nagare-harness-test
   other-modules:
     FlakeCheckSpec
     ReleaseTransitionSpec
+    TransitionCostSpec
 
   build-depends:
     aeson,

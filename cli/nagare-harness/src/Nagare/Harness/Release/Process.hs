@@ -25,6 +25,7 @@ module Nagare.Harness.Release.Process
   , realRuntime
   , realTransport
   , lookupVariable
+  , withVariable
   , stateDirectory
   , searchPath
   , lastLines
@@ -73,6 +74,14 @@ data Environment
   | Extended ![(String, String)]
   | Exactly ![(String, String)]
   deriving stock (Eq, Show, Generic)
+
+-- | The invocation with one more variable in its environment.
+withVariable :: String -> String -> Invocation -> Invocation
+withVariable key value command =
+  command & #environment %~ \case
+    Inherited -> Extended [(key, value)]
+    Extended variables -> Extended (filter ((/= key) . fst) variables <> [(key, value)])
+    Exactly variables -> Exactly (filter ((/= key) . fst) variables <> [(key, value)])
 
 -- | Where a stream goes. 'SameAsStdout' is for stderr only (@2>&1@); 'Tee'
 -- copies the stream to this process's stdout and writes it to a file, as tee does.

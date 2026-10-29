@@ -14,6 +14,7 @@ import Nagare.Harness.Release.Rehearse (RehearseOptions (..), transitionRehearse
 import Nagare.Harness.Release.TransitionDrill (transitionDrill)
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
 import Nagare.Harness.Step (stepSucceeded)
+import Nagare.Harness.TransitionCost (Verdict (..), checkRecord, collectTo, historyLines, writeFixtureNow)
 import Options.Applicative
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
@@ -37,6 +38,10 @@ data Command
   | TransitionPinTag !IntranetOptions
   | TransitionRehearse !RehearseOptions
   | TransitionDrillCommand
+  | CostFixture !FilePath
+  | CostCollect !FilePath !FilePath
+  | CostCheck !FilePath
+  | CostHistory !FilePath
   deriving stock (Eq, Show)
 
 commandParser :: Parser Command
@@ -48,6 +53,7 @@ commandParser =
         <> command "route-check" (info routeCheckParser (progDesc "Check a protected route over verified HTTPS: login, grant and revoke (EP-183 M1)"))
         <> command "release" (info releaseParser (progDesc "Prepare a release candidate up to the tag (EP-229)"))
         <> command "transition" (info transitionParser (progDesc "Move the intranet, pin its tag, or rehearse a release transition (EP-229)"))
+        <> command "transition-cost" (info costParser (progDesc "Collect, check and list the cost records of release runs (EP-224)"))
     )
 
 releaseParser :: Parser Command
@@ -161,6 +167,15 @@ smokeParser =
     <$> optional (strOption (long "manifest" <> metavar "PATH" <> help "Default: fixtures/inventory-release/local/fixture-smoke.json"))
     <*> switch (long "allow-shared-daemon" <> help "Run even when the Docker daemon hosts a k3d cluster")
 
+costParser :: Parser Command
+costParser =
+  hsubparser
+    ( command "fixture" (info (CostFixture <$> strOption (long "out" <> metavar "DIR" <> help "An empty or absent directory")) (progDesc "Write a synthetic run the collector can read; never native evidence"))
+        <> command "collect" (info (CostCollect <$> strOption (long "run" <> metavar "DIR" <> help "A run directory with its index") <*> strOption (long "out" <> metavar "FILE")) (progDesc "Write the cost record of a run from its index and command traces"))
+        <> command "check" (info (CostCheck <$> strOption (long "record" <> metavar "FILE")) (progDesc "Judge a cost record: passed, failed or incomplete; non-zero unless passed"))
+        <> command "history" (info (CostHistory <$> strOption (long "root" <> metavar "DIR" <> value "docs/release-evidence" <> showDefault)) (progDesc "List the cost records under a directory, by profile"))
+    )
+
 gateParser :: Parser Command
 gateParser =
   hsubparser
@@ -207,6 +222,17 @@ main = do
     TransitionPinTag options -> realRuntime >>= \runtime -> refusing "release-intranet" (transitionPinTag runtime options)
     TransitionRehearse options -> realRuntime >>= \runtime -> refusing "release-rehearse" (transitionRehearse runtime options)
     TransitionDrillCommand -> realRuntime >>= \runtime -> refusing "rehearsal" (transitionDrill runtime)
+    CostFixture out -> writeFixtureNow out >>= either (failWith "transition-cost fixture") (const (TIO.putStrLn ("transition-cost fixture: wrote " <> T.pack out)))
+    CostCollect run out -> do
+      record <- collectTo run out >>= either (failWith "transition-cost collect") pure
+      TIO.putStrLn ("transition-cost collect: " <> T.pack (show (length (record ^. #stages))) <> " stages, " <> T.pack (show (length (record ^. #missing))) <> " traces missing; " <> T.pack out)
+    CostCheck path -> do
+      checked <- checkRecord path
+      (verdict, budgets) <- either (failWith "transition-cost check") pure checked
+      forM_ budgets $ \entry -> TIO.putStrLn ("transition-cost check: " <> entry ^. #budget <> " " <> T.pack (show (entry ^. #observed)) <> " s of " <> T.pack (show (entry ^. #limit)) <> (if entry ^. #holds then "" else " EXCEEDED"))
+      TIO.putStrLn ("transition-cost check: " <> T.toLower (T.drop 7 (T.pack (show verdict))))
+      unless (verdict == VerdictPassed) exitFailure
+    CostHistory root -> historyLines root >>= either (failWith "transition-cost history") (mapM_ TIO.putStrLn)
     _ -> repositoryRoot >>= \root -> harnessMain root parsed
 
 harnessMain :: FilePath -> Command -> IO ()
@@ -281,8 +307,15 @@ harnessMain root parsed =
     TransitionPinTag _ -> pure ()
     TransitionRehearse _ -> pure ()
     TransitionDrillCommand -> pure ()
+    CostFixture _ -> pure ()
+    CostCollect _ _ -> pure ()
+    CostCheck _ -> pure ()
+    CostHistory _ -> pure ()
   where
     refuse message = TIO.hPutStrLn stderr message >> exitFailure
     report label problems = do
       mapM_ (TIO.putStrLn . ((label <> ": ") <>)) problems
       if null problems then TIO.putStrLn (label <> ": ok") else exitFailure
+
+failWith :: Text -> Text -> IO a
+failWith label reason = TIO.hPutStrLn stderr (label <> ": " <> reason) >> exitFailure

@@ -43,7 +43,7 @@ import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.Review
 import Nagare.Harness.Release.RunIndex
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
-import System.FilePath ((</>))
+import System.FilePath (dropExtension, (</>))
 import System.IO (IOMode (ReadMode), withBinaryFile)
 import System.Posix.Files (setFileCreationMask)
 
@@ -352,11 +352,14 @@ reviewedLoopWith drill loop afterApply = go 1 (LoopResult 0 0)
               planLog = review <> ".plan.log"
               applyLog = review <> ".apply.log"
               summaryFile = review <> ".summary.json"
+              planTrace = review <> ".plan.trace.json"
               typed = loop ^. #release == Target
+              -- EP-224: only the candidate writes a command trace.
+              tracing path = if typed then withVariable "NAGARE_TRACE_FILE" path else id
               stage = T.pack (loop ^. #label) <> "-" <> showText n
               index = drill ^. #index
           planned <-
-            run' drill . (\i -> i & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
+            run' drill . (\i -> tracing planTrace i & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
               =<< nagarectl drill (loop ^. #release) (["platform"] <> loop ^. #plan <> ["--out", review] <> (if typed then ["--summary", summaryFile] else []))
           unless (planned ^. #exit == 0) $ do
             logged <- readLenient planLog
@@ -370,7 +373,7 @@ reviewedLoopWith drill loop afterApply = go 1 (LoopResult 0 0)
           let operations' = operationCount (loop ^. #counting) counts
               done = isConverged (loop ^. #counting) counts
           plannedAt' <- drill ^. #runtime . #now
-          addStage index (StageEntry stage (T.pack (loop ^. #label)) n (relativeIn index review) (relativeIn index planLog) (if typed then Just (relativeIn index summaryFile) else Nothing) operations' (counts ^. #reaccepted) done plannedAt' [])
+          addStage index (StageEntry stage (T.pack (loop ^. #label)) n (relativeIn index review) (relativeIn index planLog) (if typed then Just (relativeIn index summaryFile) else Nothing) operations' (counts ^. #reaccepted) done plannedAt' [] (if typed then Just (relativeIn index planTrace) else Nothing))
           say' drill (T.pack (loop ^. #label) <> " stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts scopes: " <> showText (counts ^. #reaccepted))
           if done
             then pure acc
@@ -388,9 +391,11 @@ reviewedLoopWith drill loop afterApply = go 1 (LoopResult 0 0)
 -- | Index one apply or resume of a stage.
 indexAttempt :: Drill -> Text -> Text -> Maybe Text -> Text -> FilePath -> Maybe FilePath -> UTCTime -> IO ()
 indexAttempt drill stage action' transaction' outcome' logFile' document' started = do
+  -- A typed attempt's trace sits beside its outcome document.
+  let trace' = (\document -> dropExtension document <> ".trace.json") <$> document'
   finished' <- drill ^. #runtime . #now
   let index = drill ^. #index
-  addAttempt index stage (Attempt (stage <> "/" <> action') action' transaction' outcome' (relativeIn index logFile') (relativeIn index <$> document') started finished')
+  addAttempt index stage (Attempt (stage <> "/" <> action') action' transaction' outcome' (relativeIn index logFile') (relativeIn index <$> document') started finished' (relativeIn index <$> trace'))
 
 -- | The candidate's apply under @--contract 1@: an ambiguous stop (an effect
 -- the provider did not acknowledge in time) is resumed, as the operator
@@ -399,7 +404,7 @@ applyTyped :: Drill -> Text -> Loop -> FilePath -> FilePath -> IO Bool
 applyTyped drill stage loop review applyLog = do
   started <- drill ^. #runtime . #now
   let document' = review <> ".apply.json"
-  _ <- run' drill . (\i -> i & #stdoutTo .~ WriteTo document' & #stderrTo .~ WriteTo applyLog) =<< nagarectl drill (loop ^. #release) (loop ^. #apply <> [review, "--yes", "--contract", "1"])
+  _ <- run' drill . (\i -> withVariable "NAGARE_TRACE_FILE" (dropExtension document' <> ".trace.json") i & #stdoutTo .~ WriteTo document' & #stderrTo .~ WriteTo applyLog) =<< nagarectl drill (loop ^. #release) (loop ^. #apply <> [review, "--yes", "--contract", "1"])
   (outcome', transaction', name') <- readApplyOutcome document'
   indexAttempt drill stage "apply" transaction' name' applyLog (Just document') started
   case outcome' of
@@ -414,7 +419,7 @@ applyTyped drill stage loop review applyLog = do
           say' drill ("resume " <> T.pack (show n) <> " of " <> transaction)
           started <- drill ^. #runtime . #now
           let document' = review <> ".resume-" <> show n <> ".json"
-          _ <- run' drill . (\i -> i & #stdoutTo .~ WriteTo document' & #stderrTo .~ AppendTo applyLog) =<< nagarectl drill (loop ^. #release) ["inventory", "resume", T.unpack transaction, "--yes", "--contract", "1"]
+          _ <- run' drill . (\i -> withVariable "NAGARE_TRACE_FILE" (dropExtension document' <> ".trace.json") i & #stdoutTo .~ WriteTo document' & #stderrTo .~ AppendTo applyLog) =<< nagarectl drill (loop ^. #release) ["inventory", "resume", T.unpack transaction, "--yes", "--contract", "1"]
           (outcome', transaction', name') <- readApplyOutcome document'
           indexAttempt drill stage ("resume-" <> showText n) transaction' name' applyLog (Just document') started
           case outcome' of

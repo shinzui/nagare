@@ -426,9 +426,11 @@ intranetTests =
           transitionRun runtime (intranetOptions o)
           calls' <- recorded world
           rendered (o ^. #root) calls' @?= intranetOrder
-          -- nagarectl gets the empty environment, never the caller's context
-          forM_ [call | call <- calls', call ^. #program == "direnv"] $ \call ->
-            call ^. #names @?= ["HOME", "TMPDIR", "PATH", "TERM", "USER"]
+          -- nagarectl gets the empty environment, never the caller's context;
+          -- a plan, apply or resume also gets its trace file (EP-224).
+          forM_ [call | call <- calls', call ^. #program == "direnv"] $ \call -> do
+            let staged = any (`elem` call ^. #arguments) ["plan", "apply", "resume"]
+            call ^. #names @?= ["HOME", "TMPDIR", "PATH", "TERM", "USER"] <> ["NAGARE_TRACE_FILE" | staged]
           record <- eitherDecodeFileStrict @Value (o ^. #run </> "intranet.json") >>= either fail pure
           let field = fieldAt record
           field ["version"] @?= Just (Aeson.String version')

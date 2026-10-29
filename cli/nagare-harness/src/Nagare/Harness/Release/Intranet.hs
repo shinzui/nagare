@@ -46,7 +46,7 @@ import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.Review
 import Nagare.Harness.Release.RunIndex
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, removePathForcibly)
-import System.FilePath ((</>))
+import System.FilePath (dropExtension, (</>))
 
 data IntranetOptions = IntranetOptions
   { version :: !Text
@@ -133,6 +133,10 @@ git operator' arguments' = invocation "git" (["-C", operator'] <> arguments')
 
 -- | @direnv exec OPERATOR nagarectl --context CONTEXT …@ from the empty
 -- environment.
+-- | EP-224: ask nagarectl for its command trace at @.
+traced :: FilePath -> Invocation -> Invocation
+traced = withVariable "NAGARE_TRACE_FILE"
+
 nagarectl :: Setup -> [String] -> Invocation
 nagarectl s arguments' = inShell s (["nagarectl", "--context", T.unpack (s ^. #context)] <> arguments')
 
@@ -268,8 +272,9 @@ converge runtime s index reviews n
           summaryFile = review <> ".summary.json"
           applyLog = review <> ".apply.log"
           stage = "intranet-" <> showText n
+          planTrace = review <> ".plan.trace.json"
       removePathForcibly review
-      planned <- succeeds runtime (nagarectl s ["platform", "transition", "plan", "--out", review, "--summary", summaryFile] & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
+      planned <- succeeds runtime (traced planTrace (nagarectl s ["platform", "transition", "plan", "--out", review, "--summary", summaryFile]) & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
       unless planned $ do
         logged <- readLenient planLog
         refuse ("plan " <> showText n <> " refused: " <> lastLines 5 logged)
@@ -278,7 +283,7 @@ converge runtime s index reviews n
           moves = counts ^. #reaccepted
           done = isConverged AllOperations counts
       plannedAt' <- runtime ^. #now
-      addStage index (StageEntry stage "intranet" n (relativeIn index review) (relativeIn index planLog) (Just (relativeIn index summaryFile)) operations' moves done plannedAt' [])
+      addStage index (StageEntry stage "intranet" n (relativeIn index review) (relativeIn index planLog) (Just (relativeIn index summaryFile)) operations' moves done plannedAt' [] (Just (relativeIn index planTrace)))
       step runtime ("stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts " <> showText moves <> " scopes")
       unless done $ do
         applied <- attempt runtime index stage "apply" (nagarectl s ["inventory", "apply", review, "--yes", "--contract", "1"]) (review <> ".apply.json") (WriteTo applyLog)
@@ -300,14 +305,15 @@ converge runtime s index reviews n
 attempt :: Runtime -> IndexWriter -> Text -> Text -> Invocation -> FilePath -> Sink -> IO ApplyOutcome
 attempt runtime index stage action' command document' logSink = do
   started <- runtime ^. #now
-  _ <- invoke runtime (command & #stdoutTo .~ WriteTo document' & #stderrTo .~ logSink)
+  let trace' = dropExtension document' <> ".trace.json"
+  _ <- invoke runtime (traced trace' command & #stdoutTo .~ WriteTo document' & #stderrTo .~ logSink)
   (outcome', transaction', name') <- readApplyOutcome document'
   finished' <- runtime ^. #now
   let logFile' = case logSink of
         WriteTo path -> path
         AppendTo path -> path
         _ -> document'
-  addAttempt index stage (Attempt (stage <> "/" <> action') action' transaction' name' (relativeIn index logFile') (Just (relativeIn index document')) started finished')
+  addAttempt index stage (Attempt (stage <> "/" <> action') action' transaction' name' (relativeIn index logFile') (Just (relativeIn index document')) started finished' (Just (relativeIn index trace')))
   pure outcome'
 
 describeOutcome :: ApplyOutcome -> Text

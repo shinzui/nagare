@@ -88,6 +88,8 @@ data Attempt = Attempt
   , document :: !(Maybe FilePath)
   , startedAt :: !UTCTime
   , finishedAt :: !UTCTime
+  , trace :: !(Maybe FilePath)
+  -- ^ EP-224: the command trace nagarectl wrote for this attempt.
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -106,6 +108,8 @@ data StageEntry = StageEntry
   , converged :: !Bool
   , plannedAt :: !UTCTime
   , attempts :: ![Attempt]
+  , trace :: !(Maybe FilePath)
+  -- ^ EP-224: the command trace of the stage's plan.
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)

@@ -31,6 +31,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import System.Process (callProcess, readProcess)
 import Test.Tasty
 import Test.Tasty.HUnit
+import TransitionCostSpec (transitionCostTests)
 
 main :: IO ()
 main = defaultMain tests
@@ -41,6 +42,7 @@ tests =
     "nagare-harness"
     [ flakeCheckTests
     , releaseTransitionTests
+    , transitionCostTests
     , testGroup
         "steps"
         [ testCase "stops at the first failure and keeps its exit code" $
