@@ -34,6 +34,7 @@ import Data.Time (defaultTimeLocale, formatTime)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
+import Nagare.Harness.Release.RunIndex
 import System.Directory (copyFile, createDirectoryIfMissing, createDirectoryLink, doesFileExist, removePathForcibly)
 import System.FilePath (takeDirectory, (</>))
 
@@ -106,36 +107,48 @@ releaseCandidate outer options = do
       evidence = run </> "evidence"
       revision' = T.unpack rev
   createDirectoryIfMissing True run
+  index <-
+    openIndex runtime (run </> "index.json") $
+      newRunIndex "candidate" "release" started
+        & #candidate
+        .~ Revisioned (Just version') (Just rev)
+        & #source
+        .~ Revisioned (Just previous) Nothing
+  let phase name' message = advance index name' Nothing >> step runtime message
   gateRef <- newIORef Nothing
   let cleanup = do
         readIORef gateRef >>= mapM_ (^. #stop)
         forM_ [worktree, evidence] $ \tree ->
           invoke runtime (git ["-C", repo, "worktree", "remove", "--force", tree] & #stdoutTo .~ Discard & #stderrTo .~ Discard)
-  flip finally cleanup $ do
-    step runtime ("v" <> version' <> " at " <> rev <> " from v" <> previous <> "; run directory " <> T.pack run)
+  flip finally cleanup . withRunIndex index $ do
+    phase "worktree" ("v" <> version' <> " at " <> rev <> " from v" <> previous <> "; run directory " <> T.pack run)
     require runtime "git worktree add failed" ((git ["worktree", "add", "-q", "--detach", worktree, revision']))
     let inWorktree command = command & #directory ?~ worktree
     -- 1. the release gate, in parallel with steps 2-5; its result is
     -- required before anything lands
     step runtime ("release gate (in the background, log " <> T.pack (run </> "gate-release.log") <> ")")
+    beginStep index "gate" (Just (run </> "gate-release.log")) True
     gate <- (runtime ^. #transport . #spawn) (inWorktree (invocation "just" ["gate-release", revision']) & #stdoutTo .~ WriteTo (run </> "gate-release.log") & #stderrTo .~ SameAsStdout)
     writeIORef gateRef (Just gate)
     -- 2. the transition rehearsal
-    step runtime ("transition rehearsal from v" <> previous)
+    phase "rehearsal" ("transition rehearsal from v" <> previous)
+    rehearsalWork <- T.unpack <$> captureText runtime "mktemp failed" (invocation "mktemp" ["-d", "/private/tmp/nagare-release-rehearse.XXXXXX"])
+    setChild index "rehearsal" (rehearsalWork </> "index.json")
     require runtime "the transition rehearsal failed" $
-      inWorktree (invocation "scripts/release-rehearse.sh" [revision', T.unpack previous])
+      inWorktree (invocation "scripts/release-rehearse.sh" [revision', T.unpack previous, "--run", rehearsalWork])
         & #environment
         .~ Extended [("NAGARE_RELEASE_REHEARSAL_RECORD", run </> "transition-rehearsal.json")]
     rehearsed <- doesFileExist (run </> "transition-rehearsal.json")
     unless rehearsed (refuse ("release-rehearse left no " <> T.pack (run </> "transition-rehearsal.json")))
+    setRecord index "transitionRehearsal" (run </> "transition-rehearsal.json")
     let record = "docs/release-evidence/" <> revision' <> "/transition-rehearsal.json"
     -- 3. aarch64-darwin attachments, from the candidate's worktree
-    step runtime "aarch64-darwin attachments"
+    phase "aarch64-darwin" "aarch64-darwin attachments"
     require runtime "the aarch64-darwin attachments failed" (inWorktree (invocation "scripts/release-native.sh" [T.unpack version', run </> "native/aarch64-darwin"]))
     -- 4. x86_64-linux attachments, in an amd64 Apple container under Rosetta.
     -- The work root is the container's only mount and persists across
     -- releases, so the file cache of builder outputs is reused.
-    step runtime "x86_64-linux outputs on the builder"
+    phase "x86_64-linux-outputs" "x86_64-linux outputs on the builder"
     let work = state </> "x86-work"
         flake = "git+file://" <> repo <> "?rev=" <> revision'
     createDirectoryIfMissing True (work </> "cache")
@@ -146,7 +159,7 @@ releaseCandidate outer options = do
     removePathForcibly (work </> "candidate.bundle")
     require runtime "git bundle failed" (git ["-C", worktree, "bundle", "create", "-q", work </> "candidate.bundle", "HEAD"])
     copyFile (worktree </> "scripts/release-native-container.sh") (work </> "release-native-container.sh")
-    step runtime "x86_64-linux attachments"
+    phase "x86_64-linux" "x86_64-linux attachments"
     running <- succeeds runtime (invocation "container" ["system", "status"] & #stdoutTo .~ Discard & #stderrTo .~ Discard)
     unless running (require runtime "container system start failed" (invocation "container" ["system", "start"]))
     -- Apple container starts processes with HOME=/, so nix profile would
@@ -156,15 +169,18 @@ releaseCandidate outer options = do
     createDirectoryIfMissing True (run </> "native")
     require runtime "copying the x86_64-linux attachments failed" (invocation "cp" ["-R", work </> "out/x86_64-linux", run </> "native/x86_64-linux"])
     -- 5. assemble twice and compare
-    step runtime "assembly"
+    phase "assembly" "assembly"
     forM_ ["dist", "dist-again"] $ \dist ->
       require runtime ("assembly into " <> T.pack (run </> dist) <> " failed") $
         invocation (worktree </> "scripts/assemble-release.sh") ["--version", T.unpack version', "--input-root", run </> "native", "--transition-rehearsal", run </> "transition-rehearsal.json", "--output-dir", run </> dist]
     require runtime ("the two assemblies differ: " <> T.pack (run </> "dist") <> " " <> T.pack (run </> "dist-again")) (invocation "diff" ["-r", run </> "dist", run </> "dist-again"] & #stdoutTo .~ Discard)
     require runtime ("SHA256SUMS does not verify in " <> T.pack (run </> "dist")) (invocation "shasum" ["-a", "256", "-c", "SHA256SUMS"] & #directory ?~ run </> "dist" & #stdoutTo .~ Discard)
     writeSorted True (run </> "candidate.json") (toJSON (CandidateRecord {previous = previous, revision = rev, version = version'}))
-    step runtime "waiting for the release gate"
+    setRecord index "candidate" (run </> "candidate.json")
+    setRecord index "dist" (run </> "dist")
+    phase "gate-wait" "waiting for the release gate"
     gateExit <- gate ^. #finished
+    endStep index "gate" (gateExit == 0)
     unless (gateExit == 0) (refuse ("the release gate failed: " <> T.pack (run </> "gate-release.log")))
     gateLog <- TE.decodeUtf8With TE.lenientDecode <$> BS.readFile (run </> "gate-release.log")
     (runtime ^. #say) (lastLines 1 gateLog)
@@ -172,12 +188,13 @@ releaseCandidate outer options = do
       then step runtime ("rehearsal complete; nothing landed and the intranet is untouched. Attachments in " <> T.pack (run </> "dist") <> ", the rehearsal record in " <> T.pack run)
       else do
         -- 6. the intranet on the candidate; release-publish requires its record
-        step runtime "the intranet"
+        phase "intranet" "the intranet"
+        setChild index "intranet" (run </> "intranet-index.json")
         require runtime "the intranet move failed" (invocation (worktree </> "scripts/release-intranet.sh") [T.unpack version', "--run", run])
         -- 7. land the rehearsal record on origin/master (never part of the
         -- candidate itself). Fetch again: the operator may have landed during
         -- the run, and the record must go on top.
-        step runtime "rehearsal record"
+        phase "record" "rehearsal record"
         require runtime "git fetch failed" ((git ["fetch", "-q", "origin", "master"]))
         held <- succeeds runtime ((git ["cat-file", "-e", "origin/master:" <> record]) & #stderrTo .~ Discard)
         if held

@@ -42,6 +42,7 @@ library
     Nagare.Harness.Release.Records
     Nagare.Harness.Release.Rehearse
     Nagare.Harness.Release.Review
+    Nagare.Harness.Release.RunIndex
     Nagare.Harness.Release.TransitionDrill
     Nagare.Harness.RouteCheck
     Nagare.Harness.Slot
@@ -60,6 +61,7 @@ library
     filepath,
     generic-lens ^>=2.3,
     lens ^>=5.3,
+    nagare-contract,
     process,
     random >=1.2,
     text,
@@ -100,6 +102,7 @@ test-suite nagare-harness-test
     filepath,
     generic-lens ^>=2.3,
     lens ^>=5.3,
+    nagare-contract,
     nagare-harness,
     process,
     tasty >=1.4,

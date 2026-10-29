@@ -10,17 +10,26 @@ module Nagare.Harness.Release.Review
   , reviewCounts
   , operationCount
   , isConverged
+  , summaryCounts
+  , readPlanSummary
+  , ApplyOutcome (..)
+  , applyOutcome
+  , readApplyOutcome
   , ambiguousTransaction
   , stoppedAmbiguousAt
   )
 where
 
-import Data.Aeson (Value (..), eitherDecodeFileStrict, withObject, (.:), (.:?))
+import Data.Aeson (Value (..), eitherDecodeFileStrict, toJSON, withObject, (.:), (.:?))
 import Data.Aeson.Types (Parser, parseEither)
 import Data.Char (isDigit)
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
+import Nagare.Contract.Release (TransitionPlanSummary)
+import Nagare.Contract.Schema (fromNullable)
+import Nagare.Contract.V1 (Outcome (..), TransactionOutcome (..))
 import Nagare.Harness.Prelude
 
 -- | The action tag of every operation, in review order, and the number of
@@ -73,6 +82,56 @@ operationCount counting counts = length (filter counted (counts ^. #actions))
 
 isConverged :: Counting -> ReviewCounts -> Bool
 isConverged counting counts = operationCount counting counts == 0 && counts ^. #reaccepted == 0
+
+-- | The counts of a @platform transition plan --summary@ document, which
+-- nagarectl computes from its own review types.
+summaryCounts :: TransitionPlanSummary -> ReviewCounts
+summaryCounts summary =
+  ReviewCounts
+    { actions = concat [replicate count tag | (tag, count) <- Map.toAscList (summary ^. #operations)]
+    , reaccepted = length (summary ^. #reaccepted)
+    }
+
+readPlanSummary :: FilePath -> IO (Either Text TransitionPlanSummary)
+readPlanSummary path = first (\reason -> T.pack (path <> ": " <> reason)) <$> eitherDecodeFileStrict path
+
+-- | How an @inventory apply@ or @inventory resume@ under @--contract 1@ ended,
+-- as the release runner acts on it.
+data ApplyOutcome
+  = AppliedConverged
+  | AppliedAmbiguous !Text
+  | AppliedStopped !Text
+  deriving stock (Eq, Show, Generic)
+
+applyOutcome :: TransactionOutcome -> ApplyOutcome
+applyOutcome document = case (document ^. #outcome, fromNullable (document ^. #transaction)) of
+  (OutcomeConverged, _) -> AppliedConverged
+  (OutcomeAmbiguous, Just transaction) -> AppliedAmbiguous transaction
+  (other, transaction) ->
+    AppliedStopped
+      ( T.unwords
+          ( [outcomeText other]
+              <> maybe [] pure transaction
+              <> maybe [] (\operation -> ["at", operation]) (fromNullable (document ^. #operation))
+              <> maybe [] (\reason -> ["(" <> reason <> ")"]) (fromNullable (document ^. #detail))
+              <> maybe [] (\problem -> ["(" <> problem ^. #detail <> ")"]) (fromNullable (document ^. #problem))
+          )
+      )
+
+-- | The outcome document an apply or resume printed on stdout, with its
+-- transaction and outcome name; a missing or unreadable one is a stop with
+-- its reason.
+readApplyOutcome :: FilePath -> IO (ApplyOutcome, Maybe Text, Text)
+readApplyOutcome path = do
+  decoded <- eitherDecodeFileStrict path
+  pure $ case decoded of
+    Left reason -> (AppliedStopped (T.pack ("no outcome document in " <> path <> ": " <> reason)), Nothing, "unreadable")
+    Right document -> (applyOutcome document, fromNullable (document ^. #transaction), outcomeText (document ^. #outcome))
+
+outcomeText :: Outcome -> Text
+outcomeText outcome = case toJSON outcome of
+  String text -> text
+  _ -> T.pack (show outcome)
 
 -- | The transaction of the last @ambiguous tx-… at …@ line, the stop
 -- 'StoppedAmbiguous' renders in @inventory apply@'s human output.

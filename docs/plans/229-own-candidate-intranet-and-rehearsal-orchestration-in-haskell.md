@@ -39,10 +39,17 @@ the ported runner with a preparation manifest, progress and cost records.
 ## Progress
 
 
-- [ ] M1: `nagare-harness release candidate`, `transition run`, `transition pin-tag` and
+- [x] M1: `nagare-harness release candidate`, `transition run`, `transition pin-tag` and
   `transition rehearse` reproduce the four scripts' behavior, proven by fixtures of recorded
   command order, and the scripts are argument-preserving `exec` wrappers; `just release-rehearse`
   on the disposable context writes the same transition-rehearsal record as before.
+  Evidence (commit 4a3bb3e6): `ReleaseTransitionSpec` (28 cases, `-p ReleaseTransition`) passes,
+  with the scripts' invocation orders for all four commands, the converged rule on the sanitized
+  v0.11.1 intranet reviews (2, 211 and 0 operations; 1, 6 and 0 re-accepts), the twelve-stage
+  bound, one resume of an ambiguous apply, `--rehearsal` landing nothing, pin-tag without a
+  rollout and the eight intranet refusals; `just gate-fast 4a3bb3e6` green. `just
+  release-rehearse ef5a537c 0.11.0` (the v0.11.1 move, through the ported drill on nagare-mp23)
+  wrote a record byte-identical to the v0.11.1 release's apart from the sentinel timestamp.
 - [ ] M2: Every decision the scripts took from text (the ambiguous transaction ID, operation and
   re-acceptance counts, version and revision checks) is read from a typed outcome document
   through a version-one run index; no `jq`, `sed` or Python JSON decision remains on these paths.
@@ -87,6 +94,25 @@ the ported runner with a preparation manifest, progress and cost records.
   points at their Haskell modules (a data-only edit of the frozen audit). The intranet cases of
   `scripts/test-release-intranet.sh` moved to `ReleaseTransitionSpec`; the script keeps only
   release-publish's intranet precondition, which this plan does not port.
+- 2026-10-29 (M2): The apply outcome needs no nagarectl change: `inventory apply` and `inventory
+  resume` already print a `transaction-outcome` document under `--contract 1` (EP-192) with the
+  transaction, operation and `StoppedAmbiguous` reason. The one nagarectl addition is
+  `platform transition plan --summary FILE`, which writes a `TransitionPlanSummary`
+  (`cli/nagare-contract/src/Nagare/Contract/Release.hs`, outside the public `--contract 1`
+  documents and the OpenAPI schema; the review directory itself must hold only its three
+  members). The harness decodes it, `TransactionOutcome` and `VersionInfo` from
+  `nagare-contract`.
+- 2026-10-29 (M2): A published source release cannot gain new output. The drill's bootstrap
+  loop on the source therefore decodes the source's `review.json` in the harness and reads its
+  `platform bootstrap apply` stop from the human `ambiguous TX at OP` line, in Haskell; the
+  candidate's bootstrap replan decodes its `review.json` the same way. Every candidate-side
+  decision reads a nagarectl document.
+- 2026-10-29 (M2): The run index is one file per command run, rewritten after every step,
+  stage and attempt: `<run>/index.json` (candidate), `<run>/intranet-index.json` (intranet),
+  `<work>/index.json` (rehearsal) and `<work>/run/index.json` (drill). The candidate passes the
+  rehearsal a fresh `/private/tmp/nagare-release-rehearse.XXXXXX` work directory with `--run`,
+  so it can name the rehearsal's index as a child; the drill root stays under `/private/tmp`.
+  `transition pin-tag` writes none: it has no stage.
 
 
 ## Outcomes & Retrospective

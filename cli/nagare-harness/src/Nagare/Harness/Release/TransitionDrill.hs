@@ -36,11 +36,12 @@ import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
-import Data.Time (defaultTimeLocale, formatTime)
+import Data.Time (UTCTime, defaultTimeLocale, formatTime)
 import Nagare.Harness.Prelude hiding ((.=))
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.Review
+import Nagare.Harness.Release.RunIndex
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import System.FilePath ((</>))
 import System.IO (IOMode (ReadMode), withBinaryFile)
@@ -53,6 +54,7 @@ data Drill = Drill
   , source :: !FilePath
   , target :: !FilePath
   , environment :: !(IORef [(String, String)])
+  , index :: !IndexWriter
   }
   deriving stock (Generic)
 
@@ -173,8 +175,19 @@ transitionDrill runtime' = do
   let context' = fromMaybe "transition" (optional' "NAGARE_REHEARSAL_CONTEXT")
       sentinel = "transition " <> T.pack (formatTime defaultTimeLocale "%Y%m%dT%H%M%SZ" started)
   environment' <- newIORef (drillEnvironment root' (runtime' ^. #variables))
-  let drill = Drill {runtime = runtime', root = root', context = context', source = sourceCli, target = targetCli, environment = environment'}
   forM_ ["config", "state", "cache", "reviews", "evidence", "sops/age"] (createDirectoryIfMissing True . (root' </>))
+  index' <- openIndex runtime' (root' </> "index.json") (newRunIndex "drill" "local-rehearsal" started & #context ?~ T.pack context')
+  let drill = Drill {runtime = runtime', root = root', context = context', source = sourceCli, target = targetCli, environment = environment', index = index'}
+  withRunIndex index' (runDrill drill dockerHost sentinel)
+
+runDrill :: Drill -> String -> Text -> IO ()
+runDrill drill dockerHost sentinel = do
+  let runtime' = drill ^. #runtime
+      root' = drill ^. #root
+      context' = drill ^. #context
+      sourceCli = drill ^. #source
+      targetCli = drill ^. #target
+      optional' = lookupVariable runtime'
   ok drill "chmod failed" =<< command drill "chmod" ["700", root', root' </> "sops", root' </> "sops/age"]
   let forwardPort = fromMaybe "15213" (optional' "NAGARE_REHEARSAL_FORWARD_PORT")
       keyFile = root' </> "sops/age/keys.txt"
@@ -253,6 +266,11 @@ transitionDrill runtime' = do
         , "replan" .= object ["operations" .= (0 :: Int), "reaccepts" .= (0 :: Int)]
         ]
     )
+  let revisioned raw = case decodeDocument @ReleaseIdentity "version --json" raw of
+        Right found -> Revisioned (found ^. #version) (found ^. #revision)
+        Left _ -> Revisioned Nothing Nothing
+  updateIndex (drill ^. #index) ((#candidate .~ revisioned targetIdentity) . (#source .~ revisioned sourceIdentity))
+  setRecord (drill ^. #index) "transitionRehearsal" (root' </> "evidence/transition-rehearsal.json")
   say' drill ("transition rehearsal OK: record in " <> T.pack (root' </> "evidence/transition-rehearsal.json"))
 
 -- | Steps 0 to 4: an empty disposable daemon, the context's secrets, the
@@ -297,11 +315,9 @@ bootstrap drill dockerHost keyFile forwardPort = do
       ["context", "create", drill ^. #context, "--mode", "local", "--registry-host", "k3d-registry.localhost:5000", "--base-domain", "127-0-0-1.sslip.io", "--target-platform", "linux/arm64", "--local-object-store", "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups", "--use"]
   rootDocument <- capture runtime' "platform root failed" =<< nagarectl drill Source ["platform", "root", "--json"]
   let payloadVersion = either (const Nothing) (^. #platformVersion) (decodeDocument @PlatformRoot "platform root --json" rootDocument)
-  ownVersion <- text drill "the source nagarectl has no version" =<< command drill (drill ^. #source) ["version"]
-  let own = case mapMaybe (\line -> T.takeWhile (\c -> isDigit c || c == '.') <$> T.stripPrefix "nagarectl " line) (T.lines ownVersion) of
-        found : _ -> found
-        [] -> ""
-  unless (payloadVersion == Just own) (refuse ("the source nagarectl resolved payload " <> fromMaybe "None" payloadVersion <> ", not its own release"))
+  ownVersion <- capture runtime' "the source nagarectl has no version" =<< command drill (drill ^. #source) ["version", "--json"]
+  let own = either (const Nothing) (^. #version) (decodeDocument @ReleaseIdentity "version --json" ownVersion)
+  unless (isJust payloadVersion && payloadVersion == own) (refuse ("the source nagarectl resolved payload " <> fromMaybe "None" payloadVersion <> ", not its own release"))
   say' drill ("source payload " <> fromMaybe "None" payloadVersion)
   result <- reviewedLoopWith drill (Loop "bootstrap" Source ["bootstrap", "plan"] ["platform", "bootstrap", "apply"] MutatingOperations) (seedOnce drill forwardPort)
   ok drill "inventory status failed" . (\i -> i & #stdoutTo .~ WriteTo (root' </> "evidence/before-status.json")) =<< nagarectl drill Source ["inventory", "status", "--json"]
@@ -335,46 +351,100 @@ reviewedLoopWith drill loop afterApply = go 1 (LoopResult 0 0)
           let review = drill ^. #root </> "reviews" </> (loop ^. #label <> "-" <> show n)
               planLog = review <> ".plan.log"
               applyLog = review <> ".apply.log"
-          planned <- run' drill . (\i -> i & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout) =<< nagarectl drill (loop ^. #release) (["platform"] <> loop ^. #plan <> ["--out", review])
+              summaryFile = review <> ".summary.json"
+              typed = loop ^. #release == Target
+              stage = T.pack (loop ^. #label) <> "-" <> showText n
+              index = drill ^. #index
+          planned <-
+            run' drill . (\i -> i & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
+              =<< nagarectl drill (loop ^. #release) (["platform"] <> loop ^. #plan <> ["--out", review] <> (if typed then ["--summary", summaryFile] else []))
           unless (planned ^. #exit == 0) $ do
             logged <- readLenient planLog
             refuse (T.pack (loop ^. #label) <> " plan " <> showText n <> " refused: " <> lastLines 2 logged)
-          counts <- readReviewCounts review >>= either refuse pure
+          -- The candidate summarises its own review; a published source
+          -- release cannot, so its review is decoded here.
+          counts <-
+            if typed
+              then summaryCounts <$> (readPlanSummary summaryFile >>= either refuse pure)
+              else readReviewCounts review >>= either refuse pure
           let operations' = operationCount (loop ^. #counting) counts
+              done = isConverged (loop ^. #counting) counts
+          plannedAt' <- drill ^. #runtime . #now
+          addStage index (StageEntry stage (T.pack (loop ^. #label)) n (relativeIn index review) (relativeIn index planLog) (if typed then Just (relativeIn index summaryFile) else Nothing) operations' (counts ^. #reaccepted) done plannedAt' [])
           say' drill (T.pack (loop ^. #label) <> " stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts scopes: " <> showText (counts ^. #reaccepted))
-          if isConverged (loop ^. #counting) counts
+          if done
             then pure acc
             else do
-              applied <- run' drill . (\i -> i & #stdoutTo .~ WriteTo applyLog & #stderrTo .~ SameAsStdout) =<< nagarectl drill (loop ^. #release) (loop ^. #apply <> [review, "--yes"])
-              unless (applied ^. #exit == 0) $ do
-                resumed <- resumeAmbiguous drill (loop ^. #release) applyLog
-                unless resumed $ do
-                  logged <- readLenient applyLog
-                  refuse (T.pack (loop ^. #label) <> " apply " <> showText n <> " failed: " <> lastLines 3 logged)
+              applied <-
+                if typed
+                  then applyTyped drill stage loop review applyLog
+                  else applyText drill stage loop review applyLog
+              unless applied $ do
+                logged <- readLenient applyLog
+                refuse (T.pack (loop ^. #label) <> " apply " <> showText n <> " failed: " <> lastLines 3 logged)
               when (loop ^. #label == "bootstrap") afterApply
               go (n + 1) (LoopResult (acc ^. #reviews + 1) (acc ^. #operations + operations'))
 
--- | An apply that stops ambiguous (an effect the provider did not
--- acknowledge in time) is resumed, as the operator would, until it
--- converges; anything else is a stop.
-resumeAmbiguous :: Drill -> Release -> FilePath -> IO Bool
-resumeAmbiguous drill which applyLog = do
-  logged <- readLenient applyLog
-  case ambiguousTransaction (lastLines 2 logged) of
-    Nothing -> pure False
-    Just transaction -> go transaction (1 :: Int)
+-- | Index one apply or resume of a stage.
+indexAttempt :: Drill -> Text -> Text -> Maybe Text -> Text -> FilePath -> Maybe FilePath -> UTCTime -> IO ()
+indexAttempt drill stage action' transaction' outcome' logFile' document' started = do
+  finished' <- drill ^. #runtime . #now
+  let index = drill ^. #index
+  addAttempt index stage (Attempt (stage <> "/" <> action') action' transaction' outcome' (relativeIn index logFile') (relativeIn index <$> document') started finished')
+
+-- | The candidate's apply under @--contract 1@: an ambiguous stop (an effect
+-- the provider did not acknowledge in time) is resumed, as the operator
+-- would, until it converges; anything else is a stop.
+applyTyped :: Drill -> Text -> Loop -> FilePath -> FilePath -> IO Bool
+applyTyped drill stage loop review applyLog = do
+  started <- drill ^. #runtime . #now
+  let document' = review <> ".apply.json"
+  _ <- run' drill . (\i -> i & #stdoutTo .~ WriteTo document' & #stderrTo .~ WriteTo applyLog) =<< nagarectl drill (loop ^. #release) (loop ^. #apply <> [review, "--yes", "--contract", "1"])
+  (outcome', transaction', name') <- readApplyOutcome document'
+  indexAttempt drill stage "apply" transaction' name' applyLog (Just document') started
+  case outcome' of
+    AppliedConverged -> pure True
+    AppliedAmbiguous transaction -> go transaction (1 :: Int)
+    AppliedStopped _ -> pure False
   where
     go transaction n
       | n > 12 = pure False
       | otherwise = do
           (drill ^. #runtime . #pause) 20
           say' drill ("resume " <> T.pack (show n) <> " of " <> transaction)
-          resumed <- run' drill . (\i -> i & #stdoutTo .~ AppendTo applyLog & #stderrTo .~ SameAsStdout) =<< nagarectl drill which ["inventory", "resume", T.unpack transaction, "--yes"]
-          if resumed ^. #exit == 0
-            then pure True
-            else do
-              logged <- readLenient applyLog
-              if stoppedAmbiguousAt transaction (lastLines 2 logged) then go transaction (n + 1) else pure False
+          started <- drill ^. #runtime . #now
+          let document' = review <> ".resume-" <> show n <> ".json"
+          _ <- run' drill . (\i -> i & #stdoutTo .~ WriteTo document' & #stderrTo .~ AppendTo applyLog) =<< nagarectl drill (loop ^. #release) ["inventory", "resume", T.unpack transaction, "--yes", "--contract", "1"]
+          (outcome', transaction', name') <- readApplyOutcome document'
+          indexAttempt drill stage ("resume-" <> showText n) transaction' name' applyLog (Just document') started
+          case outcome' of
+            AppliedConverged -> pure True
+            AppliedAmbiguous again | again == transaction -> go transaction (n + 1)
+            _ -> pure False
+
+-- | The source release's bootstrap apply, which prints no outcome
+-- document: its human @ambiguous TX at OP@ stop line is the only signal a
+-- published release gives.
+applyText :: Drill -> Text -> Loop -> FilePath -> FilePath -> IO Bool
+applyText drill stage loop review applyLog = do
+  started <- drill ^. #runtime . #now
+  applied <- run' drill . (\i -> i & #stdoutTo .~ WriteTo applyLog & #stderrTo .~ SameAsStdout) =<< nagarectl drill (loop ^. #release) (loop ^. #apply <> [review, "--yes"])
+  logged <- readLenient applyLog
+  let stopped = ambiguousTransaction (lastLines 2 logged)
+  indexAttempt drill stage "apply" stopped (if applied ^. #exit == 0 then "converged" else maybe "failed" (const "ambiguous") stopped) applyLog Nothing started
+  if applied ^. #exit == 0 then pure True else maybe (pure False) (\transaction -> go transaction (1 :: Int)) stopped
+  where
+    go transaction n
+      | n > 12 = pure False
+      | otherwise = do
+          (drill ^. #runtime . #pause) 20
+          say' drill ("resume " <> T.pack (show n) <> " of " <> transaction)
+          started <- drill ^. #runtime . #now
+          resumed <- run' drill . (\i -> i & #stdoutTo .~ AppendTo applyLog & #stderrTo .~ SameAsStdout) =<< nagarectl drill (loop ^. #release) ["inventory", "resume", T.unpack transaction, "--yes"]
+          logged <- readLenient applyLog
+          let again = stoppedAmbiguousAt transaction (lastLines 2 logged)
+          indexAttempt drill stage ("resume-" <> showText n) (Just transaction) (if resumed ^. #exit == 0 then "converged" else if again then "ambiguous" else "failed") applyLog Nothing started
+          if resumed ^. #exit == 0 then pure True else if again then go transaction (n + 1) else pure False
 
 -- | After a bootstrap stage: once the registry exists, seed the pinned
 -- images (once).

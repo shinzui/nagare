@@ -17,12 +17,16 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (isPrefixOf, sort)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
+import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
+import Nagare.Contract.V1 (Outcome (..), TransactionOutcome (..), VersionInfo (..))
 import Nagare.Harness.Prelude hiding ((.=))
 import Nagare.Harness.Release.Candidate
 import Nagare.Harness.Release.Intranet
@@ -74,6 +78,11 @@ fake environment' respond = do
           WriteTo path -> BS.writeFile path bytes
           AppendTo path -> BS.appendFile path bytes
           Tee path -> BS.writeFile path bytes
+          _ -> pure ()
+        -- a separate stderr file holds the progress lines
+        case command ^. #stderrTo of
+          WriteTo path -> BS.writeFile path "progress\n"
+          AppendTo path -> BS.appendFile path "progress\n"
           _ -> pure ()
         pure (Result code (if command ^. #stdoutTo == Capture then bytes else ""))
       transport' =
@@ -128,6 +137,39 @@ fieldAt = foldl (\value key -> case value of Just (Aeson.Object fields) -> KeyMa
 
 encodeText :: Value -> Text
 encodeText = TE.decodeUtf8 . BL.toStrict . Aeson.encode
+
+-- | The @--contract 1@ outcome an apply or resume prints.
+outcomeDocument :: Outcome -> Text -> Maybe Text -> Text
+outcomeDocument outcome' transaction' detail' =
+  encodeText . Aeson.toJSON $
+    TransactionOutcome
+      { contractVersion = ContractVersion1
+      , document = DocumentName
+      , outcome = outcome'
+      , transaction = nullable (Just transaction')
+      , operation = nullable (if outcome' == OutcomeConverged then Nothing else Just "op-1")
+      , failureClass = nullable Nothing
+      , barriers = []
+      , detail = nullable detail'
+      , problem = nullable Nothing
+      }
+
+-- | @version --json@ of a build.
+versionDocument :: Text -> Text -> Text
+versionDocument version'' revision'' = encodeText (Aeson.toJSON (VersionInfo version'' version'' (Just revision'') Nothing [1]))
+
+-- | What @platform transition plan --summary@ writes for a review.
+writeSummary :: FilePath -> FilePath -> IO ()
+writeSummary review path = do
+  counts <- readReviewCounts review >>= either (assertFailure . T.unpack) pure
+  BL.writeFile path . Aeson.encode $
+    object
+      [ "schemaVersion" .= (1 :: Int)
+      , "review" .= review
+      , "operations" .= Map.fromListWith (+) [(tag, 1 :: Int) | tag <- counts ^. #actions]
+      , "operationCount" .= length (counts ^. #actions)
+      , "reaccepted" .= ["platform:scope-" <> T.pack (show i) | i <- [1 .. counts ^. #reaccepted]]
+      ]
 
 fixtureReview :: Int -> FilePath
 fixtureReview n = "test/fixtures/release/v0.11.1-intranet/stage-" <> show n <> ".review.json"
@@ -271,27 +313,28 @@ intranetWorld o knobs = do
     ("direnv", "exec" : _ : "sh" : _) -> ok "/bin/gcloud\n"
     ("direnv", ["exec", _, "printenv", "NAGARE_BASE_DOMAIN"]) -> ok "example.test\n"
     ("direnv", "exec" : _ : "nagarectl" : "--context" : _ : rest) -> case rest of
-      ["version", "--json"] -> ok (encodeText (object ["version" .= version', "revision" .= (if knobs ^. #wrongCli then "another" else rev)]))
+      ["version", "--json"] -> ok (versionDocument version' (if knobs ^. #wrongCli then "another" else rev))
       ["inventory", "store", "status", "--json"] -> ok (encodeText (object ["activeTransaction" .= (if knobs ^. #activeTransaction then Just ("tx-open" :: Text) else Nothing)]))
-      ["platform", "transition", "plan", "--out", out]
+      ["platform", "transition", "plan", "--out", out, "--summary", summary']
         | knobs ^. #compileError -> fails "apps/Databases.hs:3:5: error: missing field privileges\n"
-        | knobs ^. #endless -> writeReview out ["VerifyResource"] 0 >> ok "Saved the next transition stage\n"
+        | knobs ^. #endless -> writeReview out ["VerifyResource"] 0 >> writeSummary out summary' >> ok "Saved the next transition stage\n"
         | otherwise -> do
             modifyIORef' plans (+ 1)
             n <- readIORef plans
             createDirectoryIfMissing True out
             BS.readFile (fixtureReview (min n 3)) >>= BS.writeFile (out </> "review.json")
+            writeSummary out summary'
             ok "Saved the next transition stage (9.8.6 -> 9.8.7).\n"
-      ["inventory", "apply", _, "--yes"] -> do
+      ["inventory", "apply", _, "--yes", "--contract", "1"] -> do
         already <- readIORef stopped
         case () of
           _
-            | knobs ^. #applyFails -> fails "stopped tx-ef56 at op-3: the provider refused\n"
-            | knobs ^. #ambiguous && not already -> writeIORef stopped True >> fails "ambiguous tx-ab12 at op-1: no acknowledgement\n"
-            | otherwise -> modifyIORef' changed (<> ["hosts/intranet/flake.nix"]) >> ok "converged tx-cd34\n"
-      ["inventory", "resume", "tx-ab12", "--yes"]
-        | knobs ^. #resumeFails -> fails "ambiguous tx-ab12 at op-1: still no acknowledgement\n"
-        | otherwise -> ok "converged tx-ab12\n"
+            | knobs ^. #applyFails -> pure (4, outcomeDocument OutcomeStopped "tx-ef56" (Just "the provider refused"))
+            | knobs ^. #ambiguous && not already -> writeIORef stopped True >> pure (5, outcomeDocument OutcomeAmbiguous "tx-ab12" (Just "no acknowledgement"))
+            | otherwise -> modifyIORef' changed (<> ["hosts/intranet/flake.nix"]) >> ok (outcomeDocument OutcomeConverged "tx-cd34" Nothing)
+      ["inventory", "resume", "tx-ab12", "--yes", "--contract", "1"]
+        | knobs ^. #resumeFails -> pure (5, outcomeDocument OutcomeAmbiguous "tx-ab12" (Just "still no acknowledgement"))
+        | otherwise -> ok (outcomeDocument OutcomeConverged "tx-ab12" Nothing)
       ["platform", "status", "--json"] -> do
         done <- readIORef committed
         let host = if knobs ^. #hostSkew then object ["version" .= version', "revision" .= ("another" :: Text)] else at' version'
@@ -316,7 +359,9 @@ pinFiles :: [String]
 pinFiles = ["flake.nix", "flake.lock", "hosts/intranet/flake.nix", "hosts/intranet/flake.lock", "contexts/intranet.env"]
 
 -- | The order scripts/release-intranet.sh ran for a candidate whose first
--- apply stops ambiguous and is resumed, converging at the third plan.
+-- apply stops ambiguous and is resumed, converging at the third plan. Since
+-- M2 the plans write a @--summary@ and the applies print their @--contract 1@
+-- outcome; nothing else changed.
 intranetOrder :: [String]
 intranetOrder =
   ["git -C $T/operator ls-files --error-unmatch -- " <> file | file <- pinFiles]
@@ -326,12 +371,12 @@ intranetOrder =
        , "nix flake update nagare"
        , nagare ["version", "--json"]
        , nagare ["inventory", "store", "status", "--json"]
-       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-1"]
-       , nagare ["inventory", "apply", "$T/run/intranet/stage-1", "--yes"]
-       , nagare ["inventory", "resume", "tx-ab12", "--yes"]
-       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-2"]
-       , nagare ["inventory", "apply", "$T/run/intranet/stage-2", "--yes"]
-       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-3"]
+       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-1", "--summary", "$T/run/intranet/stage-1.summary.json"]
+       , nagare ["inventory", "apply", "$T/run/intranet/stage-1", "--yes", "--contract", "1"]
+       , nagare ["inventory", "resume", "tx-ab12", "--yes", "--contract", "1"]
+       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-2", "--summary", "$T/run/intranet/stage-2.summary.json"]
+       , nagare ["inventory", "apply", "$T/run/intranet/stage-2", "--yes", "--contract", "1"]
+       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-3", "--summary", "$T/run/intranet/stage-3.summary.json"]
        , nagare ["platform", "status", "--json"]
        , nagare ["platform", "transition", "commit", "--yes"]
        , nagare ["platform", "status", "--json"]
@@ -371,6 +416,24 @@ intranetTests =
           assertBool "no resume line" (any ("apply 1 stopped ambiguous; resuming tx-ab12 once" `T.isInfixOf`) said')
           assertBool "no stage line" (any ("stage 2: 211 operations, re-accepts 6 scopes" `T.isInfixOf`) said')
           readFile (o ^. #operator </> "flake.nix") >>= assertMentions ("inputs.nagare.url = \"github:shinzui/nagare/" <> rev <> "\";") . T.pack
+          -- the version-one run index names every stage and attempt
+          index <- eitherDecodeFileStrict @Value (o ^. #run </> "intranet-index.json") >>= either fail pure
+          let at' = fieldAt index
+          at' ["schemaVersion"] @?= Just (Aeson.Number 1)
+          at' ["kind"] @?= Just (Aeson.String "intranet")
+          at' ["profile"] @?= Just (Aeson.String "intranet")
+          at' ["status"] @?= Just (Aeson.String "passed")
+          at' ["candidate", "revision"] @?= Just (Aeson.String rev)
+          at' ["source", "version"] @?= Just (Aeson.String "9.8.6")
+          at' ["records", "intranet"] @?= Just (Aeson.String "intranet.json")
+          stages <- maybe (assertFailure "no stages" >> pure []) pure (at' ["stages"] >>= \case Aeson.Array items -> Just (toList items); _ -> Nothing)
+          map (\stage -> (fieldAt stage ["stageId"], fieldAt stage ["operations"], fieldAt stage ["converged"], fieldAt stage ["review"])) stages
+            @?= [ (Just "intranet-1", Just (Aeson.Number 2), Just (Aeson.Bool False), Just "intranet/stage-1")
+                , (Just "intranet-2", Just (Aeson.Number 211), Just (Aeson.Bool False), Just "intranet/stage-2")
+                , (Just "intranet-3", Just (Aeson.Number 0), Just (Aeson.Bool True), Just "intranet/stage-3")
+                ]
+          [(fieldAt attempt' ["attemptId"], fieldAt attempt' ["transaction"], fieldAt attempt' ["outcome"]) | stage <- take 1 stages, Just (Aeson.Array attempts') <- [fieldAt stage ["attempts"]], attempt' <- toList attempts']
+            @?= [(Just "intranet-1/apply", Just "tx-ab12", Just "ambiguous"), (Just "intranet-1/resume", Just "tx-ab12", Just "converged")]
     , testCase "a second ambiguous stop is not resumed again" $
         withOperator $ \o -> do
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {ambiguous = True, resumeFails = True}
@@ -382,7 +445,7 @@ intranetTests =
     , testCase "an apply that stops for another reason is not resumed" $
         withOperator $ \o -> do
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {applyFails = True}
-          refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "apply 1 failed: stopped tx-ef56 at op-3"
+          refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "apply 1 failed: stopped tx-ef56 at op-1 (the provider refused)"
           calls' <- rendered (o ^. #root) <$> recorded world
           filter (isPrefixOf (nagare ["inventory", "resume"])) calls' @?= []
     , testCase "a transition that never converges stops after twelve stages" $
@@ -428,6 +491,12 @@ intranetTests =
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o knobs
           refused (transitionRun runtime (intranetOptions o)) >>= assertMentions words'
           assertNothingLanded o . rendered (o ^. #root) =<< recorded world
+          -- a run that got as far as its index ends it failed with the refusal
+          indexed' <- doesFileExist (o ^. #run </> "intranet-index.json")
+          when indexed' $ do
+            index <- eitherDecodeFileStrict @Value (o ^. #run </> "intranet-index.json") >>= either fail pure
+            fieldAt index ["status"] @?= Just (Aeson.String "failed")
+            fieldAt index ["detail"] >>= (\case Aeson.String text -> Just text; _ -> Nothing) & maybe (assertFailure "no detail") (assertMentions words')
 
 assertNothingLanded :: Operator -> [String] -> Assertion
 assertNothingLanded o calls' = do
@@ -451,6 +520,7 @@ candidateWorld root' = do
       writeFile (tree </> "scripts/release-native-container.sh") "#!/bin/sh\n"
       ok ""
     ("just", ["gate-release", _]) -> ok "gate: full gate green\n"
+    ("mktemp", _) -> ok (T.pack (root' </> "rehearse-work") <> "\n")
     ("scripts/release-rehearse.sh", _) -> case command ^. #environment of
       Extended [("NAGARE_RELEASE_REHEARSAL_RECORD", path)] -> writeFile path "{}" >> ok ""
       other -> assertFailure ("rehearse without its record path: " <> show other) >> pure (1, "")
@@ -471,7 +541,8 @@ candidateOrder rehearsal' =
     <> [ "git rev-parse -q --verify refs/tags/v9.10.0"
        , "git worktree add -q --detach " <> run' <> "/worktree " <> T.unpack rev
        , "just gate-release " <> T.unpack rev
-       , "scripts/release-rehearse.sh " <> T.unpack rev <> " 9.10.0"
+       , "mktemp -d /private/tmp/nagare-release-rehearse.XXXXXX"
+       , "scripts/release-rehearse.sh " <> T.unpack rev <> " 9.10.0 --run $T/rehearse-work"
        , "scripts/release-native.sh 9.8.7 " <> run' <> "/native/aarch64-darwin"
        ]
     <> ["nix build --no-link --print-out-paths --max-jobs 0 git+file://$T/repo?rev=" <> T.unpack rev <> "#packages.x86_64-linux." <> package | package <- ["nagarectl", "nagare", "nagare-platform", "release-tools"]]
@@ -531,6 +602,12 @@ candidateTests =
           assertBool "latest is not a link" =<< pathIsSymbolicLink (root' </> "state/nagare/releases/v9.8.7/latest")
           landed <- readFile (root' </> "state/nagare/releases/v9.8.7/20261029T140458Z/evidence/docs/release-evidence" </> T.unpack rev </> "transition-rehearsal.json")
           landed @?= "{}"
+          index <- eitherDecodeFileStrict @Value (root' </> "state/nagare/releases/v9.8.7/20261029T140458Z/index.json") >>= either fail pure
+          fieldAt index ["status"] @?= Just (Aeson.String "passed")
+          fieldAt index ["children"] @?= Just (object ["rehearsal" .= (root' </> "rehearse-work/index.json"), "intranet" .= ("intranet-index.json" :: Text)])
+          fieldAt index ["records"] @?= Just (object ["candidate" .= ("candidate.json" :: Text), "dist" .= ("dist" :: Text), "transitionRehearsal" .= ("transition-rehearsal.json" :: Text)])
+          [(fieldAt entry ["name"], fieldAt entry ["status"]) | Just (Aeson.Array entries) <- [fieldAt index ["steps"]], entry <- toList entries]
+            @?= [(Just (Aeson.String name), Just "passed") | name <- ["worktree", "gate", "rehearsal", "aarch64-darwin", "x86_64-linux-outputs", "x86_64-linux", "assembly", "gate-wait", "intranet", "record"]]
     , testCase "a red release gate stops the run before the intranet and still removes the worktrees" $
         withSystemTempDirectory "candidate" $ \raw -> do
           root' <- canonicalizePath raw
@@ -559,7 +636,7 @@ rehearseWorld root' carriesHelm = do
       | "nixpkgs#kubernetes-helm" `elem` rest -> ok "/nix/store/helm\n"
       | any ("github:" `isPrefixOf`) rest -> ok "/nix/store/source-nagarectl\n"
       | otherwise -> ok "/nix/store/candidate-nagarectl\n"
-    ("/nix/store/candidate-nagarectl/bin/nagarectl", ["version", "--json"]) -> ok (encodeText (object ["version" .= version', "revision" .= rev]))
+    ("/nix/store/candidate-nagarectl/bin/nagarectl", ["version", "--json"]) -> ok (versionDocument version' rev)
     ("/harness/bin/nagare-harness", ["transition", "drill"]) -> do
       let rootDir = case command ^. #environment of
             Exactly entries -> fromMaybe "" (lookup "NAGARE_REHEARSAL_ROOT" entries)
@@ -606,6 +683,10 @@ rehearseTests =
             @?= [["HOME", "USER", "LOGNAME", "TMPDIR", "PATH", "DOCKER_HOST", "NAGARE_REHEARSAL_SOURCE", "NAGARE_REHEARSAL_TARGET", "NAGARE_REHEARSAL_ROOT", "NAGARE_REHEARSAL_RESET"]]
           kept <- eitherDecodeFileStrict @Value record >>= either fail pure
           kept @?= rehearsalRecord rev "9.8.6"
+          index <- eitherDecodeFileStrict @Value (root' </> "work/index.json") >>= either fail pure
+          fieldAt index ["status"] @?= Just "passed"
+          fieldAt index ["children", "drill"] @?= Just "run/index.json"
+          fieldAt index ["records", "transitionRehearsal"] @?= Just (Aeson.String (T.pack record))
           wrapper <- readFile (root' </> "work/bin/source-nagarectl")
           wrapper @?= "#!/bin/sh\nPATH=/nix/store/helm/bin:$PATH exec /nix/store/source-nagarectl/bin/nagarectl \"$@\"\n"
     , testCase "an existing record for the same move is kept without a run; another move's is refused" $
@@ -657,15 +738,16 @@ drillWorld = do
         writeReview out (if n == 1 then ["CreateResource", "UpdateResource", "VerifyResource"] else replicate 214 "VerifyResource") 0
         ok ""
       ["platform", "bootstrap", "apply", _, "--yes"] -> ok "converged tx-01\n"
-      ["platform", "transition", "plan", "--out", out] -> do
+      ["platform", "transition", "plan", "--out", out, "--summary", summary'] -> do
         n <- (+ 1) <$> readIORef applies
         writeReview out (if n == 1 then "UpdateResource" : replicate 213 "VerifyResource" else []) (if n == 1 then 2 else 0)
+        writeSummary out summary'
         ok ""
-      ["inventory", "apply", _, "--yes"] -> modifyIORef' applies (+ 1) >> pure (1, "applying\nambiguous tx-ab12 at op-1: no acknowledgement\n")
-      ["inventory", "resume", "tx-ab12", "--yes"] -> do
+      ["inventory", "apply", _, "--yes", "--contract", "1"] -> modifyIORef' applies (+ 1) >> pure (5, outcomeDocument OutcomeAmbiguous "tx-ab12" (Just "no acknowledgement"))
+      ["inventory", "resume", "tx-ab12", "--yes", "--contract", "1"] -> do
         modifyIORef' resumes (+ 1)
         k <- readIORef resumes
-        if k == 1 then pure (1, "ambiguous tx-ab12 at op-1: still waiting\n") else ok "converged tx-ab12\n"
+        if k == 1 then pure (5, outcomeDocument OutcomeAmbiguous "tx-ab12" (Just "still waiting")) else ok (outcomeDocument OutcomeConverged "tx-ab12" Nothing)
       ["platform", "transition", "commit", "--yes"] -> ok "context transition pinned to 9.8.7\n"
       ["platform", "status", "--json"] -> ok "{\"compatibility\":\"exact\"}"
       ["inventory", "status", "--json"] -> ok "{\"activeTransaction\":null,\"transactionStatus\":null,\"observationComplete\":true,\"accepted\":[]}"
@@ -694,7 +776,7 @@ drillOrder =
   , "sops --config $T/root/config/nagare/cluster-secrets/transition/.sops.yaml --encrypt --in-place $T/root/config/nagare/cluster-secrets/transition/grafana-admin.yaml"
   , source "--context transition context create transition --mode local --registry-host k3d-registry.localhost:5000 --base-domain 127-0-0-1.sslip.io --target-platform linux/arm64 --local-object-store http://minio.nagare-system.svc.cluster.local:9000/nagare-backups --use"
   , source "--context transition platform root --json"
-  , source "version"
+  , source "version --json"
   , source "--context transition platform bootstrap plan --out $T/root/reviews/bootstrap-1"
   , source "--context transition platform bootstrap apply $T/root/reviews/bootstrap-1 --yes"
   , "docker ps --format {{.Names}}"
@@ -721,11 +803,11 @@ drillOrder =
     <> [ "kubectl -n personal exec rehearsal-0 -- pg_isready -h 127.0.0.1 -U rehearsal -d rehearsal"
        , psql "CREATE TABLE IF NOT EXISTS transition_sentinel(v text); TRUNCATE transition_sentinel; INSERT INTO transition_sentinel VALUES ('transition 20261029T140458Z');"
        , psql "SELECT v FROM transition_sentinel;"
-       , target "--context transition platform transition plan --out $T/root/reviews/transition-1"
-       , target "--context transition inventory apply $T/root/reviews/transition-1 --yes"
-       , target "--context transition inventory resume tx-ab12 --yes"
-       , target "--context transition inventory resume tx-ab12 --yes"
-       , target "--context transition platform transition plan --out $T/root/reviews/transition-2"
+       , target "--context transition platform transition plan --out $T/root/reviews/transition-1 --summary $T/root/reviews/transition-1.summary.json"
+       , target "--context transition inventory apply $T/root/reviews/transition-1 --yes --contract 1"
+       , target "--context transition inventory resume tx-ab12 --yes --contract 1"
+       , target "--context transition inventory resume tx-ab12 --yes --contract 1"
+       , target "--context transition platform transition plan --out $T/root/reviews/transition-2 --summary $T/root/reviews/transition-2.summary.json"
        , target "--context transition platform transition commit --yes"
        , target "--context transition platform status --json"
        , target "--context transition inventory status --json"
@@ -792,6 +874,17 @@ drillTests =
           take 2 (lines raw') @?= ["{", "  \"bootstrap\": {"]
           assertBool "the secret file was not encrypted in place" =<< doesFileExist (rootDir </> "config/nagare/cluster-secrets/transition/grafana-admin.yaml")
           takeDirectory rootDir @?= root'
+          index <- eitherDecodeFileStrict @Value (rootDir </> "index.json") >>= either fail pure
+          fieldAt index ["kind"] @?= Just "drill"
+          fieldAt index ["profile"] @?= Just "local-rehearsal"
+          fieldAt index ["status"] @?= Just "passed"
+          fieldAt index ["candidate", "revision"] @?= Just (Aeson.String rev)
+          fieldAt index ["records", "transitionRehearsal"] @?= Just "evidence/transition-rehearsal.json"
+          let stages = [stage | Just (Aeson.Array items) <- [fieldAt index ["stages"]], stage <- toList items]
+          map (\stage -> (fieldAt stage ["stageId"], fieldAt stage ["converged"])) stages
+            @?= [(Just "bootstrap-1", Just (Aeson.Bool False)), (Just "bootstrap-2", Just (Aeson.Bool True)), (Just "transition-1", Just (Aeson.Bool False)), (Just "transition-2", Just (Aeson.Bool True))]
+          [(fieldAt attempt' ["attemptId"], fieldAt attempt' ["outcome"]) | stage <- drop 2 (take 3 stages), Just (Aeson.Array attempts') <- [fieldAt stage ["attempts"]], attempt' <- toList attempts']
+            @?= [(Just "transition-1/apply", Just "ambiguous"), (Just "transition-1/resume-1", Just "ambiguous"), (Just "transition-1/resume-2", Just "converged")]
     , testCase "the drill scrubs the ambient context but keeps its own inputs" $
         drillEnvironment "/r" [("NAGARE_CONTEXT", "x"), ("NAGARE_REHEARSAL_SOURCE", "s"), ("KUBECONFIG", "k"), ("PULUMI_HOME", "p"), ("NAGARE_X1", "kept"), ("HOME", "/h")]
           @?= [("NAGARE_REHEARSAL_SOURCE", "s"), ("NAGARE_X1", "kept"), ("HOME", "/h"), ("XDG_CONFIG_HOME", "/r/config"), ("XDG_STATE_HOME", "/r/state"), ("XDG_CACHE_HOME", "/r/cache")]

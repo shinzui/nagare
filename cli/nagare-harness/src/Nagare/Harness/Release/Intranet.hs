@@ -39,10 +39,12 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
 import Data.Time (defaultTimeLocale, formatTime)
+import Nagare.Contract.V1 (VersionInfo (..))
 import Nagare.Harness.Prelude hiding ((.=))
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.Review
+import Nagare.Harness.Release.RunIndex
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, removePathForcibly)
 import System.FilePath ((</>))
 
@@ -60,6 +62,7 @@ data Setup = Setup
   , tag :: !Text
   , run :: !FilePath
   , revision :: !Text
+  , previous :: !Text
   , context :: !Text
   , operator :: !FilePath
   , tracked :: ![FilePath]
@@ -118,6 +121,7 @@ setup runtime options = do
       , tag = tag'
       , run = run'
       , revision = revision'
+      , previous = candidate ^. #previous
       , context = context'
       , operator = operator'
       , tracked = tracked'
@@ -153,6 +157,21 @@ transitionPinTag runtime options = do
 transitionRun :: Runtime -> IntranetOptions -> IO ()
 transitionRun runtime options = do
   s <- setup runtime options
+  started <- runtime ^. #now
+  index <-
+    openIndex runtime (s ^. #run </> "intranet-index.json") $
+      newRunIndex "intranet" "intranet" started
+        & #context
+        ?~ s
+        ^. #context
+        & #candidate
+        .~ Revisioned (Just (s ^. #version)) (Just (s ^. #revision))
+        & #source
+        .~ Revisioned (Just (s ^. #previous)) Nothing
+  withRunIndex index (moveIntranet runtime s index)
+
+moveIntranet :: Runtime -> Setup -> IndexWriter -> IO ()
+moveIntranet runtime s index = do
   let operator' = T.pack (s ^. #operator)
       context' = s ^. #context
       version' = s ^. #version
@@ -175,8 +194,8 @@ transitionRun runtime options = do
   pin runtime s revision'
   let notCandidate = "the operator shell's nagarectl is not " <> version' <> " at " <> revision'
   identity <- capture runtime notCandidate (nagarectl s ["version", "--json"])
-  case decodeDocument @ReleaseIdentity "version --json" identity of
-    Right found | found == ReleaseIdentity (Just version') (Just revision') -> pure ()
+  case decodeDocument @VersionInfo "version --json" identity of
+    Right found | found ^. #version == version' && found ^. #revision == Just revision' -> pure ()
     _ -> refuse notCandidate
   -- The head alone answers this; full status needs the candidate's
   -- workspace, which the first plan below prepares.
@@ -186,7 +205,7 @@ transitionRun runtime options = do
     Right found | isNothing (found ^. #activeTransaction) -> pure ()
     _ -> refuse activeStore
   -- 2. plan and apply until a plan has no operations, then commit
-  converge runtime s reviews 1
+  converge runtime s index reviews 1
   status <- platformStatus runtime s
   status' <-
     if status ^. _2 . #identities . #context . #version == Just version'
@@ -233,37 +252,69 @@ transitionRun runtime options = do
         , "protected" .= object ["url" .= protected, "status" .= statusCode, "location" .= location]
         ]
     )
+  setRecord index "intranet" (s ^. #run </> "intranet.json")
   step runtime ("the " <> context' <> " runs " <> version' <> " at " <> revision' <> "; record " <> T.pack (s ^. #run </> "intranet.json"))
 
--- | Plan stage @n@; stop when it has no operations and re-accepts no scope,
--- otherwise apply it, resuming an ambiguous stop once.
-converge :: Runtime -> Setup -> FilePath -> Int -> IO ()
-converge runtime s reviews n
+-- | Plan stage @n@; stop when its summary counts no operation and no
+-- re-accepted scope, otherwise apply it, resuming an ambiguous stop once.
+-- Both decisions come from documents nagarectl writes: the plan's
+-- @--summary@ and the apply's @--contract 1@ outcome.
+converge :: Runtime -> Setup -> IndexWriter -> FilePath -> Int -> IO ()
+converge runtime s index reviews n
   | n > stagesMax = refuse ("the transition did not converge in " <> showText stagesMax <> " stages; reviews in " <> T.pack reviews)
   | otherwise = do
       let review = reviews </> ("stage-" <> show n)
           planLog = review <> ".plan.log"
+          summaryFile = review <> ".summary.json"
           applyLog = review <> ".apply.log"
+          stage = "intranet-" <> showText n
       removePathForcibly review
-      planned <- succeeds runtime (nagarectl s ["platform", "transition", "plan", "--out", review] & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
+      planned <- succeeds runtime (nagarectl s ["platform", "transition", "plan", "--out", review, "--summary", summaryFile] & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
       unless planned $ do
         logged <- readLenient planLog
         refuse ("plan " <> showText n <> " refused: " <> lastLines 5 logged)
-      counts <- readReviewCounts review >>= either refuse pure
-      let operations = operationCount AllOperations counts
+      counts <- summaryCounts <$> (readPlanSummary summaryFile >>= either refuse pure)
+      let operations' = operationCount AllOperations counts
           moves = counts ^. #reaccepted
-      step runtime ("stage " <> showText n <> ": " <> showText operations <> " operations, re-accepts " <> showText moves <> " scopes")
-      unless (isConverged AllOperations counts) $ do
-        applied <- succeeds runtime (nagarectl s ["inventory", "apply", review, "--yes"] & #stdoutTo .~ WriteTo applyLog & #stderrTo .~ SameAsStdout)
-        unless applied $ do
-          logged <- readLenient applyLog
-          transaction <- maybe (refuse ("apply " <> showText n <> " failed: " <> lastLines 5 logged)) pure (ambiguousTransaction logged)
-          step runtime ("apply " <> showText n <> " stopped ambiguous; resuming " <> transaction <> " once")
-          resumed <- succeeds runtime (nagarectl s ["inventory", "resume", T.unpack transaction, "--yes"] & #stdoutTo .~ AppendTo applyLog & #stderrTo .~ SameAsStdout)
-          unless resumed $ do
-            again <- readLenient applyLog
-            refuse ("resume of " <> transaction <> " failed: " <> lastLines 5 again)
-        converge runtime s reviews (n + 1)
+          done = isConverged AllOperations counts
+      plannedAt' <- runtime ^. #now
+      addStage index (StageEntry stage "intranet" n (relativeIn index review) (relativeIn index planLog) (Just (relativeIn index summaryFile)) operations' moves done plannedAt' [])
+      step runtime ("stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts " <> showText moves <> " scopes")
+      unless done $ do
+        applied <- attempt runtime index stage "apply" (nagarectl s ["inventory", "apply", review, "--yes", "--contract", "1"]) (review <> ".apply.json") (WriteTo applyLog)
+        case applied of
+          AppliedConverged -> pure ()
+          AppliedAmbiguous transaction -> do
+            step runtime ("apply " <> showText n <> " stopped ambiguous; resuming " <> transaction <> " once")
+            resumed <- attempt runtime index stage "resume" (nagarectl s ["inventory", "resume", T.unpack transaction, "--yes", "--contract", "1"]) (review <> ".resume.json") (AppendTo applyLog)
+            unless (resumed == AppliedConverged) $ do
+              logged <- readLenient applyLog
+              refuse ("resume of " <> transaction <> " failed: " <> describeOutcome resumed <> ": " <> lastLines 5 logged)
+          AppliedStopped reason -> do
+            logged <- readLenient applyLog
+            refuse ("apply " <> showText n <> " failed: " <> reason <> ": " <> lastLines 5 logged)
+        converge runtime s index reviews (n + 1)
+
+-- | Run one apply or resume with its outcome document on stdout and its
+-- progress in the stage's log, and index the attempt.
+attempt :: Runtime -> IndexWriter -> Text -> Text -> Invocation -> FilePath -> Sink -> IO ApplyOutcome
+attempt runtime index stage action' command document' logSink = do
+  started <- runtime ^. #now
+  _ <- invoke runtime (command & #stdoutTo .~ WriteTo document' & #stderrTo .~ logSink)
+  (outcome', transaction', name') <- readApplyOutcome document'
+  finished' <- runtime ^. #now
+  let logFile' = case logSink of
+        WriteTo path -> path
+        AppendTo path -> path
+        _ -> document'
+  addAttempt index stage (Attempt (stage <> "/" <> action') action' transaction' name' (relativeIn index logFile') (Just (relativeIn index document')) started finished')
+  pure outcome'
+
+describeOutcome :: ApplyOutcome -> Text
+describeOutcome = \case
+  AppliedConverged -> "converged"
+  AppliedAmbiguous transaction -> "ambiguous " <> transaction
+  AppliedStopped reason -> reason
 
 platformStatus :: Runtime -> Setup -> IO (Value, PlatformStatus)
 platformStatus runtime s = do
