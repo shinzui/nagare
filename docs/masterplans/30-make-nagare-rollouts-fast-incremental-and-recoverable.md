@@ -10,6 +10,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-10-29T14:39:19Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T16:27:26Z
+      mode: "update"
+      note: "Add MasterPlan 29 follow-ups: gcloud ownership stall (EP-226 M4) and journal catch-up bound (EP-227 M2)"
 ---
 
 # Make Nagare rollouts fast, incremental, and recoverable
@@ -220,6 +226,11 @@ evidence; this review did not execute the transition or establish a new latency 
   or transport rewrite is not a prerequisite for removing structural work.
 - 2026-10-29: Require Haskell for rollout, evidence and history tooling. Shell is process glue only;
   the changed release path must run with Python absent, honoring the user's explicit constraint.
+- 2026-10-29: Take two fixable costs found by MasterPlan 29's closing benchmark. EP-226 M4 removes
+  the per-command `gcloud projects describe` ownership read, which stalled about 15 s in two of ten
+  reviewed commands; it has no dependency and may land first. EP-227 M2 now also requires that the
+  journal tail the next command catches up after a transition does not grow with verified resources
+  (429 events and 22 s after v0.11.1).
 
 
 ## Outcomes & Retrospective

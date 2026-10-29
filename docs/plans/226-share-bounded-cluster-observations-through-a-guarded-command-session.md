@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-10-29T14:39:33Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T16:27:26Z
+      mode: "update"
+      note: "Add MasterPlan 29 follow-ups: gcloud ownership stall (EP-226 M4) and journal catch-up bound (EP-227 M2)"
 ---
 
 # Share bounded cluster observations through a guarded command session
@@ -37,6 +43,14 @@ closed with a bounded number of requests and a useful explanation.
   address keys, bounded chunking/fallback and tested freshness boundaries.
 - [ ] M3: Kubernetes, Helm and relevant access integration share sessions without caching writes
   or readiness across phases; adversarial guard and observation fixtures pass.
+- [ ] M4: Opening the inventory store proves bucket ownership without a per-command
+  `gcloud projects describe`. The project number is immutable, so read it with the session's
+  token or keep it per project; the bucket's owning number stays a live read and the comparison
+  still fails closed. Independent of M1–M3. Pass: the ownership fixtures in
+  `test/InventoryAccessSessionSpec.hs` and the store ownership refusals pass unchanged, and a
+  traced intranet command shows no `project ownership` gcloud subprocess. Evidence for the need:
+  [`docs/audits/mp29-latency-2026-10-29/baseline.json`](../audits/mp29-latency-2026-10-29/baseline.json),
+  where that read took 16.3 s and 14.9 s in two of ten commands instead of about 0.6 s.
 
 
 ## Surprises & Discoveries

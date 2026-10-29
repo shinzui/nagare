@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-10-29T14:39:34Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-29T16:27:26Z
+      mode: "update"
+      note: "Add MasterPlan 29 follow-ups: gcloud ownership stall (EP-226 M4) and journal catch-up bound (EP-227 M2)"
 ---
 
 # Commit verification proofs without per-resource remote transactions
@@ -35,6 +41,10 @@ not to the safety obligations or the amount of evidence retained.
   and survives partial uploads, lost replies, orphan suffixes and competing claims.
 - [ ] M2: Read-only verification uses fresh grouped evidence and batched proof publication, with
   per-resource outcomes, bounded memory and no adapter execute calls.
+  Pass also: after an unchanged-release transition, the next reviewed command on another
+  workstation catches up a journal tail that does not grow with the number of verified resources
+  (2026-10-29: 429 events, 22 s, after v0.11.1's 205 verifies;
+  [`docs/audits/mp29-latency-2026-10-29/baseline.json`](../audits/mp29-latency-2026-10-29/baseline.json)).
 - [ ] M3: Legacy and new reviews recover under the compatibility contract; model faults and
   structural request budgets pass without weakening mutation or data-fence invariants.
 
