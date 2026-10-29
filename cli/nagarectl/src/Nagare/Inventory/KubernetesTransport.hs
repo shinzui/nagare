@@ -18,6 +18,9 @@ module Nagare.Inventory.KubernetesTransport
   , KubernetesRuntimeConfig (KubernetesRuntimeConfig, runtimeContext, runtimeKubectlContext, runtimeGuard)
   , withKubectlInterpreter
   , invokeKubectl
+  , dispatchKubectl
+  , countedTransport
+  , kubectlPurpose
   , runtimePause
   )
 where
@@ -29,7 +32,10 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, inject, liftIO, runEff)
 import Effectful.Dispatch.Dynamic (interpret, send)
+import GHC.Clock (getMonotonicTimeNSec)
+import Nagare.Contract.Trace (CountCategory (..))
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.Counters (traceCount, traceProcess)
 import Nagare.Resource.Types (ContextId)
 import System.Exit (ExitCode)
 import System.Process (readProcessWithExitCode)
@@ -63,16 +69,15 @@ runKubectlWith handler program =
       (inject program :: Eff '[Kubectl, IOE] a)
 
 runKubectlIO :: KubectlInterpreter
-runKubectlIO = runKubectlWith $ \request -> do
+runKubectlIO = runKubectlWith . countedTransport $ \request -> do
   result <-
-    try
-      ( readProcessWithExitCode
-          "kubectl"
-          ( ["--context", T.unpack (request ^. #context), "--request-timeout=10s"]
-              <> request ^. #arguments
-          )
-          (request ^. #input)
-      )
+    traceProcess "kubectl" . try $
+      readProcessWithExitCode
+        "kubectl"
+        ( ["--context", T.unpack (request ^. #context), "--request-timeout=10s"]
+            <> request ^. #arguments
+        )
+        (request ^. #input)
   pure $ case result of
     Left (_ :: IOException) -> Left "could not invoke kubectl"
     Right output -> Right output
@@ -107,11 +112,42 @@ runtimePause config microseconds = case config of
   KubernetesRuntimeConfig {} -> threadDelay microseconds
   InterpretedRuntime {} -> pure ()
 
+-- | One Kubernetes request the runtime asks for: counted as logical work
+-- (EP-224), then answered by the selected interpreter.
 invokeKubectl :: KubernetesRuntimeConfig -> [String] -> String -> IO KubectlResult
-invokeKubectl config arguments input =
+invokeKubectl config arguments input = do
+  traceCount CategoryKubernetesLogical (kubectlPurpose arguments) 0
+  dispatchKubectl config arguments input
+
+-- | Answer a request without counting it as logical work again: for an
+-- interpreter that forwards a request it cannot answer itself.
+dispatchKubectl :: KubernetesRuntimeConfig -> [String] -> String -> IO KubectlResult
+dispatchKubectl config arguments input =
   interpreter
     (kubectl (KubectlRequest (runtimeKubectlContext config) arguments input))
   where
     interpreter = case config of
       KubernetesRuntimeConfig {} -> runKubectlIO
       InterpretedRuntime {runtimeInterpreter = selected} -> selected
+
+-- | Count each request a handler sends to the cluster, with its time. The
+-- production transport uses it; a fake API server uses it to stand where
+-- the network would be.
+countedTransport :: (KubectlRequest -> IO KubectlResult) -> KubectlRequest -> IO KubectlResult
+countedTransport handler request = do
+  started <- getMonotonicTimeNSec
+  result <- handler request
+  finished <- getMonotonicTimeNSec
+  traceCount CategoryKubernetesTransport (kubectlPurpose (request ^. #arguments)) (finished - started)
+  pure result
+
+-- | A request's verb and, for verbs that name one, its kind; never names,
+-- namespaces or bodies.
+kubectlPurpose :: [String] -> Text
+kubectlPurpose = \case
+  verb : kind : _
+    | verb `elem` ["get", "patch", "delete", "wait", "rollout", "logs", "exec"]
+    , take 1 kind /= "-" ->
+        T.pack (verb <> " " <> kind)
+  verb : _ -> T.pack verb
+  [] -> "none"

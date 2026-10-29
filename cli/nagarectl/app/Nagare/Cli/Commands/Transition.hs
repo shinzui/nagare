@@ -33,6 +33,7 @@ import Nagare.Inventory.Store
   , transitionReviewIdentity
   , withProcessLock
   )
+import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Platform.Deployment (DeploymentState (NotDeployed))
 import Nagare.Platform.Status (renderPlatformStatus)
 import Nagare.Platform.Transition (checkTransition, renderTransitionRefusal, transitionCommitRefusal, transitionContinueRefusal)
@@ -47,9 +48,9 @@ import Nagare.Target (Mode (Cloud), contextNameText, writeContextPlatformVersion
 runPlatformTransitionPlan :: Maybe String -> FilePath -> IO ()
 runPlatformTransitionPlan mctx output = do
   active <- activeTarget mctx
-  (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  (paths, workspace) <- tracePhase "workspace resolution" (resolvePlatformWorkspace (active ^. #contextName))
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  store <- tracePhase "inventory open" (Inventory.openTargetStoreReadOnly active) >>= either (dieT . T.pack . show) pure
   headValue <- currentHead store
   pair <-
     either
@@ -67,7 +68,7 @@ runPlatformTransitionPlan mctx output = do
   -- The stages are planned as if the context were already pinned to the
   -- target; the pin itself is written by the commit, last.
   let moved = active & #profile . #platformVersion .~ Just (manifest ^. #platformVersion)
-  planNextStage ReleaseTransition moved paths workspace (transitionReviewIdentity (pair ^. #source) (manifest ^. #payloadId)) output
+  tracePhase "stage planning" $ planNextStage ReleaseTransition moved paths workspace (transitionReviewIdentity (pair ^. #source) (manifest ^. #payloadId)) output
   TIO.putStrLn
     ( "Saved the next transition stage ("
         <> pair ^. #source

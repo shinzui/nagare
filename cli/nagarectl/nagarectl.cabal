@@ -316,6 +316,7 @@ library
     Nagare.Inventory.Store.Service
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
+    Nagare.Inventory.Trace
     Nagare.Inventory.VmPower
     Nagare.Inventory.VolumePrune
     Nagare.Inventory.VolumeRebuildRestore
@@ -735,6 +736,7 @@ test-suite nagarectl-test
     PlatformTransitionTableSpec
     RecordedSiteSpec
     ShomeiUserSpec
+    TransitionCostSpec
 
   build-depends:
     aeson,

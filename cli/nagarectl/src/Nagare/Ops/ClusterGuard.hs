@@ -5,6 +5,7 @@ module Nagare.Ops.ClusterGuard
   ( ClusterGuardInputs (..)
   , ClusterGuardOps (..)
   , clusterGuardObservationsValue
+  , admitClusterGuard
   , clusterGuardVerdict
   , defaultClusterGuardOps
   , observeClusterGuard
@@ -25,7 +26,9 @@ import Data.List (sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Nagare.Contract.Trace (CountCategory (CategoryGuard))
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.Counters (traceCount, tracePhase, traceProcess)
 import System.Exit (ExitCode (..))
 import System.Process (proc, readCreateProcessWithExitCode)
 
@@ -44,6 +47,15 @@ data ClusterGuardOps = ClusterGuardOps
 
 defaultClusterGuardOps :: ClusterGuardOps
 defaultClusterGuardOps = ClusterGuardOps "kubectl"
+
+-- | One guard admission: observe, then judge. Its trace counts the admission
+-- by verdict (EP-224), apart from the programs the observation starts.
+admitClusterGuard :: ClusterGuardOps -> Text -> Text -> IO (Either Text ClusterGuardInputs)
+admitClusterGuard ops selectedContext expected = tracePhase "cluster guard" $ do
+  observed <- observeClusterGuard ops selectedContext expected
+  let admitted = observed >>= \inputs -> inputs <$ clusterGuardVerdict inputs
+  traceCount CategoryGuard (either (const "refused") (const "admitted") admitted) 0
+  pure admitted
 
 -- | Observe the ambient kubeconfig. The command deliberately does not select a
 -- context itself: a mismatched @KUBECONFIG@ must be detected, not corrected.
@@ -150,7 +162,7 @@ parseServerNodes input = do
 
 runKubectl :: ClusterGuardOps -> [String] -> IO (Either Text ByteString)
 runKubectl ops arguments = do
-  result <- try (readCreateProcessWithExitCode (proc (ops ^. #kubectlExecutable) arguments) "")
+  result <- traceProcess "kubectl" (try (readCreateProcessWithExitCode (proc (ops ^. #kubectlExecutable) arguments) ""))
   pure $ case result of
     Left (err :: IOException) -> Left ("could not start kubectl: " <> T.pack (show err))
     Right (ExitSuccess, stdoutText, _) -> Right (BC.pack stdoutText)

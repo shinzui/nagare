@@ -35,6 +35,7 @@ library
     Nagare.Contract.Prelude
     Nagare.Contract.Problem
     Nagare.Contract.Schema
+    Nagare.Contract.Trace
     Nagare.Contract.V1
 
   build-depends:

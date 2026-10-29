@@ -18,7 +18,9 @@ import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Contract.Trace (OperationRecord (..))
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
+import Nagare.Inventory.Adapter (PlannedOperation (..))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.ObservationNative
   ( observationBytesFromMutation
@@ -42,6 +44,7 @@ import Nagare.Inventory.Store
   , reviewKey
   , scopeKey
   )
+import Nagare.Inventory.Store.Counters (traceOperations)
 import Nagare.Resource.Types
   ( ContentDigest
   , digestText
@@ -150,6 +153,13 @@ loadPublishedReview store digest = do
 
 writeReviewBundle :: FilePath -> ReviewBundle -> IO (Either Text ContentDigest)
 writeReviewBundle output bundle = do
+  -- EP-224: a saved review is a plan; its trace counts what it planned.
+  traceOperations
+    RecordPlanned
+    [ (T.pack (show (plannedAction planned)), T.pack (show (plannedExecutor planned)))
+    | operation <- reviewOperations (bundleDocument bundle)
+    , let planned = reviewPlannedOperation operation
+    ]
   attempted <- try $ do
     exists <- doesPathExist output
     when exists (ioError (userError "review output already exists"))

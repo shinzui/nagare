@@ -12,6 +12,8 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (find, sortOn)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
+import Nagare.Contract.Trace (OperationRecord (..), noLabels)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
   ( Adapter
@@ -72,7 +74,7 @@ import Nagare.Inventory.Execute.Types
   )
 import Nagare.Inventory.Journal
   ( FailureClass (KnownNoEffect, PartialOrUnknown)
-  , JournalEvent
+  , JournalEvent (eventOperation, eventState)
   , OperationId
   , OperationState
     ( Ambiguous
@@ -83,6 +85,7 @@ import Nagare.Inventory.Journal
     , Pending
     )
   , TransactionId
+  , operationIdText
   , operationStates
   , transactionIdText
   )
@@ -117,6 +120,7 @@ import Nagare.Inventory.Store
   , readObject
   , scopeKey
   )
+import Nagare.Inventory.Store.Counters (labelled, traceOperations, withSpan)
 import Nagare.Resource.Inventory (Executor (..))
 import Nagare.Resource.Inventory qualified as Resource
 import Nagare.Resource.Policy (DataPolicy (..))
@@ -385,8 +389,18 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
               adapter
               prepared
               fenceSelection
+    -- EP-224: each attempt of an operation is one span labelled with the
+    -- operation and its attempt; its preflight, effect and verification are
+    -- child spans. Labels are passed down, never read from a global.
     executePrepared events operation operationId adapter prepared fenceSelection = do
-      preflight <- adapterPreflight adapter operation prepared
+      let action = T.pack (show (plannedAction operation))
+          attempt = 1 + length [() | event <- events, eventOperation event == Just operationId, eventState event == IntentRecorded]
+          labels = noLabels & #operation ?~ operationIdText operationId & #attempt ?~ attempt
+      traceOperations RecordExecuted [(action, T.pack (show (plannedExecutor operation)))]
+      withSpan (labelled labels) ("operation " <> action) $ \context ->
+        executeAttempt context events operation operationId adapter prepared fenceSelection
+    executeAttempt context events operation operationId adapter prepared fenceSelection = do
+      preflight <- withSpan context "preflight" (const (adapterPreflight adapter operation prepared))
       case preflight of
         Left reason
           | Map.findWithDefault Pending operationId (operationStates transaction events) /= Pending -> do
@@ -433,10 +447,11 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                         if plannedAction operation == VerifyResource
                           then pure AdapterEffectCompleted
                           else
-                            withAdapterEnv
-                              transaction
-                              operation
-                              (adapterExecute adapter operation prepared)
+                            withSpan context "effect" . const $
+                              withAdapterEnv
+                                transaction
+                                operation
+                                (adapterExecute adapter operation prepared)
                       -- ADR 27: every event that ends this operation keeps the
                       -- identity the provider returned for its write.
                       let (physical, outcome) = effectIdentity result
@@ -472,10 +487,11 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                           pure (Just (StoppedAmbiguous transaction operationId ("adapter result was ambiguous: " <> reason)))
                         OutcomeCompleted -> do
                           verification <-
-                            withAdapterEnv
-                              transaction
-                              operation
-                              (adapterVerify adapter operation prepared)
+                            withSpan context "verify" . const $
+                              withAdapterEnv
+                                transaction
+                                operation
+                                (adapterVerify adapter operation prepared)
                           case verification of
                             Left reason -> do
                               markUnknown activeFence

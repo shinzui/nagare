@@ -67,8 +67,17 @@ New tooling is Haskell in the existing cabal workspace. The previously proposed
 ## Progress
 
 
-- [ ] M1: A versioned command trace and production-interpreter fixture distinguish logical calls,
+- [x] M1: A versioned command trace and production-interpreter fixture distinguish logical calls,
   actual network traffic, critical-path duration and failure outcomes for no-op and changed work.
+  Pass, 2026-10-29: `cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p
+  TransitionCost'` runs nine cases in `cli/nagarectl/test/TransitionCostSpec.hs` (codec and
+  unknown-schema refusal, uncovered time, thrown phase, overlapping operations, private
+  `NAGARE_TRACE_FILE` on completion/failure/cancellation, snapshot reuse, denied guard, lost store
+  reply, production plan/apply over the fake API server). Observed 206-member baseline: an
+  unchanged plan reads 206 objects and plans nothing; a marker change plans 205 verifies and one
+  update, reading each member twice (412) and 414 times on apply; one changed member still plans
+  205 verifies, four plan 203 verifies and three updates. Codec:
+  `cli/nagare-contract/src/Nagare/Contract/Trace.hs`; producer: `Nagare.Inventory.Trace`.
 - [ ] M2: A Haskell cost-record producer, validator and history command consume actual CLI output,
   enforce structural budgets and retain failed/incomplete attempts without exposing secrets.
 - [ ] M3: Completed architectural children pass the interpreter, compatibility, growth and native
@@ -117,6 +126,12 @@ record at the glob the old plan specified.
   user's instruction. The runner port belongs to EP-228; this plan owns its record schema.
 - 2026-10-29: Failure, cold preparation, retries and time waiting on the provider are first-class
   measurements. Partial records never count as passing evidence.
+- 2026-10-29: M1's production fixture uses Kubernetes members only. Helm verifies run the same
+  driver path through another adapter, and the fake world has no Helm server; Helm counts are
+  measured natively and enter the structural fixtures when EP-226 M3 shares its session.
+- 2026-10-29: The fixture's rows assert today's costs, including the full re-verify a single
+  change causes while a scope's bootstrap marker is unsettled. EP-225 and EP-227 lower these rows
+  deliberately; they are not budgets.
 
 
 ## Outcomes & Retrospective

@@ -11,9 +11,8 @@ import Nagare.Dsl.Prelude
 import Nagare.Host.Config (readContextHostName)
 import Nagare.Inventory.AccessRuntime (EnTransport, prepareEnSession, withEnSession)
 import Nagare.Ops.ClusterGuard
-  ( clusterGuardVerdict
+  ( admitClusterGuard
   , defaultClusterGuardOps
-  , observeClusterGuard
   , renderClusterGuard
   )
 import Nagare.Target
@@ -32,11 +31,7 @@ guardKubernetesContext active = case active ^. #profile . #mode of
     case expectedNode of
       Left err -> pure (Left err)
       Right expected -> do
-        observed <- observeClusterGuard defaultClusterGuardOps contextText expected
-        pure $ do
-          inputs <- observed
-          clusterGuardVerdict inputs
-          Right (renderClusterGuard inputs)
+        fmap renderClusterGuard <$> admitClusterGuard defaultClusterGuardOps contextText expected
 
 -- | The command's one en session for the active context (EP-214): one
 -- forward and one passing cluster guard, released when the command ends.

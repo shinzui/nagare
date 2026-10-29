@@ -44,7 +44,7 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan (ReviewBundle, ReviewDocument (reviewOperations), ReviewInventory, ReviewOperation (reviewPlannedOperation), reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions, reviewInventoryHistory)
 import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Store (InventoryStore, readObject, revisionDigest, scopeKey)
-import Nagare.Inventory.Store.Counters (tracePhase)
+import Nagare.Inventory.Store.Counters (tracePhase, traceProcess)
 import Nagare.Resource.Access (teamKeyText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
@@ -301,7 +301,7 @@ kubectlReadOwner kubectlContext resource = case resource ^. #address of
   Kubernetes _ group kind (Just namespace) name -> do
     let kindArg = nameText kind <> if T.null group then "" else "." <> group
     result <-
-      try
+      traceProcess "kubectl" . try $
         ( readProcessWithExitCode
             "kubectl"
             [ "--context"

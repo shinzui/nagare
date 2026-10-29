@@ -21,7 +21,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, addUTCTime, getCurrentTime)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Store.Counters (tracePhase)
+import Nagare.Inventory.Store.Counters (tracePhase, traceProcess)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
@@ -44,7 +44,7 @@ newGcloudSession project = do
   newGcloudSessionWith getCurrentTime run variables project
   where
     run variables args = do
-      result <- timeout 15000000 (try (readCreateProcessWithExitCode ((proc "gcloud" args) {env = Just variables}) ""))
+      result <- traceProcess "gcloud" . timeout 15000000 $ (try (readCreateProcessWithExitCode ((proc "gcloud" args) {env = Just variables}) ""))
       pure $ case result of
         Just (Right (ExitSuccess, output, _)) -> Right (T.pack output)
         Just (Right (ExitFailure _, _, errors)) -> Left (failed <> "\n" <> T.pack errors)

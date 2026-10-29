@@ -26,12 +26,13 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
+import Nagare.Inventory.Store.Counters (traceProcess)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import System.Directory (createDirectory, createDirectoryLink, makeAbsolute)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
-import System.FilePath (isAbsolute, splitDirectories, takeDirectory, (</>))
+import System.FilePath (isAbsolute, splitDirectories, takeDirectory, takeFileName, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
@@ -280,7 +281,7 @@ mutateRelease config mutation = do
 run :: FilePath -> [String] -> Maybe [(String, String)] -> IO (Either Text (ExitCode, String, String))
 run command arguments environment = do
   result <-
-    try (readCreateProcessWithExitCode ((proc command arguments) {env = environment}) "") ::
+    traceProcess (T.pack (takeFileName command)) (try (readCreateProcessWithExitCode ((proc command arguments) {env = environment}) "")) ::
       IO (Either IOException (ExitCode, String, String))
   pure (first (T.pack . show) result)
 

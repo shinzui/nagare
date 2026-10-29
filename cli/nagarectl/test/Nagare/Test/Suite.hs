@@ -142,6 +142,7 @@ import System.Environment (lookupEnv)
 import System.Exit (exitWith)
 import Test.Tasty (localOption, testGroup)
 import Test.Tasty.Runners (NumThreads (..))
+import TransitionCostSpec (transitionCostTests)
 
 main :: IO ()
 main = do
@@ -205,6 +206,7 @@ main = do
             , inventoryStatusTests
             , inventoryObservationTests
             , inventoryGcloudAuthTests
+            , transitionCostTests
             , inventoryGogolTests
             , inventoryServiceStoreTests
             , testGroup "inventory object store" [inventoryObjectOpsTests, inventoryStoreOnceTests, inventoryImmutableReadTests]

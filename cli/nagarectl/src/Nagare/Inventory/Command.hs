@@ -89,6 +89,7 @@ import Nagare.Inventory.ManifestAdapter (manifestAdapterFor, manifestOnlyRegistr
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.Remote qualified as Remote
 import Nagare.Inventory.Store.Target (openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
@@ -588,10 +589,10 @@ tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target ope
     if headValue == pinned
       then pure (opened ^. #loadedHistory)
       else loadInventoryHistoryAt store headValue >>= either (dieText . showText) pure
-  history <- loadInventoryPlanningHistoryFrom store loaded candidate >>= either (dieText . showText) pure
-  registry <- registryFor candidate history
+  history <- tracePhase "history load" (loadInventoryPlanningHistoryFrom store loaded candidate) >>= either (dieText . showText) pure
+  registry <- tracePhase "runtime setup" (registryFor candidate history)
   let requirements = observationRequirements candidate history
-  observed <- observeWithRegistry registry (requirementsByExecutor requirements)
+  observed <- tracePhase "observation" (observeWithRegistry registry (requirementsByExecutor requirements))
   -- Notes, such as a reader's pending objects (EP-206), go to stderr.
   forM_ observed $ \observations ->
     forM_ (Map.toAscList (observationNotes observations)) $ \(resource, note) ->
@@ -599,11 +600,11 @@ tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target ope
   case observed >>= \observations -> first renderPlanErrors (decide history observations >>= \decisions -> planChanges candidate decisions history observations) of
     Left reason -> pure (Left reason)
     Right proposal -> do
-      prepared <- prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal
+      prepared <- tracePhase "review preparation" (prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal)
       case prepared of
         Left errors -> pure (Left (showText (NE.toList errors)))
         Right bundle -> do
-          digest <- publishReview store bundle >>= either (dieText . showText) pure
+          digest <- tracePhase "review publication" (publishReview store bundle) >>= either (dieText . showText) pure
           pure (Right (store, bundle, digest))
 
 applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
@@ -620,9 +621,9 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
   unless yes (dieText "inventory apply requires --yes after reviewing the bound plan")
   publicBundle <- loadReviewBundle reviewDirectory >>= either dieText pure
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument publicBundle))
-  (store, observed) <- openTargetStoreAtHead target
+  (store, observed) <- tracePhase "inventory open" (openTargetStoreAtHead target)
   requireTransitionOwnerAt observed
-  bundle <- loadPublishedReview store (reviewDigest publicBundle) >>= either (dieCoded reviewChanged . showText) pure
+  bundle <- tracePhase "review load" $ loadPublishedReview store (reviewDigest publicBundle) >>= either (dieCoded reviewChanged . showText) pure
   unless
     ( reviewBundleDocument bundle == reviewBundleDocument publicBundle
         && reviewBundleScopes bundle == reviewBundleScopes publicBundle
@@ -632,11 +633,11 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
   -- EP-212: one history, loaded at the head this command read, serves the
   -- registry and admission; admission reloads if the locked head moved. A
   -- failed load is left to them, so every refusal stays as it was.
-  pinned <- either (const Nothing) Just <$> loadInventoryHistoryAt store headValue
-  registry <- registryFor (ReviewInventory store pinned) bundle
+  pinned <- either (const Nothing) Just <$> tracePhase "history load" (loadInventoryHistoryAt store headValue)
+  registry <- tracePhase "runtime setup" (registryFor (ReviewInventory store pinned) bundle)
   snapshot <- readReviewSnapshotAt store headValue (reviewDigest bundle) >>= either (dieCoded storeUnavailable . showText) pure
   reviewed <- either (dieCoded reviewChanged . showText . NE.toList) pure (verifyReview snapshot bundle)
-  result <- applyReviewedWithHistory store registry reviewed pinned >>= either (dieCoded admissionRefused . showText . NE.toList) pure
+  result <- tracePhase "transaction" (applyReviewedWithHistory store registry reviewed pinned) >>= either (dieCoded admissionRefused . showText . NE.toList) pure
   reportTransaction (renderTransactionResult result) result
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()

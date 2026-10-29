@@ -23,9 +23,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
+import Nagare.Contract.Trace (CountCategory (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime (objectReadArguments)
-import Nagare.Inventory.KubernetesTransport (KubectlResult, KubernetesRuntimeConfig, invokeKubectl, runKubectlWith, withKubectlInterpreter)
+import Nagare.Inventory.KubernetesTransport (KubectlResult, KubernetesRuntimeConfig, dispatchKubectl, invokeKubectl, kubectlPurpose, runKubectlWith, withKubectlInterpreter)
+import Nagare.Inventory.Store.Counters (traceCount)
 import Nagare.Resource.Types (Name, ProviderAddress (..), nameText)
 import System.Exit (ExitCode (..))
 
@@ -42,11 +44,11 @@ snapshotRuntime config addresses = do
             bracket_ (waitQSem limit) (signalQSem limit) (snapshotAnswers members <$> invokeKubectl config arguments "")
         )
         (snapshotReads addresses)
-  let answer request =
-        maybe
-          (invokeKubectl config (request ^. #arguments) (request ^. #input))
-          pure
-          (Map.lookup (request ^. #arguments) answers)
+  -- The runtime already counted each request as logical work (EP-224): a
+  -- request this read answers is reuse, any other is forwarded uncounted.
+  let answer request = case Map.lookup (request ^. #arguments) answers of
+        Just answered -> answered <$ traceCount CategoryKubernetesReuse (kubectlPurpose (request ^. #arguments)) 0
+        Nothing -> dispatchKubectl config (request ^. #arguments) (request ^. #input)
   pure (withKubectlInterpreter (runKubectlWith answer) config)
 
 -- | One read per kind and namespace, with the single-object read each named

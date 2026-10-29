@@ -53,6 +53,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.Counters (traceProcess)
 import Nagare.Target
   ( InventoryStoreKind (..)
   , PulumiBackendKind (..)
@@ -317,7 +318,7 @@ runGcloud step args = do
 -- collapses the empty-output case this code must distinguish.
 captureGcloud :: [String] -> IO (Maybe Text)
 captureGcloud args = do
-  (code, out, _) <- readProcessWithExitCode "gcloud" args ""
+  (code, out, _) <- traceProcess "gcloud" (readProcessWithExitCode "gcloud" args "")
   let trimmed = T.strip (T.pack out)
   pure $ case code of
     ExitSuccess | not (T.null trimmed) -> Just trimmed
