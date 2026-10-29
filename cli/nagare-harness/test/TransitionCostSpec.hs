@@ -51,6 +51,8 @@ transitionCostTests =
           [entry ^. #budget | entry <- snd (judge slow), not (entry ^. #holds)] @?= ["plan transition-2"]
           fst (judge (record & #activationSeconds .~ 301)) @?= VerdictFailed
           fst (judge (record & #runStatus .~ "running")) @?= VerdictIncomplete
+          -- A failed run is failed even when traces are missing.
+          fst (judge (record & #runStatus .~ "failed" & #missing .~ ["reviews/transition-1.plan.trace.json"])) @?= VerdictFailed
     , testCase "history lists records by profile and refuses an unknown schema" $
         withSystemTempDirectory "cost-history" $ \root -> do
           mapM_ (createDirectoryIfMissing True . (root </>)) ["rev-a", "rev-b", "rev-c"]

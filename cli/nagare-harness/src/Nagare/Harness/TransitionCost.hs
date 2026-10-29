@@ -115,7 +115,9 @@ collectTo run out = do
 
 fromIndex :: FilePath -> RunIndex -> IO CostRecord
 fromIndex base index = do
-  costed <- traverse stageCost (index ^. #stages)
+  -- A stage the published source release ran has neither a summary nor a
+  -- trace: it prepares the source context and is not measured.
+  costed <- traverse stageCost [stage | stage <- index ^. #stages, isJust (stage ^. #trace) || isJust (stage ^. #summary)]
   let costs = map fst costed
       absent = concatMap snd costed
   pure
@@ -202,9 +204,9 @@ data Verdict = VerdictPassed | VerdictFailed | VerdictIncomplete
   deriving stock (Eq, Show)
 
 -- | The verdict and the budgets behind it. Every stage plan finishes within
--- 60 s and the traced activation within 300 s (MasterPlan 30). A run that
--- did not pass, or whose commands did not all complete, fails; one with a
--- missing trace or still running is incomplete.
+-- 60 s and the traced activation within 300 s (MasterPlan 30). A failed run
+-- fails whatever it traced; otherwise one with a missing trace or still
+-- running is incomplete, and one whose commands did not all complete fails.
 judge :: CostRecord -> (Verdict, [Budget])
 judge record = (verdict, budgets)
   where
@@ -217,6 +219,7 @@ judge record = (verdict, budgets)
         <> [Budget "activation" 300 (record ^. #activationSeconds) (record ^. #activationSeconds < 300)]
     commandsCompleted = all (all (== "completed") . (^. #outcomes)) (record ^. #stages)
     verdict
+      | record ^. #runStatus == "failed" = VerdictFailed
       | record ^. #runStatus == "running" || not (null (record ^. #missing)) || null (record ^. #stages) = VerdictIncomplete
       | record ^. #runStatus /= "passed" || not commandsCompleted || not (all (^. #holds) budgets) = VerdictFailed
       | otherwise = VerdictPassed
