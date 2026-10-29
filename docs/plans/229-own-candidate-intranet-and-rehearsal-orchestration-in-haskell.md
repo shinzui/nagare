@@ -69,6 +69,24 @@ the ported runner with a preparation manifest, progress and cost records.
   `exec`s the harness with its arguments.
 - 2026-10-29: The harness may depend on `nagare-contract` (EP-224 adds it for the trace codec)
   but never on the nagarectl library; typed outcomes come from small additive nagarectl output.
+- 2026-10-29 (M1): The harness commands take the scripts' own grammars so each wrapper is a bare
+  `exec scripts/harness.sh … "$@"`: `release candidate VERSION [--revision REV] [--rehearsal]`,
+  `transition run VERSION [--run DIR] [--context NAME] [--revision REV] [--pin-tag]` (with
+  `--pin-tag` it is `transition pin-tag`; `--context` defaults to `NAGARE_RELEASE_CONTEXT`, else
+  `intranet`, and `--revision` only refuses a run for another revision),
+  `transition pin-tag VERSION [--run DIR] [--context NAME]`,
+  `transition rehearse REV PREV_VERSION [--run DIR]`, and `transition drill` for
+  `scripts/transition-rehearsal.sh`, configured by its `NAGARE_REHEARSAL_*` variables. Usage
+  errors exit 2 for every harness command, as the scripts' did.
+- 2026-10-29 (M1): `transition rehearse` starts the drill as `nagare-harness transition drill`
+  with exactly the old `env -i` variables and tees its output to `rehearsal.log`, so the drill
+  still runs from the empty environment. Every invocation resolves its program on the child's
+  PATH, not the harness's. The drill's `docker save | docker load` of a missing pinned image is
+  `docker save -o` and `docker load -i` through a file in the root.
+- 2026-10-29 (M1): `scripts/audit-managed-commands.py` registers the drill and intranet entry
+  points at their Haskell modules (a data-only edit of the frozen audit). The intranet cases of
+  `scripts/test-release-intranet.sh` moved to `ReleaseTransitionSpec`; the script keeps only
+  release-publish's intranet precondition, which this plan does not port.
 
 
 ## Outcomes & Retrospective

@@ -127,10 +127,12 @@ ENTRYPOINTS = {
     "scripts/local-app-database-smoke.sh": ("db app-database plan", "app image-plan", "--image-resource", "worker deploy", "db app-database restore", "--restore-id", "inventory apply", "app-database smoke: PASS"),
     "scripts/lib/smoke-readback.sh": ("NAGARE_VOLUME_RESTORE_FILE", "NAGARE_VOLUME_RESTORE_MANIFEST", "logs \"job/${job}\" -c restore"),
     "scripts/run-reviewed-bootstrap.sh": ("platform bootstrap plan", "platform bootstrap apply"),
-    "scripts/transition-rehearsal.sh": ("platform bootstrap plan", "platform bootstrap apply", "transition plan", "inventory apply", "platform transition commit", "transition_sentinel"),
+    # EP-229: the transition drill and the intranet move are nagare-harness commands; their
+    # scripts are exec wrappers.
+    "cli/nagare-harness/src/Nagare/Harness/Release/TransitionDrill.hs": ("platform bootstrap plan", "platform bootstrap apply", "transition plan", "inventory apply", "platform transition commit", "transition_sentinel"),
     "scripts/release-publish.sh": ("release publish", "--yes", "created draft is not yet visible"),
     # EP-210 M5: the intranet transition of a release candidate, run by release-candidate.sh.
-    "scripts/release-intranet.sh": ("platform transition plan", "inventory apply", "inventory resume", "platform transition commit", "direnv exec"),
+    "cli/nagare-harness/src/Nagare/Harness/Release/Intranet.hs": ("platform transition plan", "inventory apply", "inventory resume", "platform transition commit", "direnv exec"),
     "scripts/host-switch.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
     "scripts/upload-images.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD", "inventory guard-legacy upload-images"),
     "scripts/install-net-certmanager-controller.sh": ("inventory guard-legacy install-net-certmanager-controller",),
