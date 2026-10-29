@@ -83,8 +83,17 @@ New tooling is Haskell in the existing cabal workspace. The previously proposed
   update, reading each member twice (412) and 414 times on apply; one changed member still plans
   205 verifies, four plan 203 verifies and three updates. Codec:
   `cli/nagare-contract/src/Nagare/Contract/Trace.hs`; producer: `Nagare.Inventory.Trace`.
-- [ ] M2: A Haskell cost-record producer, validator and history command consume actual CLI output,
+- [x] M2: A Haskell cost-record producer, validator and history command consume actual CLI output,
   enforce structural budgets and retain failed/incomplete attempts without exposing secrets.
+  Pass, 2026-10-29 (landed `6cb6868d`, `28df690e`, `93976286`): the runner gives every candidate
+  plan, apply and resume a `NAGARE_TRACE_FILE` and records it on the run index;
+  `nagare-harness transition-cost fixture|collect|check|history` (harness `-p TransitionCost`,
+  five cases). The structural case (`-p "/journal writes do not grow/"`) holds a marker sweep at
+  0 verifies and 4 journal events for 205 and 2,050 members, unchanged beside 50 unrelated
+  scopes. Native: the disposable v0.11.0 → `842cd70c` rehearsal collected with no trace missing
+  and passed: stage 2 planned and executed 1 update and 213 validations (plan 31.7 s, apply
+  28.6 s, 839 Kubernetes requests, 879 external processes), stage 3 replanned to nothing in
+  18.9 s; activation 83 s, end-to-end 498 s. A failed run collects as failed.
 - [ ] M3: Completed architectural children pass the interpreter, compatibility, growth and native
   latency matrix, with evidence bound to the final candidate and no Python in the rollout path.
 
@@ -134,6 +143,10 @@ record at the glob the old plan specified.
 - 2026-10-29: M1's production fixture uses Kubernetes members only. Helm verifies run the same
   driver path through another adapter, and the fake world has no Helm server; Helm counts are
   measured natively and enter the structural fixtures when EP-226 M3 shares its session.
+- 2026-10-29: The request-chunking and journal-history budgets are asserted where their
+  behavior is built: EP-226 M2 (grouped reads at 128 names) and EP-227 M2 (a catch-up tail that
+  does not grow with history). Asserting them here first would only record today's linear cost.
+  Stages the published source release runs carry no trace and are setup, not measurements.
 - 2026-10-29: The fixture's rows assert today's costs, including the full re-verify a single
   change causes while a scope's bootstrap marker is unsettled. EP-225 and EP-227 lower these rows
   deliberately; they are not budgets.

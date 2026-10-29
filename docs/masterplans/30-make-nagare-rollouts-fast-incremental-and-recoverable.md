@@ -124,7 +124,7 @@ dependency on MP-29.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|---|---|---|---|---|
-| EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–229 Complete | MP-29 tracing | In Progress (M1 done) |
+| EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–229 Complete | MP-29 tracing | In Progress (M1–M2 done) |
 | EP-225 | Stable deployment meaning and incremental reviews | [225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md) | EP-224 M1 | None | In Progress (M1–M2 done) |
 | EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | In Progress (M4 done) |
 | EP-227 | Durable batched verification with per-operation recovery | [227](../plans/227-commit-verification-proofs-without-per-resource-remote-transactions.md) | EP-224 M1; EP-225 M2 and EP-226 M1–M2 before its M2 | None | Not Started |
@@ -230,19 +230,22 @@ review is generated only from an idle head; never rewrite an admitted review to 
 ## Progress
 
 
-2026-10-29: EP-226 M4 landed (no per-command project-number read; confirmed on the intranet).
-EP-224 M1 landed: the versioned trace and the production-path baseline fixture. EP-225 M1 landed
-(scopes whose deployment meaning is unchanged keep their revisions); M2 makes the bootstrap
-sweep 205 admission validations instead of 205 journaled verifies. Next: EP-225 M3, EP-226
-M1–M3, then EP-227. EP-229 is complete: the four release scripts are wrappers over
-`nagare-harness`, decide from typed documents, write a version-one run index and run without
-Python; EP-224 M2 now reads that index. Final
+2026-10-29: landed EP-226 M4, EP-224 M1–M2 (trace, baseline fixture, cost collector), EP-225
+M1–M2 (retained revisions; the bootstrap sweep is admission validations, not journaled verifies)
+and EP-229 (Haskell release runner, run index, no Python). The disposable v0.11.0 rehearsal of
+`842cd70c` passes with an 83 s traced activation. Next: EP-225 M3, EP-226 M1–M3, EP-227, EP-228.
+Final
 acceptance includes unchanged and changed rollouts, recovery, growth limits, Python-free release
 tooling and five warm intranet measurements.
 
 
 ## Surprises & Discoveries
 
+
+The first native cost record (local rehearsal, 2026-10-29) shows the sweep stage spending 879
+external processes on 839 Kubernetes requests: one kubectl process per read. EP-226 should treat
+process count as a first-class cost beside request count; grouping reads (its M2) removes both, and
+its Surprises record why the existing status snapshot cannot be reused for planning as is.
 
 At source revision `5c57e81785cd04d03dee424e7b70966987b9814b`,
 `Inventory/Plan/Changes.hs` sets `bootstrapReview` when a selected generated marker is not settled,

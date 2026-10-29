@@ -72,10 +72,19 @@ equality does not prove that the live cluster is healthy.
   new field as unknown, so an old writer cannot apply a new review.
 - [ ] M3: Previous-release review compatibility and the transition producer/consumer fixture
   pass, including one changed member, preserved scope vectors and final stamp dependencies.
+  Partial, 2026-10-29: a swept marker replans to nothing (`2e0ea59f`); drift, deletion and
+  replacement after the plan refuse admission; the disposable v0.11.0 → `842cd70c` rehearsal
+  passed. Remaining: the moved-workspace platform replan and the transition table's wording for
+  retained revisions.
 
 
 ## Surprises & Discoveries
 
+
+- 2026-10-29: M1's first comparison used Haskell equality, but the wire sorts aliases,
+  dependencies and declarations, so a stored scope and the same scope freshly compiled differed and
+  the disposable v0.11.0 rehearsal refused its local substrate. Meaning is now compared as the
+  canonical bytes of the projected scope (`842cd70c`); the rehearsal then passed.
 
 2026-10-29 source review: `Bootstrap/Platform.hs` selects replacements by full canonical scope
 bytes. `bootstrapPreservedScopeVectorDigest` uses the same comparison. `Platform/Transition.hs`
