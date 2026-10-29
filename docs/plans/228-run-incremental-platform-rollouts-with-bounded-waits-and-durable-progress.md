@@ -36,12 +36,12 @@ This ExecPlan is a living document. Its completed behavior feeds EP-224's final 
 Turn platform transitions into resumable incremental rollouts. A developer sees the impact before
 apply, preparation completes before disruptive activation, independent stateless workloads can
 become ready together, and every wait has a deadline and visible progress. Successful operations
-are not replayed after interruption. The release runner and its evidence processing are Haskell,
-and the supported transition path works when Python is absent.
+are not replayed after interruption. The Haskell release runner that EP-229 owns records every
+attempt's progress and cost.
 
 This is the integration of stable desired state, guarded observations and efficient durable proof.
-It preserves reviewed plan/apply commands and existing release recipes while removing orchestration
-decisions from shell. Its implementation gate is model/rehearsal correctness; EP-224 independently
+It preserves reviewed plan/apply commands and the release recipes EP-229 moves to Haskell. Its
+implementation gate is model/rehearsal correctness; EP-224 independently
 closes the final intranet performance gate, so the dependency graph has no cycle.
 
 
@@ -52,8 +52,9 @@ closes the final intranet performance gate, so the dependency graph has no cycle
   with artifact preparation, explicit barriers and resumable finalization.
 - [ ] M2: Independent stateless updates overlap readiness under a bounded coordinator; dependent,
   destructive, data, Helm and host work retain their required ordering and recovery.
-- [ ] M3: Haskell candidate/intranet/rehearsal orchestration preserves public recipes, records
-  progress and cost for every attempt, and runs its transition path without Python.
+- [ ] M3: The ported runner (EP-229) keeps a versioned run index with progress and cost for every
+  attempt, reuses verified prepared material, resumes only under the recovery contract and stops
+  a no-progress loop with its blocker.
 - [ ] M4: Rehearsals and interpreter failure/compatibility cases cover no-op, changed, stuck and
   interrupted rollouts; artifact-ready latency evidence is ready for EP-224's intranet confirmation.
 
@@ -84,6 +85,8 @@ second implementation rather than enforce the Haskell tooling architecture.
   Do not blanket-parallelize arbitrary adapters.
 - 2026-10-29: Port the release orchestration being extended to Haskell before adding cost/progress
   features. Remove embedded and transitively invoked transition-specific Python from that path.
+  Later the same day the port became [EP-229](229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md);
+  this plan's M3 extends the ported runner and depends on it.
 - 2026-10-29: Treat pin/marker finalization as a recoverable protocol; a filesystem pin and a remote
   head cannot be made atomic by a local lock or an optimistic second read.
 
@@ -112,7 +115,8 @@ its outcome. Timeout or cancellation after submission is potentially ambiguous, 
 
 `cli/nagare-harness/app/Main.hs` is the maintainer CLI. `scripts/release-candidate.sh`,
 `scripts/release-intranet.sh`, `scripts/release-rehearse.sh` and
-`scripts/transition-rehearsal.sh` currently coordinate release/transition execution. The public
+`scripts/transition-rehearsal.sh` currently coordinate release/transition execution; EP-229 ports
+them to `cli/nagare-harness/src/Nagare/Harness/Release/`, and this plan extends that port. The public
 recipes are `just release-candidate` and `just release-rehearse`; `release-intranet.sh` is run by
 `release-candidate.sh` or directly by the operator, and `transition-rehearsal.sh` by
 `release-rehearse.sh`. `docs/runbooks/releases.md` describes operator use.
@@ -201,35 +205,22 @@ Add shared-address, CRD/custom-resource, host/kubeconfig and data-fence examples
 overlap. Preserve the existing single-operation path and benchmark application deploy as a
 consumer of the same scheduler, so the root fix benefits developer changes as well as releases.
 
-### M3 — Own orchestration in Haskell
+### M3 — Extend the ported runner with durable progress and cost
 
 
-Add `cli/nagare-harness/src/Nagare/Harness/Release/Transition.hs` and narrowly scoped sibling
-modules for candidate and rehearsal orchestration. Port the existing behavior first, with fixture
-tests for its real run records and command invocation order. Then turn the four scripts named
-above into argument-preserving `exec` wrappers. Preserve normal guard, candidate identity, clean
-pin-file checks, release steps, approval boundaries and evidence publication behavior. Do not
-change which actions a recipe authorizes merely because implementation language changed.
-
-Use typed CLI outcome documents instead of text scraping or repeated jq/Python JSON decisions.
-Extend the existing CLI contract layer for transition outcomes rather than creating an incompatible
-JSON convention. Store stage/review/transaction IDs, attempt status, preparation manifest and
-relative trace paths in a versioned run index. Repeated stage requests reuse only immutable
+Starting from EP-229's Haskell runner under `cli/nagare-harness/src/Nagare/Harness/Release/`,
+extend its versioned run index with the preparation manifest from M1, stage/review/transaction
+IDs, attempt status and relative trace paths. Repeated stage requests reuse only immutable
 prepared material after verification. A stopped apply resumes only when the existing recovery
 contract permits it; avoid a blanket retry policy. A no-progress loop stops when its head, desired
 vector and unresolved requirements repeat, with the concrete blocker, rather than exhausting
-twelve indistinguishable stages.
+twelve indistinguishable stages. Progress output follows the M2 cadence for every attempt.
 
 Call EP-224's cost collector on success and failure. Bind evidence to exact candidate revision,
 source release, context profile and artifact identities. Run files survive interruption; final
 record publication is atomic and never overwrites a prior passing result with a partial run.
-Retain expected recipe interfaces. The harness command contract is `transition run --context NAME
---version VERSION --revision REV --run DIR`, `transition rehearse --revision REV --previous VERSION
---run DIR`, and `release candidate VERSION` with the existing candidate wrapper's options preserved.
-The existing published-tag pin mode remains a distinct `transition pin-tag --context NAME
---version VERSION --run DIR` operation and must not repeat the rollout. Reconcile wrapper help
-and this argument grammar in the first port commit. No Python process may occur in these supported
-paths, including helpers they transitively invoke; port transition-specific helper logic too.
+Keep EP-229's command grammar and wrapper interfaces unchanged; when run index fields change,
+bump its version explicitly and keep EP-224's collector reading every version it supports.
 
 ### M4 — Confirm the integrated release path
 
@@ -241,12 +232,10 @@ interruption; do not claim nonexistent full provider worlds. Confirm those bound
 disposable native rehearsal and host integration environment before production use. The release
 candidate must preserve workload/data sentinels and leave the expected pin/marker after resume.
 
-Test with a PATH containing no Python and an invocation recorder that fails on any Python launch,
-including absolute interpreter paths. Exercise candidate/intranet behavior through fake process
-transports and the real local rehearsal; live intranet timing is EP-224 M3. Record cold preparation
-and warm activation separately without omitting the total. Retire obsolete shell/Python policy
-implementations on the migrated path in the same change. Update the release runbook, help and
-ADRs 6/11/22/24 where the resulting contract changes.
+Exercise candidate/intranet behavior through fake process transports and the real local
+rehearsal; live intranet timing is EP-224 M3 and the Python-free proof is EP-229 M3. Record cold
+preparation and warm activation separately without omitting the total. Update the release runbook,
+help and ADRs 6/11/22 where the resulting contract changes.
 
 
 ## Concrete Steps
@@ -275,8 +264,9 @@ govern the subsequent intranet run; this plan revision itself does not perform a
 
 M1 requires the representative production path and all pin/marker race windows. M2 requires
 measured overlap for independent updates, strict ordering for dependent/exclusive work, bounded
-wait/cancellation and recovery of every in-flight effect. M3 requires behavior-preserving Haskell
-wrappers, machine-readable outcomes, repeatable progress and Python-free invocation. M4 requires
+wait/cancellation and recovery of every in-flight effect. M3 requires the versioned run index,
+repeatable progress and cost records on success and failure, bounded resume and the no-progress
+stop. M4 requires
 compatibility and rehearsal proof for changed/no-op/host/Helm/stuck cases. The final performance
 gate remains EP-224 M3; this child's completion cannot be reported as achieving intranet latency.
 
@@ -298,9 +288,10 @@ under their original serial semantics, or fail before mutation with an explicit 
 
 Hard prerequisites are Complete [EP-225](225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md),
 [EP-226](226-share-bounded-cluster-observations-through-a-guarded-command-session.md),
-[EP-227](227-commit-verification-proofs-without-per-resource-remote-transactions.md), and
+[EP-227](227-commit-verification-proofs-without-per-resource-remote-transactions.md),
+[EP-229](229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) and
 [EP-224 M2](224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md).
-This plan owns rollout phase selection, scheduler integration, finalization metadata and Haskell
-release orchestration. It consumes the shared trace, semantic comparison, epoch and append contracts
-without redefining them. Resolve dependency sources with Mori before using new APIs and verify
+This plan owns rollout phase selection, scheduler integration, finalization metadata and the run
+index, manifest, progress and cost extensions of the release runner. It consumes the shared trace,
+semantic comparison, epoch, append and runner contracts without redefining them. Resolve dependency sources with Mori before using new APIs and verify
 registry/upstream releases before choosing bounds. No new provider, database or daemon is assumed.

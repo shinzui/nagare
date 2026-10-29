@@ -31,7 +31,7 @@ provenance:
 
 # Make Nagare rollouts fast, incremental, and recoverable
 
-This MasterPlan coordinates five living ExecPlans. Its registry owns child status; each child
+This MasterPlan coordinates six living ExecPlans. Its registry owns child status; each child
 owns implementation milestones. No performance improvement is claimed by this planning revision.
 
 
@@ -86,11 +86,13 @@ remains open until native evidence passes, including the intranet; naming a bloc
 ## Decomposition Strategy
 
 
-Use five independently testable concerns: measurement, stable desired state, guarded live reads,
-durable verification, and incremental rollout execution. EP-224 remains the entry point and owns
-the baseline and final regression gate. Four new children own the architectural changes. Keeping
-everything in EP-224 would obscure persistent-state and cluster-session contracts; splitting each
-optimization into a plan would obscure their common correctness boundaries.
+Use six independently testable concerns: measurement, stable desired state, guarded live reads,
+durable verification, incremental rollout execution, and Haskell ownership of the release
+orchestration. EP-224 remains the entry point and owns the baseline and final regression gate.
+Four children own the architectural changes, and EP-229 ports the release scripts, which needs
+none of them and runs in parallel from the start. Keeping everything in EP-224 would obscure
+persistent-state and cluster-session contracts; splitting each optimization into a plan would
+obscure their common correctness boundaries.
 
 The relevant existing decisions are [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
 (release identities and final pin), [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md)
@@ -117,17 +119,19 @@ dependency on MP-29.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|---|---|---|---|---|
-| EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–228 Complete | MP-29 tracing | Not Started |
+| EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–229 Complete | MP-29 tracing | Not Started |
 | EP-225 | Stable deployment meaning and incremental reviews | [225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md) | EP-224 M1 | None | Not Started |
 | EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | Not Started |
 | EP-227 | Durable batched verification with per-operation recovery | [227](../plans/227-commit-verification-proofs-without-per-resource-remote-transactions.md) | EP-224 M1; EP-225 M2 and EP-226 M1–M2 before its M2 | None | Not Started |
-| EP-228 | Incremental rollout coordinator and Haskell release runner | [228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) | EP-225, EP-226 and EP-227 Complete; EP-224 M2 | None | Not Started |
+| EP-228 | Incremental rollout coordinator and Haskell release runner | [228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) | EP-225, EP-226, EP-227 and EP-229 Complete; EP-224 M2 | None | Not Started |
+| EP-229 | Haskell ownership of candidate, intranet and rehearsal orchestration | [229](../plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) | None | EP-224 M2 reads its run index | Not Started |
 
 
 ## Dependency Graph
 
 
-The default implementation order is EP-224 M1–M2, EP-225, EP-226, EP-227, EP-228, then EP-224 M3.
+The default implementation order is EP-224 M1–M2, EP-225, EP-226, EP-227, EP-228, then EP-224 M3;
+EP-229 has no prerequisite, runs beside that sequence and finishes before EP-228 M3.
 EP-224 M1 supplies trace types and a baseline fixture, not the final performance proof. Its M2
 supplies the Haskell cost-record consumer before the release runner exists, using real captured
 command output. This milestone ordering prevents a cycle between measurement and final rollout.
@@ -138,19 +142,23 @@ append protocol before the session is integrated; its M2 consumes EP-226's accep
 epoch and bounded read interface, plus EP-225 M2's accepted validation contract. EP-228 consumes complete semantic, session and journal behavior,
 not speculative copies of their types. Its first integration check moves one unchanged scope and
 one changed Deployment through the real plan/apply/resume path before extending host or Helm
-variants. Final EP-224 M3 consumes the completed runner and all four architectural children.
+variants. Final EP-224 M3 consumes the completed runner, EP-229's
+Python-free release path and all four architectural children.
 
 
 ## Integration Points
 
 
 **Cost model, owned by EP-224.** Extend
-`cli/nagarectl/src/Nagare/Inventory/Store/Counters.hs` and add a reusable trace codec under
+`cli/nagarectl/src/Nagare/Inventory/Store/Counters.hs`, put the versioned trace codec in
+`cli/nagare-contract/src/Nagare/Contract/Trace.hs` (the small schema package nagarectl already
+depends on, so the harness never links the nagarectl library) and add the producer under
 `cli/nagarectl/src/Nagare/Inventory/Trace.hs`. Count actual transport requests separately from
 logical reads and cache hits. Carry explicit command, stage, epoch, operation and attempt IDs;
 a mutable global “current operation” is invalid when reads overlap. The other children emit
 events through this interface; EP-228 owns orchestration, not another trace schema. The harness
-uses the exported library codec rather than copying JSON assumptions.
+uses that codec from `nagare-contract` rather than copying JSON assumptions, and reads operation
+counts from the trace rather than decoding review JSON.
 
 **Desired state and review contract, owned by EP-225.** Add a typed deployment-meaning projection
 and explicit platform validation requirements to planning. Preserve accepted scope bytes when
@@ -187,16 +195,24 @@ operations and the same refusals. New test modules are registered in
 `cli/nagarectl/test/Nagare/Test/Suite.hs` and `cli/nagarectl/nagarectl.cabal`; the two-line
 `cli/nagarectl/test/Spec.hs` only calls the suite.
 
-**Scheduling and release tooling, owned by EP-228.** Own
+**Scheduling and rollout integration, owned by EP-228.** Own
 `cli/nagarectl/src/Nagare/Inventory/OperationStep.hs`, driver scheduling changes after EP-227,
 `cli/nagarectl/app/Nagare/Cli/Commands/Transition.hs`, bootstrap sequencing integration and the
-Haskell release runner. EP-225 owns declaration selection in `Bootstrap/Platform.hs`; EP-226 owns
-runtime construction in CLI inventory adapters; EP-224 only adds instrumentation hooks there.
-Shared edits to adapter interfaces, cabal module lists and test registration follow that order.
-EP-228 ports the candidate, intranet and rehearsal orchestration it extends, including embedded
-Python and transitively invoked transition-specific Python helpers. It proves the resulting
-path runs without a Python executable available. Existing unrelated Python migration is outside
-this initiative, and no new Python tool is introduced.
+run index, manifest, progress and cost extensions of the Haskell release runner. EP-225 owns
+declaration selection in `Bootstrap/Platform.hs`; EP-226 owns runtime construction in CLI
+inventory adapters; EP-224 only adds instrumentation hooks there. Shared edits to adapter
+interfaces, cabal module lists and test registration follow that order.
+
+**Release runner, owned by EP-229.** Own `cli/nagare-harness/src/Nagare/Harness/Release/` and
+the harness command grammar `release candidate`, `transition run`, `transition pin-tag` and
+`transition rehearse`; turn `scripts/release-candidate.sh`, `scripts/release-intranet.sh`,
+`scripts/release-rehearse.sh` and `scripts/transition-rehearsal.sh` into argument-preserving
+`exec` wrappers; replace text scraping and jq/Python decisions with typed outcome documents; and
+prove the supported release path runs with no Python executable, including transitively invoked
+transition-specific helpers. Its only nagarectl change is additive machine output for the plan
+summary and apply outcome, in files EP-228 owns, landed first. EP-228 M3 and EP-224 M2 consume
+its versioned run index; neither redefines it. Existing unrelated Python migration is outside this initiative, and no new Python
+tool is introduced.
 
 **Compatibility and cutover.** EP-225 owns review version negotiation if adding validation
 requirements changes the wire. EP-227 owns journal compatibility. EP-228 owns transition-finalize
@@ -210,8 +226,9 @@ review is generated only from an idle head; never rewrite an admitted review to 
 
 
 2026-10-29: architecture review and decomposition drafted; no implementation milestone has started.
-The next work is EP-224 M1. Final acceptance includes unchanged and changed rollouts, recovery,
-growth limits, Python-free release tooling and five warm intranet measurements.
+The next work is EP-224 M1; EP-226 M4 and EP-229 can start now in parallel. Final acceptance
+includes unchanged and changed rollouts, recovery, growth limits, Python-free release tooling and
+five warm intranet measurements.
 
 
 ## Surprises & Discoveries
@@ -256,6 +273,12 @@ evidence; this review did not execute the transition or establish a new latency 
   reviewed commands; it has no dependency and may land first. EP-227 M2 now also requires that the
   journal tail the next command catches up after a transition does not grow with verified resources
   (429 events and 22 s after v0.11.1).
+- 2026-10-29: Split the Haskell port of the release orchestration out of EP-228 into EP-229. The
+  port of the four scripts (624 lines of shell, Python in two of them) needs none of EP-225–227,
+  so it no longer waits for them; EP-228 M3 extends the ported runner and depends on EP-229.
+- 2026-10-29: The versioned trace codec lives in `nagare-contract`, not the nagarectl library, so
+  the harness's standalone build stays fast; the trace carries operation counts by action and
+  executor so the cost collector never decodes review JSON.
 
 
 ## Outcomes & Retrospective

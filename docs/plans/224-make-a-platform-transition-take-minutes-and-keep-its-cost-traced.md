@@ -149,10 +149,12 @@ operation execution and `cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs` 
 `cli/nagarectl/src/Nagare/Inventory/KubernetesSnapshot.hs` currently batches status reads.
 
 `cli/nagare-harness/app/Main.hs` and `cli/nagare-harness/nagare-harness.cabal` host maintainer
-commands outside the platform payload. Add a library dependency on the existing nagarectl
-library for shared codecs; do not duplicate review JSON decoding. `cli/nagare-harness/cabal.project`
-lists only the harness package today so that the pre-push gate builds it in seconds; adding the
-nagarectl package to it makes every harness build pull the whole nagarectl library. Register new
+commands outside the platform payload. The versioned trace codec lives in
+`cli/nagare-contract/src/Nagare/Contract/Trace.hs`, the small schema package nagarectl already
+depends on; the harness adds `../nagare-contract` to `cli/nagare-harness/cabal.project` and
+`nagare-contract` to its build-depends, never the nagarectl library, so the pre-push harness build
+stays fast. The trace carries operation counts by action and executor, so the collector never
+decodes review JSON. Register new
 nagarectl test modules in `cli/nagarectl/test/Nagare/Test/Suite.hs` (the two-line `test/Spec.hs`
 only calls it) and `cli/nagarectl/nagarectl.cabal`; harness tests are assembled directly in
 `cli/nagare-harness/test/Spec.hs` and the harness cabal file.
@@ -172,7 +174,9 @@ prohibit replacing recovery evidence with performance assertions.
 ### M1 — Trace the work that really happens
 
 
-Extend counters and add `cli/nagarectl/src/Nagare/Inventory/Trace.hs` for a versioned JSON codec.
+Extend counters, define the versioned JSON codec in `cli/nagare-contract/src/Nagare/Contract/Trace.hs`
+and add the producer `cli/nagarectl/src/Nagare/Inventory/Trace.hs` that fills it. `nagare-contract`
+has no test suite, so the codec's round-trip tests live in the nagarectl and harness specs below.
 Use monotonic elapsed time and explicit span identities with parent command, stage, operation,
 epoch and attempt. Capture result class, retries, queue time, provider wait, cache hit, bytes,
 store metadata/media/uploads, external-process count and actual Kubernetes requests by purpose.
@@ -204,9 +208,10 @@ Add `cli/nagare-harness/src/Nagare/Harness/TransitionCost.hs` and
 `cli/nagare-harness/test/TransitionCostSpec.hs`. Implement `transition-cost fixture --out DIR`
 to export a sanitized codec fixture for the collector examples, `transition-cost collect --run DIR
 --out FILE`, `transition-cost check --record FILE`, and `transition-cost history --root DIR`.
-The runner's run index supplies stable relative trace paths, source/target revisions, environment,
-candidate and artifact identities, stage/attempt IDs and start/end outcomes. Collection must work
-on records produced by actual CLI invocations, including failure and resume, before EP-228 uses it.
+EP-229's versioned run index supplies stable relative trace paths, source/target revisions,
+environment, candidate and artifact identities, stage/attempt IDs and start/end outcomes. Collection
+must work on records produced by actual CLI invocations, including failure and resume, before
+EP-228 M3 uses it.
 Output `schemaVersion`, measurement profile, sample IDs, command/stage intervals, preparation and
 activation totals, operations by action/executor, physical requests, reuse, retries and budget
 results. Unknown schema versions refuse; absent traces are incomplete; local rehearsal and
@@ -240,8 +245,8 @@ latency. Publish sanitized `transition-cost.json` for local confirmation and `in
 beside `docs/release-evidence/<candidate-revision>/transition-rehearsal.json` through the normal
 release evidence path. Historical v0.11.1 values remain unknown where no trace exists.
 
-Run the release path with Python unavailable. Verify the user sees a stage/progress update at
-least every five seconds while waiting and an exact resume/close command on interruption.
+Confirm EP-229's Python-free proof on the final candidate. Verify the user sees a stage/progress
+update at least every five seconds while waiting and an exact resume/close command on interruption.
 Budget failure keeps this plan and its parent open with a measured next fix. Neither a passing
 fixture nor “slowest phase identified” substitutes for the native latency requirement.
 
@@ -274,7 +279,7 @@ just haskell-style-check
 just gate-fast <committed-candidate-revision>
 ```
 
-EP-228 preserves this recipe while moving its logic to Haskell. A committed-candidate gate checks
+EP-229 preserves this recipe while moving its logic to Haskell. A committed-candidate gate checks
 that revision, not uncommitted edits. Use the normal release runbook for an intranet candidate;
 this planning task does not run one. Do not search or read `/nix/store` to inspect dependencies.
 
@@ -307,8 +312,9 @@ the intranet or changes its pin.
 This plan owns the trace codec and harness cost schema. The hard dependency for M3 is completion
 of [EP-225](225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md),
 [EP-226](226-share-bounded-cluster-observations-through-a-guarded-command-session.md),
-[EP-227](227-commit-verification-proofs-without-per-resource-remote-transactions.md), and
-[EP-228](228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md).
+[EP-227](227-commit-verification-proofs-without-per-resource-remote-transactions.md),
+[EP-228](228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) and
+[EP-229](229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md).
 M1 and M2 have no such dependency and unblock those children. Reuse existing Haskell dependencies;
 before selecting any new API or bounds, discover source with Mori and verify released versions
 against upstream and the authoritative package registry.
