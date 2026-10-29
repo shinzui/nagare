@@ -43,8 +43,16 @@ equality does not prove that the live cluster is healthy.
 ## Progress
 
 
-- [ ] M1: Typed scope-equivalence and revision-preservation fixtures prove source-only changes
+- [x] M1: Typed scope-equivalence and revision-preservation fixtures prove source-only changes
   retain accepted bytes, while every deployment-significant change remains visible.
+  Pass, 2026-10-29: `Nagare.Resource.DeploymentMeaning` (version 1) normalizes only diagnostic
+  sources. `cabal test --project-dir=cli/nagare-dsl --test-options='-p "deployment meaning"'`
+  passes four cases (moved workspace equal; content, a field named `source`, address, alias,
+  retention, data policy, sensitivity, dependency, operation, config digest and override each
+  differ; significant sources stay significant). `-p PlatformIncremental` passes the retained
+  revision and vector digest and the changed-scope revision. Platform candidate filtering and
+  `bootstrapPreservedScopeVectorDigest` use it; `Bootstrap/Local.hs` and the transition table use
+  the typed `sameDeclarationsModuloSources`, replacing the JSON-key deletion.
 - [ ] M2: Planning separates fresh validation requirements from effects; a release-only change
   has no per-member verify operations and still refuses drift, missing ownership and stale health.
 - [ ] M3: Previous-release review compatibility and the transition producer/consumer fixture
@@ -71,6 +79,11 @@ cannot remove this global verification work.
   The stamp remains gated by proof, but proof of an unchanged resource is not a mutation intent.
 - 2026-10-29: Use an explicit typed projection, never recursive deletion of JSON keys called
   `source`, `version` or `path`; those names can occur in actual workload configuration.
+- 2026-10-29: A source location stays significant when code reads it as data: `generated:` and
+  `packaged:` records, `contribution`, and the artifact input markers `oci-archive-v1`,
+  `kubeconfig-prepared-v1` and `local-substrate-v1` (an artifact executor opens that file). An
+  artifact scope whose input moved is therefore still re-accepted. The local substrate keeps
+  re-accepting on any source-only difference so its new input path replaces the old one.
 
 
 ## Outcomes & Retrospective

@@ -91,6 +91,7 @@ library
     Nagare.Resource.Cdn
     Nagare.Resource.Compile
     Nagare.Resource.Database
+    Nagare.Resource.DeploymentMeaning
     Nagare.Resource.Helm
     Nagare.Resource.Inventory
     Nagare.Resource.Inventory.Types
@@ -133,6 +134,7 @@ test-suite nagare-dsl-test
   other-modules:
     ApplicationSpec
     CdnSpec
+    DeploymentMeaningSpec
     ImageSpec
     JobSpec
     LoadSpec

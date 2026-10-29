@@ -8,7 +8,6 @@ module Nagare.Platform.Transition
   , checkTransition
   , platformReviewExpectation
   , renderTransitionRefusal
-  , sameDeclarationsModuloSource
   , transitionOwnerRefusal
   , transitionContinueRefusal
   , transitionCommitRefusal
@@ -21,8 +20,6 @@ module Nagare.Platform.Transition
 where
 
 import Control.Monad (unless, when)
-import Data.Aeson qualified as Aeson
-import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -31,7 +28,6 @@ import Nagare.Inventory.Store (HeadManifest (..), TransitionMarker (..), parseTr
 import Nagare.Platform.Workspace (PayloadManifest)
 import Nagare.Resource.Inventory (ScopeDeclaration)
 import Nagare.Resource.Types (ScopeId, scopeIdText)
-import Nagare.Resource.Wire (encodeCanonicalScope)
 
 -- | An accepted move: the context's pinned release and this payload's.
 data TransitionPair = TransitionPair
@@ -127,23 +123,6 @@ platformReviewExpectation :: PayloadManifest -> Text -> Maybe (Text, Text)
 platformReviewExpectation manifest identity = case T.stripPrefix "nagare-bootstrap:" identity of
   Just payload -> Just (payload, manifest ^. #platformVersion)
   Nothing -> (\(source, payload) -> (payload, source)) <$> parseTransitionReviewIdentity identity
-
--- | Whether two declarations of a scope differ only in where their members
--- were declared from. Declarations embed the payload workspace path as each
--- member's source, so a transition sees every scope change there; the planner
--- judges members the same way, so such a scope is re-accepted with no
--- operation. The judgement is on the scope wire with every source removed.
-sameDeclarationsModuloSource :: ScopeDeclaration -> ScopeDeclaration -> Bool
-sameDeclarationsModuloSource left right = case (wire left, wire right) of
-  (Right a, Right b) -> a == b
-  _ -> False
-  where
-    wire = fmap unsourced . Aeson.eitherDecodeStrict' . encodeCanonicalScope
-    unsourced :: Aeson.Value -> Aeson.Value
-    unsourced = \case
-      Aeson.Object fields -> Aeson.Object (KM.mapWithKey (\key value -> if key == "source" then Aeson.Null else unsourced value) fields)
-      Aeson.Array items -> Aeson.Array (fmap unsourced items)
-      other -> other
 
 renderTransitionRefusal :: TransitionRefusal -> Text
 renderTransitionRefusal = \case

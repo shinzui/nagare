@@ -41,8 +41,8 @@ import Nagare.Inventory.Artifact
   )
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Digest qualified as InventoryDigest
-import Nagare.Platform.Transition (sameDeclarationsModuloSource)
 import Nagare.Platform.Workspace (PlatformWorkspace)
+import Nagare.Resource.DeploymentMeaning (sameDeclarationsModuloSources)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference qualified as ResourceReference
@@ -143,7 +143,7 @@ buildLocalSubstrateCandidate mode active workspace snapshot
               -- EP-172: a release transition re-accepts the substrate declared from
               -- the target payload; the cluster and registry themselves never change
               -- in place.
-              if mode == ReleaseTransition && sameDeclarationsModuloSource prior scope
+              if mode == ReleaseTransition && sameDeclarationsModuloSources prior scope
                 then
                   Just
                     <$> either

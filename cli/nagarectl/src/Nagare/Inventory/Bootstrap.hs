@@ -41,6 +41,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Platform.Status (ReleaseIdentity, clusterMarkerValue, parseClusterIdentity)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
+import Nagare.Resource.DeploymentMeaning (sameDeploymentMeaning)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), Sensitivity (Public))
@@ -208,22 +209,18 @@ bootstrapPreservedScopeVectorDigest ::
   ScopeSnapshot -> CompositionCandidate -> Either Text ContentDigest
 bootstrapPreservedScopeVectorDigest snapshot candidate = do
   let scopes = inventoryScopes (candidateInventory candidate)
-      desiredGeneration owner declaration =
+      -- EP-225: a scope that means what the accepted one means keeps the
+      -- accepted revision, bytes and all; the platform candidate keeps it too.
+      desiredRevision owner declaration =
         case Map.lookup owner (snapshotScopes snapshot) of
           Just (generation, accepted)
-            | encodeCanonicalScope declaration == encodeCanonicalScope accepted -> Right generation
+            | sameDeploymentMeaning declaration accepted -> Right (ScopeRevision generation (contentDigest (encodeCanonicalScope accepted)))
           _ ->
             maybe
               (Left "bootstrap candidate scope has no generation")
-              Right
+              (\generation -> Right (ScopeRevision generation (contentDigest (encodeCanonicalScope declaration))))
               (Map.lookup owner (candidateGenerations candidate))
-  revisions <-
-    Map.traverseWithKey
-      ( \owner declaration -> do
-          generation <- desiredGeneration owner declaration
-          pure (ScopeRevision generation (contentDigest (encodeCanonicalScope declaration)))
-      )
-      scopes
+  revisions <- Map.traverseWithKey desiredRevision scopes
   pure (bootstrapScopeVectorDigest revisions)
 
 -- | The reviewed marker records the immutable payload and accepted scope

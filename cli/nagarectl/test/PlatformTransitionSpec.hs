@@ -29,15 +29,17 @@ import Nagare.Inventory.ReleaseEvidence (validateReleaseEvidence)
 import Nagare.Inventory.Store
 import Nagare.Platform.Transition
 import Nagare.Platform.Workspace (PayloadManifest)
+import Nagare.Resource.DeploymentMeaning (sameDeclarationsModuloSources)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
+import PlatformIncrementalSpec (platformIncrementalTests)
 import PlatformTransitionTableSpec (platformTransitionTableTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 
 platformTransitionTests :: TestTree
-platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests, releaseEvidenceTests, platformTransitionTableTests]
+platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests, releaseEvidenceTests, platformTransitionTableTests, platformIncrementalTests]
 
 -- | The publisher's proof: the rehearsal record binds the candidate and
 -- reports the outcome the release rule asks for.
@@ -155,8 +157,8 @@ compatibilityTests =
                   , source = SourceLocation file "local-substrate-v1"
                   }
             scopeFrom file digest = ok (mkScopeDeclaration owner [ResourceBundle [declared file digest] [] [] [] [] []])
-        sameDeclarationsModuloSource (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-t/spec.json" "spec") @?= True
-        sameDeclarationsModuloSource (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-s/spec.json" "other") @?= False
+        sameDeclarationsModuloSources (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-t/spec.json" "spec") @?= True
+        sameDeclarationsModuloSources (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-s/spec.json" "other") @?= False
     , testCase "the commit waits for its own open marker, an idle head and every moved scope converged" $ do
         recorded <- BS.readFile "test/fixtures/transition-0.4.0/store/head.json" >>= either (assertFailure . show) pure . decodeHead
         let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"

@@ -15,6 +15,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
+import DeploymentMeaningSpec (deploymentMeaningTests)
 import ImageSpec (imageTests)
 import JobSpec (jobTests)
 import LoadSpec (loadTests)
@@ -65,6 +66,7 @@ main =
       "nagare-dsl"
       [ testGroup "Nagare.Dsl.Types" unitTests
       , resourceInventoryTests
+      , deploymentMeaningTests
       , testGroup "Nagare.Dsl.Render" goldenTests
       , testGroup "Nagare.Dsl volumes (EP-34)" volumeTests
       , testGroup "Nagare.Dsl.Types scoped env" scopedEnvTests

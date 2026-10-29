@@ -82,6 +82,7 @@ import Nagare.Platform.Workspace
   , readPayloadManifest
   , renderWorkspaceError
   )
+import Nagare.Resource.DeploymentMeaning (sameDeploymentMeaning)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
@@ -404,13 +405,13 @@ buildPlatformCandidate active paths workspace snapshot = do
       (dieT . T.pack . show)
       pure
       (compileBootstrapStamp cluster (bootstrapMarkerValue (manifest ^. #payloadId) vectorDigest (identityFromPayload manifest) installedAt) candidate)
+  -- EP-225: a scope whose deployment meaning is accepted stays accepted, its
+  -- revision and bytes unchanged, whatever workspace this release compiled from.
   let differsFromAccepted = \case
         ResourceInventory.ReplaceScope scope -> case Map.lookup
           (ResourceInventory.scopeId scope)
           (ResourceInventory.snapshotScopes snapshot) of
-          Just (_, prior) ->
-            ResourceWire.encodeCanonicalScope prior
-              /= ResourceWire.encodeCanonicalScope scope
+          Just (_, prior) -> not (sameDeploymentMeaning prior scope)
           Nothing -> True
         _ -> True
       changedScopes =
