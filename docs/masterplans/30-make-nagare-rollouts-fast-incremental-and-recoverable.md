@@ -16,6 +16,17 @@ provenance:
       at: 2026-10-29T16:27:26Z
       mode: "update"
       note: "Add MasterPlan 29 follow-ups: gcloud ownership stall (EP-226 M4) and journal catch-up bound (EP-227 M2)"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:45:25Z
+      mode: "update"
+      note: "Apply review: EP-226 M4 freed from EP-224 M1 in registry and graph; Admission/Driver ordered ownership and test registration path added to Integration Points; MP-29 close reflected"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:44:53Z
+      verdict: "changes-requested"
+      note: "Decomposition sound and every source claim verified at HEAD; registry blocked EP-226 M4 behind EP-224 M1 against the Decision Log, Execute/Admission.hs and Driver.hs shared by EP-225/227/228 had no ordered owner, MP-29 sentence stale after its 2026-10-29 close"
 ---
 
 # Make Nagare rollouts fast, incremental, and recoverable
@@ -95,8 +106,10 @@ in this planning change, explicitly distinguished from implementation.
 [MasterPlan 29](29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md)
 already owns common store opening, immutable reads and reviewed-access latency. Reuse its
 `Command.Open` and tracing work, preserve its access benchmarks, and do not create a competing
-store session or claim that its unclosed latency gate is closed by these plans. This initiative
-owns platform transition and shared rollout execution. It has no whole-plan dependency on MP-29.
+store session. MP-29 closed on 2026-10-29 with EP-221 M3 accepted at reduced scope; its two
+fixable follow-ups are owned here by EP-226 M4 and EP-227 M2, and nothing here reopens its gate.
+This initiative owns platform transition and shared rollout execution. It has no whole-plan
+dependency on MP-29.
 
 
 ## Exec-Plan Registry
@@ -106,7 +119,7 @@ owns platform transition and shared rollout execution. It has no whole-plan depe
 |---|---|---|---|---|---|
 | EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–228 Complete | MP-29 tracing | Not Started |
 | EP-225 | Stable deployment meaning and incremental reviews | [225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md) | EP-224 M1 | None | Not Started |
-| EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 | EP-225 | Not Started |
+| EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | Not Started |
 | EP-227 | Durable batched verification with per-operation recovery | [227](../plans/227-commit-verification-proofs-without-per-resource-remote-transactions.md) | EP-224 M1; EP-225 M2 and EP-226 M1–M2 before its M2 | None | Not Started |
 | EP-228 | Incremental rollout coordinator and Haskell release runner | [228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) | EP-225, EP-226 and EP-227 Complete; EP-224 M2 | None | Not Started |
 
@@ -119,7 +132,8 @@ EP-224 M1 supplies trace types and a baseline fixture, not the final performance
 supplies the Haskell cost-record consumer before the release runner exists, using real captured
 command output. This milestone ordering prevents a cycle between measurement and final rollout.
 
-EP-225 and EP-226 can be developed independently after the baseline. EP-227 M1 can establish the
+EP-225 and EP-226 can be developed independently after the baseline, and EP-226 M4 has no
+prerequisite at all, so it may land before EP-224 M1. EP-227 M1 can establish the
 append protocol before the session is integrated; its M2 consumes EP-226's accepted guarded
 epoch and bounded read interface, plus EP-225 M2's accepted validation contract. EP-228 consumes complete semantic, session and journal behavior,
 not speculative copies of their types. Its first integration check moves one unchanged scope and
@@ -161,6 +175,17 @@ the existing event decoder. Version-one journal events may be uploaded concurren
 contiguous validated prefix becomes committed by a conditional head update. This reduces serial
 round trips, not the obligation to retain evidence. EP-228 submits mutation intents and receipts
 through the same coordinator; no worker writes the head independently.
+
+**Execution path, edited in order.** `cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs`
+and `Execute/Driver.hs` are changed by three children: EP-225 M2 adds the serial validation
+consumer at apply admission, EP-227 then replaces that consumer with the append coordinator and
+read-only proof path under the same `ValidationRequirement` contract, and EP-228 M2 last adds
+scheduling capabilities to the driver. Each later child extends the accepted code of the earlier
+one; none adds a second head writer or a second validation contract. The producer/consumer check
+for this handoff is EP-227 M2 running EP-225 M3's saved-review fixture with zero per-member
+operations and the same refusals. New test modules are registered in
+`cli/nagarectl/test/Nagare/Test/Suite.hs` and `cli/nagarectl/nagarectl.cabal`; the two-line
+`cli/nagarectl/test/Spec.hs` only calls the suite.
 
 **Scheduling and release tooling, owned by EP-228.** Own
 `cli/nagarectl/src/Nagare/Inventory/OperationStep.hs`, driver scheduling changes after EP-227,

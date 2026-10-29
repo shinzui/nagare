@@ -11,6 +11,18 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-10-29T14:39:34Z
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:44:53Z
+      verdict: "comments"
+      note: "Commit path, 12-stage bound, single resume and Python claims verified; release-intranet.sh has no just recipe; the M3 behavior-preserving port needs none of EP-225-227"
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:45:25Z
+      mode: "update"
+      note: "Name the actual public recipes and script entry points"
 ---
 
 # Run incremental platform rollouts with bounded waits and durable progress
@@ -100,8 +112,10 @@ its outcome. Timeout or cancellation after submission is potentially ambiguous, 
 
 `cli/nagare-harness/app/Main.hs` is the maintainer CLI. `scripts/release-candidate.sh`,
 `scripts/release-intranet.sh`, `scripts/release-rehearse.sh` and
-`scripts/transition-rehearsal.sh` currently coordinate release/transition execution. Their public
-recipes are in `justfile`, and `docs/runbooks/releases.md` describes operator use.
+`scripts/transition-rehearsal.sh` currently coordinate release/transition execution. The public
+recipes are `just release-candidate` and `just release-rehearse`; `release-intranet.sh` is run by
+`release-candidate.sh` or directly by the operator, and `transition-rehearsal.sh` by
+`release-rehearse.sh`. `docs/runbooks/releases.md` describes operator use.
 [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md)
 requires typed Haskell tools outside the payload. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
 requires the final context pin to follow convergence. [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md)

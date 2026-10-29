@@ -17,6 +17,17 @@ provenance:
       at: 2026-10-29T16:27:26Z
       mode: "update"
       note: "Add MasterPlan 29 follow-ups: gcloud ownership stall (EP-226 M4) and journal catch-up bound (EP-227 M2)"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:45:25Z
+      mode: "update"
+      note: "Interfaces: M4 has no prerequisite and may land first"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:44:53Z
+      verdict: "changes-requested"
+      note: "Snapshot, guard and ownership-read claims verified; Interfaces blocked M4 behind EP-224 M1 while M4 declares no prerequisite"
 ---
 
 # Share bounded cluster observations through a guarded command session
@@ -232,7 +243,8 @@ a transport timeout occurred; only the existing adapter recovery proof authorize
 ## Interfaces and Dependencies
 
 
-Hard prerequisite: [EP-224 M1](224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md).
+Hard prerequisite for M1–M3: [EP-224 M1](224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md);
+M4 has none and may land first.
 This plan owns `ClusterSession`, `ObservationEpoch`, transport identity binding and concurrency
 limits. [EP-225](225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md)
 supplies validation requirements but does not block this plan's standalone fixtures.

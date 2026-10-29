@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-10-29T14:39:33Z
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:44:53Z
+      verdict: "approved"
+      note: "Canonical-bytes comparison, bootstrapReview verify expansion and sameDeclarationsModuloSource usage verified at HEAD; ADR 22 amendment present"
 ---
 
 # Keep platform revisions stable when deployment meaning is unchanged

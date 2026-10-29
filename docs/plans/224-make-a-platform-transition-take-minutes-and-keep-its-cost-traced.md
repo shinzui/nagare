@@ -17,12 +17,22 @@ provenance:
       at: 2026-10-29T14:58:45Z
       verdict: "changes-requested"
       note: "Architecture review found blanket bootstrap verification, source-sensitive scope revisions, an incorrect verify-path diagnosis, missing crash and changed-rollout gates, and Python tooling conflicting with ADR 24; applied through MasterPlan 30."
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:44:53Z
+      verdict: "comments"
+      note: "Counters, tracePhase, invokeKubectl and review-count claims verified; test registration lives in test/Nagare/Test/Suite.hs and the harness cabal.project must gain the nagarectl package"
   revisions:
     - model: "gpt-6-astra"
       harness: "codex-cli"
       at: 2026-10-29T14:58:45Z
       mode: "update"
       note: "Make EP-224 the measurement and final acceptance child of MasterPlan 30; assign semantic identity, sessions, journal proof and rollout orchestration to EP-225–228, with Haskell-only tooling and a Rei intention."
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-29T16:45:25Z
+      mode: "update"
+      note: "Correct the test registration path and state the harness cabal.project change the nagarectl dependency needs"
 ---
 
 # Make a platform transition take minutes and keep its cost traced
@@ -140,8 +150,11 @@ operation execution and `cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs` 
 
 `cli/nagare-harness/app/Main.hs` and `cli/nagare-harness/nagare-harness.cabal` host maintainer
 commands outside the platform payload. Add a library dependency on the existing nagarectl
-library for shared codecs; do not duplicate review JSON decoding. Register new test modules in
-`cli/nagarectl/test/Spec.hs`, `cli/nagarectl/nagarectl.cabal`,
+library for shared codecs; do not duplicate review JSON decoding. `cli/nagare-harness/cabal.project`
+lists only the harness package today so that the pre-push gate builds it in seconds; adding the
+nagarectl package to it makes every harness build pull the whole nagarectl library. Register new
+nagarectl test modules in `cli/nagarectl/test/Nagare/Test/Suite.hs` (the two-line `test/Spec.hs`
+only calls it) and `cli/nagarectl/nagarectl.cabal`; harness tests are assembled directly in
 `cli/nagare-harness/test/Spec.hs` and the harness cabal file.
 
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) preserves
