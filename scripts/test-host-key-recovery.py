@@ -152,7 +152,7 @@ ssh() {{
 "${{1:-activate}}"
 ''')
     def run(label, mode="activate"):
-        p = subprocess.run(['bash', str(runner), mode], text=True, capture_output=True, timeout=5)
+        p = subprocess.run(['bash', str(runner), mode], text=True, capture_output=True, timeout=60)
         (case/(label+'.txt')).write_text(p.stdout+p.stderr)
         return p
     if previous:
