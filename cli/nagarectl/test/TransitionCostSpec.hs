@@ -222,6 +222,13 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
       (_, planned) <- collectCommandTrace (plan (planRegistry initial) candidate (root </> "unchanged"))
       documentOf planned
     sweep <- measured "sweep" (marker "second" : drop 1 initial)
+    -- EP-225 M3: once the sweep applied, the same declarations replan to
+    -- nothing: no operation, no validation, the marker settled.
+    settled <- do
+      candidate <- candidateOf (marker "second" : drop 1 initial)
+      (_, planned) <- collectCommandTrace (plan (planRegistry (marker "second" : drop 1 initial)) candidate (root </> "settled"))
+      documentOf planned
+    summary settled @?= Summary 0 0 0 0 0 0 206 206 0 0
     let changed n = marker "second" : [configMap k (if k <= n then "changed" else "value") | k <- [1 .. members]]
     one <- measured "one" (changed 1)
     four <- measured "four" (changed 4)
