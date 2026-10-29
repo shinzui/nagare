@@ -14,7 +14,7 @@ import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
-import Nagare.Resource.Wire (encodeCanonicalScope)
+import Nagare.Resource.Wire (decodeScope, encodeCanonicalScope)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -59,6 +59,12 @@ deploymentMeaningTests =
         forM_ significant $ \(left, right) ->
           assertBool (show (left, right) <> " was treated as provenance") (not (sameDeploymentMeaning (at left) (at right)))
         assertBool "a diagnostic path was significant" (sameDeploymentMeaning (at (SourceLocation "/a/app.yaml" "spec")) (at (SourceLocation "access" "user@example.com")))
+    , testCase "a compiled scope means what its stored bytes mean, whatever its list order" $ do
+        -- The wire sorts dependencies; a freshly compiled scope need not.
+        let compiled = scopeOf [Managed (member "/b/app.yaml" & #dependencies .~ [OrderedAfter (rid "zeta"), OrderedAfter (rid "alpha")])]
+            stored = ok (decodeScope (encodeCanonicalScope (scopeOf [Managed (member "/a/app.yaml" & #dependencies .~ [OrderedAfter (rid "zeta"), OrderedAfter (rid "alpha")])])))
+        assertBool "the stored order changed meaning" (sameDeploymentMeaning stored compiled)
+        assertBool "the stored order changed the substrate comparison" (sameDeclarationsModuloSources stored compiled)
     , testCase "ignoring every source compares the rest of the declaration" $ do
         let at source = scopeOf [Managed (member "/a/app.yaml" & #source .~ source)]
         assertBool "artifact inputs differ only by location" (sameDeclarationsModuloSources (at (SourceLocation "/a/x" "local-substrate-v1")) (at (SourceLocation "/b/x" "local-substrate-v1")))

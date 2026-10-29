@@ -20,25 +20,31 @@ module Nagare.Resource.DeploymentMeaning
   )
 where
 
+import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List (sort)
-import Data.Map.Strict (Map)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory
-import Nagare.Resource.Types (ContentDigest, ScopeId, SourceLocation (..))
+import Nagare.Resource.Types (SourceLocation (..))
+import Nagare.Resource.Wire (encodeCanonicalScope)
 
 -- | The comparison's version: a review that relies on it records this value,
 -- and a change to the classification below increments it.
 deploymentMeaningVersion :: Int
 deploymentMeaningVersion = 1
 
-data DeploymentMeaning = DeploymentMeaning !ScopeId !(Maybe ContentDigest) !(Map Text Text) ![ResourceBundle]
-  deriving stock (Eq, Show)
+-- | The canonical bytes of the scope with each diagnostic source location
+-- replaced by one fixed value: the wire's own normalization of every list
+-- order applies, so a scope decoded from the store and one freshly compiled
+-- compare as their stored bytes would. A scope that cannot be rebuilt has no
+-- meaning to compare, and equals nothing.
+newtype DeploymentMeaning = DeploymentMeaning (Maybe ByteString)
+  deriving stock (Show)
 
--- | The scope with each diagnostic source location replaced by one fixed
--- value. Bundles are compared as the set 'mkScopeDeclaration' already sorts
--- them into; declarations keep their order.
+instance Eq DeploymentMeaning where
+  DeploymentMeaning (Just left) == DeploymentMeaning (Just right) = left == right
+  _ == _ = False
+
 deploymentMeaning :: ScopeDeclaration -> DeploymentMeaning
 deploymentMeaning = projected significantSource
 
@@ -46,10 +52,11 @@ deploymentMeaning = projected significantSource
 projected :: (SourceLocation -> Bool) -> ScopeDeclaration -> DeploymentMeaning
 projected keep scope =
   DeploymentMeaning
-    (scopeId scope)
-    (scopeConfigDigest scope)
-    (scopeOverrides scope)
-    (sort [bundle & #declarations %~ map declaration | bundle <- scopeBundles scope])
+    ( either
+        (const Nothing)
+        (Just . encodeCanonicalScope . withScopeOverrides (scopeOverrides scope) . maybe id withScopeConfigDigest (scopeConfigDigest scope))
+        (mkScopeDeclaration (scopeId scope) [bundle & #declarations %~ map declaration | bundle <- scopeBundles scope])
+    )
   where
     declaration = \case
       Managed resource -> Managed (resource & #source %~ located)
