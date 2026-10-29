@@ -5,6 +5,8 @@ import Control.Concurrent.Async (concurrently)
 import Data.Aeson (eitherDecodeStrict', withObject, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
+import Data.Foldable (traverse_)
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Gogol qualified as G
@@ -15,6 +17,7 @@ import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Inventory.Store.GcloudAuth
 import Nagare.Inventory.Store.Gogol
 import Nagare.Inventory.Store.ObjectOps
+import Nagare.Inventory.Store.ProjectNumbers
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, ownershipReadPause, projectNumberArgs, readProjectNumber, realGcloudOps)
 import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
@@ -38,30 +41,40 @@ remoteDiscoveryOps project url = case validateGogolLocation project url of
       Right auth -> case endpointOverride (sessionStorageEndpoint auth) of
         Left reason -> pure (Left reason)
         Right configure -> do
-          number <- readProjectNumber ownershipReadPause (sessionCapture auth) (projectNumberArgs project)
+          numbers <- cachedProjectNumbers
+          remembered <- (numbers ^. #recall) project
+          let live = do
+                number <- readProjectNumber ownershipReadPause (sessionCapture auth) (projectNumberArgs project)
+                let numeric = number >>= numericProjectNumber
+                traverse_ ((numbers ^. #remember) project) numeric
+                pure numeric
+          number <- maybe live (pure . Just) remembered
           case number of
-            Just expected
-              | not (T.null expected)
-              , T.all (`elem` ['0' .. '9']) expected -> do
-                  created <- newGogolDiscoveryWithToken (sessionToken auth) configure project url
-                  case created of
-                    Left reason -> pure (Left reason)
-                    Right sdk -> do
-                      observed <- discoveryBucket sdk
-                      selected <- lookupEnv "NAGARE_INVENTORY_GCS_TRANSPORT"
-                      let ops = case fromMaybe "gogol" selected of
-                            "gogol" -> Right (discoveryObjects sdk)
-                            "gcloud" -> Right (discoveryObjects sdk)
-                            _ -> Left "NAGARE_INVENTORY_GCS_TRANSPORT must be gogol or gcloud"
-                          verdict = case observed of
-                            Left reason -> BucketUnavailable reason
-                            Right Nothing -> BucketAbsent
-                            Right (Just bytes) -> case eitherDecodeStrict' bytes >>= parseEither (withObject "bucket" (.: "projectNumber")) of
-                              Right owner | owner == expected -> BucketOwned bytes
-                              Right (_ :: T.Text) -> BucketForeign "bucket belongs to another provider project"
-                              Left _ -> BucketUnavailable "bucket metadata has no valid owning project number"
-                      pure ((\objects -> (verdict, objects, discoveryPrefixEmpty sdk)) <$> ops)
-            _ -> pure (Left "selected provider project number is unavailable")
+            Just expected -> do
+              created <- newGogolDiscoveryWithToken (sessionToken auth) configure project url
+              case created of
+                Left reason -> pure (Left reason)
+                Right sdk -> do
+                  observed <- discoveryBucket sdk
+                  selected <- lookupEnv "NAGARE_INVENTORY_GCS_TRANSPORT"
+                  let ops = case fromMaybe "gogol" selected of
+                        "gogol" -> Right (discoveryObjects sdk)
+                        "gcloud" -> Right (discoveryObjects sdk)
+                        _ -> Left "NAGARE_INVENTORY_GCS_TRANSPORT must be gogol or gcloud"
+                      judge owned = case observed of
+                        Left reason -> BucketUnavailable reason
+                        Right Nothing -> BucketAbsent
+                        Right (Just bytes) -> case eitherDecodeStrict' bytes >>= parseEither (withObject "bucket" (.: "projectNumber")) of
+                          Right owner | owner == owned -> BucketOwned bytes
+                          Right (_ :: T.Text) -> BucketForeign "bucket belongs to another provider project"
+                          Left _ -> BucketUnavailable "bucket metadata has no valid owning project number"
+                  -- A remembered number never refuses on its own: reread it live.
+                  verdict <- case judge expected of
+                    BucketForeign _
+                      | isJust remembered -> maybe (BucketUnavailable "selected provider project number is unavailable") judge <$> live
+                    result -> pure result
+                  pure ((\objects -> (verdict, objects, discoveryPrefixEmpty sdk)) <$> ops)
+            Nothing -> pure (Left "selected provider project number is unavailable")
 
 probeRemoteBucket :: T.Text -> T.Text -> IO BucketDiscovery
 probeRemoteBucket project bucket = do
@@ -93,19 +106,34 @@ remoteObjectOps project url = do
       pure (owned >> gcloudObjectOps url)
     ownership capture = case gcsBucketOfUrl url of
       Nothing -> pure (Left "inventory store URL has no GCS bucket")
-      Just bucket -> provenOwnership ownershipReadPause capture bucket project
+      Just bucket -> do
+        numbers <- cachedProjectNumbers
+        provenOwnership numbers ownershipReadPause capture bucket project
 
 -- | EP-221: the bucket's owning project number and the project's own number
 -- are independent reads, so both run at once, each with its own retries.
 -- Both must answer and agree before any store exists; the verdict is the
--- one every path uses.
-provenOwnership :: (Int -> IO ()) -> ([String] -> IO (Maybe T.Text)) -> T.Text -> T.Text -> IO (Either T.Text ())
-provenOwnership pause capture bucket project = do
-  (bucketNumber, projectNumber) <-
-    concurrently
-      (tracePhase "bucket ownership" (readProjectNumber pause capture (bucketProjectNumberArgs bucket)))
-      (tracePhase "project ownership" (readProjectNumber pause capture (projectNumberArgs project)))
-  pure (bucketOwnershipVerdict bucket project bucketNumber projectNumber)
+-- one every path uses. EP-226 M4: a remembered project number replaces the
+-- project read only when the live bucket owner equals it; any disagreement
+-- rereads the project live before the verdict.
+provenOwnership :: ProjectNumbers -> (Int -> IO ()) -> ([String] -> IO (Maybe T.Text)) -> T.Text -> T.Text -> IO (Either T.Text ())
+provenOwnership numbers pause capture bucket project = do
+  remembered <- (numbers ^. #recall) project
+  case remembered of
+    Just number -> do
+      bucketNumber <- bucketRead
+      if (bucketNumber >>= numericProjectNumber) == Just number
+        then pure (Right ())
+        else bucketOwnershipVerdict bucket project bucketNumber <$> projectRead
+    Nothing -> do
+      (bucketNumber, projectNumber) <- concurrently bucketRead projectRead
+      pure (bucketOwnershipVerdict bucket project bucketNumber projectNumber)
+  where
+    bucketRead = tracePhase "bucket ownership" (readProjectNumber pause capture (bucketProjectNumberArgs bucket))
+    projectRead = do
+      number <- tracePhase "project ownership" (readProjectNumber pause capture (projectNumberArgs project))
+      traverse_ ((numbers ^. #remember) project) (number >>= numericProjectNumber)
+      pure number
 
 -- The ordinary Google endpoint and explicit loopback emulators are supported.
 -- Do not silently ignore a configured custom endpoint or forward tokens to an

@@ -16,7 +16,10 @@ import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Store.Counters (collectCommandTrace)
 import Nagare.Inventory.Store.GcloudAuth
+import Nagare.Inventory.Store.ProjectNumbers
 import Nagare.Inventory.Store.Remote (provenOwnership)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -127,7 +130,7 @@ inventoryGcloudAuthTests =
               atomicModifyIORef' arrived (\n -> (n + 1, ()))
               met <- timeout 2000000 (let wait = readIORef arrived >>= \n -> unless (n >= 2) (threadDelay 1000 >> wait) in wait)
               pure ("12345" <$ met)
-        provenOwnership (const (pure ())) meeting "bucket" "project" >>= (@?= Right ())
+        provenOwnership noProjectNumbers (const (pure ())) meeting "bucket" "project" >>= (@?= Right ())
         readIORef arrived >>= (@?= 2)
         -- A different, missing, empty or malformed number refuses after the
         -- same bounded retries of that read.
@@ -137,9 +140,47 @@ inventoryGcloudAuthTests =
                 atomicModifyIORef' reads (\n -> (n + 1, ()))
                 pure (if "buckets" `elem` args then bucketNumber else projectNumber)
               numeric = maybe False (\v -> not (T.null v) && T.all (`elem` ['0' .. '9']) v)
-          result <- provenOwnership (const (pure ())) capture "bucket" "project"
+          result <- provenOwnership noProjectNumbers (const (pure ())) capture "bucket" "project"
           assertBool ("ownership accepted " <> show (bucketNumber, projectNumber)) (isLeft result)
           readIORef reads >>= (@?= sum [if numeric value then 1 else 3 | value <- [bucketNumber, projectNumber]])
+    , testCase "a remembered project number skips only the project read; disagreement rereads it live (EP-226 M4)" $
+        withSystemTempDirectory "project-numbers" $ \directory -> do
+          let numbers = projectNumbersAt (directory </> "numbers")
+              reader bucketNumber projectNumber = do
+                reads <- newIORef []
+                let capture args = do
+                      atomicModifyIORef' reads (\seen -> (args : seen, ()))
+                      pure (if "buckets" `elem` args then bucketNumber else projectNumber)
+                pure (reads, capture)
+              projectReads = fmap (length . filter ("projects" `elem`)) . readIORef
+          -- The first check reads both numbers and remembers the project's.
+          (first', capture) <- reader (Just "12345") (Just "12345")
+          provenOwnership numbers (const (pure ())) capture "bucket" "project" >>= (@?= Right ())
+          projectReads first' >>= (@?= 1)
+          (numbers ^. #recall) "project" >>= (@?= Just "12345")
+          -- Later checks read only the bucket's owner.
+          (second', capture') <- reader (Just "12345") (error "the project must not be read")
+          provenOwnership numbers (const (pure ())) capture' "bucket" "project" >>= (@?= Right ())
+          projectReads second' >>= (@?= 0)
+          (length <$> readIORef second') >>= (@?= 1)
+          -- A foreign or unreadable bucket rereads the project and still refuses.
+          forM_ [Just "99999", Nothing, Just "abc"] $ \bucketNumber -> do
+            (reads, refusing) <- reader bucketNumber (Just "12345")
+            result <- provenOwnership numbers (const (pure ())) refusing "bucket" "project"
+            assertBool ("ownership accepted " <> show bucketNumber) (isLeft result)
+            projectReads reads >>= (@?= 1)
+          -- A wrong remembered number costs one live read, never a refusal of
+          -- the bucket that the project really owns; the live number replaces it.
+          (numbers ^. #remember) "project" "99999"
+          (third', capture'') <- reader (Just "12345") (Just "12345")
+          provenOwnership numbers (const (pure ())) capture'' "bucket" "project" >>= (@?= Right ())
+          projectReads third' >>= (@?= 1)
+          (numbers ^. #recall) "project" >>= (@?= Just "12345")
+          -- Malformed entries and unsafe project IDs are misses.
+          writeFile (directory </> "numbers" </> "project") "not a number"
+          (numbers ^. #recall) "project" >>= (@?= Nothing)
+          (numbers ^. #remember) "../escape" "12345"
+          (numbers ^. #recall) "../escape" >>= (@?= Nothing)
     ]
   where
     right = either (assertFailure . T.unpack) pure

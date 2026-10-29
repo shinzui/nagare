@@ -311,6 +311,7 @@ library
     Nagare.Inventory.Store.Manifest
     Nagare.Inventory.Store.Migrate
     Nagare.Inventory.Store.ObjectOps
+    Nagare.Inventory.Store.ProjectNumbers
     Nagare.Inventory.Store.Remote
     Nagare.Inventory.Store.Service
     Nagare.Inventory.TaskLifecycle
