@@ -34,6 +34,7 @@ library
     Nagare.Contract.OpenApi
     Nagare.Contract.Prelude
     Nagare.Contract.Problem
+    Nagare.Contract.Release
     Nagare.Contract.Schema
     Nagare.Contract.V1
 

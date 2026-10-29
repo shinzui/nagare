@@ -10,6 +10,8 @@ module Nagare.Cli.Commands.Transition
   )
 where
 
+import Data.Aeson (encode)
+import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
@@ -20,8 +22,11 @@ import Nagare.Cli.Bootstrap.Stage (StageMode (ReleaseTransition))
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
+import Nagare.Contract.Release (TransitionPlanSummary (..), transitionPlanSummaryVersion)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapter (PlannedOperation (plannedAction))
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Plan (ReviewDocument (reviewOperations), ReviewOperation (reviewPlannedOperation), loadReviewBundle, reviewBaseRevisions, reviewBundleDocument, reviewDesiredRevisions)
 import Nagare.Inventory.Store
   ( HeadManifest (headGeneration, headSchemaVersion, headTransition)
   , InventoryStore
@@ -44,8 +49,8 @@ import Nagare.Target (Mode (Cloud), contextNameText, writeContextPlatformVersion
 -- | Review the next stage that moves the context to this payload's release.
 -- Planning is read-only apart from the saved review; the first admitted stage
 -- opens the head's transition marker.
-runPlatformTransitionPlan :: Maybe String -> FilePath -> IO ()
-runPlatformTransitionPlan mctx output = do
+runPlatformTransitionPlan :: Maybe String -> FilePath -> Maybe FilePath -> IO ()
+runPlatformTransitionPlan mctx output summary = do
   active <- activeTarget mctx
   (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
@@ -68,6 +73,7 @@ runPlatformTransitionPlan mctx output = do
   -- target; the pin itself is written by the commit, last.
   let moved = active & #profile . #platformVersion .~ Just (manifest ^. #platformVersion)
   planNextStage ReleaseTransition moved paths workspace (transitionReviewIdentity (pair ^. #source) (manifest ^. #payloadId)) output
+  for_ summary (writeTransitionSummary output)
   TIO.putStrLn
     ( "Saved the next transition stage ("
         <> pair ^. #source
@@ -116,6 +122,35 @@ runPlatformTransitionCommit mctx yes = do
         <> transitionSource marker
         <> " is closed"
     )
+
+-- | EP-229: the saved review's operation count by action and the scopes it
+-- re-accepts at a new revision, the bootstrap stamp aside (every replan
+-- re-declares the stamp), for the release runner to decide convergence.
+writeTransitionSummary :: FilePath -> FilePath -> IO ()
+writeTransitionSummary reviewDirectory path = do
+  bundle <- loadReviewBundle reviewDirectory >>= either dieT pure
+  let document = reviewBundleDocument bundle
+      actions = [actionTag (plannedAction (reviewPlannedOperation operation)) | operation <- reviewOperations document]
+      base = reviewBaseRevisions document
+      moved =
+        [ Resource.scopeIdText scope
+        | (scope, revision) <- Map.toAscList (reviewDesiredRevisions document)
+        , Resource.nameText (Resource.scopeName scope) /= "bootstrap-stamp"
+        , Map.lookup scope base /= Just revision
+        ]
+  BL.writeFile
+    path
+    ( encode
+        TransitionPlanSummary
+          { schemaVersion = transitionPlanSummaryVersion
+          , review = T.pack reviewDirectory
+          , operations = Map.fromListWith (+) [(action, 1) | action <- actions]
+          , operationCount = length actions
+          , reaccepted = moved
+          }
+    )
+  where
+    actionTag = T.pack . takeWhile (/= ' ') . show
 
 currentHead :: InventoryStore -> IO HeadManifest
 currentHead store =

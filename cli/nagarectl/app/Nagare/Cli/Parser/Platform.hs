@@ -171,7 +171,11 @@ transitionCommandParser =
     ( command
         "plan"
         ( info
-            (PlatformTransitionPlan <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper)
+            ( PlatformTransitionPlan
+                <$> strOption (long "out" <> metavar "DIRECTORY")
+                <*> optional (strOption (long "summary" <> metavar "FILE" <> help "Also write the saved review's operation counts by action and re-accepted scopes as JSON (the release runner reads it)"))
+                  <**> helper
+            )
             (progDesc "Compile and publish the next transition stage; apply it with inventory apply")
         )
         <> command

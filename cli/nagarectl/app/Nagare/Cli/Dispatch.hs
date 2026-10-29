@@ -121,7 +121,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   PlatformStamp -> runPlatformStamp mctx
   PlatformBootstrapPlan output -> runPlatformBootstrapPlan mctx output
   PlatformBootstrapApply review yes -> runPlatformBootstrapApply mctx review yes
-  PlatformTransitionPlan output -> runPlatformTransitionPlan mctx output
+  PlatformTransitionPlan output summary -> runPlatformTransitionPlan mctx output summary
   PlatformTransitionCommit yes -> runPlatformTransitionCommit mctx yes
   PlatformAdopt version yes asJson -> runPlatformAdopt mctx version yes asJson
   PlatformRepin version yes -> runPlatformRepin mctx version yes
