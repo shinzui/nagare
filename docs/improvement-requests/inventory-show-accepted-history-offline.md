@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Add a read-only inventory show command that prints accepted history without contacting providers
 description: Let an operator list the accepted scopes of the selected inventory store, local or GCS, and print one scope's accepted declaration, with no provider contact, no lock and no store write, instead of exporting the whole store or reading digest-named records by hand.
-timestamp: "2026-10-19T20:44:04Z"
+timestamp: "2026-10-29T14:31:52Z"
 generated:
   by: process:claude-code
   at: "2026-10-19T20:44:04Z"
 requestId: IR-34
-status: proposed
+status: accepted
+acceptedAt: "2026-10-29T14:31:52Z"
+targetPlan: docs/plans/223-show-accepted-inventory-history-without-contacting-providers.md
 origin: mori://shinzui/nagare
 acceptanceCriteria:
   - id: AC-1
@@ -36,6 +38,11 @@ reviews:
 ---
 
 # Add a read-only `nagarectl inventory show`
+
+**Status:** accepted for implementation in
+[ExecPlan 223](../plans/223-show-accepted-inventory-history-without-contacting-providers.md).
+Implementation has not started. The operator requested the plan on 2026-10-29,
+superseding the original request to implement this without an ExecPlan.
 
 **Authored by:** a `claude-code` session reviewing
 [EP-204](../plans/204-let-app-databases-declare-reviewed-grant-exceptions-and-resource-limits.md)
@@ -90,9 +97,6 @@ enough for a fixture but not for an operator reading history under pressure.
 - Observation, which is `inventory explain`; a diff between two revisions; printing native
   bytes; editing history; an app-database projection (`db app-database list` already walks the
   `appdb-*` scopes and can grow `--json` on its own).
-- An ExecPlan. This is one commit: a parser entry, a command over the existing snapshot
-  reader, a round-trip test against the recorded store fixture, the docs lines and the audit
-  line. It is built when an operator first needs it, not before.
 
 
 ## Prior evidence
