@@ -58,15 +58,19 @@ prepareReview registry snapshot = prepareReviewWithPayloadIdentity "operator-cli
 prepareReviewWithPayloadIdentity :: Text -> AdapterRegistry -> HeadManifest -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
 prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal = do
   prepared <- traverse prepareOne (proposalOperations proposal)
+  preparedValidations <- traverse prepareOne (proposalValidations proposal)
   let (errors, successes) = partitionEithers prepared
-  case errors of
+      (validationErrors, validated) = partitionEithers preparedValidations
+      -- A validation proves a converged member; no barrier or fence applies.
+      barred = [PrepareRefused (plannedOperationId (reviewPlannedOperation operation)) "a validation requirement stopped at a review barrier or carries a data fence" | (operation, _, barrier) <- validated, isJust barrier || isJust (reviewFenceDigest operation)]
+  case errors <> validationErrors <> barred of
     firstError : rest -> pure (Left (firstError :| rest))
     [] -> do
       let operations = [operation | (operation, _, _) <- successes]
           native =
             Map.fromList
               [ member
-              | (_, members, _) <- successes
+              | (_, members, _) <- successes <> validated
               , member <- members
               ]
           barriers = [barrier | (_, _, Just barrier) <- successes]
@@ -85,6 +89,7 @@ prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal = d
                     then "inventory-policy-v1"
                     else "inventory-policy-v2-migration"
               , reviewOperations = operations
+              , reviewValidations = [operation | (operation, _, _) <- validated]
               , reviewBarriers = barriers
               , reviewRetentions = proposalRetentions proposal
               , reviewCollections = proposalCollections proposal

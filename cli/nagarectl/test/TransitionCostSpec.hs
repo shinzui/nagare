@@ -29,7 +29,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), countedTransport, invokeKubectl, runKubectlWith, withKubectlInterpreter)
-import Nagare.Inventory.Store (StoreError (StoreIoError), initializeStore, newObjectStore)
+import Nagare.Inventory.Store (HeadManifest (headActiveTransaction, headGeneration), StoreError (StoreIoError), initializeStore, newObjectStore, readHead)
 import Nagare.Inventory.Store.Counters (CommandTrace, collectCommandTrace, labelled, rootContext, withSpan)
 import Nagare.Inventory.Store.ObjectOps (ObjectName (..), ObjectOps (..), PutOutcome (PutUnknown))
 import Nagare.Inventory.Trace (commandTraceDocument, withCommandTrace)
@@ -42,8 +42,8 @@ import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Target (ActiveTarget (..), Mode (Local), mkContextName)
 import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Test.World.Adversary (newAdversary)
-import Nagare.Test.World.ApiServer (emptyServer)
-import Nagare.Test.World.Cluster (Cluster, clusterAnswer, newCluster)
+import Nagare.Test.World.ApiServer (ObjectKey (..), Preconditions (..), Propagation (Background), create, delete, emptyServer, get, patchJson)
+import Nagare.Test.World.Cluster (Cluster, clusterAnswer, modifyServer, newCluster, readServer)
 import Nagare.Test.World.ObjectStore (fakeObjectOps)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -211,10 +211,11 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
     case converged of
       Converged _ -> pure ()
       other -> assertFailure ("the fixture did not converge: " <> show other)
-    -- Each step's costs, as observed on this path at the 2026-10-29 baseline
-    -- (EP-224 M1). A one-member change still verifies every member because
-    -- the scope's bootstrap marker is unsettled while any member differs;
-    -- EP-225 owns that cost and must lower these rows deliberately.
+    -- Each step's costs, as observed on this path. The 2026-10-29 baseline
+    -- (EP-224 M1) journaled a verification of every member for a marker
+    -- change, and for any member change while the marker is unsettled.
+    -- EP-225 M2 turns those into validations proved at admission: no
+    -- operation and no journal entry, the same reads. Lower rows deliberately.
     unchanged <- do
       candidate <- candidateOf initial
       (_, planned) <- collectCommandTrace (plan (planRegistry initial) candidate (root </> "unchanged"))
@@ -223,34 +224,64 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
     let changed n = marker "second" : [configMap k (if k <= n then "changed" else "value") | k <- [1 .. members]]
     one <- measured "one" (changed 1)
     four <- measured "four" (changed 4)
+    -- A review without validations encodes as before; one with them carries
+    -- a field the v0.11.1 decoder refuses as unknown.
+    let validating label = ("\"validations\"" `BS.isInfixOf`) <$> BS.readFile (root </> label </> "review.json")
+    traverse validating ["unchanged", "sweep"] >>= (@?= [False, True])
     let costs (planned, applied) = (summary planned, summary applied)
         rows = [("unchanged", (summary unchanged, emptySummary)), ("sweep", costs sweep), ("one", costs one), ("four", costs four)]
     forM_ rows $ \(label, row) -> putStrLn (label <> ": " <> show row)
     rows
-      @?= [ ("unchanged", (Summary 0 0 0 0 206 206 0 0, emptySummary))
-          , ("sweep", (Summary 205 1 0 0 412 412 0 0, Summary 0 0 205 1 414 414 1 0))
-          , ("one", (Summary 205 1 0 0 412 412 0 0, Summary 0 0 205 1 414 414 1 0))
-          , ("four", (Summary 203 3 0 0 412 412 0 0, Summary 0 0 203 3 418 418 3 0))
+      @?= [ ("unchanged", (Summary 0 0 0 0 0 0 206 206 0 0, emptySummary))
+          , ("sweep", (Summary 0 1 205 0 0 0 412 412 0 0, Summary 0 0 0 0 1 205 414 414 1 0))
+          , ("one", (Summary 0 1 205 0 0 0 412 412 0 0, Summary 0 0 0 0 1 205 414 414 1 0))
+          , ("four", (Summary 0 3 203 0 0 0 412 412 0 0, Summary 0 0 0 0 3 203 418 418 3 0))
           ]
-    -- Every executed operation is one root span labelled with its operation.
-    length [entry | entry <- snd sweep ^. #spans, isJust (entry ^. #labels . #operation), isNothing (entry ^. #parent)] @?= members + 1
+    -- Every executed operation is one root span labelled with its operation;
+    -- validations are not operations.
+    length [entry | entry <- snd sweep ^. #spans, isJust (entry ^. #labels . #operation), isNothing (entry ^. #parent)] @?= 1
+    -- EP-225 M2: a validation proves the member at admission. A member that
+    -- drifted, vanished or was replaced after the plan refuses the review
+    -- before any transaction starts, and the marker stays unpublished.
+    candidate <- candidateOf (marker "third" : drop 1 (changed 4))
+    _ <- collectCommandTrace (plan (planRegistry (marker "third" : drop 1 (changed 4))) candidate (root </> "refused"))
+    before <- openTargetStore target >>= readHead >>= either (fail . show) (maybe (fail "no head") pure)
+    let key name = ObjectKey "" "configmap" (Just "default") name
+        server change = modifyServer cluster (either (error . show) id . change)
+        refuses label = do
+          applied <- try @ExitCode (applyInventoryWithFactory applyFactory target (root </> "refused") True)
+          assertBool (label <> " was admitted") (either (/= ExitSuccess) (const False) applied)
+          after <- openTargetStore target >>= readHead >>= either (fail . show) (maybe (fail "no head") pure)
+          (headGeneration after, headActiveTransaction after) @?= (headGeneration before, Nothing)
+          published <- get False (key "marker") <$> readServer cluster
+          assertBool (label <> " published the marker") (maybe False (not . ("third" `T.isInfixOf`) . T.pack . show) published)
+    server (fmap fst . patchJson "out-of-band" (key "member-7") [Aeson.object ["op" Aeson..= ("replace" :: Text), "path" Aeson..= ("/data/key" :: Text), "value" Aeson..= ("drifted" :: Text)]])
+    refuses "a drifted member"
+    server (fmap fst . patchJson "out-of-band" (key "member-7") [Aeson.object ["op" Aeson..= ("replace" :: Text), "path" Aeson..= ("/data/key" :: Text), "value" Aeson..= ("value" :: Text)]])
+    original <- get False (key "member-9") <$> readServer cluster >>= maybe (fail "member-9 is absent") pure
+    server (delete (Preconditions Nothing Nothing) Background (key "member-9"))
+    refuses "a deleted member"
+    server (fmap fst . create "out-of-band" original)
+    refuses "a replaced member"
 
--- | What one plan or apply did: planned verifies and updates, executed
--- verifies and updates, logical and transported @get configmap@ reads,
--- transported applies and reused reads.
-data Summary = Summary !Int !Int !Int !Int !Int !Int !Int !Int
+-- | What one plan or apply did: planned verifies, updates and validations,
+-- executed verifies, updates and validations, logical and transported
+-- @get configmap@ reads, transported applies and reused reads.
+data Summary = Summary !Int !Int !Int !Int !Int !Int !Int !Int !Int !Int
   deriving stock (Eq, Show)
 
 emptySummary :: Summary
-emptySummary = Summary 0 0 0 0 0 0 0 0
+emptySummary = Summary 0 0 0 0 0 0 0 0 0 0
 
 summary :: TraceDocument -> Summary
 summary document =
   Summary
     (operationTotal RecordPlanned "VerifyResource" document)
     (operationTotal RecordPlanned "UpdateResource" document)
+    (operationTotal RecordPlanned "ValidateResource" document)
     (operationTotal RecordExecuted "VerifyResource" document)
     (operationTotal RecordExecuted "UpdateResource" document)
+    (operationTotal RecordExecuted "ValidateResource" document)
     (named CategoryKubernetesLogical "get configmap")
     (named CategoryKubernetesTransport "get configmap")
     (named CategoryKubernetesTransport "apply")

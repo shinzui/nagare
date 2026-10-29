@@ -40,7 +40,7 @@ kubernetesSpecsFromReview bundle = do
       collections = Map.keysSet (reviewCollections (reviewBundleDocument bundle))
       operations =
         [ operation
-        | operation <- reviewOperations (reviewBundleDocument bundle)
+        | operation <- reviewAdapterOperations (reviewBundleDocument bundle)
         , plannedExecutor (reviewPlannedOperation operation) == KubernetesExecutor
         , -- Collected members are absent from desired scopes. The execution
         -- factory loads their exact retained incarnation from history.

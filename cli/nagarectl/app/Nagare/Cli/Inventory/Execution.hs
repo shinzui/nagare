@@ -194,7 +194,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle
     operations =
       map
         InventoryPlan.reviewPlannedOperation
-        (InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle))
+        (InventoryPlan.reviewAdapterOperations (InventoryPlan.reviewBundleDocument bundle))
 inventoryExecutionRegistryIn session mctx inventory bundle = do
   let store = inventory ^. #executionStore
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
@@ -202,7 +202,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
       operations =
         map
           InventoryPlan.reviewPlannedOperation
-          (InventoryPlan.reviewOperations document)
+          (InventoryPlan.reviewAdapterOperations document)
       selected executor =
         Set.fromList
           [ resource
@@ -625,7 +625,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
           else cdnPurgeRuntime store scopes acceptedDns dnsBase
       let kubernetesOperations =
             [ op
-            | op <- InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle)
+            | op <- InventoryPlan.reviewAdapterOperations (InventoryPlan.reviewBundleDocument bundle)
             , InventoryAdapter.plannedExecutor (InventoryPlan.reviewPlannedOperation op) == ResourceInventory.KubernetesExecutor
             ]
           controllerCollection = any ((== controllerCollectionIdentity) . InventoryPlan.reviewAdapterIdentity) kubernetesOperations

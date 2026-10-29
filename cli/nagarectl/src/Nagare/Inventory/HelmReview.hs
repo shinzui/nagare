@@ -32,7 +32,7 @@ helmSpecsFromReview bundle = do
           ]
       operations =
         [ operation
-        | operation <- reviewOperations (reviewBundleDocument bundle)
+        | operation <- reviewAdapterOperations (reviewBundleDocument bundle)
         , plannedExecutor (reviewPlannedOperation operation) == HelmExecutor
         ]
   entries <- traverse (reconstruct declarationsById) operations

@@ -31,6 +31,7 @@ import Nagare.Inventory.Plan.Types
   , ReviewOperation (..)
   , encodeReviewDocument
   , fenceMembersValid
+  , reviewAdapterOperations
   , reviewDigest
   , reviewPrivateDigests
   )
@@ -90,7 +91,7 @@ publishReview store bundle = do
 -- a head, accepted scope, operation, or admission decision. Repeating after an
 -- interruption is safe. The caller must supply an original prepared/loaded review.
 publishObservationMembers :: InventoryStore -> ReviewBundle -> IO (Either StoreError ())
-publishObservationMembers store bundle = case traverse extract (reviewOperations document) of
+publishObservationMembers store bundle = case traverse extract (reviewAdapterOperations document) of
   Left reason -> pure (Left (StoreInvalidObject (reviewKey (reviewDigest bundle)) reason))
   Right values -> do
     results <-
@@ -159,6 +160,11 @@ writeReviewBundle output bundle = do
     [ (T.pack (show (plannedAction planned)), T.pack (show (plannedExecutor planned)))
     | operation <- reviewOperations (bundleDocument bundle)
     , let planned = reviewPlannedOperation operation
+    ]
+  traceOperations
+    RecordPlanned
+    [ ("ValidateResource", T.pack (show (plannedExecutor (reviewPlannedOperation validation))))
+    | validation <- reviewValidations (bundleDocument bundle)
     ]
   attempted <- try $ do
     exists <- doesPathExist output

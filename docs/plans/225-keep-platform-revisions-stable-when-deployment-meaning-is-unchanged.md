@@ -53,8 +53,17 @@ equality does not prove that the live cluster is healthy.
   revision and vector digest and the changed-scope revision. Platform candidate filtering and
   `bootstrapPreservedScopeVectorDigest` use it; `Bootstrap/Local.hs` and the transition table use
   the typed `sameDeclarationsModuloSources`, replacing the JSON-key deletion.
-- [ ] M2: Planning separates fresh validation requirements from effects; a release-only change
+- [x] M2: Planning separates fresh validation requirements from effects; a release-only change
   has no per-member verify operations and still refuses drift, missing ownership and stale health.
+  Pass, 2026-10-29: a verification only a bootstrap review asks for is a review `validations`
+  entry (effect-free, never journaled; other operations drop dependencies on it). Admission
+  proves each serially with its adapter's preflight and verify before the head is activated.
+  `-p TransitionCost`: the 206-member marker sweep plans 0 verifies, 1 update and 205
+  validations and executes 0 verifies (was 205); a drifted, deleted or replaced member after the
+  plan refuses admission with the head generation unchanged, no transaction and the marker
+  unpublished. A review without validations encodes byte-for-byte as before; v0.11.1's decoder
+  (`git show v0.11.1:cli/nagarectl/src/Nagare/Inventory/Plan/Types.hs`, line 505) refuses the
+  new field as unknown, so an old writer cannot apply a new review.
 - [ ] M3: Previous-release review compatibility and the transition producer/consumer fixture
   pass, including one changed member, preserved scope vectors and final stamp dependencies.
 
@@ -79,6 +88,10 @@ cannot remove this global verification work.
   The stamp remains gated by proof, but proof of an unchanged resource is not a mutation intent.
 - 2026-10-29: Use an explicit typed projection, never recursive deletion of JSON keys called
   `source`, `version` or `path`; those names can occur in actual workload configuration.
+- 2026-10-29: Validation requirements reuse the review operation shape with action
+  `VerifyResource` in a separate `validations` list, and admission runs the adapter's own
+  preflight and verify for each. The serial consumer has exactly the semantics the journaled
+  verify had, minus the journal; EP-227 replaces it under the same entries.
 - 2026-10-29: A source location stays significant when code reads it as data: `generated:` and
   `packaged:` records, `contribution`, and the artifact input markers `oci-archive-v1`,
   `kubeconfig-prepared-v1` and `local-substrate-v1` (an artifact executor opens that file). An

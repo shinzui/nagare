@@ -32,6 +32,7 @@ module Nagare.Inventory.Plan.Types
   , reviewBundleScopes
   , reviewDigest
   , reviewPrivateDigests
+  , reviewAdapterOperations
   , reviewedDocument
   , reviewedFenceRecord
   , reviewedNativeBundles
@@ -169,6 +170,7 @@ data ChangeProposal = ChangeProposal
   , proposalScopes :: !(Map ContentDigest ByteString)
   , proposalCandidateDigest :: !ContentDigest
   , proposalOperations :: ![PlannedOperation]
+  , proposalValidations :: ![PlannedOperation]
   , proposalRetentions :: !(Map ResourceId RetentionProof)
   , proposalCollections :: !(Map ResourceId RetentionProof)
   , proposalMigrations :: !(Map ResourceId MigrationProof)
@@ -232,6 +234,10 @@ data ReviewDocument = ReviewDocument
   , reviewPayloadIdentity :: !Text
   , reviewPolicyVersion :: !Text
   , reviewOperations :: ![ReviewOperation]
+  , reviewValidations :: ![ReviewOperation]
+  -- ^ EP-225 M2: effect-free verifications of unchanged members, each proved
+  -- freshly at admission with its adapter's own semantics and never journaled.
+  -- An older reader refuses a review that has any.
   , reviewBarriers :: ![ReviewBarrier]
   , reviewRetentions :: !(Map ResourceId RetentionProof)
   , reviewCollections :: !(Map ResourceId RetentionProof)
@@ -471,6 +477,9 @@ instance ToJSON ReviewDocument where
         , "operations" .= reviewOperations document
         , "barriers" .= reviewBarriers document
         ]
+          <> [ "validations" .= reviewValidations document
+             | not (null (reviewValidations document))
+             ]
           <> [ "retentions" .= retentionEntries (reviewRetentions document)
              | not (Map.null (reviewRetentions document))
              ]
@@ -502,7 +511,7 @@ instance ToJSON ReviewDocument where
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds", "rebuilds"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "validations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds", "rebuilds"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
@@ -522,6 +531,7 @@ instance FromJSON ReviewDocument where
       <*> o .: "payloadIdentity"
       <*> o .: "policyVersion"
       <*> o .: "operations"
+      <*> o .:? "validations" .!= []
       <*> o .: "barriers"
       <*> pure retentions
       <*> pure collections
@@ -560,13 +570,18 @@ reviewDigest = contentDigest . encodeReviewDocument . bundleDocument
 reviewPrivateDigests :: ReviewDocument -> [ContentDigest]
 reviewPrivateDigests document =
   [ digest
-  | operation <- reviewOperations document
+  | operation <- reviewAdapterOperations document
   , Just digest <- [reviewNativeDigest operation]
   ]
     <> [ digest
        | operation <- reviewOperations document
        , Just digest <- [reviewFenceDigest operation]
        ]
+
+-- | Every reviewed entry an adapter is built for: the operations and the
+-- validation requirements.
+reviewAdapterOperations :: ReviewDocument -> [ReviewOperation]
+reviewAdapterOperations document = reviewOperations document <> reviewValidations document
 
 fenceMembersValid :: ReviewDocument -> Map ContentDigest ByteString -> Bool
 fenceMembersValid document members = all valid (reviewOperations document)

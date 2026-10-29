@@ -544,14 +544,15 @@ inventoryObservabilityTests =
                 )
                 (old ^. #dependencies == new ^. #dependencies)
             _ -> assertFailure "accepted marker disappeared"
+          -- EP-225 M2: the replay's checks are validations proved at admission.
           let checks =
                 [ operation
-                | operation <- proposalOperations replayProposal
+                | operation <- proposalValidations replayProposal
                 , plannedAction operation == VerifyResource
                 ]
               replayMarker =
                 [ operation
-                | operation <- proposalOperations replayProposal
+                | operation <- proposalValidations replayProposal
                 , any (`elem` stampIds) (plannedResources operation)
                 ]
           assertBool "accepted bootstrap has no native no-op checks" (not (null checks))
@@ -562,12 +563,8 @@ inventoryObservabilityTests =
           case replayMarker of
             [markerCheck] -> do
               plannedAction markerCheck @?= VerifyResource
-              assertBool
-                "bootstrap marker skipped an accepted native check"
-                ( all
-                    (\check -> plannedOperationId check `elem` plannedDependencies markerCheck)
-                    [check | check <- checks, plannedOperationId check /= plannedOperationId markerCheck]
-                )
+              assertBool "a validation waits on another" (all (null . plannedDependencies) checks)
+              assertBool "an accepted bootstrap replay journals a verification" (not (any ((== VerifyResource) . plannedAction) (proposalOperations replayProposal)))
             other -> assertFailure ("expected one reviewed marker check, got " <> show other)
     , testCase "reviewed Helm adapter refuses a changed release revision" $ do
         let (release, native) = ok (compileRenderedRelease fixture)

@@ -15,10 +15,12 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Text qualified as T
 import Data.Time (getCurrentTime)
+import Nagare.Contract.Trace (OperationRecord (RecordExecuted))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
-  ( Adapter (adapterPreflight)
+  ( Adapter (adapterIdentity, adapterPreflight, adapterVerify, adapterVersion)
   , AdapterRegistry
   , MigrationStage (BackUpSource)
   , OperationAction
@@ -27,7 +29,7 @@ import Nagare.Inventory.Adapter
     , RestoreLiveDatabase
     , RetireResource
     )
-  , PlannedOperation (plannedAction, plannedExecutor, plannedResources)
+  , PlannedOperation (plannedAction, plannedExecutor, plannedOperationId, plannedResources)
   , ResourceObservation (ConfirmedAbsent, ObservedPresent)
   , lookupAdapter
   , observationMap
@@ -35,6 +37,7 @@ import Nagare.Inventory.Adapter
   )
 import Nagare.Inventory.BackupRetention (standardRetention)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Execute.AdapterEnv (withAdapterEnv)
 import Nagare.Inventory.Execute.Claims (observeCurrentHead)
 import Nagare.Inventory.Execute.Inputs
   ( preparedFor
@@ -52,6 +55,7 @@ import Nagare.Inventory.Execute.Types
   )
 import Nagare.Inventory.Journal
   ( OperationState (Pending)
+  , operationIdText
   , transactionIdText
   )
 import Nagare.Inventory.Migration.Types (MigrationContract (..), migrationPoliciesCompatible)
@@ -87,8 +91,9 @@ import Nagare.Inventory.Plan
     , reviewRebinds
     , reviewRebuilds
     , reviewRetentions
+    , reviewValidations
     )
-  , ReviewOperation (reviewPlannedOperation)
+  , ReviewOperation (reviewAdapterIdentity, reviewAdapterVersion, reviewPlannedOperation)
   , ReviewedPlan
   , loadInventoryHistoryAt
   , loadUnstartedApplicationCreates
@@ -123,6 +128,7 @@ import Nagare.Inventory.Store
   , scopeKey
   , storeClientIdentity
   )
+import Nagare.Inventory.Store.Counters (traceOperations)
 import Nagare.Resource.Inventory (Executor (..))
 import Nagare.Resource.Inventory qualified as Resource
 import Nagare.Resource.Policy (DataPolicy (..))
@@ -255,10 +261,13 @@ admitWithHistory locked registry reviewed pinned = do
                   case Map.lookup resource (observationMap facts) of
                     Just (ConfirmedAbsent _) -> Right ()
                     _ -> Left "a resource reviewed as absent is present or unobserved"
+        validated <- validationRefusals registry reviewed
         case migrationChecked >> sourceChecked of
           Left err -> pure (failure "migration-coverage" err)
           Right () -> case checked of
             Left reason -> pure (failure "retention-observation" ("a reviewed incarnation could not be reverified: " <> reason))
+            Right ()
+              | firstRefusal : rest <- validated -> pure (Left (firstRefusal :| rest))
             Right () -> do
               now <- timestamp
               let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
@@ -309,6 +318,33 @@ admitWithHistory locked registry reviewed pinned = do
                   pure $ case event of
                     Left err -> failure "journal" (showText err)
                     Right _ -> Right (ExecutablePlan transaction reviewed)
+
+-- | EP-225 M2: prove each validation requirement freshly and serially, with
+-- its adapter's own preflight and effect-free verification, just before the
+-- transaction would start. Nothing is journaled; a refusal leaves the store
+-- as it was. An unknown, foreign, replaced, drifted or unready member
+-- refuses exactly as its verification operation would have stopped.
+validationRefusals :: AdapterRegistry -> ReviewedPlan -> IO [AdmissionError]
+validationRefusals registry reviewed =
+  fmap concat . forM (reviewValidations document) $ \validation -> do
+    let operation = reviewPlannedOperation validation
+        refused reason = [AdmissionError "validation" (operationIdText (plannedOperationId operation) <> ": " <> reason)]
+    case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed validation) of
+      (Left reason, _) -> pure (refused reason)
+      (_, Left reason) -> pure (refused reason)
+      (Right adapter, Right prepared)
+        | adapterIdentity adapter /= reviewAdapterIdentity validation || adapterVersion adapter /= reviewAdapterVersion validation ->
+            pure (refused "the installed adapter is not the reviewed identity and version")
+        | otherwise -> do
+            traceOperations RecordExecuted [("ValidateResource", T.pack (show (plannedExecutor operation)))]
+            checked <- withAdapterEnv (transactionFor document) operation $ do
+              preflight <- adapterPreflight adapter operation prepared
+              case preflight of
+                Left reason -> pure (Left ("preflight refused: " <> reason))
+                Right () -> first ("verification failed: " <>) . void <$> adapterVerify adapter operation prepared
+            pure (either refused (const []) checked)
+  where
+    document = reviewedDocument reviewed
 
 -- | EP-172: while a release transition is open only its own reviews are
 -- admitted, and a transition review opens or continues only the transition

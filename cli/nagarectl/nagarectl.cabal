@@ -74,6 +74,7 @@ library
     Nagare.Inventory.Plan.Publication
     Nagare.Inventory.Plan.Types
     Nagare.Inventory.Plan.Validation
+    Nagare.Inventory.Plan.ValidationRequirements
     Nagare.Inventory.ScopeMember
     Nagare.Inventory.Store.Target
     Nagare.Inventory.Store.TargetMigration

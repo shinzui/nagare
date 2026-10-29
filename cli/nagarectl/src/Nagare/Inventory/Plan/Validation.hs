@@ -22,7 +22,7 @@ import Nagare.Inventory.Adapter
       , TransferState
       , VerifyDestination
       )
-  , OperationAction (MigrateResource, RetireResource)
+  , OperationAction (MigrateResource, RetireResource, VerifyResource)
   , PlannedOperation
     ( plannedAction
     , plannedDependencies
@@ -40,6 +40,7 @@ import Nagare.Inventory.Plan.Types
   , ReviewError (..)
   , ReviewOperation (..)
   , ReviewedPlan (..)
+  , duplicateValues
   , encodeReviewDocument
   , fenceMembersValid
   , reviewDigest
@@ -98,6 +99,14 @@ verifyReview snapshot bundle =
         <> [ReviewError "native-member" "review private member is missing or has a different digest" | not (membersMatch (bundleNative bundle) (reviewPrivateDigests document))]
         <> [ReviewError "data-fence-member" "review data fence private member is malformed or differs from its digest" | not (fenceMembersValid document (bundleNative bundle))]
         <> [ReviewError "operation-dependency" "review operation depends on an operation absent from the same review" | not (null missingDependencies)]
+        <> [ ReviewError "validation-requirement" "a validation requirement is not an independent verification of its own member"
+           | validation <- reviewValidations document
+           , let planned = reviewPlannedOperation validation
+           , plannedAction planned /= VerifyResource
+               || not (null (plannedDependencies planned))
+               || Set.member (plannedOperationId planned) operationIds
+           ]
+        <> [ReviewError "validation-requirement" "two validation requirements share an identity" | duplicateValues (map (plannedOperationId . reviewPlannedOperation) (reviewValidations document)) /= []]
     membersMatch members digests =
       Set.fromList digests == Map.keysSet members
         && all (\(memberDigest, bytes) -> contentDigest bytes == memberDigest) (Map.toList members)

@@ -95,6 +95,7 @@ import Nagare.Inventory.Plan.Types
   , historyReservations
   , revisionEntries
   )
+import Nagare.Inventory.Plan.ValidationRequirements (separateValidations)
 import Nagare.Inventory.Store
   ( HeadManifest
       ( headActiveTransaction
@@ -240,7 +241,7 @@ planChanges candidate decisions history observations = do
         )
     )
   let absences = buildAbsenceProofs candidate history observations
-  operations <- buildOperations candidate checkedDecisions history observations
+  (operations, validations) <- buildOperations candidate checkedDecisions history observations
   retentions <- buildRetentionProofs candidate checkedDecisions history observations
   collections <- buildCollectionProofs candidate checkedDecisions history observations
   let migrationProofs = buildMigrationProofs checkedDecisions
@@ -266,6 +267,7 @@ planChanges candidate decisions history observations = do
       , proposalScopes = scopeMembers
       , proposalCandidateDigest = contentDigest candidateBytes
       , proposalOperations = sortOn (operationIdText . plannedOperationId) operations
+      , proposalValidations = sortOn (operationIdText . plannedOperationId) validations
       , proposalRetentions = retentions
       , proposalCollections = collections
       , proposalMigrations = migrationProofs
@@ -492,10 +494,21 @@ buildCollectionProofs candidate (LifecycleDecisions _ decisions _) history obser
               )
       _ -> Left (PlanError "collection-proof" "collection lacks an exact retained incarnation proof" [resource] :| [])
 
-buildOperations :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) [PlannedOperation]
+-- | The review's operations and its validation requirements (EP-225 M2): a
+-- verification only a bootstrap review asks for proves an unchanged member
+-- freshly at admission and is never journaled, so no operation waits on it.
+buildOperations :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) ([PlannedOperation], [PlannedOperation])
 buildOperations candidate (LifecycleDecisions _ decisions migrations) history observations =
-  if null errors then Right (map addDependencies preliminary <> map snd declaredOperations) else Left (NE.fromList errors)
+  if null errors then Right (separateValidations bootstrapValidated (map addDependencies preliminary <> map snd declaredOperations)) else Left (NE.fromList errors)
   where
+    bootstrapValidated =
+      Set.fromList
+        [ resourceId
+        | bootstrapReview
+        , (resourceId, resource, Just old, _) <- desiredManaged
+        , sameManaged old resource && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
+        , Set.notMember (resource ^. #owner) unconvergedSelectedScopeIds && Set.notMember resourceId requiredTopics
+        ]
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
     -- Accepted markers remain in the composed inventory during ordinary
     -- application/access reviews. Only selecting a marker requests the

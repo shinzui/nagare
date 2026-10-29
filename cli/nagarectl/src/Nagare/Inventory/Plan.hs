@@ -34,6 +34,7 @@ module Nagare.Inventory.Plan
   , ChangeProposal
   , historyDeclarations
   , proposalOperations
+  , proposalValidations
   , proposalDesired
   , proposalAbsences
   , candidateDesiredRevisions
@@ -61,6 +62,7 @@ module Nagare.Inventory.Plan
   , reviewDigest
   , duplicateValues
   , encodeReviewDocument
+  , reviewAdapterOperations
   , publishReview
   , publishObservationMembers
   , loadPublishedReview
@@ -134,6 +136,7 @@ import Nagare.Inventory.Plan.Types
   , historyReservations
   , renderPlanErrors
   , renderRebind
+  , reviewAdapterOperations
   , reviewBundleDocument
   , reviewBundleFenceRecord
   , reviewBundleNative

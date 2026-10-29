@@ -604,7 +604,8 @@ inventoryKubernetesTests =
                     [(resource, ObservedPresent physical), (markerId, ConfirmedAbsent absence)]
                 )
             noOp = ok (planChanges stamped noLifecycleDecisions history unchanged)
-            checks = [planned | planned <- proposalOperations noOp, plannedAction planned == VerifyResource]
+            -- EP-225 M2: the check is a validation, proved at admission.
+            checks = [planned | planned <- proposalValidations noOp, plannedAction planned == VerifyResource]
         case checks of
           [check] -> do
             let markerCreates =
@@ -615,9 +616,11 @@ inventoryKubernetesTests =
                   ]
             case markerCreates of
               [markerCreate] ->
+                -- Admission proves it before any operation runs, so the
+                -- marker needs no edge to it.
                 assertBool
-                  "bootstrap marker did not wait for accepted object verification"
-                  (plannedOperationId check `elem` plannedDependencies markerCreate)
+                  "bootstrap marker waits on a validation"
+                  (plannedOperationId check `notElem` plannedDependencies markerCreate)
               _ -> assertFailure "bootstrap marker had no create operation"
             prepared <- adapterPrepare adapter check >>= expectRight
             -- HPA and other controllers may advance resourceVersion through
