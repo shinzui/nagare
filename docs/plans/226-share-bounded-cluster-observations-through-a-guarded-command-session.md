@@ -80,6 +80,14 @@ closed with a bounded number of requests and a useful explanation.
 ## Surprises & Discoveries
 
 
+- 2026-10-29: Answering planning's object reads from the existing grouped snapshot
+  (`KubernetesSnapshot.snapshotRuntime`, used by status) is not equivalent. A review prepared from
+  a list item binds bytes that differ from a later single-object read, so apply preflight refused
+  every create with "Kubernetes object changed since review" (EP-224's production fixture, run
+  after `28df690e`). M2 must make grouped answers equal to single reads, or bind preparation to
+  identity and desired fields only, and prove that with the plan-equivalence test it already
+  names, before any planning path uses grouped reads.
+
 2026-10-29: `KubernetesSnapshot.hs` batches by kind and namespace, uses eight concurrent calls,
 and falls back to one read per object for unrecognized batch failures. Its answers are keyed by
 kubectl argument lists. The connection identity is not part of that map. `ClusterGuard.hs`
