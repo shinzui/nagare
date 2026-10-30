@@ -194,9 +194,11 @@
         echo "worker $w: done after $n records read" | tee -a "$out/status"
       '';
 
+      # records: the names to sweep; null sweeps every record.
       mutationSweep =
         { label
         , width ? 4
+        , records ? null
         }:
         pkgs.runCommand "mutation-sweep-${label}" { nativeBuildInputs = [ sweepGhc pkgs.cabal-install pkgs.jq pkgs.python3 pkgs.coreutils ]; } ''
           set -uo pipefail
@@ -210,7 +212,9 @@
           export HELM_CACHE_HOME="$TMPDIR/nagare-helm-cache"
           mkdir -p "$HELM_CACHE_HOME"
           python3 ${sweepProject} ${self}/cli/nagarectl/cabal.project > "$TMPDIR/cabal.project.sweep" || exit 1
-          jq -r '.[] | [.record, .suite, .pattern] | @tsv' ${self}/cli/nagarectl/test/mutations/records.json > "$TMPDIR/records.tsv"
+          jq -r --argjson only ${lib.escapeShellArg (builtins.toJSON records)} \
+            '.[] | select($only == null or (.record as $r | any($only[]; . == $r))) | [.record, .suite, .pattern] | @tsv' \
+            ${self}/cli/nagarectl/test/mutations/records.json > "$TMPDIR/records.tsv"
           # One prepared tree that each worker copies.
           cp -R ${self} "$TMPDIR/pristine"
           chmod -R u+w "$TMPDIR/pristine"

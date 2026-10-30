@@ -273,8 +273,10 @@ sweepRecords root logs rev width entries = do
           <> "\").legacyPackages.x86_64-linux.mutationSweep { label = \""
           <> T.unpack (T.take 8 rev)
           <> "\"; width = "
-          <> show width
-          <> "; }"
+          <> show (max 1 (min width (length entries)))
+          <> "; records = [ "
+          <> unwords [show (T.unpack (entry ^. #record)) | entry <- entries]
+          <> " ]; }"
   (code, out) <- streamingStderr root "nix" ["build", "--no-link", "--print-out-paths", "--print-build-logs", "--impure", "--expr", expression]
   case (code, reverse (filter (not . T.null) (T.lines out))) of
     (ExitSuccess, output : _) -> do
