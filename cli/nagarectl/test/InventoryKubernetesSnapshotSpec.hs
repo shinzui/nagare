@@ -5,6 +5,9 @@ module InventoryKubernetesSnapshotSpec
   )
 where
 
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (concurrently)
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy.Char8 qualified as BLC
@@ -93,6 +96,36 @@ inventoryKubernetesSnapshotTests =
         runtime <- snapshotRuntime (fake unexpected) [settings, other]
         answer <- invokeKubectl runtime (single settings) ""
         assertBool "a mixed-cluster member was answered" (either ("several" `T.isInfixOf`) (const False) answer)
+    , testCase "forbidden, throttled and unreachable reads are unavailable evidence, never absence" $
+        forM_ ["Error from server (Forbidden): configmaps is forbidden", "Error from server (TooManyRequests): the server has received too many requests", "Unable to connect to the server: dial tcp: i/o timeout"] $ \refusal -> do
+          let respond _ = pure (Right (ExitFailure 1, "", refusal))
+          runtime <- snapshotRuntime (fake respond) [settings]
+          answer <- invokeKubectl runtime (single settings) ""
+          assertBool (refusal <> " was answered") (either (T.pack refusal `T.isInfixOf`) (const False) answer)
+    , testCase "the same name in two namespaces is read and answered per namespace" $ do
+        let inApps = Kubernetes cluster "" (known "configmap") (Just (known "apps")) (known "settings")
+            inOps = Kubernetes cluster "" (known "configmap") (Just (known "ops")) (known "settings")
+            respond request = pure $ case request ^. #arguments of
+              args | "apps" `elem` args -> Right (ExitSuccess, BLC.unpack (encode (labelled "settings" "apps")), "")
+              _ -> Right (ExitSuccess, "", "")
+        length (snapshotReads [inApps, inOps]) @?= 2
+        runtime <- snapshotRuntime (fake respond) [inApps, inOps]
+        apps <- invokeKubectl runtime (single inApps) ""
+        ops <- invokeKubectl runtime (single inOps) ""
+        named apps @?= Just "settings"
+        ops @?= Right (ExitSuccess, "", "")
+    , testCase "concurrent epochs share one limit of eight reads in flight" $ do
+        inFlight <- newIORef (0 :: Int)
+        highest <- newIORef (0 :: Int)
+        let addresses label = [Kubernetes cluster "" (known "configmap") (Just (known (label <> T.pack (show n)))) (known "settings") | n <- [1 .. 12 :: Int]]
+            respond _ = do
+              now <- atomicModifyIORef' inFlight (\n -> (n + 1, n + 1))
+              atomicModifyIORef' highest (\h -> (max h now, ()))
+              threadDelay 20000
+              atomicModifyIORef' inFlight (\n -> (n - 1, ()))
+              pure (Right (ExitSuccess, "", ""))
+        _ <- concurrently (snapshotRuntime (fake respond) (addresses "a-")) (snapshotRuntime (fake respond) (addresses "b-"))
+        readIORef highest >>= assertBool "more than eight grouped reads were in flight" . (<= 8)
     , testCase "a plan's later reads are answered from the epoch its observation began" $ do
         requests <- newIORef (0 :: Int)
         let cluster _ = do
@@ -120,6 +153,8 @@ inventoryKubernetesSnapshotTests =
     known = ok . mkName
     fake :: (KubectlRequest -> IO KubectlResult) -> KubernetesRuntimeConfig
     fake cluster' = withKubectlInterpreter (runKubectlWith cluster') (KubernetesRuntimeConfig (ok (mkContextId "test")) "test" (pure (Right ())))
+    labelled :: Text -> Text -> Value
+    labelled name namespace = object ["kind" .= ("ConfigMap" :: Text), "metadata" .= object ["name" .= name, "namespace" .= namespace]]
     item :: Text -> Value
     item name = object ["kind" .= ("Deployment" :: Text), "metadata" .= object ["name" .= name, "uid" .= ("uid-" <> name)]]
     list items = BLC.unpack (encode (object ["kind" .= ("List" :: Text), "items" .= items]))

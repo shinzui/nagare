@@ -34,7 +34,7 @@ module Nagare.Inventory.KubernetesSnapshot
 where
 
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+import Control.Concurrent.QSem (QSem, newQSem, signalQSem, waitQSem)
 import Control.Exception (bracket_)
 import Data.Aeson (Value (..), eitherDecodeStrict', encode)
 import Data.Aeson.KeyMap qualified as KM
@@ -57,6 +57,7 @@ import Nagare.Inventory.KubernetesTransport (KubectlRequest, KubectlResult, Kube
 import Nagare.Inventory.Store.Counters (traceCount)
 import Nagare.Resource.Types (Name, ProviderAddress (..), ResourceId, nameText)
 import System.Exit (ExitCode (..))
+import System.IO.Unsafe (unsafePerformIO)
 
 -- | At most this many names in one grouped read.
 chunkLimit :: Int
@@ -78,8 +79,8 @@ data ObservationEpoch = ObservationEpoch
   }
   deriving stock (Generic)
 
--- | Gather a phase's reads of these addresses: at most eight grouped reads at
--- a time. Addresses of more than one cluster are refused, each unavailable.
+-- | Gather a phase's reads of these addresses, within the process's read
+-- limit. Addresses of more than one cluster are refused, each unavailable.
 openObservationEpoch :: KubernetesRuntimeConfig -> [ProviderAddress] -> IO ObservationEpoch
 openObservationEpoch config addresses = do
   generation' <- commandSessionGeneration (runtimeKubectlContext config)
@@ -88,10 +89,16 @@ openObservationEpoch config addresses = do
       let refused = Left "an observation epoch reads one cluster; these addresses name several"
       pure (ObservationEpoch generation' (Map.fromList [(single, refused) | (_, members) <- snapshotReads addresses, (_, single) <- members]))
     _ -> do
-      limit <- newQSem 8
-      outcomes <- mapConcurrently (\(arguments, members) -> bracket_ (waitQSem limit) (signalQSem limit) (readGroup config arguments members)) (snapshotReads addresses)
+      outcomes <- mapConcurrently (\(arguments, members) -> bracket_ (waitQSem readLimit) (signalQSem readLimit) (readGroup config arguments members)) (snapshotReads addresses)
       let (_, settled) = mapAccumL settle fallbackBudget outcomes
       pure (ObservationEpoch generation' (Map.unions settled))
+
+-- | At most eight grouped reads in flight in the whole process, however many
+-- epochs nested adapters open at once (EP-226 M3). A limit on load, not an
+-- authority: it carries no identity.
+readLimit :: QSem
+readLimit = unsafePerformIO (newQSem 8)
+{-# NOINLINE readLimit #-}
 
 -- | What one grouped read proved, after its one retry.
 data GroupOutcome
