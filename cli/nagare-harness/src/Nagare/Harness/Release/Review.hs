@@ -34,10 +34,11 @@ import Nagare.Harness.Prelude
 
 -- | The action tag of every operation, in review order, and the number of
 -- scopes other than the bootstrap stamp whose desired revision differs from
--- the base.
+-- the base, and the validations admission must still prove (EP-228 M1).
 data ReviewCounts = ReviewCounts
   { actions :: ![Text]
   , reaccepted :: !Int
+  , validations :: !Int
   }
   deriving stock (Eq, Show, Generic)
 
@@ -59,7 +60,8 @@ reviewCounts = withObject "review" $ \review -> do
   base <- mapM revisionEntry =<< review .: "baseRevisions"
   desired <- mapM revisionEntry =<< review .: "desiredRevisions"
   let moved (scope, revision) = scopeName scope /= Just "bootstrap-stamp" && lookup scope base /= Just revision
-  pure ReviewCounts {actions = tags, reaccepted = length (filter moved desired)}
+  pending <- fromMaybe [] <$> (review .:? "validations" :: Parser (Maybe [Value]))
+  pure ReviewCounts {actions = tags, reaccepted = length (filter moved desired), validations = length pending}
   where
     actionTag = withObject "operation" $ \entry -> do
       nested <- entry .:? "operation"
@@ -81,7 +83,7 @@ operationCount counting counts = length (filter counted (counts ^. #actions))
     counted tag = counting == AllOperations || tag /= "VerifyResource"
 
 isConverged :: Counting -> ReviewCounts -> Bool
-isConverged counting counts = operationCount counting counts == 0 && counts ^. #reaccepted == 0
+isConverged counting counts = operationCount counting counts == 0 && counts ^. #reaccepted == 0 && counts ^. #validations == 0
 
 -- | The counts of a @platform transition plan --summary@ document, which
 -- nagarectl computes from its own review types.
@@ -90,6 +92,7 @@ summaryCounts summary =
   ReviewCounts
     { actions = concat [replicate count tag | (tag, count) <- Map.toAscList (summary ^. #operations)]
     , reaccepted = length (summary ^. #reaccepted)
+    , validations = fromMaybe 0 (summary ^. #validationCount)
     }
 
 readPlanSummary :: FilePath -> IO (Either Text TransitionPlanSummary)

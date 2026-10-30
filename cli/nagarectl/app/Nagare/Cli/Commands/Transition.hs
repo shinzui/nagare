@@ -26,7 +26,7 @@ import Nagare.Contract.Release (TransitionPlanSummary (..), transitionPlanSummar
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (PlannedOperation (plannedAction))
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Plan (ReviewDocument (reviewOperations), ReviewOperation (reviewPlannedOperation), loadReviewBundle, reviewBaseRevisions, reviewBundleDocument, reviewDesiredRevisions)
+import Nagare.Inventory.Plan (ReviewDocument (reviewOperations, reviewValidations), ReviewOperation (reviewPlannedOperation), loadReviewBundle, reviewBaseRevisions, reviewBundleDocument, reviewDesiredRevisions)
 import Nagare.Inventory.Store
   ( HeadManifest (headGeneration, headSchemaVersion, headTransition)
   , InventoryStore
@@ -74,7 +74,20 @@ runPlatformTransitionPlan mctx output summary = do
   -- target; the pin itself is written by the commit, last.
   let moved = active & #profile . #platformVersion .~ Just (manifest ^. #platformVersion)
   tracePhase "stage planning" $ planNextStage ReleaseTransition moved paths workspace (transitionReviewIdentity (pair ^. #source) (manifest ^. #payloadId)) output
-  for_ summary (writeTransitionSummary output)
+  impact <- transitionImpact output
+  for_ summary (\path -> BL.writeFile path (encode impact))
+  -- EP-228 M1: why the stage is selected, in its effects, re-accepted
+  -- scopes and the members admission must still prove.
+  TIO.putStrLn
+    ( "Impact: "
+        <> T.pack (show (impact ^. #operationCount))
+        <> " operations"
+        <> foldMap (\(action, count) -> ", " <> T.pack (show count) <> " " <> action) (Map.toAscList (impact ^. #operations))
+        <> "; "
+        <> T.pack (show (fromMaybe 0 (impact ^. #validationCount)))
+        <> " validations; re-accepted scopes: "
+        <> (if null (impact ^. #reaccepted) then "none" else T.intercalate ", " (impact ^. #reaccepted))
+    )
   TIO.putStrLn
     ( "Saved the next transition stage ("
         <> pair ^. #source
@@ -129,9 +142,10 @@ runPlatformTransitionCommit mctx yes = do
 
 -- | EP-229: the saved review's operation count by action and the scopes it
 -- re-accepts at a new revision, the bootstrap stamp aside (every replan
--- re-declares the stamp), for the release runner to decide convergence.
-writeTransitionSummary :: FilePath -> FilePath -> IO ()
-writeTransitionSummary reviewDirectory path = do
+-- re-declares the stamp), and its validations (EP-228 M1), for the release
+-- runner to decide convergence.
+transitionImpact :: FilePath -> IO TransitionPlanSummary
+transitionImpact reviewDirectory = do
   bundle <- loadReviewBundle reviewDirectory >>= either dieT pure
   let document = reviewBundleDocument bundle
       actions = [actionTag (plannedAction (reviewPlannedOperation operation)) | operation <- reviewOperations document]
@@ -142,17 +156,15 @@ writeTransitionSummary reviewDirectory path = do
         , Resource.nameText (Resource.scopeName scope) /= "bootstrap-stamp"
         , Map.lookup scope base /= Just revision
         ]
-  BL.writeFile
-    path
-    ( encode
-        TransitionPlanSummary
-          { schemaVersion = transitionPlanSummaryVersion
-          , review = T.pack reviewDirectory
-          , operations = Map.fromListWith (+) [(action, 1) | action <- actions]
-          , operationCount = length actions
-          , reaccepted = moved
-          }
-    )
+  pure
+    TransitionPlanSummary
+      { schemaVersion = transitionPlanSummaryVersion
+      , review = T.pack reviewDirectory
+      , operations = Map.fromListWith (+) [(action, 1) | action <- actions]
+      , operationCount = length actions
+      , reaccepted = moved
+      , validationCount = Just (length (reviewValidations document))
+      }
   where
     actionTag = T.pack . takeWhile (/= ' ') . show
 

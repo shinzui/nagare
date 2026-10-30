@@ -226,16 +226,17 @@ releaseTransitionTests =
             map (^. #reaccepted) counts @?= [1, 6, 0]
             map (isConverged AllOperations) counts @?= [False, False, True]
         , testCase "converged means no counted operation and no re-accepted scope; the bootstrap stamp and source verifies do not count" $ do
-            isConverged AllOperations (ReviewCounts [] 0) @?= True
-            isConverged AllOperations (ReviewCounts [] 1) @?= False
-            isConverged AllOperations (ReviewCounts ["VerifyResource"] 0) @?= False
-            isConverged MutatingOperations (ReviewCounts ["VerifyResource", "VerifyResource"] 0) @?= True
-            isConverged MutatingOperations (ReviewCounts ["VerifyResource", "UpdateResource"] 0) @?= False
+            isConverged AllOperations (ReviewCounts [] 0 0) @?= True
+            isConverged AllOperations (ReviewCounts [] 1 0) @?= False
+            isConverged AllOperations (ReviewCounts [] 0 205) @?= False
+            isConverged AllOperations (ReviewCounts ["VerifyResource"] 0 0) @?= False
+            isConverged MutatingOperations (ReviewCounts ["VerifyResource", "VerifyResource"] 0 0) @?= True
+            isConverged MutatingOperations (ReviewCounts ["VerifyResource", "UpdateResource"] 0 0) @?= False
             withSystemTempDirectory "review" $ \dir -> do
               let stamp = object ["kind" .= ("Platform" :: Text), "name" .= ("bootstrap-stamp" :: Text)]
                   entry generation = object ["scope" .= stamp, "revision" .= object ["generation" .= (generation :: Int)]]
               BL.writeFile (dir </> "review.json") (Aeson.encode (object ["operations" .= ([] :: [Value]), "baseRevisions" .= [entry 1], "desiredRevisions" .= [entry 2]]))
-              readReviewCounts dir >>= (@?= Right (ReviewCounts [] 0))
+              readReviewCounts dir >>= (@?= Right (ReviewCounts [] 0 0))
         , testCase "the ambiguous stop's transaction is read from the last ambiguous line" $ do
             ambiguousTransaction "planning\nambiguous tx-ab12 at op-1: provider timeout\n" @?= Just "tx-ab12"
             ambiguousTransaction "ambiguous tx-01 at a\nambiguous tx-02 at b\n" @?= Just "tx-02"
