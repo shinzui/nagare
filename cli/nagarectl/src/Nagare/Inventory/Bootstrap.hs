@@ -11,6 +11,7 @@ module Nagare.Inventory.Bootstrap
   , compileBootstrapStamp
   , bootstrapCandidateScopeVectorDigest
   , bootstrapPreservedScopeVectorDigest
+  , changedPlatformScopes
   , bootstrapScopeVectorDigest
   , bootstrapMarkerValue
   , verifyBootstrapStampPayload
@@ -222,6 +223,14 @@ bootstrapPreservedScopeVectorDigest snapshot candidate = do
               (Map.lookup owner (candidateGenerations candidate))
   revisions <- Map.traverseWithKey desiredRevision scopes
   pure (bootstrapScopeVectorDigest revisions)
+
+-- | EP-225: the changes whose deployment meaning differs from the accepted
+-- scope. A scope compiled from another workspace that means what the accepted
+-- one means is not replaced, so its revision and bytes stay as they are.
+changedPlatformScopes :: ScopeSnapshot -> [ScopeChange] -> [ScopeChange]
+changedPlatformScopes snapshot = filter $ \case
+  ReplaceScope scope -> maybe True (not . sameDeploymentMeaning scope . snd) (Map.lookup (scopeId scope) (snapshotScopes snapshot))
+  _ -> True
 
 -- | The reviewed marker records the immutable payload and accepted scope
 -- vector. The general platform marker predates these fields and stays readable.

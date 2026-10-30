@@ -162,7 +162,11 @@ data TransitionState
 data TransitionDelta
   = -- | The same at both releases.
     Unchanged
-  | -- | Differs only in the payload path its members were declared from.
+  | -- | Differs only in where its members were compiled from: provenance, so
+    -- the planner keeps the accepted revision (EP-225).
+    ProvenanceOnly
+  | -- | Differs only in a source location code reads as data (an artifact
+    -- or local substrate input path), so the scope is re-accepted.
     SourcePathsOnly
   | -- | Differs in substance.
     Changed
@@ -243,18 +247,18 @@ transitionTable =
   , platformScope 7 "auth" Unchanged
   , platformScope 7 "cert-manager" Unchanged
   , platformScope 7 "certificate-issuer" Unchanged
-  , platformScope 7 "foundation" SourcePathsOnly
+  , platformScope 7 "foundation" ProvenanceOnly
   , platformScope 7 "kourier" Unchanged
   , platformScope 7 "local-object-store" Unchanged
   , platformScope 7 "net-certmanager" Unchanged
   , platformScope 7 "net-controller-image" Unchanged
   , platformScope 7 "observability-extra" Unchanged
-  , platformScope 7 "observability-otel-collector" SourcePathsOnly
+  , platformScope 7 "observability-otel-collector" ProvenanceOnly
   , platformScope 7 "observability-secrets" Unchanged
-  , platformScope 7 "observability-victoria-logs" SourcePathsOnly
-  , platformScope 7 "observability-victoria-logs-collector" SourcePathsOnly
-  , platformScope 7 "observability-victoria-traces" SourcePathsOnly
-  , platformScope 7 "observability-vmks" SourcePathsOnly
+  , platformScope 7 "observability-victoria-logs" ProvenanceOnly
+  , platformScope 7 "observability-victoria-logs-collector" ProvenanceOnly
+  , platformScope 7 "observability-victoria-traces" ProvenanceOnly
+  , platformScope 7 "observability-vmks" ProvenanceOnly
   , platformScope 7 "serving" Unchanged
   , TransitionRow
       ClusterStamp
@@ -281,7 +285,8 @@ transitionTable =
         order
         ( case delta of
             Unchanged -> "nothing: the planner keeps the accepted revision"
-            SourcePathsOnly -> "re-accepted at a new revision with no operation; only its members' payload path differs"
+            ProvenanceOnly -> "nothing: its deployment meaning is unchanged, so the planner keeps the accepted revision and bytes; only where its members were compiled from differs"
+            SourcePathsOnly -> "re-accepted at a new revision with no operation; only an input path its executor reads differs"
             Changed -> "reviewed update operations in its stage"
             NotInLocalContext -> "planned in its stage when the context has it"
         )

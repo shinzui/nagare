@@ -16,12 +16,14 @@ import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Contract.Trace
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry)
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
+import Nagare.Inventory.Bootstrap (bootstrapPreservedScopeVectorDigest, changedPlatformScopes, compileBootstrapStamp, composePlatformChanges)
 import Nagare.Inventory.Command (applyInventoryWithFactory, convergeInventoryCandidateResult, loadTargetSnapshot, openTargetStore, planInventoryCandidateWith)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..))
@@ -29,12 +31,12 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), countedTransport, invokeKubectl, runKubectlWith, withKubectlInterpreter)
-import Nagare.Inventory.Store (HeadManifest (headActiveTransaction, headGeneration, headSequence), StoreError (StoreIoError), initializeStore, newObjectStore, readHead)
+import Nagare.Inventory.Store (HeadManifest (headAccepted, headActiveTransaction, headGeneration, headSequence), StoreError (StoreIoError), initializeStore, newObjectStore, readHead)
 import Nagare.Inventory.Store.Counters (CommandTrace, collectCommandTrace, labelled, rootContext, withSpan)
 import Nagare.Inventory.Store.ObjectOps (ObjectName (..), ObjectOps (..), PutOutcome (PutUnknown))
 import Nagare.Inventory.Trace (commandTraceDocument, withCommandTrace)
 import Nagare.Ops.ClusterGuard (ClusterGuardOps (..), admitClusterGuard, defaultClusterGuardOps)
-import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, composeInventory, mkScopeDeclaration)
+import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, candidateChanges, candidateInventory, composeInventory, inventoryDeclarations, mkScopeDeclaration, scopeBundles, scopeId, snapshotScopes)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
 import Nagare.Resource.Types qualified as Resource
@@ -45,6 +47,7 @@ import Nagare.Test.World.Adversary (newAdversary)
 import Nagare.Test.World.ApiServer (ObjectKey (..), Preconditions (..), Propagation (Background), create, delete, emptyServer, get, patchJson)
 import Nagare.Test.World.Cluster (Cluster, clusterAnswer, modifyServer, newCluster, readServer)
 import Nagare.Test.World.ObjectStore (fakeObjectOps)
+import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -153,6 +156,7 @@ transitionCostTests =
           map (^. #phase) (document ^. #spans) @?= ["store initialization"]
     , testCase "the production path counts a no-op, a verify sweep and changed rollouts" productionCosts
     , testCase "a marker sweep's journal writes do not grow with members and unrelated scopes cost nothing" structuralGrowth
+    , testCase "a release compiled from a moved workspace keeps its revisions and moves only its stamp" movedWorkspace
     ]
 
 -- | A command run under 'withCommandTrace' with only @NAGARE_TRACE_FILE@.
@@ -347,8 +351,7 @@ configMapOf scope name value source =
     )
   where
     identity = Resource.mintResourceId scope (ok (Resource.mkLogicalKey name)) (ok (Resource.mkName "configmap"))
-    foundation = ok (Resource.mkScopeId Resource.Platform "foundation")
-    cluster = Resource.mintResourceId foundation (ok (Resource.mkLogicalKey "cluster")) (ok (Resource.mkName "resource"))
+    cluster = fixtureCluster
     object =
       Aeson.object
         [ "apiVersion" Aeson..= ("v1" :: Text)
@@ -436,3 +439,97 @@ structuralGrowth = do
   -- Reads are still per member (two each): the bound EP-226 must lower.
   (smallReads, largeReads) @?= (2 * 206, 2 * 2051)
   beside @?= small
+
+-- * A moved workspace (EP-225 M3)
+
+-- | A platform release compiled from a new workspace, as the platform builder
+-- composes it: the stamp from the whole candidate, the scopes whose meaning
+-- is accepted dropped, and each retained member's accepted declaration paired
+-- with this release's native bytes. The old workspace is gone before the
+-- move is planned.
+movedWorkspace :: Assertion
+movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
+  previous <- lookupEnv "XDG_STATE_HOME"
+  setEnv "XDG_STATE_HOME" root
+  flip finally (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME") previous) $ do
+    cluster <- newCluster emptyServer =<< newAdversary []
+    store <- openTargetStore target
+    _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-moved" >>= either (fail . show) pure
+    let members = 20 :: Int
+        -- Planning a move reads each member twice, a settled replan once; an
+        -- apply also rereads what it updated.
+        reads = 2 * (members + 1)
+        settled = members + 1
+        platform = ok (Resource.mkScopeId Resource.Platform "cluster-fixture")
+        workspace name = root </> "platform" </> name
+        release name changed = [configMapOf platform ("member-" <> T.pack (show n)) (if n <= changed then "changed" else "value") (T.pack (workspace name </> "cluster/Config.hs")) | n <- [1 .. members]]
+        registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
+        applyFactory _ bundle = pure (either (error . show) id (registryFor (either (error . show) id (kubernetesSpecsFromReview bundle))))
+        compiled releaseId declared = do
+          snapshot <- loadTargetSnapshot target
+          let candidate = ok (composeInventory snapshot (ReplaceScope (scopeOwnedBy platform declared) :| []))
+              vector = either (error . T.unpack) id (bootstrapPreservedScopeVectorDigest snapshot candidate)
+              (stampScope, stampNative) = ok (compileBootstrapStamp fixtureCluster (stampValue releaseId (show vector)) candidate)
+              changes = changedPlatformScopes snapshot (NE.toList (candidateChanges candidate))
+              stamped = ok (composePlatformChanges snapshot (NE.fromList (changes <> [ReplaceScope stampScope])))
+              composed = Map.fromList [(member ^. #identity, member) | Managed member <- inventoryDeclarations (candidateInventory stamped)]
+              native = Map.union stampNative (Map.fromList [(identity, (Map.findWithDefault member identity composed, bytes)) | (member, bytes) <- declared, let identity = member ^. #identity])
+          pure ([scopeId scope | ReplaceScope scope <- changes], stamped, either (error . show) id (registryFor native))
+        planned label releaseId declared = do
+          (_, stamped, registry) <- compiled releaseId declared
+          (_, traced) <- collectCommandTrace (planInventoryCandidateWith (\_ _ -> pure registry) target stamped (root </> label))
+          summary <$> documentOf traced
+        apply label = do
+          (_, traced) <- collectCommandTrace (applyInventoryWithFactory applyFactory target (root </> label) True)
+          summary <$> documentOf traced
+        headNow = openTargetStore target >>= readHead >>= either (fail . show) (maybe (fail "no head") pure)
+        acceptedSources = do
+          snapshot <- loadTargetSnapshot target
+          pure [member ^. #source . #file | Just (_, scope) <- [Map.lookup platform (snapshotScopes snapshot)], bundle <- scopeBundles scope, Managed member <- bundle ^. #declarations]
+    createDirectoryIfMissing True (workspace "nagare-0.11.0-aaaa")
+    (_, first', firstRegistry) <- compiled "0.11.0" (release "nagare-0.11.0-aaaa" 0)
+    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> pure firstRegistry) applyFactory target first'
+    case converged of
+      Converged _ -> pure ()
+      other -> assertFailure ("the moved-workspace fixture did not converge: " <> show other)
+    accepted <- headAccepted <$> headNow
+    removeDirectoryRecursive (workspace "nagare-0.11.0-aaaa")
+    -- The next release, from another workspace: only the stamp is selected;
+    -- it moves, and every member it covers is proved, not journaled.
+    (selected, _, _) <- compiled "0.11.1" (release "nagare-0.11.1-bbbb" 0)
+    selected @?= []
+    planned "move" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 1 members 0 0 0 reads reads 0 0)
+    -- A second review of the same move, planned from the same head, goes stale
+    -- once the first applies.
+    _ <- planned "stale" "0.11.1" (release "nagare-0.11.1-bbbb" 0)
+    apply "move" >>= (@?= Summary 0 0 0 0 1 members (reads + 2) (reads + 2) 1 0)
+    moved <- headNow
+    Map.delete stampOwner (headAccepted moved) @?= Map.delete stampOwner accepted
+    acceptedSources >>= assertBool "the accepted member scope lost its first workspace" . all ("nagare-0.11.0-aaaa" `T.isInfixOf`)
+    stale <- try @ExitCode (applyInventoryWithFactory applyFactory target (root </> "stale") True)
+    assertBool "a stale review was admitted" (either (/= ExitSuccess) (const False) stale)
+    (headGeneration <$> headNow) >>= (@?= headGeneration moved)
+    -- Replans, from that workspace and from yet another one, select nothing.
+    planned "replan" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 0 0 0 0 0 settled settled 0 0)
+    planned "replan-again" "0.11.1" (release "nagare-0.11.1-cccc" 0) >>= (@?= Summary 0 0 0 0 0 0 settled settled 0 0)
+    -- One changed member: its update and the stamp's; the others are proved.
+    (changedScopes, _, _) <- compiled "0.11.2" (release "nagare-0.11.2-dddd" 1)
+    changedScopes @?= [platform]
+    planned "one" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 2 (members - 1) 0 0 0 reads reads 0 0)
+    apply "one" >>= (@?= Summary 0 0 0 0 2 (members - 1) (reads + 4) (reads + 4) 2 0)
+    planned "one-replan" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 0 0 0 0 0 settled settled 0 0)
+  where
+    stampOwner = ok (Resource.mkScopeId Resource.Platform "bootstrap-stamp")
+
+-- | The cluster marker's object, as the platform stamp requires it.
+stampValue :: Text -> String -> Aeson.Value
+stampValue releaseId vector =
+  Aeson.object
+    [ "apiVersion" Aeson..= ("v1" :: Text)
+    , "kind" Aeson..= ("ConfigMap" :: Text)
+    , "metadata" Aeson..= Aeson.object ["name" Aeson..= ("nagare-platform-version" :: Text), "namespace" Aeson..= ("nagare-system" :: Text)]
+    , "data" Aeson..= Aeson.object ["release" Aeson..= releaseId, "scopeVectorDigest" Aeson..= vector]
+    ]
+
+fixtureCluster :: Resource.ResourceId
+fixtureCluster = Resource.mintResourceId (ok (Resource.mkScopeId Resource.Platform "foundation")) (ok (Resource.mkLogicalKey "cluster")) (ok (Resource.mkName "resource"))

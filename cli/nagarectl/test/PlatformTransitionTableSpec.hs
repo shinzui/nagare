@@ -40,7 +40,7 @@ import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..), decodeHead
 import Nagare.Platform.Status (identityFromPayload)
 import Nagare.Platform.Transition
 import Nagare.Platform.Workspace (PayloadManifest)
-import Nagare.Resource.DeploymentMeaning (sameDeclarationsModuloSources)
+import Nagare.Resource.DeploymentMeaning (sameDeclarationsModuloSources, sameDeploymentMeaning)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
@@ -146,6 +146,7 @@ observeFixture = do
 deltaOf :: Maybe ScopeDeclaration -> Maybe ScopeDeclaration -> TransitionDelta
 deltaOf (Just a) (Just b)
   | encodeCanonicalScope a == encodeCanonicalScope b = Unchanged
+  | sameDeploymentMeaning a b = ProvenanceOnly
   | sameDeclarationsModuloSources a b = SourcePathsOnly
 deltaOf _ _ = Changed
 
