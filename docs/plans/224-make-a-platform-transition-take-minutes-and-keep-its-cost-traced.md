@@ -104,6 +104,11 @@ New tooling is Haskell in the existing cabal workspace. The previously proposed
   plans 89.1/64.6/44.5 s (limit 60), activation 315.4 s (limit 300). Stage 1's plan spends 70.4 s
   preparing the new candidate workspace (Pulumi Node dependencies), so it is not artifact-ready;
   stages 2–3 spend 25.1/23.2 s observing the remote cluster.
+  Intranet fail, 2026-10-30: v0.12.1 (`f116da4a`, fixes in `e5abae3e`) plans within budget
+  (`docs/release-evidence/f116da4a3df3ae9941aaa12d8d999e4d9893d147/intranet-cost.json`: 14.8 s
+  after 56.6 s artifact preparation, 37.6 s, 22.2 s) but activation is 325.5 s of 300: stage 1's
+  first host preflight (GCE describe and SSH reads over IAP, unchanged code) took 86.1 s against
+  10.1 s in v0.12.0, and the host transport keeps no stderr to say why.
 
 2026-10-29 handoff: the original plan was authored by `claude-opus-5-5` and had no recorded reviews.
 This architecture review corrects source claims and distributes its former M2–M5 across four new

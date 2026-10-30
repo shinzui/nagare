@@ -1,0 +1,79 @@
+{
+  "activationSeconds": 325.496806,
+  "candidateRevision": "f116da4a3df3ae9941aaa12d8d999e4d9893d147",
+  "context": "intranet",
+  "endToEndSeconds": 478.592702,
+  "kind": "intranet",
+  "missing": [],
+  "profile": "intranet",
+  "runStatus": "passed",
+  "schemaVersion": 1,
+  "sourceVersion": "0.12.0",
+  "stages": [
+    {
+      "applySeconds": 157.120035,
+      "executed": {
+        "RunDeclaredOperation": 1,
+        "UpdateResource": 1
+      },
+      "guardAdmissions": 0,
+      "kubernetesRequests": 0,
+      "kubernetesReuse": 0,
+      "outcomes": [
+        "completed",
+        "completed"
+      ],
+      "planSeconds": 71.400218,
+      "planned": {
+        "RunDeclaredOperation": 1,
+        "UpdateResource": 1
+      },
+      "preparationSeconds": 56.631831,
+      "processes": 4,
+      "stageId": "intranet-1",
+      "storeRequests": 97,
+      "uncoveredSeconds": 1.24109
+    },
+    {
+      "applySeconds": 37.156291,
+      "executed": {
+        "UpdateResource": 1,
+        "ValidateResource": 210
+      },
+      "guardAdmissions": 2,
+      "kubernetesRequests": 105,
+      "kubernetesReuse": 822,
+      "outcomes": [
+        "completed",
+        "completed"
+      ],
+      "planSeconds": 37.57406,
+      "planned": {
+        "UpdateResource": 1,
+        "ValidateResource": 210
+      },
+      "preparationSeconds": 0,
+      "processes": 157,
+      "stageId": "intranet-2",
+      "storeRequests": 127,
+      "uncoveredSeconds": 1.315488
+    },
+    {
+      "applySeconds": 0,
+      "executed": {},
+      "guardAdmissions": 1,
+      "kubernetesRequests": 50,
+      "kubernetesReuse": 206,
+      "outcomes": [
+        "completed"
+      ],
+      "planSeconds": 22.246202,
+      "planned": {},
+      "preparationSeconds": 0,
+      "processes": 67,
+      "stageId": "intranet-3",
+      "storeRequests": 30,
+      "uncoveredSeconds": 0.669619
+    }
+  ]
+}
