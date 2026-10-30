@@ -66,6 +66,7 @@ Nagare.
 | EP-1 | Rotating GitHub App installation-token credentials for runtime pods | `docs/plans/94-rotating-github-app-installation-token-credentials-for-runtime-pods.md` | None | None | In Progress |
 | EP-2 | A one-shot job workload kind in nagare-dsl | `docs/plans/95-a-one-shot-job-workload-kind-in-nagare-dsl.md` | None | EP-3 for the live cache mount test | Complete |
 | EP-3 | An in-cluster Nix binary cache (Attic) as a cluster bootstrap component | `docs/plans/96-an-in-cluster-nix-binary-cache-attic-as-a-cluster-bootstrap-component.md` | None | EP-2 for the rendered Job integration test | Not Started |
+| EP-4 | Push signed Nix closures to the context cache with one nagarectl command | `docs/plans/230-push-signed-nix-closures-to-the-context-cache-with-one-nagarectl-command.md` | EP-3 provisioning and bootstrap | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
