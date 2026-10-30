@@ -50,6 +50,7 @@ import Nagare.Static.Package
   , packageStaticSite
   , packageStaticSiteGated
   , renderPackageError
+  , runLogged
   , validatePlatform
   , validateTag
   )
@@ -59,8 +60,7 @@ import Nagare.Target (ActiveTarget, TargetProfile, contextNameText)
 import System.Directory (XdgDirectory (..), createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getXdgDirectory, makeAbsolute)
 import System.Exit (ExitCode (..), exitFailure)
 import System.FilePath ((</>))
-import System.IO (Handle, IOMode (..), stderr, withFile)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
+import System.IO (stderr)
 
 runSitePackage :: Maybe String -> SitePackageOpts -> IO ()
 runSitePackage mctx options = do
@@ -250,18 +250,13 @@ prepareOutputFor projectDir override buildFirst site = do
 
 -- | Docker's output goes to @build.log@ in the release directory, and to
 -- stderr as well with @--verbose@ (a tee through the log keeps stdout clean).
-withBuildLog :: SitePublishOpts -> FilePath -> (Maybe Handle -> IO a) -> IO a
+withBuildLog :: SitePublishOpts -> FilePath -> (Maybe FilePath -> IO a) -> IO a
 withBuildLog options releaseDir action = do
   createDirectoryIfMissing True releaseDir
-  if options ^. #verbose
-    then action Nothing
-    else withFile (releaseDir </> "build.log") AppendMode (action . Just)
+  action (if options ^. #verbose then Nothing else Just (releaseDir </> "build.log"))
 
-loggedDocker :: Maybe Handle -> [String] -> IO Bool
-loggedDocker logHandle args = traceProcess "docker" $ do
-  let spec = (proc "docker" args) {std_out = maybe Inherit UseHandle logHandle, std_err = maybe Inherit UseHandle logHandle}
-  (_, _, _, handle) <- createProcess spec
-  (== ExitSuccess) <$> waitForProcess handle
+loggedDocker :: Maybe FilePath -> [String] -> IO Bool
+loggedDocker logPath args = traceProcess "docker" (runLogged "docker" logPath args)
 
 -- | The first accepted prerequisite the release lacks, with the command that
 -- provides it, before anything is built.

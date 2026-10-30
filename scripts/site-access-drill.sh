@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # EP-188 M3: the native proof of MasterPlan 27 on a disposable local context. From the
 # candidate nagarectl and nagare-harness and the auth images built from this tree on a
-# disposable Docker daemon: bootstrap the context, publish and deploy the protected
+# disposable Docker daemon: bootstrap the context, package, publish and deploy the protected
 # static-site example, then drive the real Shomei login, reviewed user and team grants,
 # the enforcer, the effective-access diagnostic, a preview, a rollback and the origin
 # through the harness route check and curl over the local CA. Every step stops at its
@@ -45,7 +45,7 @@ for v in $(env | sed -n "s/^\(NAGARE_[A-Z_]*\|CLOUDSDK_[A-Z_]*\|PULUMI_[A-Z_]*\|
   case "$v" in NAGARE_DRILL_*) ;; *) unset "$v" ;; esac
 done
 export XDG_CONFIG_HOME="$ROOT/config" XDG_STATE_HOME="$ROOT/state" XDG_CACHE_HOME="$ROOT/cache"
-mkdir -p "$ROOT"/{config,state,cache,reviews,evidence,sops/age,site/ctx/site}
+mkdir -p "$ROOT"/{config,state,cache,reviews,evidence,sops/age,site}
 chmod 700 "$ROOT" "$ROOT/sops" "$ROOT/sops/age"
 EV="$ROOT/evidence"
 log() { printf '%s drill: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
@@ -204,19 +204,18 @@ if [ "$BOOTSTRAP_ONLY" = 1 ]; then
   exit 0
 fi
 
-# --- 6. the example's image, built as a static release builds it, published under review ---
+# --- 6. the example's image, packaged by `site package`, published under review ---
 eval "$(N context env)"
 destination="$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/$SITE"
-ctx="$ROOT/site/ctx"
-cp -R "$EXAMPLE/public/." "$ctx/site/"
-( cd "$EXAMPLE" && GHC_ENVIRONMENT="$NAGARE_DRILL_GHC_ENV" runghc --ghc-arg=-XGHC2024 nagare/Config.hs ) > "$ROOT/site/site.json"
-GHC_ENVIRONMENT="$NAGARE_DRILL_GHC_ENV" runghc --ghc-arg=-XGHC2024 "$REPO/scripts/lib/render-static-nginx.hs" < "$ROOT/site/site.json" > "$ctx/nginx.conf"
-# Nagare.Static.Image.staticDockerfile, verbatim.
-printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/conf.d/default.conf\nCOPY site/ /usr/share/nginx/html/\nEXPOSE 8080\n' > "$ctx/Dockerfile"
+# The published output is a copy of the example's, so a second release can differ from the first.
+PUBLIC="$ROOT/site/public"
+cp -R "$EXAMPLE/public/." "$PUBLIC/"
 publish() { # tag key
   local out
-  out="$(N app image-plan --archive "$ROOT/site/$1.tar" --build-dockerfile "$ctx/Dockerfile" --build-context "$ctx" \
-    --destination "$destination:$1" --key "$2" --save-plan "$ROOT/reviews/image-$1")"
+  N site package -f "$EXAMPLE/nagare/Config.hs" -C "$EXAMPLE" --ghc-env "$NAGARE_DRILL_GHC_ENV" --output-dir "$PUBLIC" \
+    --archive "$ROOT/site/$1.tar" --tag "$1" > "$ROOT/site/$1.package"
+  grep -qx "image: $destination:$1" "$ROOT/site/$1.package" || { echo "site package derived another image than $destination:$1" >&2; exit 1; }
+  out="$(N app image-plan --archive "$ROOT/site/$1.tar" --destination "$destination:$1" --key "$2" --save-plan "$ROOT/reviews/image-$1")"
   review_apply "$ROOT/reviews/image-$1"
   printf '%s\n' "$out" | sed -n 's/^Image resource: //p' | tail -1
 }
@@ -327,7 +326,7 @@ expect "session after the decision TTL" "$(granted "$HOST")" "403"
 record "seconds from revoke to 403" "$(( $(date +%s) - revokedAt ))"
 
 # --- 10. a second release with one more file, then a rollback that keeps the protection ---
-printf 'second release\n' > "$ctx/site/release.txt"
+printf 'second release\n' > "$PUBLIC/release.txt"
 IMAGE_B="$(publish "$TAG-2" "$SITE-2")"
 deploy --tag "$TAG-2" --image-resource "$IMAGE_B" > "$EV/site-deploy-2.log" 2>&1 || { tail -5 "$EV/site-deploy-2.log" >&2; exit 1; }
 IMAGE_B_REF="$(kubectl --context "$KUBE" -n "$NS" get ksvc "$SITE" -o jsonpath='{.spec.template.spec.containers[0].image}')"

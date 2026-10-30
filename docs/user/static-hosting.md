@@ -24,6 +24,77 @@ write. It replaces the static portion of Cloudflare Pages **and** its full-stack
 story (server-side rendering, server functions, API routes) for personal
 projects, staying entirely inside Nagare's single-node Knative cluster.
 
+## Publish and update with one command
+
+From a project with `nagare/Config.hs` and its output directory, using an
+initialized [context](getting-started.md) whose Namespace (and, for a
+[protected site](#protected-sites), the auth owner) is already accepted:
+
+```bash
+nagarectl site publish          # first publication
+# edit a file in the configured output directory, then:
+nagarectl site publish          # update: new tag and image, same URL
+nagarectl site publish          # nothing changed: reports the serving release, builds nothing
+nagarectl site publish --build  # source projects: run the configured build command first
+```
+
+`site publish` needs no flags. It generates the Nginx configuration and image
+itself, builds for the context's architecture (`--platform linux/amd64` or
+`linux/arm64` to override), keeps Docker's layer cache between releases, derives
+a unique tag and publication key, and then runs the same reviewed image
+publication and site deployment as the manual commands below. A successful run
+prints the URL, tag, accepted image resource and release directory. By default
+it publishes the output directory as it is; `--build` runs the configured
+frontend build command first. Editing source without `--build` publishes the old
+output.
+
+A prerequisite the release lacks (an accepted Namespace, the auth owner for a
+protected site, `--cdn-backend-resource` for a CDN site, a supplied-TLS Secret)
+is refused before anything is built, naming the command that provides it. When
+the files and configuration match the serving release, the command prints
+`unchanged: release TAG already serves these files at URL` and exits 0; use
+`--new-release` to publish anyway.
+
+Each release keeps its archive, `build.log` and a private `receipt.json` in a
+release directory under the context's state directory (`--release-dir` chooses
+another). If a stage fails, the command prints the directory and the exact resume
+command:
+
+```bash
+nagarectl site publish --resume                          # newest unfinished release of this site
+nagarectl site publish --resume --release-dir DIR        # a specific release
+```
+
+Resume re-enters the stage the receipt proves, never rebuilds the archive, and
+refuses when the files or configuration changed since the release was packaged.
+A pending inventory transaction is recovered with `nagarectl inventory resume`.
+`--verbose` streams Docker's output instead of writing `build.log`.
+
+Rollback is unchanged: select the earlier accepted image with
+`nagarectl site rollback` (below).
+
+### Package without publishing
+
+`site package` writes the same artifacts locally and reads only local files (no
+inventory, cluster, gcloud or registry):
+
+```bash
+nagarectl site package --context-out ./artifacts/context-v1   # Dockerfile, nginx.conf, site/
+nagarectl site package --archive ./artifacts/site-v1.tar      # Docker archive; tag derived and printed
+```
+
+Existing paths are never replaced, symlinks in the output are refused (dereference
+with `cp -RL` first), and each result prints a content digest that is stable for
+identical files. Use the archive with the manual review path:
+
+```bash
+nagarectl app image-plan --archive ./artifacts/site-v1.tar \
+  --destination "$(sed -n 's/^image: //p' site-v1.package)" --key KEY --save-plan image-review
+nagarectl inventory apply image-review --yes
+nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID --save-plan site-review
+nagarectl inventory apply site-review --yes
+```
+
 Publish the exact site image archive with `app image-plan`, then deploy with its
 accepted image resource and an explicit tag:
 

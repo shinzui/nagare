@@ -31,6 +31,7 @@ import Nagare.Static.Package
   , PackageResult (..)
   , PackageTarget (..)
   , packageStaticSiteWith
+  , runLogged
   )
 import Nagare.Static.Preview
   ( normalizePreviewName
@@ -323,6 +324,16 @@ packageTests =
         existing @?= Left (PackageArchiveExists (root </> "c.tar"))
         BS.readFile (root </> "c.tar") >>= (@?= "keep")
         readIORef calls >>= (@?= 0)
+  , testCase "one build log serves two consecutive runs (the build and the save)" $
+      withSystemTempDirectory "nagare-log" $ \dir -> do
+        let logFile = dir </> "build.log"
+        ok1 <- runLogged "sh" (Just logFile) ["-c", "echo build; echo build-err >&2"]
+        ok2 <- runLogged "sh" (Just logFile) ["-c", "echo save"]
+        (ok1, ok2) @?= (True, True)
+        written <- BS.readFile logFile
+        written @?= "build\nbuild-err\nsave\n"
+        failed <- runLogged "sh" (Just logFile) ["-c", "exit 3"]
+        failed @?= False
   , testCase "a failed save leaves no partial archive and keeps a pre-existing one" $
       withExample $ \root prepared -> do
         let failingSave args = case args of

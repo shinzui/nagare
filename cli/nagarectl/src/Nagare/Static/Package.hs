@@ -20,6 +20,7 @@ module Nagare.Static.Package
   , packageStaticSite
   , packageStaticSiteWith
   , packageStaticSiteGated
+  , runLogged
   )
 where
 
@@ -42,8 +43,9 @@ import Nagare.Static.Image
 import System.Directory (createDirectoryIfMissing, doesPathExist, makeAbsolute)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
+import System.IO (IOMode (..), withFile)
 import System.IO.Temp (withSystemTempDirectory)
-import System.Process (createProcess, proc, waitForProcess)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
 
 -- | What to produce. An archive names the exact image it will contain.
 data PackageTarget
@@ -113,6 +115,19 @@ derivedTag now =
 packageStaticSite ::
   StaticSite -> PreparedStaticOutput -> PackageTarget -> IO (Either PackageError PackageResult)
 packageStaticSite = packageStaticSiteWith runDockerProcess
+
+-- | Run a program, appending its stdout and stderr to a log file (or leaving
+-- them on the terminal with 'Nothing'). The log is opened per call:
+-- 'UseHandle' closes the handle in the parent once the child is spawned, so one
+-- handle cannot serve two runs (the build and the save).
+runLogged :: String -> Maybe FilePath -> [String] -> IO Bool
+runLogged program logPath args = case logPath of
+  Nothing -> spawn Inherit
+  Just file -> withFile file AppendMode (spawn . UseHandle)
+  where
+    spawn stream = do
+      (_, _, _, handle) <- createProcess (proc program args) {std_out = stream, std_err = stream}
+      (== ExitSuccess) <$> waitForProcess handle
 
 runDockerProcess :: [String] -> IO Bool
 runDockerProcess args = traceProcess "docker" $ do
