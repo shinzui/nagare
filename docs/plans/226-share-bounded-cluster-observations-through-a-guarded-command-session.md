@@ -27,6 +27,11 @@ provenance:
       at: 2026-10-29T19:47:52Z
       mode: "implement"
       note: "M4: per-project number cache, confirmed on the intranet"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-30T01:31:13Z
+      mode: "implement"
+      note: "M1 session, M2 planning epochs, M3 read limit and faults"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -67,10 +72,28 @@ closed with a bounded number of requests and a useful explanation.
   `KUBECONFIG` lists, embedded CA and key data, kept exec stanza, unknown context exits 1).
   Native, intranet, read-only: 20 guard calls made 1 admission and 19 reuses with 3 kubectl
   processes (0.48 s) instead of 40; an expected host of `wrong-host` refused.
-- [ ] M2: Planning/status and verify-only consumers use bounded observation epochs, with full
+- [x] M2: Planning/status and verify-only consumers use bounded observation epochs, with full
   address keys, bounded chunking/fallback and tested freshness boundaries.
+  Pass, 2026-10-29, `6c350aab` (fast gate green). `KubernetesSnapshot` is the epoch: reads group
+  by cluster, kind and namespace in chunks of 128 names or 32 KiB; a failed read retries once,
+  then answers each member unavailable; an unrecognized answer falls back to at most eight single
+  reads per epoch; several names without a List prove nothing; two clusters refuse; a changed
+  session generation answers nothing (`-p "kubernetes snapshot"`). A plan's Kubernetes adapter
+  (`kubernetesPlanningAdapter`, used by the CLI planning registry) begins an epoch over each batch
+  it observes and answers its preparations from it; apply reads freshly. Equivalence: the sweep
+  planned from the same head with single reads and with the epoch writes a byte-identical
+  `review.json` (`-p "production path counts"`); drift, deletion and replacement after the plan
+  still refuse. Planning the sweep: 2 transported reads for 206 members (was 412), 17 for 2,051
+  (was 4,102). The fake API server now answers multi-name gets as kubectl 1.37 does on the
+  intranet (a List of the found objects, empty when none, the object for one name); its
+  single-name parse was the cause recorded under Surprises.
 - [ ] M3: Kubernetes, Helm and relevant access integration share sessions without caching writes
   or readiness across phases; adversarial guard and observation fixtures pass.
+  Partial, 2026-10-29, `baa4076f` (fast gate green): Kubernetes runtime, Helm and access requests
+  name the session's kubeconfig (M1); one process-wide limit of eight grouped reads covers every
+  epoch; forbidden, throttled and unreachable reads are unavailable, never absent; the same name
+  in two namespaces is answered per namespace; a KUBECONFIG change or host activation re-admits.
+  Writes and readiness never read an epoch. Remaining: the disposable native rehearsal.
 - [x] M4: Opening the inventory store proves bucket ownership without a per-command
   `gcloud projects describe`. The project number is immutable, so read it with the session's
   token or keep it per project; the bucket's owning number stays a live read and the comparison

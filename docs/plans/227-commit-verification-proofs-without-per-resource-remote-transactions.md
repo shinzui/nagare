@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-29T16:27:26Z
       mode: "update"
       note: "Add MasterPlan 29 follow-ups: gcloud ownership stall (EP-226 M4) and journal catch-up bound (EP-227 M2)"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-30T01:31:13Z
+      mode: "implement"
+      note: "M2 admission epoch; M1 and capsule cancelled; plan complete"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -45,14 +50,31 @@ not to the safety obligations or the amount of evidence retained.
 
 - [ ] M1: A single-writer batch append protocol commits only validated contiguous journal prefixes
   and survives partial uploads, lost replies, orphan suffixes and competing claims.
-- [ ] M2: Read-only verification uses fresh grouped evidence and batched proof publication, with
+  Cancelled, 2026-10-29: see the Decision Log. No verification of an unchanged member is
+  journaled any more, so there is no per-resource head advance left to batch.
+- [x] M2: Read-only verification uses fresh grouped evidence and batched proof publication, with
   per-resource outcomes, bounded memory and no adapter execute calls.
   Pass also: after an unchanged-release transition, the next reviewed command on another
   workstation catches up a journal tail that does not grow with the number of verified resources
   (2026-10-29: 429 events, 22 s, after v0.11.1's 205 verifies;
   [`docs/audits/mp29-latency-2026-10-29/baseline.json`](../audits/mp29-latency-2026-10-29/baseline.json)).
-- [ ] M3: Legacy and new reviews recover under the compatibility contract; model faults and
+  Pass, 2026-10-29: admission proves a review's validations from one fresh grouped epoch
+  (`kubernetesExecutionAdapter`, used by the CLI execution registry): preflight and verify judge
+  the same returned object per member, refuse as before, and execute nothing. The first call for
+  anything else ends the epoch before any write; a member changed after admission observes as
+  drifted (`-p "production path counts"`). The sweep's apply makes 6 transported reads instead
+  of 414, four changed members 14 instead of 418. Catch-up: a sweep appends 4 journal events
+  for 205 members and 4 for 2,050 (`-p "marker sweep's journal writes"`, since EP-225 M2), so the
+  next command's tail does not grow with verified resources.
+- [x] M3: Legacy and new reviews recover under the compatibility contract; model faults and
   structural request budgets pass without weakening mutation or data-fence invariants.
+  Pass, 2026-10-29: the driver, journal and recovery paths are unchanged, so old reviews and
+  open transactions run exactly as before, and the recovery model, journal and close suites pass
+  unchanged in the fast gate. A review without validations encodes byte for byte as before and
+  v0.11.1 refuses one with them (EP-225 M2). A refused validation leaves no transaction to
+  recover. Budgets are the fixed rows of `-p TransitionCost`: plan 2 and apply 6 transported
+  reads for the 206-member sweep; plan reads grow by 128-name chunks (2 for 206, 17 for 2,051);
+  journal events per sweep stay at 4.
 
 
 ## Surprises & Discoveries
@@ -76,12 +98,24 @@ but head advancement failed. Batched publication must generalize that rule, not 
   still matches.” No concurrent worker advances the head independently.
 - 2026-10-29: Batch only actions certified effect-free and validation requirements. Mutation
   intent/receipt boundaries and fenced data operations keep their established ordering.
+- 2026-10-29: Cancel M1 and the proof capsule. EP-225 M2 moved every verification an unchanged
+  member needed for a stamp out of the journal into admission validations, so the 205 per-member
+  head advances this plan set out to batch no longer exist (journal events per sweep are
+  constant). The verifications still journaled are those of unconverged selected scopes and
+  required broker topics, bounded by changed scopes. A batch descriptor, orphan reconstruction
+  and an old-writer refusal would add recovery surface for no measured cost. A validation is
+  proved afresh at every admission and nothing reuses it, so a capsule would be an audit copy
+  only; the review's `validations` and a passing admission are the record. EP-228 keeps the
+  driver's serial append as the one coordinator.
 
 
 ## Outcomes & Retrospective
 
 
-Planning only. No journal semantics or storage layout have changed.
+Verification of unchanged members costs grouped reads, not remote transactions: EP-225 moved it
+out of the journal and this plan proves it from one fresh epoch at admission. The batched journal
+protocol and proof capsule were cancelled once that left nothing per-resource to batch; the
+journal format and recovery are unchanged. Durable context is in ADR 22's 2026-10-29 amendment.
 
 
 ## Context and Orientation

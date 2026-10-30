@@ -1955,3 +1955,12 @@ diagnostic source locations replaced. A source code reads as data stays signific
 platform builder drops equivalent scopes (`changedPlatformScopes`), keeping their revisions. The
 stamp's fresh validation is the review's `validations` list, proved serially at admission by each
 adapter's own preflight and verification and never journaled; v0.11.1 refuses the field.
+
+[EP-226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) and
+[EP-227](../plans/227-commit-verification-proofs-without-per-resource-remote-transactions.md)
+(2026-10-29): a plan reads its Kubernetes members through one observation epoch per batch, and
+admission proves a review's validations from one fresh epoch that ends at the transaction's first
+call, before any write. Because validations are never journaled, the batched journal protocol
+and the digest-bound proof aggregate named above are withdrawn: a validation is proved afresh at
+each admission, nothing reuses it, and the review's `validations` with a passing admission are its
+record. The journal format and its serial head advance are unchanged.
