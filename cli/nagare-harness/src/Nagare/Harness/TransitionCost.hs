@@ -26,7 +26,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
-import Data.List (sortOn)
+import Data.List (isPrefixOf, isSuffixOf, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
@@ -245,7 +245,7 @@ historyLines root = do
             isDirectory <- doesDirectoryExist directory
             if not isDirectory
               then pure []
-              else filter ((`elem` ["transition-cost.json", "intranet-cost.json"]) . takeFileName) . map (directory </>) <$> listDirectory directory
+              else filter (costFile . takeFileName) . map (directory </>) <$> listDirectory directory
         )
   decoded <- for paths $ \path -> (\bytes -> (path,) <$> eitherDecodeStrict' bytes) <$> BS.readFile path
   pure $ case sequence [either (\reason -> Left (T.pack path <> ": " <> T.pack reason)) Right result | (path, result) <- zip paths (map (fmap snd) decoded)] of
@@ -256,6 +256,9 @@ historyLines root = do
         | (path, record) <- sortOn (\(path, record) -> (record ^. #profile, path)) (zip paths records)
         ]
   where
+    -- One record per file; a release's warm samples are numbered
+    -- (transition-cost-1.json and on, EP-224 M3).
+    costFile name = any (`isPrefixOf` name) ["transition-cost", "intranet-cost"] && ".json" `isSuffixOf` name
     line path record =
       let (verdict, _) = judge record
        in T.intercalate

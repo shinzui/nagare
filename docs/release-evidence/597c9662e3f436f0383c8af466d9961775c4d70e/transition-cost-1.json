@@ -1,0 +1,70 @@
+{
+  "activationSeconds": 54.403671,
+  "candidateRevision": "597c9662e3f436f0383c8af466d9961775c4d70e",
+  "context": "transition",
+  "endToEndSeconds": 438.556038,
+  "kind": "drill",
+  "missing": [],
+  "profile": "local-rehearsal",
+  "runStatus": "passed",
+  "schemaVersion": 1,
+  "sourceVersion": "0.11.1",
+  "stages": [
+    {
+      "applySeconds": 1.681554,
+      "executed": {},
+      "guardAdmissions": 0,
+      "kubernetesRequests": 0,
+      "kubernetesReuse": 0,
+      "outcomes": [
+        "completed",
+        "completed"
+      ],
+      "planSeconds": 2.543886,
+      "planned": {},
+      "processes": 0,
+      "stageId": "transition-1",
+      "storeRequests": 0,
+      "uncoveredSeconds": 0.09078800000000001
+    },
+    {
+      "applySeconds": 16.407137,
+      "executed": {
+        "UpdateResource": 1,
+        "ValidateResource": 213
+      },
+      "guardAdmissions": 2,
+      "kubernetesRequests": 103,
+      "kubernetesReuse": 834,
+      "outcomes": [
+        "completed",
+        "completed"
+      ],
+      "planSeconds": 18.391161,
+      "planned": {
+        "UpdateResource": 1,
+        "ValidateResource": 213
+      },
+      "processes": 145,
+      "stageId": "transition-2",
+      "storeRequests": 0,
+      "uncoveredSeconds": 0.115335
+    },
+    {
+      "applySeconds": 0,
+      "executed": {},
+      "guardAdmissions": 1,
+      "kubernetesRequests": 49,
+      "kubernetesReuse": 209,
+      "outcomes": [
+        "completed"
+      ],
+      "planSeconds": 15.379933,
+      "planned": {},
+      "processes": 60,
+      "stageId": "transition-3",
+      "storeRequests": 0,
+      "uncoveredSeconds": 0.054434
+    }
+  ]
+}
