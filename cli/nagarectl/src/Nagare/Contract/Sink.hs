@@ -32,6 +32,7 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty qualified as NE
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import Nagare.Contract.Problem (ProblemDetails, ProblemSpec, problemFor, unclassified, unsupportedContractVersion)
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
 import Nagare.Contract.V1 (FailureClass (..), Outcome (..), TransactionOutcome (..))
@@ -41,7 +42,7 @@ import Nagare.Inventory.Execute.Types (TransactionResult (..))
 import Nagare.Inventory.Journal (operationIdText, transactionIdText)
 import Nagare.Inventory.Journal qualified as Journal
 import System.Exit (ExitCode (..), exitFailure, exitWith)
-import System.IO (stderr)
+import System.IO (hFlush, stderr, stdout)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | Where a contract command is: admitting (nothing touched yet), executing
@@ -63,12 +64,30 @@ setContractSink = writeIORef sink (Just Admitting)
 setReadSink :: IO ()
 setReadSink = writeIORef sink (Just Reading)
 
+-- | Whether a test collects the documents instead of stdout.
+collecting :: IORef Bool
+collecting = unsafePerformIO (newIORef False)
+{-# NOINLINE collecting #-}
+
 -- | Set the sink with another destination for its documents.
 setContractSinkTo :: (LBC.ByteString -> IO ()) -> IO ()
-setContractSinkTo destination = writeIORef output destination >> setContractSink
+setContractSinkTo destination = writeIORef output destination >> writeIORef collecting True >> setContractSink
 
 clearContractSink :: IO ()
-clearContractSink = writeIORef sink Nothing >> writeIORef output LBC.putStrLn
+clearContractSink = writeIORef sink Nothing >> writeIORef output LBC.putStrLn >> writeIORef collecting False
+
+-- | Under the sink stdout holds only the document: the document goes to a
+-- duplicate of the original stdout, and every other write to the process's
+-- stdout, a guard's line or a child's, goes to stderr. Cloud stages print
+-- guard lines that the release runner read as the document (v0.12.0
+-- candidate, 2026-10-30).
+reserveStdout :: IO ()
+reserveStdout =
+  readIORef collecting >>= \collected -> unless collected $ do
+    hFlush stdout
+    document <- hDuplicate stdout
+    hDuplicateTo stderr stdout
+    writeIORef output (\bytes -> LBC.hPutStrLn document bytes >> hFlush document)
 
 contractSinkSet :: IO Bool
 contractSinkSet = isJust <$> readIORef sink
@@ -144,8 +163,9 @@ withReadContract = withContractIn setReadSink
 withContractIn :: IO () -> Maybe Int -> IO () -> IO ()
 withContractIn set requested action = case requested of
   Nothing -> action
-  Just 1 -> set >> withContractOutcome action
+  Just 1 -> reserveStdout >> set >> withContractOutcome action
   Just other -> do
+    reserveStdout
     set
     refuseWith "" unsupportedContractVersion ("contract version " <> T.pack (show other) <> " is not supported; supported versions: 1")
 
