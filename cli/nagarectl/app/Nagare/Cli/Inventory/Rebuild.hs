@@ -54,8 +54,9 @@ offlineStore store credentials = case (store, credentials) of
 -- the scheduled recovery point given for it; an application volume names an
 -- accepted manual snapshot, verified here from the object store (or an
 -- offline copy); a volume starts fresh only when the operator says so.
-runInventoryRebuildDecisions :: Maybe String -> [String] -> [String] -> [String] -> [String] -> Maybe String -> Maybe (String, FilePath) -> FilePath -> IO ()
-runInventoryRebuildDecisions mctx pointArgs snapshotArgs runArgs freshArgs bucketArg offline output = do
+runInventoryRebuildDecisions :: Maybe String -> [String] -> [String] -> [String] -> [String] -> Maybe String -> Maybe String -> Maybe FilePath -> FilePath -> IO ()
+runInventoryRebuildDecisions mctx pointArgs snapshotArgs runArgs freshArgs bucketArg store credentials output = do
+  offline <- offlineStore store credentials
   active <- activeTarget mctx
   scheduled <- either dieT pure (traverse parsePoint pointArgs)
   fresh <- either dieT pure (traverse (Resource.mkResourceId . T.pack) freshArgs)

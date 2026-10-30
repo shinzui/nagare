@@ -6,6 +6,7 @@ module Nagare.Cli.Options
   , SiteListOpts (..)
   , SitePackageOpts (..)
   , SitePreviewDeleteOpts (..)
+  , SitePublishOpts (..)
   , SiteRollbackOpts (..)
   , AccessCommand (..)
   , AccessGrantOpts (..)
@@ -102,6 +103,7 @@ import Nagare.Cli.Options.Site
   , SiteListOpts (..)
   , SitePackageOpts (..)
   , SitePreviewDeleteOpts (..)
+  , SitePublishOpts (..)
   , SiteRollbackOpts (..)
   )
 import Nagare.Dsl.Broker (BrokerProvider)
@@ -331,6 +333,7 @@ data Command
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SitePackage SitePackageOpts
+  | SitePublish SitePublishOpts
   | SiteReleases SiteCommonOpts
   | SiteList SiteListOpts
   | SiteRollback SiteRollbackOpts String

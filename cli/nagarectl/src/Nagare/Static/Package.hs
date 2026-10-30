@@ -19,6 +19,7 @@ module Nagare.Static.Package
   , derivedTag
   , packageStaticSite
   , packageStaticSiteWith
+  , packageStaticSiteGated
   )
 where
 
@@ -125,13 +126,28 @@ packageStaticSiteWith ::
   PreparedStaticOutput ->
   PackageTarget ->
   IO (Either PackageError PackageResult)
-packageStaticSiteWith run site prepared = \case
+packageStaticSiteWith run site prepared target =
+  packageStaticSiteGated run site prepared target (const (pure True))
+    <&> (>>= maybe (Left (PackageBuildFailed "package was skipped")) Right)
+
+-- | Like 'packageStaticSiteWith', but the gate sees the written context's
+-- content digest before any Docker work and may answer 'False' to skip the
+-- build ('Nothing'): the unchanged-release check costs a file copy and a hash,
+-- never a build.
+packageStaticSiteGated ::
+  ([String] -> IO Bool) ->
+  StaticSite ->
+  PreparedStaticOutput ->
+  PackageTarget ->
+  (ContentDigest -> IO Bool) ->
+  IO (Either PackageError (Maybe PackageResult))
+packageStaticSiteGated run site prepared target gate = case target of
   ContextOut out -> do
     absolute <- makeAbsolute out
     written <- tracePhase "package.context" (writeStaticContext site prepared absolute)
     pure $ case written of
       Left e -> Left (PackageContext e)
-      Right d -> Right PackageResult {path = absolute, digest = d, image = Nothing, tag = Nothing, platform = Nothing}
+      Right d -> Right (Just PackageResult {path = absolute, digest = d, image = Nothing, tag = Nothing, platform = Nothing})
   ArchiveOut {archive = out, destination = ref, tag = t, platform = p} ->
     case (,) <$> validateTag t <*> validatePlatform p of
       Left e -> pure (Left e)
@@ -148,12 +164,16 @@ packageStaticSiteWith run site prepared = \case
               case written of
                 Left e -> pure (Left (PackageContext e))
                 Right d -> do
-                  built <-
-                    tracePhase "package.build" $
-                      buildDockerArchiveWith run p ref (ctx </> "Dockerfile") ctx absolute Map.empty Map.empty
-                  pure $ case built of
-                    Left m
-                      | "already exists" `T.isInfixOf` m -> Left (PackageArchiveExists absolute)
-                      | otherwise -> Left (PackageBuildFailed m)
-                    Right () ->
-                      Right PackageResult {path = absolute, digest = d, image = Just ref, tag = Just t, platform = Just p}
+                  proceed <- gate d
+                  if not proceed
+                    then pure (Right Nothing)
+                    else do
+                      built <-
+                        tracePhase "package.build" $
+                          buildDockerArchiveWith run p ref (ctx </> "Dockerfile") ctx absolute Map.empty Map.empty
+                      pure $ case built of
+                        Left m
+                          | "already exists" `T.isInfixOf` m -> Left (PackageArchiveExists absolute)
+                          | otherwise -> Left (PackageBuildFailed m)
+                        Right () ->
+                          Right (Just PackageResult {path = absolute, digest = d, image = Just ref, tag = Just t, platform = Just p})

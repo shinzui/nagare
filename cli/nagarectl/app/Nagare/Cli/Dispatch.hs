@@ -61,20 +61,22 @@ import Nagare.Cli.Commands.Platform
   )
 import Nagare.Cli.Commands.Release (runReleasePublish)
 import Nagare.Cli.Commands.Site
-  ( runPreviewDelete
+  ( deployLoadedStaticSite
+  , runPreviewDelete
   , runPreviewDeploy
   , runPreviewList
   , runSiteDeploy
   , runSiteReleases
   , runSiteRollback
+  , staticSiteUrl
   )
 import Nagare.Cli.Commands.SiteList (runSiteList)
-import Nagare.Cli.Commands.SitePackage (runSitePackage)
+import Nagare.Cli.Commands.SitePublish (runSitePackage, runSitePublish)
 import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
 import Nagare.Cli.Commands.Transition (runPlatformTransitionCommit, runPlatformTransitionPlan)
 import Nagare.Cli.Commands.Worker (runWorker)
-import Nagare.Cli.Inventory.Rebuild (offlineStore, runInventoryRebuild, runInventoryRebuildDecisions)
+import Nagare.Cli.Inventory.Rebuild (runInventoryRebuild, runInventoryRebuildDecisions)
 import Nagare.Cli.Inventory.Workflow
   ( runInventoryAbandonMigration
   , runInventoryAdopt
@@ -133,6 +135,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Deploy dopts -> runDeploy mctx dopts
   SiteDeploy sopts -> runSiteDeploy mctx sopts
   SitePackage popts -> runSitePackage mctx popts
+  SitePublish popts -> runSitePublish mctx popts (runAppImagePlan mctx) (deployLoadedStaticSite mctx) staticSiteUrl
   SiteReleases copts -> runSiteReleases copts
   SiteList lopts -> withReadContract (lopts ^. #contract) (runSiteList mctx lopts)
   SiteRollback copts rid -> runSiteRollback mctx copts (T.pack rid)
@@ -172,9 +175,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryCompile input output json -> Inventory.compileInventory input output json
   InventoryPlan input retained output -> runInventoryPlan mctx input retained output
   InventoryAdopt input output -> runInventoryAdopt mctx input output
-  InventoryRebuildDecisions points snapshots runs fresh bucket store credentials output -> do
-    offline <- offlineStore store credentials
-    runInventoryRebuildDecisions mctx points snapshots runs fresh bucket offline output
+  InventoryRebuildDecisions points snapshots runs fresh bucket store credentials output -> runInventoryRebuildDecisions mctx points snapshots runs fresh bucket store credentials output
   InventoryRebuild input output -> runInventoryRebuild mctx input output
   InventoryMigrate input output -> runInventoryMigrate mctx input output
   InventoryRetire owner output -> runInventoryRetire mctx owner output

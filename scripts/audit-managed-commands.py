@@ -34,7 +34,7 @@ ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryPublications InventoryLegacyGuard InventoryExplain InventoryStoreStatus InventoryRebuildDecisions PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SiteList SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
         "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd",
-        "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
+        "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck SitePackage",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init",
         "retired": "PlatformStamp",
@@ -195,7 +195,7 @@ FAMILY_ROUTES = {
     "InventoryStoreMaterializeNative InventoryStoreMigrate InventoryExport InventoryRestore": "Inventory history export, restore, and store migration",
     "PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit": "Bootstrap release marker",
     "Deploy": "Standalone web Service with accepted databases and no CDN effects",
-    "SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete": "Static/server site deploy, rollback, and preview lifecycle",
+    "SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete": "Static/server site deploy, rollback, and preview lifecycle",
     "AppRestart AppStop AppDelete AppDeploy": "Application Knative Service, databases, attached PVCs",
     "AppImagePlan": "Application OCI image publication",
     "Init": "Context image/state bucket and API bootstrap",

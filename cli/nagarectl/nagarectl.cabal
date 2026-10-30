@@ -357,6 +357,7 @@ library
     Nagare.Static.Image
     Nagare.Static.Package
     Nagare.Static.Preview
+    Nagare.Static.Publish
     Nagare.Static.Release
     Nagare.Static.Webhook
     Nagare.Storage.Discover
@@ -441,7 +442,7 @@ executable nagarectl
     Nagare.Cli.Commands.Release
     Nagare.Cli.Commands.Site
     Nagare.Cli.Commands.SiteList
-    Nagare.Cli.Commands.SitePackage
+    Nagare.Cli.Commands.SitePublish
     Nagare.Cli.Commands.Storage
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Transition
@@ -712,6 +713,7 @@ test-suite nagarectl-test
     Nagare.Test.SiteInventory.Server
     Nagare.Test.SiteInventory.Static
     Nagare.Test.Static
+    Nagare.Test.StaticPublish
     Nagare.Test.Storage
     Nagare.Test.Suite
     Nagare.Test.Support.Assertions

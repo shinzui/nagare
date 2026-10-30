@@ -47,6 +47,7 @@ import Nagare.Static.Release
   , historyCap
   , renderReleaseConfigMap
   )
+import Nagare.Test.StaticPublish (publishTests)
 import Nagare.Test.Support.Assertions
   ( assertInfix
   , assertInfixStr
@@ -75,7 +76,7 @@ staticImageTests :: TestTree
 staticImageTests =
   testGroup
     "Nagare.Static.Image"
-    (dockerfileTests <> [testGroup "Nagare.Static.Package" packageTests])
+    (dockerfileTests <> [testGroup "Nagare.Static.Package" packageTests, testGroup "Nagare.Static.Publish" publishTests])
 
 dockerfileTests :: [TestTree]
 dockerfileTests =

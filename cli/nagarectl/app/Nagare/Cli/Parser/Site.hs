@@ -11,6 +11,7 @@ import Nagare.Cli.Options
   , SiteListOpts (..)
   , SitePackageOpts (..)
   , SitePreviewDeleteOpts (..)
+  , SitePublishOpts (..)
   , SiteRollbackOpts (..)
   )
 import Nagare.Cli.Parser.Common
@@ -109,6 +110,24 @@ sitePackageOptsParser defaultFile =
     <*> tagOpt
     <*> optional (strOption (long "platform" <> metavar "PLATFORM" <> help "Archive platform: linux/amd64 or linux/arm64 (default: the active context's platform)"))
 
+sitePublishOptsParser :: FilePath -> Parser SitePublishOpts
+sitePublishOptsParser defaultFile =
+  SitePublishOpts
+    <$> fileOpt defaultFile
+    <*> siteProjectDirOpt
+    <*> ghcEnvOpt
+    <*> baseDomainOpt
+    <*> optional (strOption (long "output-dir" <> metavar "DIR" <> help "Publish this directory instead of the configured output (relative to --project-dir)"))
+    <*> switch (long "build" <> help "Run the configured frontend build command first; by default the existing output is published as-is")
+    <*> tagOpt
+    <*> optional (strOption (long "platform" <> metavar "PLATFORM" <> help "Image platform: linux/amd64 or linux/arm64 (default: the active context's platform)"))
+    <*> optional (strOption (long "release-dir" <> metavar "DIR" <> help "Directory that keeps this release's archive, receipt and build log (default: under the context's state directory); with --resume, the release to resume"))
+    <*> switch (long "new-release" <> help "Publish a new release even when the files and configuration match the serving release")
+    <*> switch (long "verbose" <> help "Stream Docker output to the terminal instead of build.log")
+    <*> switch (long "resume" <> help "Continue the newest unfinished release of this site in this context (or the one named by --release-dir)")
+    <*> optional (strOption (long "cdn-backend-resource" <> metavar "RESOURCE-ID" <> help "Accepted platform Pulumi BackendService for reviewed Google CDN DNS"))
+    <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency for reviewed site domains"))
+
 siteCommonOptsParser :: FilePath -> Parser SiteCommonOpts
 siteCommonOptsParser defaultFile =
   SiteCommonOpts <$> fileOpt defaultFile <*> baseDomainOpt <*> ghcEnvOpt
@@ -150,6 +169,7 @@ siteSubparser =
   subparser
     ( command "deploy" siteDeployCmd
         <> command "package" sitePackageCmd
+        <> command "publish" sitePublishCmd
         <> command "releases" siteReleasesCmd
         <> command "list" siteListCmd
         <> command "rollback" siteRollbackCmd
@@ -167,6 +187,12 @@ sitePackageCmd =
   info
     (SitePackage <$> sitePackageOptsParser defaultConfigFile <**> helper)
     (fullDesc <> progDesc "Package a static site's output as a local build context or Docker archive; reads local files only")
+
+sitePublishCmd :: ParserInfo Command
+sitePublishCmd =
+  info
+    (SitePublish <$> sitePublishOptsParser defaultConfigFile <**> helper)
+    (fullDesc <> progDesc "Package, publish the image and deploy a static site in one command; an unchanged site reports the serving release and builds nothing")
 
 siteReleasesCmd :: ParserInfo Command
 siteReleasesCmd =

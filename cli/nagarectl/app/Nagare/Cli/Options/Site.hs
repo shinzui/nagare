@@ -5,6 +5,7 @@ module Nagare.Cli.Options.Site
   , SiteListOpts (..)
   , SitePackageOpts (..)
   , SitePreviewDeleteOpts (..)
+  , SitePublishOpts (..)
   , SiteRollbackOpts (..)
   )
 where
@@ -85,5 +86,26 @@ data SiteRollbackOpts = SiteRollbackOpts
 data SitePreviewDeleteOpts = SitePreviewDeleteOpts
   { common :: !SiteCommonOpts
   , savePlan :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+-- | @site publish@: package, publish the image and deploy the site in one
+-- command. Every field is optional: with none, the existing output is
+-- published with a derived tag.
+data SitePublishOpts = SitePublishOpts
+  { file :: !FilePath
+  , projectDir :: !FilePath
+  , ghcEnv :: !(Maybe FilePath)
+  , baseDomain :: !(Maybe String)
+  , outputDir :: !(Maybe FilePath)
+  , build :: !Bool
+  , tag :: !(Maybe String)
+  , platform :: !(Maybe String)
+  , releaseDir :: !(Maybe FilePath)
+  , newRelease :: !Bool
+  , verbose :: !Bool
+  , resume :: !Bool
+  , cdnBackendResource :: !(Maybe String)
+  , tlsSecretResources :: ![String]
   }
   deriving stock (Generic, Show)

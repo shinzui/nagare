@@ -1,11 +1,13 @@
 -- | Commands / Site. Executable-private CLI boundary.
 module Nagare.Cli.Commands.Site
-  ( runPreviewDelete
+  ( deployLoadedStaticSite
+  , runPreviewDelete
   , runPreviewDeploy
   , runPreviewList
   , runSiteDeploy
   , runSiteReleases
   , runSiteRollback
+  , staticSiteUrl
   )
 where
 
@@ -167,6 +169,17 @@ runSiteDeploy mctx sopts = do
             (s & #image %~ const qimg)
             bd
             (sopts ^. #savePlan)
+
+-- | Deploy an already-loaded, image-qualified static site and return its
+-- production URL: the second half of @site publish@, with no second config load.
+deployLoadedStaticSite :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> IO Text
+deployLoadedStaticSite mctx tp options site bd = do
+  runStaticSiteDeployPlan mctx tp options site bd Nothing
+  tag <- reviewedSiteTag options
+  pure (staticSiteUrl tp options site tag bd)
+
+staticSiteUrl :: TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Text -> Text
+staticSiteUrl tp options site tag bd = productionManifests (siteDeployInputs tp options site tag bd) ^. #url
 
 runStaticSiteDeployPlan ::
   Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Maybe FilePath -> IO ()

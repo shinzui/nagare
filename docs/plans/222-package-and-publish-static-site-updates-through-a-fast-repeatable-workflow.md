@@ -34,7 +34,7 @@ Implement all four acceptance criteria in [IR-36](../improvement-requests/packag
 
 - [x] M1 (2026-10-30, 820de548): `site package --context-out` works from an external directory, matches the renderers byte for byte, and returns a deterministic content digest; `Nagare.Static.Package` tests and `just gate-fast` green. Open: the extended `nagarectl-external-config` nix check is written but not yet run.
 - [ ] M2: Implemented and tested with a fake Docker runner (820de548): secret-free argv has no `--no-cache`, staged no-clobber save, validation before Docker. Open: a real AMD64 and ARM64 archive passed unchanged to `app image-plan` (no Docker daemon was running).
-- [ ] M3: `site publish` with no flags performs the first publication and later updates by composing the existing reviewed operations: prerequisites refused before packaging, unchanged content a no-op, typed handoff, recoverable partial success.
+- [ ] M3 (coordinator, `site publish`, receipts and resume implemented 2026-10-30; not yet run against a cluster; `--contract 1` result not implemented): `site publish` with no flags performs the first publication and later updates by composing the existing reviewed operations: prerequisites refused before packaging, unchanged content a no-op, typed handoff, recoverable partial success.
 - [ ] M4: The guide and protected-site drill prove publish, edit, republish, no-op republish and rollback; traced cold and warm runs demonstrate the repeat-release cost and the layer cache.
 
 
@@ -75,6 +75,11 @@ The flag exists so a `RUN --mount=type=secret` instruction re-executes with fres
 
 2026-10-30: Writing the archive straight from the build (`docker buildx build --output type=docker,dest=FILE`, which removes `--load` and the separate `docker image save`) is a measured candidate, not a requirement. Adopt it only when M4's traces show save time at or above EP-219's selection rule (median of at least 2 s or 10 % of the command's warm wall time) and after proving that `inspectArchive` and the transport accept its output exactly as they accept today's archives.
 
+2026-10-30: The unchanged check reads the serving release's recorded `source` (the existing release-log provenance field) instead of a `site-content` scope override on the image publication. Publish records `content=<digest>;config=<digest>` there, so the comparison needs only the accepted site release log, which the deploy already loads; a config-only change (the config digest is a hash of the loaded `StaticSite`) is never reported unchanged. Releases made by other commands have no such source and are treated as changed.
+
+2026-10-30: `--resume` is a switch and the directory comes from `--release-dir`; optparse has no optional-value option. Command handlers may not import each other (CLI architecture check), so the dispatcher passes the existing image-plan and static-deploy handlers into `runSitePublish`. The image resource is computed from the publication key by the same constructors the publication uses, not parsed from output.
+
+2026-10-30: `site publish` pays one config load but still prepares the platform workspace once in image publication and once in site deployment; collapsing that needs the two handlers to share a resolved workspace and is left to the M4 traces to justify.
 
 ## Outcomes & Retrospective
 
