@@ -672,6 +672,8 @@ JSON document from stdout. Schemas, samples, problem codes and the versioning ru
 | `app deploy --dry-run --contract 1` | `deploy-preview` |
 | `app image-plan … --contract 1` | `image-publication-result` |
 | `site publish … --contract 1` | `site-publish-result` (`stage` is `unchanged`, `deployed`, or the last proved stage with `failure` and `resume`; exit 7 after a stage failed) |
+| `nix-cache forward --contract 1` | `nix-cache-endpoint` (printed once the cache answers; the command then stays open until interrupted) |
+| `nix-cache push … --contract 1` | `nix-cache-push-result` (`outcome` is `pushed` or `failed`; after a failed push the exit code is the Attic client's) |
 
 Exit codes under the flag: 0 success, 2 refused, 3 paused, 4 stopped, 5 ambiguous, 6 closed,
 7 interrupted. `nagarectl version --json` lists the supported versions in `contracts`. The

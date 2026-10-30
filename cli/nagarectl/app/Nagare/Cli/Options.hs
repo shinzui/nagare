@@ -97,6 +97,7 @@ import Nagare.Cli.Options.Access
   , TeamMemberOpts (..)
   )
 import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
+import Nagare.Cli.Options.NixCache (NixCacheCommand)
 import Nagare.Cli.Options.Site
   ( SiteCommonOpts (..)
   , SiteDeployOpts (..)
@@ -367,6 +368,7 @@ data Command
   | Domains DomainsCommand
   | CdnCmd CdnCommand
   | Cleanup CleanupOpts
+  | NixCache NixCacheCommand
   deriving stock (Generic, Show)
 
 data VersionOpts = VersionOpts

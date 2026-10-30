@@ -27,6 +27,8 @@ module Nagare.Contract.V1
   , PublishedReview (..)
   , ImagePublicationResult (..)
   , SitePublishResult (..)
+  , NixCacheEndpoint (..)
+  , NixCachePushResult (..)
   , PreviewScope (..)
   , DeployPreview (..)
 
@@ -170,6 +172,29 @@ data SitePublishResult = SitePublishResult
   , content :: !(Nullable Text)
   , failure :: !(Nullable Text)
   , resume :: !(Nullable Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The cache @nix-cache forward@ serves while it runs: the loopback
+-- endpoint, the cache name and the public signing key a client trusts.
+data NixCacheEndpoint = NixCacheEndpoint
+  { contractVersion :: !ContractVersion
+  , document :: !(DocumentName "nix-cache-endpoint")
+  , endpoint :: !Text
+  , cache :: !Text
+  , publicKey :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The outcome of @nix-cache push@: @pushed@, or @failed@ with the Attic
+-- client's exit code as the command's.
+data NixCachePushResult = NixCachePushResult
+  { contractVersion :: !ContractVersion
+  , document :: !(DocumentName "nix-cache-push-result")
+  , endpoint :: !Text
+  , cache :: !Text
+  , paths :: ![Text]
+  , outcome :: !Text
   }
   deriving stock (Eq, Show, Generic)
 
@@ -460,6 +485,18 @@ instance ToJSON SitePublishResult where toJSON = genericToJSON recordOptions
 instance FromJSON SitePublishResult where parseJSON = genericParseJSON recordOptions
 
 instance ToSchema SitePublishResult where declareNamedSchema = recordSchema
+
+instance ToJSON NixCacheEndpoint where toJSON = genericToJSON recordOptions
+
+instance FromJSON NixCacheEndpoint where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema NixCacheEndpoint where declareNamedSchema = recordSchema
+
+instance ToJSON NixCachePushResult where toJSON = genericToJSON recordOptions
+
+instance FromJSON NixCachePushResult where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema NixCachePushResult where declareNamedSchema = recordSchema
 
 instance ToJSON PreviewScope where toJSON = genericToJSON recordOptions
 

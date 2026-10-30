@@ -34,6 +34,8 @@ review `git diff docs/api/samples`.
 | `saved-review` | `SavedReview` | operation | `nagarectl app deploy --save-plan DIR --contract 1` |
 | `image-publication-result` | `ImagePublicationResult` | operation | `nagarectl app image-plan … --contract 1` |
 | `site-publish-result` | `SitePublishResult` | operation | `nagarectl site publish … --contract 1` |
+| `nix-cache-endpoint` | `NixCacheEndpoint` | operation | `nagarectl nix-cache forward --contract 1` |
+| `nix-cache-push-result` | `NixCachePushResult` | operation | `nagarectl nix-cache push … --contract 1` |
 | `deploy-preview` | `DeployPreview` | operation | `nagarectl app deploy --dry-run --contract 1` |
 
 The item types `ScopeState`, `Finding` and `Publication` are shared by the CLI documents and the

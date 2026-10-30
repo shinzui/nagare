@@ -442,6 +442,79 @@
         ],
         "type": "object"
       },
+      "NixCacheEndpoint": {
+        "properties": {
+          "cache": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "nix-cache-endpoint"
+            ],
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "endpoint",
+          "cache",
+          "publicKey"
+        ],
+        "type": "object"
+      },
+      "NixCachePushResult": {
+        "properties": {
+          "cache": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "nix-cache-push-result"
+            ],
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "endpoint",
+          "cache",
+          "paths",
+          "outcome"
+        ],
+        "type": "object"
+      },
       "Outcome": {
         "enum": [
           "converged",

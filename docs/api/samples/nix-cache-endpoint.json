@@ -1,0 +1,7 @@
+{
+  "cache": "nagare-cache",
+  "contractVersion": 1,
+  "document": "nix-cache-endpoint",
+  "endpoint": "http://127.0.0.1:18080/",
+  "publicKey": "nagare-cache:5VtCsl3sx0Vs1Wl1ZbkWWRkn8yBIsK8Ex5uT3NEWbis="
+}

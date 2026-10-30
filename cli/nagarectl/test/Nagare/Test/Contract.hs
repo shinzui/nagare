@@ -177,6 +177,8 @@ samples =
   , Sample "saved-review.json" savedReviewSample
   , Sample "image-publication-result.json" imagePublicationSample
   , Sample "site-publish-result.json" sitePublishSample
+  , Sample "nix-cache-endpoint.json" nixCacheEndpointSample
+  , Sample "nix-cache-push-result.json" nixCachePushSample
   , Sample "deploy-preview.json" deployPreviewSample
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "problem.json" (problemFor unknownScope "application:nope is not an accepted scope")
@@ -334,6 +336,27 @@ imagePublicationSample =
     , imageResource = resourceIdText imageResourceId
     , review = PublishedReview {sha256 = digestText (contentDigest "image-review"), directory = Nullable Nothing}
     , transaction = Nullable (Just (outcomeSample OutcomeConverged))
+    }
+
+nixCacheEndpointSample :: NixCacheEndpoint
+nixCacheEndpointSample =
+  NixCacheEndpoint
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , endpoint = "http://127.0.0.1:18080/"
+    , cache = "nagare-cache"
+    , publicKey = "nagare-cache:5VtCsl3sx0Vs1Wl1ZbkWWRkn8yBIsK8Ex5uT3NEWbis="
+    }
+
+nixCachePushSample :: NixCachePushResult
+nixCachePushSample =
+  NixCachePushResult
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , endpoint = "http://127.0.0.1:18080/"
+    , cache = "nagare-cache"
+    , paths = ["/nix/store/1rp5453vmy2839v1frykkx9wa578gsam-nagare-attic-smoke"]
+    , outcome = "pushed"
     }
 
 sitePublishSample :: SitePublishResult

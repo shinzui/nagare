@@ -17,6 +17,7 @@ import Nagare.Cli.Parser.Context (contextCmd, initCmd)
 import Nagare.Cli.Parser.Data (brokerCmd, dbCmd, storageCmd)
 import Nagare.Cli.Parser.Environment (envCmd, secretCmd)
 import Nagare.Cli.Parser.Inventory (inventoryCmd)
+import Nagare.Cli.Parser.NixCache (nixCacheCmd)
 import Nagare.Cli.Parser.Operations
   ( cdnCmd
   , cleanupCmd
@@ -100,4 +101,5 @@ commandParser =
         <> command "domains" domainsCmd
         <> command "cdn" cdnCmd
         <> command "cleanup" cleanupCmd
+        <> command "nix-cache" nixCacheCmd
     )

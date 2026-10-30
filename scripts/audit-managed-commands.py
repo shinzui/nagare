@@ -33,7 +33,7 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryPublications InventoryLegacyGuard InventoryExplain InventoryStoreStatus InventoryRebuildDecisions PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SiteList SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
-        "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd",
+        "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache",
         "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck SitePackage",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init",
@@ -51,6 +51,8 @@ ROUTES = {
         "bounded": "KubeconfigRecover",
     },
     "ClusterCommand": {"read": "ClusterGuard ClusterCertificatePolicy"},
+    # EP-230: session-bound token minting, a fixed-port forward, and Attic pushes.
+    "NixCacheCommand": {"bounded": "NixCacheToken NixCacheForward NixCachePush"},
     "ContextCommand": {
         "read": "ContextList ContextCurrent ContextShow ContextGuard ContextEnv",
         "local": "ContextUse",
@@ -186,6 +188,7 @@ DEFAULT_FAMILY = {
     "PortalCommand": "Protected Service access routes and shared auth settings",
     "TeamCommand": "Protected Service access routes and shared auth settings",
     "CdnCommand": "Cloudflare CDN host DNS",
+    "NixCacheCommand": "Nix cache producer token, forward, and push",
 }
 
 FAMILY_ROUTES = {

@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-30T17:45:48Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-30T21:04:32Z
+      mode: "implement"
+      note: "M1 and M2 implemented: nix-cache token, forward and push with fake-driven tests"
 ---
 
 # Push signed Nix closures to the context cache with one nagarectl command
@@ -46,8 +52,8 @@ durability and key rotation remain that MasterPlan's work.
 
 ## Progress
 
-- [ ] M1: `nix-cache token` and `nix-cache forward` exist, bound to the command's admitted cluster session; fakes prove the token never leaves its 0600 file, the forward uses port 18080 and reports readiness only after Attic answers, and every child process is gone on success, failure and interruption.
-- [ ] M2: `nix-cache push` composes the primitives for the context cache and accepts an external endpoint; fakes prove path validation precedes any cluster contact, the private token is removed on every exit, and the result document is versioned.
+- [x] M1: `nix-cache token` and `nix-cache forward` exist, bound to the command's admitted cluster session; fakes prove the token never leaves its 0600 file, the forward uses port 18080 and reports readiness only after Attic answers, and every child process is gone on success, failure and interruption. (2026-10-30: `cli/nagarectl/test/Nagare/Test/NixCacheProducer.hs`, 24 tests green under `-p /NixCacheProducer/`; with the child stop and private-directory removal disabled, 10 of them fail. `nix-cache-endpoint` sample and schema in `docs/api/`.)
+- [x] M2: `nix-cache push` composes the primitives for the context cache and accepts an external endpoint; fakes prove path validation precedes any cluster contact, the private token is removed on every exit, and the result document is versioned. (2026-10-30: same module; mint, forward and push recorded in that order, no cluster call in external mode or on a refused path, scratch directory empty after success, failed push and interruption. `nix-cache-push-result` sample and schema in `docs/api/`.)
 - [ ] M3: A disposable local Attic drill pushes a path through the real command and reads it back with signature verification, with no cluster involved.
 - [ ] M4: On an operator-selected cloud context with the cache enabled, a push of the smoke path is substituted by the positive smoke Pod; the runbook and reference describe the commands; MasterPlan 18's EP-3 progress records the evidence.
 
@@ -105,6 +111,12 @@ cache is cloud-only. The commands add no gcloud call.
 2026-10-30: `push --endpoint URL --token-file FILE` skips the cluster entirely and pushes to any
 Attic. This serves a self-run Attic, matches Kotei's "endpoint is opaque" rule, and is the mode
 the local drill uses, so the real command is exercised end to end before any cloud run (ADR 25).
+
+2026-10-30: The option records live in `cli/nagarectl/app/Nagare/Cli/Options/NixCache.hs`, beside
+`Options/Site.hs`, so `Options.hs` gains one constructor line; `Dispatch.hs` stays under its
+200-line limit by collapsing the `Host` import. The local-context refusal is
+`requireCloudContext` in the library so the test suite can reach it. The forward passes
+`--address 127.0.0.1` so kubectl binds only the loopback host the server admits.
 
 2026-10-30: Live confirmation needs a cloud context whose cache is enabled. No current context has
 one: the intranet sets `NAGARE_NIX_CACHE_ENABLED='0'` and the others leave the default off.

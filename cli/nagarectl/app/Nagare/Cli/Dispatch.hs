@@ -28,11 +28,7 @@ import Nagare.Cli.Commands.Database (runDb)
 import Nagare.Cli.Commands.Deployment (runDeploy)
 import Nagare.Cli.Commands.Domains (runDomains)
 import Nagare.Cli.Commands.Environment (runEnv, runSecret)
-import Nagare.Cli.Commands.Host
-  ( runCluster
-  , runHost
-  , runKubeconfig
-  )
+import Nagare.Cli.Commands.Host (runCluster, runHost, runKubeconfig)
 import Nagare.Cli.Commands.Image (runAppImagePlan)
 import Nagare.Cli.Commands.Infrastructure
   ( runCleanup
@@ -50,6 +46,7 @@ import Nagare.Cli.Commands.Inventory.Store
   , runInventoryStoreMigrate
   , runInventoryStoreStatus
   )
+import Nagare.Cli.Commands.NixCache (runNixCache)
 import Nagare.Cli.Commands.Platform
   ( runPlatformAdopt
   , runPlatformGuard
@@ -172,6 +169,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Domains c -> runDomains mctx c
   CdnCmd ccmd -> runCdn mctx ccmd
   Cleanup o -> runCleanup mctx o
+  NixCache ncmd -> runNixCache mctx ncmd
   InventoryCompile input output json -> Inventory.compileInventory input output json
   InventoryPlan input retained output -> runInventoryPlan mctx input retained output
   InventoryAdopt input output -> runInventoryAdopt mctx input output

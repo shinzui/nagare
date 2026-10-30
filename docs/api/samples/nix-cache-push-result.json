@@ -1,0 +1,10 @@
+{
+  "cache": "nagare-cache",
+  "contractVersion": 1,
+  "document": "nix-cache-push-result",
+  "endpoint": "http://127.0.0.1:18080/",
+  "outcome": "pushed",
+  "paths": [
+    "/nix/store/1rp5453vmy2839v1frykkx9wa578gsam-nagare-attic-smoke"
+  ]
+}

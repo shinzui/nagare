@@ -330,6 +330,7 @@ library
     Nagare.Ops.ContextGuard
     Nagare.Ops.Doctor
     Nagare.Ops.Domains
+    Nagare.Ops.NixCacheProducer
     Nagare.Ops.Probe
     Nagare.Ops.Pulumi
     Nagare.Ops.PulumiBackend
@@ -438,6 +439,7 @@ executable nagarectl
     Nagare.Cli.Commands.Init
     Nagare.Cli.Commands.Inventory.Status
     Nagare.Cli.Commands.Inventory.Store
+    Nagare.Cli.Commands.NixCache
     Nagare.Cli.Commands.Platform
     Nagare.Cli.Commands.Release
     Nagare.Cli.Commands.Site
@@ -479,6 +481,7 @@ executable nagarectl
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase
+    Nagare.Cli.Options.NixCache
     Nagare.Cli.Options.Site
     Nagare.Cli.Parser
     Nagare.Cli.Parser.Access
@@ -489,6 +492,7 @@ executable nagarectl
     Nagare.Cli.Parser.Data
     Nagare.Cli.Parser.Environment
     Nagare.Cli.Parser.Inventory
+    Nagare.Cli.Parser.NixCache
     Nagare.Cli.Parser.Operations
     Nagare.Cli.Parser.Platform
     Nagare.Cli.Parser.Site
@@ -703,6 +707,7 @@ test-suite nagarectl-test
     Nagare.Test.Model.Search
     Nagare.Test.Model.Tier
     Nagare.Test.Model.Transition
+    Nagare.Test.NixCacheProducer
     Nagare.Test.Operations
     Nagare.Test.Pulumi
     Nagare.Test.Server

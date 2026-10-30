@@ -57,6 +57,7 @@ import Nagare.Static.Release
   ( StaticRelease (..)
   , StaticReleaseLog (StaticReleaseLog)
   )
+import Nagare.Test.NixCacheProducer (nixCacheProducerTests)
 import Nagare.Test.Support.Profiles (tnbProfile)
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -66,6 +67,11 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 opsTests :: [TestTree]
 opsTests =
+  nixCacheProducerTests
+    <> opsProbeTests
+
+opsProbeTests :: [TestTree]
+opsProbeTests =
   [ testCase "parseNodeReady: Ready=True node" $
       parseNodeReady nodeReadyJson @?= Just True
   , testCase "parseNodeReady: Ready=False node" $
