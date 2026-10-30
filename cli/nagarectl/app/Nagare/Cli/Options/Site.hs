@@ -107,5 +107,6 @@ data SitePublishOpts = SitePublishOpts
   , resume :: !Bool
   , cdnBackendResource :: !(Maybe String)
   , tlsSecretResources :: ![String]
+  , contract :: !(Maybe Int)
   }
   deriving stock (Generic, Show)

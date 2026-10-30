@@ -1,0 +1,12 @@
+{
+  "content": "6622a6148297c14ec4822fcfe8e1245cf397ec09a9b634a81deb7cd78adb1eaf",
+  "contractVersion": 1,
+  "document": "site-publish-result",
+  "failure": null,
+  "imageResource": "publication:app-image-kizashi-v1/kizashi-v1/oci-image",
+  "releaseDirectory": "/home/dev/.local/state/nagare/local/static-releases/notes/20261030-182904-000839",
+  "resume": null,
+  "stage": "deployed",
+  "tag": "20261030-182904-000839",
+  "url": "https://notes.personal.127-0-0-1.sslip.io"
+}

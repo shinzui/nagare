@@ -892,6 +892,77 @@
         ],
         "type": "object"
       },
+      "SitePublishResult": {
+        "properties": {
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "site-publish-result"
+            ],
+            "type": "string"
+          },
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageResource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "releaseDirectory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resume": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stage": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "stage",
+          "tag",
+          "url",
+          "imageResource",
+          "releaseDirectory",
+          "content",
+          "failure",
+          "resume"
+        ],
+        "type": "object"
+      },
       "SiteService": {
         "properties": {
           "hostnames": {

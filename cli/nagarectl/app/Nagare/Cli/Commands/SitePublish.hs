@@ -23,6 +23,9 @@ import Nagare.Cli.Options (AppImagePlanOpts (..), SiteDeployOpts (..), SitePacka
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target (activeProfile, activeTarget, resolveBaseDomain)
+import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
+import Nagare.Contract.Sink (contractSinkSet, emitDocument, withoutDocuments)
+import Nagare.Contract.V1 (SitePublishResult (..))
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude hiding (Context)
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
@@ -58,7 +61,7 @@ import Nagare.Static.Publish
 import Nagare.Static.Release (findRelease)
 import Nagare.Target (ActiveTarget, TargetProfile, contextNameText)
 import System.Directory (XdgDirectory (..), createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getXdgDirectory, listDirectory, makeAbsolute, removeDirectory)
-import System.Exit (ExitCode (..), exitFailure)
+import System.Exit (ExitCode (..), exitFailure, exitWith)
 import System.FilePath ((</>))
 import System.IO (stderr)
 
@@ -220,23 +223,55 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
       report urlFor releaseDir result
   where
     report urlFor releaseDir = \case
-      Left failure -> do
-        TIO.hPutStrLn stderr (renderPublishFailure failure)
-        TIO.hPutStrLn stderr ("release kept in " <> T.pack releaseDir)
-        when (failureStage failure /= "preflight" && failureStage failure /= "package") $
-          TIO.hPutStrLn stderr ("resume with: nagarectl site publish --resume --release-dir " <> T.pack releaseDir)
-        exitFailure
+      Left failure@(PublishFailure stageName message)
+        | stageName `elem` ["preflight", "package"] -> dieT (renderPublishFailure failure)
+        | otherwise -> do
+            let proved = if stageName == "image" then "packaged" else "image-published"
+                resumeCommand = "nagarectl site publish --resume --release-dir " <> T.pack releaseDir
+            receipt <- either (const Nothing) Just <$> readReceipt releaseDir
+            contract <- contractSinkSet
+            if contract
+              then do
+                emitDocument (publishDocument proved (maybe "" (view #tag) receipt) Nothing receipt (Just releaseDir) (Just (renderPublishFailure failure)) (Just resumeCommand))
+                exitWith (ExitFailure 7)
+              else do
+                TIO.hPutStrLn stderr (renderPublishFailure failure)
+                TIO.hPutStrLn stderr ("release kept in " <> T.pack releaseDir)
+                TIO.hPutStrLn stderr ("resume with: " <> resumeCommand)
+                exitFailure
       Right (Unchanged servingTag) -> do
         -- Nothing was released, so the directory made up front holds nothing.
         leftovers <- listDirectory releaseDir
         when (null leftovers) (removeDirectory releaseDir)
-        TIO.putStrLn ("unchanged: release " <> servingTag <> " already serves these files at " <> urlFor servingTag)
+        contract <- contractSinkSet
+        if contract
+          then emitDocument (publishDocument "unchanged" servingTag (Just (urlFor servingTag)) Nothing Nothing Nothing Nothing)
+          else TIO.putStrLn ("unchanged: release " <> servingTag <> " already serves these files at " <> urlFor servingTag)
       Right (Released receipt) -> do
-        TIO.putStrLn ("url: " <> fromMaybe "" (receipt ^. #url))
-        TIO.putStrLn ("tag: " <> receipt ^. #tag)
-        TIO.putStrLn ("image: " <> fromMaybe "" (receipt ^. #imageResource))
-        TIO.putStrLn ("release-dir: " <> T.pack releaseDir)
-    failureStage (PublishFailure stageName _) = stageName
+        contract <- contractSinkSet
+        if contract
+          then emitDocument (publishDocument "deployed" (receipt ^. #tag) (receipt ^. #url) (Just receipt) (Just releaseDir) Nothing Nothing)
+          else do
+            TIO.putStrLn ("url: " <> fromMaybe "" (receipt ^. #url))
+            TIO.putStrLn ("tag: " <> receipt ^. #tag)
+            TIO.putStrLn ("image: " <> fromMaybe "" (receipt ^. #imageResource))
+            TIO.putStrLn ("release-dir: " <> T.pack releaseDir)
+
+-- | The @site-publish-result@ document.
+publishDocument :: Text -> Text -> Maybe Text -> Maybe Receipt -> Maybe FilePath -> Maybe Text -> Maybe Text -> SitePublishResult
+publishDocument stageText tagText urlText receipt releaseDir failureText resumeText =
+  SitePublishResult
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , stage = stageText
+    , tag = tagText
+    , url = nullable urlText
+    , imageResource = nullable (receipt >>= view #imageResource)
+    , releaseDirectory = nullable (T.pack <$> releaseDir)
+    , content = nullable (receipt >>= sourceContent . view #source)
+    , failure = nullable failureText
+    , resume = nullable resumeText
+    }
 
 -- | The configured output, or an override resolved from the project directory.
 prepareOutputFor :: FilePath -> Maybe FilePath -> Bool -> StaticSite -> IO PreparedStaticOutput
@@ -304,24 +339,25 @@ publishImageFor imagePlan receipt =
     Right resource -> do
       outcome <-
         tryExit $
-          imagePlan
-            AppImagePlanOpts
-              { archive = receipt ^. #archive
-              , destination = T.unpack (receipt ^. #destination)
-              , key = T.unpack (receipt ^. #key)
-              , buildInputResources = []
-              , buildDockerfile = Nothing
-              , buildContext = Nothing
-              , savePlan = Nothing
-              , contract = Nothing
-              }
+          withoutDocuments $
+            imagePlan
+              AppImagePlanOpts
+                { archive = receipt ^. #archive
+                , destination = T.unpack (receipt ^. #destination)
+                , key = T.unpack (receipt ^. #key)
+                , buildInputResources = []
+                , buildDockerfile = Nothing
+                , buildContext = Nothing
+                , savePlan = Nothing
+                , contract = Nothing
+                }
       pure (Resource.resourceIdText resource <$ outcome)
 
 -- | Run a command that reports failure by exiting, as a value, so the
 -- coordinator can keep the release and print its resume command.
 tryExit :: IO a -> IO (Either Text a)
 tryExit action =
-  try action >>= \case
+  try (withoutDocuments action) >>= \case
     Right value -> pure (Right value)
     Left (ExitFailure code) -> pure (Left ("the command failed (exit " <> T.pack (show code) <> "; its message is above)"))
     Left ExitSuccess -> pure (Left "the command exited early")

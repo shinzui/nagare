@@ -16,6 +16,7 @@ import Nagare.Cli.Options
   )
 import Nagare.Cli.Parser.Common
   ( baseDomainOpt
+  , contractOpt
   , defaultConfigFile
   , dryRunOpt
   , fileOpt
@@ -127,6 +128,7 @@ sitePublishOptsParser defaultFile =
     <*> switch (long "resume" <> help "Continue the newest unfinished release of this site in this context (or the one named by --release-dir)")
     <*> optional (strOption (long "cdn-backend-resource" <> metavar "RESOURCE-ID" <> help "Accepted platform Pulumi BackendService for reviewed Google CDN DNS"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency for reviewed site domains"))
+    <*> contractOpt
 
 siteCommonOptsParser :: FilePath -> Parser SiteCommonOpts
 siteCommonOptsParser defaultFile =

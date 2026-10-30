@@ -176,6 +176,7 @@ samples =
   , Sample "transaction-outcome-refused.json" refusedSample
   , Sample "saved-review.json" savedReviewSample
   , Sample "image-publication-result.json" imagePublicationSample
+  , Sample "site-publish-result.json" sitePublishSample
   , Sample "deploy-preview.json" deployPreviewSample
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "problem.json" (problemFor unknownScope "application:nope is not an accepted scope")
@@ -333,6 +334,21 @@ imagePublicationSample =
     , imageResource = resourceIdText imageResourceId
     , review = PublishedReview {sha256 = digestText (contentDigest "image-review"), directory = Nullable Nothing}
     , transaction = Nullable (Just (outcomeSample OutcomeConverged))
+    }
+
+sitePublishSample :: SitePublishResult
+sitePublishSample =
+  SitePublishResult
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , stage = "deployed"
+    , tag = "20261030-182904-000839"
+    , url = Nullable (Just "https://notes.personal.127-0-0-1.sslip.io")
+    , imageResource = Nullable (Just (resourceIdText imageResourceId))
+    , releaseDirectory = Nullable (Just "/home/dev/.local/state/nagare/local/static-releases/notes/20261030-182904-000839")
+    , content = Nullable (Just (digestText (contentDigest "site-content")))
+    , failure = Nullable Nothing
+    , resume = Nullable Nothing
     }
 
 deployPreviewSample :: DeployPreview

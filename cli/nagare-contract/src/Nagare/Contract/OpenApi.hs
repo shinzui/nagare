@@ -36,6 +36,7 @@ import Nagare.Contract.V1
   , SavedReview
   , ScopeState
   , SiteList
+  , SitePublishResult
   , SiteSummary
   , TransactionOutcome
   , VersionInfo
@@ -48,6 +49,7 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @TransactionOutcome))
   void (declareSchemaRef (Proxy @SavedReview))
   void (declareSchemaRef (Proxy @ImagePublicationResult))
+  void (declareSchemaRef (Proxy @SitePublishResult))
   void (declareSchemaRef (Proxy @DeployPreview))
   void (declareSchemaRef (Proxy @InventoryStatusReport))
   void (declareSchemaRef (Proxy @PublicationList))

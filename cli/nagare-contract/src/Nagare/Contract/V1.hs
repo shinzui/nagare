@@ -26,6 +26,7 @@ module Nagare.Contract.V1
   , SavedReview (..)
   , PublishedReview (..)
   , ImagePublicationResult (..)
+  , SitePublishResult (..)
   , PreviewScope (..)
   , DeployPreview (..)
 
@@ -152,6 +153,23 @@ data ImagePublicationResult = ImagePublicationResult
   , review :: !PublishedReview
   , transaction :: !(Nullable TransactionOutcome)
   -- ^ Present when the publication converged in-process.
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The outcome of @site publish@. @stage@ is the last stage proved: @unchanged@
+-- (nothing was built or released), @deployed@, or, when a later stage failed,
+-- @packaged@ or @image-published@ with @failure@ and the @resume@ command.
+data SitePublishResult = SitePublishResult
+  { contractVersion :: !ContractVersion
+  , document :: !(DocumentName "site-publish-result")
+  , stage :: !Text
+  , tag :: !Text
+  , url :: !(Nullable Text)
+  , imageResource :: !(Nullable Text)
+  , releaseDirectory :: !(Nullable Text)
+  , content :: !(Nullable Text)
+  , failure :: !(Nullable Text)
+  , resume :: !(Nullable Text)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -436,6 +454,12 @@ instance ToJSON ImagePublicationResult where toJSON = genericToJSON recordOption
 instance FromJSON ImagePublicationResult where parseJSON = genericParseJSON recordOptions
 
 instance ToSchema ImagePublicationResult where declareNamedSchema = recordSchema
+
+instance ToJSON SitePublishResult where toJSON = genericToJSON recordOptions
+
+instance FromJSON SitePublishResult where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema SitePublishResult where declareNamedSchema = recordSchema
 
 instance ToJSON PreviewScope where toJSON = genericToJSON recordOptions
 

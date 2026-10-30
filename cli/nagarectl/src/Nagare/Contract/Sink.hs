@@ -17,6 +17,7 @@ module Nagare.Contract.Sink
   , reportTransaction
   , emitDocument
   , progressLine
+  , withoutDocuments
   , withContractOutcome
   , withContract
   , withReadContract
@@ -25,7 +26,7 @@ module Nagare.Contract.Sink
   )
 where
 
-import Control.Exception (SomeAsyncException, SomeException, displayException, fromException, throwIO, try)
+import Control.Exception (SomeAsyncException, SomeException, displayException, finally, fromException, throwIO, try)
 import Data.Aeson (ToJSON, encode)
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -130,6 +131,18 @@ reportTransaction line result = do
 -- | Print a contract document on the sink's destination.
 emitDocument :: (ToJSON a) => a -> IO ()
 emitDocument document = readIORef output >>= \destination -> destination (encode document)
+
+-- | Run an existing command handler as one step of a larger contract command:
+-- while it runs the sink is off, so its own documents and refusals do not
+-- reach the caller's stdout, which must hold exactly the caller's document. A
+-- refusal inside exits as in a human run; the caller catches it.
+withoutDocuments :: IO a -> IO a
+withoutDocuments action = do
+  previousSink <- readIORef sink
+  previousOutput <- readIORef output
+  writeIORef sink Nothing
+  writeIORef output (const (pure ()))
+  action `finally` (writeIORef sink previousSink >> writeIORef output previousOutput)
 
 -- | A human progress line: stdout, or stderr under the sink, where stdout
 -- holds only the document.
