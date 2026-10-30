@@ -28,6 +28,11 @@ provenance:
       at: 2026-10-30T02:06:45Z
       mode: "implement"
       note: "M2 overlapped readiness, 180 s stateless bound, progress"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-30T03:00:41Z
+      mode: "implement"
+      note: "M1 finalization and impact, M3 no-progress stop and deadline, M4 matrix; complete"
 ---
 
 # Run incremental platform rollouts with bounded waits and durable progress
@@ -53,7 +58,7 @@ closes the final intranet performance gate, so the dependency graph has no cycle
 ## Progress
 
 
-- [ ] M1: One unchanged scope and one changed Deployment pass a typed transition impact/phase path,
+- [x] M1: One unchanged scope and one changed Deployment pass a typed transition impact/phase path,
   with artifact preparation, explicit barriers and resumable finalization.
   Partial, 2026-10-30, `159ee0de`, `d302273e` (fast gates green). Finalization is a recoverable
   protocol (`Nagare.Platform.Finalize`): under the store lock the head is judged again and the
@@ -67,8 +72,10 @@ closes the final intranet performance gate, so the dependency graph has no cycle
   Each plan prints its impact (operations by action, validations, re-accepted scopes); the
   summary carries an optional validation count and the runner converges only on no operation, no
   re-acceptance and no validation (harness suite, 102 tests). Unchanged and changed scopes through
-  plan, apply and replan: EP-225's moved-workspace case. Remaining: the native rehearsal of the
-  new commit.
+  plan, apply and replan: EP-225's moved-workspace case. Native, 2026-10-30: `just
+  release-rehearse da50f908 v0.11.0` passed; its commit pinned the context and closed the
+  transition through the new protocol, and its plans printed their impact ("1 operations, 1
+  UpdateResource; 213 validations; re-accepted scopes: none"); 81 s from seed to commit.
 - [x] M2: Independent stateless updates overlap readiness under a bounded coordinator; dependent,
   destructive, data, Helm and host work retain their required ordering and recovery.
   Pass, 2026-10-29, `f0d4fefb`, `e15fc8b9`, `52b3de79`: an adapter registry carries a per-executor
@@ -85,11 +92,26 @@ closes the final intranet performance gate, so the dependency graph has no cycle
   an overlapped wait prints progress every five seconds. The adapter environment variables are
   installed by the first overlapping call and restored by the last. The 600 s whole-rollout
   deadline belongs to the runner's attempt (M3).
-- [ ] M3: The ported runner (EP-229) keeps a versioned run index with progress and cost for every
+- [x] M3: The ported runner (EP-229) keeps a versioned run index with progress and cost for every
   attempt, reuses verified prepared material, resumes only under the recovery contract and stops
   a no-progress loop with its blocker.
-- [ ] M4: Rehearsals and interpreter failure/compatibility cases cover no-op, changed, stuck and
+  Pass, 2026-10-30, `1450db59`: every candidate plan, apply and resume already carries a trace on
+  the run index (EP-224 M2), resumes stay the single bounded resume of an ambiguous stop, and the
+  payload workspace is reused by digest. A stage that plans exactly the work the previous stage
+  applied (candidate digest, encoded operation and validation identities) now stops the loop at
+  once, naming the counts and first operation; the rehearsal's candidate transition stops between
+  stages after 600 s. Harness suite 103 tests, including the repeated-work stop on the intranet
+  path (2 plans, 1 apply instead of 12 each).
+- [x] M4: Rehearsals and interpreter failure/compatibility cases cover no-op, changed, stuck and
   interrupted rollouts; artifact-ready latency evidence is ready for EP-224's intranet confirmation.
+  Pass, 2026-10-30. Production-interpreter matrix: unchanged platform, marker sweep, one and four
+  changed members (`-p TransitionCost`); four independent updates overlapping, a four-step chain
+  sequential, a stuck update stopping with the others completed once (`-p PlatformRollout`);
+  drift, deletion and replacement after the plan refusing (`-p TransitionCost`); commit stops at
+  each step (`-p finalization`). Helm and host keep their existing command-boundary suites; a
+  local context has no host, so a host-only transition is confirmed on the intranet (EP-224 M3).
+  Native: rehearsals of `a5dd71e2` and `da50f908` from v0.11.0 passed with the platform stage
+  (Helm members included) at about 70 processes per command and 81 s from seed to commit.
 
 
 ## Surprises & Discoveries
@@ -134,7 +156,11 @@ second implementation rather than enforce the Haskell tooling architecture.
 ## Outcomes & Retrospective
 
 
-Planning only; existing rollout scripts and finalization behavior remain unchanged.
+Independent stateless updates now wait for readiness together behind one serialized journal
+path, a transition closes by a recoverable pin protocol that refuses admissions while it
+finishes, each plan explains its impact, and the runner stops a loop that repeats its work. A
+separate preparation manifest was not built (the payload workspace is selected by digest). ADR 6
+carries the finalization protocol.
 
 
 ## Context and Orientation

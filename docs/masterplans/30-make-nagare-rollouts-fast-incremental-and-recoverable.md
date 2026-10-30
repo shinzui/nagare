@@ -133,7 +133,7 @@ dependency on MP-29.
 | EP-225 | Stable deployment meaning and incremental reviews | [225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md) | EP-224 M1 | None | Complete |
 | EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | Complete |
 | EP-227 | Durable batched verification with per-operation recovery | [227](../plans/227-commit-verification-proofs-without-per-resource-remote-transactions.md) | EP-224 M1; EP-225 M2 and EP-226 M1–M2 before its M2 | None | Complete (M1 cancelled) |
-| EP-228 | Incremental rollout coordinator and Haskell release runner | [228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) | EP-225, EP-226, EP-227 and EP-229 Complete; EP-224 M2 | None | In Progress (M2 done) |
+| EP-228 | Incremental rollout coordinator and Haskell release runner | [228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) | EP-225, EP-226, EP-227 and EP-229 Complete; EP-224 M2 | None | Complete |
 | EP-229 | Haskell ownership of candidate, intranet and rehearsal orchestration | [229](../plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) | None | EP-224 M2 reads its run index | Complete |
 
 
@@ -244,8 +244,10 @@ command once and binds its requests to the guarded kubeconfig (`d59a85c2`); M2 p
 grouped epoch per batch (sweep planning: 2 transported reads for 206 members, was 412). EP-227 is
 complete: admission proves validations from one fresh epoch (sweep apply: 6 reads, was 414), and
 its batched journal protocol was cancelled. EP-226 is complete: the native rehearsal of `a5dd71e2`
-passed, its platform stage at about 70 processes per command (879 before). EP-228 M2 overlaps up
-to four independent stateless updates' readiness. Next: EP-228 M1, M3, M4, then EP-224 M3.
+passed, its platform stage at about 70 processes per command (879 before). EP-228 is complete: overlapped
+readiness, a recoverable pin protocol, impact summaries and a no-progress stop; the rehearsal of
+`da50f908` closed through the new commit in 81 s from seed. Next: EP-224 M3 through the v0.12.0
+release (five warm local samples, the candidate run on the intranet).
 Final
 acceptance includes unchanged and changed rollouts, recovery, growth limits, Python-free release
 tooling and five warm intranet measurements.

@@ -214,3 +214,16 @@ stage retargets the marker to itself, and from then on only it continues. Commit
 the marker's own payload, and the pin is still written last. A converged review also records a
 scope that a close left accepted but unconverged when it operated on every managed member of that
 scope.
+
+## Amendment — 2026-10-30: the pin moves by a recoverable protocol
+
+[EP-228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md)
+M1. The local context pin and the remote transition marker cannot be written atomically, so
+`platform transition commit` closes a transition in three steps (`Nagare.Platform.Finalize`).
+Under the store lock it judges the head again (this payload's marker, no unresolved transaction,
+every moved scope converged) and records in the marker the release the pin moves to
+(`finalizing`). It then writes the pin, unless it already names that release; a pin naming
+neither the source nor the target refuses. Last, under the lock, a head still carrying exactly
+that marker and still idle has the marker cleared. While the marker is finalizing, admission and
+planning refuse, and older CLIs refuse the head because the marker's decoder rejects unknown
+fields. A stop after any step is finished by committing again; the pin is still written last.
