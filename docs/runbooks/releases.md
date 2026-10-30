@@ -57,7 +57,8 @@ in the rehearsal's work directory) that names every step, reviewed stage and app
 2. **Release gate.** `just gate-release <candidate>` in the background: the gate record, then the
    mutation sweep of the records whose patched files changed since the nearest ancestor's clean
    sweep (every record when there is none), skipped when nothing it builds changed.
-3. **Upgrade rehearsal.** `nagare-harness transition rehearse` (`scripts/release-rehearse.sh`)
+3. **Upgrade rehearsal**, in the background beside steps 4 and 5 (log `rehearsal.log`; assembly
+   waits for its record). `nagare-harness transition rehearse` (`scripts/release-rehearse.sh`)
    builds the previous release's packaged `nagarectl` and the candidate's and runs the transition
    drill, `nagare-harness transition drill` ([`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh)),
    on the Colima profile `nagare-mp23` from an empty environment whose PATH has no Helm and no

@@ -3,7 +3,8 @@
 -- the newest release the candidate accepts, both systems' native attachments
 -- (aarch64-darwin here, x86_64-linux in an amd64 Apple container), and two
 -- assemblies that must be byte-identical. The release gate runs alongside the
--- other steps. Then the intranet moves to the candidate (the candidate's
+-- other steps, and the rehearsal alongside the native attachments. Then the
+-- intranet moves to the candidate (the candidate's
 -- @scripts/release-intranet.sh@), and the rehearsal record is committed on the
 -- current origin/master and landed. Every step runs in the run's own
 -- worktrees, never the checkout it was started from (EP-210 M4), and stops at
@@ -25,7 +26,7 @@ import Data.Aeson (toJSON)
 import Data.ByteString qualified as BS
 import Data.Char (isDigit)
 import Data.Generics.Labels ()
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (sort, sortOn)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -115,9 +116,9 @@ releaseCandidate outer options = do
         & #source
         .~ Revisioned (Just previous) Nothing
   let phase name' message = advance index name' Nothing >> step runtime message
-  gateRef <- newIORef Nothing
+  backgroundRef <- newIORef []
   let cleanup = do
-        readIORef gateRef >>= mapM_ (^. #stop)
+        readIORef backgroundRef >>= mapM_ (^. #stop)
         forM_ [worktree, evidence] $ \tree ->
           invoke runtime (git ["-C", repo, "worktree", "remove", "--force", tree] & #stdoutTo .~ Discard & #stderrTo .~ Discard)
   flip finally cleanup . withRunIndex index $ do
@@ -129,18 +130,25 @@ releaseCandidate outer options = do
     step runtime ("release gate (in the background, log " <> T.pack (run </> "gate-release.log") <> ")")
     beginStep index "gate" (Just (run </> "gate-release.log")) True
     gate <- (runtime ^. #transport . #spawn) (inWorktree (invocation "just" ["gate-release", revision']) & #stdoutTo .~ WriteTo (run </> "gate-release.log") & #stderrTo .~ SameAsStdout)
-    writeIORef gateRef (Just gate)
-    -- 2. the transition rehearsal
-    phase "rehearsal" ("transition rehearsal from v" <> previous)
+    modifyIORef' backgroundRef (gate :)
+    -- 2. the transition rehearsal, in the background beside steps 3 and 4
+    -- (it runs on the Colima profile, they on the builder and an Apple
+    -- container); assembly binds its record, so step 5 waits for it
     rehearsalWork <- T.unpack <$> captureText runtime "mktemp failed" (invocation "mktemp" ["-d", "/private/tmp/nagare-release-rehearse.XXXXXX"])
     setChild index "rehearsal" (rehearsalWork </> "index.json")
-    require runtime "the transition rehearsal failed" $
-      inWorktree (invocation "scripts/release-rehearse.sh" [revision', T.unpack previous, "--run", rehearsalWork])
-        & #environment
-        .~ Extended [("NAGARE_RELEASE_REHEARSAL_RECORD", run </> "transition-rehearsal.json")]
-    rehearsed <- doesFileExist (run </> "transition-rehearsal.json")
-    unless rehearsed (refuse ("release-rehearse left no " <> T.pack (run </> "transition-rehearsal.json")))
-    setRecord index "transitionRehearsal" (run </> "transition-rehearsal.json")
+    step runtime ("transition rehearsal from v" <> previous <> " (in the background, log " <> T.pack (run </> "rehearsal.log") <> ")")
+    beginStep index "rehearsal" (Just (run </> "rehearsal.log")) True
+    rehearsing <-
+      (runtime ^. #transport . #spawn)
+        ( inWorktree (invocation "scripts/release-rehearse.sh" [revision', T.unpack previous, "--run", rehearsalWork])
+            & #environment
+            .~ Extended [("NAGARE_RELEASE_REHEARSAL_RECORD", run </> "transition-rehearsal.json")]
+            & #stdoutTo
+            .~ WriteTo (run </> "rehearsal.log")
+            & #stderrTo
+            .~ SameAsStdout
+        )
+    modifyIORef' backgroundRef (rehearsing :)
     let record = "docs/release-evidence/" <> revision' <> "/transition-rehearsal.json"
     -- 3. aarch64-darwin attachments, from the candidate's worktree
     phase "aarch64-darwin" "aarch64-darwin attachments"
@@ -168,8 +176,14 @@ releaseCandidate outer options = do
       invocation "container" ["run", "--rm", "--platform", "linux/amd64", "--rosetta", "-c", "4", "-m", "16G", "-e", "HOME=/root", "-v", work <> ":/work", image, "bash", "/work/release-native-container.sh", revision', T.unpack version']
     createDirectoryIfMissing True (run </> "native")
     require runtime "copying the x86_64-linux attachments failed" (invocation "cp" ["-R", work </> "out/x86_64-linux", run </> "native/x86_64-linux"])
-    -- 5. assemble twice and compare
-    phase "assembly" "assembly"
+    -- 5. assemble twice and compare, once the rehearsal record exists
+    phase "assembly" "assembly, after the transition rehearsal"
+    rehearsalExit <- rehearsing ^. #finished
+    endStep index "rehearsal" (rehearsalExit == 0)
+    unless (rehearsalExit == 0) (refuse ("the transition rehearsal failed: " <> T.pack (run </> "rehearsal.log")))
+    rehearsed <- doesFileExist (run </> "transition-rehearsal.json")
+    unless rehearsed (refuse ("release-rehearse left no " <> T.pack (run </> "transition-rehearsal.json")))
+    setRecord index "transitionRehearsal" (run </> "transition-rehearsal.json")
     forM_ ["dist", "dist-again"] $ \dist ->
       require runtime ("assembly into " <> T.pack (run </> dist) <> " failed") $
         invocation (worktree </> "scripts/assemble-release.sh") ["--version", T.unpack version', "--input-root", run </> "native", "--transition-rehearsal", run </> "transition-rehearsal.json", "--output-dir", run </> dist]

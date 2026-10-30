@@ -622,6 +622,7 @@ candidateTests =
           rendered root' calls' @?= candidateOrder True
           let runDir = root' </> "state/nagare/releases/v9.8.7/rehearsal-20261029T140458Z"
           [(call ^. #directory, call ^. #background) | call <- calls', call ^. #program == "just"] @?= [(Just (runDir </> "worktree"), True)]
+          [call ^. #background | call <- calls', call ^. #program == "scripts/release-rehearse.sh"] @?= [True]
           candidate <- eitherDecodeFileStrict @Value (runDir </> "candidate.json") >>= either fail pure
           candidate @?= object ["version" .= version', "revision" .= rev, "previous" .= ("9.10.0" :: Text)]
           assertBool "a rehearsal pointed latest at its run" . not =<< doesPathExist (root' </> "state/nagare/releases/v9.8.7/latest")
