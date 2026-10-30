@@ -1,0 +1,78 @@
+{
+  "bootstrap": {
+    "reviews": 3
+  },
+  "candidate": {
+    "revision": "91d54e06a4d1696f01adfe10b2046736a49e0611",
+    "version": "0.12.0"
+  },
+  "context": "transition",
+  "inventory": {
+    "activeTransaction": null,
+    "observationComplete": true,
+    "transactionStatus": null
+  },
+  "mode": "local",
+  "platform": {
+    "cli": "0.12.0",
+    "cluster": "0.12.0",
+    "compatibility": "legacy-unknown",
+    "context": "0.12.0",
+    "deployment": {
+      "cluster": {
+        "error": null,
+        "state": "deployed"
+      },
+      "host": {
+        "error": "local contexts do not have a GCE deployment",
+        "state": "unknown"
+      }
+    },
+    "host": null,
+    "identities": {
+      "cli": {
+        "payloadSchema": null,
+        "revision": "91d54e06a4d1696f01adfe10b2046736a49e0611",
+        "version": "0.12.0"
+      },
+      "cluster": {
+        "payloadSchema": 1,
+        "revision": "91d54e06a4d1696f01adfe10b2046736a49e0611",
+        "version": "0.12.0"
+      },
+      "context": {
+        "payloadSchema": null,
+        "revision": null,
+        "version": "0.12.0"
+      },
+      "host": {
+        "payloadSchema": null,
+        "revision": null,
+        "version": null
+      },
+      "payload": {
+        "payloadSchema": 1,
+        "revision": "91d54e06a4d1696f01adfe10b2046736a49e0611",
+        "version": "0.12.0"
+      }
+    },
+    "payload": "0.12.0"
+  },
+  "replan": {
+    "operations": 0,
+    "reaccepts": 0
+  },
+  "schemaVersion": 1,
+  "sentinel": {
+    "readBack": "transition 20261030T125821Z",
+    "seeded": "transition 20261030T125821Z"
+  },
+  "source": {
+    "revision": "ef5a537c77ab97ef466dab4ce4a533dd75ef4e91",
+    "version": "0.11.1"
+  },
+  "transition": {
+    "operations": 1,
+    "reviews": 2
+  }
+}
