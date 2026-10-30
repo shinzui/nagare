@@ -96,6 +96,14 @@ New tooling is Haskell in the existing cabal workspace. The previously proposed
   18.9 s; activation 83 s, end-to-end 498 s. A failed run collects as failed.
 - [ ] M3: Completed architectural children pass the interpreter, compatibility, growth and native
   latency matrix, with evidence bound to the final candidate and no Python in the rollout path.
+  Local pass, 2026-10-30: five warm rehearsal samples of `597c9662`, all passed
+  (`docs/release-evidence/597c9662e3f436f0383c8af466d9961775c4d70e/transition-cost-1..5.json`;
+  activation 48.6–56.6 s, slowest plan 21.1 s). Intranet fail, 2026-10-30: the v0.12.0 candidate
+  `91d54e06` moved the intranet in 7.6 min (v0.11.1: about 16 min), but
+  `docs/release-evidence/91d54e06a4d1696f01adfe10b2046736a49e0611/intranet-cost.json` fails: stage
+  plans 89.1/64.6/44.5 s (limit 60), activation 315.4 s (limit 300). Stage 1's plan spends 70.4 s
+  preparing the new candidate workspace (Pulumi Node dependencies), so it is not artifact-ready;
+  stages 2–3 spend 25.1/23.2 s observing the remote cluster.
 
 2026-10-29 handoff: the original plan was authored by `claude-opus-5-5` and had no recorded reviews.
 This architecture review corrects source claims and distributes its former M2–M5 across four new
