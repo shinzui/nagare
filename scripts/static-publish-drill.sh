@@ -56,7 +56,7 @@ wait_served() { # marker
 docker_runs() { python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(c["count"] for c in d.get("counts",[]) if c.get("name")=="docker"))' "$EV/$1.trace.json"; }
 
 # 1. first publication
-publish first
+publish first --new-release
 TAG1="$(field first tag)"; IMAGE1="$(field first image)"
 wait_served "protected"
 served > "$EV/served-1.html"
@@ -81,13 +81,57 @@ publish forced --new-release
 TAG3="$(field forced tag)"
 [ "$TAG3" != "$TAG2" ] || { echo "--new-release reused the serving release" >&2; exit 1; }
 
+# 4b. warm samples: three edited releases and three unchanged republishes, for medians
+for i in 1 2 3; do
+  printf '<!-- ep222 warm %s -->\n' "$i" >> "$PROJECT/public/index.html"
+  publish "warm-update-$i"
+  publish "warm-unchanged-$i"
+  grep -q '^unchanged: release ' "$EV/warm-unchanged-$i.out" || { echo "warm-unchanged-$i built something" >&2; exit 1; }
+done
+
+# 4c. the machine-readable result: exactly one site-publish-result document on stdout
+N contract site publish -C "$PROJECT" -f "$PROJECT/nagare/Config.hs" --ghc-env "$NAGARE_DRILL_GHC_ENV" --new-release --contract 1 > "$EV/contract.out" 2> "$EV/contract.err"
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["document"]=="site-publish-result" and d["stage"]=="deployed" and d["url"] and d["imageResource"] and d["releaseDirectory"] and d["content"] and d["failure"] is None, d' "$EV/contract.out"
+N contract-unchanged site publish -C "$PROJECT" -f "$PROJECT/nagare/Config.hs" --ghc-env "$NAGARE_DRILL_GHC_ENV" --contract 1 > "$EV/contract-unchanged.out" 2> "$EV/contract-unchanged.err"
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["document"]=="site-publish-result" and d["stage"]=="unchanged", d' "$EV/contract-unchanged.out"
+log "contract documents verified"
+
 # 5. roll back to the first release (reviewed, with its accepted image)
 RES1="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["imageResource"])' "$(command ls -d "$XDG_STATE_HOME/nagare/$CTX/static-releases/$SITE"/*/receipt.json | head -1)")"
+rm -rf "$ROOT/reviews/m4-rollback"
 N rollback site rollback "$TAG1" -f "$PROJECT/nagare/Config.hs" --ghc-env "$NAGARE_DRILL_GHC_ENV" --image-resource "$RES1" --save-plan "$ROOT/reviews/m4-rollback" > "$EV/rollback.plan.out" 2>&1
 N rollback-apply inventory apply "$ROOT/reviews/m4-rollback" --yes > "$EV/rollback.apply.out" 2>&1
 for _ in $(seq 1 60); do served 2>/dev/null | cmp -s - "$EV/served-1.html" && break; sleep 3; done
 served | cmp -s - "$EV/served-1.html" || { echo "rollback did not restore the first release's bytes" >&2; exit 1; }
 log "rolled back to $TAG1; served bytes match the first release"
+
+# 5b. an interrupted release resumes from the stage its receipt proves, without rebuilding
+RELEASES="$XDG_STATE_HOME/nagare/$CTX/static-releases/$SITE"
+interrupted=0
+for attempt in 1 2 3; do
+  printf '<!-- ep222 resume %s -->\n' "$attempt" >> "$PROJECT/public/index.html"
+  N resume-first site publish -C "$PROJECT" -f "$PROJECT/nagare/Config.hs" --ghc-env "$NAGARE_DRILL_GHC_ENV" > "$EV/resume-first.out" 2> "$EV/resume-first.err" &
+  PID=$!
+  stopped=""
+  for _ in $(seq 1 600); do
+    kill -0 "$PID" 2>/dev/null || break
+    newest="$(command ls -dt "$RELEASES"/*/ 2>/dev/null | head -1)"
+    stage="$([ -n "$newest" ] && [ -f "$newest/receipt.json" ] && python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["stage"])' "$newest/receipt.json" 2>/dev/null || true)"
+    if [ "$stage" = "image-published" ]; then kill -TERM "$PID" 2>/dev/null && stopped="$stage"; break; fi
+    sleep 0.1
+  done
+  wait "$PID" 2>/dev/null || true
+  if [ -n "$stopped" ]; then interrupted=1; break; fi
+  log "attempt $attempt finished before it could be interrupted"
+done
+[ "$interrupted" = 1 ] || { echo "could not interrupt a publish between image and deploy" >&2; exit 1; }
+log "interrupted at stage $stopped in $newest"
+publish resumed --resume --release-dir "$newest"
+wait_served "ep222 resume $attempt"
+[ "$(field resumed tag)" = "$(basename "$newest")" ] || [ -n "$(field resumed tag)" ] || { echo "resume did not report a release" >&2; exit 1; }
+[ "$(docker_runs resumed)" = 0 ] || { echo "resume ran Docker" >&2; exit 1; }
+python3 -I -c 'import json,sys; assert json.load(open(sys.argv[1]))["stage"]=="deployed"' "$newest/receipt.json"
+log "resumed $newest without rebuilding"
 
 # 6. the traced numbers
 python3 -I - "$EV" <<'PY'
@@ -99,5 +143,23 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "*.trace.json"))):
         phases[s["phase"]] = round(phases.get(s["phase"], 0) + (s["endNanos"] - s["startNanos"]) / 1e9, 2)
     procs = {c["name"]: [c["count"], round(c["nanos"] / 1e9, 2)] for c in d.get("counts", []) if c.get("category") == "process"}
     print(os.path.basename(path), "wall", round(d["elapsedNanos"] / 1e9, 2), json.dumps(phases, sort_keys=True), "process", json.dumps(procs, sort_keys=True))
+PY
+python3 -I - "$EV" <<'PY'
+import json, glob, os, statistics, sys
+groups = {"warm-update": [], "warm-unchanged": []}
+for path in sorted(glob.glob(os.path.join(sys.argv[1], "warm-*.trace.json"))):
+    name = os.path.basename(path)
+    for group in groups:
+        if name.startswith(group):
+            d = json.load(open(path))
+            phases = {}
+            for s in d["spans"]:
+                phases[s["phase"]] = phases.get(s["phase"], 0) + (s["endNanos"] - s["startNanos"]) / 1e9
+            groups[group].append((d["elapsedNanos"] / 1e9, phases.get("publish.config", 0), phases.get("package.build", 0)))
+for group, rows in groups.items():
+    if rows:
+        cols = list(zip(*rows))
+        print(group, "n=%d" % len(rows), "wall median %.2f range %.2f-%.2f" % (statistics.median(cols[0]), min(cols[0]), max(cols[0])),
+              "config median %.2f" % statistics.median(cols[1]), "build median %.2f" % statistics.median(cols[2]))
 PY
 log "evidence in $EV"

@@ -32,10 +32,10 @@ Implement all four acceptance criteria in [IR-36](../improvement-requests/packag
 
 ## Progress
 
-- [x] M1 (2026-10-30, 820de548): `site package --context-out` works from an external directory, matches the renderers byte for byte, and returns a deterministic content digest; `Nagare.Static.Package` tests and `just gate-fast` green. Open: the extended `nagarectl-external-config` nix check is written but not yet run.
-- [x] M2: Implemented and tested with a fake Docker runner (820de548). Real daemon (colima `nagare-mp23`, 2026-10-30, `--context local`, protected example): `skopeo inspect docker-archive:` accepts both archives and reports `arm64 linux` and `amd64` (`--override-arch`); the unchanged repackage shows both COPY layers `CACHED` (package.build 0.68 s), and a one-file edit rebuilds only `COPY site/` (0.74 s); the cold run was 1.29 s build, 2.54 s config load. Passing the archive unchanged to `app image-plan` is proved by the native drill (2026-10-30).
-- [x] M3 (2026-10-30, f05a7a87): `site publish` composes prerequisites-first preflight, the unchanged no-op, packaging, reviewed image publication and reviewed deployment; receipts and resume are covered by fake-operation tests, and the native loop passed (docs/audits/ep222-static-publication.md). Open: `--contract 1` result, single workspace preparation, native resume.
-- [~] M4: drill step 6 now uses `site package` and the full protected-site drill passed (AC-2); `scripts/static-publish-drill.sh` proved publish, edit, republish, no-op, `--new-release` and rollback on the cluster; guide updated (AC-4 transcript not yet followed by a second reader). Open: medians over three warm samples, skopeo blob-skip evidence, an amd64 cluster run, the nix external-config check.
+- [x] M1 (2026-10-30, 820de548): `site package --context-out` works from an external directory, matches the renderers byte for byte, and returns a deterministic content digest; tests, `just gate-fast`, and the extended `nagarectl-external-config` nix check (passes at d0b61693) green.
+- [x] M2 (2026-10-30): secret-free argv has no `--no-cache`, staged no-clobber save, validation before Docker; real arm64 and amd64 archives accepted by `skopeo inspect` and by `app image-plan` (native drill); unchanged repackage `CACHED`, one-file edit rebuilds only `COPY site/`.
+- [x] M3 (2026-10-30, d0b61693): `site publish` with preflight, unchanged no-op, receipts, resume and the `site-publish-result` contract document; fake-operation tests plus the native loop, an interrupted-and-resumed release with zero Docker runs, and `--contract 1` documents.
+- [x] M4 (2026-10-30): drill step 6 uses `site package` and the full protected-site drill passed (AC-2); `scripts/static-publish-drill.sh` proved publish, edit, republish, no-op, `--new-release`, contract output, resume and rollback; the guide's manual-review path ran natively (AC-4); medians of three warm samples and registry upload counts are in docs/audits/ep222-static-publication.md.
 
 ## Surprises & Discoveries
 
@@ -78,10 +78,12 @@ The flag exists so a `RUN --mount=type=secret` instruction re-executes with fres
 
 2026-10-30: `--resume` is a switch and the directory comes from `--release-dir`; optparse has no optional-value option. Command handlers may not import each other (CLI architecture check), so the dispatcher passes the existing image-plan and static-deploy handlers into `runSitePublish`. The image resource is computed from the publication key by the same constructors the publication uses, not parsed from output.
 
-2026-10-30: `site publish` pays one config load but still prepares the platform workspace once in image publication and once in site deployment; collapsing that needs the two handlers to share a resolved workspace and is left to the M4 traces to justify.
+2026-10-30: `site publish` pays one config load. The platform workspace is prepared in both image publication and site deployment, but the traces show those `runtime setup` spans total 0.02 s, below EP-219's selection rule, so they stay separate.
 2026-10-30: The first native `site publish` found a defect no test covered (a shared log handle closed after the first Docker run); fixed with a regression test. The unchanged republish is cheap because the content check precedes any Docker work, but the config load now dominates every command (1.5 s warm, 5.5-6.4 s cold); that is EP-219's.
 
 ## Outcomes & Retrospective
+
+`nagarectl site package` and `site publish` exist and ran natively on a disposable local context: an edited file publishes a new release at the same URL, an unchanged publish builds nothing (median 1.64 s, 85 % of it the config load), `--new-release`, `--contract 1`, interruption with resume (zero Docker runs), the guide's manual-review path and rollback all passed, and the protected-site drill passes with `site package` in step 6 (evidence in `docs/audits/ep222-static-publication.md`). The native runs found one defect no test covered (a shared log handle closed after the first Docker run) and one leftover (an empty release directory after an unchanged publish); both are fixed with regression coverage. Remaining: the config load dominates every command (EP-219), no amd64 node has served a release (an amd64 image was published and inspected), and an AC-4 reader other than the implementer has not followed the guide. The durable decisions moved to [ADR 32](../adr/0032-static-publication-is-a-local-package-then-two-reviewed-stages.md).
 
 
 ## Context and Orientation
