@@ -3,18 +3,23 @@
 -- exactly the adapter production runs.
 module Nagare.Inventory.Adapters.KubernetesApplication
   ( kubernetesApplicationAdapter
+  , kubernetesPlanningAdapter
   )
 where
 
 import Data.ByteString (ByteString)
+import Data.Either (isRight)
+import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (Adapter)
+import Nagare.Inventory.Adapter (Adapter (..))
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (runtimePodOps)
 import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
+import Nagare.Inventory.KubernetesSnapshot (beginPhase, newPhaseEpoch, phaseRuntime)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
 import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Types (ResourceId)
@@ -39,3 +44,23 @@ kubernetesApplicationAdapter takeover config cacheKey specs =
     guardedLiveObject target = do
       guarded <- runtimeGuard config
       either (pure . Left . ("cluster guard refused: " <>)) (const (readLiveManagedObject config target)) guarded
+
+-- | The same adapter for one plan (EP-226 M2): each batch observation reads
+-- its members in grouped reads of one observation epoch, after the guard
+-- admits, and the plan's later reads of those members (preparing each
+-- operation's before-state) are answered from that epoch. A plan writes
+-- nothing; apply builds its own adapter, whose every read is fresh.
+kubernetesPlanningAdapter ::
+  Bool ->
+  KubernetesRuntimeConfig ->
+  (ResourceId -> IO (Either Text Text)) ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  IO Adapter
+kubernetesPlanningAdapter takeover config cacheKey specs = do
+  phase <- newPhaseEpoch
+  let adapter = kubernetesApplicationAdapter takeover (phaseRuntime config phase) cacheKey specs
+      observe resources = do
+        guarded <- runtimeGuard config
+        when (isRight guarded) (beginPhase config phase [declaration ^. #address | resource <- resources, Just (declaration, _) <- [Map.lookup resource specs]])
+        adapterObserve adapter resources
+  pure adapter {adapterObserve = observe}

@@ -22,7 +22,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
-import Data.Maybe (listToMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
@@ -60,6 +60,17 @@ kubectlResponse request server = case args of
     Nothing
       | "--ignore-not-found" `elem` rest -> (server, ok "")
       | otherwise -> (server, refused ("Error from server (NotFound): pods \"" <> name <> "\" not found"))
+  -- EP-226: several names, as kubectl answers them: a List of the objects
+  -- found, or nothing when none is.
+  "get" : token : rest
+    | names@(_ : _ : _) <- takeWhile (not . ("-" `T.isPrefixOf`)) rest
+    , "--ignore-not-found" `elem` rest
+    , Just (group', kind') <- resourceToken token ->
+        let namespace = flag "--namespace" rest <|> flag "-n" rest
+            found = mapMaybe (\name -> get ("--show-managed-fields" `elem` rest) (ObjectKey group' kind' namespace name) server) names
+         in if null found
+              then (server, ok "")
+              else (server, ok (encodeText (object ["apiVersion" .= ("v1" :: Text), "kind" .= ("List" :: Text), "items" .= found])))
   "get" : token : name : rest -> case resourceToken token of
     Nothing -> unsupported
     Just (group', kind') ->

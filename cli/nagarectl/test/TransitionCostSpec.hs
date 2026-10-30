@@ -22,7 +22,7 @@ import Data.Text qualified as T
 import Nagare.Contract.Trace
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry)
-import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
+import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesPlanningAdapter)
 import Nagare.Inventory.Bootstrap (bootstrapPreservedScopeVectorDigest, changedPlatformScopes, compileBootstrapStamp, composePlatformChanges)
 import Nagare.Inventory.Command (applyInventoryWithFactory, convergeInventoryCandidateResult, loadTargetSnapshot, openTargetStore, planInventoryCandidateWith)
 import Nagare.Inventory.Digest (contentDigest)
@@ -196,9 +196,9 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
     store <- openTargetStore target
     _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-cost" >>= either (fail . show) pure
     let members = 205
-        plan registry candidate output = planInventoryCandidateWith (\_ _ -> pure registry) target candidate output
+        plan registry candidate output = planInventoryCandidateWith (\_ _ -> registry) target candidate output
         registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
-        planRegistry declared = either (error . show) id (registryFor (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared]))
+        planRegistry declared = planningRegistry cluster (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared])
         applyFactory _ bundle = pure (either (error . show) id (registryFor (either (error . show) id (kubernetesSpecsFromReview bundle))))
         candidateOf declared = do
           before <- loadTargetSnapshot target
@@ -212,7 +212,7 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
           appliedDocument <- documentOf applied
           pure (plannedDocument, appliedDocument)
     first' <- candidateOf initial
-    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> pure (planRegistry initial)) applyFactory target first'
+    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> planRegistry initial) applyFactory target first'
     case converged of
       Converged _ -> pure ()
       other -> assertFailure ("the fixture did not converge: " <> show other)
@@ -225,14 +225,22 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
       candidate <- candidateOf initial
       (_, planned) <- collectCommandTrace (plan (planRegistry initial) candidate (root </> "unchanged"))
       documentOf planned
+    -- EP-226 M2: planned from the same head with one read per member, the
+    -- sweep's review is byte for byte the one its grouped reads produce.
+    singleCandidate <- candidateOf (marker "second" : drop 1 initial)
+    let singleRegistry = either (fail . show) pure (registryFor (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- marker "second" : drop 1 initial]))
+    _ <- collectCommandTrace (plan singleRegistry singleCandidate (root </> "sweep-single"))
     sweep <- measured "sweep" (marker "second" : drop 1 initial)
+    single <- BS.readFile (root </> "sweep-single" </> "review.json")
+    grouped <- BS.readFile (root </> "sweep" </> "review.json")
+    assertBool "grouped and single reads planned different reviews" (single == grouped)
     -- EP-225 M3: once the sweep applied, the same declarations replan to
     -- nothing: no operation, no validation, the marker settled.
     settled <- do
       candidate <- candidateOf (marker "second" : drop 1 initial)
       (_, planned) <- collectCommandTrace (plan (planRegistry (marker "second" : drop 1 initial)) candidate (root </> "settled"))
       documentOf planned
-    summary settled @?= Summary 0 0 0 0 0 0 206 206 0 0
+    summary settled @?= Summary 0 0 0 0 0 0 208 2 0 206
     let changed n = marker "second" : [configMap k (if k <= n then "changed" else "value") | k <- [1 .. members]]
     one <- measured "one" (changed 1)
     four <- measured "four" (changed 4)
@@ -244,10 +252,13 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
         rows = [("unchanged", (summary unchanged, emptySummary)), ("sweep", costs sweep), ("one", costs one), ("four", costs four)]
     forM_ rows $ \(label, row) -> putStrLn (label <> ": " <> show row)
     rows
-      @?= [ ("unchanged", (Summary 0 0 0 0 0 0 206 206 0 0, emptySummary))
-          , ("sweep", (Summary 0 1 205 0 0 0 412 412 0 0, Summary 0 0 0 0 1 205 414 414 1 0))
-          , ("one", (Summary 0 1 205 0 0 0 412 412 0 0, Summary 0 0 0 0 1 205 414 414 1 0))
-          , ("four", (Summary 0 3 203 0 0 0 412 412 0 0, Summary 0 0 0 0 3 203 418 418 3 0))
+      -- EP-226 M2: a plan reads its members in two grouped reads (206 names
+      -- in chunks of 128) and answers every single read from them. Apply
+      -- still proves each validation with its own reads (EP-227).
+      @?= [ ("unchanged", (Summary 0 0 0 0 0 0 208 2 0 206, emptySummary))
+          , ("sweep", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 414 414 1 0))
+          , ("one", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 414 414 1 0))
+          , ("four", (Summary 0 3 203 0 0 0 414 2 0 412, Summary 0 0 0 0 3 203 418 418 3 0))
           ]
     -- Every executed operation is one root span labelled with its operation;
     -- validations are not operations.
@@ -387,7 +398,7 @@ sweepGrowth members unrelated = withSystemTempDirectory "transition-growth" $ \r
     store <- openTargetStore target
     _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-growth" >>= either (fail . show) pure
     let registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
-        registryOf declared = either (error . show) id (registryFor (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared]))
+        registryOf declared = planningRegistry cluster (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared])
         applyFactory _ bundle = pure (either (error . show) id (registryFor (either (error . show) id (kubernetesSpecsFromReview bundle))))
         others =
           [ (scope, [configMapOf scope ("unrelated-" <> T.pack (show k)) "value" "fixture/Other.hs"])
@@ -399,14 +410,14 @@ sweepGrowth members unrelated = withSystemTempDirectory "transition-growth" $ \r
     let initial = fixture "first"
         everything = initial <> concatMap snd others
         first' = ok (composeInventory before (ReplaceScope (scopeOf initial) :| [ReplaceScope (scopeOwnedBy scope declared) | (scope, declared) <- others]))
-    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> pure (registryOf everything)) applyFactory target first'
+    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> registryOf everything) applyFactory target first'
     case converged of
       Converged _ -> pure ()
       other -> assertFailure ("the growth fixture did not converge: " <> show other)
     accepted <- loadTargetSnapshot target
     let swept = fixture "second"
         candidate = ok (composeInventory accepted (ReplaceScope (scopeOf swept) :| []))
-    (_, planned) <- collectCommandTrace (planInventoryCandidateWith (\_ _ -> pure (registryOf swept)) target candidate (root </> "sweep"))
+    (_, planned) <- collectCommandTrace (planInventoryCandidateWith (\_ _ -> registryOf swept) target candidate (root </> "sweep"))
     plannedDocument <- documentOf planned
     let sequenceNow = headSequence <$> (openTargetStore target >>= readHead >>= either (fail . show) (maybe (fail "no head") pure))
     journalBefore <- sequenceNow
@@ -436,8 +447,9 @@ structuralGrowth = do
   (smallVerifies, largeVerifies, smallExecuted, largeExecuted) @?= (0, 0, 0, 0)
   (smallValidations, largeValidations) @?= (205, 2050)
   largePuts @?= smallPuts
-  -- Reads are still per member (two each): the bound EP-226 must lower.
-  (smallReads, largeReads) @?= (2 * 206, 2 * 2051)
+  -- EP-226 M2: planning reads grow by chunks of 128 names, not by members.
+  (smallReads, largeReads) @?= (2, 17)
+  largeReads @?= (2051 + 127) `div` 128
   beside @?= small
 
 -- * A moved workspace (EP-225 M3)
@@ -456,8 +468,9 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     store <- openTargetStore target
     _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-moved" >>= either (fail . show) pure
     let members = 20 :: Int
-        -- Planning a move reads each member twice, a settled replan once; an
-        -- apply also rereads what it updated.
+        -- Planning a move reads each member twice, a settled replan once, all
+        -- answered from two grouped reads (one per namespace); an apply
+        -- reads each alone and rereads what it updated.
         reads = 2 * (members + 1)
         settled = members + 1
         platform = ok (Resource.mkScopeId Resource.Platform "cluster-fixture")
@@ -474,10 +487,10 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
               stamped = ok (composePlatformChanges snapshot (NE.fromList (changes <> [ReplaceScope stampScope])))
               composed = Map.fromList [(member ^. #identity, member) | Managed member <- inventoryDeclarations (candidateInventory stamped)]
               native = Map.union stampNative (Map.fromList [(identity, (Map.findWithDefault member identity composed, bytes)) | (member, bytes) <- declared, let identity = member ^. #identity])
-          pure ([scopeId scope | ReplaceScope scope <- changes], stamped, either (error . show) id (registryFor native))
+          pure ([scopeId scope | ReplaceScope scope <- changes], stamped, planningRegistry cluster native)
         planned label releaseId declared = do
           (_, stamped, registry) <- compiled releaseId declared
-          (_, traced) <- collectCommandTrace (planInventoryCandidateWith (\_ _ -> pure registry) target stamped (root </> label))
+          (_, traced) <- collectCommandTrace (planInventoryCandidateWith (\_ _ -> registry) target stamped (root </> label))
           summary <$> documentOf traced
         apply label = do
           (_, traced) <- collectCommandTrace (applyInventoryWithFactory applyFactory target (root </> label) True)
@@ -488,7 +501,7 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
           pure [member ^. #source . #file | Just (_, scope) <- [Map.lookup platform (snapshotScopes snapshot)], bundle <- scopeBundles scope, Managed member <- bundle ^. #declarations]
     createDirectoryIfMissing True (workspace "nagare-0.11.0-aaaa")
     (_, first', firstRegistry) <- compiled "0.11.0" (release "nagare-0.11.0-aaaa" 0)
-    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> pure firstRegistry) applyFactory target first'
+    (_, converged) <- convergeInventoryCandidateResult (\_ _ -> firstRegistry) applyFactory target first'
     case converged of
       Converged _ -> pure ()
       other -> assertFailure ("the moved-workspace fixture did not converge: " <> show other)
@@ -498,7 +511,7 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     -- it moves, and every member it covers is proved, not journaled.
     (selected, _, _) <- compiled "0.11.1" (release "nagare-0.11.1-bbbb" 0)
     selected @?= []
-    planned "move" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 1 members 0 0 0 reads reads 0 0)
+    planned "move" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 1 members 0 0 0 (reads + 2) 2 0 reads)
     -- A second review of the same move, planned from the same head, goes stale
     -- once the first applies.
     _ <- planned "stale" "0.11.1" (release "nagare-0.11.1-bbbb" 0)
@@ -510,14 +523,14 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     assertBool "a stale review was admitted" (either (/= ExitSuccess) (const False) stale)
     (headGeneration <$> headNow) >>= (@?= headGeneration moved)
     -- Replans, from that workspace and from yet another one, select nothing.
-    planned "replan" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 0 0 0 0 0 settled settled 0 0)
-    planned "replan-again" "0.11.1" (release "nagare-0.11.1-cccc" 0) >>= (@?= Summary 0 0 0 0 0 0 settled settled 0 0)
+    planned "replan" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 0 0 0 0 0 (settled + 2) 2 0 settled)
+    planned "replan-again" "0.11.1" (release "nagare-0.11.1-cccc" 0) >>= (@?= Summary 0 0 0 0 0 0 (settled + 2) 2 0 settled)
     -- One changed member: its update and the stamp's; the others are proved.
     (changedScopes, _, _) <- compiled "0.11.2" (release "nagare-0.11.2-dddd" 1)
     changedScopes @?= [platform]
-    planned "one" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 2 (members - 1) 0 0 0 reads reads 0 0)
+    planned "one" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 2 (members - 1) 0 0 0 (reads + 2) 2 0 reads)
     apply "one" >>= (@?= Summary 0 0 0 0 2 (members - 1) (reads + 4) (reads + 4) 2 0)
-    planned "one-replan" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 0 0 0 0 0 settled settled 0 0)
+    planned "one-replan" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 0 0 0 0 0 (settled + 2) 2 0 settled)
   where
     stampOwner = ok (Resource.mkScopeId Resource.Platform "bootstrap-stamp")
 
@@ -533,3 +546,10 @@ stampValue releaseId vector =
 
 fixtureCluster :: Resource.ResourceId
 fixtureCluster = Resource.mintResourceId (ok (Resource.mkScopeId Resource.Platform "foundation")) (ok (Resource.mkLogicalKey "cluster")) (ok (Resource.mkName "resource"))
+
+-- | A plan's registry as the CLI builds it (EP-226 M2): its Kubernetes
+-- observations and preparations read one observation epoch.
+planningRegistry :: Cluster -> Map.Map Resource.ResourceId (ManagedResource, ByteString) -> IO AdapterRegistry
+planningRegistry cluster specs = do
+  adapter <- kubernetesPlanningAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs
+  either (fail . show) pure (mkAdapterRegistry [adapter])

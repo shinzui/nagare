@@ -77,6 +77,17 @@ clusterSessionTests =
         sessionGuard session >>= (@?= Right ())
         sessionGeneration session >>= assertBool "invalidation kept the generation" . (> before)
         closeClusterSession session
+    , testCase "a command that points KUBECONFIG elsewhere is admitted again at once" $ do
+        world <- newWorld
+        session <- newClusterSession (fakeOps world) "intranet" (Just "nagare-01")
+        first' <- sessionConnection session >>= either (fail . T.unpack) pure
+        writeIORef (world ^. #variable) (Just "/state/nagare/local/kubeconfig")
+        writeIORef (world ^. #ambient) (kubeconfigFor "https://127.0.0.1:6443")
+        moved <- sessionConnection session >>= either (fail . T.unpack) pure
+        assertBool "the old kubeconfig was kept" (moved /= first')
+        BS.readFile moved >>= (@?= kubeconfigFor "https://127.0.0.1:6443")
+        length <$> verbs world >>= (@?= 6)
+        closeClusterSession session
     , testCase "an ambient context other than the selected one refuses before any flatten" $ do
         world <- newWorld
         writeIORef (world ^. #current) "staging"
@@ -134,6 +145,7 @@ data World = World
   , nodes :: !(IORef [(Text, Text)])
   , calls :: !(IORef [[String]])
   , now :: !(IORef Word64)
+  , variable :: !(IORef (Maybe String))
   }
   deriving stock (Generic)
 
@@ -145,9 +157,10 @@ newWorld =
     <*> newIORef [("nagare-01", "uid-1")]
     <*> newIORef []
     <*> newIORef 1
+    <*> newIORef (Just "/home/operator/.kube/config")
 
 fakeOps :: World -> SessionOps
-fakeOps world = SessionOps answer (readIORef (world ^. #now))
+fakeOps world = SessionOps answer (readIORef (world ^. #now)) (readIORef (world ^. #variable))
   where
     answer arguments = do
       atomicModifyIORef' (world ^. #calls) (\seen -> (seen <> [arguments], ()))

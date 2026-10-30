@@ -32,6 +32,7 @@ module Nagare.Inventory.ClusterSession
   , withCommandClusterSessions
   , commandClusterSession
   , invalidateCommandClusterSessions
+  , commandSessionGeneration
   , kubectlConnectionArguments
   , sessionKubeconfigArguments
   )
@@ -59,6 +60,7 @@ import Nagare.Inventory.Store.Counters (traceCount, tracePhase, traceProcess)
 import Nagare.Ops.ClusterGuard (ClusterGuardInputs (..), clusterGuardVerdict, parseServerNodeIdentities)
 import Nagare.Resource.Types (ContentDigest)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Unsafe (unsafePerformIO)
@@ -69,11 +71,12 @@ import System.Process (proc, readCreateProcessWithExitCode)
 data SessionOps = SessionOps
   { kubectl :: !([String] -> IO (Either Text ByteString))
   , clock :: !(IO Word64)
+  , kubeconfigVariable :: !(IO (Maybe String))
   }
   deriving stock (Generic)
 
 defaultSessionOps :: SessionOps
-defaultSessionOps = SessionOps runKubectl getMonotonicTimeNSec
+defaultSessionOps = SessionOps runKubectl getMonotonicTimeNSec (lookupEnv "KUBECONFIG")
 
 -- | An admission is reused for at most this long.
 renewalNanos :: Word64
@@ -99,6 +102,7 @@ data SessionState = SessionState
 
 data Binding = Binding
   { configDigest :: !ContentDigest
+  , variable :: !(Maybe String)
   , kubeconfig :: !FilePath
   , servers :: ![(Text, Text)]
   , admittedAt :: !Word64
@@ -136,10 +140,13 @@ sessionGuard session = void <$> sessionConnection session
 sessionConnection :: ClusterSession -> IO (Either Text FilePath)
 sessionConnection session = modifyMVar (session ^. #state) $ \current -> do
   now <- session ^. #ops . #clock
+  variable' <- session ^. #ops . #kubeconfigVariable
   case current ^. #binding of
+    -- A command that points KUBECONFIG elsewhere is admitted again at once.
     Just bound
       | current ^. #admitted
-      , now - bound ^. #admittedAt < renewalNanos -> do
+      , now - bound ^. #admittedAt < renewalNanos
+      , bound ^. #variable == variable' -> do
           traceCount CategoryGuard "reused" 0
           pure (current, Right (bound ^. #kubeconfig))
     previous -> do
@@ -167,6 +174,7 @@ invalidateClusterSession session =
 
 admit :: ClusterSession -> Int -> Maybe Binding -> IO (Either Text (Int, Binding))
 admit session current previous = do
+  variable' <- session ^. #ops . #kubeconfigVariable
   ambient <- if isJust expected then ambientContext else pure (Right context)
   case ambient of
     Left reason -> pure (Left reason)
@@ -193,7 +201,7 @@ admit session current previous = do
                     when
                       (sameConfig && fmap (^. #servers) previous /= Just (sort found))
                       (Left (refusal observed (map fst found) <> "\nthe server node was replaced under the same kubeconfig"))
-                    Right (next, Binding digest path (sort found) now)
+                    Right (next, Binding digest variable' path (sort found) now)
   where
     context = session ^. #kubeContext
     expected = session ^. #expectedNode
@@ -299,3 +307,12 @@ sessionKubeconfigArguments context =
       Map.lookup context <$> readMVar sessions >>= \case
         Nothing -> pure (Right [])
         Just session -> fmap (\path -> ["--kubeconfig", path]) <$> sessionConnection session
+
+-- | The identity generation of the command's session for @context@:
+-- 'Nothing' outside a command or before its first request. Evidence gathered
+-- under one generation answers nothing under another.
+commandSessionGeneration :: Text -> IO (Maybe Int)
+commandSessionGeneration context =
+  readIORef commandSessions >>= \case
+    Nothing -> pure Nothing
+    Just sessions -> Map.lookup context <$> readMVar sessions >>= traverse sessionGeneration

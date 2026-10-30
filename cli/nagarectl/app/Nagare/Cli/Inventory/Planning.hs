@@ -28,7 +28,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryControllerCollectionAdapter
   , inventoryHelmAdapter
   , inventoryHostAdapter
-  , inventoryKubernetesAdapterWith
+  , inventoryKubernetesPlanningAdapter
   , inventoryPulumiAdapterWithCollections
   )
 import Nagare.Cli.Inventory.CdnHistory
@@ -430,7 +430,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
       else
         if controllerCollection
           then inventoryControllerCollectionAdapter active (ResourceInventory.inventoryBinding inventory) kubernetesSpecs
-          else refuseOrphanDomainMapping kubernetesSpecs <$> inventoryKubernetesAdapterWith takeover active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
+          else refuseOrphanDomainMapping kubernetesSpecs <$> inventoryKubernetesPlanningAdapter takeover active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
   helm <-
     if Map.null helmSpecs
       then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)
