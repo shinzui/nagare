@@ -89,6 +89,8 @@ transitionOwnerRefusal marker payload
 -- marker, so a defect that strands the target cannot strand the context.
 transitionContinueRefusal :: HeadManifest -> TransitionMarker -> Text -> Maybe Text
 transitionContinueRefusal headValue marker payload
+  | Just pin <- transitionFinalizing marker =
+      Just ("the release transition from " <> transitionSource marker <> " is finalizing the context pin to " <> pin <> "; run platform transition commit to finish it")
   | isNothing (headActiveTransaction headValue) && isNothing (headExecutorClaim headValue) = Nothing
   | otherwise = transitionOwnerRefusal marker payload
 

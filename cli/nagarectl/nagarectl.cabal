@@ -337,6 +337,7 @@ library
     Nagare.Ops.StuckRollout
     Nagare.Platform.Cutover
     Nagare.Platform.Deployment
+    Nagare.Platform.Finalize
     Nagare.Platform.Paths
     Nagare.Platform.PulumiReceipt
     Nagare.Platform.Replacement
@@ -734,6 +735,7 @@ test-suite nagarectl-test
     Nagare.Test.World.Store
     Nagare.Test.World.Validation
     PlatformCutoverSpec
+    PlatformFinalizeSpec
     PlatformIncrementalSpec
     PlatformRolloutSpec
     PlatformSpec

@@ -33,6 +33,7 @@ import Nagare.Resource.DeploymentMeaning (sameDeclarationsModuloSources)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
+import PlatformFinalizeSpec (platformFinalizeTests)
 import PlatformIncrementalSpec (platformIncrementalTests)
 import PlatformRolloutSpec (platformRolloutTests)
 import PlatformTransitionTableSpec (platformTransitionTableTests)
@@ -40,7 +41,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 platformTransitionTests :: TestTree
-platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests, releaseEvidenceTests, platformTransitionTableTests, platformIncrementalTests, platformRolloutTests]
+platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests, releaseEvidenceTests, platformTransitionTableTests, platformIncrementalTests, platformRolloutTests, platformFinalizeTests]
 
 -- | The publisher's proof: the rehearsal record binds the candidate and
 -- reports the outcome the release rule asks for.
@@ -162,7 +163,7 @@ compatibilityTests =
         sameDeclarationsModuloSources (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-s/spec.json" "other") @?= False
     , testCase "the commit waits for its own open marker, an idle head and every moved scope converged" $ do
         recorded <- BS.readFile "test/fixtures/transition-0.4.0/store/head.json" >>= either (assertFailure . show) pure . decodeHead
-        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
+        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z" Nothing
             opened = recorded {headTransition = Just marker}
             platform = (== Platform) . scopeKind
             refuses headValue needle = case transitionCommitRefusal "payload-t" platform headValue of
@@ -179,14 +180,14 @@ compatibilityTests =
         refuses unconverged "platform:foundation"
         transitionCommitRefusal "payload-t" (const False) unconverged @?= Nothing
     , testCase "only the target payload's nagarectl may continue an open transition" $ do
-        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
+        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z" Nothing
         transitionOwnerRefusal marker "payload-t" @?= Nothing
         case transitionOwnerRefusal marker "payload-s" of
           Nothing -> assertFailure "a foreign payload continued the transition"
           Just reason -> assertBool (show reason) ("payload-t" `T.isInfixOf` reason && "payload-s" `T.isInfixOf` reason)
     , testCase "an idle open transition may be continued by a superseding payload (F130)" $ do
         recorded <- BS.readFile "test/fixtures/transition-0.4.0/store/head.json" >>= either (assertFailure . show) pure . decodeHead
-        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
+        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z" Nothing
             idle = recorded {headTransition = Just marker, headActiveTransaction = Nothing, headExecutorClaim = Nothing}
         transitionContinueRefusal idle marker "payload-s" @?= Nothing
         case transitionContinueRefusal idle {headActiveTransaction = Just "tx-1"} marker "payload-s" of
@@ -243,6 +244,12 @@ markerTests =
         _ <- applyReviewed store registry reviewed >>= expectRight
         headValue <- currentHead store
         headTransition headValue @?= Just opened
+    , testCase "while the commit finalizes the pin, no review is admitted, not even the transition's own (EP-228 M1)" $ do
+        store <- newMemoryStore
+        (reviewed, registry) <- fixture (transitionReviewIdentity "0.4.0" "payload-t") (\headValue -> headValue {headTransition = Just opened {transitionFinalizing = Just "0.5.0"}}) store
+        errors <- applyReviewed store registry reviewed >>= expectLeft
+        map admissionErrorCode (NE.toList errors) @?= ["transition-finalizing"]
+        headActiveTransaction <$> currentHead store >>= (@?= Nothing)
     , testCase "the head wire refuses a transition marker with an unknown field" $ do
         store <- newMemoryStore
         (_, _) <- fixture "operator-cli" id store
@@ -257,7 +264,7 @@ markerTests =
           Right _ -> assertFailure "a marker with an unknown field decoded"
     ]
   where
-    opened = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
+    opened = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z" Nothing
     withOpen headValue = headValue {headTransition = Just opened}
     fixture :: Text -> (HeadManifest -> HeadManifest) -> InventoryStore -> IO (ReviewedPlan, AdapterRegistry)
     fixture identity adjust store =

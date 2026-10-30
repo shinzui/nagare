@@ -30,22 +30,19 @@ import Nagare.Inventory.Plan (ReviewDocument (reviewOperations), ReviewOperation
 import Nagare.Inventory.Store
   ( HeadManifest (headGeneration, headSchemaVersion, headTransition)
   , InventoryStore
-  , TransitionMarker (transitionSource)
-  , observeHead
-  , observedHeadManifest
+  , TransitionMarker (transitionFinalizing, transitionSource)
   , readHead
-  , replaceObservedHead
   , transitionReviewIdentity
-  , withProcessLock
   )
 import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Platform.Deployment (DeploymentState (NotDeployed))
+import Nagare.Platform.Finalize (PinOps (..), finalizeTransition)
 import Nagare.Platform.Status (renderPlatformStatus)
 import Nagare.Platform.Transition (checkTransition, renderTransitionRefusal, transitionCommitRefusal, transitionContinueRefusal)
 import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (Mode (Cloud), contextNameText, writeContextPlatformVersion)
+import Nagare.Target (Mode (Cloud), contextNameText, readContextProfile, writeContextPlatformVersion)
 
 -- | Review the next stage that moves the context to this payload's release.
 -- Planning is read-only apart from the saved review; the first admitted stage
@@ -57,6 +54,9 @@ runPlatformTransitionPlan mctx output summary = do
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
   store <- tracePhase "inventory open" (Inventory.openTargetStoreReadOnly active) >>= either (dieT . T.pack . show) pure
   headValue <- currentHead store
+  -- A finalizing transition is only finished by its commit (EP-228 M1).
+  for_ (headTransition headValue >>= transitionFinalizing) $ \pin ->
+    dieT ("the release transition is finalizing the context pin to " <> pin <> "; run platform transition commit to finish it")
   pair <-
     either
       (dieT . renderTransitionRefusal)
@@ -94,8 +94,9 @@ runPlatformTransitionCommit mctx yes = do
   store <- Inventory.openTargetStore active
   headValue <- currentHead store
   -- The pin is written last: the marker must be this payload's, the store
-  -- idle, and every platform scope converged at its accepted revision.
-  for_ (transitionCommitRefusal (manifest ^. #payloadId) ((== Resource.Platform) . Resource.scopeKind) headValue) dieT
+  -- idle, and every platform scope converged at its accepted revision. A
+  -- marker already finalizing is this commit's own, stopped: finish it.
+  for_ (if isJust (headTransition headValue >>= transitionFinalizing) then Nothing else transitionCommitRefusal (manifest ^. #payloadId) ((== Resource.Platform) . Resource.scopeKind) headValue) dieT
   marker <- maybe (dieT "no release transition is open; review one with platform transition plan") pure (headTransition headValue)
   let target = manifest ^. #platformVersion
       reports identity = identity ^. #version == Just target
@@ -108,12 +109,14 @@ runPlatformTransitionCommit mctx yes = do
     (status ^. #clusterDeployment == NotDeployed || reports (status ^. #cluster))
     (dieT ("the cluster marker does not report " <> target <> "; apply the transition's platform stage first"))
   unless yes (dieT "platform transition commit requires --yes after reviewing the status above")
-  writeContextPlatformVersion (active ^. #contextName) target >>= either dieT pure
-  closed <- withProcessLock store $ \_ -> do
-    observed <- observeHead store >>= either (dieT . T.pack . show) pure
-    current <- maybe (dieT "inventory store is not initialized") pure (observedHeadManifest observed)
-    replaceObservedHead observed current {headGeneration = headGeneration current + 1, headTransition = Nothing}
-  either (dieT . T.pack . show) (either (dieT . T.pack . show) pure) closed
+  -- EP-228 M1: intent under the lock, then the pin, then the conditional
+  -- close; a stop anywhere is finished by committing again.
+  let pins =
+        PinOps
+          { readPin = fmap (^. #platformVersion) <$> readContextProfile (active ^. #contextName)
+          , writePin = writeContextPlatformVersion (active ^. #contextName)
+          }
+  _ <- finalizeTransition store pins (const (pure ())) (manifest ^. #payloadId) ((== Resource.Platform) . Resource.scopeKind) target >>= either dieT pure
   TIO.putStrLn
     ( "context "
         <> contextNameText (active ^. #contextName)

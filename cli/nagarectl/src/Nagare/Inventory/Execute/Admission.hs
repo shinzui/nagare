@@ -309,7 +309,7 @@ admitWithHistory locked registry reviewed pinned = do
                       }
                   -- EP-172: the first review of a release transition opens its marker;
                   -- F130: a superseding release's first review retargets it.
-                  opened = (\(source, target) -> TransitionMarker source target now) <$> parseTransitionReviewIdentity (reviewPayloadIdentity document)
+                  opened = (\(source, target) -> TransitionMarker source target now Nothing) <$> parseTransitionReviewIdentity (reviewPayloadIdentity document)
               activation <- replaceObservedHead observed activated
               case activation of
                 Left err -> pure (failure "head-condition" (showText err))
@@ -354,6 +354,14 @@ validationRefusals registry reviewed =
 transitionAdmission :: Maybe TransitionMarker -> Text -> [AdmissionError]
 transitionAdmission open identity = case (open, parseTransitionReviewIdentity identity) of
   (Nothing, _) -> []
+  -- EP-228 M1: the commit is moving the context pin; nothing is admitted
+  -- until it finishes.
+  (Just marker, _)
+    | Just pin <- transitionFinalizing marker ->
+        [ AdmissionError
+            "transition-finalizing"
+            ("the release transition from " <> transitionSource marker <> " is finalizing the context pin to " <> pin <> "; run platform transition commit with payload " <> transitionTarget marker <> "'s nagarectl to finish it")
+        ]
   (Just marker, Just (source, _))
     | source == transitionSource marker -> []
   (Just marker, _) ->

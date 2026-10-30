@@ -91,7 +91,7 @@ seedStore inventory sites = do
       , headActiveTransaction = Just "tx-open"
       , headExecutorClaim = Just (ExecutorClaim "tx-open" "client-fixture" 3 "2026-10-16T12:00:00Z")
       , headDataFence = Just (fence accepted)
-      , headTransition = Just (TransitionMarker "0.6.2" "nagare-0.6.3-source" "2026-10-16T11:00:00Z")
+      , headTransition = Just (TransitionMarker "0.6.2" "nagare-0.6.3-source" "2026-10-16T11:00:00Z" Nothing)
       }
     >>= either (fail . show) pure
   pure scopes

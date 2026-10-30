@@ -108,6 +108,10 @@ data TransitionMarker = TransitionMarker
   { transitionSource :: !Text
   , transitionTarget :: !Text
   , transitionStartedAt :: !Text
+  , transitionFinalizing :: !(Maybe Text)
+  -- ^ EP-228 M1: the release the context pin is being moved to. While set,
+  -- no review is admitted and only the commit finishes. An older CLI refuses
+  -- the field, so it cannot admit across the pin write either.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -189,12 +193,16 @@ instance FromJSON MigrationTombstone where
     MigrationTombstone <$> o .: "destination" <*> o .: "headDigest"
 
 instance ToJSON TransitionMarker where
-  toJSON marker = object ["from" .= transitionSource marker, "to" .= transitionTarget marker, "startedAt" .= transitionStartedAt marker]
+  toJSON marker =
+    object
+      ( ["from" .= transitionSource marker, "to" .= transitionTarget marker, "startedAt" .= transitionStartedAt marker]
+          <> maybe [] (\pin -> ["finalizing" .= pin]) (transitionFinalizing marker)
+      )
 
 instance FromJSON TransitionMarker where
   parseJSON = withObject "TransitionMarker" $ \o -> do
-    unless (all (`elem` ["from", "to", "startedAt"]) (KM.keys o)) (fail "transition marker has an unknown field")
-    TransitionMarker <$> o .: "from" <*> o .: "to" <*> o .: "startedAt"
+    unless (all (`elem` ["from", "to", "startedAt", "finalizing"]) (KM.keys o)) (fail "transition marker has an unknown field")
+    TransitionMarker <$> o .: "from" <*> o .: "to" <*> o .: "startedAt" <*> o .:? "finalizing"
 
 instance ToJSON RetainedIncarnation where
   toJSON retained =
