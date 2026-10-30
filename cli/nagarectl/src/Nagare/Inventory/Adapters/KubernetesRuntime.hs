@@ -290,7 +290,7 @@ waitForReadiness config address = case address of
         waitCondition "ready" (T.unpack (nameText kind)) namespace name "cert-manager resource"
   Kubernetes _ "serving.knative.dev" kind namespace name
     | nameText kind == "service" ->
-        waitCondition "ready" "ksvc" namespace name "Knative Service"
+        waitForWithin statelessReadiness "condition=ready" "ksvc" namespace name "Knative Service"
   Kubernetes _ "serving.knative.dev" kind namespace name
     | nameText kind == "domainmapping" -> do
         ready <- waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
@@ -303,7 +303,7 @@ waitForReadiness config address = case address of
         config
         ( ["rollout", "status", "deployment/" <> T.unpack (nameText name)]
             <> namespaceArgs namespace
-            <> ["--timeout=300s"]
+            <> ["--timeout=" <> statelessReadiness]
         )
         ""
     pure $ case result of
@@ -324,13 +324,16 @@ waitForReadiness config address = case address of
   _ -> pure AdapterEffectCompleted
   where
     waitCondition condition = waitFor ("condition=" <> condition)
-    waitFor for kind namespace name label = do
+    waitFor = waitForWithin "300s"
+    -- EP-228 M2: a stateless workload has 180 seconds to become ready.
+    statelessReadiness = "180s"
+    waitForWithin within for kind namespace name label = do
       result <-
         invoke
           config
           ( ["wait", "--for=" <> for, kind <> "/" <> T.unpack (nameText name)]
               <> namespaceArgs namespace
-              <> ["--timeout=300s"]
+              <> ["--timeout=" <> within]
           )
           ""
       pure $ case result of

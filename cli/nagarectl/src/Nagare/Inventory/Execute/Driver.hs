@@ -7,9 +7,11 @@ module Nagare.Inventory.Execute.Driver
   )
 where
 
-import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (mapConcurrently, withAsync)
 import Control.Concurrent.MVar (newMVar, withMVar)
 import Control.Exception (onException)
+import Control.Monad (forever)
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -18,6 +20,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Text qualified as T
+import GHC.Clock (getMonotonicTimeNSec)
 import Nagare.Contract.Trace (OperationRecord (..), noLabels)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
@@ -137,6 +140,7 @@ import Nagare.Resource.Types
   , physicalIdentityText
   )
 import Nagare.Resource.Wire (decodeScope)
+import System.IO (hPutStrLn, stderr)
 
 runOperations ::
   LockedStore s ->
@@ -404,7 +408,16 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
             for_ result (\event -> atomicModifyIORef' appended (\seen -> (seen <> [event], ())))
             pure result
           landed = (events <>) <$> readIORef appended
-      stops <- mapConcurrently (executeWith record (const (pure Nothing)) events) batch `onException` (landed >>= writeIORef latest)
+      -- Progress every five seconds while the batch waits; never secrets.
+      completed <- newIORef (0 :: Int)
+      started <- getMonotonicTimeNSec
+      let done _ = Nothing <$ atomicModifyIORef' completed (\n -> (n + 1, ()))
+          progress = forever $ do
+            threadDelay 5000000
+            finished <- readIORef completed
+            now <- getMonotonicTimeNSec
+            hPutStrLn stderr ("nagarectl: " <> show (length batch - finished) <> " of " <> show (length batch) <> " operations awaiting readiness together, " <> show ((now - started) `div` 1000000000) <> " s elapsed")
+      stops <- withAsync progress (const (mapConcurrently (executeWith record done events) batch)) `onException` (landed >>= writeIORef latest)
       after <- landed
       case catMaybes stops of
         [] -> go after
