@@ -237,6 +237,13 @@ releaseTransitionTests =
                   entry generation = object ["scope" .= stamp, "revision" .= object ["generation" .= (generation :: Int)]]
               BL.writeFile (dir </> "review.json") (Aeson.encode (object ["operations" .= ([] :: [Value]), "baseRevisions" .= [entry 1], "desiredRevisions" .= [entry 2]]))
               readReviewCounts dir >>= (@?= Right (ReviewCounts [] 0 0))
+        , testCase "a stage's work is its candidate, operation and validation identities; repeating it is no progress (EP-228 M3)" $ do
+            works <- forM [1, 2, 3] $ \n -> eitherDecodeFileStrict (fixtureReview n) >>= either fail (either fail pure . parseEither reviewWork)
+            map (length . (^. #operations)) works @?= [2, 211, 0]
+            -- Three successive stages each planned different work.
+            and [a /= b | (a, b) <- zip works (drop 1 works)] @?= True
+            let repeated = noProgress "intranet" 4 (works !! 1)
+            assertBool (T.unpack repeated) (all (`T.isInfixOf` repeated) ["intranet stage 4 plans the same work", "211 operations"])
         , testCase "the ambiguous stop's transaction is read from the last ambiguous line" $ do
             ambiguousTransaction "planning\nambiguous tx-ab12 at op-1: provider timeout\n" @?= Just "tx-ab12"
             ambiguousTransaction "ambiguous tx-01 at a\nambiguous tx-02 at b\n" @?= Just "tx-02"
@@ -476,13 +483,13 @@ intranetTests =
           refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "apply 1 failed: stopped tx-ef56 at op-1 (the provider refused)"
           calls' <- rendered (o ^. #root) <$> recorded world
           filter (isPrefixOf (nagare ["inventory", "resume"])) calls' @?= []
-    , testCase "a transition that never converges stops after twelve stages" $
+    , testCase "a transition that plans the same work again after applying it stops at the repeat (EP-228 M3)" $
         withOperator $ \o -> do
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {endless = True}
-          refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "did not converge in 12 stages"
+          refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "intranet stage 2 plans the same work as the stage before it"
           calls' <- rendered (o ^. #root) <$> recorded world
-          length (filter (isPrefixOf (nagare ["platform", "transition", "plan"])) calls') @?= 12
-          length (filter (isPrefixOf (nagare ["inventory", "apply"])) calls') @?= 12
+          length (filter (isPrefixOf (nagare ["platform", "transition", "plan"])) calls') @?= 2
+          length (filter (isPrefixOf (nagare ["inventory", "apply"])) calls') @?= 1
           assertNothingLanded o calls'
     , testCase "pin-tag pins and commits flake.nix and flake.lock alone and does not re-run the rollout" $
         withOperator $ \o -> do

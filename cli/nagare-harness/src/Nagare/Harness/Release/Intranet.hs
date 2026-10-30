@@ -209,7 +209,7 @@ moveIntranet runtime s index = do
     Right found | isNothing (found ^. #activeTransaction) -> pure ()
     _ -> refuse activeStore
   -- 2. plan and apply until a plan has no operations, then commit
-  converge runtime s index reviews 1
+  converge runtime s index reviews Nothing 1
   status <- platformStatus runtime s
   status' <-
     if status ^. _2 . #identities . #context . #version == Just version'
@@ -263,8 +263,8 @@ moveIntranet runtime s index = do
 -- re-accepted scope, otherwise apply it, resuming an ambiguous stop once.
 -- Both decisions come from documents nagarectl writes: the plan's
 -- @--summary@ and the apply's @--contract 1@ outcome.
-converge :: Runtime -> Setup -> IndexWriter -> FilePath -> Int -> IO ()
-converge runtime s index reviews n
+converge :: Runtime -> Setup -> IndexWriter -> FilePath -> Maybe ReviewWork -> Int -> IO ()
+converge runtime s index reviews previous n
   | n > stagesMax = refuse ("the transition did not converge in " <> showText stagesMax <> " stages; reviews in " <> T.pack reviews)
   | otherwise = do
       let review = reviews </> ("stage-" <> show n)
@@ -282,6 +282,10 @@ converge runtime s index reviews n
       let operations' = operationCount AllOperations counts
           moves = counts ^. #reaccepted
           done = isConverged AllOperations counts
+      -- EP-228 M3: a stage repeating the work the previous stage applied
+      -- makes no progress; stop and name it rather than plan twelve times.
+      work <- readReviewWork review >>= either refuse pure
+      when (not done && previous == Just work) (refuse (noProgress "intranet" n work))
       plannedAt' <- runtime ^. #now
       addStage index (StageEntry stage "intranet" n (relativeIn index review) (relativeIn index planLog) (Just (relativeIn index summaryFile)) operations' moves done plannedAt' [] (Just (relativeIn index planTrace)))
       step runtime ("stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts " <> showText moves <> " scopes")
@@ -298,7 +302,7 @@ converge runtime s index reviews n
           AppliedStopped reason -> do
             logged <- readLenient applyLog
             refuse ("apply " <> showText n <> " failed: " <> reason <> ": " <> lastLines 5 logged)
-        converge runtime s index reviews (n + 1)
+        converge runtime s index reviews (Just work) (n + 1)
 
 -- | Run one apply or resume with its outcome document on stdout and its
 -- progress in the stage's log, and index the attempt.

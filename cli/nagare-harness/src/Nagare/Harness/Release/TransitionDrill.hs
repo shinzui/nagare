@@ -36,7 +36,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
-import Data.Time (UTCTime, defaultTimeLocale, formatTime)
+import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 import Nagare.Harness.Prelude hiding ((.=))
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
@@ -80,6 +80,10 @@ data LoopResult = LoopResult
 
 stagesMax :: Int
 stagesMax = 12
+
+-- | The candidate transition's whole-rollout deadline, in seconds (EP-228 M3).
+rolloutDeadline :: Int
+rolloutDeadline = 600
 
 namespace :: String
 namespace = "personal"
@@ -343,11 +347,19 @@ reviewedLoop drill loop = reviewedLoopWith drill loop (pure ())
 -- | Plan and apply until a review is converged; @afterApply@ runs after each
 -- applied stage.
 reviewedLoopWith :: Drill -> Loop -> IO () -> IO LoopResult
-reviewedLoopWith drill loop afterApply = go 1 (LoopResult 0 0)
+reviewedLoopWith drill loop afterApply = do
+  started <- drill ^. #runtime . #now
+  go started Nothing 1 (LoopResult 0 0)
   where
-    go n acc
+    go started previous n acc
       | n > stagesMax = refuse (T.pack (loop ^. #label) <> " did not converge in " <> showText stagesMax <> " stages")
       | otherwise = do
+          -- EP-228 M3: the candidate's transition has a whole-rollout
+          -- deadline, checked before each new stage; the run stops between
+          -- stages, where planning again continues it.
+          now <- drill ^. #runtime . #now
+          when (loop ^. #release == Target && loop ^. #label == "transition" && n > 1 && diffUTCTime now started > fromIntegral rolloutDeadline) $
+            refuse ("the transition exceeded its " <> showText rolloutDeadline <> " s deadline before stage " <> showText n <> "; its reviews are in " <> T.pack (drill ^. #root </> "reviews"))
           let review = drill ^. #root </> "reviews" </> (loop ^. #label <> "-" <> show n)
               planLog = review <> ".plan.log"
               applyLog = review <> ".apply.log"
@@ -372,6 +384,11 @@ reviewedLoopWith drill loop afterApply = go 1 (LoopResult 0 0)
               else readReviewCounts review >>= either refuse pure
           let operations' = operationCount (loop ^. #counting) counts
               done = isConverged (loop ^. #counting) counts
+          -- EP-228 M3: a stage that plans what the stage before it planned,
+          -- after that stage applied, makes no progress: stop and name it.
+          work <- readReviewWork review >>= either refuse pure
+          when (not done && previous == Just work) $
+            refuse (noProgress (T.pack (loop ^. #label)) n work)
           plannedAt' <- drill ^. #runtime . #now
           addStage index (StageEntry stage (T.pack (loop ^. #label)) n (relativeIn index review) (relativeIn index planLog) (if typed then Just (relativeIn index summaryFile) else Nothing) operations' (counts ^. #reaccepted) done plannedAt' [] (if typed then Just (relativeIn index planTrace) else Nothing))
           say' drill (T.pack (loop ^. #label) <> " stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts scopes: " <> showText (counts ^. #reaccepted))
@@ -386,7 +403,7 @@ reviewedLoopWith drill loop afterApply = go 1 (LoopResult 0 0)
                 logged <- readLenient applyLog
                 refuse (T.pack (loop ^. #label) <> " apply " <> showText n <> " failed: " <> lastLines 3 logged)
               when (loop ^. #label == "bootstrap") afterApply
-              go (n + 1) (LoopResult (acc ^. #reviews + 1) (acc ^. #operations + operations'))
+              go started (Just work) (n + 1) (LoopResult (acc ^. #reviews + 1) (acc ^. #operations + operations'))
 
 -- | Index one apply or resume of a stage.
 indexAttempt :: Drill -> Text -> Text -> Maybe Text -> Text -> FilePath -> Maybe FilePath -> UTCTime -> IO ()

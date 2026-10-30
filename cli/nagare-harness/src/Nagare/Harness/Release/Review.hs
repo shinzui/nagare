@@ -12,6 +12,10 @@ module Nagare.Harness.Release.Review
   , isConverged
   , summaryCounts
   , readPlanSummary
+  , ReviewWork (..)
+  , readReviewWork
+  , reviewWork
+  , noProgress
   , ApplyOutcome (..)
   , applyOutcome
   , readApplyOutcome
@@ -20,13 +24,15 @@ module Nagare.Harness.Release.Review
   )
 where
 
-import Data.Aeson (Value (..), eitherDecodeFileStrict, toJSON, withObject, (.:), (.:?))
+import Data.Aeson (Value (..), eitherDecodeFileStrict, encode, toJSON, withObject, (.:), (.:?))
 import Data.Aeson.Types (Parser, parseEither)
+import Data.ByteString.Lazy qualified as BL
 import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Contract.Release (TransitionPlanSummary)
 import Nagare.Contract.Schema (fromNullable)
 import Nagare.Contract.V1 (Outcome (..), TransactionOutcome (..))
@@ -151,3 +157,49 @@ ambiguousTransaction text = case mapMaybe stopped (T.lines text) of
 -- | Whether some line is the ambiguous stop of @transaction@.
 stoppedAmbiguousAt :: Text -> Text -> Bool
 stoppedAmbiguousAt transaction = any (T.isPrefixOf ("ambiguous " <> transaction <> " at ")) . T.lines
+
+-- | What a stage would do, by identity (EP-228 M3): the candidate it plans
+-- from, its operations and its validations, with the first operation's
+-- summary to name a blocker. A stage that plans the same work as the stage
+-- before it, after that stage applied, makes no progress.
+data ReviewWork = ReviewWork
+  { candidate :: !Text
+  , operations :: ![Text]
+  , validations :: ![Text]
+  , blocker :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+readReviewWork :: FilePath -> IO (Either Text ReviewWork)
+readReviewWork directory = do
+  decoded <- eitherDecodeFileStrict (directory <> "/review.json")
+  pure (first (\reason -> T.pack (directory <> "/review.json: " <> reason)) (decoded >>= parseEither reviewWork))
+
+reviewWork :: Value -> Parser ReviewWork
+reviewWork = withObject "review" $ \review -> do
+  candidate' <- fromMaybe "" <$> review .:? "candidateDigest"
+  operations' <- fromMaybe [] <$> review .:? "operations"
+  validations' <- fromMaybe [] <$> review .:? "validations"
+  identities <- mapM identity operations'
+  checked <- mapM identity validations'
+  summaries <- mapM (withObject "operation" (.:? "summary")) operations'
+  pure ReviewWork {candidate = candidate', operations = identities, validations = checked, blocker = listToMaybe (catMaybes summaries)}
+  where
+    -- The planned operation as the review encodes it: its identity, action,
+    -- resources, input digest and dependencies, whatever its version.
+    identity = withObject "operation" $ \entry -> do
+      operation <- fromMaybe (Object entry) <$> entry .:? "operation"
+      pure (TE.decodeUtf8 (BL.toStrict (encode (operation :: Value))))
+
+-- | The refusal of a loop stage that repeats the previous stage's work.
+noProgress :: Text -> Int -> ReviewWork -> Text
+noProgress loop stage work =
+  loop
+    <> " stage "
+    <> T.pack (show stage)
+    <> " plans the same work as the stage before it, which applied: "
+    <> T.pack (show (length (work ^. #operations)))
+    <> " operations, "
+    <> T.pack (show (length (work ^. #validations)))
+    <> " validations"
+    <> maybe "" ("; first: " <>) (work ^. #blocker)
