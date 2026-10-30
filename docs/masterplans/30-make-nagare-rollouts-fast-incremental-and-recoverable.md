@@ -126,7 +126,7 @@ dependency on MP-29.
 |---|---|---|---|---|---|
 | EP-224 | Transition cost, fixtures and final latency gate | [224](../plans/224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md) | M3 requires EP-225–229 Complete | MP-29 tracing | In Progress (M1–M2 done) |
 | EP-225 | Stable deployment meaning and incremental reviews | [225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md) | EP-224 M1 | None | Complete |
-| EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | In Progress (M4 done) |
+| EP-226 | Guarded command sessions and bounded observation epochs | [226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) | EP-224 M1 for M1–M3; none for M4 | EP-225 | In Progress (M1, M4 done) |
 | EP-227 | Durable batched verification with per-operation recovery | [227](../plans/227-commit-verification-proofs-without-per-resource-remote-transactions.md) | EP-224 M1; EP-225 M2 and EP-226 M1–M2 before its M2 | None | Not Started |
 | EP-228 | Incremental rollout coordinator and Haskell release runner | [228](../plans/228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) | EP-225, EP-226, EP-227 and EP-229 Complete; EP-224 M2 | None | Not Started |
 | EP-229 | Haskell ownership of candidate, intranet and rehearsal orchestration | [229](../plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) | None | EP-224 M2 reads its run index | Complete |
@@ -234,7 +234,8 @@ review is generated only from an idle head; never rewrite an admitted review to 
 M1–M2 (retained revisions; the bootstrap sweep is admission validations, not journaled verifies)
 and EP-229 (Haskell release runner, run index, no Python). The disposable v0.11.0 rehearsal of
 `842cd70c` passes with an 83 s traced activation. EP-225 is complete (`b611127d`): a release moved
-to another workspace selects only its stamp and keeps every scope revision. Next: EP-226 M1–M3,
+to another workspace selects only its stamp and keeps every scope revision. EP-226 M1 guards a
+command once and binds its requests to the guarded kubeconfig (`d59a85c2`). Next: EP-226 M2–M3,
 EP-227, EP-228.
 Final
 acceptance includes unchanged and changed rollouts, recovery, growth limits, Python-free release

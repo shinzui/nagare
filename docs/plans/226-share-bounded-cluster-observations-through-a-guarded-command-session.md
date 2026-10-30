@@ -53,8 +53,20 @@ closed with a bounded number of requests and a useful explanation.
 ## Progress
 
 
-- [ ] M1: A command-scoped guarded cluster session binds actual requests to checked connection
+- [x] M1: A command-scoped guarded cluster session binds actual requests to checked connection
   material and invalidates on identity changes; concurrent consumers perform one admission.
+  Pass, 2026-10-29, `d59a85c2` (fast gate green): `-p ClusterSession`, nine cases over an
+  injected kubectl and clock: 16 concurrent callers make one context read, one flatten and one
+  node list; a request keeps naming the guarded bytes after the ambient kubeconfig changes;
+  renewal after 60 s reuses unchanged bytes and admits changed bytes as a new generation; a node
+  UID change under the same bytes refuses and keeps refusing until invalidation; an ambient
+  context mismatch refuses before any flatten; a refused admission is not kept; a local session
+  guards no host; inside a command requests name the private file (removed at the end) and a
+  refusing session refuses the request. Merge and referenced-file semantics are kubectl's own
+  (`config view --flatten --minify`, kubectl 1.37.0, checked by experiment: merged
+  `KUBECONFIG` lists, embedded CA and key data, kept exec stanza, unknown context exits 1).
+  Native, intranet, read-only: 20 guard calls made 1 admission and 19 reuses with 3 kubectl
+  processes (0.48 s) instead of 40; an expected host of `wrong-host` refused.
 - [ ] M2: Planning/status and verify-only consumers use bounded observation epochs, with full
   address keys, bounded chunking/fallback and tested freshness boundaries.
 - [ ] M3: Kubernetes, Helm and relevant access integration share sessions without caching writes
@@ -103,6 +115,12 @@ the bytes that passed the guard, handle merged kubeconfig files, or cover refere
   per-adapter memos. Successful guard reuse is confined to a stable identity generation.
 - 2026-10-29: An epoch is phase-local evidence, not an atomic cluster snapshot. It cannot authorize
   a later write without fresh target checks and server-side preconditions.
+- 2026-10-29: The command's sessions are installed once at dispatch (`withCommandScope`, beside
+  the command trace) and found by Kubernetes context, not threaded through the ~20 registry
+  constructors that take an `ActiveTarget`. Every request still uses exactly one session object
+  per context, and outside a command the per-call guard remains, so the semantics match an
+  explicit parameter without that churn. Delegated binding is kubectl's flatten, not a resolver
+  of our own, so merge rules are never guessed.
 - 2026-10-29: Keep kubectl behind the existing effect boundary initially. A direct client is not
   required to remove redundant process and request work; any later replacement needs measured
   justification and the same compatibility/conformance tests.

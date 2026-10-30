@@ -139,3 +139,17 @@ operator payload outside the fresh inventory-backed release claim. A later
 in-place version transition needs a new reviewed design with component
 receipts, host committed-closure proof, and a final context pin decision;
 the old phase journal is not that proof.
+
+## Amendment — 2026-10-29: one guarded cluster session per command
+
+[EP-226](../plans/226-share-bounded-cluster-observations-through-a-guarded-command-session.md) M1
+replaces the cluster guard that ran before every Kubernetes request (two kubectl processes each)
+with one session per command and context (`Nagare.Inventory.ClusterSession`). Admission still
+refuses an ambient current context other than the selected one and a sole server node other
+than the context's host. It then binds the guard and every later Kubernetes, Helm and access
+request to a private kubeconfig flattened from the selected context, so the bytes that passed
+the guard are the bytes requests use. An admission is reused for at most 60 seconds; renewal
+rereads the ambient kubeconfig, admits changed bytes as a new generation, and refuses the same
+bytes behind a server node with another UID for the rest of the command. A refusal is never
+kept, and a host activation or kubeconfig projection invalidates the command's sessions. A
+command still pays the guard once; the guard is not a token that outlives the process.
