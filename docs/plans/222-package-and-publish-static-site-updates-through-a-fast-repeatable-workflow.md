@@ -32,8 +32,8 @@ Implement all four acceptance criteria in [IR-36](../improvement-requests/packag
 
 ## Progress
 
-- [ ] M1: Local context packaging works from an external operator checkout, exactly matches Nagare's renderers without provider calls, and records a deterministic content digest of the written context.
-- [ ] M2: Archive packaging builds with Docker's ordinary layer cache (no `--no-cache` for a secret-free build) on the context's architecture and feeds the existing reviewed image publication unchanged, with safe failure and retry behavior.
+- [x] M1 (2026-10-30, 820de548): `site package --context-out` works from an external directory, matches the renderers byte for byte, and returns a deterministic content digest; `Nagare.Static.Package` tests and `just gate-fast` green. Open: the extended `nagarectl-external-config` nix check is written but not yet run.
+- [ ] M2: Implemented and tested with a fake Docker runner (820de548): secret-free argv has no `--no-cache`, staged no-clobber save, validation before Docker. Open: a real AMD64 and ARM64 archive passed unchanged to `app image-plan` (no Docker daemon was running).
 - [ ] M3: `site publish` with no flags performs the first publication and later updates by composing the existing reviewed operations: prerequisites refused before packaging, unchanged content a no-op, typed handoff, recoverable partial success.
 - [ ] M4: The guide and protected-site drill prove publish, edit, republish, no-op republish and rollback; traced cold and warm runs demonstrate the repeat-release cost and the layer cache.
 
