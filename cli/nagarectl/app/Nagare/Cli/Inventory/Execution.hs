@@ -24,7 +24,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryControllerCollectionAdapter
   , inventoryHelmAdapter
   , inventoryHostAdapter
-  , inventoryKubernetesAdapter
+  , inventoryKubernetesExecutionAdapter
   , inventoryPulumiAdapterWithCollections
   , reviewBaseDnsResources
   )
@@ -635,7 +635,13 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
       kubernetesNative <-
         if controllerCollection
           then inventoryControllerCollectionAdapter active binding kubernetesSpecs
-          else inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
+          else
+            inventoryKubernetesExecutionAdapter
+              active
+              binding
+              cacheKey
+              kubernetesSpecs
+              [InventoryPlan.reviewPlannedOperation validation | validation <- InventoryPlan.reviewValidations (InventoryPlan.reviewBundleDocument bundle), InventoryAdapter.plannedExecutor (InventoryPlan.reviewPlannedOperation validation) == ResourceInventory.KubernetesExecutor]
       let kubernetesBase =
             kubernetesNative
               { InventoryAdapter.adapterPreflight = \operation prepared -> do

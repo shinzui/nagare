@@ -4,22 +4,26 @@
 module Nagare.Inventory.Adapters.KubernetesApplication
   ( kubernetesApplicationAdapter
   , kubernetesPlanningAdapter
+  , kubernetesExecutionAdapter
   )
 where
 
 import Data.ByteString (ByteString)
 import Data.Either (isRight)
 import Data.Generics.Labels ()
+import Data.IORef (atomicModifyIORef', newIORef)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (Adapter (..))
+import Nagare.Inventory.Adapter (Adapter (..), PlannedOperation (..))
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (runtimePodOps)
 import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
-import Nagare.Inventory.KubernetesSnapshot (beginPhase, newPhaseEpoch, phaseRuntime)
+import Nagare.Inventory.KubernetesSnapshot (beginPhase, endPhase, newPhaseEpoch, phaseRuntime)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
 import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Types (ResourceId)
@@ -64,3 +68,47 @@ kubernetesPlanningAdapter takeover config cacheKey specs = do
         when (isRight guarded) (beginPhase config phase [declaration ^. #address | resource <- resources, Just (declaration, _) <- [Map.lookup resource specs]])
         adapterObserve adapter resources
   pure adapter {adapterObserve = observe}
+
+-- | Where an execution adapter stands with its review's validations.
+data ValidationPhase = Pending | Proving | Ended
+  deriving stock (Eq)
+
+-- | The adapter of one admitted review (EP-227 M2). While admission proves
+-- the review's validations, their preflights and verifications read one
+-- fresh grouped epoch over exactly the validated members, gathered after the
+-- guard admits. The first call for anything else (an operation of the
+-- transaction, an observation, a recovery) ends that phase for good, before
+-- any write, so every later read is fresh. Validations never write.
+kubernetesExecutionAdapter ::
+  Bool ->
+  KubernetesRuntimeConfig ->
+  (ResourceId -> IO (Either Text Text)) ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  [PlannedOperation] ->
+  IO Adapter
+kubernetesExecutionAdapter takeover config cacheKey specs validations = do
+  phase <- newPhaseEpoch
+  state <- newIORef Pending
+  let adapter = kubernetesApplicationAdapter takeover (phaseRuntime config phase) cacheKey specs
+      validating = Set.fromList (map plannedOperationId validations)
+      addresses = [declaration ^. #address | validation <- validations, resource <- NE.toList (plannedResources validation), Just (declaration, _) <- [Map.lookup resource specs]]
+      end = do
+        previous <- atomicModifyIORef' state (Ended,)
+        when (previous /= Ended) (endPhase phase)
+      enter operation
+        | plannedOperationId operation `Set.member` validating = do
+            previous <- atomicModifyIORef' state (\current -> (if current == Pending then Proving else current, current))
+            when (previous == Pending) $ do
+              guarded <- runtimeGuard config
+              when (isRight guarded) (beginPhase config phase addresses)
+        | otherwise = end
+  pure
+    adapter
+      { adapterObserve = \resources -> end >> adapterObserve adapter resources
+      , adapterPrepare = \operation -> end >> adapterPrepare adapter operation
+      , adapterPreflight = \operation prepared -> enter operation >> adapterPreflight adapter operation prepared
+      , adapterExecute = \operation prepared -> end >> adapterExecute adapter operation prepared
+      , adapterVerify = \operation prepared -> enter operation >> adapterVerify adapter operation prepared
+      , adapterRecover = \operation prepared -> end >> adapterRecover adapter operation prepared
+      , adapterSettle = (\settle operation prepared -> end >> settle operation prepared) <$> adapterSettle adapter
+      }

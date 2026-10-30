@@ -14,6 +14,7 @@ module Nagare.Cli.Inventory.Adapters
   , inventoryKubernetesAdapter
   , inventoryKubernetesAdapterWith
   , inventoryKubernetesPlanningAdapter
+  , inventoryKubernetesExecutionAdapter
   , inventoryControllerCollectionAdapter
   , inventoryPulumiAdapter
   , inventoryPulumiAdapterWithCollections
@@ -97,7 +98,7 @@ import Nagare.Inventory.Adapters.HostRuntime
       )
   , mkHostRuntimeOps
   )
-import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesPlanningAdapter)
+import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesExecutionAdapter, kubernetesPlanningAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (KubernetesRuntimeConfig))
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
@@ -157,6 +158,16 @@ inventoryKubernetesAdapterWith takeover active binding cacheKey specs
       unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
       pure (kubernetesApplicationAdapter takeover config cacheKey specs)
+
+-- | The Kubernetes adapter of one admitted review: admission proves its
+-- validations from one grouped epoch (EP-227 M2).
+inventoryKubernetesExecutionAdapter :: ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> [InventoryAdapter.PlannedOperation] -> IO InventoryAdapter.Adapter
+inventoryKubernetesExecutionAdapter active binding cacheKey specs validations
+  | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor)
+  | otherwise = do
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
+      kubernetesExecutionAdapter False (KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))) cacheKey specs validations
 
 -- | The Kubernetes adapter of one plan: its observations and preparations
 -- read one observation epoch (EP-226 M2).

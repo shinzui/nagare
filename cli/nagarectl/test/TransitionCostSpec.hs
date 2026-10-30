@@ -21,8 +21,8 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Contract.Trace
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry)
-import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesPlanningAdapter)
+import Nagare.Inventory.Adapter (Adapter (adapterObserve), AdapterRegistry, ResourceObservation (ObservedDrifted), lookupAdapter, mkAdapterRegistry, observationMap)
+import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesExecutionAdapter, kubernetesPlanningAdapter)
 import Nagare.Inventory.Bootstrap (bootstrapPreservedScopeVectorDigest, changedPlatformScopes, compileBootstrapStamp, composePlatformChanges)
 import Nagare.Inventory.Command (applyInventoryWithFactory, convergeInventoryCandidateResult, loadTargetSnapshot, openTargetStore, planInventoryCandidateWith)
 import Nagare.Inventory.Digest (contentDigest)
@@ -31,12 +31,13 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), countedTransport, invokeKubectl, runKubectlWith, withKubectlInterpreter)
+import Nagare.Inventory.Plan (ReviewBundle, reviewBundleDocument, reviewPlannedOperation, reviewValidations)
 import Nagare.Inventory.Store (HeadManifest (headAccepted, headActiveTransaction, headGeneration, headSequence), StoreError (StoreIoError), initializeStore, newObjectStore, readHead)
 import Nagare.Inventory.Store.Counters (CommandTrace, collectCommandTrace, labelled, rootContext, withSpan)
 import Nagare.Inventory.Store.ObjectOps (ObjectName (..), ObjectOps (..), PutOutcome (PutUnknown))
 import Nagare.Inventory.Trace (commandTraceDocument, withCommandTrace)
 import Nagare.Ops.ClusterGuard (ClusterGuardOps (..), admitClusterGuard, defaultClusterGuardOps)
-import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, candidateChanges, candidateInventory, composeInventory, inventoryDeclarations, mkScopeDeclaration, scopeBundles, scopeId, snapshotScopes)
+import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, candidateChanges, candidateInventory, composeInventory, inventoryDeclarations, mkScopeDeclaration, scopeBundles, scopeId, snapshotScopes)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
 import Nagare.Resource.Types qualified as Resource
@@ -195,11 +196,14 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
     cluster <- newCluster emptyServer =<< newAdversary []
     store <- openTargetStore target
     _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-cost" >>= either (fail . show) pure
+    lastApplied <- newIORef Nothing
     let members = 205
         plan registry candidate output = planInventoryCandidateWith (\_ _ -> registry) target candidate output
         registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
         planRegistry declared = planningRegistry cluster (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared])
-        applyFactory _ bundle = pure (either (error . show) id (registryFor (either (error . show) id (kubernetesSpecsFromReview bundle))))
+        applyFactory _ bundle = do
+          registry <- executionRegistry cluster bundle
+          registry <$ writeIORef lastApplied (Just registry)
         candidateOf declared = do
           before <- loadTargetSnapshot target
           pure (either (error . show) id (composeInventory before (ReplaceScope (scopeOf declared) :| [])))
@@ -231,6 +235,17 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
     let singleRegistry = either (fail . show) pure (registryFor (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- marker "second" : drop 1 initial]))
     _ <- collectCommandTrace (plan singleRegistry singleCandidate (root </> "sweep-single"))
     sweep <- measured "sweep" (marker "second" : drop 1 initial)
+    -- EP-227 M2: admission's epoch ended with the transaction's first call,
+    -- so the sweep's adapter reads a member changed since then afresh.
+    let memberKey name = ObjectKey "" "configmap" (Just "default") name
+        patchValue value = modifyServer cluster (either (error . show) id . fmap fst . patchJson "out-of-band" (memberKey "member-50") [Aeson.object ["op" Aeson..= ("replace" :: Text), "path" Aeson..= ("/data/key" :: Text), "value" Aeson..= value]])
+    patchValue ("after-admission" :: Text)
+    sweepAdapter <- readIORef lastApplied >>= maybe (fail "the sweep built no registry") (either (fail . T.unpack) pure . (`lookupAdapter` KubernetesExecutor))
+    afterAdmission <- adapterObserve sweepAdapter [fst (configMap 50 "value") ^. #identity] >>= either (fail . T.unpack) pure
+    case Map.elems (observationMap afterAdmission) of
+      [ObservedDrifted _ _] -> pure ()
+      other -> assertFailure ("a member changed after admission was not read afresh: " <> show other)
+    patchValue "value"
     single <- BS.readFile (root </> "sweep-single" </> "review.json")
     grouped <- BS.readFile (root </> "sweep" </> "review.json")
     assertBool "grouped and single reads planned different reviews" (single == grouped)
@@ -253,12 +268,13 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
     forM_ rows $ \(label, row) -> putStrLn (label <> ": " <> show row)
     rows
       -- EP-226 M2: a plan reads its members in two grouped reads (206 names
-      -- in chunks of 128) and answers every single read from them. Apply
-      -- still proves each validation with its own reads (EP-227).
+      -- in chunks of 128) and answers every single read from them. EP-227
+      -- M2: admission proves the validations from two more; only the
+      -- updates read alone.
       @?= [ ("unchanged", (Summary 0 0 0 0 0 0 208 2 0 206, emptySummary))
-          , ("sweep", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 414 414 1 0))
-          , ("one", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 414 414 1 0))
-          , ("four", (Summary 0 3 203 0 0 0 414 2 0 412, Summary 0 0 0 0 3 203 418 418 3 0))
+          , ("sweep", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 416 6 1 410))
+          , ("one", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 416 6 1 410))
+          , ("four", (Summary 0 3 203 0 0 0 414 2 0 412, Summary 0 0 0 0 3 203 420 14 3 406))
           ]
     -- Every executed operation is one root span labelled with its operation;
     -- validations are not operations.
@@ -399,7 +415,7 @@ sweepGrowth members unrelated = withSystemTempDirectory "transition-growth" $ \r
     _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-growth" >>= either (fail . show) pure
     let registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
         registryOf declared = planningRegistry cluster (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared])
-        applyFactory _ bundle = pure (either (error . show) id (registryFor (either (error . show) id (kubernetesSpecsFromReview bundle))))
+        applyFactory _ = executionRegistry cluster
         others =
           [ (scope, [configMapOf scope ("unrelated-" <> T.pack (show k)) "value" "fixture/Other.hs"])
           | k <- [1 .. unrelated]
@@ -470,14 +486,15 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     let members = 20 :: Int
         -- Planning a move reads each member twice, a settled replan once, all
         -- answered from two grouped reads (one per namespace); an apply
-        -- reads each alone and rereads what it updated.
+        -- proves its validations from grouped reads too and reads alone only
+        -- what it updates.
         reads = 2 * (members + 1)
         settled = members + 1
         platform = ok (Resource.mkScopeId Resource.Platform "cluster-fixture")
         workspace name = root </> "platform" </> name
         release name changed = [configMapOf platform ("member-" <> T.pack (show n)) (if n <= changed then "changed" else "value") (T.pack (workspace name </> "cluster/Config.hs")) | n <- [1 .. members]]
         registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
-        applyFactory _ bundle = pure (either (error . show) id (registryFor (either (error . show) id (kubernetesSpecsFromReview bundle))))
+        applyFactory _ = executionRegistry cluster
         compiled releaseId declared = do
           snapshot <- loadTargetSnapshot target
           let candidate = ok (composeInventory snapshot (ReplaceScope (scopeOwnedBy platform declared) :| []))
@@ -515,7 +532,7 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     -- A second review of the same move, planned from the same head, goes stale
     -- once the first applies.
     _ <- planned "stale" "0.11.1" (release "nagare-0.11.1-bbbb" 0)
-    apply "move" >>= (@?= Summary 0 0 0 0 1 members (reads + 2) (reads + 2) 1 0)
+    apply "move" >>= (@?= Summary 0 0 0 0 1 members (reads + 3) 5 1 (reads - 2))
     moved <- headNow
     Map.delete stampOwner (headAccepted moved) @?= Map.delete stampOwner accepted
     acceptedSources >>= assertBool "the accepted member scope lost its first workspace" . all ("nagare-0.11.0-aaaa" `T.isInfixOf`)
@@ -529,7 +546,7 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     (changedScopes, _, _) <- compiled "0.11.2" (release "nagare-0.11.2-dddd" 1)
     changedScopes @?= [platform]
     planned "one" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 2 (members - 1) 0 0 0 (reads + 2) 2 0 reads)
-    apply "one" >>= (@?= Summary 0 0 0 0 2 (members - 1) (reads + 4) (reads + 4) 2 0)
+    apply "one" >>= (@?= Summary 0 0 0 0 2 (members - 1) (reads + 5) 9 2 (reads - 4))
     planned "one-replan" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 0 0 0 0 0 (settled + 2) 2 0 settled)
   where
     stampOwner = ok (Resource.mkScopeId Resource.Platform "bootstrap-stamp")
@@ -552,4 +569,12 @@ fixtureCluster = Resource.mintResourceId (ok (Resource.mkScopeId Resource.Platfo
 planningRegistry :: Cluster -> Map.Map Resource.ResourceId (ManagedResource, ByteString) -> IO AdapterRegistry
 planningRegistry cluster specs = do
   adapter <- kubernetesPlanningAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs
+  either (fail . show) pure (mkAdapterRegistry [adapter])
+
+-- | An admitted review's registry as the CLI builds it (EP-227 M2): admission
+-- proves its validations from one grouped epoch.
+executionRegistry :: Cluster -> ReviewBundle -> IO AdapterRegistry
+executionRegistry cluster bundle = do
+  specs <- either (fail . T.unpack) pure (kubernetesSpecsFromReview bundle)
+  adapter <- kubernetesExecutionAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs (map reviewPlannedOperation (reviewValidations (reviewBundleDocument bundle)))
   either (fail . show) pure (mkAdapterRegistry [adapter])

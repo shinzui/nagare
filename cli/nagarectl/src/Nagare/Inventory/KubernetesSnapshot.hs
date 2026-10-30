@@ -25,6 +25,7 @@ module Nagare.Inventory.KubernetesSnapshot
   , newPhaseEpoch
   , beginPhase
   , phaseRuntime
+  , endPhase
   , snapshotAnswers
   , snapshotReads
   , chunkLimit
@@ -161,6 +162,10 @@ newPhaseEpoch = PhaseEpoch <$> newIORef Nothing
 -- | Replace the phase's epoch with one over these addresses.
 beginPhase :: KubernetesRuntimeConfig -> PhaseEpoch -> [ProviderAddress] -> IO ()
 beginPhase config (PhaseEpoch current) addresses = openObservationEpoch config addresses >>= writeIORef current . Just
+
+-- | End the phase: every later read goes to the cluster.
+endPhase :: PhaseEpoch -> IO ()
+endPhase (PhaseEpoch current) = writeIORef current Nothing
 
 phaseRuntime :: KubernetesRuntimeConfig -> PhaseEpoch -> KubernetesRuntimeConfig
 phaseRuntime config (PhaseEpoch current) = withKubectlInterpreter (runKubectlWith (answerFrom config (readIORef current))) config
