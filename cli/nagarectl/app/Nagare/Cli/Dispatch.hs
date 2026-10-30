@@ -103,11 +103,11 @@ import Nagare.Cli.Platform.Upgrade
 import Nagare.Contract.Sink (withContract, withReadContract)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Trace (withCommandTrace)
+import Nagare.Inventory.Trace (withCommandScope)
 
 -- | Trace a command (EP-212, EP-224), named by its constructor, never its arguments.
 dispatchTraced :: (Maybe String, Command) -> IO ()
-dispatchTraced selected@(_, command) = withCommandTrace (T.pack (takeWhile (/= ' ') (show command))) (dispatch selected)
+dispatchTraced selected@(_, command) = withCommandScope (T.pack (takeWhile (/= ' ') (show command))) (dispatch selected)
 
 dispatch :: (Maybe String, Command) -> IO ()
 dispatch (mctx, cmd0) = case cmd0 of

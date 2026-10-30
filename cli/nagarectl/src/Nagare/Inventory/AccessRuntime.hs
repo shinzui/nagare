@@ -35,10 +35,12 @@ import Data.Maybe (maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Traversable (for)
 import Nagare.Access.Grants (TupleWire, accessTuple, teamAccessTuple, teamMemberTuple)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Access
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.ClusterSession (sessionKubeconfigArguments)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan (ReviewBundle, ReviewDocument (reviewOperations), ReviewInventory, ReviewOperation (reviewPlannedOperation), reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions, reviewInventoryHistory)
@@ -300,27 +302,31 @@ kubectlReadOwner :: Text -> ManagedResource -> IO (Either Text Value)
 kubectlReadOwner kubectlContext resource = case resource ^. #address of
   Kubernetes _ group kind (Just namespace) name -> do
     let kindArg = nameText kind <> if T.null group then "" else "." <> group
-    result <-
+    bound <- sessionKubeconfigArguments kubectlContext
+    result <- for bound $ \connection ->
       traceProcess "kubectl" . try $
         ( readProcessWithExitCode
             "kubectl"
-            [ "--context"
-            , T.unpack kubectlContext
-            , "get"
-            , T.unpack kindArg
-            , T.unpack (nameText name)
-            , "-n"
-            , T.unpack (nameText namespace)
-            , "-o"
-            , "json"
-            , "--request-timeout=10s"
-            ]
+            ( connection
+                <> [ "--context"
+                   , T.unpack kubectlContext
+                   , "get"
+                   , T.unpack kindArg
+                   , T.unpack (nameText name)
+                   , "-n"
+                   , T.unpack (nameText namespace)
+                   , "-o"
+                   , "json"
+                   , "--request-timeout=10s"
+                   ]
+            )
             ""
         )
     pure $ case result of
-      Left (_ :: IOException) -> Left "access owner observation failed"
-      Right (ExitFailure _, _, _) -> Left "access owner observation refused"
-      Right (ExitSuccess, output, _) ->
+      Left reason -> Left reason
+      Right (Left (_ :: IOException)) -> Left "access owner observation failed"
+      Right (Right (ExitFailure _, _, _)) -> Left "access owner observation refused"
+      Right (Right (ExitSuccess, output, _)) ->
         first (const "malformed access owner observation") (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
   _ -> pure (Left "access dependency is not a namespaced Kubernetes object")
 
@@ -451,11 +457,12 @@ accessKeyRefusal credential bundle
 
 openEnForward :: Text -> IO (Handle, ProcessHandle)
 openEnForward kubectlContext = do
+  connection <- sessionKubeconfigArguments kubectlContext >>= either (fail . T.unpack) pure
   (_, output, _, process) <-
     createProcess
       ( proc
           "kubectl"
-          ["--context", T.unpack kubectlContext, "-n", "nagare-system", "port-forward", "svc/en", ":80", "--address", "127.0.0.1"]
+          (connection <> ["--context", T.unpack kubectlContext, "-n", "nagare-system", "port-forward", "svc/en", ":80", "--address", "127.0.0.1"])
       )
         { std_out = CreatePipe
         , std_err = NoStream

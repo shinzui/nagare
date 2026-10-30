@@ -196,6 +196,7 @@ library
     Nagare.Inventory.Cleanup
     Nagare.Inventory.Cloud
     Nagare.Inventory.CloudCollection
+    Nagare.Inventory.ClusterSession
     Nagare.Inventory.Collection.Adapter
     Nagare.Inventory.Collection.Authority
     Nagare.Inventory.Collection.Runtime
@@ -565,6 +566,7 @@ test-suite nagarectl-test
     AppDeployPhaseSpec
     AppDeploySpec
     CertificateMigrationSpec
+    ClusterSessionSpec
     ContextReviewSpec
     DataFenceSpec
     DomainBindingSpec

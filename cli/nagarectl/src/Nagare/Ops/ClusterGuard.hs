@@ -10,6 +10,7 @@ module Nagare.Ops.ClusterGuard
   , defaultClusterGuardOps
   , observeClusterGuard
   , parseServerNodes
+  , parseServerNodeIdentities
   , renderClusterGuard
   )
 where
@@ -136,7 +137,12 @@ renderClusterGuard inputs =
     <> renderNodes (inputs ^. #observedNodes)
 
 parseServerNodes :: ByteString -> Either Text [Text]
-parseServerNodes input = do
+parseServerNodes = fmap (map fst) . parseServerNodeIdentities
+
+-- | Each server node's name and UID (EP-226): a node replaced under the same
+-- name has another UID.
+parseServerNodeIdentities :: ByteString -> Either Text [(Text, Text)]
+parseServerNodeIdentities input = do
   root <- case Aeson.eitherDecodeStrict' input of
     Left err -> Left ("invalid JSON: " <> T.pack err)
     Right (Object object) -> Right object
@@ -150,8 +156,9 @@ parseServerNodes input = do
     parseNode (Object node) = do
       metadata <- objectAt "metadata" node
       name <- textAt "name" metadata
+      let uid = either (const "") id (textAt "uid" metadata)
       labels <- optionalObjectAt "labels" metadata
-      pure [name | any (`KeyMap.member` labels) serverRoleLabels]
+      pure [(name, uid) | any (`KeyMap.member` labels) serverRoleLabels]
     parseNode _ = Left "node-list contains a non-object item"
 
     serverRoleLabels =

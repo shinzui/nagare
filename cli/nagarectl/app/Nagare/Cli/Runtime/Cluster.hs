@@ -10,6 +10,7 @@ import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (readContextHostName)
 import Nagare.Inventory.AccessRuntime (EnTransport, prepareEnSession, withEnSession)
+import Nagare.Inventory.ClusterSession (commandClusterSession, defaultSessionOps, sessionGuard)
 import Nagare.Ops.ClusterGuard
   ( admitClusterGuard
   , defaultClusterGuardOps
@@ -21,17 +22,27 @@ import Nagare.Target
   , contextNameText
   )
 
+-- | The guard of a Kubernetes request for the active context. Inside a
+-- command it is the command's session (EP-226): one admission, renewed every
+-- 60 seconds, whose private kubeconfig every request then names. A local
+-- context's session binds that kubeconfig and guards no host.
 guardKubernetesContext :: ActiveTarget -> IO (Either Text Text)
 guardKubernetesContext active = case active ^. #profile . #mode of
-  Local -> pure (Right "cluster guard: local mode; no cloud cluster identity to confine")
+  Local ->
+    commandClusterSession defaultSessionOps contextText Nothing >>= \case
+      Nothing -> pure (Right "cluster guard: local mode; no cloud cluster identity to confine")
+      Just session -> fmap (const "cluster guard: local mode; no cloud cluster identity to confine") <$> either (pure . Left) sessionGuard session
   Cloud -> do
-    let context = active ^. #contextName
-        contextText = contextNameText context
     expectedNode <- readContextHostName context
     case expectedNode of
       Left err -> pure (Left err)
-      Right expected -> do
-        fmap renderClusterGuard <$> admitClusterGuard defaultClusterGuardOps contextText expected
+      Right expected ->
+        commandClusterSession defaultSessionOps contextText (Just expected) >>= \case
+          Nothing -> fmap renderClusterGuard <$> admitClusterGuard defaultClusterGuardOps contextText expected
+          Just session -> fmap (const ("cluster guard: Nagare context " <> contextText <> "; expected node " <> expected <> "; admitted by the command's session")) <$> either (pure . Left) sessionGuard session
+  where
+    context = active ^. #contextName
+    contextText = contextNameText context
 
 -- | The command's one en session for the active context (EP-214): one
 -- forward and one passing cluster guard, released when the command ends.

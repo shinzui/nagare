@@ -17,6 +17,7 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Artifact
+import Nagare.Inventory.ClusterSession (invalidateCommandClusterSessions)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Resource.Inventory (Executor (ArtifactExecutor))
@@ -59,10 +60,12 @@ mkArtifactAdapter specs ops =
     , adapterObserve = artifactObserveResources ops
     , adapterPrepare = prepare
     , adapterPreflight = preflight
-    , adapterExecute = executePlan
+    , -- EP-226: an activated host or a projected kubeconfig ends the command's
+      -- cluster sessions; the next request admits afresh.
+      adapterExecute = \operation prepared -> executePlan operation prepared <* invalidateCommandClusterSessions
     , adapterVerify = verifyPlan
     , adapterSettle = Nothing
-    , adapterRecover = recoverPlan
+    , adapterRecover = \operation prepared -> recoverPlan operation prepared <* invalidateCommandClusterSessions
     }
   where
     prepare operation = do

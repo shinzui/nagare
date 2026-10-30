@@ -24,6 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Helm
+import Nagare.Inventory.ClusterSession (sessionKubeconfigArguments)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Store.Counters (traceProcess)
@@ -86,7 +87,8 @@ observeGuarded config resource = case Map.lookup resource (helmDeclarations conf
   Just declaration -> case declaration ^. #address of
     Helm _ namespace release -> do
       status <-
-        run
+        runBound
+          config
           "helm"
           [ "status"
           , T.unpack (nameText release)
@@ -109,7 +111,8 @@ observeGuarded config resource = case Map.lookup resource (helmDeclarations conf
           Left (HelmStatusForeign reason) -> pure (HelmForeign reason)
           Right (revision, digest, deployed) -> do
             secret <-
-              run
+              runBound
+                config
                 "kubectl"
                 [ "--context"
                 , T.unpack (helmKubeContext config)
@@ -208,7 +211,8 @@ mutateRelease config mutation = do
                           , "--timeout"
                           , "10m"
                           ]
-                    run
+                    runBound
+                      config
                       "helm"
                       arguments
                       ( Just
@@ -236,7 +240,7 @@ mutateRelease config mutation = do
           chartBytes <- first (T.pack . show) <$> (try (BS.readFile (T.unpack chart)) :: IO (Either IOException ByteString))
           valuesBytes <- first (T.pack . show) <$> (try (BS.readFile (T.unpack values)) :: IO (Either IOException ByteString))
           version <- run "helm" ["version", "--short"] Nothing
-          kubernetes <- run "kubectl" ["--context", T.unpack (helmKubeContext config), "version", "-o", "json"] Nothing
+          kubernetes <- runBound config "kubectl" ["--context", T.unpack (helmKubeContext config), "version", "-o", "json"] Nothing
           pure $ do
             actualChart <- chartBytes
             actualValues <- valuesBytes
@@ -277,6 +281,14 @@ mutateRelease config mutation = do
             | otherwise -> Right (T.pack (takeDirectory (helmVerifyPlugin config) </> path))
             where
               path = T.unpack suffix
+
+-- | A program run against the configured cluster: inside a command session it
+-- also names the private kubeconfig the guard checked (EP-226).
+runBound :: HelmRuntimeConfig -> FilePath -> [String] -> Maybe [(String, String)] -> IO (Either Text (ExitCode, String, String))
+runBound config command arguments environment =
+  sessionKubeconfigArguments (helmKubeContext config) >>= \case
+    Left reason -> pure (Left reason)
+    Right connection -> run command (arguments <> connection) environment
 
 run :: FilePath -> [String] -> Maybe [(String, String)] -> IO (Either Text (ExitCode, String, String))
 run command arguments environment = do

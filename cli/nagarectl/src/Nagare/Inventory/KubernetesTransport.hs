@@ -35,6 +35,7 @@ import Effectful.Dispatch.Dynamic (interpret, send)
 import GHC.Clock (getMonotonicTimeNSec)
 import Nagare.Contract.Trace (CountCategory (..))
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.ClusterSession (kubectlConnectionArguments)
 import Nagare.Inventory.Store.Counters (traceCount, traceProcess)
 import Nagare.Resource.Types (ContextId)
 import System.Exit (ExitCode)
@@ -70,17 +71,21 @@ runKubectlWith handler program =
 
 runKubectlIO :: KubectlInterpreter
 runKubectlIO = runKubectlWith . countedTransport $ \request -> do
-  result <-
-    traceProcess "kubectl" . try $
-      readProcessWithExitCode
-        "kubectl"
-        ( ["--context", T.unpack (request ^. #context), "--request-timeout=10s"]
-            <> request ^. #arguments
-        )
-        (request ^. #input)
-  pure $ case result of
-    Left (_ :: IOException) -> Left "could not invoke kubectl"
-    Right output -> Right output
+  -- EP-226: inside a command session the request names the private
+  -- kubeconfig its guard checked, or is refused with the guard.
+  connection <- kubectlConnectionArguments (request ^. #context)
+  case connection of
+    Left reason -> pure (Left reason)
+    Right selected -> do
+      result <-
+        traceProcess "kubectl" . try $
+          readProcessWithExitCode
+            "kubectl"
+            (selected <> ["--request-timeout=10s"] <> request ^. #arguments)
+            (request ^. #input)
+      pure $ case result of
+        Left (_ :: IOException) -> Left "could not invoke kubectl"
+        Right output -> Right output
 
 -- Keep the existing constructor and callers. Only explicit dependency
 -- injection selects another interpreter; no environment variable enables it.

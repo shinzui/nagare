@@ -6,6 +6,7 @@ module Nagare.Test.Cluster
   )
 where
 
+import ClusterSessionSpec (clusterSessionTests)
 import Control.Monad (forM_)
 import Data.Aeson (eitherDecodeStrict)
 import Data.Aeson qualified as Aeson
@@ -60,7 +61,8 @@ clusterGuardTests :: TestTree
 clusterGuardTests =
   testGroup
     "Nagare.Ops.ClusterGuard (EP-134)"
-    [ testCase "matching context and sole server node are accepted" $ do
+    [ clusterSessionTests
+    , testCase "matching context and sole server node are accepted" $ do
         clusterGuardVerdict (inputs "labs" ["labs-nagare"]) @?= Right ()
         assertBool "success evidence names every identity" $
           all (`T.isInfixOf` renderClusterGuard (inputs "labs" ["labs-nagare"])) ["labs", "labs-nagare"]
