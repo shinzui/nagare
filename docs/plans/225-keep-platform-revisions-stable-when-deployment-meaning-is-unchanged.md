@@ -23,6 +23,11 @@ provenance:
       at: 2026-10-29T19:47:52Z
       mode: "implement"
       note: "M1 typed deployment meaning; M2 admission validations replace bootstrap verifies"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-30T00:18:20Z
+      mode: "implement"
+      note: "M3 moved-workspace production replan, ProvenanceOnly table rows; plan complete"
 ---
 
 # Keep platform revisions stable when deployment meaning is unchanged
@@ -70,12 +75,20 @@ equality does not prove that the live cluster is healthy.
   unpublished. A review without validations encodes byte-for-byte as before; v0.11.1's decoder
   (`git show v0.11.1:cli/nagarectl/src/Nagare/Inventory/Plan/Types.hs`, line 505) refuses the
   new field as unknown, so an old writer cannot apply a new review.
-- [ ] M3: Previous-release review compatibility and the transition producer/consumer fixture
+- [x] M3: Previous-release review compatibility and the transition producer/consumer fixture
   pass, including one changed member, preserved scope vectors and final stamp dependencies.
-  Partial, 2026-10-29: a swept marker replans to nothing (`2e0ea59f`); drift, deletion and
-  replacement after the plan refuse admission; the disposable v0.11.0 → `842cd70c` rehearsal
-  passed. Remaining: the moved-workspace platform replan and the transition table's wording for
-  retained revisions.
+  Pass, 2026-10-29, `b611127d` (fast gate green): `-p "moved workspace"` composes releases as
+  the platform builder does (filter now `Bootstrap.changedPlatformScopes`) with the first
+  workspace deleted. The move selects only the stamp: 1 update, 20 validations, 0 verifies; the
+  apply executes 1 update and 20 validations, member scope revisions and accepted bytes are
+  unchanged, and a second review of the same move refuses as `stale-head`/`stale-base` with the
+  head generation unchanged. Replans from the same and a third workspace plan nothing. One
+  changed member plans its update and the stamp's with 19 validations, then replans to nothing.
+  Earlier: a swept marker replans to nothing (`2e0ea59f`); drift, deletion and replacement after
+  the plan refuse admission; v0.11.1 refuses the `validations` field (M2); the disposable
+  v0.11.0 → `842cd70c` rehearsal passed. The transition table now has `ProvenanceOnly` (revision
+  kept) beside `SourcePathsOnly` (re-accepted); the v0.4.0 fixture shows every former
+  source-path scope except `local-substrate` is provenance-only (`-p "transition table"`).
 
 
 ## Surprises & Discoveries
@@ -112,12 +125,21 @@ cannot remove this global verification work.
   `kubeconfig-prepared-v1` and `local-substrate-v1` (an artifact executor opens that file). An
   artifact scope whose input moved is therefore still re-accepted. The local substrate keeps
   re-accepting on any source-only difference so its new input path replaces the old one.
+- 2026-10-29: M3's unready, missing-bytes and unfulfilled-operation faults are not given new
+  fixtures. A validation runs the adapter's own `adapterVerify`, whose readiness judgement the
+  Kubernetes readiness suite covers; a saved review's native blob is digest-checked on load
+  ("review native member digest mismatch"); declared operations keep the existing
+  `provenOperations` rule. No path specific to validations exists to test separately.
 
 
 ## Outcomes & Retrospective
 
 
-Planning only; no revision behavior has changed.
+A platform release whose deployment meaning is unchanged now keeps every accepted scope revision
+and bytes, selects only its stamp, and proves the stamp's members at admission instead of
+journaling a verify per member (205 on the intranet). A changed member costs its own update and
+the stamp's. The proofs are still one serial adapter read pair per member; EP-227 batches them
+over EP-226's observation epochs. Durable context is in ADR 22's 2026-10-29 amendment.
 
 
 ## Context and Orientation

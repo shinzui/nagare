@@ -1946,3 +1946,12 @@ candidate/intranet/rehearsal path removes its embedded and transitively used tra
 Python; shell remains process glue. Completion requires unchanged and changed rollout budgets,
 growth and interruption tests, and native measurements bound to the exact candidate. A trace
 dashboard, a faster synthetic fixture, or a recorded performance blocker is not completion.
+
+Implemented by [EP-225](../plans/225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md)
+(2026-10-29): `Nagare.Resource.DeploymentMeaning` version 1 compares the canonical scope bytes with
+diagnostic source locations replaced. A source code reads as data stays significant (`generated:`,
+`packaged:`, `contribution`, and the artifact inputs `oci-archive-v1`, `kubeconfig-prepared-v1`,
+`local-substrate-v1`), so the local substrate is still re-accepted when its input moves. The
+platform builder drops equivalent scopes (`changedPlatformScopes`), keeping their revisions. The
+stamp's fresh validation is the review's `validations` list, proved serially at admission by each
+adapter's own preflight and verification and never journaled; v0.11.1 refuses the field.
