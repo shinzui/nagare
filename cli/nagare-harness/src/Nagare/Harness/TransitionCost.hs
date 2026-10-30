@@ -159,7 +159,8 @@ fromIndex base index = do
             , kubernetesReuse = over CategoryKubernetesReuse
             , storeRequests = over CategoryWire
             , processes = over CategoryProcess
-            , guardAdmissions = over CategoryGuard
+            , -- A session's reuse is not an admission (EP-226).
+              guardAdmissions = sum [n | document <- loaded, (name, n) <- countsIn CategoryGuard document, name `elem` ["admitted", "renewed", "refused"]]
             , uncoveredSeconds = sum [nanoSeconds (uncoveredNanos document) | document <- loaded]
             }
         , absent
