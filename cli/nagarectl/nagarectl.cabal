@@ -352,8 +352,10 @@ library
     Nagare.Server.Image
     Nagare.Static.Build
     Nagare.Static.Checkout
+    Nagare.Static.ContentDigest
     Nagare.Static.Deploy
     Nagare.Static.Image
+    Nagare.Static.Package
     Nagare.Static.Preview
     Nagare.Static.Release
     Nagare.Static.Webhook
@@ -439,6 +441,7 @@ executable nagarectl
     Nagare.Cli.Commands.Release
     Nagare.Cli.Commands.Site
     Nagare.Cli.Commands.SiteList
+    Nagare.Cli.Commands.SitePackage
     Nagare.Cli.Commands.Storage
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Transition
@@ -475,6 +478,7 @@ executable nagarectl
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase
+    Nagare.Cli.Options.Site
     Nagare.Cli.Parser
     Nagare.Cli.Parser.Access
     Nagare.Cli.Parser.AppDatabase

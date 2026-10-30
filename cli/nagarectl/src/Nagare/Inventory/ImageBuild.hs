@@ -3,13 +3,15 @@
 module Nagare.Inventory.ImageBuild
   ( buildDockerArchive
   , buildDockerArchiveWith
+  , CachePolicy (..)
+  , cachePolicyFor
   , dockerBuildArguments
   , validateSecretMounts
   )
 where
 
-import Control.Exception (IOException, try)
-import Control.Monad (unless)
+import Control.Exception (IOException, finally, try)
+import Control.Monad (unless, when)
 import Data.ByteString qualified as BS
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -19,9 +21,11 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import System.Directory (doesPathExist, removeFile)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
-import System.IO.Temp (withSystemTempDirectory)
-import System.Posix.Files (setFileMode)
+import System.FilePath (takeDirectory, (</>))
+import System.IO (hClose)
+import System.IO.Error (isAlreadyExistsError, tryIOError)
+import System.IO.Temp (openTempFile, withSystemTempDirectory)
+import System.Posix.Files (createLink, setFileMode)
 import System.Process (createProcess, proc, waitForProcess)
 
 -- | Keep the supported secret contract narrow: each secret key must be named
@@ -67,6 +71,18 @@ validKey value = case T.uncons value of
   where
     asciiLetter c = ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z')
 
+-- | Whether BuildKit may reuse its layer cache. A build with Build Secrets
+-- must re-execute every secret-mounting instruction so each run sees the
+-- accepted values; a secret-free build (static site packaging) keeps the
+-- ordinary cache so an unchanged context rebuilds nothing.
+data CachePolicy = FreshLayers | LayerCache
+  deriving stock (Eq, Show)
+
+cachePolicyFor :: Map Text FilePath -> CachePolicy
+cachePolicyFor secretFiles
+  | Map.null secretFiles = LayerCache
+  | otherwise = FreshLayers
+
 dockerBuildArguments ::
   Text ->
   Text ->
@@ -86,14 +102,15 @@ dockerBuildArguments platform destination dockerfile context buildArgs secretFil
     [ "buildx"
     , "build"
     , "--load"
-    , "--no-cache"
-    , "--platform"
-    , T.unpack platform
-    , "-f"
-    , dockerfile
-    , "-t"
-    , T.unpack destination
     ]
+      <> ["--no-cache" | cachePolicyFor secretFiles == FreshLayers]
+      <> [ "--platform"
+         , T.unpack platform
+         , "-f"
+         , dockerfile
+         , "-t"
+         , T.unpack destination
+         ]
       <> concatMap
         (\(key, value) -> ["--build-arg", T.unpack (key <> "=" <> value)])
         (Map.toAscList buildArgs)
@@ -161,22 +178,35 @@ buildDockerArchiveWith run platform destination dockerfile context archive build
                 built <- run args
                 if not built
                   then pure (Left "Docker BuildKit build failed")
-                  else do
-                    saved <-
-                      run
-                        [ "image"
-                        , "save"
-                        , "--output"
-                        , archive
-                        , T.unpack destination
-                        ]
-                    if saved
-                      then pure (Right ())
-                      else do
-                        partial <- doesPathExist archive
-                        if partial then removeFile archive else pure ()
-                        pure (Left "Docker image save failed")
+                  else saveArchive run destination archive
   pure (either (Left . T.pack . show) id (result :: Either IOException (Either Text ())))
+
+-- | Save to a unique sibling staging file, then publish it with no-clobber
+-- semantics: a hard link fails when the final path appeared meanwhile, so a
+-- concurrent attempt or an existing file is never overwritten. The staging
+-- file is removed on every exit path; the final file is only ever created.
+saveArchive :: ([String] -> IO Bool) -> Text -> FilePath -> IO (Either Text ())
+saveArchive run destination archive = do
+  -- openTempFile reserves a collision-free sibling name; Docker recreates it.
+  (staging, handle) <- openTempFile (takeDirectory archive) "nagare-archive.partial"
+  hClose handle
+  removeFile staging
+  let cleanup = do
+        partial <- doesPathExist staging
+        when partial (removeFile staging)
+  ( do
+      saved <- run ["image", "save", "--output", staging, T.unpack destination]
+      if not saved
+        then pure (Left "Docker image save failed")
+        else do
+          linked <- tryIOError (createLink staging archive)
+          pure $ case linked of
+            Right () -> Right ()
+            Left e
+              | isAlreadyExistsError e -> Left "Docker archive path already exists"
+              | otherwise -> Left (T.pack (show e))
+    )
+    `finally` cleanup
 
 runDocker :: [String] -> IO Bool
 runDocker args = do

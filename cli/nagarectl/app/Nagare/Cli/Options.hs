@@ -1,6 +1,12 @@
 -- | Options. Executable-private CLI boundary.
 module Nagare.Cli.Options
   ( AccessCheckOpts (..)
+  , SiteCommonOpts (..)
+  , SiteDeployOpts (..)
+  , SiteListOpts (..)
+  , SitePackageOpts (..)
+  , SitePreviewDeleteOpts (..)
+  , SiteRollbackOpts (..)
   , AccessCommand (..)
   , AccessGrantOpts (..)
   , AccessListOpts (..)
@@ -62,11 +68,6 @@ module Nagare.Cli.Options
   , ScopeSelection (..)
   , SecretCommand (..)
   , ServerStatusOpts (..)
-  , SiteCommonOpts (..)
-  , SiteListOpts (..)
-  , SiteDeployOpts (..)
-  , SitePreviewDeleteOpts (..)
-  , SiteRollbackOpts (..)
   , StandaloneRetireOpts (..)
   , StorageCommand (..)
   , StoreCommonOpts (..)
@@ -95,6 +96,14 @@ import Nagare.Cli.Options.Access
   , TeamMemberOpts (..)
   )
 import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
+import Nagare.Cli.Options.Site
+  ( SiteCommonOpts (..)
+  , SiteDeployOpts (..)
+  , SiteListOpts (..)
+  , SitePackageOpts (..)
+  , SitePreviewDeleteOpts (..)
+  , SiteRollbackOpts (..)
+  )
 import Nagare.Dsl.Broker (BrokerProvider)
 import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
@@ -198,67 +207,6 @@ data WorkerDeleteOpts = WorkerDeleteOpts
   , namespace :: !(Maybe String)
   , savePlan :: !FilePath
   , scopeKey :: !(Maybe String)
-  }
-  deriving stock (Generic, Show)
-
--- | Options for @site deploy@ (and, with a @--name@, @site preview deploy@).
-data SiteDeployOpts = SiteDeployOpts
-  { file :: !FilePath
-  , tag :: !(Maybe String)
-  , baseDomain :: !(Maybe String)
-  , projectDir :: !FilePath
-  , ghcEnv :: !(Maybe FilePath)
-  , dryRun :: !Bool
-  , skipBuild :: !Bool
-  , source :: !(Maybe String)
-  -- ^ Free-form provenance recorded with the release (e.g. a git SHA or branch).
-  , savePlan :: !(Maybe FilePath)
-  , imageResource :: !(Maybe String)
-  , cdnBackendResource :: !(Maybe String)
-  , siteVolumeRecovery :: ![String]
-  , siteEnvSecretResources :: ![String]
-  , siteTlsSecretResources :: ![String]
-  , sitePreviewEnvResources :: ![String]
-  , sitePreviewAdoptionInput :: !(Maybe FilePath)
-  , legacyReleaseImport :: !(Maybe FilePath)
-  , releaseAdoptionInput :: !(Maybe FilePath)
-  }
-  deriving stock (Generic, Show)
-
--- | Options for the read-only / config-only site subcommands (@releases@,
--- @rollback@, @preview list@, @preview delete@): enough to load the config and
--- resolve the base domain.
-data SiteCommonOpts = SiteCommonOpts
-  { file :: !FilePath
-  , baseDomain :: !(Maybe String)
-  , ghcEnv :: !(Maybe FilePath)
-  }
-  deriving stock (Generic, Show)
-
--- | @site list@: the active context's recorded sites, from its inventory
--- store only (EP-193).
-data SiteListOpts = SiteListOpts
-  { namespace :: !(Maybe String)
-  , includePreviews :: !Bool
-  , json :: !Bool
-  , contract :: !(Maybe Int)
-  }
-  deriving stock (Generic, Show)
-
-data SiteRollbackOpts = SiteRollbackOpts
-  { common :: !SiteCommonOpts
-  , savePlan :: !(Maybe FilePath)
-  , imageResource :: !(Maybe String)
-  , cdnBackendResource :: !(Maybe String)
-  , siteVolumeRecovery :: ![String]
-  , siteEnvSecretResources :: ![String]
-  , siteTlsSecretResources :: ![String]
-  }
-  deriving stock (Generic, Show)
-
-data SitePreviewDeleteOpts = SitePreviewDeleteOpts
-  { common :: !SiteCommonOpts
-  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -382,6 +330,7 @@ data Command
   | Cluster ClusterCommand
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
+  | SitePackage SitePackageOpts
   | SiteReleases SiteCommonOpts
   | SiteList SiteListOpts
   | SiteRollback SiteRollbackOpts String

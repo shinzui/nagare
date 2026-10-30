@@ -54,4 +54,31 @@ if runghc -XGHC2024 -i"$PWD/nagare" "$PWD/nagare/PrivateConstructor.hs" \
 fi
 grep -q 'ServiceName' constructor-error
 grep -q 'Illegal term-level use of the type constructor' constructor-error
+# EP-222: package a protected static site from an unrelated directory with no
+# provider reachable. Each provider tool is a shim that records its call and
+# fails, so any use is caught; the context must match the generators and the tree.
+mkdir -p ../package/nagare ../package/shims
+cp "$src/cluster/examples/protected-static-site/nagare/Config.hs" ../package/nagare/Config.hs
+cp -R "$src/cluster/examples/protected-static-site/public" ../package/public
+cd ../package
+for tool in docker kubectl gcloud skopeo; do
+  printf '#!/bin/sh\necho "%s $*" >> "%s/provider-calls"\nexit 97\n' "$tool" "$PWD" > "shims/$tool"
+  chmod +x "shims/$tool"
+done
+PATH="$PWD/shims:$PATH" nagarectl site package --file "$PWD/nagare/Config.hs" --context-out "$PWD/context" > package-output
+grep -q '^content-digest: sha256:' package-output
+test -f context/Dockerfile
+grep -q 'COPY site/ /usr/share/nginx/html/' context/Dockerfile
+grep -q 'listen 8080' context/nginx.conf
+diff -r public context/site
+if test -e provider-calls; then
+  echo "site package reached a provider:" >&2
+  cat provider-calls >&2
+  exit 1
+fi
+if PATH="$PWD/shims:$PATH" nagarectl site package --file "$PWD/nagare/Config.hs" --context-out "$PWD/context" 2> existing-error; then
+  echo "site package replaced an existing context" >&2
+  exit 1
+fi
+grep -q 'already exists' existing-error
 touch "$out"

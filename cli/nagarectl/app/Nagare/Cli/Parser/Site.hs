@@ -9,6 +9,7 @@ import Nagare.Cli.Options
   , SiteCommonOpts (..)
   , SiteDeployOpts (..)
   , SiteListOpts (..)
+  , SitePackageOpts (..)
   , SitePreviewDeleteOpts (..)
   , SiteRollbackOpts (..)
   )
@@ -84,6 +85,30 @@ siteDeployOptsParser defaultFile =
     <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy site release ConfigMap JSON for exact adoption"))
     <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal"))
 
+siteProjectDirOpt :: Parser FilePath
+siteProjectDirOpt =
+  strOption
+    ( long "project-dir"
+        <> short 'C'
+        <> metavar "DIR"
+        <> value "."
+        <> showDefault
+        <> help "Project root: where the build runs and the output directory is resolved"
+    )
+
+sitePackageOptsParser :: FilePath -> Parser SitePackageOpts
+sitePackageOptsParser defaultFile =
+  SitePackageOpts
+    <$> fileOpt defaultFile
+    <*> siteProjectDirOpt
+    <*> ghcEnvOpt
+    <*> optional (strOption (long "output-dir" <> metavar "DIR" <> help "Package this directory instead of the configured output (relative to --project-dir)"))
+    <*> switch (long "build" <> help "Run the configured frontend build command first; by default the existing output is packaged as-is")
+    <*> optional (strOption (long "context-out" <> metavar "DIR" <> help "Write the Docker build context (Dockerfile, nginx.conf, site/) to this new directory"))
+    <*> optional (strOption (long "archive" <> metavar "FILE" <> help "Build a Docker archive at this new path, for image-plan or app image publication"))
+    <*> tagOpt
+    <*> optional (strOption (long "platform" <> metavar "PLATFORM" <> help "Archive platform: linux/amd64 or linux/arm64 (default: the active context's platform)"))
+
 siteCommonOptsParser :: FilePath -> Parser SiteCommonOpts
 siteCommonOptsParser defaultFile =
   SiteCommonOpts <$> fileOpt defaultFile <*> baseDomainOpt <*> ghcEnvOpt
@@ -124,6 +149,7 @@ siteSubparser :: Parser Command
 siteSubparser =
   subparser
     ( command "deploy" siteDeployCmd
+        <> command "package" sitePackageCmd
         <> command "releases" siteReleasesCmd
         <> command "list" siteListCmd
         <> command "rollback" siteRollbackCmd
@@ -135,6 +161,12 @@ siteDeployCmd =
   info
     (SiteDeploy <$> siteDeployOptsParser defaultConfigFile <**> helper)
     (fullDesc <> progDesc "Deploy or inspect a reviewed static or server site using an accepted image")
+
+sitePackageCmd :: ParserInfo Command
+sitePackageCmd =
+  info
+    (SitePackage <$> sitePackageOptsParser defaultConfigFile <**> helper)
+    (fullDesc <> progDesc "Package a static site's output as a local build context or Docker archive; reads local files only")
 
 siteReleasesCmd :: ParserInfo Command
 siteReleasesCmd =

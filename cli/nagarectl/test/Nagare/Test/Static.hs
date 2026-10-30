@@ -1,17 +1,20 @@
 -- | Static responsibilities; internal implementation behind Nagare.Test.
 module Nagare.Test.Static
-  ( dockerfileTests
-  , prepareTests
+  ( prepareTests
   , previewTests
   , releaseTests
+  , staticImageTests
   )
 where
 
 import Data.Aeson (eitherDecodeStrict, encode)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.IORef (modifyIORef, newIORef, readIORef)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Dsl.Static.Render (renderNginxConfig)
 import Nagare.Static.Build
   ( PreparedStaticOutput (PreparedStaticOutput)
   , StaticBuildError
@@ -21,7 +24,14 @@ import Nagare.Static.Build
     )
   , prepareStaticOutput
   )
+import Nagare.Static.ContentDigest (digestContextTree)
 import Nagare.Static.Image (staticDockerfile)
+import Nagare.Static.Package
+  ( PackageError (..)
+  , PackageResult (..)
+  , PackageTarget (..)
+  , packageStaticSiteWith
+  )
 import Nagare.Static.Preview
   ( normalizePreviewName
   , previewDomain
@@ -44,11 +54,12 @@ import Nagare.Test.Support.Assertions
   )
 import Nagare.Test.Support.Release (release, t1, t2, t3, tAt)
 import Nagare.Test.Support.Site (buildSite, noBuildSite)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesPathExist, listDirectory)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
-import Test.Tasty (TestTree)
+import System.Posix.Files (createSymbolicLink, setFileMode)
+import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
   ( assertBool
   , assertFailure
@@ -58,6 +69,13 @@ import Test.Tasty.HUnit
 
 -- ---------------------------------------------------------------------------
 -- Dockerfile
+
+-- | The Dockerfile tests, with the packaging tests as their own named group.
+staticImageTests :: TestTree
+staticImageTests =
+  testGroup
+    "Nagare.Static.Image"
+    (dockerfileTests <> [testGroup "Nagare.Static.Package" packageTests])
 
 dockerfileTests :: [TestTree]
 dockerfileTests =
@@ -192,3 +210,128 @@ previewTests =
       previewDomain "notes" "feature-x" "apps.example.com"
         @?= Right "feature-x.notes.preview.apps.example.com"
   ]
+
+-- ---------------------------------------------------------------------------
+-- Packaging
+
+-- | A prepared output with spaces, nesting and a dotfile.
+withExample :: (FilePath -> PreparedStaticOutput -> IO a) -> IO a
+withExample action = withSystemTempDirectory "nagare-package" $ \root -> do
+  let out = root </> "public"
+  createDirectoryIfMissing True (out </> "docs" </> "a b")
+  BS.writeFile (out </> "index.html") "<h1>one</h1>"
+  BS.writeFile (out </> ".well-known") "dot"
+  BS.writeFile (out </> "docs" </> "a b" </> "page 2.html") "nested"
+  action root (PreparedStaticOutput out)
+
+archiveTarget :: FilePath -> PackageTarget
+archiveTarget path = archiveTargetWith path "v1" "linux/arm64"
+
+archiveTargetWith :: FilePath -> Text -> Text -> PackageTarget
+archiveTargetWith path t p =
+  ArchiveOut
+    { archive = path
+    , destination = "registry.example/notes:v1"
+    , tag = t
+    , platform = p
+    }
+
+packageTests :: [TestTree]
+packageTests =
+  [ testCase "context output matches the generators and the copied tree byte for byte" $
+      withExample $ \root prepared -> do
+        let site = noBuildSite "public"
+            dest = root </> "out" </> "ctx"
+        result <- packageStaticSiteWith (\_ -> pure True) site prepared (ContextOut dest)
+        digest' <- either (assertFailure . show) (pure . (^. #digest)) result
+        BS.readFile (dest </> "Dockerfile") >>= (@?= staticDockerfile)
+        BS.readFile (dest </> "nginx.conf") >>= (@?= renderNginxConfig site)
+        BS.readFile (dest </> "site" </> "index.html") >>= (@?= "<h1>one</h1>")
+        BS.readFile (dest </> "site" </> ".well-known") >>= (@?= "dot")
+        BS.readFile (dest </> "site" </> "docs" </> "a b" </> "page 2.html") >>= (@?= "nested")
+        digestContextTree dest >>= (@?= digest')
+  , testCase "content digest is stable, and one changed byte or mode changes it" $
+      withExample $ \root prepared -> do
+        let site = noBuildSite "public"
+            digestOf name = do
+              r <- packageStaticSiteWith (\_ -> pure True) site prepared (ContextOut (root </> name))
+              either (assertFailure . show) (pure . (^. #digest)) r
+        a <- digestOf "a"
+        b <- digestOf "b"
+        a @?= b
+        BS.writeFile (root </> "public" </> "index.html") "<h1>two</h1>"
+        c <- digestOf "c"
+        assertBool "changed byte kept the digest" (a /= c)
+        setFileMode (root </> "public" </> "index.html") 0o755
+        d <- digestOf "d"
+        assertBool "changed mode kept the digest" (c /= d)
+  , testCase "a symlink is refused naming the path and leaves no destination" $
+      withExample $ \root prepared -> do
+        createSymbolicLink "index.html" (root </> "public" </> "link.html")
+        let dest = root </> "ctx"
+        result <- packageStaticSiteWith (\_ -> pure True) (noBuildSite "public") prepared (ContextOut dest)
+        case result of
+          Left (PackageContext _) -> pure ()
+          other -> assertFailure ("expected a refused symlink, got: " <> show other)
+        doesPathExist dest >>= (@?= False)
+        leftovers <- listDirectory root
+        assertBool "staging directory left behind" (all (not . ("." `isPrefixOf'`)) leftovers)
+  , testCase "an existing destination and a destination inside the source are refused" $
+      withExample $ \root prepared -> do
+        createDirectoryIfMissing True (root </> "taken")
+        taken <- packageStaticSiteWith (\_ -> pure True) (noBuildSite "public") prepared (ContextOut (root </> "taken"))
+        either (const (pure ())) (const (assertFailure "existing destination was replaced")) taken
+        inside <- packageStaticSiteWith (\_ -> pure True) (noBuildSite "public") prepared (ContextOut (root </> "public" </> "ctx"))
+        either (const (pure ())) (const (assertFailure "destination inside the source was accepted")) inside
+  , testCase "archive build uses the layer cache on the requested platform" $
+      withExample $ \root prepared -> do
+        calls <- newIORef []
+        let fake args = do
+              modifyIORef calls (args :)
+              case args of
+                ["image", "save", "--output", out, _] -> BS.writeFile out "fake-archive"
+                _ -> pure ()
+              pure True
+            archivePath = root </> "artifacts" </> "site.tar"
+        result <- packageStaticSiteWith fake (noBuildSite "public") prepared (archiveTarget archivePath)
+        case result of
+          Right r -> do
+            r ^. #tag @?= Just "v1"
+            r ^. #platform @?= Just "linux/arm64"
+          Left e -> assertFailure (show e)
+        BS.readFile archivePath >>= (@?= "fake-archive")
+        recorded <- reverse <$> readIORef calls
+        case recorded of
+          (build : _) -> do
+            assertBool "static build disabled the layer cache" ("--no-cache" `notElem` build)
+            assertBool "platform missing" (["--platform", "linux/arm64"] `isInfixOf'` build)
+          [] -> assertFailure "docker was never called"
+        leftovers <- listDirectory (root </> "artifacts")
+        leftovers @?= ["site.tar"]
+  , testCase "invalid tag, unsupported platform and existing archive stop before Docker" $
+      withExample $ \root prepared -> do
+        calls <- newIORef (0 :: Int)
+        let fake _ = modifyIORef calls (+ 1) >> pure True
+            go target = packageStaticSiteWith fake (noBuildSite "public") prepared target
+        badTag <- go (archiveTargetWith (root </> "a.tar") "-bad" "linux/arm64")
+        either (const (pure ())) (const (assertFailure "bad tag accepted")) badTag
+        badPlatform <- go (archiveTargetWith (root </> "b.tar") "v1" "linux/riscv64")
+        either (const (pure ())) (const (assertFailure "bad platform accepted")) badPlatform
+        BS.writeFile (root </> "c.tar") "keep"
+        existing <- go (archiveTarget (root </> "c.tar"))
+        existing @?= Left (PackageArchiveExists (root </> "c.tar"))
+        BS.readFile (root </> "c.tar") >>= (@?= "keep")
+        readIORef calls >>= (@?= 0)
+  , testCase "a failed save leaves no partial archive and keeps a pre-existing one" $
+      withExample $ \root prepared -> do
+        let failingSave args = case args of
+              ["image", "save", "--output", out, _] -> BS.writeFile out "half" >> pure False
+              _ -> pure True
+            archivePath = root </> "site.tar"
+        result <- packageStaticSiteWith failingSave (noBuildSite "public") prepared (archiveTarget archivePath)
+        either (const (pure ())) (const (assertFailure "failed save reported success")) result
+        listDirectory root >>= \names -> assertBool "partial artifact left" (all (`notElem` ["site.tar"]) names && not (any (".partial" `isInfixOf'`) names))
+  ]
+  where
+    isPrefixOf' p s = take (length p) s == p
+    isInfixOf' needle hay = any (\i -> take (length needle) (drop i hay) == needle) [0 .. length hay]

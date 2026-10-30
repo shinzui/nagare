@@ -69,6 +69,7 @@ import Nagare.Cli.Commands.Site
   , runSiteRollback
   )
 import Nagare.Cli.Commands.SiteList (runSiteList)
+import Nagare.Cli.Commands.SitePackage (runSitePackage)
 import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
 import Nagare.Cli.Commands.Transition (runPlatformTransitionCommit, runPlatformTransitionPlan)
@@ -90,10 +91,7 @@ import Nagare.Cli.Inventory.Workflow
   , runInventoryResume
   , runInventoryRetire
   )
-import Nagare.Cli.Options
-  ( Command (..)
-  , InfraCommand (..)
-  )
+import Nagare.Cli.Options (Command (..), InfraCommand (..))
 import Nagare.Cli.Platform.Upgrade
   ( runPlatformUpgrade
   , runPlatformUpgradeRecoverPulumi
@@ -134,6 +132,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Cluster ccmd -> runCluster mctx ccmd
   Deploy dopts -> runDeploy mctx dopts
   SiteDeploy sopts -> runSiteDeploy mctx sopts
+  SitePackage popts -> runSitePackage mctx popts
   SiteReleases copts -> runSiteReleases copts
   SiteList lopts -> withReadContract (lopts ^. #contract) (runSiteList mctx lopts)
   SiteRollback copts rid -> runSiteRollback mctx copts (T.pack rid)

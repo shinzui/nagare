@@ -114,6 +114,11 @@ inventoryArtifactTests =
         assertBool
           "BuildKit secret file was not mounted"
           ("type=file,id=TOKEN,src=/private/0" `elem` args)
+        assertBool "secret build must re-execute every instruction" ("--no-cache" `elem` args)
+        staticArgs <-
+          expectRight
+            (dockerBuildArguments "linux/amd64" "registry.example/site:v1" "Dockerfile" "." Map.empty Map.empty)
+        assertBool "secret-free build must keep the layer cache" ("--no-cache" `notElem` staticArgs)
         case dockerBuildArguments
           "linux/amd64"
           "registry.example/app:v1"

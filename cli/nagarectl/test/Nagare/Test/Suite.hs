@@ -129,7 +129,7 @@ import Nagare.Test.Pulumi (pulumiBackendBootstrapTests)
 import Nagare.Test.Server (serverBuildTests)
 import Nagare.Test.Shards (runSharded)
 import Nagare.Test.SiteInventory (staticInventoryTests)
-import Nagare.Test.Static (dockerfileTests, prepareTests, previewTests, releaseTests)
+import Nagare.Test.Static (prepareTests, previewTests, releaseTests, staticImageTests)
 import Nagare.Test.Storage (storageDiscoverTests, storageSnapshotTests, volumeArchiveTests)
 import Nagare.Test.Task (taskDiscoverTests, taskResolveTests, taskRunTests)
 import Nagare.Test.Version (versionTests)
@@ -172,7 +172,7 @@ main = do
         localOption (NumThreads 1) $
           testGroup "nagarectl" $
             [ inventoryAccessTests
-            , testGroup "Nagare.Static.Image" dockerfileTests
+            , staticImageTests
             , hostTests
             , inventoryArtifactTests
             , inventoryCacheTests
