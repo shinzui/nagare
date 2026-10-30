@@ -5,8 +5,10 @@ module Nagare.Cli.Commands.Inventory.Status
   )
 where
 
-import Control.Concurrent.Async (Concurrently (..))
+import Control.Concurrent.Async (Concurrently (..), mapConcurrently)
 import Control.Concurrent.MVar (modifyMVar, newMVar)
+import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+import Control.Exception (bracket_)
 import Control.Monad (forM, forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
@@ -402,7 +404,12 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
     pure (resourceId, health)
   let healthConfig = runtime
       kubeObserved = Map.fromList kubeFacts
-  healthPairs <- forM managed $ \resource -> do
+  -- One kubectl read per member: run them side by side, at most eight at a
+  -- time (a serial pass took 80 s of the intranet's 90 s status, v0.13.0).
+  healthSlots <- newQSem 8
+  let concurrentHealth :: (a -> IO b) -> [a] -> IO [b]
+      concurrentHealth check = mapConcurrently (bracket_ (waitQSem healthSlots) (signalQSem healthSlots) . check)
+  healthPairs <- flip concurrentHealth managed $ \resource -> do
     let resourceId = resource ^. #identity
         physical = case Map.lookup resourceId kubeObserved of
           Just (InventoryAdapter.ObservedPresent uid) -> Just uid
@@ -419,7 +426,7 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
           (error . T.unpack)
           (\value -> value)
           (InventoryAdapter.observationSet retainedKubeFacts)
-  retainedHealthPairs <- forM (InventoryStatus.retainedHealthTargets history kubernetesObservations) $ \(resourceId, address, physical) -> do
+  retainedHealthPairs <- flip concurrentHealth (InventoryStatus.retainedHealthTargets history kubernetesObservations) $ \(resourceId, address, physical) -> do
     health <- observeKubernetesHealth healthConfig address physical
     pure (resourceId, health)
   closing <- guardKubernetesContext active
