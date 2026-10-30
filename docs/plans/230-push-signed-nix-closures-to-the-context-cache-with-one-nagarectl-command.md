@@ -132,6 +132,11 @@ workloads through a reviewed Pulumi change and bootstrap, and is the operator's 
 complete without it; M4 waits for the operator to select the context and give the go-ahead.
 
 
+2026-10-30: The operator chose to wait on M4. No cloud context gets the cache for now; the
+commands ship in v0.13.0 and `push --endpoint` serves any Attic, as M3 proved. M4 resumes when
+the operator names a context (the intranet if Kotei is the next consumer) and gives the go-ahead
+for the reviewed enablement, bootstrap, push and smoke Pods.
+
 ## Outcomes & Retrospective
 
 
