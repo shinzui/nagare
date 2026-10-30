@@ -55,6 +55,20 @@ closes the final intranet performance gate, so the dependency graph has no cycle
 
 - [ ] M1: One unchanged scope and one changed Deployment pass a typed transition impact/phase path,
   with artifact preparation, explicit barriers and resumable finalization.
+  Partial, 2026-10-30, `159ee0de`, `d302273e` (fast gates green). Finalization is a recoverable
+  protocol (`Nagare.Platform.Finalize`): under the store lock the head is judged again and the
+  marker records the pin's target (`finalizing`); then the pin is written; then, under the lock,
+  a head still carrying that marker and idle has it cleared. While finalizing, admission and
+  planning refuse, and older CLIs refuse the head (the marker decoder rejects unknown fields).
+  `-p finalization`: commit moves the pin and closes; stops after the intent or the pin finish
+  on recommit, writing the pin once; a transaction admitted after the status check refuses with
+  the pin unmoved; a foreign pin refuses until put back; a marker without intent encodes as
+  before. `-p "store head marker"`: even the transition's own review is refused while finalizing.
+  Each plan prints its impact (operations by action, validations, re-accepted scopes); the
+  summary carries an optional validation count and the runner converges only on no operation, no
+  re-acceptance and no validation (harness suite, 102 tests). Unchanged and changed scopes through
+  plan, apply and replan: EP-225's moved-workspace case. Remaining: the native rehearsal of the
+  new commit.
 - [x] M2: Independent stateless updates overlap readiness under a bounded coordinator; dependent,
   destructive, data, Helm and host work retain their required ordering and recovery.
   Pass, 2026-10-29, `f0d4fefb`, `e15fc8b9`, `52b3de79`: an adapter registry carries a per-executor
@@ -110,6 +124,9 @@ second implementation rather than enforce the Haskell tooling architecture.
   behind one lock while operations overlap; EP-227 cancelled its batch protocol. The whole-rollout
   600 s deadline is enforced by the runner's attempt (M3), where the release path already bounds
   each stage.
+- 2026-10-30: The preparation manifest is the target payload's workspace, prepared once and
+  selected by payload digest, with images pinned by digest; no second manifest is built unless
+  EP-224 M3 measures preparation inside the activation interval.
 - 2026-10-29: Treat pin/marker finalization as a recoverable protocol; a filesystem pin and a remote
   head cannot be made atomic by a local lock or an optimistic second read.
 
