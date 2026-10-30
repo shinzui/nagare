@@ -33,10 +33,9 @@ Implement all four acceptance criteria in [IR-36](../improvement-requests/packag
 ## Progress
 
 - [x] M1 (2026-10-30, 820de548): `site package --context-out` works from an external directory, matches the renderers byte for byte, and returns a deterministic content digest; `Nagare.Static.Package` tests and `just gate-fast` green. Open: the extended `nagarectl-external-config` nix check is written but not yet run.
-- [ ] M2: Implemented and tested with a fake Docker runner (820de548). Real daemon (colima `nagare-mp23`, 2026-10-30, `--context local`, protected example): `skopeo inspect docker-archive:` accepts both archives and reports `arm64 linux` and `amd64` (`--override-arch`); the unchanged repackage shows both COPY layers `CACHED` (package.build 0.68 s), and a one-file edit rebuilds only `COPY site/` (0.74 s); the cold run was 1.29 s build, 2.54 s config load. Open: passing an archive unchanged to `app image-plan` (it would mutate the running local k3d inventory and registry, so it waits for a disposable context).
-- [ ] M3 (coordinator, `site publish`, receipts and resume implemented 2026-10-30; not yet run against a cluster; `--contract 1` result not implemented): `site publish` with no flags performs the first publication and later updates by composing the existing reviewed operations: prerequisites refused before packaging, unchanged content a no-op, typed handoff, recoverable partial success.
-- [ ] M4: The guide and protected-site drill prove publish, edit, republish, no-op republish and rollback; traced cold and warm runs demonstrate the repeat-release cost and the layer cache.
-
+- [x] M2: Implemented and tested with a fake Docker runner (820de548). Real daemon (colima `nagare-mp23`, 2026-10-30, `--context local`, protected example): `skopeo inspect docker-archive:` accepts both archives and reports `arm64 linux` and `amd64` (`--override-arch`); the unchanged repackage shows both COPY layers `CACHED` (package.build 0.68 s), and a one-file edit rebuilds only `COPY site/` (0.74 s); the cold run was 1.29 s build, 2.54 s config load. Passing the archive unchanged to `app image-plan` is proved by the native drill (2026-10-30).
+- [x] M3 (2026-10-30, f05a7a87): `site publish` composes prerequisites-first preflight, the unchanged no-op, packaging, reviewed image publication and reviewed deployment; receipts and resume are covered by fake-operation tests, and the native loop passed (docs/audits/ep222-static-publication.md). Open: `--contract 1` result, single workspace preparation, native resume.
+- [~] M4: drill step 6 now uses `site package` and the full protected-site drill passed (AC-2); `scripts/static-publish-drill.sh` proved publish, edit, republish, no-op, `--new-release` and rollback on the cluster; guide updated (AC-4 transcript not yet followed by a second reader). Open: medians over three warm samples, skopeo blob-skip evidence, an amd64 cluster run, the nix external-config check.
 
 ## Surprises & Discoveries
 
@@ -80,6 +79,7 @@ The flag exists so a `RUN --mount=type=secret` instruction re-executes with fres
 2026-10-30: `--resume` is a switch and the directory comes from `--release-dir`; optparse has no optional-value option. Command handlers may not import each other (CLI architecture check), so the dispatcher passes the existing image-plan and static-deploy handlers into `runSitePublish`. The image resource is computed from the publication key by the same constructors the publication uses, not parsed from output.
 
 2026-10-30: `site publish` pays one config load but still prepares the platform workspace once in image publication and once in site deployment; collapsing that needs the two handlers to share a resolved workspace and is left to the M4 traces to justify.
+2026-10-30: The first native `site publish` found a defect no test covered (a shared log handle closed after the first Docker run); fixed with a regression test. The unchanged republish is cheap because the content check precedes any Docker work, but the config load now dominates every command (1.5 s warm, 5.5-6.4 s cold); that is EP-219's.
 
 ## Outcomes & Retrospective
 

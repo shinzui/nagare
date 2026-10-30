@@ -57,7 +57,7 @@ import Nagare.Static.Package
 import Nagare.Static.Publish
 import Nagare.Static.Release (findRelease)
 import Nagare.Target (ActiveTarget, TargetProfile, contextNameText)
-import System.Directory (XdgDirectory (..), createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getXdgDirectory, makeAbsolute)
+import System.Directory (XdgDirectory (..), createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getXdgDirectory, listDirectory, makeAbsolute, removeDirectory)
 import System.Exit (ExitCode (..), exitFailure)
 import System.FilePath ((</>))
 import System.IO (stderr)
@@ -226,7 +226,10 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
         when (failureStage failure /= "preflight" && failureStage failure /= "package") $
           TIO.hPutStrLn stderr ("resume with: nagarectl site publish --resume --release-dir " <> T.pack releaseDir)
         exitFailure
-      Right (Unchanged servingTag) ->
+      Right (Unchanged servingTag) -> do
+        -- Nothing was released, so the directory made up front holds nothing.
+        leftovers <- listDirectory releaseDir
+        when (null leftovers) (removeDirectory releaseDir)
         TIO.putStrLn ("unchanged: release " <> servingTag <> " already serves these files at " <> urlFor servingTag)
       Right (Released receipt) -> do
         TIO.putStrLn ("url: " <> fromMaybe "" (receipt ^. #url))
