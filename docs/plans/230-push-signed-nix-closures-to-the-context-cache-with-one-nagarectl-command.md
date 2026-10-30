@@ -54,8 +54,8 @@ durability and key rotation remain that MasterPlan's work.
 
 - [x] M1: `nix-cache token` and `nix-cache forward` exist, bound to the command's admitted cluster session; fakes prove the token never leaves its 0600 file, the forward uses port 18080 and reports readiness only after Attic answers, and every child process is gone on success, failure and interruption. (2026-10-30: `cli/nagarectl/test/Nagare/Test/NixCacheProducer.hs`, 24 tests green under `-p /NixCacheProducer/`; with the child stop and private-directory removal disabled, 10 of them fail. `nix-cache-endpoint` sample and schema in `docs/api/`.)
 - [x] M2: `nix-cache push` composes the primitives for the context cache and accepts an external endpoint; fakes prove path validation precedes any cluster contact, the private token is removed on every exit, and the result document is versioned. (2026-10-30: same module; mint, forward and push recorded in that order, no cluster call in external mode or on a refused path, scratch directory empty after success, failed push and interruption. `nix-cache-push-result` sample and schema in `docs/api/`.)
-- [ ] M3: A disposable local Attic drill pushes a path through the real command and reads it back with signature verification, with no cluster involved.
-- [ ] M4: On an operator-selected cloud context with the cache enabled, a push of the smoke path is substituted by the positive smoke Pod; the runbook and reference describe the commands; MasterPlan 18's EP-3 progress records the evidence.
+- [x] M3: A disposable local Attic drill pushes a path through the real command and reads it back with signature verification, with no cluster involved. (2026-10-30, deterministic, on the disposable `nagare-mp23` daemon with `nix build git+file://…?rev=c97054f7#nagare` = `/nix/store/2hjwx25j3sy2f34sc41vm2m34m8qgg3w-nagare-0.12.1`: `scripts/nix-cache-producer-drill.sh` pushed `/nix/store/md7bn6g57nyz18c5zzxsw9jbgf2scq8i-nagare-attic-drill` through `nagarectl nix-cache push --endpoint … --contract 1` (`outcome: pushed`); the narinfo carries `Sig: nagare-cache:vBhj…`; `nix copy` accepted it under the cache's key and refused it under a generated `nagare-cache` key with "lacks a signature by a trusted key"; the token appears in none of the push output, stderr or trace.)
+- [ ] M4: On an operator-selected cloud context with the cache enabled, a push of the smoke path is substituted by the positive smoke Pod; the runbook and reference describe the commands; MasterPlan 18's EP-3 progress records the evidence. (2026-10-30: runbook and reference written; the native push and smoke Pod wait for the operator's context and go-ahead.)
 
 
 ## Surprises & Discoveries
@@ -117,6 +117,13 @@ the local drill uses, so the real command is exercised end to end before any clo
 200-line limit by collapsing the `Host` import. The local-context refusal is
 `requireCloudContext` in the library so the test suite can reach it. The forward passes
 `--address 127.0.0.1` so kubectl binds only the loopback host the server admits.
+
+2026-10-30: The drill runs `atticd --mode monolithic`, not `api-server`: a fresh SQLite
+database needs the migrations monolithic mode runs (prototype on the pinned image, which accepts
+SQLite and local storage, so no PostgreSQL container is needed). It pushes a derivation output,
+not a `nix store add-file` path: Nix accepts a content-addressed path without any signature, so
+only an input-addressed path makes the wrong-key copy fail. `nix copy` targets a chroot local
+store under the drill root, which enforces `require-sigs`.
 
 2026-10-30: Live confirmation needs a cloud context whose cache is enabled. No current context has
 one: the intranet sets `NAGARE_NIX_CACHE_ENABLED='0'` and the others leave the default off.

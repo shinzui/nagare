@@ -264,6 +264,9 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `nagare nix-cache-publish` | Mirror the payload's digest-pinned Attic image into the selected registry | MP-18 EP-96 |
 | `nagare nix-cache-bootstrap` | Reconcile the enabled Attic database, server, cache, policies, and consumer ConfigMap | MP-18 EP-96 |
 | `nagare nix-cache-status` | Report readiness, public trust, retention, schedules, and ConfigMap digest without credentials | MP-18 EP-96 |
+| `nagarectl nix-cache token --out FILE [--subject NAME] [--validity DURATION]` | Mint a pull-and-push token for `nagare-cache` inside the cluster into a new mode-0600 file (default subject `operator-push`, validity `1h`, at most `24h`); an existing file is refused | MP-18 EP-230 |
+| `nagarectl nix-cache forward [--contract 1]` | Forward 127.0.0.1:18080 to the cache and print its endpoint, cache name and public key; stays open until interrupted. Refuses when the port is busy, since the server admits only that loopback host | MP-18 EP-230 |
+| `nagarectl nix-cache push STORE-PATH... [--contract 1]` | Push store paths with their closures to the context's cache: mints a 15-minute token into a private directory, forwards, runs the packaged Attic client, and removes every credential on any exit. `--endpoint URL --token-file FILE [--cache NAME]` pushes to any Attic with no cluster contact | MP-18 EP-230 |
 | `just context-show` | Print the selected kubectl context and API server without contacting the cluster | MP-8 |
 | `just local-up` | Create local k3d cluster + local registry | MP-16 EP-82 |
 | `just local-bootstrap` | Install Knative/Kourier locally with the `nagare-local-ca` TLS issuer | MP-16 EP-82 / EP-85 |

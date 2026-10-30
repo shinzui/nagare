@@ -70,39 +70,37 @@ signing key.
 
 ## Push a closure
 
-Keep Attic private. Producers reach it through `kubectl port-forward` and use a short-lived,
-cache-scoped token. The following keeps the token in a mode-0600 file rather than an
-argument or shell history:
+Keep Attic private. A producer pushes from its workstation with one command, from a shell whose
+active context is the cloud context with the cache enabled:
 
 ```bash
-private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-attic-push.XXXXXX")"
-chmod 700 "$private_dir"
-trap 'rm -rf "$private_dir"' EXIT
-
-kubectl -n nagare-system exec deployment/nix-cache -- \
-  atticadm -f /config/server.toml make-token \
-    --sub operator-push --validity 1h \
-    --pull nagare-cache --push nagare-cache > "$private_dir/token"
-chmod 600 "$private_dir/token"
-
-mkdir -p "$private_dir/attic/attic"
-printf '%s\n' \
-  'default-server = "nagare"' \
-  '[servers.nagare]' \
-  'endpoint = "http://127.0.0.1:8080/"' \
-  "token-file = \"$private_dir/token\"" \
-  > "$private_dir/attic/attic/config.toml"
-
-kubectl -n nagare-system port-forward service/nix-cache 8080:80
+nagarectl nix-cache push "$(nix build .#your-output --no-link --print-out-paths)"
 ```
 
-In another terminal, using the same `private_dir` value:
+`push` checks that every argument is a `/nix/store` path in the local store before it touches
+the cluster. It then mints a 15-minute token with `atticadm` inside `deployment/nix-cache`,
+writes it to a mode-0600 file in a private temporary directory, forwards 127.0.0.1:18080 to
+the cache, and runs the packaged Attic client against a private configuration that names the
+token file. The directory and the port-forward are removed whether the push succeeds, fails or
+is interrupted. No token appears in an argument, an environment variable or the output. The
+command prints `pushed N paths to nagare-cache at http://127.0.0.1:18080/`, or with
+`--contract 1` a `nix-cache-push-result` document. A local context is refused.
+
+Two primitives serve other producers, such as Kotei, which need an endpoint, a cache name
+and a token file:
 
 ```bash
-store_path="$(nix build .#your-output --no-link --print-out-paths)"
-XDG_CONFIG_HOME="$private_dir/attic" \
-  attic push nagare:nagare-cache "$store_path"
+nagarectl nix-cache token --out "$private_dir/token"   # 1h pull+push token, mode 0600
+nagarectl nix-cache forward                            # endpoint and public key; Ctrl-C ends it
 ```
+
+`token` refuses an existing file; `--validity` takes Attic durations up to `24h` and
+`--subject` names the token's holder. `forward` binds 127.0.0.1:18080 because the server
+admits only that loopback host, so it refuses while another forward,
+`nagare nix-cache-status` or the reviewed cache transport holds the port.
+
+`push --endpoint URL --token-file FILE [--cache NAME]` pushes to any Attic reachable by URL,
+such as a self-run one, with no cluster contact; the token file is read only by the client.
 
 An anonymous client may pull, but anonymous push must fail. A writer token can push only
 to `nagare-cache`; it cannot create or configure another cache.
