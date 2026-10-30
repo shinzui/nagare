@@ -23,6 +23,11 @@ provenance:
       at: 2026-10-29T16:45:25Z
       mode: "update"
       note: "Name the actual public recipes and script entry points"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-30T02:06:45Z
+      mode: "implement"
+      note: "M2 overlapped readiness, 180 s stateless bound, progress"
 ---
 
 # Run incremental platform rollouts with bounded waits and durable progress
@@ -50,8 +55,22 @@ closes the final intranet performance gate, so the dependency graph has no cycle
 
 - [ ] M1: One unchanged scope and one changed Deployment pass a typed transition impact/phase path,
   with artifact preparation, explicit barriers and resumable finalization.
-- [ ] M2: Independent stateless updates overlap readiness under a bounded coordinator; dependent,
+- [x] M2: Independent stateless updates overlap readiness under a bounded coordinator; dependent,
   destructive, data, Helm and host work retain their required ordering and recovery.
+  Pass, 2026-10-29, `f0d4fefb`, `e15fc8b9`, `52b3de79`: an adapter registry carries a per-executor
+  overlap capability, default exclusive; the CLI execution registry grants it to creates and
+  updates of one stateless Deployment, Knative Service, Service, ConfigMap or Secret. The driver
+  runs up to four untouched, unfenced, dependency-ready such operations on distinct addresses as
+  whole attempts at once; every journal append passes one lock, so intent is durable before each
+  effect and the head advances over one chain; all are accounted for before the loop continues
+  or stops. `-p PlatformRollout` (production planner, driver and fake API server, 300 ms
+  rollouts): four independent updates have four rollouts in flight and finish under 0.9 s
+  (serially 1.2 s); a chain of four keeps one in flight and takes at least 1.2 s; a stuck update
+  stops the transaction ambiguous with exactly four updates executed; StatefulSets, Jobs and
+  retirements are not eligible. Stateless readiness is bounded at 180 s (others keep 300 s), and
+  an overlapped wait prints progress every five seconds. The adapter environment variables are
+  installed by the first overlapping call and restored by the last. The 600 s whole-rollout
+  deadline belongs to the runner's attempt (M3).
 - [ ] M3: The ported runner (EP-229) keeps a versioned run index with progress and cost for every
   attempt, reuses verified prepared material, resumes only under the recovery contract and stops
   a no-progress loop with its blocker.
@@ -87,6 +106,10 @@ second implementation rather than enforce the Haskell tooling architecture.
   features. Remove embedded and transitively invoked transition-specific Python from that path.
   Later the same day the port became [EP-229](229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md);
   this plan's M3 extends the ported runner and depends on it.
+- 2026-10-29: The coordinator EP-227 was to provide is the driver's own serial journal append,
+  behind one lock while operations overlap; EP-227 cancelled its batch protocol. The whole-rollout
+  600 s deadline is enforced by the runner's attempt (M3), where the release path already bounds
+  each stage.
 - 2026-10-29: Treat pin/marker finalization as a recoverable protocol; a filesystem pin and a remote
   head cannot be made atomic by a local lock or an optimistic second read.
 

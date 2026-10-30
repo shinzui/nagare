@@ -87,13 +87,17 @@ closed with a bounded number of requests and a useful explanation.
   (was 4,102). The fake API server now answers multi-name gets as kubectl 1.37 does on the
   intranet (a List of the found objects, empty when none, the object for one name); its
   single-name parse was the cause recorded under Surprises.
-- [ ] M3: Kubernetes, Helm and relevant access integration share sessions without caching writes
+- [x] M3: Kubernetes, Helm and relevant access integration share sessions without caching writes
   or readiness across phases; adversarial guard and observation fixtures pass.
   Partial, 2026-10-29, `baa4076f` (fast gate green): Kubernetes runtime, Helm and access requests
   name the session's kubeconfig (M1); one process-wide limit of eight grouped reads covers every
   epoch; forbidden, throttled and unreachable reads are unavailable, never absent; the same name
   in two namespaces is answered per namespace; a KUBECONFIG change or host activation re-admits.
-  Writes and readiness never read an epoch. Remaining: the disposable native rehearsal.
+  Writes and readiness never read an epoch. Native, 2026-10-30: `just release-rehearse a5dd71e2
+  v0.11.0` passed (sentinel read back, pin moved, replan empty). Its platform stage traced one
+  guard admission per command; planning made 49 transported kubectl reads with 418 answered from
+  epochs, 70 processes, 19 s; apply 54 transported, 416 reused, 75 processes, 13.4 s. The first
+  native record (EP-224 M2) had 879 processes for that stage.
 - [x] M4: Opening the inventory store proves bucket ownership without a per-command
   `gcloud projects describe`. The project number is immutable, so read it with the session's
   token or keep it per project; the bucket's owning number stays a live read and the comparison
@@ -152,7 +156,11 @@ the bytes that passed the guard, handle merged kubeconfig files, or cover refere
 ## Outcomes & Retrospective
 
 
-Planning only; the current runtime still guards and observes through its existing paths.
+A command guards its cluster once and every request uses the kubeconfig the guard checked; plans
+and admissions read through grouped epochs whose answers equal single reads. Native cost of the
+platform stage fell from 879 processes to about 70 per command. The remaining planning time is
+not Kubernetes reads (19 s with 49 of them); EP-224 M3 measures where it goes. ADR 18 and ADR 22
+carry the durable context.
 
 
 ## Context and Orientation
