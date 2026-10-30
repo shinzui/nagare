@@ -103,6 +103,7 @@ import Nagare.Inventory.Adapters.HostRuntime
       )
   , mkHostRuntimeOps
   )
+import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesOverlapAddress)
 import Nagare.Inventory.Adapters.KubernetesMigration (kubernetesMigrationAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
@@ -700,7 +701,15 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
           -- Reviewed migration stages execute only from their saved bundle.
           kubernetes = kubernetesMigrationAdapter runtime Nothing kubernetesRestore
           adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access, appDatabase]
-      registry <- either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
+      -- EP-228 M2: independent stateless Kubernetes updates await readiness
+      -- together; a controller collection runs alone.
+      registry <-
+        either
+          dieT
+          pure
+          ( InventoryAdapter.mkAdapterRegistry adapters
+              >>= if controllerCollection then Right else InventoryAdapter.withOverlapCapability ResourceInventory.KubernetesExecutor (kubernetesOverlapAddress kubernetesSpecs)
+          )
       withMaintenance <-
         either
           dieT

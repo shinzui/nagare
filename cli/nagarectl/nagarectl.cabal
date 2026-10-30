@@ -735,6 +735,7 @@ test-suite nagarectl-test
     Nagare.Test.World.Validation
     PlatformCutoverSpec
     PlatformIncrementalSpec
+    PlatformRolloutSpec
     PlatformSpec
     PlatformTransitionSpec
     PlatformTransitionTableSpec

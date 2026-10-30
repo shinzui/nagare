@@ -7,11 +7,16 @@ module Nagare.Inventory.Execute.Driver
   )
 where
 
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.MVar (newMVar, withMVar)
+import Control.Exception (onException)
+import Data.Foldable (for_)
 import Data.Generics.Labels ()
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (find, sortOn)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Nagare.Contract.Trace (OperationRecord (..), noLabels)
 import Nagare.Dsl.Prelude
@@ -51,6 +56,7 @@ import Nagare.Inventory.Adapter
   , effectIdentity
   , lookupAdapter
   , lookupAdapterRecovery
+  , overlapAddress
   )
 import Nagare.Inventory.DataFence
   ( acquireDataFence
@@ -185,7 +191,9 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                 (StoppedFailed transaction operation (PartialOrUnknown reason))
             )
         RecoverOperation operation -> recoverOrStop events operation
-        ExecuteOperation operation -> executeOne events operation
+        ExecuteOperation operation -> case overlapping events operation of
+          batch@(_ : _ : _) -> executeTogether events batch
+          _ -> executeOne events operation
     recoverOrStop events reviewOperation =
       let operation = reviewPlannedOperation reviewOperation
        in case preparedFor reviewed reviewOperation of
@@ -365,7 +373,48 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
         if contentDigest bytes /= revisionDigest revision
           then Left "desired scope digest mismatch"
           else first showText (decodeScope bytes)
-    executeOne events reviewOperation = do
+    -- EP-228 M2: with the operation the serial order selects first, up to
+    -- three more untouched, unfenced, dependency-ready operations the
+    -- registry lets overlap, each on its own address. An operation that
+    -- depends on another of them is not ready, so none waits on another.
+    overlapping events first' =
+      let states = operationStates transaction events
+          addressOf = overlapAddress registry . reviewPlannedOperation
+          eligible entry =
+            isNothing (reviewFenceDigest entry)
+              && maybe True (== Pending) (Map.lookup (operationId entry) states)
+              && dependenciesComplete states entry
+          pick _ [] = []
+          pick seen (entry : rest) = case addressOf entry of
+            Just address | eligible entry, address `notElem` seen -> entry : pick (address : seen) rest
+            _ -> pick seen rest
+       in case addressOf first' of
+            Just _ | eligible first' -> take overlapLimit (pick [] (first' : filter ((/= operationId first') . operationId) (sortOn operationId operations)))
+            _ -> []
+    -- Each operation of the batch runs its whole attempt (intent, effect and
+    -- readiness, verification, completion) at once with the others; every
+    -- journal append passes one lock in turn, so the head advances over one
+    -- contiguous chain and no effect starts before its intent is durable.
+    -- All of them are accounted for before the loop goes on or stops.
+    executeTogether events batch = do
+      lock <- newMVar ()
+      appended <- newIORef []
+      let record append = withMVar lock $ \() -> do
+            result <- append
+            for_ result (\event -> atomicModifyIORef' appended (\seen -> (seen <> [event], ())))
+            pure result
+          landed = (events <>) <$> readIORef appended
+      stops <- mapConcurrently (executeWith record (const (pure Nothing)) events) batch `onException` (landed >>= writeIORef latest)
+      after <- landed
+      case catMaybes stops of
+        [] -> go after
+        stop : _ -> Just stop <$ writeIORef latest after
+    -- The serial path: each append goes straight to the journal, and a
+    -- completed operation continues the loop.
+    executeOne events = executeWith id (\appended -> go (events <> appended)) events
+    -- EP-228 M2: @record@ is the one path to the journal head, @finish@
+    -- receives a completed operation's intent and completion events.
+    executeWith record finish events reviewOperation = do
       let operation = reviewPlannedOperation reviewOperation
           operationId = plannedOperationId operation
       case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed reviewOperation) of
@@ -383,6 +432,8 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
               )
           Right fenceSelection ->
             executePrepared
+              record
+              finish
               events
               operation
               operationId
@@ -392,14 +443,14 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
     -- EP-224: each attempt of an operation is one span labelled with the
     -- operation and its attempt; its preflight, effect and verification are
     -- child spans. Labels are passed down, never read from a global.
-    executePrepared events operation operationId adapter prepared fenceSelection = do
+    executePrepared record finish events operation operationId adapter prepared fenceSelection = do
       let action = T.pack (show (plannedAction operation))
           attempt = 1 + length [() | event <- events, eventOperation event == Just operationId, eventState event == IntentRecorded]
           labels = noLabels & #operation ?~ operationIdText operationId & #attempt ?~ attempt
       traceOperations RecordExecuted [(action, T.pack (show (plannedExecutor operation)))]
       withSpan (labelled labels) ("operation " <> action) $ \context ->
-        executeAttempt context events operation operationId adapter prepared fenceSelection
-    executeAttempt context events operation operationId adapter prepared fenceSelection = do
+        executeAttempt record finish context events operation operationId adapter prepared fenceSelection
+    executeAttempt record finish context events operation operationId adapter prepared fenceSelection = do
       preflight <- withSpan context "preflight" (const (adapterPreflight adapter operation prepared))
       case preflight of
         Left reason
@@ -408,12 +459,13 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
               -- no effect) refused again before any new effect. Journal that
               -- no-effect refusal so the operator can abandon it.
               appended <-
-                appendEvent
-                  locked
-                  transaction
-                  (Just operationId)
-                  (Failed (KnownNoEffect ("adapter preflight refused: " <> reason)))
-                  "retried operation refused by adapter preflight"
+                record $
+                  appendEvent
+                    locked
+                    transaction
+                    (Just operationId)
+                    (Failed (KnownNoEffect ("adapter preflight refused: " <> reason)))
+                    "retried operation refused by adapter preflight"
               pure $ Just $ case appended of
                 Left failure -> StoppedAmbiguous transaction operationId ("the preflight refusal could not be journalled: " <> showText failure)
                 Right _ -> StoppedFailed transaction operationId (KnownNoEffect ("adapter preflight refused: " <> reason))
@@ -421,7 +473,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
         -- operator still gets the adapter's reason.
         Left reason -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect ("adapter preflight refused: " <> reason))))
         Right () -> do
-          intent <- appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"
+          intent <- record $ appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"
           case intent of
             Left failure -> pure (Just (StoppedAmbiguous transaction operationId ("the operation intent could not be journalled: " <> showText failure)))
             Right intentEvent -> do
@@ -433,12 +485,13 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                   case started of
                     Left reason -> do
                       _ <-
-                        appendEvent
-                          locked
-                          transaction
-                          (Just operationId)
-                          Ambiguous
-                          ("data fence acquisition or exclusion is unresolved: " <> reason)
+                        record $
+                          appendEvent
+                            locked
+                            transaction
+                            (Just operationId)
+                            Ambiguous
+                            ("data fence acquisition or exclusion is unresolved: " <> reason)
                       pure (Just (StoppedAmbiguous transaction operationId ("data fence acquisition or exclusion is unresolved: " <> reason)))
                     Right activeFence -> do
                       -- ADR 26 (O6): a verification is effect-free by
@@ -463,13 +516,14 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                                 (_, KnownNoEffect _) -> Failed failureClass
                                 _ -> Ambiguous
                           appended <-
-                            appendEventWith
-                              physical
-                              locked
-                              transaction
-                              (Just operationId)
-                              state
-                              "adapter execution stopped"
+                            record $
+                              appendEventWith
+                                physical
+                                locked
+                                transaction
+                                (Just operationId)
+                                state
+                                "adapter execution stopped"
                           pure $ Just $ case (activeFence, failureClass, appended) of
                             (Nothing, KnownNoEffect _, Right _) ->
                               StoppedFailed transaction operationId failureClass
@@ -477,13 +531,14 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                         OutcomeAmbiguous reason -> do
                           markUnknown activeFence
                           _ <-
-                            appendEventWith
-                              physical
-                              locked
-                              transaction
-                              (Just operationId)
-                              Ambiguous
-                              ("adapter result was ambiguous: " <> reason)
+                            record $
+                              appendEventWith
+                                physical
+                                locked
+                                transaction
+                                (Just operationId)
+                                Ambiguous
+                                ("adapter result was ambiguous: " <> reason)
                           pure (Just (StoppedAmbiguous transaction operationId ("adapter result was ambiguous: " <> reason)))
                         OutcomeCompleted -> do
                           verification <-
@@ -496,39 +551,42 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                             Left reason -> do
                               markUnknown activeFence
                               _ <-
-                                appendEventWith
-                                  physical
-                                  locked
-                                  transaction
-                                  (Just operationId)
-                                  Ambiguous
-                                  "adapter completion could not be verified"
+                                record $
+                                  appendEventWith
+                                    physical
+                                    locked
+                                    transaction
+                                    (Just operationId)
+                                    Ambiguous
+                                    "adapter completion could not be verified"
                               pure (Just (StoppedAmbiguous transaction operationId ("adapter completion could not be verified: " <> reason)))
                             Right proof -> do
                               fenceVerified <- finishFence activeFence
                               case fenceVerified of
                                 Left reason -> do
                                   _ <-
-                                    appendEventWith
-                                      physical
-                                      locked
-                                      transaction
-                                      (Just operationId)
-                                      Ambiguous
-                                      "data fence verification or release is unresolved"
+                                    record $
+                                      appendEventWith
+                                        physical
+                                        locked
+                                        transaction
+                                        (Just operationId)
+                                        Ambiguous
+                                        "data fence verification or release is unresolved"
                                   pure (Just (StoppedAmbiguous transaction operationId ("data fence verification or release is unresolved: " <> reason)))
                                 Right () -> do
                                   appended <-
-                                    appendEventWith
-                                      physical
-                                      locked
-                                      transaction
-                                      (Just operationId)
-                                      (Completed proof)
-                                      "operation completion verified"
+                                    record $
+                                      appendEventWith
+                                        physical
+                                        locked
+                                        transaction
+                                        (Just operationId)
+                                        (Completed proof)
+                                        "operation completion verified"
                                   case appended of
                                     Left failure -> pure (Just (StoppedAmbiguous transaction operationId ("the completion could not be journalled: " <> showText failure)))
-                                    Right completedEvent -> go (events <> [intentEvent, completedEvent])
+                                    Right completedEvent -> finish [intentEvent, completedEvent]
     startFence Nothing = pure (Right Nothing)
     startFence (Just (requested, controls)) = do
       acquired <-
@@ -553,3 +611,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
       case verified of
         Left reason -> pure (Left reason)
         Right () -> releaseDataFence locked controls token
+
+-- | At most this many effects await readiness at once (EP-228 M2).
+overlapLimit :: Int
+overlapLimit = 4

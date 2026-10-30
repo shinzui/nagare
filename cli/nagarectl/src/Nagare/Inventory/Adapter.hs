@@ -35,6 +35,8 @@ module Nagare.Inventory.Adapter
   , emptyAdapterRegistry
   , withAdapterFence
   , lookupAdapter
+  , withOverlapCapability
+  , overlapAddress
   , wrapRegisteredAdapter
   , withPreparationGuard
   , lookupAdapterFences
@@ -388,23 +390,24 @@ data AdapterRegistry
       (Map Executor Adapter)
       (Map Executor (Map Text AdapterFence))
       (Map Text AdapterRecovery)
+      (Map Executor (PlannedOperation -> Maybe Text))
 
 mkAdapterRegistry :: [Adapter] -> Either Text AdapterRegistry
 mkAdapterRegistry adapters
-  | length adapters == Map.size registry = Right (AdapterRegistry registry Map.empty Map.empty)
+  | length adapters == Map.size registry = Right (AdapterRegistry registry Map.empty Map.empty Map.empty)
   | otherwise = Left "adapter registry contains duplicate executors"
   where
     registry = Map.fromList [(adapterExecutor adapter, adapter) | adapter <- adapters]
 
 emptyAdapterRegistry :: AdapterRegistry
-emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty Map.empty
+emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty Map.empty Map.empty
 
 withAdapterFence ::
   AdapterRegistry ->
   Executor ->
   AdapterFence ->
   Either Text AdapterRegistry
-withAdapterFence (AdapterRegistry adapters fences recoveries) executor fence
+withAdapterFence (AdapterRegistry adapters fences recoveries overlaps) executor fence
   | Map.notMember executor adapters = Left "data fence has no registered adapter"
   | T.null (fenceCapability fence) = Left "data fence capability identity is empty"
   | Map.member (fenceCapability fence) (Map.findWithDefault Map.empty executor fences) =
@@ -420,21 +423,36 @@ withAdapterFence (AdapterRegistry adapters fences recoveries) executor fence
                 fences
             )
             recoveries
+            overlaps
         )
 
 withAdapterRecovery :: AdapterRegistry -> AdapterRecovery -> Either Text AdapterRegistry
-withAdapterRecovery (AdapterRegistry adapters fences recoveries) capability
+withAdapterRecovery (AdapterRegistry adapters fences recoveries overlaps) capability
   | T.null key = Left "adapter recovery capability identity is empty"
   | Map.member key recoveries = Left "adapter recovery capability is duplicated"
-  | otherwise = Right (AdapterRegistry adapters fences (Map.insert key capability recoveries))
+  | otherwise = Right (AdapterRegistry adapters fences (Map.insert key capability recoveries) overlaps)
   where
     key = recoveryCapability capability
 
 lookupAdapterRecovery :: AdapterRegistry -> Text -> Maybe AdapterRecovery
-lookupAdapterRecovery (AdapterRegistry _ _ recoveries) key = Map.lookup key recoveries
+lookupAdapterRecovery (AdapterRegistry _ _ recoveries _) key = Map.lookup key recoveries
+
+-- | EP-228 M2: an executor's promise that some of its effects may await
+-- readiness while other independent effects of the same transaction do. It
+-- names the address an eligible operation writes; operations whose addresses
+-- differ may overlap. Every other operation, and every executor without the
+-- promise, runs alone.
+withOverlapCapability :: Executor -> (PlannedOperation -> Maybe Text) -> AdapterRegistry -> Either Text AdapterRegistry
+withOverlapCapability executor eligible (AdapterRegistry adapters fences recoveries overlaps)
+  | Map.notMember executor adapters = Left "an overlap capability has no registered adapter"
+  | otherwise = Right (AdapterRegistry adapters fences recoveries (Map.insert executor eligible overlaps))
+
+-- | The address an operation may overlap on, or 'Nothing' when it runs alone.
+overlapAddress :: AdapterRegistry -> PlannedOperation -> Maybe Text
+overlapAddress (AdapterRegistry _ _ _ overlaps) operation = Map.lookup (plannedExecutor operation) overlaps >>= ($ operation)
 
 lookupAdapter :: AdapterRegistry -> Executor -> Either Text Adapter
-lookupAdapter (AdapterRegistry registry _ _) executor =
+lookupAdapter (AdapterRegistry registry _ _ _) executor =
   maybe (Left ("no adapter registered for " <> showText executor)) Right (Map.lookup executor registry)
   where
     showText = T.pack . show
@@ -442,15 +460,15 @@ lookupAdapter (AdapterRegistry registry _ _) executor =
 -- | Wrap one executor's adapter in place; its fences and recovery
 -- capabilities stay registered unchanged.
 wrapRegisteredAdapter :: Executor -> (Adapter -> Adapter) -> AdapterRegistry -> Either Text AdapterRegistry
-wrapRegisteredAdapter executor wrap (AdapterRegistry adapters fences recoveries)
-  | Map.member executor adapters = Right (AdapterRegistry (Map.adjust wrap executor adapters) fences recoveries)
+wrapRegisteredAdapter executor wrap (AdapterRegistry adapters fences recoveries overlaps)
+  | Map.member executor adapters = Right (AdapterRegistry (Map.adjust wrap executor adapters) fences recoveries overlaps)
   | otherwise = Left ("no adapter registered for " <> T.pack (show executor))
 
 -- | Narrow a command's review before any native plan is prepared or published.
 -- Provider capabilities, recovery handlers and fences remain unchanged.
 withPreparationGuard :: (PlannedOperation -> Either Text ()) -> AdapterRegistry -> AdapterRegistry
-withPreparationGuard check (AdapterRegistry adapters fences recoveries) =
-  AdapterRegistry (Map.map guarded adapters) fences recoveries
+withPreparationGuard check (AdapterRegistry adapters fences recoveries overlaps) =
+  AdapterRegistry (Map.map guarded adapters) fences recoveries overlaps
   where
     guarded adapter =
       adapter
@@ -460,7 +478,7 @@ withPreparationGuard check (AdapterRegistry adapters fences recoveries) =
         }
 
 lookupAdapterFences :: AdapterRegistry -> Executor -> [AdapterFence]
-lookupAdapterFences (AdapterRegistry _ fences _) executor =
+lookupAdapterFences (AdapterRegistry _ fences _ _) executor =
   maybe [] Map.elems (Map.lookup executor fences)
 
 lookupAdapterFenceByCapability ::
@@ -468,7 +486,7 @@ lookupAdapterFenceByCapability ::
   Executor ->
   Text ->
   Maybe AdapterFence
-lookupAdapterFenceByCapability (AdapterRegistry _ fences _) executor capability =
+lookupAdapterFenceByCapability (AdapterRegistry _ fences _ _) executor capability =
   Map.lookup executor fences >>= Map.lookup capability
 
 observeWithRegistry :: AdapterRegistry -> Map Executor [ResourceId] -> IO (Either Text ObservationSet)

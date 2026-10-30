@@ -5,6 +5,7 @@ module Nagare.Inventory.Adapters.KubernetesApplication
   ( kubernetesApplicationAdapter
   , kubernetesPlanningAdapter
   , kubernetesExecutionAdapter
+  , kubernetesOverlapAddress
   )
 where
 
@@ -17,8 +18,9 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (Adapter (..), PlannedOperation (..))
+import Nagare.Inventory.Adapter (Adapter (..), OperationAction (CreateResource, UpdateResource), PlannedOperation (..))
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (runtimePodOps)
@@ -26,7 +28,8 @@ import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
 import Nagare.Inventory.KubernetesSnapshot (beginPhase, endPhase, newPhaseEpoch, phaseRuntime)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
 import Nagare.Resource.Inventory (ManagedResource)
-import Nagare.Resource.Types (ResourceId)
+import Nagare.Resource.Policy (DataPolicy (Stateless))
+import Nagare.Resource.Types (ProviderAddress (Kubernetes), ResourceId, nameText)
 
 -- | With the operator's explicit takeover opt-in, planning records foreign
 -- field managers of drifted objects in the review (F37). Execution needs no
@@ -112,3 +115,21 @@ kubernetesExecutionAdapter takeover config cacheKey specs validations = do
       , adapterRecover = \operation prepared -> end >> adapterRecover adapter operation prepared
       , adapterSettle = (\settle operation prepared -> end >> settle operation prepared) <$> adapterSettle adapter
       }
+
+-- | EP-228 M2: the Kubernetes operations that may await readiness beside one
+-- another: a create or update of one stateless Deployment, Knative Service,
+-- Service, ConfigMap or Secret, named by its address. Namespaces, CRDs,
+-- controllers, Jobs, StatefulSets, replacements, retirements and every
+-- durable member stay exclusive.
+kubernetesOverlapAddress :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Maybe Text
+kubernetesOverlapAddress specs operation = case plannedResources operation of
+  resource NE.:| []
+    | plannedAction operation `elem` [CreateResource, UpdateResource]
+    , Just (declaration, _) <- Map.lookup resource specs
+    , declaration ^. #dataPolicy == Stateless
+    , address@(Kubernetes _ group kind _ _) <- declaration ^. #address
+    , (group, nameText kind) `elem` overlapping ->
+        Just (T.pack (show address))
+  _ -> Nothing
+  where
+    overlapping = [("apps", "deployment"), ("serving.knative.dev", "service"), ("", "service"), ("", "configmap"), ("", "secret")]
