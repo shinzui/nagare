@@ -65,6 +65,9 @@ data CostRecord = CostRecord
 data StageCost = StageCost
   { stageId :: !Text
   , planSeconds :: !(Maybe Double)
+  , preparationSeconds :: !(Maybe Double)
+  -- ^ The plan's artifact preparation (building the host closure): part of
+  -- the plan's time, judged apart from planning. Older records omit it.
   , applySeconds :: !Double
   , outcomes :: ![Text]
   , planned :: !(Map Text Int)
@@ -90,10 +93,12 @@ instance ToJSON StageCost where toJSON = genericToJSON Aeson.defaultOptions
 
 instance FromJSON StageCost where parseJSON = genericParseJSON Aeson.defaultOptions
 
--- | Collect the record of the run whose index is in @run@.
+-- | Collect the record of the run whose index is @run@ or is in @run@. A
+-- candidate run holds its own index beside its intranet's, so the intranet
+-- record is collected by naming @intranet-index.json@.
 collectRun :: FilePath -> IO (Either Text CostRecord)
 collectRun run = do
-  located <- firstExisting [run </> "index.json", run </> "intranet-index.json", run </> "run" </> "index.json"]
+  located <- firstExisting [run, run </> "index.json", run </> "intranet-index.json", run </> "run" </> "index.json"]
   case located of
     Nothing -> pure (Left ("no run index in " <> T.pack run))
     Just path -> do
@@ -151,6 +156,7 @@ fromIndex base index = do
         ( StageCost
             { stageId = stage ^. #stageId
             , planSeconds = nanoSeconds . (^. #elapsedNanos) <$> listToMaybe planDocument
+            , preparationSeconds = preparation <$> listToMaybe planDocument
             , applySeconds = sum [nanoSeconds (document ^. #elapsedNanos) | document <- applied]
             , outcomes = [outcomeText (document ^. #outcome) | document <- loaded]
             , planned = operationsOf RecordPlanned planDocument
@@ -171,6 +177,7 @@ fromIndex base index = do
       pure $ case read' of
         Right bytes | Right document <- decodeTraceDocument bytes -> Right document
         _ -> Left relative
+    preparation document = sum [nanoSeconds (span' ^. #endNanos - span' ^. #startNanos) | span' <- document ^. #spans, span' ^. #phase == "artifact preparation"]
     operationsOf kind' documents =
       Map.fromListWith (+) [(action', n) | document <- documents, OperationCount recorded action' _ n <- document ^. #operations, recorded == kind']
 
@@ -205,7 +212,9 @@ data Verdict = VerdictPassed | VerdictFailed | VerdictIncomplete
   deriving stock (Eq, Show)
 
 -- | The verdict and the budgets behind it. Every stage plan finishes within
--- 60 s and the traced activation within 300 s (MasterPlan 30). A failed run
+-- 60 s, less its artifact preparation (EP-224 measures an artifact-ready
+-- plan and reports preparation apart), and the traced activation, preparation
+-- included, within 300 s (MasterPlan 30). A failed run
 -- fails whatever it traced; otherwise one with a missing trace or still
 -- running is incomplete, and one whose commands did not all complete fails.
 judge :: CostRecord -> (Verdict, [Budget])
@@ -213,9 +222,12 @@ judge record = (verdict, budgets)
   where
     planLimit = 60
     budgets =
-      [ Budget ("plan " <> stage ^. #stageId) planLimit taken (taken < planLimit)
+      [ Budget ("plan " <> stage ^. #stageId <> prepared) planLimit planning (planning < planLimit)
       | stage <- record ^. #stages
       , Just taken <- [stage ^. #planSeconds]
+      , let preparation = fromMaybe 0 (stage ^. #preparationSeconds)
+            planning = taken - preparation
+            prepared = if preparation > 0 then " (of " <> secondsText taken <> ", less " <> secondsText preparation <> " artifact preparation)" else ""
       ]
         <> [Budget "activation" 300 (record ^. #activationSeconds) (record ^. #activationSeconds < 300)]
     commandsCompleted = all (all (== "completed") . (^. #outcomes)) (record ^. #stages)
@@ -270,7 +282,9 @@ historyLines root = do
             , "end-to-end " <> secondsText (record ^. #endToEndSeconds)
             , T.pack path
             ]
-    secondsText value = T.pack (show (fromIntegral (round (value * 10) :: Integer) / 10 :: Double)) <> " s"
+
+secondsText :: Double -> Text
+secondsText value = T.pack (show (fromIntegral (round (value * 10) :: Integer) / 10 :: Double)) <> " s"
 
 verdictText :: Verdict -> Text
 verdictText = \case

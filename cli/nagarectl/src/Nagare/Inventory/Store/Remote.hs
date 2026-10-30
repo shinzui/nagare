@@ -1,12 +1,17 @@
 -- | One shared transport/ownership boundary for ordinary commands and migration.
-module Nagare.Inventory.Store.Remote (remoteObjectOps, BucketDiscovery (..), remoteDiscoveryOps, probeRemoteBucket, provenOwnership) where
+module Nagare.Inventory.Store.Remote (remoteObjectOps, withCommandRemoteStores, BucketDiscovery (..), remoteDiscoveryOps, probeRemoteBucket, provenOwnership) where
 
 import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
+import Control.Exception (bracket_)
 import Data.Aeson (eitherDecodeStrict', withObject, (.:))
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Gogol qualified as G
@@ -20,6 +25,7 @@ import Nagare.Inventory.Store.ObjectOps
 import Nagare.Inventory.Store.ProjectNumbers
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, ownershipReadPause, projectNumberArgs, readProjectNumber, realGcloudOps)
 import System.Environment (lookupEnv)
+import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
 data BucketDiscovery
@@ -81,8 +87,38 @@ probeRemoteBucket project bucket = do
   result <- remoteDiscoveryOps project ("gs://" <> bucket <> "/inventory-discovery")
   pure $ either BucketUnavailable (\(verdict, _, _) -> verdict) result
 
+-- | The remote stores a running command has opened, by project and URL
+-- (EP-224 M3). Like its cluster sessions, a command proves a bucket's
+-- ownership and starts its gcloud session once, however often it opens the
+-- store; outside 'withCommandRemoteStores' every open is proved afresh.
+commandRemoteStores :: IORef (Maybe (MVar (Map (T.Text, T.Text) ObjectOps)))
+commandRemoteStores = unsafePerformIO (newIORef Nothing)
+{-# NOINLINE commandRemoteStores #-}
+
+-- | Run a command with its own opened remote stores. A nested call shares
+-- the outer command's.
+withCommandRemoteStores :: IO a -> IO a
+withCommandRemoteStores body =
+  readIORef commandRemoteStores >>= \case
+    Just _ -> body
+    Nothing -> do
+      opened <- newMVar Map.empty
+      bracket_ (writeIORef commandRemoteStores (Just opened)) (writeIORef commandRemoteStores Nothing) body
+
+-- | The command's store for this project and URL, opened on first use. A
+-- refusal is not kept: the next open proves ownership again.
 remoteObjectOps :: T.Text -> T.Text -> IO (Either T.Text ObjectOps)
-remoteObjectOps project url = do
+remoteObjectOps project url =
+  readIORef commandRemoteStores >>= \case
+    Nothing -> openRemoteObjectOps project url
+    Just opened -> modifyMVar opened $ \known -> case Map.lookup (project, url) known of
+      Just ops -> pure (known, Right ops)
+      Nothing -> do
+        result <- openRemoteObjectOps project url
+        pure (either (const known) (\ops -> Map.insert (project, url) ops known) result, result)
+
+openRemoteObjectOps :: T.Text -> T.Text -> IO (Either T.Text ObjectOps)
+openRemoteObjectOps project url = do
   selected <- lookupEnv "NAGARE_INVENTORY_GCS_TRANSPORT"
   case fromMaybe "gogol" selected of
     "gcloud" -> legacy

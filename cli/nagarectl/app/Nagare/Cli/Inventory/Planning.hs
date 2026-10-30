@@ -27,8 +27,8 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryCdnAdapter
   , inventoryControllerCollectionAdapter
   , inventoryHelmAdapter
-  , inventoryHostAdapter
   , inventoryKubernetesPlanningAdapter
+  , inventoryPlanningHostAdapter
   , inventoryPulumiAdapterWithCollections
   )
 import Nagare.Cli.Inventory.CdnHistory
@@ -380,7 +380,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
   host <-
     maybe
       (pure (Inventory.manifestAdapterFor history ResourceInventory.HostExecutor))
-      (inventoryHostAdapter active workspace (hostScopeAccepted history) scopes)
+      (inventoryPlanningHostAdapter active workspace (hostScopeAccepted history) scopes)
       hostInputs
   (cache, cacheKey) <-
     if Map.null cacheSpecs

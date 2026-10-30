@@ -49,6 +49,10 @@ transitionCostTests =
           let slow = record & #stages . ix 1 . #planSeconds ?~ 61
           fst (judge slow) @?= VerdictFailed
           [entry ^. #budget | entry <- snd (judge slow), not (entry ^. #holds)] @?= ["plan transition-2"]
+          -- Artifact preparation is reported apart from planning, never from activation.
+          let prepared = slow & #stages . ix 1 . #preparationSeconds ?~ 2
+          fst (judge prepared) @?= VerdictPassed
+          fst (judge (prepared & #stages . ix 1 . #preparationSeconds ?~ 1)) @?= VerdictFailed
           fst (judge (record & #activationSeconds .~ 301)) @?= VerdictFailed
           fst (judge (record & #runStatus .~ "running")) @?= VerdictIncomplete
           -- A failed run is failed even when traces are missing.

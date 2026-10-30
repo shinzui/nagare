@@ -31,6 +31,7 @@ import Nagare.Contract.Trace
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.ClusterSession (withCommandClusterSessions)
 import Nagare.Inventory.Store.Counters
+import Nagare.Inventory.Store.Remote (withCommandRemoteStores)
 import System.Directory (removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -39,9 +40,9 @@ import System.IO (hClose, openBinaryTempFile, stderr)
 import System.Posix.Files (setFileMode)
 
 -- | A command's scope: its trace and, inside it, its cluster sessions
--- (EP-226), so session admissions are traced.
+-- (EP-226) and remote stores (EP-224), so admissions and opens are traced.
 withCommandScope :: Text -> IO a -> IO a
-withCommandScope command = withCommandTrace command . withCommandClusterSessions
+withCommandScope command = withCommandTrace command . withCommandClusterSessions . withCommandRemoteStores
 
 -- | Run a command under the tracing the environment selects. The command is
 -- named by the caller, never by its arguments.

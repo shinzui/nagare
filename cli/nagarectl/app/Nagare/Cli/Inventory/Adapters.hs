@@ -11,6 +11,7 @@ module Nagare.Cli.Inventory.Adapters
   , inventoryCdnAdapter
   , inventoryHelmAdapter
   , inventoryHostAdapter
+  , inventoryPlanningHostAdapter
   , inventoryKubernetesAdapter
   , inventoryKubernetesAdapterWith
   , inventoryKubernetesPlanningAdapter
@@ -79,7 +80,7 @@ import Nagare.Inventory.Adapters.HelmRuntime
   ( HelmRuntimeConfig (..)
   , helmRuntimeOps
   )
-import Nagare.Inventory.Adapters.Host (mkHostAdapter)
+import Nagare.Inventory.Adapters.Host (HostAdapterOps, mkHostAdapter)
 import Nagare.Inventory.Adapters.HostRuntime
   ( HostRuntimeConfig
       ( HostRuntimeConfig
@@ -97,6 +98,7 @@ import Nagare.Inventory.Adapters.HostRuntime
       , runtimeHostZone
       )
   , mkHostRuntimeOps
+  , mkPlanningHostRuntimeOps
   )
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesExecutionAdapter, kubernetesPlanningAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (KubernetesRuntimeConfig))
@@ -488,7 +490,14 @@ hostScopeAccepted history = Map.member owner (InventoryPlan.historyAccepted hist
         (Resource.mkScopeId Resource.Platform "host")
 
 inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> Bool -> [ResourceInventory.ScopeDeclaration] -> [Resource.ContentDigest] -> IO InventoryAdapter.Adapter
-inventoryHostAdapter active workspace accepted _ reviewedDigests = do
+inventoryHostAdapter = inventoryHostAdapterWith (pure . mkHostRuntimeOps)
+
+-- | The host adapter of one plan: its host operations share one preparation.
+inventoryPlanningHostAdapter :: ActiveTarget -> PlatformWorkspace -> Bool -> [ResourceInventory.ScopeDeclaration] -> [Resource.ContentDigest] -> IO InventoryAdapter.Adapter
+inventoryPlanningHostAdapter = inventoryHostAdapterWith mkPlanningHostRuntimeOps
+
+inventoryHostAdapterWith :: (HostRuntimeConfig -> IO HostAdapterOps) -> ActiveTarget -> PlatformWorkspace -> Bool -> [ResourceInventory.ScopeDeclaration] -> [Resource.ContentDigest] -> IO InventoryAdapter.Adapter
+inventoryHostAdapterWith runtimeOps active workspace accepted _ reviewedDigests = do
   hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
   hostRoot <- hostConfigDir (active ^. #contextName)
   flake <- BS.readFile (hostRoot </> "flake.nix")
@@ -531,7 +540,7 @@ inventoryHostAdapter active workspace accepted _ reviewedDigests = do
           , runtimeHostAgeKeyDigest = ageKeyDigest
           , runtimeHostAccepted = accepted
           }
-  pure (mkHostAdapter (mkHostRuntimeOps config))
+  mkHostAdapter <$> runtimeOps config
 
 inventoryPulumiAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
 inventoryPulumiAdapter = inventoryPulumiAdapterWithCollections [] Map.empty

@@ -10,6 +10,7 @@ module Nagare.Inventory.Adapters.Helm
   )
 where
 
+import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -76,7 +77,8 @@ mkHelmAdapter specs ops =
     , adapterIdentity = "helm-reviewed-render"
     , adapterVersion = "1"
     , adapterObserve = \resources -> do
-        states <- traverse (helmObserve ops) resources
+        -- Each release is read on its own; none waits for another (EP-224).
+        states <- mapConcurrently (helmObserve ops) resources
         pure (observationSet (zipWith observe resources states))
     , adapterPrepare = \operation -> case specFor operation of
         Left reason -> pure (Left (refuse operation reason))

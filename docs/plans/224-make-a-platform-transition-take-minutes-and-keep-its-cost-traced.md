@@ -158,6 +158,11 @@ record at the glob the old plan specified.
 - 2026-10-29: The fixture's rows assert today's costs, including the full re-verify a single
   change causes while a scope's bootstrap marker is unsettled. EP-225 and EP-227 lower these rows
   deliberately; they are not budgets.
+- 2026-10-30 (operator: fix the intranet miss under EP-224): one plan prepares the host
+  closure once, traced as `artifact preparation`; a plan's 60 s budget excludes it, as this plan's
+  "artifact-ready" target says, and activation's 300 s includes it. Executors and Helm releases
+  observe concurrently, and a command opens each remote store once. One intranet sample per
+  release counts toward the five.
 
 
 ## Outcomes & Retrospective

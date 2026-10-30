@@ -171,7 +171,7 @@ costParser :: Parser Command
 costParser =
   hsubparser
     ( command "fixture" (info (CostFixture <$> strOption (long "out" <> metavar "DIR" <> help "An empty or absent directory")) (progDesc "Write a synthetic run the collector can read; never native evidence"))
-        <> command "collect" (info (CostCollect <$> strOption (long "run" <> metavar "DIR" <> help "A run directory with its index") <*> strOption (long "out" <> metavar "FILE")) (progDesc "Write the cost record of a run from its index and command traces"))
+        <> command "collect" (info (CostCollect <$> strOption (long "run" <> metavar "DIR" <> help "A run directory with its index, or the index itself") <*> strOption (long "out" <> metavar "FILE")) (progDesc "Write the cost record of a run from its index and command traces"))
         <> command "check" (info (CostCheck <$> strOption (long "record" <> metavar "FILE")) (progDesc "Judge a cost record: passed, failed or incomplete; non-zero unless passed"))
         <> command "history" (info (CostHistory <$> strOption (long "root" <> metavar "DIR" <> value "docs/release-evidence" <> showDefault)) (progDesc "List the cost records under a directory, by profile"))
     )

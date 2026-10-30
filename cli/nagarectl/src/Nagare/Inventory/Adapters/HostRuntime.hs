@@ -6,9 +6,11 @@
 module Nagare.Inventory.Adapters.HostRuntime
   ( HostRuntimeConfig (..)
   , mkHostRuntimeOps
+  , mkPlanningHostRuntimeOps
   )
 where
 
+import Control.Concurrent.MVar (modifyMVar, newMVar)
 import Control.Exception (IOException, try)
 import Data.Aeson
 import Data.List.NonEmpty qualified as NE
@@ -20,6 +22,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Host
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), operationIdText)
+import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import System.Environment (getEnvironment, getExecutablePath)
@@ -72,10 +75,28 @@ mkHostRuntimeOps :: HostRuntimeConfig -> HostAdapterOps
 mkHostRuntimeOps config =
   HostAdapterOps
     { hostObserveResources = observeResources config
-    , hostPreparePlan = preparePlan config
+    , hostPreparePlan = preparePlan config (prepareTransport config)
     , hostInspectActivation = inspectActivation config
     , hostRunActivation = runActivation config
     }
+
+-- | The operations of one plan (EP-224 M3). Its host operations share one
+-- preparation: a plan changes nothing, so the target closure and the
+-- running one cannot differ between them. A failure is not kept.
+mkPlanningHostRuntimeOps :: HostRuntimeConfig -> IO HostAdapterOps
+mkPlanningHostRuntimeOps config = do
+  prepared <- newMVar Nothing
+  let once = modifyMVar prepared $ \case
+        Just response -> pure (Just response, Right response)
+        Nothing -> do
+          response <- prepareTransport config
+          pure (either (const Nothing) Just response, response)
+  pure (mkHostRuntimeOps config) {hostPreparePlan = preparePlan config once}
+
+-- | Building the target closure is artifact preparation: the cost record
+-- reports it beside the plan, not as planning (EP-224).
+prepareTransport :: HostRuntimeConfig -> IO (Either Text HostTransportResponse)
+prepareTransport config = tracePhase "artifact preparation" (runTransport config "prepare" Nothing)
 
 observeResources :: HostRuntimeConfig -> [ResourceId] -> IO (Either Text ObservationSet)
 observeResources config resources = do
@@ -99,13 +120,13 @@ observeResources config resources = do
       _ -> Left "host observe transport returned an activation state"
     observationSet [(resource, value) | resource <- resources]
 
-preparePlan :: HostRuntimeConfig -> PlannedOperation -> IO (Either Text HostActivationPlan)
-preparePlan config operation
+preparePlan :: HostRuntimeConfig -> IO (Either Text HostTransportResponse) -> PlannedOperation -> IO (Either Text HostActivationPlan)
+preparePlan config prepare operation
   | plannedAction operation `notElem` [CreateResource, UpdateResource, VerifyResource, RunDeclaredOperation] =
       pure (Left "host runtime only executes reviewed creation, update, verification or activation operations")
   | null (NE.toList (plannedResources operation)) = pure (Left "host activation names no resources")
   | otherwise = do
-      response <- runTransport config "prepare" Nothing
+      response <- prepare
       pure $ do
         prepared <- response
         case prepared of

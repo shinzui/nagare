@@ -45,6 +45,7 @@ module Nagare.Inventory.Adapter
   )
 where
 
+import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.List.NonEmpty (NonEmpty)
@@ -491,7 +492,9 @@ lookupAdapterFenceByCapability (AdapterRegistry _ fences _ _) executor capabilit
 
 observeWithRegistry :: AdapterRegistry -> Map Executor [ResourceId] -> IO (Either Text ObservationSet)
 observeWithRegistry registry requests = do
-  results <- traverse observeOne (Map.toAscList requests)
+  -- Executors observe disjoint resources and only read, so they read at
+  -- once: a plan waits for its slowest executor, not for their sum (EP-224).
+  results <- mapConcurrently observeOne (Map.toAscList requests)
   pure $ do
     observedSets <- sequence results
     withObservationNotes (Map.unions (map observationNotes observedSets)) . withStuckRollouts (Map.unions (map observationStuck observedSets))
