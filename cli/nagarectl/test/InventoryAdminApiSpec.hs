@@ -17,6 +17,7 @@ import Nagare.Inventory.BackendMap (compileContributedBackendMaps)
 import Nagare.Inventory.Components.AdminApi
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
+import Nagare.Platform.ReleaseImages (explicitSelection)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (Sensitivity (Secret))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -98,7 +99,7 @@ inventoryAdminApiTests =
         let refused label result = case result of
               Left errors -> assertBool label (any ((== "invalid-admin-api") . (^. #code)) (toList errors))
               Right _ -> assertFailure (label <> ": accepted")
-        compileAdminApi (input LocalMountedStore & #image .~ "registry.example.test/nagare-admin-api:latest") (declarationsOf auth) >>= refused "a mutable image tag"
+        compileAdminApi (input LocalMountedStore & #image .~ explicitSelection "registry.example.test/nagare-admin-api:latest") (declarationsOf auth) >>= refused "a mutable image tag"
         compileWith auth (CloudReaderStore "gs://project-nagare-pulumi-state/nagare/ctx/inventory" "" fixtureReader) >>= refused "an empty project number"
         compileWith auth (cloudStore (secretNamed "grafana-admin" [("key.json", "{}")])) >>= refused "another Secret"
         compileWith auth (cloudStore (secretNamed "nagare-admin-api-reader" [("key.json", "{}"), ("token", "x")])) >>= refused "an extra key"
@@ -141,7 +142,7 @@ input store =
     , baseDomain = "example.test"
     , context = "ctx"
     , project = "project"
-    , image = fixtureImage
+    , image = explicitSelection fixtureImage
     , store = store
     }
 
@@ -175,7 +176,7 @@ authScope = do
         , authCluster = fixtureCluster
         , authNamespace = mintResourceId fixtureOwner (ok (mkLogicalKey "foundation")) (ok (mkName "namespace-nagare-system"))
         , authRoot = "../.."
-        , authImages = Map.fromList [(name, "registry.example.test/" <> name <> "@sha256:" <> T.replicate 64 "a") | name <- ["en", "shomei", "nagare-access"]]
+        , authImages = Map.fromList [(name, explicitSelection ("registry.example.test/" <> name <> "@sha256:" <> T.replicate 64 "a")) | name <- ["en", "shomei", "nagare-access"]]
         , authBaseDomain = "example.test"
         , authDatabasePrerequisites = Map.fromList [(name, mintResourceId fixtureOwner (ok (mkLogicalKey name)) (ok (mkName "database"))) | name <- ["en", "shomei"]]
         , authExtraPrerequisites = []

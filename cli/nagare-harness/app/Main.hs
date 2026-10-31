@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -8,8 +9,9 @@ import Nagare.Harness.Gate (coveredRevision, fastGateAt, fullGateAt, landableRev
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Release.Candidate (CandidateOptions (..), releaseCandidate)
+import Nagare.Harness.Release.Images (aliasReleaseImages, prepareReleaseImages, readReleaseImages, verifyReleaseImages)
 import Nagare.Harness.Release.Intranet (IntranetOptions (..), transitionPinTag, transitionRun)
-import Nagare.Harness.Release.Process (realRuntime, refusing)
+import Nagare.Harness.Release.Process (realRuntime, refuse, refusing)
 import Nagare.Harness.Release.Rehearse (RehearseOptions (..), transitionRehearse)
 import Nagare.Harness.Release.TransitionDrill (transitionDrill)
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
@@ -34,6 +36,9 @@ data Command
   | MutationsSweep !Text !(Maybe Text) !Int
   | RouteCheck !RouteCheckOptions
   | ReleaseCandidate !CandidateOptions
+  | ReleaseImagesPrepare
+  | ReleaseImagesVerify !FilePath !FilePath
+  | ReleaseImagesPublish !Text !FilePath !FilePath
   | TransitionRun !IntranetOptions !Bool
   | TransitionPinTag !IntranetOptions
   | TransitionRehearse !RehearseOptions
@@ -68,9 +73,33 @@ releaseParser =
                   <*> (T.pack <$> strOption (long "revision" <> metavar "REV" <> value "HEAD" <> showDefault <> help "The candidate revision, on origin/master"))
                   <*> switch (long "rehearsal" <> help "Run every step but land nothing and leave the intranet untouched")
             )
-            (progDesc "Everything up to the tag, unattended: gate, transition rehearsal, attachments, assembly, the intranet, the rehearsal record (scripts/release-candidate.sh)")
+            (progDesc "Everything up to the tag, unattended: gate, release images, transition rehearsal, attachments, assembly, the intranet, the rehearsal record (scripts/release-candidate.sh)")
         )
+        <> command "images" (info imagesParser (progDesc "Build, verify and tag the release's four service images (EP-237)"))
     )
+
+imagesParser :: Parser Command
+imagesParser =
+  hsubparser
+    ( command
+        "prepare"
+        (info (pure ReleaseImagesPrepare) (progDesc "Build the four images on the x86_64-linux builder and write their digests into release.json, before the chore(release) commit"))
+        <> command
+          "verify"
+          ( info
+              (ReleaseImagesVerify <$> manifestOption <*> workOption)
+              (progDesc "Every image in the manifest resolves, is linux/amd64 and pulls without credentials")
+          )
+        <> command
+          "publish"
+          ( info
+              (ReleaseImagesPublish <$> versionArgument <*> manifestOption <*> workOption)
+              (progDesc "Verify the images, then tag each vVERSION unless the tag already names the same digest")
+          )
+    )
+  where
+    manifestOption = strOption (long "manifest" <> metavar "FILE" <> value "release.json" <> showDefault <> help "A release.json carrying releaseImages")
+    workOption = strOption (long "work" <> metavar "DIR" <> help "Scratch directory for anonymous pulls")
 
 -- | The scripts' own grammars, so each wrapper is a bare @exec … "$\@"@.
 transitionParser :: Parser Command
@@ -218,6 +247,14 @@ main = do
   parsed <- execParser (info (commandParser <**> helper) (fullDesc <> failureCode 2 <> progDesc "Nagare release and gate harness"))
   case parsed of
     ReleaseCandidate options -> realRuntime >>= \runtime -> refusing "release-candidate" (releaseCandidate runtime options)
+    ReleaseImagesVerify manifest work ->
+      realRuntime >>= \runtime -> refusing "release images" $ do
+        images <- BS.readFile manifest >>= either refuse pure . readReleaseImages
+        verifyReleaseImages runtime work images
+    ReleaseImagesPublish version manifest work ->
+      realRuntime >>= \runtime -> refusing "release images" $ do
+        images <- BS.readFile manifest >>= either refuse pure . readReleaseImages
+        aliasReleaseImages runtime work version images
     TransitionRun options pinTag -> realRuntime >>= \runtime -> refusing "release-intranet" ((if pinTag then transitionPinTag else transitionRun) runtime options)
     TransitionPinTag options -> realRuntime >>= \runtime -> refusing "release-intranet" (transitionPinTag runtime options)
     TransitionRehearse options -> realRuntime >>= \runtime -> refusing "release-rehearse" (transitionRehearse runtime options)
@@ -303,6 +340,9 @@ harnessMain root parsed =
       unless green exitFailure
     -- The release commands run before the repository root is read.
     ReleaseCandidate _ -> pure ()
+    ReleaseImagesPrepare -> realRuntime >>= \runtime -> refusing "release images" (prepareReleaseImages runtime root)
+    ReleaseImagesVerify _ _ -> pure ()
+    ReleaseImagesPublish {} -> pure ()
     TransitionRun _ _ -> pure ()
     TransitionPinTag _ -> pure ()
     TransitionRehearse _ -> pure ()

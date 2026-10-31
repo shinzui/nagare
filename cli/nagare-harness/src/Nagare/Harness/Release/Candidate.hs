@@ -1,5 +1,7 @@
 -- | Everything up to the tag, unattended (MP-26 item 11, ported by EP-229;
--- docs/runbooks/releases.md). The release gate, the transition rehearsal from
+-- docs/runbooks/releases.md). The release gate, the release images (EP-237:
+-- built, checked against release.json, published, pulled anonymously and
+-- cached before anything pulls them), the transition rehearsal from
 -- the newest release the candidate accepts, both systems' native attachments
 -- (aarch64-darwin here, x86_64-linux in an amd64 Apple container), and two
 -- assemblies that must be byte-identical. The release gate runs alongside the
@@ -33,6 +35,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
 import Data.Time (defaultTimeLocale, formatTime)
 import Nagare.Harness.Prelude
+import Nagare.Harness.Release.Images (PublishImages (..), publishReleaseImages, readReleaseImages)
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.RunIndex
@@ -87,6 +90,8 @@ releaseCandidate outer options = do
   unless (system == "aarch64-darwin") (refuse "run it on the aarch64-darwin workstation; the x86_64-linux attachments come from an Apple container")
   metadataBytes <- capture runtime ("no release.json at " <> rev) ((git ["show", T.unpack rev <> ":release.json"]))
   metadata <- either refuse pure (decodeDocument @ReleaseMetadata "release.json" metadataBytes)
+  -- EP-237: a release names its four service images before anything runs.
+  releaseImages <- either refuse pure (readReleaseImages metadataBytes)
   unless (metadata ^. #platformVersion == version') $
     refuse ("release.json at " <> rev <> " is not " <> version' <> "; land chore(release): prepare v" <> version' <> " first")
   unless (sort (metadata ^. #supportedSystems) == ["aarch64-darwin", "x86_64-linux"]) $
@@ -131,6 +136,19 @@ releaseCandidate outer options = do
     beginStep index "gate" (Just (run </> "gate-release.log")) True
     gate <- (runtime ^. #transport . #spawn) (inWorktree (invocation "just" ["gate-release", revision']) & #stdoutTo .~ WriteTo (run </> "gate-release.log") & #stderrTo .~ SameAsStdout)
     modifyIORef' backgroundRef (gate :)
+    -- 1a. the release images (EP-237): the rehearsal and the intranet pull
+    -- them, so they are published, verified and cached before either starts
+    phase "images" "release images: build, publish, verify anonymously, cache"
+    _ <-
+      publishReleaseImages
+        runtime
+        PublishImages
+          { flake = "git+file://" <> repo <> "?rev=" <> revision'
+          , revision = rev
+          , images = releaseImages
+          , work = run </> "images"
+          }
+    setRecord index "releaseImages" (run </> "images/release-images.json")
     -- 2. the transition rehearsal, in the background beside steps 3 and 4
     -- (it runs on the Colima profile, they on the builder and an Apple
     -- container); assembly binds its record, so step 5 waits for it

@@ -41,6 +41,10 @@ newtype VersionError = VersionError {text :: Text}
 
 data Compatibility
   = Exact
+  | -- | EP-237: every release identity agrees, but an enabled service runs
+    -- an image other than this release's. Weaker than any version skew;
+    -- mutation stays available so the reviewed transition can repair it.
+    ImageSkew
   | PatchSkew
   | MinorUpgradeRequired
   | MajorIncompatible
@@ -96,6 +100,7 @@ comparePlatformVersions expected (Just observed)
 
 compatibilityToken :: Compatibility -> Text
 compatibilityToken Exact = "exact"
+compatibilityToken ImageSkew = "image-skew"
 compatibilityToken PatchSkew = "patch-skew"
 compatibilityToken MinorUpgradeRequired = "minor-upgrade-required"
 compatibilityToken MajorIncompatible = "major-incompatible"

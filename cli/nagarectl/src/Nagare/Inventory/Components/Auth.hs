@@ -28,6 +28,7 @@ import Nagare.Dsl.Types (databaseNameText)
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Database (DatabaseBackupTarget, compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Platform.ReleaseImages (ImageSelection (..), annotateImageSelection)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
@@ -43,7 +44,9 @@ data AuthInput = AuthInput
   , authCluster :: !ResourceId
   , authNamespace :: !ResourceId
   , authRoot :: !FilePath
-  , authImages :: !(Map Text Text)
+  , authImages :: !(Map Text ImageSelection)
+  -- ^ EP-237: each service's selected image and the release image it was
+  -- compared with; the selection is recorded on the reviewed workload.
   , authBaseDomain :: !Text
   , authDatabasePrerequisites :: !(Map Text ResourceId)
   , authExtraPrerequisites :: ![ResourceId]
@@ -249,7 +252,8 @@ compileAuth input = do
           rendered <- renderTemplateValue value
           withSettings <- addShomeiEnv rendered
           revised <- reviseJob withSettings
-          pure [(location, revised)]
+          recorded <- recordSelection revised
+          pure [(location, recorded)]
     renderTemplateValue (String value)
       | Just image <- Map.lookup value imagePlaceholders = String <$> imageFor image
       | value == "${NAGARE_ACCESS_COOKIE_DOMAIN}" =
@@ -264,12 +268,13 @@ compileAuth input = do
         [ ("${NAGARE_REGISTRY_PREFIX}/" <> service <> ":${NAGARE_AUTH_TAG}", service)
         | service <- ["en", "shomei", "nagare-access"]
         ]
+    selectionFor service =
+      maybe
+        (Left ("auth image is missing: " <> service))
+        Right
+        (Map.lookup service (authImages input))
     imageFor service = do
-      image <-
-        maybe
-          (Left ("auth image is missing: " <> service))
-          Right
-          (Map.lookup service (authImages input))
+      image <- (^. #selected) <$> selectionFor service
       unless
         ( case T.splitOn "@sha256:" image of
             [repository, digest] ->
@@ -321,6 +326,17 @@ compileAuth input = do
       let suffix = T.take 12 (digestText (contentDigest (TE.encodeUtf8 image)))
       pure (Object (KM.insert "metadata" (Object (KM.insert "name" (String (name <> "-" <> suffix)) metadata)) root))
     reviseJob value = Right value
+    -- EP-237: the server workloads carry their image selection.
+    recordSelection value@(Object root) = case (KM.lookup "kind" root, KM.lookup "metadata" root) of
+      (Just (String kind), Just (Object meta))
+        | kind `elem` ["Deployment", "Service"]
+        , Just (String name) <- KM.lookup "name" meta
+        , name `elem` ["en", "shomei", "nagare-access"]
+        , KM.lookup "apiVersion" root `elem` [Just (String "apps/v1"), Just (String "serving.knative.dev/v1")] -> do
+            selection <- selectionFor name
+            annotateImageSelection selection value
+      _ -> Right value
+    recordSelection value = Right value
     addShomeiEnv value@(Object root)
       | KM.lookup "kind" root == Just (String "Deployment") = do
           metadata <- case KM.lookup "metadata" root of

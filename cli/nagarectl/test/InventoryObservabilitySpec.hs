@@ -33,6 +33,7 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Journal (OperationId, mkOperationId)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Platform.ReleaseImages (explicitSelection)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RecoveryClass (Idempotent, VerifyBeforeRetry))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -286,7 +287,7 @@ inventoryObservabilityTests =
             either
               (assertFailure . show)
               pure
-              (packagedAuthInputs "../.." foundation CloudAuth "example.test" images backend)
+              (packagedAuthInputs "../.." foundation CloudAuth "example.test" (fmap explicitSelection images) backend)
           (controllerScope, controllerImage, publication) <-
             either
               (assertFailure . show)

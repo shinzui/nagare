@@ -27,7 +27,7 @@ import Nagare.Cli.Runtime.Error
   , renderVersionError
   )
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
-import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
+import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus, gatherPlatformStatusWithImages)
 import Nagare.Cli.Runtime.ProjectGuard
   ( observeAdcForProject
   , projectGuardInputsFor
@@ -124,7 +124,7 @@ runPlatformRoot mctx asJson = do
 
 runPlatformStatus :: Maybe String -> Bool -> IO ()
 runPlatformStatus mctx asJson = do
-  (active, status) <- gatherPlatformStatus mctx
+  (active, status) <- gatherPlatformStatusWithImages mctx
   if asJson
     then LBC.putStrLn (Aeson.encode (platformStatusValue status))
     else TIO.putStr (renderPlatformStatus (contextNameText (active ^. #contextName)) status)
