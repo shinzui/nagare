@@ -18,6 +18,7 @@ module Nagare.Api.Server.Serve
   , RequestStats (..)
   , beginRequest
   , endRequest
+  , noteDeadline
   )
 where
 
@@ -26,6 +27,7 @@ import Control.Concurrent.MVar
 import Control.Exception (SomeAsyncException, SomeException, fromException, throwIO, try)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (ToJSON, encode)
+import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Map.Strict (Map)
@@ -34,6 +36,7 @@ import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Api.Response
 import Nagare.Api.Server.Problems (storeProblem)
 import Nagare.Api.Server.Validators (entityTag, noneMatch, stateValidators)
@@ -42,15 +45,20 @@ import Nagare.Contract.Problem (ProblemDetails, internalError, problemFor, store
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Recorded (RecordedHead, RecordedReader, readRecordedHead, recordedHeadManifest, recordedHeadRevision)
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
-import Nagare.Resource.Types (digestText, generationNumber, scopeIdText)
+import Nagare.Resource.Types (ContextBinding, digestText, generationNumber, scopeIdText)
 import Servant.Server (Handler)
 import System.Timeout (timeout)
 
 -- | Everything a request needs. The reader owns the context-bound store
--- session and the immutable scope cache.
+-- session and the immutable scope cache. @versionSnapshot@ reads the
+-- platform-versions snapshot object through the same session (EP-236), and
+-- @startedAt@ is when this process read its own build identity.
 data Env = Env
   { reader :: !RecordedReader
   , build :: !Text
+  , binding :: !ContextBinding
+  , versionSnapshot :: !(IO (Either Text (Maybe ByteString)))
+  , startedAt :: !Text
   , deadlineMicroseconds :: !Int
   , representations :: !(MVar Representations)
   , representationLimit :: !Int
@@ -70,14 +78,18 @@ data Representations = Representations
   , order :: !(Seq Text)
   }
 
-newEnv :: RecordedReader -> Text -> IO Env
-newEnv recordedReader buildIdentity = do
+newEnv :: RecordedReader -> Text -> ContextBinding -> IO (Either Text (Maybe ByteString)) -> IO Env
+newEnv recordedReader buildIdentity contextBinding snapshotRead = do
   cached <- newMVar (Representations Map.empty Seq.empty)
   inFlight <- newIORef Map.empty
+  started <- Text.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" <$> getCurrentTime
   pure
     Env
       { reader = recordedReader
       , build = buildIdentity
+      , binding = contextBinding
+      , versionSnapshot = snapshotRead
+      , startedAt = started
       , deadlineMicroseconds = 10000000
       , representations = cached
       , representationLimit = 512
@@ -95,6 +107,10 @@ endRequest :: Env -> IO RequestStats
 endRequest env = do
   thread <- myThreadId
   atomicModifyIORef' (requests env) (\table -> (Map.delete thread table, Map.findWithDefault (RequestStats Nothing False) thread table))
+
+-- | Record that the current request ran out of time.
+noteDeadline :: Env -> IO ()
+noteDeadline env = record env (\stats -> stats {deadlineExceeded = True})
 
 record :: Env -> (RequestStats -> RequestStats) -> IO ()
 record env change = do

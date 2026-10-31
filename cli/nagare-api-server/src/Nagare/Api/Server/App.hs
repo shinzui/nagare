@@ -26,7 +26,7 @@ import Data.Time (getCurrentTime)
 import Nagare.Api.Access.Handler (accessServer)
 import Nagare.Api.Inventory.Handler (inventoryServer)
 import Nagare.Api.OpenApi (renderAdminOpenApi)
-import Nagare.Api.Platform.Routes (PlatformRoutes (..))
+import Nagare.Api.Platform.Handler (platformServer)
 import Nagare.Api.Routes (AdminApi (..), adminApi)
 import Nagare.Api.Server.RequestLog (requestLog)
 import Nagare.Api.Server.Serve
@@ -83,7 +83,7 @@ adminApplication config env = do
 adminServer :: AppConfig -> Env -> AdminApi (AsServerT Handler)
 adminServer config env =
   AdminApi
-    { platform = PlatformRoutes {version = serveBuild (build env) versionBytes}
+    { platform = platformServer (config ^. #version) env
     , inventory = inventoryServer env (config ^. #context)
     , sites = sitesServer env (config ^. #context)
     , access = accessServer env (config ^. #context)
@@ -91,7 +91,6 @@ adminServer config env =
     , health = healthServer (pure Healthy) ready
     }
   where
-    versionBytes = encode (config ^. #version)
     -- Readiness checks a fresh bound head within one second and loads no
     -- scope; a probe failure is a status report, not an application error.
     ready = do

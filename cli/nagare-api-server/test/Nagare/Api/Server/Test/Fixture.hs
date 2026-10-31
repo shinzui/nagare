@@ -12,6 +12,7 @@ module Nagare.Api.Server.Test.Fixture
   , fixtureBinding
   , authId
   , seedStore
+  , sampleSnapshot
   )
 where
 
@@ -25,10 +26,13 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Contract.Prelude
+import Nagare.Contract.Schema (Nullable (..))
+import Nagare.Contract.Versions
 import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactKind (..), ArtifactOwnership (..), ArtifactResourceSpec (..), ConsumerCoverage (..), compileArtifactScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps
+import Nagare.Platform.Versions
 import Nagare.Resource.Access (mkTeamKey)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (..))
@@ -325,3 +329,100 @@ for_' xs action = mapM_ action xs
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
+
+-- | A platform-versions snapshot of the fixture context (EP-236): release
+-- 0.13.0 installed from a legacy stamp without a payload ID, one NixOS
+-- node, one component mid-rollout with two digests, and one PostgreSQL
+-- server declared @18@.
+sampleSnapshot :: VersionSnapshot
+sampleSnapshot =
+  VersionSnapshot
+    { snapshotSchema = snapshotSchemaVersion
+    , context = "fixture"
+    , project = "project"
+    , collectedAt = "2026-10-31T16:00:02Z"
+    , completedAt = "2026-10-31T16:00:09Z"
+    , inventoryRevision = Nullable (Just "sha256:head")
+    , reason = Nullable Nothing
+    , installed =
+        Nullable
+          ( Just
+              InstalledRelease
+                { version = stamp (Just "0.13.0")
+                , revision = stamp (Just "0123456789abcdef0123456789abcdef01234567")
+                , payloadId = stamp Nothing
+                , installedAt = stamp (Just "2026-10-30T09:00:00Z")
+                }
+          )
+    , pins =
+        Nullable
+          ( Just
+              Pins
+                { context = recordedFact "context profile" at (Just "0.13.0")
+                , hostVersion = recordedFact "generated host flake" at (Just "0.13.0")
+                , hostRevision = recordedFact "generated host flake" at Nothing
+                }
+          )
+    , hosts =
+        [ HostVersions
+            { node = "nagare-01"
+            , uid = "node-uid-1"
+            , osImage = node' (Just "NixOS 26.11 (Zebra)")
+            , kernel = node' (Just "6.12.40")
+            , kubernetes = node' (Just "v1.33.4+k3s1")
+            , nixos =
+                NixosIdentity
+                  { release = identity (Just "26.11")
+                  , codename = identity (Just "Zebra")
+                  , version = identity (Just "26.11.20261020.eaad089")
+                  , nixpkgsRevision = identity (Just "eaad0894")
+                  }
+            }
+        ]
+    , hostsReason = Nullable Nothing
+    , components =
+        [ ComponentVersions
+            { scope = "platform:upstream"
+            , resource = "platform:upstream/knative-controller/deployment"
+            , kind = "Deployment"
+            , namespace = "knative-serving"
+            , name = "controller"
+            , declaredVersion = declared (Just "1.19.0")
+            , declaredChartVersion = missingFact SourceRecorded "accepted declaration" at reasonNotApplicable
+            , declaredImages = [DeclaredImage "controller" (declared (Just "gcr.io/knative-releases/controller@sha256:new"))]
+            , workloads = [workload "controller-a" "pod-a" "sha256:old", workload "controller-b" "pod-b" "sha256:new"]
+            , workloadsReason = Nullable Nothing
+            }
+        ]
+    , componentsReason = Nullable Nothing
+    , databases =
+        [ DatabaseVersions
+            { scope = "database:labs-postgres"
+            , namespace = "databases"
+            , server = "labs-postgres"
+            , engine = "postgres"
+            , declaredVersion = declared (Just "18")
+            , declaredImage = declared (Just "postgres:18")
+            , instances =
+                [ DatabaseInstance
+                    { pod = "labs-postgres-0"
+                    , podUid = "pod-pg"
+                    , image = pods (Just "postgres:18")
+                    , imageDigest = pods (Just "sha256:pg")
+                    , reportedVersion = observedFact "SELECT version()" "2026-10-31T16:00:06Z" (Just "PostgreSQL 18.1 on aarch64-unknown-linux-gnu")
+                    }
+                ]
+            , instancesReason = Nullable Nothing
+            }
+        ]
+    , databasesReason = Nullable Nothing
+    }
+  where
+    at = "2026-10-31T16:00:02Z"
+    stamp = recordedFact "configmap nagare-system/nagare-platform-version" at
+    node' = observedFact "node status.nodeInfo" at
+    identity = recordedFact "configmap kube-system/nagare-host-identity" at
+    declared = recordedFact "accepted declaration" at
+    pods = observedFact "pod status" "2026-10-31T16:00:04Z"
+    workload podName podId digest =
+      Workload podName podId [ObservedContainer "controller" (pods (Just "gcr.io/knative-releases/controller")) (pods (Just digest))]

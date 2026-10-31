@@ -107,6 +107,7 @@ adminOpenApi =
 operationIds :: [(FilePath, Text)]
 operationIds =
   [ ("/v1/platform/version", "getPlatformVersion")
+  , ("/v1/platform/versions", "getPlatformVersions")
   , ("/v1/inventory/head", "getInventoryHead")
   , ("/v1/inventory/scopes", "listInventoryScopes")
   , ("/v1/inventory/scopes/{scopeId}", "getInventoryScope")

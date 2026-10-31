@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-31T15:26:37Z
       mode: "update"
       note: "Host identity recorded via k3s manifest ConfigMap; ETag/304 kept; scoped 20s post-apply refresh; Redis probe; no Helm Secret reads; acceptance script dropped; contract read-document shape; exact files and per-commit gate named"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-31T15:38:53Z
+      mode: "implement"
+      note: "M1 contract and endpoint implemented"
 ---
 
 
@@ -38,7 +43,7 @@ The existing `GET /v1/platform/version` keeps its meaning: the serving binary on
 ## Progress
 
 
-- [ ] M1: A versioned contract and a fixture-backed HTTP endpoint demonstrate installed/serving skew, partial results with reason codes, conditional 304s, and unchanged behaviour of every existing route.
+- [x] M1: A versioned contract and a fixture-backed HTTP endpoint demonstrate installed/serving skew, partial results with reason codes, conditional 304s, and unchanged behaviour of every existing route. (2026-10-31) `nagare-api-server-test`: 30 of 30 pass, including the 8 `platform versions (EP-236)` wire tests (different/match/unknown, legacy `payloadId` `not_recorded`, mixed rollout, missing/invalid/oversized/foreign/unavailable snapshot as 200, 304 and HEAD, deadline-bounded read, `/v1/platform/version` unchanged); `nagare-api-openapi` regenerated twice with the same output.
 - [ ] M2: A context-bound collector publishes a sanitized snapshot that the real API reads, proven end to end on the installed identity first, then extended to host, components and every managed database server (PostgreSQL, ClickHouse and Redis).
 - [ ] M3: Local and cloud deployments deliver and refresh snapshots while the API keeps its restricted credentials and exact-object grant; the host module records its identity into the cluster at activation.
 - [ ] M4: Adversarial interpreter tests, the generated contract, golden sample and native local/cloud comparisons satisfy AC-1 to AC-5; `docs/api/README.md`, ADR 6 and ADR 22 are updated.

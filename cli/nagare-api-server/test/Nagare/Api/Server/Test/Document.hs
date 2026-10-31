@@ -70,8 +70,9 @@ documentTests =
     ]
   where
     for_ xs action = mapM_ action xs
-    -- The build routes describe the binary; they read no store and cannot fail.
-    buildPaths = ["/v1/platform/version", "/v1/openapi.json"]
+    -- The build routes describe the binary and cannot fail; the versions
+    -- document answers 200 with reasons when its snapshot is unusable.
+    buildPaths = ["/v1/platform/version", "/v1/platform/versions", "/v1/openapi.json"]
     v1Operations =
       mapMaybe
         (\(path, item) -> if "/v1/" `Text.isPrefixOf` Text.pack path then (path,) <$> item ^. get else Nothing)

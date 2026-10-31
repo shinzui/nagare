@@ -70,7 +70,7 @@ withClient action =
 fixtureServer :: Root.AdminApi (AsServerT Handler)
 fixtureServer =
   Root.AdminApi
-    { Root.platform = Platform.PlatformRoutes {Platform.version = \_ -> pure (BuildOk (BuildBody (encoded sampleVersion) (validatorsFor "version")))}
+    { Root.platform = Platform.PlatformRoutes {Platform.version = \_ -> pure (BuildOk (BuildBody (encoded sampleVersion) (validatorsFor "version"))), Platform.versions = \_ -> pure (BuildNotModified (validatorsFor "versions"))}
     , Root.inventory =
         Inventory.InventoryRoutes
           { Inventory.head = \match -> pure (conditional match (encoded sampleHead))

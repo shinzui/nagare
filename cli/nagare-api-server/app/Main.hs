@@ -19,9 +19,10 @@ import Nagare.Api.Server.Serve (newEnv)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Project (versionInfo)
 import Nagare.Inventory.Recorded (defaultRecordedReaderConfig, newRecordedReader)
-import Nagare.Inventory.Store (openFilesystemStoreReadOnly, readHead)
+import Nagare.Inventory.Store (openFilesystemStoreReadOnly, readHead, readObject)
 import Nagare.Inventory.Store.Gogol (inventoryManagerSettings)
 import Nagare.Inventory.Store.Service (ServiceStore (..), ServiceStoreConfig (..), openServiceStore)
+import Nagare.Platform.Versions.Store (versionSnapshotKey)
 import Nagare.Resource.Types (ContextBinding (..), mkContextId, mkName)
 import Nagare.Version (BuildVersion (..), currentBuildVersion)
 import Network.Wai.Handler.Warp (defaultSettings, runSettings, setHost, setPort)
@@ -84,6 +85,7 @@ main = do
       pure (service ^. #store, service ^. #freshHead)
   recordedReader <- newRecordedReader defaultRecordedReaderConfig store binding headAction
   let BuildVersion buildVersion buildRevision = currentBuildVersion
-  env <- newEnv recordedReader (buildVersion <> maybe "" ("+" <>) buildRevision)
+  let snapshotRead = first (Text.pack . show) <$> readObject store versionSnapshotKey
+  env <- newEnv recordedReader (buildVersion <> maybe "" ("+" <>) buildRevision) binding snapshotRead
   application <- adminApplication (AppConfig contextName (versionInfo currentBuildVersion Nothing) 32 (BS.hPutStr stdout)) env
   runSettings (setHost (fromString address) (setPort portNumber defaultSettings)) application

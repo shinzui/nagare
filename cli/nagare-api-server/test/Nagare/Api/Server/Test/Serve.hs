@@ -8,7 +8,8 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, wait)
-import Data.Aeson (FromJSON, Value (..), eitherDecode)
+import Control.Monad (join)
+import Data.Aeson (FromJSON, Value (..), eitherDecode, encode)
 import Data.Aeson.Key qualified
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
@@ -32,9 +33,11 @@ import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails (..))
 import Nagare.Contract.Schema (Nullable (..))
 import Nagare.Contract.V1
+import Nagare.Contract.Versions
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Recorded (defaultRecordedReaderConfig, newRecordedReader)
 import Nagare.Inventory.Store (readHead, scopeKey)
+import Nagare.Platform.Versions (VersionSnapshot (..), recordedFact)
 import Nagare.Resource.Inventory (scopeId)
 import Nagare.Resource.Types (scopeIdText)
 import Nagare.Resource.Wire (encodeCanonicalScope)
@@ -49,7 +52,113 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 serveTests :: TestTree
-serveTests =
+serveTests = testGroup "wire" [recordedTests, versionTests]
+
+-- | @/v1/platform/versions@ (EP-236): the snapshot beside the serving build,
+-- partial results with reasons, and the shared validators.
+versionTests :: TestTree
+versionTests =
+  testGroup
+    "platform versions (EP-236)"
+    [ testCase "an older serving build beside a newer installed release is different, and no store object is read" $ withServer 2 defaults $ \server -> do
+        offer server (pure (Right (Just (snapshotBytes sampleSnapshot))))
+        _ <- readsSince server
+        response <- request server "GET" "/v1/platform/versions" []
+        statusOf response @?= 200
+        readsSince server >>= (@?= 0)
+        versions <- decodeBody @PlatformVersions response
+        versions ^. #nagare . #comparison . #state @?= ComparisonDifferent
+        versions ^. #nagare . #comparison . #installedVersion @?= Nullable (Just "0.13.0")
+        versions ^. #nagare . #comparison . #servingVersion @?= Nullable (Just "0.0.0")
+        fmap (^. #version) (fromNullable' (versions ^. #nagare . #servingBuild)) @?= Just "0.0.0"
+        (versions ^. #snapshot . #available, versions ^. #snapshot . #completedAt) @?= (True, Nullable (Just "2026-10-31T16:00:09Z"))
+        (versions ^. #context, versions ^. #project) @?= ("fixture", "project")
+        header "Cache-Control" response @?= Just "private, no-cache"
+        header "Nagare-Head-Revision" response @?= Nothing
+    , testCase "an equal version and revision match; an equal version without serving revision is unknown" $ do
+        withServer 2 defaults {servingRevision = Just "0123456789ab"} $ \server -> do
+          offer server (pure (Right (Just (snapshotBytes (installedAs "0.0.0")))))
+          versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
+          versions ^. #nagare . #comparison . #state @?= ComparisonMatch
+        withServer 2 defaults $ \server -> do
+          offer server (pure (Right (Just (snapshotBytes (installedAs "0.0.0")))))
+          versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
+          versions ^. #nagare . #comparison . #state @?= ComparisonUnknown
+    , testCase "a legacy stamp's payload ID is null with not_recorded while the rest is served" $ withServer 2 defaults $ \server -> do
+        offer server (pure (Right (Just (snapshotBytes sampleSnapshot))))
+        versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
+        installedRelease <- maybe (assertFailure "no installed release" >> fail "installed") pure (fromNullable' (versions ^. #nagare . #installed))
+        (installedRelease ^. #payloadId . #value, installedRelease ^. #payloadId . #reason) @?= (Nullable Nothing, Nullable (Just "not_recorded"))
+        installedRelease ^. #installedAt . #value @?= Nullable (Just "2026-10-30T09:00:00Z")
+        installedRelease ^. #version . #sourceKind @?= SourceRecorded
+    , testCase "a mixed rollout keeps both digests in order" $ withServer 2 defaults $ \server -> do
+        offer server (pure (Right (Just (snapshotBytes sampleSnapshot))))
+        versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
+        [ container ^. #imageDigest . #value
+          | component <- versions ^. #components
+          , workload <- component ^. #workloads
+          , container <- workload ^. #containers
+          ]
+          @?= [Nullable (Just "sha256:old"), Nullable (Just "sha256:new")]
+        map (^. #declaredVersion . #value) (versions ^. #databases) @?= [Nullable (Just "18")]
+    , testCase "a missing, corrupt, oversized, foreign or unreadable snapshot is a 200 with its reason and the serving build" $ withServer 2 defaults $ \server -> do
+        let foreignBytes = snapshotBytes sampleSnapshot {context = "elsewhere"}
+            oversized = BC.replicate 1048577 ' '
+        for_'
+          [ (pure (Right Nothing), "snapshot_missing")
+          , (pure (Right (Just "{not json")), "snapshot_invalid")
+          , (pure (Right (Just (snapshotBytes sampleSnapshot {snapshotSchema = 2}))), "snapshot_invalid")
+          , (pure (Right (Just oversized)), "snapshot_oversized")
+          , (pure (Right (Just foreignBytes)), "snapshot_foreign")
+          , (pure (Left "gcs: 403 secret-token-sentinel"), "snapshot_unavailable")
+          ]
+          $ \(answer, expected) -> do
+            offer server answer
+            response <- request server "GET" "/v1/platform/versions" []
+            statusOf response @?= 200
+            assertBool "a store error leaked into the document" (not (BC.isInfixOf "sentinel" (LBS.toStrict (bodyOf response))))
+            versions <- decodeBody @PlatformVersions response
+            (versions ^. #snapshot . #available, versions ^. #snapshot . #reason) @?= (False, Nullable (Just expected))
+            (versions ^. #hosts, versions ^. #hostsReason) @?= ([], Nullable (Just expected))
+            (versions ^. #components, versions ^. #databases) @?= ([], [])
+            versions ^. #nagare . #comparison . #state @?= ComparisonUnknown
+            assertBool "the serving build is missing" (isJust (fromNullable' (versions ^. #nagare . #servingBuild)))
+    , testCase "a matching If-None-Match answers 304; HEAD has no body; a new snapshot changes the ETag" $ withServer 2 defaults $ \server -> do
+        offer server (pure (Right (Just (snapshotBytes sampleSnapshot))))
+        fresh <- request server "GET" "/v1/platform/versions" []
+        let tag = fromMaybe "" (header "ETag" fresh)
+        unchanged <- request server "GET" "/v1/platform/versions" [("If-None-Match", tag)]
+        (statusOf unchanged, bodyOf unchanged, header "ETag" unchanged) @?= (304, "", Just tag)
+        headOnly <- request server "HEAD" "/v1/platform/versions" []
+        (statusOf headOnly, bodyOf headOnly, header "ETag" headOnly) @?= (200, "", Just tag)
+        offer server (pure (Right (Just (snapshotBytes sampleSnapshot {completedAt = "2026-10-31T17:00:00Z"}))))
+        refreshed <- request server "GET" "/v1/platform/versions" [("If-None-Match", tag)]
+        statusOf refreshed @?= 200
+        assertBool "a changed snapshot kept its ETag" (header "ETag" refreshed /= Just tag)
+    , testCase "a hung snapshot read answers within the request deadline as snapshot_unavailable" $ withServer 2 defaults {deadline = 200000} $ \server -> do
+        offer server (threadDelay 5000000 >> pure (Right Nothing))
+        started <- getCurrentTime
+        versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
+        finished <- getCurrentTime
+        versions ^. #snapshot . #reason @?= Nullable (Just "snapshot_unavailable")
+        assertBool "the read was not bounded" (diffUTCTime finished started < 2)
+    , testCase "the serving build route is unchanged" $ withServer 2 defaults $ \server -> do
+        response <- request server "GET" "/v1/platform/version" []
+        statusOf response @?= 200
+        info <- decodeBody @VersionInfo response
+        info ^. #version @?= "0.0.0"
+    ]
+  where
+    offer server answer = writeIORef (snapshotObject server) answer
+    installedAs release =
+      sampleSnapshot & #installed .~ Nullable (Just (InstalledRelease (stamp release) (stamp "0123456789abcdef") (stamp "nagare-payload") (stamp "2026-10-30T09:00:00Z")))
+    stamp present = recordedFact "configmap nagare-system/nagare-platform-version" "2026-10-31T16:00:02Z" (Just present)
+
+snapshotBytes :: VersionSnapshot -> ByteString
+snapshotBytes = LBS.toStrict . encode
+
+recordedTests :: TestTree
+recordedTests =
   testGroup
     "recorded store"
     [ testCase "the head reports open execution state and reads no scope object" $ withServer 12 defaults $ \server -> do
@@ -208,10 +317,11 @@ serveTests =
 data Options = Options
   { deadline :: !Int
   , admit :: !Int
+  , servingRevision :: !(Maybe Text)
   }
 
 defaults :: Options
-defaults = Options {deadline = 10000000, admit = 32}
+defaults = Options {deadline = 10000000, admit = 32, servingRevision = Nothing}
 
 data Server = Server
   { fixtureOf :: !Fixture
@@ -219,21 +329,24 @@ data Server = Server
   , manager :: !HTTP.Manager
   , accessLines :: !(IO [ByteString])
   , run :: !(forall a. ClientM a -> IO a)
+  , snapshotObject :: !(IORef (IO (Either Text (Maybe ByteString))))
+  -- ^ What the next platform-versions snapshot read returns.
   }
 
 withServer :: Int -> Options -> (Server -> IO ()) -> IO ()
-withServer sites (Options deadlineValue admitValue) action = do
+withServer sites (Options deadlineValue admitValue revisionValue) action = do
   recorded <- fixture sites
   reader <- newRecordedReader defaultRecordedReaderConfig (store recorded) fixtureBinding (readHead (store recorded))
-  env <- newEnv reader "test-build"
+  snapshotRef <- newIORef (pure (Right Nothing))
+  env <- newEnv reader "test-build" fixtureBinding (join (readIORef snapshotRef))
   logged <- newIORef []
-  application <- adminApplication (AppConfig "fixture" (VersionInfo "0.0.0" "0.0.0" Nothing Nothing contractVersions) admitValue (\line -> atomicModifyIORef' logged (\lines' -> (line : lines', ())))) env {deadlineMicroseconds = deadlineValue}
+  application <- adminApplication (AppConfig "fixture" (VersionInfo "0.0.0" "0.0.0" revisionValue Nothing contractVersions) admitValue (\line -> atomicModifyIORef' logged (\lines' -> (line : lines', ())))) env {deadlineMicroseconds = deadlineValue}
   testWithApplication (pure application) $ \portNumber -> do
     httpManager <- HTTP.newManager HTTP.defaultManagerSettings
     base <- parseBaseUrl ("http://127.0.0.1:" <> show portNumber)
     let clientEnv = mkClientEnv httpManager base
     writeIORef (objectReads recorded) 0
-    action (Server recorded portNumber httpManager (reverse <$> readIORef logged) (\call -> runClientM call clientEnv >>= either (\failure -> assertFailure (show failure) >> fail "client") pure))
+    action (Server recorded portNumber httpManager (reverse <$> readIORef logged) (\call -> runClientM call clientEnv >>= either (\failure -> assertFailure (show failure) >> fail "client") pure) snapshotRef)
 
 request :: Server -> Method -> ByteString -> [Header] -> IO (HTTP.Response LBS.ByteString)
 request server method path headers = do

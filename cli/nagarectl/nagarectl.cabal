@@ -347,6 +347,8 @@ library
     Nagare.Platform.Status
     Nagare.Platform.Transition
     Nagare.Platform.Upgrade
+    Nagare.Platform.Versions
+    Nagare.Platform.Versions.Store
     Nagare.Platform.Workspace
     Nagare.Server.Build
     Nagare.Server.Deploy

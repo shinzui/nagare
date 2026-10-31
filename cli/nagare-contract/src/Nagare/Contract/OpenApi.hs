@@ -43,6 +43,7 @@ import Nagare.Contract.V1
   , TransactionOutcome
   , VersionInfo
   )
+import Nagare.Contract.Versions (PlatformVersions)
 
 -- | Every contract type, declared into @components.schemas@.
 contractSchemas :: Declare (Definitions Schema) ()
@@ -58,6 +59,7 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @InventoryStatusReport))
   void (declareSchemaRef (Proxy @PublicationList))
   void (declareSchemaRef (Proxy @VersionInfo))
+  void (declareSchemaRef (Proxy @PlatformVersions))
   void (declareSchemaRef (Proxy @ScopeState))
   void (declareSchemaRef (Proxy @Finding))
   void (declareSchemaRef (Proxy @Publication))

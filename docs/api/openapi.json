@@ -4,6 +4,109 @@
       "AnyValue": {
         "additionalProperties": true
       },
+      "Comparison": {
+        "properties": {
+          "installedRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installedVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "servingRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "servingVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ComparisonState"
+          }
+        },
+        "required": [
+          "state",
+          "installedVersion",
+          "servingVersion",
+          "installedRevision",
+          "servingRevision"
+        ],
+        "type": "object"
+      },
+      "ComparisonState": {
+        "enum": [
+          "match",
+          "different",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "ComponentVersions": {
+        "properties": {
+          "declaredChartVersion": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "declaredImages": {
+            "items": {
+              "$ref": "#/components/schemas/DeclaredImage"
+            },
+            "type": "array"
+          },
+          "declaredVersion": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "workloads": {
+            "items": {
+              "$ref": "#/components/schemas/Workload"
+            },
+            "type": "array"
+          },
+          "workloadsReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "scope",
+          "resource",
+          "kind",
+          "namespace",
+          "name",
+          "declaredVersion",
+          "declaredChartVersion",
+          "declaredImages",
+          "workloads",
+          "workloadsReason"
+        ],
+        "type": "object"
+      },
       "ContextRef": {
         "properties": {
           "identity": {
@@ -43,6 +146,94 @@
           "phase",
           "transaction",
           "acquiredAt"
+        ],
+        "type": "object"
+      },
+      "DatabaseInstance": {
+        "properties": {
+          "image": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "imageDigest": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "pod": {
+            "type": "string"
+          },
+          "podUid": {
+            "type": "string"
+          },
+          "reportedVersion": {
+            "$ref": "#/components/schemas/Fact"
+          }
+        },
+        "required": [
+          "pod",
+          "podUid",
+          "image",
+          "imageDigest",
+          "reportedVersion"
+        ],
+        "type": "object"
+      },
+      "DatabaseVersions": {
+        "description": "One managed database server, never a tenant database. declaredVersion keeps the declared literal, such as a moving major tag.",
+        "properties": {
+          "declaredImage": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "declaredVersion": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "engine": {
+            "type": "string"
+          },
+          "instances": {
+            "items": {
+              "$ref": "#/components/schemas/DatabaseInstance"
+            },
+            "type": "array"
+          },
+          "instancesReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "server": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "namespace",
+          "server",
+          "engine",
+          "declaredVersion",
+          "declaredImage",
+          "instances",
+          "instancesReason"
+        ],
+        "type": "object"
+      },
+      "DeclaredImage": {
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "image": {
+            "$ref": "#/components/schemas/Fact"
+          }
+        },
+        "required": [
+          "container",
+          "image"
         ],
         "type": "object"
       },
@@ -102,6 +293,40 @@
           "transaction",
           "epoch",
           "claimedAt"
+        ],
+        "type": "object"
+      },
+      "Fact": {
+        "description": "One reported value. sourceKind recorded is written-down state, observed is what a running provider reported; observedAt is when the source was read, never the request time; reason is set exactly when value is null.",
+        "properties": {
+          "observedAt": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceKind": {
+            "$ref": "#/components/schemas/SourceKind"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "value",
+          "sourceKind",
+          "source",
+          "observedAt",
+          "reason"
         ],
         "type": "object"
       },
@@ -336,6 +561,37 @@
         ],
         "type": "string"
       },
+      "HostVersions": {
+        "properties": {
+          "kernel": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "kubernetes": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "nixos": {
+            "$ref": "#/components/schemas/NixosIdentity"
+          },
+          "node": {
+            "type": "string"
+          },
+          "osImage": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "uid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node",
+          "uid",
+          "osImage",
+          "kernel",
+          "kubernetes",
+          "nixos"
+        ],
+        "type": "object"
+      },
       "ImagePublicationResult": {
         "properties": {
           "contractVersion": {
@@ -373,6 +629,29 @@
           "imageResource",
           "review",
           "transaction"
+        ],
+        "type": "object"
+      },
+      "InstalledRelease": {
+        "properties": {
+          "installedAt": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "payloadId": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Fact"
+          }
+        },
+        "required": [
+          "version",
+          "revision",
+          "payloadId",
+          "installedAt"
         ],
         "type": "object"
       },
@@ -439,6 +718,50 @@
         },
         "required": [
           "destination"
+        ],
+        "type": "object"
+      },
+      "NagareVersions": {
+        "properties": {
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          },
+          "installed": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/InstalledRelease"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pins": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Pins"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "servingBuild": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ServingBuild"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "installed",
+          "servingBuild",
+          "pins",
+          "comparison"
         ],
         "type": "object"
       },
@@ -515,6 +838,48 @@
         ],
         "type": "object"
       },
+      "NixosIdentity": {
+        "properties": {
+          "codename": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "nixpkgsRevision": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "release": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Fact"
+          }
+        },
+        "required": [
+          "release",
+          "codename",
+          "version",
+          "nixpkgsRevision"
+        ],
+        "type": "object"
+      },
+      "ObservedContainer": {
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "image": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "imageDigest": {
+            "$ref": "#/components/schemas/Fact"
+          }
+        },
+        "required": [
+          "container",
+          "image",
+          "imageDigest"
+        ],
+        "type": "object"
+      },
       "Outcome": {
         "enum": [
           "converged",
@@ -545,6 +910,105 @@
         "required": [
           "hasNextPage",
           "hasPreviousPage"
+        ],
+        "type": "object"
+      },
+      "Pins": {
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "hostRevision": {
+            "$ref": "#/components/schemas/Fact"
+          },
+          "hostVersion": {
+            "$ref": "#/components/schemas/Fact"
+          }
+        },
+        "required": [
+          "context",
+          "hostVersion",
+          "hostRevision"
+        ],
+        "type": "object"
+      },
+      "PlatformVersions": {
+        "description": "Installed, serving, host, component and database versions of one context. Recorded facts and observations are assembled by nagarectl into a snapshot; the API never runs a provider.",
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentVersions"
+            },
+            "type": "array"
+          },
+          "componentsReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "databases": {
+            "items": {
+              "$ref": "#/components/schemas/DatabaseVersions"
+            },
+            "type": "array"
+          },
+          "databasesReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document": {
+            "enum": [
+              "platform-versions"
+            ],
+            "type": "string"
+          },
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/HostVersions"
+            },
+            "type": "array"
+          },
+          "hostsReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nagare": {
+            "$ref": "#/components/schemas/NagareVersions"
+          },
+          "project": {
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "context",
+          "project",
+          "snapshot",
+          "nagare",
+          "hosts",
+          "hostsReason",
+          "components",
+          "componentsReason",
+          "databases",
+          "databasesReason"
         ],
         "type": "object"
       },
@@ -909,6 +1373,42 @@
         ],
         "type": "object"
       },
+      "ServingBuild": {
+        "description": "The binary serving this document, as GET /v1/platform/version reports it; readAt is the process start.",
+        "properties": {
+          "contracts": {
+            "items": {
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "platformVersion": {
+            "type": "string"
+          },
+          "readAt": {
+            "type": "string"
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "platformVersion",
+          "revision",
+          "contracts",
+          "readAt"
+        ],
+        "type": "object"
+      },
       "SiteKind": {
         "enum": [
           "site",
@@ -1156,6 +1656,53 @@
         ],
         "type": "object"
       },
+      "SnapshotInfo": {
+        "description": "The observation snapshot the document was assembled from; observations are as of completedAt, not the request time.",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "collectedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inventoryRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "collectedAt",
+          "completedAt",
+          "inventoryRevision",
+          "available",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "SourceKind": {
+        "enum": [
+          "recorded",
+          "observed"
+        ],
+        "type": "string"
+      },
       "SubjectKind": {
         "enum": [
           "user",
@@ -1296,6 +1843,28 @@
           "version",
           "platformVersion",
           "contracts"
+        ],
+        "type": "object"
+      },
+      "Workload": {
+        "properties": {
+          "containers": {
+            "items": {
+              "$ref": "#/components/schemas/ObservedContainer"
+            },
+            "type": "array"
+          },
+          "pod": {
+            "type": "string"
+          },
+          "podUid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pod",
+          "podUid",
+          "containers"
         ],
         "type": "object"
       }
@@ -2653,6 +3222,166 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            },
+            "description": "The serving build's representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid `If-None-Match`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable: the gateway could not authorize the request, or the server is busy (Retry-After)."
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/platform/versions": {
+      "get": {
+        "operationId": "getPlatformVersions",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformVersions"
                 }
               }
             },
