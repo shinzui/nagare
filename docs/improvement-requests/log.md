@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-31
+* **Created**: Add IR-39 from `mori://tan/tan-ng-labs` to publish Nix-built en, Shōmei, nagare-access and admin API images with each release and roll them with the platform.
 * **Created**: Add IR-38 from `mori://tan/tan-ng-labs` to report the installed Nagare version, host OS, component and database engine versions through the admin API.
 
 ## 2026-10-29
