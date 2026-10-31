@@ -31,6 +31,14 @@ metadata, `nagare-platform-metadata-vVERSION.json`) names the releases a context
    platform scope has converged, and the payload, host and cluster report the target. It then pins
    the context and closes the transition. `nagarectl platform status` reports the target release.
 
+The target release's `release.json` names its En, Shōmei, nagare-access and admin API images by
+digest, so the transition moves those workloads without image variables or builds: each changed
+image runs its migration Job, then rolls its server. Unset `NAGARE_AUTH_EN_IMAGE`,
+`NAGARE_AUTH_SHOMEI_IMAGE`, `NAGARE_AUTH_ACCESS_IMAGE` and `NAGARE_ADMIN_API_IMAGE` before
+planning unless a workload should keep an override; an override is recorded in the review and
+reported by status. Clusters pull the images from public GHCR; Nix substitution and registry
+pulls are the only downloads. A server image rollback is not a database downgrade.
+
 The first applied stage opens a transition marker in the store head. Until the commit, only the
 target release's `nagarectl` applies, resumes, recovers or closes a stage. Operators who keep
 their context in a private repository commit the updated host flake lock and any rewritten
@@ -151,6 +159,17 @@ compatibility result has these meanings:
 | `minor-upgrade-required` | An inventory-backed context moves through a [release transition](#move-an-installed-context-to-a-new-release); an untouched legacy context may use the guarded upgrade workflow. |
 | `major-incompatible` | Platform mutation is blocked until a compatible CLI and release are selected. |
 | `legacy-unknown` | At least one identity is absent, old, or unreachable; inspect it before adoption or upgrade. |
+| `image-skew` | Every version agrees, but an enabled service runs an image other than this release's; mutation remains available so a reviewed transition can repair it. |
+
+`platform status` also reads the En, Shōmei, nagare-access and admin API workloads and the image
+their ready replicas report (EP-237), with no image variables. Each is `release` (this release's
+digest), `override` (a reviewed override), `other-release` (the release image the reviewing
+release selected, not this one's), `drift` (nothing recorded explains it), `unknown` (a failed
+read, an absent workload, no ready replica, replicas on different images during a rollout, or an
+image ID with no manifest digest) or `not-enabled` (the admin API on a context that has not
+enabled it). Anything but `release` and `not-enabled` makes an otherwise exact status
+`image-skew`. A payload without release images reports the workloads but leaves the result
+unchanged.
 
 Status and doctor remain read-only and useful when Kubernetes is unreachable.
 For a cloud context, a project- and zone-scoped GCE lookup that explicitly returns NotFound renders

@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-31T18:44:53Z
       mode: "update"
       note: "Manifest becomes a committed release.json source input; oriented on the controller-image route, candidate ordering, local mode, cache push and per-commit gates"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-31T19:58:41Z
+      mode: "implement"
+      note: "M3 and M4 implemented with tests; M2 harness and candidate step implemented with fake-transport tests; M1 Nix images written, Linux build in progress"
 ---
 
 # Publish release images for the auth plane and admin API
@@ -38,10 +43,10 @@ An image digest is the SHA-256 identity of a container manifest, used in a refer
 
 ## Progress
 
-- [ ] M1: Four deterministic Nix images and one image manifest build from release-pinned sources; the packaged payload consumes the manifest without a dependency cycle.
-- [ ] M2: Candidate and publication orchestration publish and independently verify the images and binary-cache closures, with safe retry and complete release evidence.
-- [ ] M3: Bootstrap and transitions select release images by default, preserve explicit digest overrides in reviewed state, and roll matching migration Jobs and services together.
-- [ ] M4: Platform status observes workload and running-container digests, reports release/override/drift/unknown states, and cannot report exact for non-release images.
+- [ ] M1: Four deterministic Nix images and one image manifest build from release-pinned sources; the packaged payload consumes the manifest without a dependency cycle. (2026-10-31: `.#packages.x86_64-linux.release-images-manifest` builds on the builder: en `sha256:ebbfec3d…`, shomei `sha256:b614336b…`, nagare-access `sha256:5e3d78d2…`, admin API `sha256:26cdaa49…`. `release images prepare` wrote them into `release.json` and `release-images-check` passed on the rebuilt tree, so writing the member moves no digest; both systems' payloads then carried a `releaseImages` member identical to the root file, and the aarch64-darwin payload built with no x86_64-linux build. In an amd64 Apple container all four images load; `en-migrate up` and `shomei-migrate up` migrate a disposable Postgres 18; Shōmei's pinned entrypoint migrates, creates and activates a signing key and serves `/health/ready` and its JWKS as uid 10001; En serves `/health/ready` with the packaged schema. The layout conversion produced the same admin digest on the builder and on the workstation. Remaining: an independent rebuild of the four images (a remote `--rebuild` is refused, FRIC-4), which M5's clean-cache rebuild covers, and the nagare-access and admin API start checks with their configuration.)
+- [ ] M2: Candidate and publication orchestration publish and independently verify the images and binary-cache closures, with safe retry and complete release evidence. (2026-10-31, `6c4bfe0b`: `release images prepare|verify|publish`, the candidate's image step and `release-publish.sh`'s check are in; the `release images` harness group, 10 cases, covers a missing image, a lost acknowledgement, an upload that never landed, an unknown registry answer, a changed candidate, wrong platform, mismatched remote digest, private package, missing cache token, identical repeat receipt and tags that never move. Remaining: the recorded candidate registry roundtrip, which needs the M1 images and maintainer GHCR and Cachix credentials.)
+- [ ] M3: Bootstrap and transitions select release images by default, preserve explicit digest overrides in reviewed state, and roll matching migration Jobs and services together. (2026-10-31, `6c4bfe0b`: `release image selection` group, 8 cases, passes locally: two payloads move every auth workload and its migration Job with no image input; an override moves only its workload and is recorded; removing it restores the release bytes; each server orders after its own image's migration proof; admin API release/override. Existing auth, admin, transition and platform groups pass. Remaining: a resume-after-partial-apply case for an image change; the selection is ordinary saved-review bytes, but no test yet drives an interrupted auth stage.)
+- [x] M4: Platform status observes workload and running-container digests, reports release/override/drift/unknown states, and cannot report exact for non-release images. (2026-10-31, `6c4bfe0b`: `release image status` group, 10 cases, passes locally: a previous release's live digest is `other-release` and `image-skew` with matching markers; mixed replicas, absent, unreadable and unparseable observations are `unknown`; restoration is exact only after ready replicas agree; a disabled admin API is `not-enabled`; version skew stays stronger.)
 - [ ] M5: Native candidate, bootstrap, upgrade, override, skew, and no-build acceptance pass; runbooks and ADRs describe the shipped procedure.
 
 
@@ -62,6 +67,18 @@ An image digest is the SHA-256 identity of a container manifest, used in a refer
 
 2026-10-31 (review): The cluster pulls the four images from GHCR directly. They are not embedded in the payload and not published into the context registry through the reviewed route `cli/nagarectl/src/Nagare/Inventory/Components/ControllerImage.hs` uses for the patched net-certmanager controller: that route suits one small Go image that `pkgs.pkgsCross.gnu64` cross-builds on either system, while four Haskell closures cannot be cross-built on Darwin and would multiply the payload's size, and IR-39 asks that a context need not mirror them. Local mode keeps its route: `cluster/bootstrap/auth-images/build-local-image.sh` builds the auth images into the k3d registry and the operator exports the image variables before `cluster/bootstrap/local-auth/install.sh`; under the new precedence those are overrides, so `just local-smoke` needs no GHCR access.
 
+
+2026-10-31 (implementation): The auth package set pins every Hackage package whose pinned-nixpkgs version differs from the cabal solve of `cli/nagare-access/cabal.project` (`nix/release-images/hackage-pins.json`, 99 entries) and builds every Haskell package in that set jailbroken, without its own tests or Haddock. The cabal solve read Hackage's latest revisions; nixpkgs carries older revisions, whose bounds refuse the solve's versions (`singleton-bool` against `some 1.1`). Pinning only what bounds force would give a closure no cabal build ever tested.
+
+2026-10-31 (implementation): Each image becomes an OCI layout whose layers are compressed in the derivation with `gzip -n`, and `skopeo copy --preserve-digests` uploads those bytes, so the manifest digest the derivation writes is the registry digest. `skopeo` compressing a docker-archive on push would make the digest depend on its compressor.
+
+2026-10-31 (implementation): The test-fixture copy of `release.json` in `nix/haskell-packages.nix` drops `releaseImages`. The admin API links the `nagarectl` library, whose tested derivation embeds that copy, so writing the admin digest into `release.json` would otherwise change the admin digest.
+
+2026-10-31 (implementation): The reviewed selection is recorded on each workload object's own metadata (`nagare.dev/image-source`, `nagare.dev/release-image`), not its Pod template, so recording intent never rolls a workload, and status reads intent from the reviewed object instead of loading the inventory store. Only `platform status` observes images; the mutation guards, which call the same status gathering on every apply, do not pay three more kubectl reads. Image skew is its own compatibility level, `image-skew`, weaker than every version diagnosis and never a mutation refusal. A payload without `releaseImages` reports images but leaves the aggregate unchanged, since it names nothing to be exact against.
+
+2026-10-31 (implementation): The test-fixture `release.json` is computed at evaluation (`builtins.removeAttrs` of the parsed file), not filtered in a derivation: a derivation that reads the file takes it as an input, so any change to `releaseImages` still produced a new `nagarectl` and a new admin digest. The first `prepare` run caught exactly that.
+
+2026-10-31 (implementation): The transition table's auth row stays `Unchanged` for the recorded 0.4.0 fixture, whose two releases ran the same exported images; its text now states the release-image behavior, and the new two-payload tests carry the changed case.
 
 ## Outcomes & Retrospective
 
