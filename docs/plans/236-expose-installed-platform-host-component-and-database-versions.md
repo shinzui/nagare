@@ -80,6 +80,8 @@ The existing `GET /v1/platform/version` keeps its meaning: the serving binary on
 
 2026-10-31 (implementation): A component is an accepted Deployment, StatefulSet, DaemonSet or Helm release member of a `platform:` scope; a database server is an accepted StatefulSet of a `database:` scope carrying `nagare.dev/engine`. The declared engine version is the declared image tag, kept literally. A Helm release's declared chart version is the version in its vendored chart archive name (`chartPath`); its pods are those labelled `app.kubernetes.io/instance=<release>`.
 
+2026-10-31 (native run): Nagare has no `database:` scope kind; scope kinds are `platform`, `application`, `standalone` and `publication`. The intranet's servers live in `platform:auth` (`en-db`, `shomei-db`) and `standalone:` scopes, so 0.14.0 listed none of them. A database server is now any accepted StatefulSet labelled `nagare.dev/engine` in any scope, reported once under `databases` and never as a component. The collector selects members by address (API group `apps`, lowercased kind) before reading native bytes. Pods count only when the workload controls them, because scheduled backup Job pods carry the server's labels. The post-apply refresh triggers on `platform:` or `standalone:` resources. This ships as 0.14.1.
+
 ## Outcomes & Retrospective
 
 

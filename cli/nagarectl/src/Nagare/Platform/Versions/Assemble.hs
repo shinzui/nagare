@@ -13,8 +13,8 @@ module Nagare.Platform.Versions.Assemble
   , WorkloadKind (..)
   , DeclaredWorkload (..)
   , declaredWorkloads
-  , isDatabaseScope
   , isPlatformScope
+  , isDatabaseServer
 
     -- * Observations
   , Pod (..)
@@ -116,9 +116,15 @@ data DeclaredWorkload = DeclaredWorkload
   }
   deriving stock (Eq, Show, Generic)
 
-isPlatformScope, isDatabaseScope :: Text -> Bool
+isPlatformScope :: Text -> Bool
 isPlatformScope = T.isPrefixOf "platform:"
-isDatabaseScope = T.isPrefixOf "database:"
+
+-- | A managed database server is an accepted StatefulSet labelled with its
+-- engine, in whichever scope owns it: a platform component (@en-db@), a
+-- shared standalone server or an application's own database. Tenant
+-- databases are not StatefulSets and never match.
+isDatabaseServer :: DeclaredWorkload -> Bool
+isDatabaseServer = isJust . databaseEngine
 
 -- | The workloads among accepted members: Deployments, StatefulSets,
 -- DaemonSets and Helm releases. Every other member kind is not a component.
@@ -192,6 +198,8 @@ data Pod = Pod
   , labels :: !(Map Text Text)
   , running :: !Bool
   , containers :: ![PodContainer]
+  , owner :: !(Maybe (Text, Text))
+  -- ^ The controlling owner's kind and name.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -226,13 +234,33 @@ parsePods bytes = do
           , labels = stringMap (valueAt ["metadata", "labels"] item)
           , running = textAt ["status", "phase"] item == Just "Running"
           , containers = containersFound
+          , owner = controller item
           }
+    controller item =
+      listToMaybe'
+        [ (ownerKind, ownerName)
+        | reference <- fromMaybe [] (arrayAt ["metadata", "ownerReferences"] item)
+        , valueAt ["controller"] reference == Just (Bool True)
+        , Just ownerKind <- [textAt ["kind"] reference]
+        , Just ownerName <- [textAt ["name"] reference]
+        ]
 
--- | Whether a pod belongs to a workload: its labels include the selector.
+-- | Whether a pod belongs to a workload: its labels include the selector
+-- and its controller is the workload (a Deployment through its ReplicaSet).
+-- A pod run by a Job, such as a scheduled database backup carrying the
+-- server's labels, never belongs; a pod with no controller recorded is
+-- judged by its labels alone.
 selects :: DeclaredWorkload -> Pod -> Bool
 selects workload pod =
   not (Map.null (workload ^. #selector))
     && Map.isSubmapOf (workload ^. #selector) (pod ^. #labels)
+    && maybe True ownedBy (pod ^. #owner)
+  where
+    ownedBy (ownerKind, ownerName) = case workload ^. #kind of
+      KindDeployment -> ownerKind == "ReplicaSet" && (workload ^. #name <> "-") `T.isPrefixOf` ownerName
+      KindStatefulSet -> ownerKind == "StatefulSet" && ownerName == workload ^. #name
+      KindDaemonSet -> ownerKind == "DaemonSet" && ownerName == workload ^. #name
+      KindHelmRelease -> ownerKind /= "Job"
 
 -- | The reported engine version of one database pod, and the pod's UID
 -- read again after the probe.
@@ -322,7 +350,8 @@ parseNodes bytes = do
     , Just nodeUid <- [textAt ["metadata", "uid"] item]
     ]
 
--- | Every accepted platform workload with the pods that run it.
+-- | Every accepted platform workload other than a database server, with the
+-- pods that run it.
 componentsSection :: [DeclaredWorkload] -> Map Text (Reading [Pod]) -> Text -> [ComponentVersions]
 componentsSection workloads podsByNamespace declaredAt =
   [ ComponentVersions
@@ -342,6 +371,7 @@ componentsSection workloads podsByNamespace declaredAt =
       }
   | workload <- workloads
   , isPlatformScope (workload ^. #scope)
+  , not (isDatabaseServer workload)
   , let (podsOf, podsReason, running') = observedPods workload podsByNamespace
   ]
   where
@@ -396,7 +426,7 @@ databaseTargets workloads podsByNamespace =
 
 databaseEngine :: DeclaredWorkload -> Maybe Text
 databaseEngine workload
-  | isDatabaseScope (workload ^. #scope) && workload ^. #kind == KindStatefulSet = Map.lookup "nagare.dev/engine" (workload ^. #labels)
+  | workload ^. #kind == KindStatefulSet = Map.lookup "nagare.dev/engine" (workload ^. #labels)
   | otherwise = Nothing
 
 -- | Every accepted database server: its declared engine, version literal and

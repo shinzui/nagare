@@ -225,7 +225,7 @@ platformVersionsSample =
             ]
         , componentsReason = Nullable Nothing
         , databases =
-            [ DatabaseVersions "database:labs-postgres" "databases" "labs-postgres" "postgres" (declared "18") (declared "postgres:18") [DatabaseInstance "labs-postgres-0" "uid-pg" (pods' "docker.io/library/postgres:18") (pods' "sha256:9d") (observedFact "SELECT version()" "2026-10-31T16:00:06Z" (Just "PostgreSQL 18.1 on x86_64-pc-linux-gnu"))] (Nullable Nothing)
+            [ DatabaseVersions "standalone:labs-postgres" "databases" "labs-postgres" "postgres" (declared "18") (declared "postgres:18") [DatabaseInstance "labs-postgres-0" "uid-pg" (pods' "docker.io/library/postgres:18") (pods' "sha256:9d") (observedFact "SELECT version()" "2026-10-31T16:00:06Z" (Just "PostgreSQL 18.1 on x86_64-pc-linux-gnu"))] (Nullable Nothing)
             ]
         , databasesReason = Nullable Nothing
         }

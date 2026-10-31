@@ -5,7 +5,8 @@ module PlatformVersionsSpec (platformVersionsTests) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently)
-import Data.Aeson (Value, encode, object, (.=))
+import Data.Aeson (Value (..), encode, object, toJSON, (.=))
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -42,12 +43,12 @@ platformVersionsTests =
         fmap (reason' . (^. #payloadId)) installedRelease @?= Just (Just "not_recorded")
         [host ^. #nixos . #nixpkgsRevision . #value | host <- snapshot ^. #hosts] @?= [Nullable (Just "eaad0894")]
         [(database ^. #engine, value' (database ^. #declaredVersion), [value' (instance' ^. #reportedVersion) | instance' <- database ^. #instances]) | database <- snapshot ^. #databases]
-          @?= [ ("clickhouse", Just "25.8.2.29", [Just "25.8.2.29"])
+          @?= [ ("redis", Just "8", [Just "8.2.1"])
+              , ("clickhouse", Just "25.8.2.29", [Just "25.8.2.29"])
               , ("postgres", Just "18", [Just "PostgreSQL 18.1 on aarch64-unknown-linux-gnu"])
-              , ("redis", Just "8", [Just "8.2.1"])
               ]
         [value' (instance' ^. #imageDigest) | database <- snapshot ^. #databases, instance' <- database ^. #instances]
-          @?= [Just "sha256:ch", Just "sha256:pg", Just "sha256:redis"]
+          @?= [Just "sha256:redis", Just "sha256:ch", Just "sha256:pg"]
         snapshot ^. #inventoryRevision @?= Nullable (Just "rev-1")
     , testCase "a mixed rollout keeps both digests; a Helm release reports its vendored chart version" $ do
         snapshot <- worldProviders >>= collected
@@ -58,6 +59,27 @@ platformVersionsTests =
         [map (^. #pod) (component ^. #workloads) | component <- byName "grafana"] @?= [["grafana-0"]]
         [reason' (component ^. #declaredVersion) | component <- byName "broken"] @?= [Just "probe_unsupported"]
         assertBool "a ConfigMap became a component" (null (byName "settings"))
+    , testCase "a platform-owned database server is a database, not a component" $ do
+        providers <- worldProviders
+        snapshot <- collected providers {loadAccepted = fmap (fmap (<> [KubernetesMember "platform:auth" "platform:auth/en-db/statefulset" (workload "StatefulSet" "databases" "en-db" [("nagare.dev/engine", "postgres")] [("nagare.dev/database", "en-db")] ["postgres:18"])])) <$> loadAccepted providers}
+        [database ^. #scope | database <- snapshot ^. #databases] @?= ["application:cache", "platform:auth", "standalone:labs-clickhouse", "standalone:labs-postgres"]
+        assertBool "a database server was also reported as a component" (all ((/= "en-db") . (^. #name)) (snapshot ^. #components))
+    , testCase "a backup Job's pod carrying the server's labels is not an instance" $ do
+        providers <- worldProviders
+        let owned kind' name' value = case value of
+              Object fields -> Object (alterF' fields)
+              other -> other
+              where
+                withOwner = \case
+                  Object meta -> Object (KeyMap.insert "ownerReferences" (toJSON [object ["kind" .= (kind' :: Text), "name" .= (name' :: Text), "controller" .= True]]) meta)
+                  other -> other
+                alterF' fields = maybe fields (\meta -> KeyMap.insert "metadata" (withOwner meta) fields) (KeyMap.lookup "metadata" fields)
+            pods' =
+              [ owned "StatefulSet" "labs-postgres" (podValue "labs-postgres-0" "uid-pg" [("nagare.dev/database", "labs-postgres")] "sha256:pg")
+              , owned "Job" "nagare-dbbackup-labs-postgres-1" (podValue "nagare-dbbackup-labs-postgres-1-x" "uid-job" [("nagare.dev/database", "labs-postgres")] "sha256:pg")
+              ]
+        snapshot <- collected providers {readPods = \namespace' -> if namespace' == "databases" then pure (Right (podsJson pods')) else readPods providers namespace'}
+        [map (^. #pod) (database ^. #instances) | database <- snapshot ^. #databases, database ^. #server == "labs-postgres"] @?= [["labs-postgres-0"]]
     , testCase "a denied node read leaves hosts unavailable and every other section intact" $ do
         providers <- worldProviders
         snapshot <- collected providers {readNodes = pure (Left ProviderDenied)}
@@ -75,15 +97,15 @@ platformVersionsTests =
         providers <- worldProviders
         snapshot <- collected providers {readPods = \namespace' -> if namespace' == "databases" then pure (Right (podsJson [])) else readPods providers namespace'}
         [(database ^. #engine, value' (database ^. #declaredImage), length (database ^. #instances), database ^. #instancesReason) | database <- snapshot ^. #databases]
-          @?= [ ("clickhouse", Just "clickhouse/clickhouse-server:25.8.2.29", 0, Nullable Nothing)
+          @?= [ ("redis", Just "redis:8", 0, Nullable Nothing)
+              , ("clickhouse", Just "clickhouse/clickhouse-server:25.8.2.29", 0, Nullable Nothing)
               , ("postgres", Just "postgres:18", 0, Nullable Nothing)
-              , ("redis", Just "redis:8", 0, Nullable Nothing)
               ]
     , testCase "a pod replaced during its probe is identity_changed; other servers keep their versions" $ do
         providers <- worldProviders
         snapshot <- collected providers {readPodUid = \namespace' pod -> if pod == "labs-postgres-0" then pure (Right "uid-replaced") else readPodUid providers namespace' pod}
         [(database ^. #engine, reason' (instance' ^. #reportedVersion)) | database <- snapshot ^. #databases, instance' <- database ^. #instances]
-          @?= [("clickhouse", Nothing), ("postgres", Just "identity_changed"), ("redis", Nothing)]
+          @?= [("redis", Nothing), ("clickhouse", Nothing), ("postgres", Just "identity_changed")]
     , testCase "a hung probe is collection_deadline within the budget and never cancels another" $ do
         providers <- worldProviders
         started <- getCurrentTime
@@ -94,7 +116,7 @@ platformVersionsTests =
         finished <- getCurrentTime
         assertBool "the collection outlived its budget" (diffUTCTime finished started < 3)
         [(database ^. #engine, reason' (instance' ^. #reportedVersion)) | database <- snapshot ^. #databases, instance' <- database ^. #instances]
-          @?= [("clickhouse", Nothing), ("postgres", Nothing), ("redis", Just "collection_deadline")]
+          @?= [("redis", Just "collection_deadline"), ("clickhouse", Nothing), ("postgres", Nothing)]
     , testCase "a failing engine is probe_failed; denied pods are denied for that namespace only" $ do
         providers <- worldProviders
         snapshot <-
@@ -213,9 +235,9 @@ worldProviders = do
       , KubernetesMember "platform:upstream" "platform:upstream/broken/deployment" (workload "Deployment" "knative-serving" "broken" [] [("app", "broken")] [])
       , KubernetesMember "platform:upstream" "platform:upstream/settings/configmap" (bytesOf (object ["kind" .= ("ConfigMap" :: Text), "metadata" .= object ["name" .= ("settings" :: Text), "namespace" .= ("knative-serving" :: Text)]]))
       , HelmMember "platform:observability" "platform:observability/grafana/release" "observability" "grafana" (bytesOf (object ["chartPath" .= ("cluster/observability/vendor/grafana-9.3.1.tgz" :: Text), "valuesDigest" .= ("SECRET-SENTINEL" :: Text)]))
-      , KubernetesMember "database:labs-postgres" "database:labs-postgres/server/statefulset" (server "labs-postgres" "postgres" "postgres:18")
-      , KubernetesMember "database:labs-clickhouse" "database:labs-clickhouse/server/statefulset" (server "labs-clickhouse" "clickhouse" "clickhouse/clickhouse-server:25.8.2.29")
-      , KubernetesMember "database:labs-redis" "database:labs-redis/server/statefulset" (server "labs-redis" "redis" "redis:8")
+      , KubernetesMember "standalone:labs-postgres" "standalone:labs-postgres/server/statefulset" (server "labs-postgres" "postgres" "postgres:18")
+      , KubernetesMember "standalone:labs-clickhouse" "standalone:labs-clickhouse/server/statefulset" (server "labs-clickhouse" "clickhouse" "clickhouse/clickhouse-server:25.8.2.29")
+      , KubernetesMember "application:cache" "application:cache/labs-redis/statefulset" (server "labs-redis" "redis" "redis:8")
       ]
     server name' engine' image = workload "StatefulSet" "databases" name' [("nagare.dev/engine", engine'), ("nagare.dev/database", name')] [("nagare.dev/database", name')] [image]
 

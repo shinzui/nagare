@@ -1970,7 +1970,7 @@ record. The journal format and its serial head advance are unchanged.
 [EP-236](../plans/236-expose-installed-platform-host-component-and-database-versions.md) extends the
 bounded recorded-state readers above with an observation producer. `nagarectl platform versions
 refresh`, and a 20-second best-effort refresh after a converged apply that changed a `platform:` or
-`database:` scope, collect the installed stamp, node facts, the host identity the host module
+`standalone:` scope, collect the installed stamp, node facts, the host identity the host module
 records, per-namespace pods and one fixed in-pod version statement per database server, then
 publish one sanitized snapshot, `versions/latest.json`, under the context's inventory root. The
 admin API renders it beside its own serving build at `GET /v1/platform/versions` and never runs a
@@ -1985,4 +1985,6 @@ locked atomic rename locally or a generation-conditional write remotely, never r
 that completed later. It never touches the head, journal or convergence facts, and it is outside the
 inventory's listings, exports, restores and migrations. Declared versions and images come from the
 accepted members' native objects, never from the running binary's pins; provider error text never
-enters it.
+enters it. A database server is an accepted StatefulSet labelled `nagare.dev/engine` in any scope
+(platform, standalone or application), and its instances are the pods it controls, never a backup
+Job's pods that carry its labels.

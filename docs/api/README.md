@@ -59,8 +59,10 @@ binary, not what a context has installed.
 cluster stamp records beside the build serving the admin API, the host's NixOS identity beside its
 running kernel and k3s, every accepted platform component's declared version, chart and images
 beside the image digests its pods run, and every managed database server's declared engine
-version beside the version the server reports. Database servers are listed, never their tenant
-databases.
+version beside the version the server reports. A database server is any accepted StatefulSet
+labelled with its engine, whether the platform, a shared standalone server or an application owns
+it; it is listed once, under `databases`, never as a component, and never its tenant databases.
+Instances and workloads are the pods the workload controls.
 
 Every value is a fact: `value` (a string or `null`), `sourceKind` (`recorded` for written-down
 state such as the stamp, an accepted declaration or the host identity ConfigMap; `observed` for
@@ -72,7 +74,7 @@ declared engine version is the declared literal, such as the moving tag `18`.
 
 The document is assembled from a snapshot that `nagarectl platform versions refresh` collects
 (within 60 seconds) and that a converged `inventory apply` or `platform bootstrap apply` touching a
-`platform:` or `database:` scope refreshes for up to 20 seconds. Observations are as of
+`platform:` or `standalone:` scope refreshes for up to 20 seconds. Observations are as of
 `snapshot.completedAt`; there is no schedule and no freshness promise, so refresh before relying on
 them. `snapshot.inventoryRevision` names the accepted head the declarations were read from. The
 API never runs a provider. `nagare.comparison.state` is `different` when a known installed field

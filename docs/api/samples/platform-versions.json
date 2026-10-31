@@ -132,7 +132,7 @@
       ],
       "instancesReason": null,
       "namespace": "databases",
-      "scope": "database:labs-postgres",
+      "scope": "standalone:labs-postgres",
       "server": "labs-postgres"
     }
   ],

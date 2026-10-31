@@ -196,8 +196,8 @@ engineProviders =
   where
     server engine' image =
       KubernetesMember
-        ("database:" <> engine')
-        ("database:" <> engine' <> "/server/statefulset")
+        ("standalone:" <> engine')
+        ("standalone:" <> engine' <> "/server/statefulset")
         ( BC.pack
             ( "{\"kind\":\"StatefulSet\",\"metadata\":{\"name\":\""
                 <> Text.unpack engine'

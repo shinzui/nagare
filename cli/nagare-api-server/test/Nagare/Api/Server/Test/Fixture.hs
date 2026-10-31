@@ -397,7 +397,7 @@ sampleSnapshot =
     , componentsReason = Nullable Nothing
     , databases =
         [ DatabaseVersions
-            { scope = "database:labs-postgres"
+            { scope = "standalone:labs-postgres"
             , namespace = "databases"
             , server = "labs-postgres"
             , engine = "postgres"

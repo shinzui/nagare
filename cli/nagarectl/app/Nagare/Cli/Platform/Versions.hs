@@ -96,8 +96,8 @@ refreshVersionsAfterReview mctx reviewDirectory = do
           , operation <- reviewOperations (reviewBundleDocument bundle)
           , resource <- toList (plannedResources (reviewPlannedOperation operation))
           ]
-    if not (any (\resource -> isPlatformScope resource || isDatabaseScope resource) changed)
-      then pure "skipped (no platform or database scope changed)"
+    if not (any (\resource -> isPlatformScope resource || "standalone:" `T.isPrefixOf` resource) changed)
+      then pure "skipped (no platform or standalone scope changed)"
       else do
         active <- activeTarget mctx
         either (\failure -> "not refreshed (" <> failure <> "); the previous snapshot is kept") id <$> refresh active 20000000
@@ -207,13 +207,20 @@ acceptedMembers store _ = do
       case history of
         Left _ -> pure (Left "the accepted inventory could not be loaded")
         Right loaded -> do
+          -- Platform workloads and Helm releases, and every StatefulSet (a
+          -- database server is one, in any scope). Members are chosen by
+          -- address before any native byte is read.
           let managed =
                 [ resource
                 | (scope, (_, declaration)) <- Map.toAscList (historyAccepted loaded)
-                , let scopeText = scopeIdText scope
-                , isPlatformScope scopeText || isDatabaseScope scopeText
+                , let platform = isPlatformScope (scopeIdText scope)
                 , bundle <- scopeBundles declaration
                 , Managed resource <- bundle ^. #declarations
+                , case resource ^. #address of
+                    -- Addresses hold the API group and the lowercased kind.
+                    Kubernetes _ "apps" kind _ _ -> nameText kind == "statefulset" || (platform && nameText kind `elem` ["deployment", "daemonset"])
+                    Helm {} -> platform
+                    _ -> False
                 ]
           native <- loadObservationNative store managed
           pure $ case native of
