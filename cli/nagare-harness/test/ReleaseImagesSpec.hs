@@ -119,7 +119,7 @@ releaseImagesOf c = either error id (parseEither Aeson.parseJSON (fixtureImages 
 publishedRegistry :: Char -> [String] -> IO (Int, Text)
 publishedRegistry c = \case
   ["inspect", "--raw", _] -> pure (0, "{}")
-  ["inspect", "--no-creds", "--format", _, _] -> pure (0, digestFor c <> "\n")
+  ["inspect", "--no-creds", "--no-tags", "--format", _, _] -> pure (0, digestFor c <> "\n")
   ["inspect", "--no-creds", "--config", _] -> pure (0, "{\"os\":\"linux\",\"architecture\":\"amd64\"}")
   _ -> pure (0, "")
 
@@ -134,7 +134,7 @@ imageOrder flake work _ =
     ]
     <> ["skopeo inspect --raw docker://" <> T.unpack (referenceFor repository 'a') | (_, _, repository) <- imageKeys]
     <> concat
-      [ [ "skopeo inspect --no-creds --format {{.Digest}} docker://" <> reference
+      [ [ "skopeo inspect --no-creds --no-tags --format {{.Digest}} docker://" <> reference
         , "skopeo inspect --no-creds --config docker://" <> reference
         , "skopeo --policy " <> work <> "/skopeo-policy.json copy --src-no-creds --preserve-digests docker://" <> reference <> " dir:" <> work <> "/pull/" <> T.unpack key
         ]
@@ -171,11 +171,11 @@ registryWorld registry knobs command = case (command ^. #program, command ^. #ar
       if reference `elem` knobs ^. #unknownRefs
         then (1, "pinging container registry ghcr.io: dial tcp: i/o timeout")
         else if held then (0, "{}") else (1, "reading manifest: manifest unknown")
-  ("skopeo", ["inspect", "--no-creds", "--format", _, target]) ->
+  ("skopeo", ["inspect", "--no-creds", "--no-tags", "--format", _, target]) ->
     if knobs ^. #anonymous
       then pure (0, fromMaybe (T.takeWhileEnd (/= '@') (T.pack target)) (knobs ^. #remoteDigest) <> "\n")
       else pure (1, "")
-  ("skopeo", ["inspect", "--format", _, target]) -> do
+  ("skopeo", ["inspect", "--no-tags", "--format", _, target]) -> do
     held <- Map.lookup (T.drop 9 (T.pack target)) <$> readIORef registry
     pure (maybe (1, "") (\digest -> (0, digest <> "\n")) held)
   ("skopeo", ["inspect", "--no-creds", "--config", _]) -> pure (0, "{\"os\":\"linux\",\"architecture\":\"" <> knobs ^. #platformSeen <> "\"}")

@@ -203,7 +203,7 @@ verifyReleaseImages runtime work manifest = do
         reference = T.unpack (image ^. #reference)
         public = "make " <> image ^. #repository <> " public in its GitHub package settings, then run again"
     remote <-
-      invoke runtime (skopeo ["inspect", "--no-creds", "--format", "{{.Digest}}", "docker://" <> reference] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
+      invoke runtime (skopeo ["inspect", "--no-creds", "--no-tags", "--format", "{{.Digest}}", "docker://" <> reference] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
     unless (remote ^. #exit == 0) (refuse (name <> " does not resolve without credentials; " <> public))
     let digest = trimEnd (TE.decodeUtf8With TE.lenientDecode (remote ^. #output))
     unless (digest == image ^. #digest) (refuse (name <> " resolves to " <> digest <> ", not " <> image ^. #digest))
@@ -245,7 +245,7 @@ aliasReleaseImages runtime work version manifest = do
     (runtime ^. #say) ("release images: " <> tag <> " names " <> image ^. #digest)
   where
     registryDigest tag = do
-      result <- invoke runtime (skopeo ["inspect", "--format", "{{.Digest}}", "docker://" <> T.unpack tag] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
+      result <- invoke runtime (skopeo ["inspect", "--no-tags", "--format", "{{.Digest}}", "docker://" <> T.unpack tag] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
       pure (if result ^. #exit == 0 then Just (trimEnd (TE.decodeUtf8With TE.lenientDecode (result ^. #output))) else Nothing)
 
 encodeText :: Value -> Text
