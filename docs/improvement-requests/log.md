@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-31
+* **Created**: Add IR-38 from `mori://tan/tan-ng-labs` to report the installed Nagare version, host OS, component and database engine versions through the admin API.
+
 ## 2026-10-29
 * **Accept**: Accept IR-34 and link ExecPlan 223 (docs/plans/223-show-accepted-inventory-history-without-contacting-providers.md) for read-only accepted inventory inspection; implementation remains pending.
 * **Accept**: Accept IR-36 and link ExecPlan 222 (docs/plans/222-package-and-publish-static-site-updates-through-a-fast-repeatable-workflow.md) for static-site packaging and fast repeat publication; implementation remains pending.
