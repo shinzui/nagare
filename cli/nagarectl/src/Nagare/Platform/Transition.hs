@@ -241,7 +241,8 @@ transitionTable =
       "the host stage re-targets the input to the target payload's NixOS source, re-locks it, and applies the reviewed self-reverting activation (ADR 11)"
       "hostLockRepin refuses a lock that leaves the payload; a local context has no host"
       "the activation reverts itself unless confirmed; resume or recover the host operation"
-      Unchanged
+      -- EP-236: the host module records its identity into the cluster.
+      Changed
   , platformScope 6 "kubeconfig" Unchanged
   , -- EP-198: opt in per context with NAGARE_ADMIN_API_ENABLED=1; the
     -- fixture's local context does not enable it.
