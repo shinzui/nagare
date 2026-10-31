@@ -1,0 +1,278 @@
+{
+  "components": [
+    {
+      "declaredChartVersion": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": "not_applicable",
+        "source": "accepted declaration",
+        "sourceKind": "recorded",
+        "value": null
+      },
+      "declaredImages": [
+        {
+          "container": "controller",
+          "image": {
+            "observedAt": "2026-10-31T16:00:02Z",
+            "reason": null,
+            "source": "accepted declaration",
+            "sourceKind": "recorded",
+            "value": "gcr.io/knative-releases/controller@sha256:b2"
+          }
+        }
+      ],
+      "declaredVersion": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "accepted declaration",
+        "sourceKind": "recorded",
+        "value": "1.19.0"
+      },
+      "kind": "Deployment",
+      "name": "controller",
+      "namespace": "knative-serving",
+      "resource": "platform:upstream/knative-serving-controller/deployment",
+      "scope": "platform:upstream",
+      "workloads": [
+        {
+          "containers": [
+            {
+              "container": "controller",
+              "image": {
+                "observedAt": "2026-10-31T16:00:04Z",
+                "reason": null,
+                "source": "pod status",
+                "sourceKind": "observed",
+                "value": "gcr.io/knative-releases/controller"
+              },
+              "imageDigest": {
+                "observedAt": "2026-10-31T16:00:04Z",
+                "reason": null,
+                "source": "pod status",
+                "sourceKind": "observed",
+                "value": "sha256:a1"
+              }
+            }
+          ],
+          "pod": "controller-7f-a",
+          "podUid": "uid-controller-7f-a"
+        },
+        {
+          "containers": [
+            {
+              "container": "controller",
+              "image": {
+                "observedAt": "2026-10-31T16:00:04Z",
+                "reason": null,
+                "source": "pod status",
+                "sourceKind": "observed",
+                "value": "gcr.io/knative-releases/controller"
+              },
+              "imageDigest": {
+                "observedAt": "2026-10-31T16:00:04Z",
+                "reason": null,
+                "source": "pod status",
+                "sourceKind": "observed",
+                "value": "sha256:b2"
+              }
+            }
+          ],
+          "pod": "controller-9c-b",
+          "podUid": "uid-controller-9c-b"
+        }
+      ],
+      "workloadsReason": null
+    }
+  ],
+  "componentsReason": null,
+  "context": "intranet",
+  "contractVersion": 1,
+  "databases": [
+    {
+      "declaredImage": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "accepted declaration",
+        "sourceKind": "recorded",
+        "value": "postgres:18"
+      },
+      "declaredVersion": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "accepted declaration",
+        "sourceKind": "recorded",
+        "value": "18"
+      },
+      "engine": "postgres",
+      "instances": [
+        {
+          "image": {
+            "observedAt": "2026-10-31T16:00:04Z",
+            "reason": null,
+            "source": "pod status",
+            "sourceKind": "observed",
+            "value": "docker.io/library/postgres:18"
+          },
+          "imageDigest": {
+            "observedAt": "2026-10-31T16:00:04Z",
+            "reason": null,
+            "source": "pod status",
+            "sourceKind": "observed",
+            "value": "sha256:9d"
+          },
+          "pod": "labs-postgres-0",
+          "podUid": "uid-pg",
+          "reportedVersion": {
+            "observedAt": "2026-10-31T16:00:06Z",
+            "reason": null,
+            "source": "SELECT version()",
+            "sourceKind": "observed",
+            "value": "PostgreSQL 18.1 on x86_64-pc-linux-gnu"
+          }
+        }
+      ],
+      "instancesReason": null,
+      "namespace": "databases",
+      "scope": "database:labs-postgres",
+      "server": "labs-postgres"
+    }
+  ],
+  "databasesReason": null,
+  "document": "platform-versions",
+  "hosts": [
+    {
+      "kernel": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "node status.nodeInfo",
+        "sourceKind": "observed",
+        "value": "6.12.40"
+      },
+      "kubernetes": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "node status.nodeInfo",
+        "sourceKind": "observed",
+        "value": "v1.33.4+k3s1"
+      },
+      "nixos": {
+        "codename": {
+          "observedAt": "2026-10-31T16:00:02Z",
+          "reason": null,
+          "source": "configmap kube-system/nagare-host-identity",
+          "sourceKind": "recorded",
+          "value": "Zokor"
+        },
+        "nixpkgsRevision": {
+          "observedAt": "2026-10-31T16:00:02Z",
+          "reason": null,
+          "source": "configmap kube-system/nagare-host-identity",
+          "sourceKind": "recorded",
+          "value": "eaad089433ca2bb662274377d33df3d0e51ef28b"
+        },
+        "release": {
+          "observedAt": "2026-10-31T16:00:02Z",
+          "reason": null,
+          "source": "configmap kube-system/nagare-host-identity",
+          "sourceKind": "recorded",
+          "value": "26.11"
+        },
+        "version": {
+          "observedAt": "2026-10-31T16:00:02Z",
+          "reason": null,
+          "source": "configmap kube-system/nagare-host-identity",
+          "sourceKind": "recorded",
+          "value": "26.11.20260911.eaad089"
+        }
+      },
+      "node": "nagare-01",
+      "osImage": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "node status.nodeInfo",
+        "sourceKind": "observed",
+        "value": "NixOS 26.11 (Zokor)"
+      },
+      "uid": "node-uid"
+    }
+  ],
+  "hostsReason": null,
+  "nagare": {
+    "comparison": {
+      "installedRevision": "fedcba9876543210",
+      "installedVersion": "0.13.0",
+      "servingRevision": "0123456789abcdef",
+      "servingVersion": "0.6.3",
+      "state": "different"
+    },
+    "installed": {
+      "installedAt": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "configmap nagare-system/nagare-platform-version",
+        "sourceKind": "recorded",
+        "value": "2026-10-30T09:00:00Z"
+      },
+      "payloadId": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": "not_recorded",
+        "source": "configmap nagare-system/nagare-platform-version",
+        "sourceKind": "recorded",
+        "value": null
+      },
+      "revision": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "configmap nagare-system/nagare-platform-version",
+        "sourceKind": "recorded",
+        "value": "fedcba9876543210"
+      },
+      "version": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "configmap nagare-system/nagare-platform-version",
+        "sourceKind": "recorded",
+        "value": "0.13.0"
+      }
+    },
+    "pins": {
+      "context": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "context profile",
+        "sourceKind": "recorded",
+        "value": "0.13.0"
+      },
+      "hostRevision": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": "not_recorded",
+        "source": "generated host flake",
+        "sourceKind": "recorded",
+        "value": null
+      },
+      "hostVersion": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": null,
+        "source": "generated host flake",
+        "sourceKind": "recorded",
+        "value": "0.13.0"
+      }
+    },
+    "servingBuild": {
+      "contracts": [
+        1
+      ],
+      "platformVersion": "0.6.3",
+      "readAt": "2026-10-30T22:11:40Z",
+      "revision": "0123456789abcdef",
+      "version": "0.6.3"
+    }
+  },
+  "project": "example-project",
+  "snapshot": {
+    "available": true,
+    "collectedAt": "2026-10-31T16:00:02Z",
+    "completedAt": "2026-10-31T16:00:09Z",
+    "inventoryRevision": "sha256:6c1f",
+    "reason": null
+  }
+}

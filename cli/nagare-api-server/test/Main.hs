@@ -6,10 +6,11 @@ import Data.ByteString.Lazy qualified as LBS
 import Nagare.Api.OpenApi (renderAdminOpenApi)
 import Nagare.Api.Server.Test.Client (clientTests)
 import Nagare.Api.Server.Test.Document (documentTests)
-import Nagare.Api.Server.Test.Fixture (seedStore)
+import Nagare.Api.Server.Test.Fixture (sampleSnapshot, seedStore)
 import Nagare.Api.Server.Test.Serve (serveTests)
 import Nagare.Contract.Prelude
 import Nagare.Inventory.Store (openFilesystemStore)
+import Nagare.Platform.Versions.Store (publishVersionSnapshot)
 import System.Environment (lookupEnv)
 import Test.Tasty (defaultMain, testGroup)
 
@@ -23,6 +24,8 @@ main =
       sites <- maybe 12 read <$> lookupEnv "NAGARE_API_FIXTURE_SITES"
       store <- openFilesystemStore directory >>= either (fail . show) pure
       void (seedStore store sites)
+      -- The platform-versions snapshot the black-box suite asserts (EP-236).
+      void (publishVersionSnapshot store sampleSnapshot >>= either (fail . show) pure)
     Nothing -> tests
 
 tests :: IO ()

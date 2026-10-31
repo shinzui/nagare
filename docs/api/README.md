@@ -30,6 +30,7 @@ review `git diff docs/api/samples`.
 | `publication-list` | `PublicationList` | read | `nagarectl inventory publications --contract 1` |
 | `site-list` | `SiteList` | read | `nagarectl site list --contract 1` |
 | (discovery) | `VersionInfo` | read | `nagarectl version --json` |
+| `platform-versions` | `PlatformVersions` | read | `nagarectl platform versions --contract 1` and `GET /v1/platform/versions` |
 | `transaction-outcome` | `TransactionOutcome` | operation | `nagarectl inventory apply|resume … --contract 1` |
 | `saved-review` | `SavedReview` | operation | `nagarectl app deploy --save-plan DIR --contract 1` |
 | `image-publication-result` | `ImagePublicationResult` | operation | `nagarectl app image-plan … --contract 1` |
@@ -51,6 +52,58 @@ and the read-only API never will.
 Every document except the discovery document carries `contractVersion: 1` and a constant
 `document` member. `VersionInfo` lists the versions a build emits in `contracts` and describes the
 binary, not what a context has installed.
+
+## Platform versions
+
+`platform-versions` reports what one context has installed and runs: the Nagare release its
+cluster stamp records beside the build serving the admin API, the host's NixOS identity beside its
+running kernel and k3s, every accepted platform component's declared version, chart and images
+beside the image digests its pods run, and every managed database server's declared engine
+version beside the version the server reports. Database servers are listed, never their tenant
+databases.
+
+Every value is a fact: `value` (a string or `null`), `sourceKind` (`recorded` for written-down
+state such as the stamp, an accepted declaration or the host identity ConfigMap; `observed` for
+what a running provider answered), `source`, `observedAt` and `reason`. `observedAt` is when that
+source was read or the read was attempted, never the request time. `reason` is set exactly when
+`value` is `null`. Identity keys (`node`, `uid`, `scope`, `pod`, `podUid`) carry no envelope.
+`workloads` and `instances` list every running pod, so a rollout shows each version it runs; a
+declared engine version is the declared literal, such as the moving tag `18`.
+
+The document is assembled from a snapshot that `nagarectl platform versions refresh` collects
+(within 60 seconds) and that a converged `inventory apply` or `platform bootstrap apply` touching a
+`platform:` or `database:` scope refreshes for up to 20 seconds. Observations are as of
+`snapshot.completedAt`; there is no schedule and no freshness promise, so refresh before relying on
+them. `snapshot.inventoryRevision` names the accepted head the declarations were read from. The
+API never runs a provider. `nagare.comparison.state` is `different` when a known installed field
+differs from the serving build, `unknown` when versions are equal but revision evidence is missing
+on either side, and `match` otherwise. Through the CLI `servingBuild` is `null`, because the CLI is
+not the serving binary. A host activated before its identity ConfigMap existed reports
+`not_recorded` until its next `just host-switch`; an older stamp reports `payloadId` as
+`not_recorded`.
+
+| `reason` | Meaning |
+|---|---|
+| `not_recorded` | The source exists but never recorded this value (a legacy stamp's payload ID, a host without its identity ConfigMap) |
+| `not_applicable` | The value does not apply (NixOS facts of a non-NixOS node, a chart version of a plain workload) |
+| `unreadable` | The source could not be read or parsed |
+| `denied` | The source refused the read |
+| `probe_failed` | The engine's version statement failed or answered nothing recognizable, or the pod was not running |
+| `probe_unsupported` | The engine or the accepted member's shape is not one the collector reads; it is reported, never dropped |
+| `identity_changed` | The pod was replaced while it was probed |
+| `collection_deadline` | The read could not start or finish within the collection budget |
+| `inventory_changed` | The accepted head changed during collection twice; the sections are empty |
+| `snapshot_missing` | No snapshot has been published |
+| `snapshot_invalid` | The snapshot is malformed or of an unknown snapshot schema |
+| `snapshot_oversized` | The snapshot is over 1 MiB |
+| `snapshot_foreign` | The snapshot is bound to another context or project |
+| `snapshot_unavailable` | The store read or its ownership check failed, or ran out of the request deadline |
+
+A `snapshot_*` reason sets `snapshot.available: false`, empties the sections and fills
+`hostsReason`, `componentsReason` and `databasesReason`; the response is still a 200 with the
+serving build. A section reason without an unavailable snapshot means only that section could not
+be read; an available empty list means there is nothing to report. A new reason is an additive
+catalog entry, as a problem code is.
 
 ## Exit codes
 
@@ -123,7 +176,9 @@ connections (`first`/`after`, `last`/`before`; 50 by default, at most 100; an in
 problem, not a clamp). A cursor is bound to its context, list and filters; across head changes the
 next page is the items after the cursor in the new head, so compare `Nagare-Head-Revision` and
 restart for a consistent walk. Every 200 carries a strong `ETag` of its exact bytes and
-`Cache-Control: private, no-cache`; send it back in `If-None-Match` for a bodyless 304.
+`Cache-Control: private, no-cache`; send it back in `If-None-Match` for a bodyless 304. Its build
+routes, `/v1/platform/version` (the serving binary) and `/v1/platform/versions` (installed beside
+serving, see [Platform versions](#platform-versions)), carry no `Nagare-Head-Revision`.
 
 ## Versioning
 

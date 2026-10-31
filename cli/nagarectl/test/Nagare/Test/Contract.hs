@@ -28,6 +28,7 @@ import Nagare.Contract.Project
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..), fromNullable)
 import Nagare.Contract.Sink (clearContractSink, markExecuting, refuseWith, setContractSinkTo, transactionExitCode, transactionOutcome)
 import Nagare.Contract.V1
+import Nagare.Contract.Versions
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (ReviewBarrier (..))
 import Nagare.Inventory.Artifact
@@ -44,6 +45,7 @@ import Nagare.Inventory.Execute (TransactionResult (..))
 import Nagare.Inventory.Journal (FailureClass (..), mkOperationId, mkTransactionId, transactionIdText)
 import Nagare.Inventory.Site.Recorded qualified as Recorded
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
+import Nagare.Platform.Versions
 import Nagare.Resource.Inventory (ScopeDeclaration, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (..))
 import Nagare.Resource.Types hiding (ScopeKind (..))
@@ -182,7 +184,58 @@ samples =
   , Sample "deploy-preview.json" deployPreviewSample
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "problem.json" (problemFor unknownScope "application:nope is not an accepted scope")
+  , Sample "platform-versions.json" platformVersionsSample
   ]
+
+-- | An admin API answer: a 0.6.3 server beside a 0.13.0 install from a
+-- legacy stamp, one NixOS node, one component mid-rollout and a PostgreSQL
+-- server declared @18@ (EP-236).
+platformVersionsSample :: PlatformVersions
+platformVersionsSample =
+  platformVersionsDocument "intranet" "example-project" (Just (servingBuildOf (versionInfo (BuildVersion "0.6.3" (Just "0123456789abcdef")) Nothing) "2026-10-30T22:11:40Z")) $
+    Right
+      VersionSnapshot
+        { snapshotSchema = snapshotSchemaVersion
+        , context = "intranet"
+        , project = "example-project"
+        , collectedAt = at'
+        , completedAt = "2026-10-31T16:00:09Z"
+        , inventoryRevision = Nullable (Just "sha256:6c1f")
+        , reason = Nullable Nothing
+        , installed = Nullable (Just (InstalledRelease (stamp (Just "0.13.0")) (stamp (Just "fedcba9876543210")) (stamp Nothing) (stamp (Just "2026-10-30T09:00:00Z"))))
+        , pins = Nullable (Just (Pins (recordedFact "context profile" at' (Just "0.13.0")) (recordedFact "generated host flake" at' (Just "0.13.0")) (recordedFact "generated host flake" at' Nothing)))
+        , hosts =
+            [ HostVersions "nagare-01" "node-uid" (node' "NixOS 26.11 (Zokor)") (node' "6.12.40") (node' "v1.33.4+k3s1") $
+                NixosIdentity (identity' "26.11") (identity' "Zokor") (identity' "26.11.20260911.eaad089") (identity' "eaad089433ca2bb662274377d33df3d0e51ef28b")
+            ]
+        , hostsReason = Nullable Nothing
+        , components =
+            [ ComponentVersions
+                { scope = "platform:upstream"
+                , resource = "platform:upstream/knative-serving-controller/deployment"
+                , kind = "Deployment"
+                , namespace = "knative-serving"
+                , name = "controller"
+                , declaredVersion = declared "1.19.0"
+                , declaredChartVersion = missingFact SourceRecorded "accepted declaration" at' reasonNotApplicable
+                , declaredImages = [DeclaredImage "controller" (declared "gcr.io/knative-releases/controller@sha256:b2")]
+                , workloads = [Workload pod' ("uid-" <> pod') [ObservedContainer "controller" (pods' "gcr.io/knative-releases/controller") (pods' digest)] | (pod', digest) <- [("controller-7f-a", "sha256:a1"), ("controller-9c-b", "sha256:b2")]]
+                , workloadsReason = Nullable Nothing
+                }
+            ]
+        , componentsReason = Nullable Nothing
+        , databases =
+            [ DatabaseVersions "database:labs-postgres" "databases" "labs-postgres" "postgres" (declared "18") (declared "postgres:18") [DatabaseInstance "labs-postgres-0" "uid-pg" (pods' "docker.io/library/postgres:18") (pods' "sha256:9d") (observedFact "SELECT version()" "2026-10-31T16:00:06Z" (Just "PostgreSQL 18.1 on x86_64-pc-linux-gnu"))] (Nullable Nothing)
+            ]
+        , databasesReason = Nullable Nothing
+        }
+  where
+    at' = "2026-10-31T16:00:02Z"
+    stamp = recordedFact "configmap nagare-system/nagare-platform-version" at'
+    node' = observedFact "node status.nodeInfo" at' . Just
+    identity' = recordedFact "configmap kube-system/nagare-host-identity" at' . Just
+    declared = recordedFact "accepted declaration" at' . Just
+    pods' = observedFact "pod status" "2026-10-31T16:00:04Z" . Just
 
 -- The recorded inventory the projection samples read: one image publication
 -- and the application whose accepted image resource names it.
