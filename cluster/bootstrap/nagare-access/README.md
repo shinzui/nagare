@@ -15,14 +15,16 @@ cluster/bootstrap/nagare-access/build-image.sh
 The script builds `cli/nagare-access/Dockerfile` for `linux/amd64`, tags it as
 `$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/nagare-access:<git-sha>`,
 pushes it by default, and prints the image reference. Set
-`NAGARE_ACCESS_PUSH=0` to build locally without pushing. Because the Cabal
-workspace pins private `shinzui/shomei` and `shinzui/en` source repositories,
-set `GITHUB_TOKEN` when building in a fresh Docker environment; the Dockerfile
-consumes it as a BuildKit secret and removes the temporary Git rewrite before
-committing the build layer. Set `NAGARE_AUTH_ACCESS_IMAGE` to the resulting
-immutable reference before publishing a bootstrap review.
+`NAGARE_ACCESS_PUSH=0` to build locally without pushing. The Cabal workspace
+pins the public `shinzui/shomei` and `shinzui/en` source repositories, so a
+fresh Docker build fetches them without credentials. `GITHUB_TOKEN` is
+optional; when set, the Dockerfile consumes it as a BuildKit secret and removes
+the temporary Git rewrite before committing the build layer. Set
+`NAGARE_AUTH_ACCESS_IMAGE` to the resulting immutable reference before
+publishing a bootstrap review.
 
-To avoid private GitHub fetches during Docker build, set
+To build from local checkouts instead of fetching Shomei and En during the
+Docker build, set
 `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. That path
 delegates to `cluster/bootstrap/auth-images/build-local-image.sh`, assembling a
 temporary context from the local Nagare, Shomei, and En checkouts. The generated

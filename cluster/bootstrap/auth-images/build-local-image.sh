@@ -5,8 +5,9 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: cluster/bootstrap/auth-images/build-local-image.sh <nagare-access|shomei|en|nagare-admin-api> [tag]
 
-Builds one auth-plane image from local source checkouts instead of fetching the
-private shomei/en repositories during Docker build.
+Builds one auth-plane image from local source checkouts of the public
+shinzui/shomei and shinzui/en repositories instead of fetching them during
+Docker build.
 
 Relevant environment variables:
   NAGARE_AUTH_PUSH=0             Build locally without pushing.
