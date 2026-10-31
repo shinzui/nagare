@@ -348,6 +348,8 @@ library
     Nagare.Platform.Transition
     Nagare.Platform.Upgrade
     Nagare.Platform.Versions
+    Nagare.Platform.Versions.Assemble
+    Nagare.Platform.Versions.Collect
     Nagare.Platform.Versions.Store
     Nagare.Platform.Workspace
     Nagare.Server.Build
@@ -501,6 +503,7 @@ executable nagarectl
     Nagare.Cli.Platform.InfrastructureReview
     Nagare.Cli.Platform.KubernetesReview
     Nagare.Cli.Platform.Upgrade
+    Nagare.Cli.Platform.Versions
     Nagare.Cli.Runtime.Cleanup
     Nagare.Cli.Runtime.CloudTeardown
     Nagare.Cli.Runtime.Cluster
@@ -754,6 +757,7 @@ test-suite nagarectl-test
     PlatformSpec
     PlatformTransitionSpec
     PlatformTransitionTableSpec
+    PlatformVersionsSpec
     RecordedSiteSpec
     ShomeiUserSpec
     TransitionCostSpec

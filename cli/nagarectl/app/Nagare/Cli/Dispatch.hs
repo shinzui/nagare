@@ -54,6 +54,7 @@ import Nagare.Cli.Commands.Platform
   , runPlatformRoot
   , runPlatformStamp
   , runPlatformStatus
+  , runPlatformVersionsCommand
   , runVersion
   )
 import Nagare.Cli.Commands.Release (runReleasePublish)
@@ -114,6 +115,7 @@ dispatch (mctx, cmd0) = case cmd0 of
     runReleasePublish (T.pack repository) (T.pack version) assets yes (Just (releaseId, assetId, T.pack assetName))
   PlatformRoot asJson -> runPlatformRoot mctx asJson
   PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
+  PlatformVersions refreshing asJson contract -> runPlatformVersionsCommand mctx refreshing asJson contract
   PlatformGuard -> runPlatformGuard mctx
   PlatformStamp -> runPlatformStamp mctx
   PlatformBootstrapPlan output -> runPlatformBootstrapPlan mctx output

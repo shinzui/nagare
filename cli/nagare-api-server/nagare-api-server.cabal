@@ -115,6 +115,7 @@ test-suite nagare-api-server-test
     servant-server >=0.20.3 && <0.21,
     tasty >=1.4,
     tasty-hunit >=0.10,
+    temporary,
     text,
     time,
     warp,

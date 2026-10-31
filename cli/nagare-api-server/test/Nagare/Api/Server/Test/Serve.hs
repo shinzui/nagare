@@ -36,8 +36,12 @@ import Nagare.Contract.V1
 import Nagare.Contract.Versions
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Recorded (defaultRecordedReaderConfig, newRecordedReader)
-import Nagare.Inventory.Store (readHead, scopeKey)
+import Nagare.Inventory.Store (initializeStore, openFilesystemStore, readHead, readObject, scopeKey)
 import Nagare.Platform.Versions (VersionSnapshot (..), recordedFact)
+import Nagare.Platform.Versions.Assemble (AcceptedMember (..), ProviderFailure (..))
+import Nagare.Platform.Versions.Collect (CollectSettings (..), VersionProviders (..), collectVersions)
+import Nagare.Platform.Versions.Store (publishVersionSnapshot, versionSnapshotKey)
+import Nagare.Platform.Versions.Store qualified as VersionStore
 import Nagare.Resource.Inventory (scopeId)
 import Nagare.Resource.Types (scopeIdText)
 import Nagare.Resource.Wire (encodeCanonicalScope)
@@ -48,6 +52,7 @@ import Relay.Pagination (Connection (..), Direction (..), Edge (..), PageRequest
 import Relay.Pagination.Conformance (ConformanceConfig (..), checkConformance, conformancePassed, renderConformanceReport)
 import Servant.Client (ClientM, mkClientEnv, parseBaseUrl, runClientM)
 import Servant.Client.Generic (AsClientT, genericClient)
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -142,6 +147,23 @@ versionTests =
         finished <- getCurrentTime
         versions ^. #snapshot . #reason @?= Nullable (Just "snapshot_unavailable")
         assertBool "the read was not bounded" (diffUTCTime finished started < 2)
+    , testCase "a collected snapshot published to a filesystem store is served with every engine's versions" $ withSystemTempDirectory "versions" $ \directory -> do
+        local <- openFilesystemStore directory >>= either (fail . show) pure
+        _ <- initializeStore local fixtureBinding "client" >>= either (fail . show) pure
+        collected <- collectVersions (CollectSettings "fixture" "project" Nothing 5000000 4) engineProviders >>= either (fail . Text.unpack) pure
+        publishVersionSnapshot local collected >>= (@?= Right VersionStore.Published)
+        withServer 2 defaults $ \server -> do
+          offer server (first (Text.pack . show) <$> readObject local versionSnapshotKey)
+          versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
+          [ (database ^. #engine, database ^. #declaredVersion . #value, map (^. #reportedVersion . #value) (database ^. #instances))
+            | database <- versions ^. #databases
+            ]
+            @?= [ ("clickhouse", Nullable (Just "25.8"), [Nullable (Just "25.8.2.29")])
+                , ("postgres", Nullable (Just "18"), [Nullable (Just "PostgreSQL 18.1")])
+                , ("redis", Nullable (Just "8"), [Nullable (Just "8.2.1")])
+                ]
+          fmap (^. #version . #value) (fromNullable' (versions ^. #nagare . #installed)) @?= Just (Nullable (Just "0.13.0"))
+          versions ^. #nagare . #comparison . #state @?= ComparisonDifferent
     , testCase "the serving build route is unchanged" $ withServer 2 defaults $ \server -> do
         response <- request server "GET" "/v1/platform/version" []
         statusOf response @?= 200
@@ -153,6 +175,58 @@ versionTests =
     installedAs release =
       sampleSnapshot & #installed .~ Nullable (Just (InstalledRelease (stamp release) (stamp "0123456789abcdef") (stamp "nagare-payload") (stamp "2026-10-30T09:00:00Z")))
     stamp present = recordedFact "configmap nagare-system/nagare-platform-version" "2026-10-31T16:00:02Z" (Just present)
+
+-- | Providers of one server per engine, each answering its own version.
+engineProviders :: VersionProviders
+engineProviders =
+  VersionProviders
+    { loadAccepted = pure (Right ("rev-1", [server "postgres" "postgres:18", server "clickhouse" "clickhouse/clickhouse-server:25.8", server "redis" "redis:8"]))
+    , currentRevision = pure (Right "rev-1")
+    , readStamp = pure (Right "{\"data\":{\"version\":\"0.13.0\",\"revision\":\"abc1234\"}}")
+    , readHostIdentity = pure (Left ProviderMissing)
+    , readNodes = pure (Right "{\"items\":[]}")
+    , readPods = \_ -> pure (Right (BC.pack ("{\"items\":[" <> intercalate' "," [pod engine' | engine' <- ["postgres", "clickhouse", "redis"]] <> "]}")))
+    , runEngine = \engine' _ _ _ -> pure . Right $ case engine' of
+        "postgres" -> "PostgreSQL 18.1\n"
+        "clickhouse" -> "25.8.2.29\n"
+        _ -> "redis_version:8.2.1\r\n"
+    , readPodUid = \_ podName -> pure (Right (Text.replace "-0" "-uid" podName))
+    , clock = pure "2026-10-31T16:00:00Z"
+    }
+  where
+    server engine' image =
+      KubernetesMember
+        ("database:" <> engine')
+        ("database:" <> engine' <> "/server/statefulset")
+        ( BC.pack
+            ( "{\"kind\":\"StatefulSet\",\"metadata\":{\"name\":\""
+                <> Text.unpack engine'
+                <> "\",\"namespace\":\"db\",\"labels\":{\"nagare.dev/engine\":\""
+                <> Text.unpack engine'
+                <> "\"}},"
+                <> "\"spec\":{\"selector\":{\"matchLabels\":{\"nagare.dev/database\":\""
+                <> Text.unpack engine'
+                <> "\"}},\"template\":{\"spec\":{\"containers\":[{\"name\":\"db\",\"image\":\""
+                <> Text.unpack image
+                <> "\"}]}}}}"
+            )
+        )
+    pod engine' =
+      "{\"metadata\":{\"name\":\""
+        <> engine'
+        <> "-0\",\"uid\":\""
+        <> engine'
+        <> "-uid\",\"labels\":{\"nagare.dev/database\":\""
+        <> engine'
+        <> "\"}},"
+        <> "\"status\":{\"phase\":\"Running\",\"containerStatuses\":[{\"name\":\"db\",\"image\":\""
+        <> engine'
+        <> "\",\"imageID\":\""
+        <> engine'
+        <> "@sha256:"
+        <> engine'
+        <> "\"}]}}"
+    intercalate' separator = foldr1 (\left right -> left <> separator <> right)
 
 snapshotBytes :: VersionSnapshot -> ByteString
 snapshotBytes = LBS.toStrict . encode

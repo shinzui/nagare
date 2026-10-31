@@ -44,7 +44,7 @@ The existing `GET /v1/platform/version` keeps its meaning: the serving binary on
 
 
 - [x] M1: A versioned contract and a fixture-backed HTTP endpoint demonstrate installed/serving skew, partial results with reason codes, conditional 304s, and unchanged behaviour of every existing route. (2026-10-31) `nagare-api-server-test`: 30 of 30 pass, including the 8 `platform versions (EP-236)` wire tests (different/match/unknown, legacy `payloadId` `not_recorded`, mixed rollout, missing/invalid/oversized/foreign/unavailable snapshot as 200, 304 and HEAD, deadline-bounded read, `/v1/platform/version` unchanged); `nagare-api-openapi` regenerated twice with the same output.
-- [ ] M2: A context-bound collector publishes a sanitized snapshot that the real API reads, proven end to end on the installed identity first, then extended to host, components and every managed database server (PostgreSQL, ClickHouse and Redis).
+- [x] M2: A context-bound collector publishes a sanitized snapshot that the real API reads, proven end to end on the installed identity first, then extended to host, components and every managed database server (PostgreSQL, ClickHouse and Redis). (2026-10-31) `platform versions (EP-236)` in `nagarectl-test`: 13 of 13 pass (complete collection; mixed rollout and vendored chart version; denied nodes; missing identity ConfigMap and non-NixOS node; stopped server; replaced pod `identity_changed`; hung probe `collection_deadline` within a 0.3 s budget; failed engine and denied namespace; head changed once and repeatedly; secret sentinels; local atomic, newer-kept and concurrent publication; remote generation-conditional publication; schema and size refusals). `nagare-api-server-test` 31 of 31, including a collected snapshot published to a filesystem store and served by the real route with PostgreSQL, ClickHouse and Redis versions. The loopback cloud-reader proof moves to M3 with `freshObject`.
 - [ ] M3: Local and cloud deployments deliver and refresh snapshots while the API keeps its restricted credentials and exact-object grant; the host module records its identity into the cluster at activation.
 - [ ] M4: Adversarial interpreter tests, the generated contract, golden sample and native local/cloud comparisons satisfy AC-1 to AC-5; `docs/api/README.md`, ADR 6 and ADR 22 are updated.
 
@@ -73,6 +73,12 @@ The existing `GET /v1/platform/version` keeps its meaning: the serving binary on
 2026-10-31 (review): No acceptance shell script. The Hurl suite, the tasty fixtures and `nagarectl platform versions --json` beside `kubectl get nodes -o json` already prove AC-1 to AC-5; a new script would be one more surface to maintain (operator rule: prefer removing a step to adding one).
 
 2026-10-31 (review): The document follows the contract's read-document shape: `contractVersion: 1`, `document: "platform-versions"`, and a `reason` string whose catalog lives in `docs/api/README.md` so a new reason is an additive catalog entry, as problem codes are, rather than a version-2 enum change.
+
+2026-10-31 (implementation): The provider interface (`VersionProviders`) and the collection loop live in the library module `Nagare.Platform.Versions.Collect`, not in `app/`, because `nagarectl-test` cannot import executable modules; `app/Nagare/Cli/Platform/Versions.hs` holds only the native kubectl and store providers. The pure parsers and section builders are `Nagare.Platform.Versions.Assemble`.
+
+2026-10-31 (implementation): `versions/` is derived observation data, so the store's listing (and therefore export, restore and migration) excludes it; `Nagare.Inventory.Store.observationTransport` is the only new store export. A refresh during a migration cannot break the member comparison, and a restored store starts with `snapshot_missing` until the next refresh.
+
+2026-10-31 (implementation): A component is an accepted Deployment, StatefulSet, DaemonSet or Helm release member of a `platform:` scope; a database server is an accepted StatefulSet of a `database:` scope carrying `nagare.dev/engine`. The declared engine version is the declared image tag, kept literally. A Helm release's declared chart version is the version in its vendored chart archive name (`chartPath`); its pods are those labelled `app.kubernetes.io/instance=<release>`.
 
 ## Outcomes & Retrospective
 

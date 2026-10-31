@@ -6,6 +6,7 @@ module Nagare.Cli.Commands.Platform
   , runPlatformRoot
   , runPlatformStamp
   , runPlatformStatus
+  , runPlatformVersionsCommand
   , runVersion
   )
 where
@@ -19,6 +20,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Options (VersionOpts (..))
 import Nagare.Cli.Platform.KubernetesReview (applyClusterMarker)
+import Nagare.Cli.Platform.Versions (runPlatformVersionsCommand)
 import Nagare.Cli.Runtime.Error
   ( dieT
   , printPreflightWarnings

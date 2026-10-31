@@ -30,6 +30,7 @@ module Nagare.Inventory.Store
   , storeClientIdentity
   , storeRetryPause
   , inventoryStoreRoot
+  , observationTransport
   , initializeStore
   , initializeStoreFrom
   , readHead
@@ -253,6 +254,13 @@ storeRetryPause _ = Nothing
 inventoryStoreRoot :: InventoryStore -> Maybe FilePath
 inventoryStoreRoot (InventoryStore (FilesystemBackend root _) _) = Just root
 inventoryStoreRoot _ = Nothing
+
+-- | Where derived observation objects under @versions/@ live (EP-236): outside
+-- the inventory protocol, its listings, exports and migrations.
+observationTransport :: InventoryStore -> Maybe (Either FilePath ObjectOps)
+observationTransport (InventoryStore (FilesystemBackend root _) _) = Just (Left root)
+observationTransport (InventoryStore (ObjectBackend ops _ _ _ _ _) _) = Just (Right ops)
+observationTransport _ = Nothing
 
 initializeStore :: InventoryStore -> ContextBinding -> Text -> IO (Either StoreError HeadManifest)
 initializeStore store binding clientIdentity =
@@ -959,7 +967,7 @@ listObjectKeysUnlocked (InventoryStore (MemoryBackend stateVar _ _) counters) =
   counted counters Listing (Right . sort . Map.keys . memoryObjects <$> readMVar stateVar)
 listObjectKeysUnlocked (InventoryStore (ObjectBackend ops _ _ _ _ _) _) = do
   listed <- listObjects ops (ObjectName "")
-  pure (first StoreIoError (sort . map (\(ObjectName name) -> T.unpack name) <$> listed))
+  pure (first StoreIoError (sort . filter (not . isPrefixOf "versions/") . map (\(ObjectName name) -> T.unpack name) <$> listed))
 listObjectKeysUnlocked (InventoryStore (FilesystemBackend root _) counters) = counted counters Listing (ioResult (sort <$> walk root ""))
   where
     walk base relative = do
@@ -968,7 +976,7 @@ listObjectKeysUnlocked (InventoryStore (FilesystemBackend root _) counters) = co
       fmap concat $ forM entries $ \entry -> do
         let rel = if null relative then entry else relative </> entry
             path = base </> rel
-        if rel == "process.lock" || ".inventory-object" `isPrefixOf` entry
+        if rel `elem` ["process.lock", "versions"] || ".inventory-object" `isPrefixOf` entry
           then pure []
           else do
             linked <- pathIsSymbolicLink path

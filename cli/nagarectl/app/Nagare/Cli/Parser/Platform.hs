@@ -25,6 +25,7 @@ import Nagare.Cli.Options
   , UpgradeOpts (..)
   , VersionOpts (..)
   )
+import Nagare.Cli.Parser.Common (contractOpt)
 import Nagare.Dsl.Prelude
 import Options.Applicative
   ( Alternative (many)
@@ -112,6 +113,20 @@ platformCmd =
               ( info
                   (PlatformStatusCmd <$> switch (long "json" <> help "Print machine-readable release identities") <**> helper)
                   (progDesc "Compare CLI, payload, context, host, and cluster release identities")
+              )
+            <> command
+              "versions"
+              ( info
+                  ( ( subparser
+                        ( command
+                            "refresh"
+                            (info (pure (PlatformVersions True False Nothing) <**> helper) (progDesc "Collect installed, host, component and database versions and publish the snapshot the admin API serves (60 s budget)"))
+                        )
+                        <|> (PlatformVersions False <$> switch (long "json" <> help "Print the platform-versions document") <*> contractOpt)
+                    )
+                      <**> helper
+                  )
+                  (progDesc "Show the recorded installed, host, component and database versions, as of the last refresh")
               )
             <> command
               "guard"

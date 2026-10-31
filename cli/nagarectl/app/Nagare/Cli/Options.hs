@@ -316,6 +316,8 @@ data Command
   | InventoryStoreMigrate String Bool Bool
   | PlatformRoot Bool
   | PlatformStatusCmd Bool
+  | -- | Refresh, JSON, contract version.
+    PlatformVersions Bool Bool (Maybe Int)
   | PlatformGuard
   | PlatformStamp
   | PlatformBootstrapPlan FilePath

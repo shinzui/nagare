@@ -137,6 +137,7 @@ import Nagare.Test.Webhook (webhookTests)
 import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
 import PlatformTransitionSpec (platformTransitionTests)
+import PlatformVersionsSpec (platformVersionsTests)
 import RecordedSiteSpec (recordedSiteTests, runRecordedSitesFixture)
 import System.Environment (lookupEnv)
 import System.Exit (exitWith)
@@ -235,9 +236,8 @@ main = do
             , inventoryMaintenanceTests
             , inventoryIntegrationTests
             , platformTests
-            , platformCutoverTests
+            , testGroup "platform" [platformCutoverTests, platformTransitionTests, platformVersionsTests]
             , recordedSiteTests
-            , platformTransitionTests
             , testGroup "Nagare.Static.Build" prepareTests
             , testGroup "Nagare.Static.Release" releaseTests
             , testGroup "Nagare.Inventory.Site" staticInventoryTests
