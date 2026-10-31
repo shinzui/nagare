@@ -65,10 +65,10 @@ main = do
   Options contextName projectName storeSource address portNumber <-
     execParser (info (options <**> helper) (fullDesc <> progDesc "Serve one context's recorded inventory state, read-only."))
   binding <- either (die . Text.unpack) pure (ContextBinding <$> mkContextId contextName <*> mkName projectName)
-  (store, headAction) <- case storeSource of
+  (store, headAction, objectAction) <- case storeSource of
     LocalStore directory -> do
       opened <- openFilesystemStoreReadOnly directory >>= either (die . show) pure
-      pure (opened, readHead opened)
+      pure (opened, readHead opened, readObject opened)
     CloudStore url number credentials cache -> do
       service <-
         openServiceStore
@@ -82,10 +82,12 @@ main = do
             , configureEnv = id
             }
           >>= either (die . show) pure
-      pure (service ^. #store, service ^. #freshHead)
+      pure (service ^. #store, service ^. #freshHead, service ^. #freshObject)
   recordedReader <- newRecordedReader defaultRecordedReaderConfig store binding headAction
   let BuildVersion buildVersion buildRevision = currentBuildVersion
-  let snapshotRead = first (Text.pack . show) <$> readObject store versionSnapshotKey
+  -- The platform-versions snapshot, through the same session; in the cloud
+  -- every read rechecks the bucket's owner like a head read (EP-236).
+  let snapshotRead = first (Text.pack . show) <$> objectAction versionSnapshotKey
   env <- newEnv recordedReader (buildVersion <> maybe "" ("+" <>) buildRevision) binding snapshotRead
   application <- adminApplication (AppConfig contextName (versionInfo currentBuildVersion Nothing) 32 (BS.hPutStr stdout)) env
   runSettings (setHost (fromString address) (setPort portNumber defaultSettings)) application

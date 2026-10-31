@@ -308,6 +308,28 @@ in
 
     networking.hostName = cfg.hostName;
 
+    # EP-236: record the host's evaluated NixOS identity into the cluster at activation,
+    # so `nagarectl platform versions refresh` reads it with cluster access alone. k3s
+    # applies the manifest on start and re-applies it on change; /etc/os-release carries
+    # only the release and a short revision.
+    services.k3s.manifests.nagare-host-identity.content = {
+      apiVersion = "v1";
+      kind = "ConfigMap";
+      metadata = {
+        name = "nagare-host-identity";
+        namespace = "kube-system";
+        labels."app.kubernetes.io/managed-by" = "nagare-host";
+      };
+      data = {
+        hostname = cfg.hostName;
+        release = config.system.nixos.release;
+        codeName = config.system.nixos.codeName;
+        version = config.system.nixos.version;
+      } // lib.optionalAttrs (config.system.nixos.revision != null) {
+        revision = config.system.nixos.revision;
+      };
+    };
+
     sops.defaultSopsFile = cfg.sopsDefaultFile;
     sops.age.keyFile = cfg.ageKeyFile;
     sops.useSystemdActivation = true;

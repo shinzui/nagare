@@ -17,6 +17,7 @@ import Nagare.Cli.Bootstrap.Sequence (planNextStage)
 import Nagare.Cli.Bootstrap.Stage (StageMode (FreshBootstrap))
 import Nagare.Cli.Inventory.Execution (inventoryExecutionRegistry)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
+import Nagare.Cli.Platform.Versions (refreshVersionsAfterReview)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target
   ( activeTarget
@@ -88,3 +89,5 @@ runPlatformBootstrapApply mctx reviewDirectory yes = do
     $ do
       migrated <- Inventory.migrateTargetStore stageTarget InventoryStoreGcs False
       either (dieT . T.pack . show) TIO.putStrLn migrated
+  -- Reached only when the apply converged (EP-236).
+  refreshVersionsAfterReview mctx reviewDirectory

@@ -46,6 +46,7 @@ import Nagare.Inventory.Store
   , StoreError (..)
   , openObjectStoreReadOnly
   , readHead
+  , readObject
   )
 import Nagare.Inventory.Store.Gogol (gogolLocation)
 import Nagare.Inventory.Store.ObjectOps
@@ -73,11 +74,13 @@ data ServiceStoreConfig = ServiceStoreConfig
   }
   deriving stock (Generic)
 
--- | A read-only store and the action the recorded reader uses for a fresh,
--- ownership-checked head.
+-- | A read-only store and the actions the recorded reader uses for a fresh,
+-- ownership-checked head and a fresh, ownership-checked mutable object (the
+-- platform-versions snapshot, EP-236).
 data ServiceStore = ServiceStore
   { store :: !InventoryStore
   , freshHead :: !(IO (Either StoreError (Maybe HeadManifest)))
+  , freshObject :: !(FilePath -> IO (Either StoreError (Maybe BS.ByteString)))
   }
   deriving stock (Generic)
 
@@ -105,14 +108,18 @@ openServiceStore config = do
         pure
           ServiceStore
             { store = inventory
-            , freshHead = do
-                owner <- bucketOwner env bucket
-                case owner of
-                  Left failure -> pure (Left failure)
-                  Right number
-                    | number == config ^. #projectNumber -> readHead inventory
-                    | otherwise -> pure (Left (StoreConditionFailed "the inventory bucket belongs to another project"))
+            , freshHead = owned (readHead inventory)
+            , freshObject = owned . readObject inventory
             }
+      where
+        owned :: IO (Either StoreError a) -> IO (Either StoreError a)
+        owned action = do
+          owner <- bucketOwner env bucket
+          case owner of
+            Left failure -> pure (Left failure)
+            Right number
+              | number == config ^. #projectNumber -> action
+              | otherwise -> pure (Left (StoreConditionFailed "the inventory bucket belongs to another project"))
 
 -- | The key must be a service account's: an authorized user would be a
 -- person's refreshable credential.

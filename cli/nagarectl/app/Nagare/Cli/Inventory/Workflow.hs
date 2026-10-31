@@ -39,6 +39,7 @@ import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inv
 import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutation
   )
+import Nagare.Cli.Platform.Versions (refreshVersionsAfterReview)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext, withContextEnSession)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
@@ -281,6 +282,8 @@ runInventoryApply mctx reviewDirectory yes = do
   -- One en forward and one cluster guard for every access phase (EP-214).
   withContextEnSession target $ \en ->
     Inventory.applyInventoryWithFactory (requireAccessKey (inventoryExecutionRegistryIn (Just en) mctx)) target reviewDirectory yes
+  -- Reached only when the apply converged (EP-236).
+  refreshVersionsAfterReview mctx reviewDirectory
 
 runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
 runInventoryResume mctx transaction yes takeOver = do

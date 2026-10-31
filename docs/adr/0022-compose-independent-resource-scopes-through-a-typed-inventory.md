@@ -1964,3 +1964,25 @@ call, before any write. Because validations are never journaled, the batched jou
 and the digest-bound proof aggregate named above are withdrawn: a validation is proved afresh at
 each admission, nothing reuses it, and the review's `validations` with a passing admission are its
 record. The journal format and its serial head advance are unchanged.
+
+## Amendment — 2026-10-31: an observation producer and one more exact object
+
+[EP-236](../plans/236-expose-installed-platform-host-component-and-database-versions.md) extends the
+bounded recorded-state readers above with an observation producer. `nagarectl platform versions
+refresh`, and a 20-second best-effort refresh after a converged apply that changed a `platform:` or
+`database:` scope, collect the installed stamp, node facts, the host identity the host module
+records, per-namespace pods and one fixed in-pod version statement per database server, then
+publish one sanitized snapshot, `versions/latest.json`, under the context's inventory root. The
+admin API renders it beside its own serving build at `GET /v1/platform/versions` and never runs a
+provider, so it keeps its restricted credentials. The reader's exact object grant widens by that
+one name; `native/`, `reviews/`, `journal/`, listing and writes stay refused, and every snapshot
+read rechecks the bucket's owner like a head read.
+
+The snapshot is derived observation evidence, not recorded state. It is bound to the context and
+project, carries the accepted head revision captured before any probe (a head that changes during
+collection is collected once more, then published as `inventory_changed`), and is published with a
+locked atomic rename locally or a generation-conditional write remotely, never replacing a snapshot
+that completed later. It never touches the head, journal or convergence facts, and it is outside the
+inventory's listings, exports, restores and migrations. Declared versions and images come from the
+accepted members' native objects, never from the running binary's pins; provider error text never
+enters it.

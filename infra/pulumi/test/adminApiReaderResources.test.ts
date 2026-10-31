@@ -65,6 +65,11 @@ async function main(): Promise<void> {
     assert(expression.includes(`resource.name == "${root}/head.json"`), "the head is not readable");
     assert(expression.includes(`resource.name == "${root}/format.json"`), "the format is not readable");
     assert(expression.includes(`resource.name.startsWith("${root}/scopes/")`), "the scopes are not readable");
+    assert(expression.includes(`resource.name == "${root}/versions/latest.json"`), "the platform-versions snapshot is not readable");
+    assert(!expression.includes(`startsWith("${root}/versions`), "the condition admits more than the one versions snapshot");
+    for (const hidden of ["native/", "reviews/", "journal/"]) {
+        assert(!expression.includes(`${root}/${hidden}`), `the condition admits ${hidden}`);
+    }
     assert(!expression.includes(`startsWith("${root}/")`), "the condition admits the whole inventory, including reviews and native payloads");
     assert(String(conditioned!.inputs.role).endsWith("nagareInventoryObjectReader"), "the object grant has the wrong role");
     assert(String(plain!.inputs.role).endsWith("nagareInventoryBucketReader"), "the unconditioned grant is not metadata-only");

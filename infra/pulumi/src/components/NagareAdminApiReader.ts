@@ -87,13 +87,15 @@ export class NagareAdminApiReader extends pulumi.ComponentResource {
     }
 }
 
-// The IAM condition naming exactly the objects the recorded reader reads.
-// Object resource names are projects/_/buckets/<bucket>/objects/<name>.
+// The IAM condition naming exactly the objects the recorded reader reads,
+// including the platform-versions snapshot (EP-236) and nothing else under
+// versions/. Object resource names are projects/_/buckets/<bucket>/objects/<name>.
 export function inventoryReadCondition(bucket: string, prefix: string): string {
     const root = `projects/_/buckets/${bucket}/objects/${prefix.replace(/\/+$/, "")}`;
     return [
         `resource.name == "${root}/format.json"`,
         `resource.name == "${root}/head.json"`,
+        `resource.name == "${root}/versions/latest.json"`,
         `resource.name.startsWith("${root}/scopes/")`,
     ].join(" || ");
 }

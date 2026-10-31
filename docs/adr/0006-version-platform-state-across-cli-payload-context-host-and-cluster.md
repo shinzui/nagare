@@ -227,3 +227,20 @@ neither the source nor the target refuses. Last, under the lock, a head still ca
 that marker and still idle has the marker cleared. While the marker is finalizing, admission and
 planning refuse, and older CLIs refuse the head because the marker's decoder rejects unknown
 fields. A stop after any step is finished by committing again; the pin is still written last.
+
+## Amendment — 2026-10-31: report installed and serving skew; host identity recorded at activation
+
+[EP-236](../plans/236-expose-installed-platform-host-component-and-database-versions.md) reports the
+identities this ADR separates side by side without changing mutation compatibility. `GET
+/v1/platform/version` still describes only the serving binary. `GET /v1/platform/versions` and
+`nagarectl platform versions` add the installed release from the cluster stamp (a legacy stamp's
+missing payload ID is `not_recorded`), the context and host-flake pins, and a three-state comparison
+of installed and serving builds: unequal known fields are `different`, equal versions without
+revision evidence on both sides are `unknown`, complete equal evidence is `match`. Unknown stays
+explicit: every value is a fact with its source, read time and, when null, a reason.
+
+The host's NixOS identity is recorded at activation, not read over SSH: the host module writes the
+`kube-system/nagare-host-identity` ConfigMap through `services.k3s.manifests` with the evaluated
+release, code name, version, nixpkgs revision and host name. The running kernel and k3s versions are
+the node's `status.nodeInfo`. A host activated before this change reports `not_recorded` until its
+next `just host-switch`; a non-NixOS node (the local k3d harness) reports `not_applicable`.

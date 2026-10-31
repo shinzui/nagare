@@ -7,14 +7,16 @@
 -- the credentials. Provider stderr is classified, never stored or printed.
 module Nagare.Cli.Platform.Versions
   ( runPlatformVersionsCommand
-  , refreshVersionsAfterApply
+  , refreshVersionsAfterReview
   )
 where
 
+import Control.Exception (SomeAsyncException, SomeException, fromException, throwIO, try)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy.Char8 qualified as LBC
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -31,11 +33,12 @@ import Nagare.Contract.Sink (contractSinkSet, emitDocument, withReadContract)
 import Nagare.Contract.Versions
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir)
+import Nagare.Inventory.Adapter (PlannedOperation (..))
 import Nagare.Inventory.ClusterSession (kubectlConnectionArguments)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.ObservationNative (loadObservationNative, observationHelm, observationKubernetes)
-import Nagare.Inventory.Plan (historyAccepted, loadInventoryHistory)
+import Nagare.Inventory.Plan (historyAccepted, loadInventoryHistory, loadReviewBundle, reviewBundleDocument, reviewOperations, reviewPlannedOperation)
 import Nagare.Inventory.Store (InventoryStore, readObject)
 import Nagare.Platform.Status (parseHostIdentity)
 import Nagare.Platform.Versions
@@ -79,19 +82,30 @@ runPlatformVersionsRefresh mctx = do
   outcome <- refresh active 60000000
   either dieT (TIO.putStrLn . ("versions: " <>)) outcome
 
--- | The best-effort refresh after an apply that changed a @platform:@ or
--- @database:@ scope: 20 seconds, one line on stderr, and never a change to
--- the apply's outcome.
-refreshVersionsAfterApply :: Maybe String -> [Text] -> IO ()
-refreshVersionsAfterApply mctx changedScopes
-  | not (any (\scope -> isPlatformScope scope || isDatabaseScope scope) changedScopes) =
-      TIO.hPutStrLn stderr "versions: skipped (no platform or database scope changed)"
-  | otherwise = do
-      active <- activeTarget mctx
-      outcome <- refresh active 20000000
-      TIO.hPutStrLn stderr $ case outcome of
-        Right summary -> "versions: " <> summary
-        Left failure -> "versions: not refreshed (" <> failure <> "); the previous snapshot is kept"
+-- | The best-effort refresh after a converged apply of the review in
+-- @reviewDirectory@, when it changed a @platform:@ or @database:@ scope: 20
+-- seconds, one line on stderr, and never a change to the apply's outcome or
+-- exit code. A failure keeps the previous snapshot.
+refreshVersionsAfterReview :: Maybe String -> FilePath -> IO ()
+refreshVersionsAfterReview mctx reviewDirectory = do
+  outcome <- try $ do
+    loaded <- loadReviewBundle reviewDirectory
+    let changed =
+          [ resourceIdText resource
+          | bundle <- either (const []) pure loaded
+          , operation <- reviewOperations (reviewBundleDocument bundle)
+          , resource <- toList (plannedResources (reviewPlannedOperation operation))
+          ]
+    if not (any (\resource -> isPlatformScope resource || isDatabaseScope resource) changed)
+      then pure "skipped (no platform or database scope changed)"
+      else do
+        active <- activeTarget mctx
+        either (\failure -> "not refreshed (" <> failure <> "); the previous snapshot is kept") id <$> refresh active 20000000
+  case outcome of
+    Right line -> TIO.hPutStrLn stderr ("versions: " <> line)
+    Left (failure :: SomeException)
+      | Just (_ :: SomeAsyncException) <- fromException failure -> throwIO failure
+      | otherwise -> TIO.hPutStrLn stderr "versions: not refreshed; the previous snapshot is kept"
 
 refresh :: ActiveTarget -> Int -> IO (Either Text Text)
 refresh active budget = do

@@ -74,6 +74,15 @@ inventoryServiceStoreTests =
         assertBool "an uninitialized prefix opened" (isLeft reopened)
         recorded <- readIORef (calls fake)
         assertBool "absence was proved by listing" (all allowed recorded)
+    , testCase "the platform-versions snapshot is read exactly, with the owner rechecked each time (EP-236)" $ withService $ \fake config -> do
+        service <- openServiceStore config >>= either (assertFailure . show) pure
+        freshObject service "versions/latest.json" >>= (@?= Right Nothing)
+        modifyIORef' (objects fake) (Map.insert "nagare/fixture/inventory/versions/latest.json" (9, "{\"snapshotSchema\":1}"))
+        freshObject service "versions/latest.json" >>= (@?= Right (Just "{\"snapshotSchema\":1}"))
+        writeIORef (owner fake) "99999"
+        freshObject service "versions/latest.json" >>= assertBool "a foreign bucket's snapshot was read" . isLeft
+        recorded <- readIORef (calls fake)
+        assertBool "the snapshot read listed or wrote" (all allowed recorded)
     , testCase "a write never leaves the reader" $ withService $ \fake config -> do
         service <- openServiceStore config >>= either (assertFailure . show) pure
         publishIfAbsent (store service) "scopes/new" "bytes" >>= assertBool "a write succeeded" . isLeft
