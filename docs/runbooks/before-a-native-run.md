@@ -48,12 +48,12 @@ scenario-b image, which needs `REDIS_URL`, with a PostgreSQL binding.
 
 [EP-174](../plans/174-gate-every-commit-before-any-native-run.md) turns this section into commands:
 
-- Every push: run `just install-hooks` once per clone. `.githooks/pre-push` then runs `just gate-fast`
-  and refuses the push when it is red. The fast gate first runs `just haskell-style-check` and
+- Every push: run `just install-hooks` once per clone. `.githooks/pre-push` then refuses a push of a
+  commit without a green `just gate-fast` record; it runs no gate itself, so
+  push with `just land`. The fast gate first runs `just haskell-style-check` and
   `scripts/test-managed-command-audit.sh` (the architecture checks and the managed-command audit), which take seconds,
   then builds and runs the `nagarectl` and `nagare-dsl` suites serially, each from its package directory. Its logs go under
-  `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/`. A push whose commits all have green
-  full-gate records is accepted without it (`just land`); otherwise push from a clean tree. A commit
+  `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/`. A commit
   that changes only inert documentation (plans, MasterPlans, ADRs, audits, release evidence that no code names) carries
   forward its nearest gated ancestor's record, so it needs no gate run (ADR 25, 2026-10-09).
 - Every candidate: on a clean checkout of the exact revision, run `just gate`. It first builds a

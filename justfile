@@ -543,9 +543,10 @@ gate-post-land rev:
 fixture-smoke *args:
     scripts/harness.sh fixture-smoke {{args}}
 
-# EP-174: point git at the tracked hooks in .githooks/ (pre-push runs
-# `just gate-fast`). Undo with `git config --unset core.hooksPath`.
-# Install the tracked git hooks (pre-push runs the fast gate).
+# EP-174: point git at the tracked hooks in .githooks/ (pre-push refuses
+# a push of a commit without a landable record; it runs no gate). Undo with
+# `git config --unset core.hooksPath`.
+# Install the tracked git hooks (pre-push refuses ungated pushes).
 [group('test')]
 install-hooks:
     git config core.hooksPath .githooks

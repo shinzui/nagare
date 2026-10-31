@@ -119,7 +119,8 @@ commits.
 ## Implementation note (2026-10-05)
 
 Decision 5 is implemented by [EP-174](../plans/174-gate-every-commit-before-any-native-run.md):
-- **`just gate-fast`** is enforced on push by `.githooks/pre-push`.
+- **`just gate-fast`** is enforced on push: `just land` and `.githooks/pre-push` refuse a commit
+  without a landable record.
 - **`just gate`** writes a revision-bound record. It is green only when a salted probe build passed
   on every remote system and every check of every `release.json` system is realised.
 - **`just gate-verify <rev>`** is called by the runbooks before native work.
