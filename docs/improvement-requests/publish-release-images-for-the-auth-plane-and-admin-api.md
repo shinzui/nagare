@@ -2,12 +2,13 @@
 type: Improvement Request
 title: Publish the auth-plane and admin API images with each release
 description: Build en, Shōmei, nagare-access and the admin API once per release with Nix and publish them, so a platform transition rolls them to the release's digests instead of every operator compiling and pinning them per context, and platform status reports any image that is not the release's.
-timestamp: "2026-10-31T17:49:52Z"
+timestamp: "2026-10-31T18:31:03Z"
 generated:
   by: process:claude-code
   at: "2026-10-31T17:49:52Z"
 requestId: IR-39
-status: proposed
+status: accepted
+targetPlan: docs/plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md
 origin: mori://tan/tan-ng-labs
 acceptanceCriteria:
   - id: AC-1
@@ -51,6 +52,11 @@ reviews:
 **Created:** 2026-10-31.
 **Related:** IR-38 (report installed and running versions), which would make the drift
 described here visible; this request removes its cause.
+
+
+## Implementation plan
+
+Accepted for implementation in [ExecPlan 237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md). Implementation and acceptance verification remain pending.
 
 
 ## Why

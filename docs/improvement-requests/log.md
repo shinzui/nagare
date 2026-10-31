@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-31
+* **Update**: Accept IR-39 and link its implementation to ExecPlan 237: docs/plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md. Implementation and acceptance verification remain pending.
 * **Created**: Add IR-39 from `mori://tan/tan-ng-labs` to publish Nix-built en, Shōmei, nagare-access and admin API images with each release and roll them with the platform.
 * **Created**: Add IR-38 from `mori://tan/tan-ng-labs` to report the installed Nagare version, host OS, component and database engine versions through the admin API.
 
