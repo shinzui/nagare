@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-31T14:34:39Z
       mode: "other"
       note: "Completed initial planning draft and checked source commit, control history, dependencies, recovery and validation interfaces."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-31T15:01:10Z
+      mode: "update"
+      note: "Require transport-neutral delivery, isolated destination progress and a second-adapter proof for future Kafka publication; record ADR 33."
 ---
 
 # Publish a durable lifecycle event feed with atomic source facts
@@ -25,7 +30,7 @@ provenance:
 ## Purpose / Big Picture
 
 
-Operators can list a durable, versioned history of lifecycle events through `nagarectl events list --contract 1` and the protected `GET /v1/events` endpoint. The same event keeps its identity across collection retries and worker restarts. This plan builds the storage and commit boundary used by deployment and backup producers; real domain coverage arrives in the dependent children.
+Operators can list a durable, versioned history of lifecycle events through `nagarectl events list --contract 1` and the protected `GET /v1/events` endpoint. The same event keeps its identity across collection retries and worker restarts. This plan builds the storage and commit boundary used by deployment and backup producers; real domain coverage arrives in the dependent children. Its event envelope, identity, source checkpoints and feed position are transport-neutral: a future Kafka publisher and the initial webhook sender consume the same event without producer changes.
 
 
 ## Progress
@@ -48,6 +53,8 @@ Operators can list a durable, versioned history of lifecycle events through `nag
 2026-10-31: Add a digest-linked source chain committed with the final inventory head update, rather than projecting transaction success from journal detail. The existing journal completion happens before finalization and claim release.
 
 2026-10-31: Keep event materialization and delivery state outside inventory authority, and keep the existing admin service read-only. No existing journal object is rewritten.
+
+2026-10-31: Preserve one immutable transport-neutral envelope and separate feed position from event identity. Destination configuration, HTTP signatures and future Kafka topic/partition receipts are delivery concerns under [ADR 33](../adr/0033-lifecycle-delivery-separates-destination-state-from-transport-adapters.md).
 
 
 ## Outcomes & Retrospective
@@ -87,7 +94,7 @@ The early integration test runs the existing executor with a small converging sc
 
 Create `cli/nagarectl/src/Nagare/Lifecycle/Store.hs`, `Materialize.hs` and `Read.hs` with memory, filesystem and generation-conditional object-store interpreters. Use a dedicated `lifecycle/v1/` prefix beside inventory, explicitly bound to context identity and project/store binding. The worker writes here without acquiring inventory mutation authority. Define one conditional feed head naming the visible sequence, digest, source checkpoints and immutable index roots. Publish envelopes and index nodes before advancing the head. Commit the source checkpoint with the visible batch so a crash cannot acknowledge a fact without making its event visible. Concurrent materializers must settle the winner and retry safely.
 
-Use IDs derived from canonical versioned source keys plus stable context identity. Include `schemaVersion`, `id`, `type`, `context`, `resource`, `occurredAt`, `observedAt`, `publishedAt`, `evidence` and typed `data`. Publication position is separate from identity. Initial typed payload alternatives cover `app.deployed`, `database.backup.completed` and `database.backup.accepted`; dependent children supply producers. Resource references distinguish scope/logical database identity, namespace and recorded incarnation. No credentials, environment variables, raw receipts, native manifests or signed object URLs enter an envelope.
+Use IDs derived from canonical versioned source keys plus stable context identity. Include `schemaVersion`, `id`, `type`, `context`, `resource`, `occurredAt`, `observedAt`, `publishedAt`, `evidence` and typed `data`. Publication position is separate from identity and remains available to delivery consumers as feed metadata. The canonical envelope and stable resource reference must be usable unchanged as an HTTP body or a future Kafka record value. Keep URLs, signing headers, broker/topic names, partition/offset receipts and destination retry state outside source facts and the public event envelope. A stable logical resource identity plus context must be available for future routing-key selection; do not use a mutable display name as its only identity. Initial typed payload alternatives cover `app.deployed`, `database.backup.completed` and `database.backup.accepted`; dependent children supply producers. Resource references distinguish scope/logical database identity, namespace and recorded incarnation. No credentials, environment variables, raw receipts, native manifests or signed object URLs enter an envelope.
 
 Define publication order as feed order; late backup discovery need not match occurrence time. Keep an immutable index from source key to event ID and event position so repeated sources do not require a scan of all history. Read only source-chain suffixes after the durable checkpoint; tolerate uploaded uncommitted orphans. Enforce batch and byte budgets, bounded request concurrency and cancellation. Keep all v1 history without automatic pruning. Unsupported versions, corrupt committed facts and broken bindings are typed errors, never silently skipped success.
 
@@ -127,7 +134,7 @@ The fixture setup and context environment must be supplied by the test harness a
 
 Demonstrate the executor-to-source-to-feed path, not only codec roundtrips. Source upload without final convergence produces no public event. A successful final write with a lost acknowledgment still produces exactly one logical event after materialization, even after restart and a newer inventory transaction. No-op/recovery paths preserve source reachability. A partial batch, conflicting head write, transient read error, missing immutable object and corrupt chain either recover from authoritative state or yield a visible typed error without advancing past missing events.
 
-Prove memory/filesystem/object-store behavior with the same fault scenarios. Seed 10,000 events; fetching a late 50-item page and materializing one additional source may load bounded index paths and that suffix, not every old envelope or review. Assert request/object/byte counts, and preserve the admin API's ten-second deadline and existing response budgets. CLI, HTTP and generated client agree on ID, resource and payload. Wrong-context/corrupt cursors fail; exact resource/type filters neither omit matches nor leak unmatched data. No production deployment is needed to accept this child.
+Prove memory/filesystem/object-store behavior with the same fault scenarios. Seed 10,000 events; fetching a late 50-item page and materializing one additional source may load bounded index paths and that suffix, not every old envelope or review. Assert request/object/byte counts, and preserve the admin API's ten-second deadline and existing response budgets. CLI, HTTP and generated client agree on ID, resource and payload. Wrong-context/corrupt cursors fail; exact resource/type filters neither omit matches nor leak unmatched data. No production deployment is needed to accept this child. Test that two independent readers can resume from different positions over the same feed and observe identical event IDs and canonical envelope bytes. Advancing or failing one reader never advances the other or mutates an event. No delivery namespace, HTTP or Kafka dependency is introduced into source/materialization APIs.
 
 
 ## Idempotence and Recovery
@@ -136,7 +143,10 @@ Prove memory/filesystem/object-store behavior with the same fault scenarios. See
 Every source/event object is immutable and published conditionally. Resume from committed heads, verify object hashes and settle uncertain writes; leave unreachable objects harmless. A failed notification prefix never changes inventory ownership or reruns a provider effect. Format enablement is explicit and versioned; refuse an incompatible downgrade. Disable materialization to stop publication while retaining committed source facts for later catch-up. Do not delete facts, reset epochs or reseed a live feed to make a test pass.
 
 
+Revision 2026-10-31: make transport-neutral event bytes, routing identity, feed metadata and independent reader progress explicit acceptance; no production transport or dependency was added.
+
+
 ## Interfaces and Dependencies
 
 
-EP-231 owns the `Nagare.Lifecycle.Source`, `Store`, `Materialize` and `Read` facades; source-key encoding; the source-record/head extension; public event DTOs; event-store conditional operations; and feed read routes. EP-232 and EP-233 consume validated candidate constructors. EP-233 also submits independently verified receipt facts with deterministic keys. EP-234 consumes visible feed pages and keeps its own delivery state. EP-235 supplies worker credentials and invokes these facades. Consumers must not inspect free-text journal detail or bypass typed validation. This child is the hard prerequisite for `docs/plans/232-record-successful-application-deployments-as-lifecycle-events.md`, `docs/plans/233-observe-verified-database-backups-and-publish-lifecycle-events.md` and `docs/plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md`.
+EP-231 owns the `Nagare.Lifecycle.Source`, `Store`, `Materialize` and `Read` facades; source-key encoding; the source-record/head extension; public event DTOs; event-store conditional operations; and feed read routes. EP-232 and EP-233 consume validated candidate constructors. EP-233 also submits independently verified receipt facts with deterministic keys. EP-234 consumes visible feed pages and owns transport-neutral destination/subscription state, independent progress and adapter outcomes. It cannot change the source/feed format to accommodate webhook or Kafka configuration. [ADR 33](../adr/0033-lifecycle-delivery-separates-destination-state-from-transport-adapters.md) requires that later Kafka publication extend delivery only, preserving domain source producers and the immutable event contract. EP-235 supplies worker credentials and invokes these facades. Consumers must not inspect free-text journal detail or bypass typed validation. This child is the hard prerequisite for `docs/plans/232-record-successful-application-deployments-as-lifecycle-events.md`, `docs/plans/233-observe-verified-database-backups-and-publish-lifecycle-events.md` and `docs/plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md`.
