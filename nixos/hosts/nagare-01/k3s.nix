@@ -1,8 +1,10 @@
-{ ... }:
+{ pkgs, ... }:
 
 {
   services.k3s = {
     enable = true;
+    # Move the Kubernetes minor deliberately, not as a side effect of a nixpkgs bump.
+    package = pkgs.k3s_1_35;
     role = "server";
     extraFlags = [
       "--disable=traefik"

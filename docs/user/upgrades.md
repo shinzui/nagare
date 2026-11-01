@@ -413,7 +413,8 @@ kernel and PID 1 change only after a reboot or VM replacement. Verify the host
 returns through both Tailscale and IAP before deleting an older image or boot
 generation.
 
-The host's k3s version comes from the locked nixpkgs input; `k3s_image` in the
+The host's k3s minor is pinned in `nixos/hosts/nagare-01/k3s.nix` and its patch comes from the locked
+nixpkgs input; `k3s_image` in the
 `justfile` pins only the local k3d rehearsal image. Check the host with `k3s --version`
 after reviewing `nixos/flake.lock`. If enabling Secret encryption on a supported existing
 host that reports `Disabled`, follow the
