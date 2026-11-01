@@ -18,7 +18,6 @@ module Nagare.Platform.Status
   , validatePlatformAdoption
   , validatePlatformRepin
   , clusterMarkerValue
-  , withImageAssessment
   )
 where
 
@@ -29,18 +28,9 @@ import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Contract.ReleaseImages (ReleaseImages)
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 import Nagare.Platform.Deployment (DeploymentState (..), deploymentStateToken)
-import Nagare.Platform.ImageStatus
-  ( ImageClassification (ImageNotEnabled, ImageRelease)
-  , WorkloadImageStatus
-  , imageClassificationToken
-  , imageStatusValue
-  , imagesAreExact
-  , renderImageStatusLine
-  )
 import Nagare.Platform.Workspace (PayloadManifest (..))
 import Nagare.Target (TargetProfile (..))
 import Nagare.Version
@@ -67,9 +57,6 @@ data PlatformStatus = PlatformStatus
   , cluster :: !ReleaseIdentity
   , clusterDeployment :: !DeploymentState
   , compatibility :: !Compatibility
-  , images :: ![WorkloadImageStatus]
-  -- ^ EP-237: each release workload's image classification; empty until
-  -- 'withImageAssessment' adds the cluster's observations.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -116,7 +103,7 @@ parseClusterIdentity bytes = do
 
 assessPlatformStatus :: ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> DeploymentState -> ReleaseIdentity -> DeploymentState -> PlatformStatus
 assessPlatformStatus cli payload context host hostDeployment cluster clusterDeployment =
-  PlatformStatus cli payload context host hostDeployment cluster clusterDeployment aggregate []
+  PlatformStatus cli payload context host hostDeployment cluster clusterDeployment aggregate
   where
     expected = payload ^. #version >>= either (const Nothing) Just . parsePlatformVersion
     compareOne identity = case expected of
@@ -133,18 +120,6 @@ assessPlatformStatus cli payload context host hostDeployment cluster clusterDepl
       | PatchSkew `elem` comparisons = PatchSkew
       | otherwise = Exact
 
--- | Add the release workloads' image report. A non-release image makes an
--- otherwise exact status image-skew; every version diagnosis stays stronger.
-withImageAssessment :: Maybe ReleaseImages -> [WorkloadImageStatus] -> PlatformStatus -> PlatformStatus
-withImageAssessment release statuses status =
-  status
-    { images = statuses
-    , compatibility =
-        if status ^. #compatibility == Exact && not (imagesAreExact release statuses)
-          then ImageSkew
-          else status ^. #compatibility
-    }
-
 platformStatusValue :: PlatformStatus -> Aeson.Value
 platformStatusValue status =
   Aeson.object
@@ -154,7 +129,6 @@ platformStatusValue status =
     , "host" Aeson..= (status ^. #host . #version)
     , "cluster" Aeson..= (status ^. #cluster . #version)
     , "compatibility" Aeson..= compatibilityToken (status ^. #compatibility)
-    , "images" Aeson..= map imageStatusValue (status ^. #images)
     , "deployment"
         Aeson..= Aeson.object
           [ "host" Aeson..= deploymentValue (status ^. #hostDeployment)
@@ -195,7 +169,6 @@ renderPlatformStatus contextName status =
     , renderResourceLine "Cluster" (status ^. #cluster) (status ^. #clusterDeployment)
     , "Compatibility: " <> compatibilityToken (status ^. #compatibility)
     ]
-    <> (if null (status ^. #images) then "" else T.unlines ("Service images:" : map renderImageStatusLine (status ^. #images)))
   where
     renderLine label identity = pad 12 (label <> ":") <> maybe "legacy / unknown" (\value -> value) (identity ^. #version)
     renderResourceLine label _ NotDeployed = pad 12 (label <> ":") <> "not deployed"
@@ -205,13 +178,6 @@ renderPlatformStatus contextName status =
 platformProbe :: PlatformStatus -> Probe
 platformProbe status = case status ^. #compatibility of
   Exact -> Probe "platform version" StatusOk "CLI, payload, context, host, and cluster agree"
-  ImageSkew ->
-    Probe
-      "platform version"
-      StatusWarn
-      ( "release versions agree, but service images differ from this release: "
-          <> T.intercalate ", " [value ^. #workload <> " " <> imageClassificationToken (value ^. #classification) | value <- status ^. #images, value ^. #classification `notElem` [ImageRelease, ImageNotEnabled]]
-      )
   PatchSkew -> Probe "platform version" StatusWarn "patch release skew; inspection and compatible mutation remain available"
   MinorUpgradeRequired -> Probe "platform version" StatusFail "minor release skew requires `nagarectl platform upgrade`"
   MajorIncompatible -> Probe "platform version" StatusFail "major release mismatch blocks platform mutation"

@@ -28,13 +28,7 @@
         cradleSrc = inputs.cradle;
         gogolSrc = inputs.gogol;
       };
-      # EP-237: the release service images exist only for x86_64-linux.
-      releaseImages = import ./release-images.nix {
-        inherit pkgs releaseVersion;
-        platformHaskellPackages = haskellPackages.haskellPackages;
-      };
       nagarePackages = haskellPackages // {
-        inherit releaseImages;
         netCertManagerController = netCertManager.controller;
         netCertManagerControllerImage = netCertManager.image;
         netCertManagerControllerImageReference = netCertManager.imageReference;

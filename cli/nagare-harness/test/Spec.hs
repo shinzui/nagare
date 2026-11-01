@@ -22,7 +22,6 @@ import Nagare.Harness.RouteCheck
 import Nagare.Harness.Slot (runningRevisions, withRunMarker, withSlot)
 import Nagare.Harness.Step
 import Nagare.Harness.Verify
-import ReleaseImagesSpec (releaseImagesTests)
 import ReleaseTransitionSpec (releaseTransitionTests)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
@@ -43,7 +42,6 @@ tests =
     "nagare-harness"
     [ flakeCheckTests
     , releaseTransitionTests
-    , releaseImagesTests
     , transitionCostTests
     , testGroup
         "steps"

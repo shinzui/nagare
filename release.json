@@ -5,7 +5,7 @@
   "minimumInventorySchemaVersion": 1,
   "minimumUpgradeTransactionSchemaVersion": 1,
   "payloadId": "source-development",
-  "platformVersion": "0.15.0",
+  "platformVersion": "0.14.1",
   "sourceRevision": null,
   "supportedSystems": [
     "x86_64-linux",
@@ -31,47 +31,6 @@
     "0.12.0",
     "0.12.1",
     "0.13.0",
-    "0.14.0",
-    "0.14.1"
-  ],
-  "releaseImages": {
-    "images": {
-      "en": {
-        "digest": "sha256:d483b6930430d4284c624ecb066f7b0d7a2b1f2916fe735fce364f61cd0d28f0",
-        "platform": "linux/amd64",
-        "reference": "ghcr.io/shinzui/nagare-en@sha256:d483b6930430d4284c624ecb066f7b0d7a2b1f2916fe735fce364f61cd0d28f0",
-        "repository": "ghcr.io/shinzui/nagare-en",
-        "sources": {
-          "en": "c3ee100a0b2cc63a50a9473ef590de7086dca4d0"
-        }
-      },
-      "nagare-access": {
-        "digest": "sha256:9bc88efd9900ebe650f73485a3791d17bc9741af053bb14b1641d5471c014f7c",
-        "platform": "linux/amd64",
-        "reference": "ghcr.io/shinzui/nagare-access@sha256:9bc88efd9900ebe650f73485a3791d17bc9741af053bb14b1641d5471c014f7c",
-        "repository": "ghcr.io/shinzui/nagare-access",
-        "sources": {
-          "en": "c3ee100a0b2cc63a50a9473ef590de7086dca4d0",
-          "shomei": "6179d5678747aeb8ee3c45423c2bf59385dbda88"
-        }
-      },
-      "nagare-admin-api": {
-        "digest": "sha256:1b8ed6b1c5bfa4f09b31ce402ee77ca6abae56868601b38622bcefd34690fa33",
-        "platform": "linux/amd64",
-        "reference": "ghcr.io/shinzui/nagare-admin-api@sha256:1b8ed6b1c5bfa4f09b31ce402ee77ca6abae56868601b38622bcefd34690fa33",
-        "repository": "ghcr.io/shinzui/nagare-admin-api",
-        "sources": {}
-      },
-      "shomei": {
-        "digest": "sha256:0636b030cf7e2020fe89925fb86c8b8e827e5b519a18b601ca7e2962203801fd",
-        "platform": "linux/amd64",
-        "reference": "ghcr.io/shinzui/nagare-shomei@sha256:0636b030cf7e2020fe89925fb86c8b8e827e5b519a18b601ca7e2962203801fd",
-        "repository": "ghcr.io/shinzui/nagare-shomei",
-        "sources": {
-          "shomei": "6179d5678747aeb8ee3c45423c2bf59385dbda88"
-        }
-      }
-    },
-    "schemaVersion": 1
-  }
+    "0.14.0"
+  ]
 }

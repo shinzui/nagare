@@ -35,7 +35,6 @@ library
     Nagare.Contract.Prelude
     Nagare.Contract.Problem
     Nagare.Contract.Release
-    Nagare.Contract.ReleaseImages
     Nagare.Contract.Schema
     Nagare.Contract.Trace
     Nagare.Contract.V1

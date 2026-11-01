@@ -21,9 +21,7 @@ also asks only for the read-only storage scope and refuses writes before any req
 
 The context opts in with `NAGARE_ADMIN_API_ENABLED=1`:
 `nagarectl context create <context> --force --enable-admin-api --save-plan DIR`, then
-`nagarectl context apply DIR --yes`. The platform stage runs the release's
-`ghcr.io/shinzui/nagare-admin-api@sha256:…` image from the payload's `release.json` unless
-`NAGARE_ADMIN_API_IMAGE` names an immutable override (EP-237). Its
+`nagarectl context apply DIR --yes`. Its
 cloud stage then plans the reader account as reviewed cloud members (catalog section
 `adminApiReaderEnabled`), with `enableAdminApiReader: true`. A context with an explicit
 `NAGARE_INVENTORY_STORE_URL` also gets that URL's bucket and prefix as `stateBucket` and

@@ -12,8 +12,7 @@ runs the candidate. A release counts when the intranet runs it, not when a tag e
 else is a release step.
 
 ```bash
-# 1. the bump: release.json (version, then the images) and docs/releases/vX.Y.Z.md, one commit
-scripts/harness.sh release images prepare
+# 1. the bump: release.json and docs/releases/vX.Y.Z.md, one commit
 just gate-fast && just land HEAD
 # 2. when the landed commit's full gate is green, on the aarch64-darwin workstation
 just release-candidate X.Y.Z      # --revision REV names another candidate
@@ -32,15 +31,7 @@ files:
 - `release.json`: `platformVersion`, and `transitionsFrom`, the releases an installed context may
   move from. It must include the release the intranet runs; its newest entry is the release the
   rehearsal starts from. Claim rollback in `rollbackSupportedFrom` only for a tested reverse
-  transaction. Then `releaseImages`, the four service images (EP-237): set the version first and
-  run `scripts/harness.sh release images prepare` on that tree. It builds the En, Shōmei,
-  nagare-access and admin API images on the x86_64-linux builder
-  (`.#packages.x86_64-linux.release-image-*`, from [`nix/release-images.nix`](../../nix/release-images.nix))
-  and writes each image's `ghcr.io/shinzui/nagare-*` repository and manifest digest into the file;
-  `.#packages.x86_64-linux.release-images-check` fails while the file and the images disagree.
-  Any later change to the Haskell sources, the auth pins or the version needs prepare again before
-  the candidate runs. The images are not in the payload: both systems' payloads carry the digests
-  in their copy of `release.json`, and clusters pull from GHCR.
+  transaction.
 - `docs/releases/vX.Y.Z.md`: the notes, beginning `# Nagare X.Y.Z`, and the changelog entry
   (add its link to `CHANGELOG.md`). Validation is one sentence: the three proofs passed.
 
@@ -66,15 +57,6 @@ in the rehearsal's work directory) that names every step, reviewed stage and app
 2. **Release gate.** `just gate-release <candidate>` in the background: the gate record, then the
    mutation sweep of the records whose patched files changed since the nearest ancestor's clean
    sweep (every record when there is none), skipped when nothing it builds changed.
-   **Release images** (EP-237), in the foreground beside it, because the rehearsal and the intranet
-   pull them: the four layouts are built from the candidate on the builder and must have the
-   digests its `release.json` names, or the run refuses before any registry call. Each image the
-   registry does not hold is uploaded with `skopeo copy --preserve-digests` to its digest; only a
-   "manifest unknown" answer counts as absence, and after an upload the registry is asked again
-   whatever the copy reported. Then every image must resolve to its digest, report linux/amd64 and
-   pull completely without credentials, and the layouts are pushed to `shinzui.cachix.org` and
-   read back from it. `images/release-images.json` in the run directory is the receipt; a rerun
-   uploads nothing new and writes the same receipt.
 3. **Upgrade rehearsal**, in the background beside steps 4 and 5 (log `rehearsal.log`; assembly
    waits for its record). `nagare-harness transition rehearse` (`scripts/release-rehearse.sh`)
    builds the previous release's packaged `nagarectl` and the candidate's and runs the transition
@@ -120,10 +102,7 @@ it with the candidate that opened it first.
 
 1. **Preflight.** The run's `intranet.json` names this version and revision with an exact status,
    `SHA256SUMS` verifies in `dist/`, and the landed rehearsal record is byte-identical to the
-   assembled one. The candidate's image receipt names this revision, and
-   `nagare-harness release images publish X.Y.Z` verifies the four images again without
-   credentials, then tags each `vX.Y.Z` unless that tag already names the same digest; a tag
-   naming another digest refuses and is never moved.
+   assembled one.
 2. **Tag.** An annotated tag `vX.Y.Z` on the candidate, signed with Git's SSH backend and the
    maintainer's key (`~/.ssh/id_ed25519.pub`, or `NAGARE_RELEASE_SIGNING_KEY`), verified against a
    throwaway allowed-signers file. Never generate or register credentials during a release, and
@@ -163,20 +142,6 @@ reproducible identities of existing operator pins.
 - Automated rollback is used only when target metadata permits it and the old payload workspace is
   retained. Stateful recovery follows the [disaster-recovery runbook](disaster-recovery.md); release
   selection does not restore application data.
-
-## Image registry and cache credentials
-
-The images live in public GHCR packages: `ghcr.io/shinzui/nagare-en`, `nagare-shomei`,
-`nagare-access` and `nagare-admin-api`. Before a candidate, `skopeo login ghcr.io` with a GitHub
-token carrying `write:packages`, and export `CACHIX_AUTH_TOKEN` for `shinzui.cachix.org`. The
-harness never reads, passes or records either. The first upload creates each package private;
-the candidate's anonymous check then refuses, naming the package, until the maintainer makes it
-public once in its package settings and runs the candidate again. Image tags are conveniences;
-operators and the payload select images only by digest.
-
-Before a release names images, or for an unreleased candidate, the auth images can still be built
-with `cluster/bootstrap/auth-images/build-local-image.sh` (Cloud Build in a cloud context) and named
-with the override variables in [cluster bootstrap](../user/cluster-bootstrap.md).
 
 Publication itself never changes a context or cluster; the candidate run moves the intranet before
 it. This boundary is recorded in

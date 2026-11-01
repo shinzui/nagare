@@ -36,7 +36,6 @@ import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationN
 import Nagare.Inventory.Components.ObservabilitySecrets (normalizeSecretData)
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Platform.ReleaseImages (ImageSelection, annotateImageSelection)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
 import Nagare.Resource.Types
@@ -62,9 +61,8 @@ data AdminApiInput = AdminApiInput
   , baseDomain :: !Text
   , context :: !Text
   , project :: !Text
-  , image :: !ImageSelection
-  -- ^ An immutable @…\@sha256:…@ reference and how it was selected (EP-237);
-  -- the selection is recorded on the Deployment.
+  , image :: !Text
+  -- ^ An immutable @…\@sha256:…@ reference.
   , store :: !AdminApiStore
   }
   deriving stock (Generic)
@@ -94,9 +92,9 @@ compileAdminApi input declarations = case validated of
         Left reason -> pure (Left (invalid reason :| []))
         Right rendered -> case parseKubernetesManifest (SourceLocation (T.pack templatePath) "admin-api") rendered of
           Left reason -> pure (Left (reason :| []))
-          Right parsed -> case (,) <$> traverse recordSelection parsed <*> decodeMapping enforcerTarget of
+          Right objects -> case decodeMapping enforcerTarget of
             Left reason -> pure (Left (invalid reason :| []))
-            Right (objects, mappingObject) -> do
+            Right mappingObject -> do
               result <-
                 compileUpstream
                   (upstreamInput enforcerId (objects <> secretObjects <> [mappingObject]))
@@ -134,7 +132,7 @@ compileAdminApi input declarations = case validated of
       CloudReaderStore {} -> ("cluster/bootstrap/admin-api/admin-api-cloud.yaml.tmpl", True)
 
     validated = do
-      unless (immutableImage (input ^. #image . #selected)) (Left "NAGARE_ADMIN_API_IMAGE must be an immutable registry/repository@sha256:<digest> reference")
+      unless (immutableImage (input ^. #image)) (Left "NAGARE_ADMIN_API_IMAGE must be an immutable registry/repository@sha256:<digest> reference")
       _ <- mkName (input ^. #context)
       _ <- mkName (input ^. #project)
       _ <- mkName host
@@ -145,7 +143,7 @@ compileAdminApi input declarations = case validated of
                          ] of
         [one] -> Right one
         _ -> Left "the admin API requires the auth scope's nagare-access enforcer in the same cluster"
-      let common = [("@IMAGE@", input ^. #image . #selected), ("@CONTEXT@", input ^. #context), ("@PROJECT@", input ^. #project)]
+      let common = [("@IMAGE@", input ^. #image), ("@CONTEXT@", input ^. #context), ("@PROJECT@", input ^. #project)]
       case input ^. #store of
         LocalMountedStore -> Right (enforcerId, common, [])
         CloudReaderStore url number readerObject -> do
@@ -200,11 +198,6 @@ compileAdminApi input declarations = case validated of
         , upstreamOrderDeployments = False
         , upstreamRegistryDelegations = Map.empty
         }
-
-    recordSelection (location, value@(Object root))
-      | KM.lookup "kind" root == Just (String "Deployment") =
-          (location,) <$> annotateImageSelection (input ^. #image) value
-    recordSelection object = Right object
 
     withHostAlias resource
       | resource ^. #address == domainMapping = resource {aliases = [Hostname hostName]}

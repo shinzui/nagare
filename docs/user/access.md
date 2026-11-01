@@ -67,36 +67,21 @@ portal; the portal remains a `Deployment` or `Application` role.
 The auth plane is a reviewed platform component. `nagarectl platform bootstrap`
 composes it together with the other platform scopes: the `shomei-db` and `en-db`
 managed databases, the `nagare-system` namespace, the generated credentials, the
-migration Jobs and the three workloads. A release payload names the three images
-(and the admin API's) in its `release.json`, as `ghcr.io/shinzui/nagare-*@sha256:…`
-references, so bootstrap and every reviewed transition use them with no image input
-and no build (EP-237):
+migration Jobs and the three workloads. Build the three images first, then pass
+their immutable references to the reviewed bootstrap:
 
 ```bash
-nagarectl platform bootstrap plan --out ./platform-review
-nagarectl platform bootstrap apply ./platform-review --yes
-```
+for service in shomei en nagare-access; do
+  cluster/bootstrap/auth-images/build-local-image.sh "$service"   # prints the image reference
+done
 
-To run another image for one service, name it as an immutable override; the others
-keep the release image:
-
-```bash
 export NAGARE_AUTH_SHOMEI_IMAGE=<registry>/shomei@sha256:<digest>
 export NAGARE_AUTH_EN_IMAGE=<registry>/en@sha256:<digest>
 export NAGARE_AUTH_ACCESS_IMAGE=<registry>/nagare-access@sha256:<digest>
-export NAGARE_ADMIN_API_IMAGE=<registry>/nagare-admin-api@sha256:<digest>   # admin API contexts only
-```
 
-A tag such as `:latest` is refused. The review records each workload's choice
-(`nagare.dev/image-source: release` or `override`, beside the release image it was
-compared with), so apply runs what was reviewed whatever the shell holds later, and
-`nagarectl platform status` names the override. To return to the release image, unset
-the variable (or set it empty) and plan again. A payload without `releaseImages`, such
-as one built before its release was prepared, still requires all three variables; build
-the images with `cluster/bootstrap/auth-images/build-local-image.sh SERVICE`, which
-prints each reference. A context that mirrors images into its own registry names the
-mirrored digests as overrides; a mirror with the same digest still counts as the
-release.
+nagarectl platform bootstrap plan --out ./platform-review
+nagarectl platform bootstrap apply ./platform-review --yes
+```
 
 `cluster/bootstrap/auth-install.sh` runs the same plan and apply. Do not create the
 namespace, the databases or the `nagare-access` Secret with `kubectl` or

@@ -39,13 +39,6 @@ record="docs/release-evidence/$rev/transition-rehearsal.json"
 git cat-file -e "origin/master:$record" 2>/dev/null || die "$record is not on origin/master"
 cmp -s <(git show "origin/master:$record") "$run/dist/nagare-transition-rehearsal-$tag.json" \
   || die "the landed $record differs from the assembled one"
-# EP-237: the candidate published, pulled and cached the four service images its release.json
-# names; verify them again anonymously and tag each image with the version before the release.
-jq -e --arg r "$rev" '.candidate == $r and .anonymousPull == true' "$run/images/release-images.json" >/dev/null 2>&1 \
-  || die "no release-images receipt for $rev in $run/images; run just release-candidate $version"
-git show "$rev:release.json" > "$run/images/release.json"
-"$repo/scripts/harness.sh" release images publish "$version" --manifest "$run/images/release.json" --work "$run/images" \
-  || die "the release images do not verify"
 
 publish="$run/publish"
 signers="$(mktemp)"

@@ -31,7 +31,6 @@ wired together so apps get automatic wildcard HTTPS URLs.
 | **Kourier** (`net-kourier`) | Knative's lightweight Envoy-based ingress gateway. |
 | **`config-domain` / `config-network`** | ConfigMaps wiring the base domain, the Kourier ingress class, and `external-domain-tls`. |
 | **`net-certmanager`** | The latest v1.14 bridge, with Nagare's issuer-isolation patch, that lets Knative request certs from cert-manager. |
-| **Auth plane and admin API** | En, Shōmei and nagare-access (and the opt-in admin API) run the images the release's `release.json` names by digest, pulled from public GHCR; an immutable `NAGARE_AUTH_*_IMAGE` or `NAGARE_ADMIN_API_IMAGE` overrides one. See [access](access.md#install-the-optional-auth-plane). |
 
 On a single k3s node, Kourier's gateway `Service` is `type: LoadBalancer`, and
 k3s's built-in **ServiceLB** binds host ports `80`/`443` directly to it — which
