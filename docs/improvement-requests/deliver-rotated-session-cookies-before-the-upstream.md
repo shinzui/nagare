@@ -7,7 +7,8 @@ generated:
   by: process:claude-code
   at: "2026-11-01T21:52:18Z"
 requestId: IR-41
-status: proposed
+status: accepted
+targetPlan: docs/plans/239-deliver-rotated-session-cookies-before-waiting-on-the-upstream.md
 origin: mori://tan/tan-ng-labs/plans/12-keep-labs-sign-ins-alive-and-add-a-remember-me-option
 acceptanceCriteria:
   - id: AC-1
