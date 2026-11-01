@@ -7,7 +7,7 @@ generated:
   by: process:claude-code
   at: "2026-10-31T23:05:36Z"
 requestId: IR-40
-status: proposed
+status: accepted
 origin: mori://tan/tan-ng-labs
 acceptanceCriteria:
   - id: AC-1
