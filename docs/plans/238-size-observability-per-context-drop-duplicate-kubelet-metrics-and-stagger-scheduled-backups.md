@@ -9,6 +9,18 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-31T23:21:18Z
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-01T02:20:39Z
+      verdict: "changes-requested"
+      note: "Verified files, symbols, chart 0.81.0 mergeOverwrite, offsets 12/6/4/11 and CLI flags; the context: overlay path cannot resolve as written, the curl measurement globs its selector, and the hourly test and adapter-test claims need correcting"
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-01T02:22:25Z
+      mode: "update"
+      note: "Fix the context: overlay path and its resolver field, the globbed curl measurement, the hourly test and adapter-test claims; name the config builder and payload packaging"
 ---
 
 # Size observability per context, drop duplicate kubelet metrics and stagger scheduled backups
@@ -150,8 +162,14 @@ At apply, `cli/nagarectl/src/Nagare/Inventory/Adapters/HelmRuntime.hs` reads the
 `NAGARE_HELM_REVIEW_SHA256` set to the reviewed render digest; the reviewing post-renderer
 (`cluster/observability/helm-review/verify.sh`) refuses if Helm renders anything else. So an
 overlay used at plan time must also be passed at apply, in the same order, or apply refuses.
-`HelmRuntimeConfig` (same module) carries the kube context, the `ContextId`, the plugin path and the
-declarations.
+`HelmRuntimeConfig` (same module) carries the kube context, the `ContextId`, the verify plugin
+directory, the declarations and a runtime guard; `checkContract` resolves a `payload:` path against
+the parent of that plugin directory, which is how a review made on one machine applies on another.
+The config is built in one place, `inventoryHelmRuntimeConfig` in
+`cli/nagarectl/app/Nagare/Cli/Inventory/Adapters.hs`; two tests in
+`cli/nagarectl/test/InventoryObservabilitySpec.hs` build it positionally. The private review keeps
+each Helm contract's bytes verbatim and `cli/nagarectl/src/Nagare/Inventory/HelmReview.hs` reads
+them back, so new contract fields need no change there.
 
 `buildPlatformCandidate` in `cli/nagarectl/app/Nagare/Cli/Bootstrap/Platform.hs` calls
 `pinnedObservabilityInputs` and then `compilePinnedObservability`. It also reads
@@ -219,7 +237,11 @@ unit and adapter tests find defects; the local native check only confirms.
 The three changes are independent and can land in any order. M1 is the largest. M2 changes the
 packaged `vmks` values, so every context's next upgrade shows a `vmks` change; that is intended.
 
-**M1: per-context overlays.** Create `cluster/observability/overrides-policy.yaml`. Its top-level
+**M1: per-context overlays.** Create `cluster/observability/overrides-policy.yaml`. Everything under
+`cluster/` is already copied into the payload (`nix/haskell-packages.nix` copies it for the tests,
+and the payload root `root` that `pinnedObservabilityInputs` receives contains
+`cluster/observability/`), so the file needs no Nix change; read it from
+`root </> "cluster/observability/overrides-policy.yaml"`. Its top-level
 keys are the five release names; each holds a list of allowed paths, each path a YAML list of key
 segments, because some keys contain dots (`memory.allowedPercent`). Start with resources for every
 pod, the cache budgets, retention and scrape relabelling:
@@ -272,37 +294,55 @@ returns its path and bytes. Register the module in `cli/nagarectl/nagarectl.caba
 `cabal-gild` as `just haskell-style-check` requires.
 
 Extend `PackagedHelmInput` and `ObservabilityReleaseInput` with an optional overlay (its path and
-expected digest, then its bytes). `pinnedObservabilityInputs` gains the context name so it can
-attach the loaded overlay; an invalid overlay stops `buildPlatformCandidate` with the refusal. In
+expected digest, then its bytes). `pinnedObservabilityInputs` is pure
+(`ResourceId -> FilePath -> Text -> [PackagedHelmInput]`), so the file reads happen in
+`buildPlatformCandidate`: it loads and validates the five overlays with the loader and validator
+below, stops with the refusal on an invalid one, and passes the loaded set (release name to path and
+bytes) to `pinnedObservabilityInputs`, which attaches each release's overlay to its input. In
 `capturePackagedRelease`, check the overlay's digest like the values digest and append a second
-`--values <overlay>` after the packaged one. In `compileRenderedRelease`, add `overlayPath` (written
-as `context:observability/<release>.yaml`) and `overlayDigest` to the contract only when an overlay
-is present, so the contract of a context without overlays is unchanged byte for byte. In
-`HelmRuntime.checkContract`, read the two optional fields, resolve `context:` against the context's
-config directory (add a `helmContextConfigDir :: !FilePath` field to `HelmRuntimeConfig`, filled
-where the config is built, rather than deriving it from `ContextId`), re-check the overlay digest
-("observability overlay changed after review"), and pass the second `--values` in the same order.
+`--values <overlay>` after the packaged one. In `compileRenderedRelease`, add `overlayPath` and
+`overlayDigest` to the contract only when an overlay is present, so the contract of a context
+without overlays is unchanged byte for byte. Write `overlayPath` as `context:<release>.yaml`: the
+overlay lives under the operator's config directory, which differs between machines as the payload
+root does, so the contract must not carry an absolute path, and the context name is not part of the
+written path because the resolver already knows the context. In `HelmRuntime.checkContract`, read
+the two optional fields and resolve `context:` against a new `helmOverlayDir :: !FilePath` field of
+`HelmRuntimeConfig`, the context's overlay directory
+`nagareConfigDir </> "observability" </> <context>`, filled in `inventoryHelmRuntimeConfig`
+(`cli/nagarectl/app/Nagare/Cli/Inventory/Adapters.hs`); the two positional constructions in
+`cli/nagarectl/test/InventoryObservabilitySpec.hs` gain the field too. Re-check the overlay digest
+("observability overlay changed after review") and pass the second `--values` in the same order.
 A contract with `overlayPath` but no readable file refuses as a known no-effect failure, like a
-changed values file.
+changed values file. Keep the overlay check a small pure function in `HelmRuntime.hs`
+(`checkOverlay :: Maybe (FilePath, ContentDigest) -> Maybe ByteString -> Either Text ()`) so a unit
+test can reach it without Helm or a cluster.
 
 Tests, in `cli/nagarectl/test/InventoryObservabilitySpec.hs`: the validator accepts one overlay per
 policy path and refuses `vmsingle.image.tag`, `alertmanager.enabled` and a `null` limit, each
 naming the key; a capture of the vendored `vmks` chart with an overlay setting
 `vmsingle.spec.resources.limits.memory: 1Gi` renders a VMSingle object with that limit and a
 contract carrying `overlayDigest`; the same capture without an overlay gives a contract equal to
-the one the current code produces; the reviewed Helm adapter refuses when the overlay file changes
-after review, as the existing "reviewed Helm adapter refuses a changed release revision" case does
-for values.
+the one the current code produces; `checkOverlay` accepts a matching digest and refuses a changed
+file and a missing file, naming the overlay. No existing unit test reaches `checkContract`'s digest
+refusal: the case "reviewed Helm adapter refuses a changed release revision" fakes the mutation and
+tests the observed release revision, and the only native exercise of `checkContract` is the case
+gated by `NAGARE_EP147_TEST_CONTEXT`. The end-to-end refusal of a changed overlay is therefore
+confirmed in the local run below (edit the overlay between plan and apply once), not by a unit test.
 
 **M2: no duplicate control-plane metrics.** First measure. On a bootstrapped local context, port
 forward VMSingle and list the metric names stored by both jobs:
 
 ```bash
 kubectl -n monitoring port-forward svc/vmsingle-vmks-victoria-metrics-k8s-stack 8429:8429 &
-curl -s 'http://127.0.0.1:8429/api/v1/label/__name__/values?match[]={job="kubelet",metrics_path="/metrics"}' | jq -r '.data[]' | sort > kubelet.txt
-curl -s 'http://127.0.0.1:8429/api/v1/label/__name__/values?match[]={job="apiserver"}' | jq -r '.data[]' | sort > apiserver.txt
+names() { curl -sG 'http://127.0.0.1:8429/api/v1/label/__name__/values' --data-urlencode "match[]=$1" | jq -r '.data[]' | sort; }
+names '{job="kubelet",metrics_path="/metrics"}' > kubelet.txt
+names '{job="apiserver"}' > apiserver.txt
 comm -12 kubelet.txt apiserver.txt | sed 's/_.*//' | sort | uniq -c | sort -rn
 ```
+
+Pass the selector with `--data-urlencode`, never inside the URL: curl expands `[]` and `{}` in a
+URL as globs, and `?match[]={job="kubelet",metrics_path="/metrics"}` silently becomes two requests,
+`match[]=job="kubelet"` and `match[]=metrics_path="/metrics"`.
 
 Build the drop regex from the shared prefixes, excluding `kubelet`, `go` and `process` (those
 describe the node process and are small), and record the prefix list in Surprises & Discoveries.
@@ -344,15 +384,23 @@ from 0 to 14. In `renderScheduledCronJob`, take the schedule from
 `isHourlyCadence` of the accepted `spec.schedule`; daily keeps the exact comparison. The check
 accepts any 15-minute form rather than the derived one, so CronJobs accepted before this change keep
 validating until their next review rewrites them. Freshness thresholds do not change: a 15-minute
-cadence with any offset still leaves 15 minutes between runs.
+cadence with any offset still leaves 15 minutes between runs. Backup-included volume schedules go
+through the same function, so they stagger too; IR-40 AC-4 names servers and app databases, and
+volumes come with the shared renderer rather than as added scope.
 
 Tests in `cli/nagarectl/test/Nagare/Test/Backup/Scheduled.hs`: four schedules named
 `nagare-dbbackup-labs-postgres`, `nagare-dbbackup-labs-clickhouse`, `nagare-appdb-kansoku-pg` and
 `nagare-appdb-kansoku-ch` render `12-59/15`, `6-59/15`, `4-59/15` and `11-59/15`, and the same
 again on a second render; the receipt check accepts a staggered hourly schedule and `*/15`,
-refuses `*/30 * * * *` and `0 * * * *` under hourly, and keeps the daily behaviour. Update the
-existing assertion of `*/15 * * * *` and any golden bytes or recovery-model fixtures that embed a
-rendered schedule; a fixture whose bytes change is regenerated from the code, not hand-edited.
+refuses `*/30 * * * *` and `0 * * * *` under hourly, and keeps the daily behaviour. The existing
+case "daily schedules bind their objective into signed metadata; hourly bytes are unchanged"
+renders `nagare-dbbackup-mydb`, whose offset is 5, so its schedule becomes `5-59/15 * * * *`; change
+the assertion and rename the case, because its premise ends here: every hourly CronJob whose name
+gives a non-zero offset gets a new schedule revision at its next review, which ingestion tolerates
+(EP-207). Update any golden bytes or recovery-model fixtures that embed a rendered backup schedule
+(the `*/15` in `cli/nagarectl/test/golden/task-app-resolved.cronjob.yaml` and
+`cli/nagarectl/test/Nagare/Test/Task.hs` is an application task, not a backup, and stays); a
+fixture whose bytes change is regenerated from the code, not hand-edited.
 
 **M4: documentation and handoff.** Document overlays in `docs/user/observability.md` (where the file
 goes, the five release names, the policy file, a 1Gi VMSingle example, the cache-budget advice
@@ -414,7 +462,23 @@ kubectl -n monitoring get vmsingle vmks-victoria-metrics-k8s-stack -o jsonpath='
 
 The plan output lists the `vmks` release as the only changed resource, and the last command prints
 `1Gi`. Then write `vmsingle:\n  image:\n    tag: v0.0.0\n` into the same file and run the plan again;
-it stops with a message naming `vmsingle.image.tag`. Remove the file afterwards.
+it stops with a message naming `vmsingle.image.tag`. For the apply-side check, restore the 1Gi
+overlay, plan, change `1Gi` to `2Gi` in the file, and apply the saved review: it refuses with
+"observability overlay changed after review" and changes nothing. Remove the file afterwards.
+
+For M2, query VMSingle through the same port forward; `--data-urlencode` keeps curl from globbing
+the selector:
+
+```bash
+q() { curl -sG 'http://127.0.0.1:8429/api/v1/query' --data-urlencode "query=$1" | jq -c '.data.result'; }
+q 'count({job="kubelet",metrics_path="/metrics",__name__=~"apiserver_.*|etcd_.*"})'
+q 'count(count by (__name__) ({job="apiserver"}))'
+q 'kubelet_running_pods'
+q 'kubelet_volume_stats_used_bytes'
+```
+
+The first prints `[]`; the second prints the value it printed before the change; the last two print
+non-empty results.
 
 Commit messages follow Conventional Commits and end with the trailer:
 
@@ -430,7 +494,7 @@ context without overlays, and the local run shows a plan that changes only `vmks
 a `1Gi` limit after apply, and a plan refusal naming an unsupported key (IR-40 AC-1, AC-2).
 
 M2 is accepted when, on the local context after apply and at least two scrape intervals (one
-minute), these queries against `http://127.0.0.1:8429/api/v1/query` give the stated results:
+minute), the four queries in Concrete Steps give the stated results:
 `count({job="kubelet",metrics_path="/metrics",__name__=~"apiserver_.*|etcd_.*"})` returns no data;
 `count(count by (__name__) ({job="apiserver"}))` equals its value before the change;
 `kubelet_running_pods` and `kubelet_volume_stats_used_bytes` return data. The broker dashboard's
@@ -482,6 +546,15 @@ staggeredRecoveryPointSchedule :: RecoveryPointObjective -> Text -> Text
 isHourlyCadence :: Text -> Bool
 ```
 
-The Helm contract gains two optional fields, `overlayPath` and `overlayDigest`, present only when an
-overlay is used; `HelmRuntimeConfig` gains `helmContextConfigDir`. Helm v4.2.4 merges multiple
-`--values` files left to right, maps by key and lists by replacement, which the overlay relies on.
+In `cli/nagarectl/src/Nagare/Inventory/Adapters/HelmRuntime.hs`:
+
+```haskell
+checkOverlay :: Maybe (FilePath, ContentDigest) -> Maybe ByteString -> Either Text ()
+-- the contract's resolved overlay path and digest, and the file's bytes if it could be read
+```
+
+The Helm contract gains two optional fields, `overlayPath` (the form `context:<release>.yaml`) and
+`overlayDigest`, present only when an overlay is used; `HelmRuntimeConfig` gains
+`helmOverlayDir :: !FilePath`, the directory `context:` resolves against. Helm v4.2.4 merges
+multiple `--values` files left to right, maps by key and lists by replacement, which the overlay
+relies on.
