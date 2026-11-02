@@ -278,6 +278,17 @@ domain on it, and go-ahead for its bounded cloud sequence on a disposable contex
   server change.
   Date: 2026-11-02
 
+- Decision: The intranet will adopt the apex-shaped zone `topagentnetworklabs.com` as a new base domain, planned in
+  `mori://tan/tan-ng-labs/plans/14-re-home-the-intranet-onto-topagentnetworklabs-com-through-a-cloudflare-tunnel`
+  and not here, because it is installation-specific. That plan needs a Nagare capability this MasterPlan does not yet
+  hold: re-homing a context onto a new base domain, which carries every route and ADR 29 grant and rolls Shomei's
+  issuer and relying-party ID. It is added as a child plan once EP-243 is complete, since it reuses EP-243's
+  grant-carrying move, and is held until then. EP-240's P5 has no customer and is recorded as not observed unless the
+  operator asks for it.
+  Rationale: operator, 2026-11-02. The zone also serves EP-240's prototype first; the intranet adopts it only after
+  the prototype's tunnel and records are removed, because one wildcard record points at one tunnel.
+  Date: 2026-11-02
+
 
 ## Outcomes & Retrospective
 
