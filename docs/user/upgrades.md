@@ -22,6 +22,14 @@ metadata, `nagare-platform-metadata-vVERSION.json`) names the releases a context
 0.9.0 accepts 0.4.0, 0.5.0 and 0.6.1 through 0.8.0. Run every step with the **target** release's
 `nagarectl` and the context selected:
 
+A target release whose `release.json` names its En, Shōmei, nagare-access and admin API images moves
+those workloads with no image variables and no builds: each new digest is fetched from the Nix binary
+cache and published into the context's registry, then each changed image runs its migration Job and
+rolls its server. An unchanged digest does nothing. Unset `NAGARE_AUTH_EN_IMAGE`,
+`NAGARE_AUTH_SHOMEI_IMAGE`, `NAGARE_AUTH_ACCESS_IMAGE` and `NAGARE_ADMIN_API_IMAGE` before planning
+unless a workload should keep an override; an override is recorded in the review and reported by
+status. En and Shōmei only move forward: see [access](access.md#install-the-optional-auth-plane).
+
 1. Install the target release and check that `nagarectl inventory status --json` reports no
    active transaction.
 2. Run `nagarectl platform transition plan --out DIR`, read the review, and apply it with

@@ -161,3 +161,13 @@ scratch. Release notes are not gate inputs; one notes file per release is also i
 The candidate run moves the operator's intranet to the candidate before the tag exists, and
 publication refuses without that run's record of an exact platform status. Publication itself
 still mutates no cluster; it pins the operator repository to the tag, which names the same commit.
+
+## Amendment — 2026-11-01: release images live in the binary cache and each context's registry
+
+A release builds its four service images once with Nix and names them in `release.json` by digest and
+OCI layout store path, naming no registry
+([EP-237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md)). The candidate pushes
+the layouts to `shinzui.cachix.org`, publication pins them, and each context publishes them into its own
+Artifact Registry by digest during its reviewed transition. Packages are never published to GitHub
+(operator, 2026-11-01). The digest in the reviewed `release.json` is the integrity check, so fetching
+needs no trusted key or cache configuration.

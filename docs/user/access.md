@@ -67,21 +67,41 @@ portal; the portal remains a `Deployment` or `Application` role.
 The auth plane is a reviewed platform component. `nagarectl platform bootstrap`
 composes it together with the other platform scopes: the `shomei-db` and `en-db`
 managed databases, the `nagare-system` namespace, the generated credentials, the
-migration Jobs and the three workloads. Build the three images first, then pass
-their immutable references to the reviewed bootstrap:
+migration Jobs and the three workloads. A release payload names the three images
+(and the admin API's) in its `release.json` by digest, and each context publishes them
+into its own registry, so bootstrap and every reviewed transition use them with no image
+input and no build (EP-237):
 
 ```bash
-for service in shomei en nagare-access; do
-  cluster/bootstrap/auth-images/build-local-image.sh "$service"   # prints the image reference
-done
-
-export NAGARE_AUTH_SHOMEI_IMAGE=<registry>/shomei@sha256:<digest>
-export NAGARE_AUTH_EN_IMAGE=<registry>/en@sha256:<digest>
-export NAGARE_AUTH_ACCESS_IMAGE=<registry>/nagare-access@sha256:<digest>
-
 nagarectl platform bootstrap plan --out ./platform-review
 nagarectl platform bootstrap apply ./platform-review --yes
 ```
+
+To run another image for one service, name it as an immutable override; the others
+keep the release image:
+
+```bash
+export NAGARE_AUTH_SHOMEI_IMAGE=<registry>/shomei@sha256:<digest>
+export NAGARE_AUTH_EN_IMAGE=<registry>/en@sha256:<digest>
+export NAGARE_AUTH_ACCESS_IMAGE=<registry>/nagare-access@sha256:<digest>
+export NAGARE_ADMIN_API_IMAGE=<registry>/nagare-admin-api@sha256:<digest>   # admin API contexts only
+```
+
+A tag such as `:latest` is refused. The review records each workload's choice
+(`nagare.dev/image-source: release` or `override`, beside the release image it was
+compared with), so apply runs what was reviewed whatever the shell holds later, and
+`nagarectl platform status` names the override. To return to the release image, unset
+the variable (or set it empty) and plan again. A payload without `releaseImages`, such
+as one built before its release was prepared, still requires all three variables; build
+the images with `cluster/bootstrap/auth-images/build-local-image.sh SERVICE`, which
+prints each reference. A context on an arm64 host names its locally built images this way:
+the release images are linux/amd64. An image with the release's digest counts as the
+release, whichever registry it came from.
+
+En and Shōmei only move forward. Their migration Jobs are named after their images, so
+naming an image they have already moved away from refuses at planning, before any change.
+Fix a bad image with a new one, or restore from the recovery point. `nagare-access` and the
+admin API have no migrations, so an old image can be named again.
 
 `cluster/bootstrap/auth-install.sh` runs the same plan and apply. Do not create the
 namespace, the databases or the `nagare-access` Secret with `kubectl` or
