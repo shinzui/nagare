@@ -66,6 +66,7 @@ import Nagare.Inventory.Components.PackagedAuth
 import Nagare.Inventory.Components.PackagedCache
   ( compilePackagedCache
   )
+import Nagare.Inventory.Components.ReleaseImage (compileReleaseImages)
 import Nagare.Inventory.Components.Upstream
   ( IssuerMode (..)
   , bindHostRegistryCredentials
@@ -75,7 +76,7 @@ import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
 import Nagare.Platform.Paths (PlatformPaths)
-import Nagare.Platform.ReleaseImages (renderImageSelectionError, selectImage)
+import Nagare.Platform.ReleaseImages (ImageSource (ReleaseSource), renderImageSelectionError, selectImage)
 import Nagare.Platform.Status
   ( ReleaseIdentity
   , identityFromPayload
@@ -240,6 +241,23 @@ buildPlatformCandidate active paths workspace snapshot = do
       \key -> do
         selection <- selectImage (contextImageRegistry profile) (manifest ^. #releaseImages) key >>= either (dieT . renderImageSelectionError) pure
         pure (releaseImageKeyText key, selection)
+  -- EP-237: a payload that names images publishes the context's enabled ones.
+  releaseImages <-
+    either
+      (dieT . T.pack . show)
+      pure
+      ( traverse
+          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled]))
+          (manifest ^. #releaseImages)
+      )
+  let releaseImagePublications = maybe Map.empty snd releaseImages
+      authImagePublications' =
+        Map.fromList
+          [ (releaseImageKeyText key, publication)
+          | (key, publication) <- Map.toList releaseImagePublications
+          , Just selection <- [Map.lookup (releaseImageKeyText key) authImages]
+          , selection ^. #source == ReleaseSource
+          ]
   backupBackend <- either dieT pure (storeBackendFor profile (profile ^. #backupBucket))
   localStore <- case backupBackend of
     MinioBackend store -> do
@@ -277,7 +295,7 @@ buildPlatformCandidate active paths workspace snapshot = do
                               ] of
       [bucketJob] -> pure [bucketJob]
       _ -> dieT "local object store has no unique bucket preparation Job"
-  let auth = rawAuth {authExtraPrerequisites = localPrerequisites}
+  let auth = rawAuth {authExtraPrerequisites = localPrerequisites, authImagePublications = authImagePublications'}
   -- The accepted completion marker depends on the previous resource set. Build
   -- the new set without that marker, then replace the marker in the final
   -- composition against the unmodified snapshot.
@@ -298,7 +316,7 @@ buildPlatformCandidate active paths workspace snapshot = do
   (base, baseNative) <-
     compileBootstrapWithAuthAndScopes
       unstampedSnapshot
-      (BootstrapInput foundation Nothing upstream [controllerImageScope])
+      (BootstrapInput foundation Nothing upstream (controllerImageScope : maybe [] (pure . fst) releaseImages))
       auth
       authDatabases
       (maybe [] (pure . fst) localStore)
@@ -343,6 +361,7 @@ buildPlatformCandidate active paths workspace snapshot = do
           <$> compilePlatformAdminApi
             active
             (manifest ^. #releaseImages)
+            (Map.lookup AdminApiImage releaseImagePublications)
             root
             foundation
             (ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory base))
@@ -527,11 +546,12 @@ contextImageRegistry profile
 compilePlatformAdminApi ::
   ActiveTarget ->
   Maybe ReleaseImages ->
+  Maybe Resource.ResourceId ->
   FilePath ->
   FoundationInput ->
   [ResourceInventory.Declaration] ->
   IO (ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
-compilePlatformAdminApi active releaseImages root foundation declarations = do
+compilePlatformAdminApi active releaseImages publication root foundation declarations = do
   let profile = active ^. #profile
       context = contextNameText (active ^. #contextName)
   image <- selectImage (contextImageRegistry profile) releaseImages AdminApiImage >>= either (dieT . renderImageSelectionError) pure
@@ -557,6 +577,7 @@ compilePlatformAdminApi active releaseImages root foundation declarations = do
       , context = context
       , project = profile ^. #project
       , image = image
+      , imagePublication = publication
       , store = store
       }
     declarations

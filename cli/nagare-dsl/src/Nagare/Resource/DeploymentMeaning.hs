@@ -77,9 +77,9 @@ sameDeclarationsModuloSources left right = projected (const False) left == proje
 
 -- | A source location code reads as data. Generated and packaged records and
 -- contributions are recognized by their file; an artifact's local input
--- (an OCI archive, a prepared kubeconfig, a local substrate) by its path.
+-- (an OCI archive or layout, a prepared kubeconfig, a local substrate) by its path.
 significantSource :: SourceLocation -> Bool
 significantSource (SourceLocation file path) =
   any (`T.isPrefixOf` file) ["generated:", "packaged:"]
     || file == "contribution"
-    || path `elem` ["oci-archive-v1", "kubeconfig-prepared-v1", "local-substrate-v1"]
+    || path `elem` ["oci-archive-v1", "oci-layout-v1", "kubeconfig-prepared-v1", "local-substrate-v1"]

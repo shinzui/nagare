@@ -11,6 +11,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -18,9 +19,11 @@ import Data.Text qualified as T
 import Data.Vector qualified as V
 import Nagare.Contract.ReleaseImages
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Artifact (ArtifactExecutionSpec (..), artifactExecutionSpecsFromDeclarations)
 import Nagare.Inventory.Components.AdminApi (AdminApiInput (..), AdminApiStore (LocalMountedStore), compileAdminApi)
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
+import Nagare.Inventory.Components.ReleaseImage (compileReleaseImages)
 import Nagare.Platform.ReleaseImages
 import Nagare.Platform.Workspace (PayloadManifest)
 import Nagare.Resource.Inventory
@@ -127,6 +130,32 @@ releaseImageSelectionTests =
                 annotation compiled "nagare-admin-api" imageSourceAnnotation @?= Just token
                 annotation compiled "nagare-admin-api" releaseImageAnnotation @?= Just (ref AdminApiImage 'b')
         ]
+    , testGroup
+        "publication"
+        [ testCase "each enabled image is one artifact named by its digest, in the context's registry" $ do
+            (scope, publications) <- expectRight (compileReleaseImages registry [EnImage, AccessImage] (release 'a'))
+            Map.keys publications @?= [EnImage, AccessImage]
+            let artifacts = artifactExecutionSpecsOf scope
+            map executionArtifactDestination artifacts
+              @?= [registry <> "/en:sha256-" <> T.replicate 64 "a", registry <> "/nagare-access:sha256-" <> T.replicate 64 "a"]
+            map executionArtifactArchive artifacts @?= map (Just . T.unpack . storePathOf) [EnImage, AccessImage]
+        , testCase "an image keeps one identity across digests, so a workload's dependency never moves" $ do
+            (_, first') <- expectRight (compileReleaseImages registry [EnImage] (release 'a'))
+            (_, next) <- expectRight (compileReleaseImages registry [EnImage] (release 'b'))
+            next @?= first'
+        , testCase "a workload waits only for its own image's publication, so moving one leaves the others alone" $ do
+            let publish key = mintResourceId fixtureOwner (ok (mkLogicalKey key)) (ok (mkName "publish"))
+                input = selections (release 'b') Map.empty
+                waiting = Map.fromList [("en", publish "en"), ("nagare-access", publish "access")]
+            (bundle, _) <- compileWith waiting input
+            let members = [resource | Managed resource <- declarations bundle]
+                dependsOn key resource = OrderedAfter (publish key) `elem` resource ^. #dependencies
+                named kind name = [resource | resource <- members, kindName resource == (kind, name)]
+            assertBool "En's server does not wait" (all (dependsOn "en") (named "deployment" "en"))
+            assertBool "nagare-access does not wait" (all (dependsOn "access") (named "service" "nagare-access"))
+            assertBool "Shomei waits for another image" (not (any (\resource -> dependsOn "en" resource || dependsOn "access" resource) (named "deployment" "shomei")))
+            assertBool "En's server waits for another image" (not (any (dependsOn "access") (named "deployment" "en")))
+        ]
     ]
 
 -- Fixtures
@@ -147,6 +176,11 @@ digestOf c = "sha256:" <> T.replicate 64 (T.singleton c)
 
 ref :: ReleaseImageKey -> Char -> Text
 ref key c = registry <> "/" <> releaseImageKeyText key <> "@" <> digestOf c
+
+artifactExecutionSpecsOf :: ScopeDeclaration -> [ArtifactExecutionSpec]
+artifactExecutionSpecsOf scope =
+  sortOn executionArtifactDestination . Map.elems $
+    either (error . T.unpack) id (artifactExecutionSpecsFromDeclarations (concatMap (^. #declarations) (scopeBundles scope)))
 
 keyNamed :: Text -> ReleaseImageKey
 keyNamed name = case [key | key <- releaseImageKeys, releaseImageKeyText key == name] of
@@ -185,7 +219,10 @@ fixtureCluster :: ResourceId
 fixtureCluster = mintResourceId fixtureOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
 
 compileFor :: Map Text ImageSelection -> IO (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
-compileFor images =
+compileFor = compileWith Map.empty
+
+compileWith :: Map Text ResourceId -> Map Text ImageSelection -> IO (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
+compileWith publications images =
   compileAuth
     AuthInput
       { authOwner = fixtureOwner
@@ -196,6 +233,7 @@ compileFor images =
       , authBaseDomain = "example.test"
       , authDatabasePrerequisites = Map.fromList [(name, mintResourceId fixtureOwner (ok (mkLogicalKey name)) (ok (mkName "database"))) | name <- ["en", "shomei"]]
       , authExtraPrerequisites = []
+      , authImagePublications = publications
       , authMode = CloudAuth
       }
     >>= expectRight
@@ -209,6 +247,7 @@ adminInput selection =
     , context = "ctx"
     , project = "project"
     , image = selection
+    , imagePublication = Nothing
     , store = LocalMountedStore
     }
 

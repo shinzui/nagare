@@ -65,6 +65,8 @@ data AdminApiInput = AdminApiInput
   , image :: !ImageSelection
   -- ^ An immutable @…\@sha256:…@ reference and how it was selected (EP-237);
   -- the selection is recorded on the Deployment.
+  , imagePublication :: !(Maybe ResourceId)
+  -- ^ The publication the Deployment waits for when its image is the release's.
   , store :: !AdminApiStore
   }
   deriving stock (Generic)
@@ -196,7 +198,10 @@ compileAdminApi input declarations = case validated of
         , upstreamAfter =
             Map.fromList [(deployment, [policy] <> [secret | cloud]), (service, [deployment])]
         , upstreamExternalAfter =
-            Map.singleton domainMapping [backendMapResourceId authOwner, enforcerId]
+            Map.fromList
+              ( (domainMapping, [backendMapResourceId authOwner, enforcerId])
+                  : [(deployment, [publication]) | publication <- maybe [] pure (input ^. #imagePublication)]
+              )
         , upstreamOrderDeployments = False
         , upstreamRegistryDelegations = Map.empty
         }

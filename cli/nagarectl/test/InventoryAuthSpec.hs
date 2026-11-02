@@ -852,6 +852,7 @@ fixture =
     "example.test"
     (Map.fromList [("en", dbId "en"), ("shomei", dbId "shomei")])
     []
+    Map.empty
     CloudAuth
   where
     images =

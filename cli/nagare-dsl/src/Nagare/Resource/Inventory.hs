@@ -7,6 +7,7 @@ module Nagare.Resource.Inventory
   , validAccessEndpoint
   , validDnsIpv4
   , ManagedResource (..)
+  , requiresMigration
   , Declaration (..)
   , ClaimKind (..)
   , claimsOf
@@ -891,4 +892,21 @@ pairedDnsRouteClaim claim holders = case (claimParts claim, holders) of
               DnsRecord _ _ dnsHost -> nameText dnsHost == host
               CloudflareDnsRecord _ dnsHost -> nameText dnsHost == host
               _ -> False
+      _ -> False
+
+-- | Whether a known resource's new declaration moves it somewhere only a
+-- reviewed migration may take it. A release image is the one exception
+-- (EP-237): its address names an image by digest, not a place, and each digest
+-- is published under its own tag, so a new release moves the digest and leaves
+-- the old image where it is.
+requiresMigration :: ManagedResource -> ManagedResource -> Bool
+requiresMigration old new =
+  old ^. #executor /= new ^. #executor
+    || (old ^. #address /= new ^. #address && not releaseImageDigestMove)
+  where
+    releaseImageDigestMove = case (old ^. #address, new ^. #address) of
+      (Artifact oldName _, Artifact newName _) ->
+        oldName == newName
+          && old ^. #owner == new ^. #owner
+          && scopeIdText (old ^. #owner) == "platform:release-images"
       _ -> False

@@ -262,6 +262,10 @@ transitionTable =
   , platformScope 7 "local-object-store" Unchanged
   , platformScope 7 "net-certmanager" Unchanged
   , platformScope 7 "net-controller-image" Unchanged
+  , -- EP-237: absent until a payload names its images; the fixture's do not.
+    (platformScope 7 "release-images" NotInLocalContext)
+      { move = "the target payload's releaseImages name one artifact per image; a new digest fetches its layout from the binary cache and publishes it into the context registry by digest, and the image it supersedes stays there; an unchanged digest does nothing"
+      }
   , platformScope 7 "observability-extra" Unchanged
   , platformScope 7 "observability-otel-collector" ProvenanceOnly
   , platformScope 7 "observability-secrets" Unchanged

@@ -27,6 +27,7 @@ import Nagare.Resource.Inventory
   , contributionResourceId
   , inventoryDeclarations
   , inventoryScopes
+  , requiresMigration
   , scopeBundles
   , scopeId
   )
@@ -52,9 +53,7 @@ observationRequirements candidate history =
         migration
         (Map.intersectionWith (,) historicalManaged desiredManaged)
     migration (source, destination)
-      | source ^. #executor /= destination ^. #executor
-          || source ^. #address /= destination ^. #address =
-          Just (source, destination)
+      | requiresMigration source destination = Just (source, destination)
       | otherwise = Nothing
     -- The ordinary observation map has one entry per logical resource. For a
     -- changed executor it must ask only the destination adapter; otherwise

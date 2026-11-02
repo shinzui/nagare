@@ -213,6 +213,7 @@ library
     Nagare.Inventory.Components.ObservabilitySecrets
     Nagare.Inventory.Components.PackagedAuth
     Nagare.Inventory.Components.PackagedCache
+    Nagare.Inventory.Components.ReleaseImage
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.DataFence
     Nagare.Inventory.DataFence.CompletedJob

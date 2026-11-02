@@ -155,6 +155,7 @@ import Nagare.Resource.Inventory
   , inventoryBinding
   , inventoryDeclarations
   , inventoryScopes
+  , requiresMigration
   , scopeBundles
   , scopeId
   )
@@ -828,12 +829,10 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
             ]
           , Nothing
           )
-      | old ^. #address /= resource ^. #address
-          || old ^. #executor /= resource ^. #executor
+      | requiresMigration old resource
       , decisionIs ApproveMigration resourceId =
           ([], Nothing)
-      | old ^. #address /= resource ^. #address
-          || old ^. #executor /= resource ^. #executor =
+      | requiresMigration old resource =
           ([PlanError "migration-review-required" "changing a known resource address or executor needs a reviewed source and destination migration" [resourceId]], Nothing)
       | old ^. #owner /= resource ^. #owner
       , decisionIs ApproveTransfer resourceId =

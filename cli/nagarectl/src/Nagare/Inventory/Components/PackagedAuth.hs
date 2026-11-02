@@ -63,6 +63,7 @@ packagedAuthInputs root foundation mode domain images backend =
               domain
               (Map.fromList [(service, databaseId) | (service, _, databaseId) <- inputs])
               []
+              Map.empty
               mode
        in Right (auth, [(service, direct, backend) | (service, direct, _) <- inputs])
   where

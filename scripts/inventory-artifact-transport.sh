@@ -363,6 +363,73 @@ publish_oci_archive() (
     "docker-archive:${archive}" "docker://${wire_destination}" >&2
 )
 
+# EP-237: publish a release image from its OCI layout in the binary cache. The
+# fetch uses a private store, so an operator needs no trusted key or cache
+# configuration: the reviewed digest is the integrity check, skopeo inspect binds
+# the manifest to it, and skopeo copy refuses any blob that manifest does not
+# name. Exit 3 means nothing reached the registry; nothing here ever compiles.
+publish_oci_layout() (
+  local cache="${NAGARE_RELEASE_IMAGE_CACHE:-https://shinzui.cachix.org}"
+  [[ "${archive}" =~ ^/nix/store/[0-9a-z]{32}-[A-Za-z0-9._+-]+-oci$ ]] || {
+    echo "reviewed release image layout is not a store path: ${archive}" >&2
+    return 3
+  }
+  if [ "${NAGARE_MODE:-cloud}" = local ]; then
+    case "${destination}" in
+      "${NAGARE_REGISTRY_HOST}/"*) ;;
+      *) echo "release image destination differs from the selected local registry" >&2; return 3 ;;
+    esac
+  else
+    _require_target_project
+    case "${destination}" in
+      "${NAGARE_REGISTRY_PREFIX}/"*) ;;
+      *) echo "release image destination differs from the selected project" >&2; return 3 ;;
+    esac
+  fi
+  private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-release-image.XXXXXX")"
+  chmod 700 "${private_dir}"
+  trap 'chmod -R u+w "${private_dir}" 2>/dev/null; rm -rf "${private_dir}"' EXIT
+  policy="${private_dir}/policy.json"
+  printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' >"${policy}"
+  layout="${archive}"
+  if [ ! -f "${layout}/index.json" ]; then
+    nix --extra-experimental-features nix-command copy --no-check-sigs --from "${cache}" --to "${private_dir}/store" "${archive}" >&2 || {
+      echo "release image ${archive} could not be fetched from ${cache}; nothing was published. A context never compiles a release image: rebuild it from the release tag and push it to the cache." >&2
+      return 3
+    }
+    layout="${private_dir}/store${archive}"
+  fi
+  source_manifest="$(skopeo --policy "${policy}" inspect --format '{{.Digest}}' "oci:${layout}")" || {
+    echo "release image layout ${archive} cannot be read; nothing was published" >&2
+    return 3
+  }
+  [ "${source_manifest}" = "sha256:${expected}" ] || {
+    echo "release image layout ${archive} is ${source_manifest}, not the reviewed sha256:${expected}; nothing was published" >&2
+    return 3
+  }
+  tls_args=()
+  auth_args=()
+  if [ "${NAGARE_MODE:-cloud}" = local ]; then
+    tls_args=(--dest-tls-verify=false)
+  else
+    gcloud auth print-access-token | skopeo login --username oauth2accesstoken \
+      --password-stdin --authfile "${private_dir}/auth.json" "${NAGARE_REGISTRY_HOST}" >/dev/null
+    auth_args=(--authfile "${private_dir}/auth.json")
+  fi
+  wire_destination="${destination}"
+  if [ "${NAGARE_MODE:-cloud}" = local ] && [ "${NAGARE_REGISTRY_HOST:-}" = k3d-registry.localhost:5000 ] \
+      && [ -n "${NAGARE_LOCAL_REGISTRY_FORWARD:-}" ]; then
+    [[ "${NAGARE_LOCAL_REGISTRY_FORWARD}" =~ ^127\.0\.0\.1:([0-9]{1,5})$ ]] \
+      && [ "${BASH_REMATCH[1]}" -ge 1 ] && [ "${BASH_REMATCH[1]}" -le 65535 ] || {
+      echo "local registry forward must be a loopback host and port" >&2
+      return 3
+    }
+    wire_destination="${NAGARE_LOCAL_REGISTRY_FORWARD}/${destination#"${NAGARE_REGISTRY_HOST}/"}"
+  fi
+  skopeo --policy "${policy}" copy --preserve-digests "${tls_args[@]}" "${auth_args[@]}" \
+    "oci:${layout}" "docker://${wire_destination}" >&2
+)
+
 publish() {
   case "${kind}" in
     BuildJobArtifact)
@@ -425,6 +492,7 @@ publish() {
           NAGARE_ARTIFACT_SOURCE_DIGEST="sha256:${source_digest}" \
             bash "${repo_root}/cluster/bootstrap/net-certmanager/publish-image.sh" >&2
           ;;
+        *:sha256-"${expected}") publish_oci_layout ;;
         *) publish_oci_archive ;;
       esac
       ;;

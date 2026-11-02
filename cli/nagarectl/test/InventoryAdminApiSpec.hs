@@ -143,6 +143,7 @@ input store =
     , context = "ctx"
     , project = "project"
     , image = explicitSelection fixtureImage
+    , imagePublication = Nothing
     , store = store
     }
 
@@ -180,6 +181,7 @@ authScope = do
         , authBaseDomain = "example.test"
         , authDatabasePrerequisites = Map.fromList [(name, mintResourceId fixtureOwner (ok (mkLogicalKey name)) (ok (mkName "database"))) | name <- ["en", "shomei"]]
         , authExtraPrerequisites = []
+        , authImagePublications = Map.empty
         , authMode = CloudAuth
         }
       >>= expectRight

@@ -138,6 +138,7 @@ observeFixture = do
         , (ContextPin, differs (source ^. #platformVersion) (target ^. #platformVersion))
         , -- Opt-in per context (EP-198); the fixture's context does not enable it.
           (PlatformScope "admin-api", Map.findWithDefault NotInLocalContext "admin-api" scopes)
+        , (PlatformScope "release-images", Map.findWithDefault NotInLocalContext "release-images" scopes)
         ]
           <> [(PlatformScope name, delta) | (name, delta) <- Map.toList scopes, name /= "bootstrap-stamp"]
       )

@@ -12,6 +12,7 @@ module Nagare.Inventory.Artifact
   , artifactExecutionSpecs
   , artifactExecutionSpecsFromDeclarations
   , ociArchiveSource
+  , ociLayoutSourceMarker
   )
 where
 
@@ -222,8 +223,14 @@ ociArchiveSource source
   | path source == "oci-archive-v1" = Just (T.unpack (file source))
   | otherwise = Nothing
 
+-- | A release image's OCI layout, named by its store path (EP-237). The
+-- transport fetches it from the binary cache only to publish it.
+ociLayoutSourceMarker :: Text
+ociLayoutSourceMarker = "oci-layout-v1"
+
 artifactLocalSource :: SourceLocation -> Maybe FilePath
 artifactLocalSource source
+  | path source == ociLayoutSourceMarker = Just (T.unpack (file source))
   | path source == "kubeconfig-prepared-v1" = Just (T.unpack (file source))
   | path source == "local-substrate-v1" = Just (T.unpack (file source))
   | otherwise = ociArchiveSource source

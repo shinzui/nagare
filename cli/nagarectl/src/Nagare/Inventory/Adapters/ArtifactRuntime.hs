@@ -127,9 +127,10 @@ publishArtifact :: ArtifactRuntimeConfig -> ArtifactMutationPlan -> IO AdapterEx
 publishArtifact config plan = case Map.lookup (artifactPlanResource plan) (runtimeArtifactSpecs config) of
   Nothing -> pure (AdapterEffectFailed (KnownNoEffect "artifact resource is absent from the execution specification"))
   Just spec -> do
-    result <- runTransport config "publish" (requestFor (artifactPlanResource plan) spec (Just plan))
+    result <- runTransportClassified config "publish" (requestFor (artifactPlanResource plan) spec (Just plan))
     pure $ case result of
-      Left err -> AdapterEffectAmbiguous err
+      Left (TransportRefused err) -> AdapterEffectFailed (KnownNoEffect err)
+      Left (TransportUnknown err) -> AdapterEffectAmbiguous err
       Right (TransportPresent physical digest)
         | digest == artifactPlanExpectedDigest plan
         , physicalIdentityText physical == expectedPhysical spec ->
@@ -151,8 +152,26 @@ requestFor resource spec plan =
     , requestPlan = plan
     }
 
+-- | How a transport run failed. Exit 3 is the transport's statement that it
+-- stopped before any registry mutation (a release image the cache lacks, or a
+-- layout that is not the reviewed digest); anything else may have had an effect.
+data TransportFailure
+  = TransportRefused !Text
+  | TransportUnknown !Text
+
+transportRefusedExit :: Int
+transportRefusedExit = 3
+
 runTransport :: ArtifactRuntimeConfig -> String -> TransportRequest -> IO (Either Text TransportObservation)
-runTransport config action request = do
+runTransport config action request =
+  first renderFailure <$> runTransportClassified config action request
+  where
+    renderFailure = \case
+      TransportRefused err -> err
+      TransportUnknown err -> err
+
+runTransportClassified :: ArtifactRuntimeConfig -> String -> TransportRequest -> IO (Either TransportFailure TransportObservation)
+runTransportClassified config action request = do
   environment <- getEnvironment
   let marker = ("NAGARE_INVENTORY_ADAPTER_CHILD", "artifact")
       additions = filter ((/= fst marker) . fst) (runtimeArtifactEnvironment config)
@@ -160,13 +179,15 @@ runTransport config action request = do
       childEnvironment = marker : additions <> filter ((`notElem` names) . fst) environment
       command = (proc (runtimeArtifactExecutable config) [action]) {env = Just childEnvironment}
   case canonicalValue (toJSON request) of
-    Left err -> pure (Left err)
+    Left err -> pure (Left (TransportUnknown err))
     Right bytes -> do
       result <- try (readCreateProcessWithExitCode command (T.unpack (TE.decodeUtf8 bytes)))
       pure $ case result of
-        Left (err :: IOException) -> Left ("could not run artifact transport: " <> T.pack (show err))
-        Right (ExitFailure code, output, errors) -> Left ("artifact transport exited " <> T.pack (show code) <> ": " <> T.strip (T.pack (errors <> "\n" <> output)))
-        Right (ExitSuccess, output, _) -> first (("invalid artifact transport response: " <>) . T.pack) (eitherDecodeStrict (TE.encodeUtf8 (T.strip (T.pack output))))
+        Left (err :: IOException) -> Left (TransportUnknown ("could not run artifact transport: " <> T.pack (show err)))
+        Right (ExitFailure code, output, errors)
+          | code == transportRefusedExit -> Left (TransportRefused (T.strip (T.pack errors)))
+          | otherwise -> Left (TransportUnknown ("artifact transport exited " <> T.pack (show code) <> ": " <> T.strip (T.pack (errors <> "\n" <> output))))
+        Right (ExitSuccess, output, _) -> first (TransportUnknown . ("invalid artifact transport response: " <>) . T.pack) (eitherDecodeStrict (TE.encodeUtf8 (T.strip (T.pack output))))
 
 toResourceObservation :: TransportObservation -> ResourceObservation
 toResourceObservation = \case

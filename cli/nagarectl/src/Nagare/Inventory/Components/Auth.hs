@@ -50,6 +50,10 @@ data AuthInput = AuthInput
   , authBaseDomain :: !Text
   , authDatabasePrerequisites :: !(Map Text ResourceId)
   , authExtraPrerequisites :: ![ResourceId]
+  , authImagePublications :: !(Map Text ResourceId)
+  -- ^ EP-237: the publication each service's workloads wait for, when its
+  -- image is the release's; only that service's workloads, so a release that
+  -- moves one image leaves the others' declarations alone.
   , authMode :: !AuthMode
   }
 
@@ -169,13 +173,15 @@ compileAuth input = do
                       Kubernetes _ _ _ _ name -> service `T.isPrefixOf` nameText name
                       _ -> False
                   ]
+                publicationOf service = map OrderedAfter (maybe [] pure (Map.lookup service (authImagePublications input)))
                 addExternal resource = case resource ^. #address of
                   Kubernetes _ "serving.knative.dev" kind _ name
                     | nameText kind == "service" && nameText name == "nagare-access" ->
                         resource
                           { dependencies =
                               OrderedAfter (backendMapResourceId (authOwner input))
-                                : resource ^. #dependencies
+                                : publicationOf "nagare-access"
+                                  <> resource ^. #dependencies
                           }
                   Kubernetes _ "" kind _ _
                     | nameText kind == "secret" ->
@@ -187,17 +193,18 @@ compileAuth input = do
                               Just databaseId ->
                                 resource
                                   { dependencies =
-                                      map
-                                        OrderedAfter
-                                        ( databaseId
-                                            : if nameText kind == "deployment"
-                                              then
-                                                proofFor service
-                                                  <> [ shomeiSettingsResourceId (authOwner input)
-                                                     | service == "shomei"
-                                                     ]
-                                              else []
-                                        )
+                                      publicationOf service
+                                        <> map
+                                          OrderedAfter
+                                          ( databaseId
+                                              : if nameText kind == "deployment"
+                                                then
+                                                  proofFor service
+                                                    <> [ shomeiSettingsResourceId (authOwner input)
+                                                       | service == "shomei"
+                                                       ]
+                                                else []
+                                          )
                                         <> resource ^. #dependencies
                                   }
                               Nothing -> resource

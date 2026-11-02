@@ -89,6 +89,17 @@
       touch "$out"
     '';
 
+  release-image-transport = pkgs.runCommand "nagare-release-image-transport-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gawk pkgs.jq ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      HOME="$TMPDIR" bash scripts/test-release-image-transport.sh
+      touch "$out"
+    '';
+
   inventory-entrypoint-guards = pkgs.runCommand "nagare-inventory-entrypoint-guards-test"
     {
       nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.python3 ];

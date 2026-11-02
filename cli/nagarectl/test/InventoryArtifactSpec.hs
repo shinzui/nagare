@@ -432,10 +432,57 @@ inventoryArtifactTests =
           prepared <- adapterPrepare adapter publishOperation >>= expectRight
           adapterPreflight adapter publishOperation prepared >>= expectRight
           adapterExecute adapter publishOperation prepared >>= (@?= AdapterEffectCompleted)
+    , testCase "EP-237: a transport refusal is a known no-effect failure, whatever the message" $
+        withStatefulTransport ["echo 'release image is not in the cache' >&2", "exit 3"] $ \adapter _ -> do
+          prepared <- adapterPrepare adapter publishOperation >>= expectRight
+          adapterExecute adapter publishOperation prepared
+            >>= (@?= AdapterEffectFailed (KnownNoEffect "release image is not in the cache"))
+          adapterRecover adapter publishOperation prepared >>= (@?= RecoverySafeToRetry)
+    , testCase "EP-237: a lost acknowledgement resumes by observing the registry and never publishes again" $
+        withStatefulTransport ["touch \"$state\"", "echo 'connection reset' >&2", "exit 1"] $ \adapter publishes -> do
+          prepared <- adapterPrepare adapter publishOperation >>= expectRight
+          adapterExecute adapter publishOperation prepared >>= \case
+            AdapterEffectAmbiguous reason -> assertBool (Text.unpack reason) ("connection reset" `Text.isInfixOf` reason)
+            other -> assertFailure ("a lost acknowledgement was " <> show other)
+          adapterRecover adapter publishOperation prepared >>= \case
+            RecoveryProvedComplete _ -> pure ()
+            other -> assertFailure ("the published image was not proved: " <> show other)
+          adapterExecute adapter publishOperation prepared >>= (@?= AdapterEffectCompleted)
+          publishes >>= (@?= 1)
+    , testCase "EP-237: a failure that may have had an effect and left nothing is safe to retry" $
+        withStatefulTransport ["echo 'blob digest did not match' >&2", "exit 1"] $ \adapter _ -> do
+          prepared <- adapterPrepare adapter publishOperation >>= expectRight
+          adapterExecute adapter publishOperation prepared >>= \case
+            AdapterEffectAmbiguous _ -> pure ()
+            other -> assertFailure ("an unclassified failure was " <> show other)
+          adapterRecover adapter publishOperation prepared >>= (@?= RecoverySafeToRetry)
     ]
   where
     isExternal External {} = True
     isExternal _ = False
+
+-- | An adapter over a subprocess transport whose registry is one file: observe
+-- reports it, and publish runs @onPublish@ after counting the call.
+withStatefulTransport :: [String] -> (Adapter -> IO Int -> IO ()) -> IO ()
+withStatefulTransport onPublish check =
+  withSystemTempDirectory "nagare-artifact-transport" $ \temporary -> do
+    let executable = temporary </> "artifact-transport"
+        present = "{\"tag\":\"TransportPresent\",\"contents\":[\"gce://projects/example/global/images/nagare-image-abc\",\"" <> Text.unpack (digestText expectedDigest) <> "\"]}"
+        absent = "{\"tag\":\"TransportMissing\",\"contents\":\"" <> Text.unpack (digestText (contentDigest "absent")) <> "\"}"
+    writeFile executable . unlines $
+      [ "#!/bin/sh"
+      , "state=" <> temporary </> "published"
+      , "cat >/dev/null"
+      , "if [ \"$1\" = publish ]; then"
+      , "  echo x >>" <> temporary </> "publishes"
+      ]
+        <> map ("  " <>) onPublish
+        <> [ "fi"
+           , "if [ -e \"$state\" ]; then printf '%s\\n' '" <> present <> "'; else printf '%s\\n' '" <> absent <> "'; fi"
+           ]
+    setFileMode executable 0o700
+    let adapter = mkArtifactAdapter specs (mkArtifactRuntimeOps (ArtifactRuntimeConfig executable [] specs))
+    check adapter (length . lines <$> readFile (temporary </> "publishes"))
 
 ops :: IORef Int -> IORef ArtifactObservation -> ArtifactAdapterOps
 ops calls state =

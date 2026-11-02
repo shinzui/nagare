@@ -2,7 +2,7 @@
 -- backend map granted by 'BackendMapGrant') retires with that target retained,
 -- and the retained member reloads from history although no raw bundle lists it.
 -- BUG-9: a migration Job named after its image is retained, without a
--- decision, when a new image replaces it.
+-- decision, when a new image replaces it. EP-237: so is a release image.
 module InventoryContributionRetirementSpec (inventoryContributionRetirementTests) where
 
 import Data.Aeson (toJSON)
@@ -14,8 +14,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding)
+import Nagare.Contract.ReleaseImages
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Artifact
+import Nagare.Inventory.Components.ReleaseImage (compileReleaseImages, releaseImagesOwner)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal
@@ -39,6 +42,14 @@ inventoryContributionRetirementTests =
         "superseded migration Jobs (BUG-9)"
         [ testCase "a new migration Job image retains the previous Job without a decision" supersededJob
         , testCase "any other removed member still needs a lifecycle decision" unrelatedRemoval
+        ]
+    , testGroup
+        "superseded release images (EP-237)"
+        [ testCase "a new digest moves the one image member and publishes it, with nothing retained" imageMoves
+        , testCase "an unchanged digest plans no fetch and no publication" unchangedImage
+        , testCase "an artifact in another scope still needs a migration review to move" unrelatedArtifact
+        , testCase "a release may return to a digest it moved away from" returnedImage
+        , testCase "an image change back refuses at its retained migration Job, before any mutation" returnedMigrationJob
         ]
     ]
 
@@ -72,6 +83,142 @@ unrelatedRemoval = do
   case planChanges next noLifecycleDecisions history observed of
     Left errors -> map planErrorCode (NE.toList errors) @?= ["retirement-required"]
     Right _ -> assertFailure "a removed Job no migration ran on was retained without a decision"
+
+-- * release images
+
+releaseWith :: Char -> ReleaseImages
+releaseWith c =
+  ReleaseImages
+    releaseImagesSchemaVersion
+    (Map.fromList [(key, ReleaseImage releaseImagePlatform ("sha256:" <> T.replicate 64 (T.singleton c)) ("/nix/store/" <> T.replicate 32 "a" <> "-nagare-oci") Map.empty) | key <- releaseImageKeys])
+
+imageScope :: Char -> ScopeDeclaration
+imageScope c = fst (either (error . show) id (compileReleaseImages "registry.example.test/nagare" [EnImage] (releaseWith c)))
+
+enImage :: ResourceId
+enImage = mintResourceId releaseImagesOwner (ok (mkLogicalKey "en")) (ok (mkName "image"))
+
+physicalOf :: Char -> PhysicalIdentity
+physicalOf c = ok (mkPhysicalIdentity ("oci://registry.example.test/nagare/en:sha256-" <> T.replicate 64 (T.singleton c)))
+
+-- | A store whose release image scope has published this digest.
+acceptedImage :: ScopeDeclaration -> IO InventoryStore
+acceptedImage scope = acceptedScope scope enImage
+
+acceptedScope :: ScopeDeclaration -> ResourceId -> IO InventoryStore
+acceptedScope scope resource = do
+  store <- newMemoryStore
+  _ <- initializeStore store fixtureBinding "release-images" >>= expectRight
+  emptyHistory <- loadInventoryHistory store >>= expectRight
+  let initial = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope scope :| []))
+      absent = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent"))])
+  acceptWith (observingRegistry ArtifactExecutor (physicalOf 'a')) store (ok (planChanges initial noLifecycleDecisions emptyHistory absent))
+  pure store
+
+replacing :: InventoryHistory -> ScopeDeclaration -> CompositionCandidate
+replacing history scope =
+  let accepted = Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history)
+   in ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty)) (ReplaceScope scope :| []))
+
+imageMoves :: Assertion
+imageMoves = do
+  store <- acceptedImage (imageScope 'a')
+  history <- loadInventoryHistory store >>= expectRight
+  let observed = ok (observationSet [(enImage, ConfirmedAbsent (contentDigest "absent"))])
+  proposal <- expectRight (planChanges (replacing history (imageScope 'b')) noLifecycleDecisions history observed)
+  let actions = map plannedAction (proposalOperations proposal)
+  assertBool ("the new image is not created and published: " <> show actions) (CreateResource `elem` actions && RunDeclaredOperation `elem` actions)
+  assertBool "the previous image was retired" (RetireResource `notElem` actions)
+  acceptWith (observingRegistry ArtifactExecutor (physicalOf 'b')) store proposal
+  moved <- loadInventoryHistory store >>= expectRight
+  historyRetained moved @?= Map.empty
+  [resource ^. #address | Managed resource <- historyDeclarations moved]
+    @?= [Artifact (ok (mkName "en")) (ok (mkContentDigest (T.replicate 64 "b")))]
+
+unchangedImage :: Assertion
+unchangedImage = do
+  store <- acceptedImage (imageScope 'a')
+  history <- loadInventoryHistory store >>= expectRight
+  let observed = ok (observationSet [(enImage, ObservedPresent (physicalOf 'a'))])
+  proposal <- expectRight (planChanges (replacing history (imageScope 'a')) noLifecycleDecisions history observed)
+  [plannedAction operation | operation <- proposalOperations proposal, plannedAction operation /= VerifyResource] @?= []
+
+unrelatedArtifact :: Assertion
+unrelatedArtifact = do
+  let other = ok (mkScopeId Platform "other-images")
+      artifactIn c =
+        ArtifactResourceSpec
+          { artifactLogicalKey = ok (mkLogicalKey "en")
+          , artifactRole = ok (mkName "image")
+          , artifactName = ok (mkName "en")
+          , artifactDestination = "registry.example.test/nagare/en:" <> T.singleton c
+          , artifactContentDigest = contentDigest (TE.encodeUtf8 (T.singleton c))
+          , artifactSpecDigest = contentDigest (TE.encodeUtf8 (T.singleton c))
+          , artifactKind = OciImageArtifact
+          , artifactOwnership = OwnedArtifact
+          , artifactLifecycle = Retain
+          , artifactDataPolicy = Stateless
+          , artifactSensitivity = Public
+          , artifactDependencies = []
+          , artifactConsumers = ConsumerCompletenessUnknown
+          , artifactPublishOperation = True
+          , artifactSource = SourceLocation "test" "image"
+          }
+      scopeOf c = either (error . show) id (compileArtifactScope (ArtifactDeclarationBundle 1 other (artifactIn c :| [])))
+      identity' = mintResourceId other (artifactLogicalKey (artifactIn 'a')) (artifactRole (artifactIn 'a'))
+  store <- acceptedScope (scopeOf 'a') identity'
+  history <- loadInventoryHistory store >>= expectRight
+  let observed = ok (observationSet [(identity', ConfirmedAbsent (contentDigest "absent"))])
+  case planChanges (replacing history (scopeOf 'b')) noLifecycleDecisions history observed of
+    Left errors -> map planErrorCode (NE.toList errors) @?= ["migration-review-required"]
+    Right _ -> assertFailure "another scope's artifact moved its address without a migration review"
+
+returnedImage :: Assertion
+returnedImage = do
+  store <- acceptedImage (imageScope 'a')
+  history <- loadInventoryHistory store >>= expectRight
+  let toB = ok (observationSet [(enImage, ConfirmedAbsent (contentDigest "absent"))])
+  proposal <- expectRight (planChanges (replacing history (imageScope 'b')) noLifecycleDecisions history toB)
+  acceptWith (observingRegistry ArtifactExecutor (physicalOf 'b')) store proposal
+  moved <- loadInventoryHistory store >>= expectRight
+  -- The registry still holds the first image, so nothing is copied; the
+  -- transaction moves back and records it.
+  let back = ok (observationSet [(enImage, ObservedPresent (physicalOf 'a'))])
+  returned <- expectRight (planChanges (replacing moved (imageScope 'a')) noLifecycleDecisions moved back)
+  acceptWith (observingRegistry ArtifactExecutor (physicalOf 'a')) store returned
+  finished <- loadInventoryHistory store >>= expectRight
+  historyRetained finished @?= Map.empty
+  [resource ^. #address | Managed resource <- historyDeclarations finished]
+    @?= [Artifact (ok (mkName "en")) (ok (mkContentDigest (T.replicate 64 "a")))]
+
+-- | What an image change back does to a migration Job: its name holds the
+-- image, so the first image's Job is the retained one.
+returnedMigrationJob :: Assertion
+returnedMigrationJob = do
+  store <- acceptedAuth [authJob "shomei-migrate-old"] [authMigration "shomei-migrate-old"]
+  history <- loadInventoryHistory store >>= expectRight
+  let next = authReplacement history [authJob "shomei-migrate-new"] [authMigration "shomei-migrate-new"]
+      observed =
+        ok
+          ( observationSet
+              [ (authJobId "shomei-migrate-old", ObservedPresent oldJobPhysical)
+              , (authJobId "shomei-migrate-new", ConfirmedAbsent (contentDigest "absent"))
+              ]
+          )
+  proposal <- expectRight (planChanges next noLifecycleDecisions history observed)
+  acceptWith (observingRegistry KubernetesExecutor oldJobPhysical) store proposal
+  moved <- loadInventoryHistory store >>= expectRight
+  let back = authReplacement moved [authJob "shomei-migrate-old"] [authMigration "shomei-migrate-old"]
+      seen =
+        ok
+          ( observationSet
+              [ (authJobId "shomei-migrate-new", ObservedPresent oldJobPhysical)
+              , (authJobId "shomei-migrate-old", ObservedPresent oldJobPhysical)
+              ]
+          )
+  case planChanges back noLifecycleDecisions moved seen of
+    Left errors -> assertBool (show (NE.toList errors)) ("retained-reactivation" `elem` map planErrorCode (NE.toList errors))
+    Right _ -> assertFailure "an image change back now plans; update this record of the refusal and the plan's rollback text"
 
 authOwner :: ScopeId
 authOwner = ok (mkScopeId Platform "auth")
