@@ -56,12 +56,12 @@ described here visible; this request removes its cause.
 
 ## Implementation plan
 
-Accepted for implementation in [ExecPlan 237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md). Implemented in Nagare v0.15.0, which the work intranet runs; evidence below, with AC-1's clean rebuild from the tag still open. Operator decision, 2026-11-01: packages are never published to GitHub. The images move through the Nix binary cache into each context's GCP Artifact Registry, so this request's "public release registry" and AC-1's "release registry" mean that cache.
+Accepted for implementation in [ExecPlan 237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md). Implemented in Nagare v0.15.0, which the work intranet runs; evidence below, with AC-1's clean rebuild from the tag deferred as F134. Operator decision, 2026-11-01: packages are never published to GitHub. The images move through the Nix binary cache into each context's GCP Artifact Registry, so this request's "public release registry" and AC-1's "release registry" mean that cache.
 
 
 ## Acceptance evidence
 
-- **AC-1, in part.** The four linux/amd64 images are built with Nix from the release's pinned sources, and `release.json` records each digest and store path. The release registry is the binary cache: the candidate pushed them, read them back and publication pinned them, and a Mac fetched them with no build. A clean rebuild from the tag has not been run.
+- **AC-1, in part.** The four linux/amd64 images are built with Nix from the release's pinned sources, and `release.json` records each digest and store path. The release registry is the binary cache: the candidate pushed them, read them back and publication pinned them, and a Mac fetched them with no build. Re-running the OCI conversion from v0.15.0's image archives reproduced all four digests and every blob; a clean rebuild of the binaries from the tag is deferred with the operator's approval ([F134](../audits/mp23-findings.md)).
 - **AC-2.** The intranet moved from v0.14.2 to v0.15.0 with no image variables set; all four workloads run `release.json`'s digests, each changed En and Shōmei image running its migration Job first.
 - **AC-3.** Status reports `release`, `override`, `other-release`, `drift`, `unknown` and `not-enabled`, tested in `ImageStatusSpec`. On a disposable context a re-pinned `nagare-access` reported `override` and returned to `release`. Pinning En or Shōmei to an image they moved away from refuses at planning (operator decision, 2026-11-01).
 - **AC-4.** Natively shown on `nagare-access`, with the other workloads staying `release`; the admin API's override is covered by `ReleaseImageSelectionSpec` and `ImageStatusSpec`, not a native run.

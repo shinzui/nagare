@@ -61,7 +61,7 @@ Implement [IR-39](../improvement-requests/publish-release-images-for-the-auth-pl
 - [x] D6: The candidate refuses before any intranet mutation if the operator shell still exports an image override. Evidence: `929b1a58`, whose candidate tests refuse in preflight, naming the variables, before any worktree exists; a release without images never reads the shell. The same script through the real `mori://tan/tan-ng-labs` shell names all four pins, so a release with images refuses there until D8 removes them.
 - [x] D7: A disposable local context moves from a pinned release to a release with images. Its seeded row reads back unchanged, it passes login, and a re-added pin returns `nagare-access` to its old image while one on En or Shōmei refuses at planning. Evidence: `just release-rehearse` from v0.14.2 to an unlanded candidate `b9cae227` that `release images prepare` wrote. The row read back unchanged, the replan had no operations, and all three auth workloads ran the release's digests. A user created in the new Shōmei signed in through the new `nagare-access` (302 with a session cookie; a wrong password got 401). Pins on En and Shōmei refused with `retained-reactivation`; `nagare-access` went to `override` and back to `release`, each transaction converging. Across the version bump En, Shōmei and `nagare-access` kept their digests.
 - [x] D8: The intranet adopts the release: verified backups, pins removed from `images.env`, candidate run, login and portal checked, and `images.env` and the per-upgrade rebuild step retired from the operator runbook. Evidence: recovery points healthy before the run and after publication. `just release-candidate 0.15.0` moved the intranet in 12m50s with no pins and no Cloud Build run, and status is `exact` on CLI, cluster and host with all four workloads `release` at `release.json`'s digests from `tan-ng-labs/nagare-intranet`. The operator signed in through the new images. `/v1/platform/version` answers 0.15.0 and `/v1/sites` 200 from the admin API pod. v0.15.0 is published. Operator repository: `293aecc`, `ee1daf0`; the emptied `operator/intranet/images.env` is no longer loaded and is left for the operator to delete.
-- [ ] D9: The docs describe the shipped route, ADR 7 records the registry decision, and IR-39's acceptance criteria have evidence. Docs and ADR 7 landed in `e24dd285`, and IR-39 records its evidence. Open: AC-1's clean rebuild from the tag has not been run.
+- [x] D9: The docs describe the shipped route, ADR 7 records the registry decision, and IR-39's acceptance criteria have evidence. Evidence: docs and ADR 7 in `e24dd285`, and IR-39 records its evidence. AC-1's clean rebuild is deferred as [F134](../audits/mp23-findings.md); the OCI conversion re-run from v0.15.0's archives reproduced all four digests and every blob.
 
 
 ## Surprises & Discoveries
@@ -82,6 +82,8 @@ Implement [IR-39](../improvement-requests/publish-release-images-for-the-auth-pl
 
 
 ## Decision Log
+
+2026-11-02 (operator): The clean rebuild of the images from the tag is postponed (F134), because nothing depends on it while released images stay pinned and fetched by digest. The cheaper packaging check ran instead, and it does not prove the compiled binaries reproduce.
 
 2026-11-01 (operator): En and Shōmei only move forward. A bad adoption is fixed forward with a new image or restored from the recovery point; re-adding an old pin for either refuses at planning, before any change, and that refusal stays. A failed migration Job stops before its server rolls, and a server that never becomes ready leaves the old pod serving, so the case for going back is a bug that passes readiness on an unmoved schema, which a new image also fixes. `nagare-access` and the admin API have no migrations, so their old pins still apply.
 
@@ -118,7 +120,7 @@ Implement [IR-39](../improvement-requests/publish-release-images-for-the-auth-pl
 
 ## Outcomes & Retrospective
 
-The intranet runs Nagare v0.15.0 on images the release built once with Nix, moved through the public cache into its own registry, with no Cloud Build run and no pinned digest, and `platform status` reports what each workload actually runs. Remaining: a clean rebuild of the four images from the tag, which AC-1 asks for; every build so far reused the same derivations, so determinism across a cold rebuild is unproven. The rehearsal needs Rosetta and exercises amd64 images under it, and native runs caught what fakes could not (the `/etc/passwd` symlink and the status race), so a new image path needs a real container runtime early. The registry decision is in ADR 7.
+The intranet runs Nagare v0.15.0 on images the release built once with Nix, moved through the public cache into its own registry, with no Cloud Build run and no pinned digest, and `platform status` reports what each workload actually runs. Remaining: a clean rebuild of the four images from the tag, which AC-1 asks for, is deferred as F134; packaging is shown to reproduce, but every build so far reused the same derivations, so compiling from cold is unproven. The rehearsal needs Rosetta and exercises amd64 images under it, and native runs caught what fakes could not (the `/etc/passwd` symlink and the status race), so a new image path needs a real container runtime early. The registry decision is in ADR 7.
 
 
 ## Context and Orientation
