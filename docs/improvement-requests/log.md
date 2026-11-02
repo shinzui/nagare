@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-02
+* **Update**: IR-39 is implemented in v0.15.0 and running on the intranet; acceptance evidence recorded, with AC-1's clean rebuild from the tag still open.
+
 ## 2026-11-01
 * **Update**: Accept IR-41 and link its implementation to ExecPlan 239: docs/plans/239-deliver-rotated-session-cookies-before-waiting-on-the-upstream.md. Implementation and acceptance verification remain pending.
 * **Created**: Add IR-41 from `mori://tan/tan-ng-labs` to deliver rotated session cookies before waiting on the upstream, so a dropped request cannot lose a spent refresh token's replacement and end the session.
