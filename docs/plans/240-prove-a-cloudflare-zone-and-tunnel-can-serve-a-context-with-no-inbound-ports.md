@@ -140,6 +140,14 @@ Registrar, so it is on a full setup from the start. Account `d605625d4375aa3120a
 `a0bc2ff68ebe0ae99b7f9864a2219722`. The API token and the Tailscale test key are operator material, held as
 files outside this repository and never recorded here.
 
+Cloudflare side done on 2026-11-02 with the `cf` CLI (`nix run github:NixOS/nixpkgs/nixpkgs-unstable#cf`, 1.0.0-beta.21),
+each step dry-run first: remotely managed tunnel `nagare-ep240` (`b855f1f5-a95c-4af1-af30-f707e1d3d6cd`) with ingress
+rules for the apex and `*.<base>` to `http://kourier.kourier-system.svc.cluster.local:80` and a 404 catch-all; proxied
+CNAMEs for `*` and the apex to the tunnel; zone settings Always Use HTTPS on, minimum TLS 1.2, SSL strict, email
+obfuscation and Rocket Loader off (the zone's defaults were off, 1.0, full and on). Tunnel creation needed no Zero
+Trust onboarding step. The cache bypass rule is deliberately not created yet, so P6 can first observe the leak. The
+cluster side waits for the disposable context.
+
 
 ## Validation and Acceptance
 
