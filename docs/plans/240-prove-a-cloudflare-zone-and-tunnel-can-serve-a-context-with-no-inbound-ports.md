@@ -132,8 +132,13 @@ and approves this as one bounded cloud sequence. The target is a disposable clou
 real use. Complete [Before a native run](../runbooks/before-a-native-run.md) first.
 
 Create a remotely managed tunnel through the API, run the connector as a throwaway Deployment with one
-catch-all rule to Kourier, create the records, then work through P1 to P8. Keep scratch files in the session
+catch-all rule to Kourier, create the records, then work through P1 to P10. Keep scratch files in the session
 scratchpad. Nothing is committed except this plan and the ADR.
+
+Prototype inputs, 2026-11-02: the disposable zone is `topagentnetworklabs.com`, registered through Cloudflare
+Registrar, so it is on a full setup from the start. Account `d605625d4375aa3120a1374daf2f9a87`, zone
+`a0bc2ff68ebe0ae99b7f9864a2219722`. The API token and the Tailscale test key are operator material, held as
+files outside this repository and never recorded here.
 
 
 ## Validation and Acceptance
