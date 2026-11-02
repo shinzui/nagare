@@ -18,6 +18,7 @@ import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Database (DatabaseBackupTarget)
+import Nagare.Platform.ReleaseImages (ImageSelection)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
@@ -28,7 +29,7 @@ compilePackagedAuth ::
   FoundationInput ->
   AuthMode ->
   Text ->
-  Map Text Text ->
+  Map Text ImageSelection ->
   DatabaseBackupTarget ->
   IO
     ( Either
@@ -45,7 +46,7 @@ packagedAuthInputs ::
   FoundationInput ->
   AuthMode ->
   Text ->
-  Map Text Text ->
+  Map Text ImageSelection ->
   DatabaseBackupTarget ->
   Either (NonEmpty InventoryError) (AuthInput, [(Text, DatabaseDirectInput, DatabaseBackupTarget)])
 packagedAuthInputs root foundation mode domain images backend =

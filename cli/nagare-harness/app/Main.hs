@@ -8,6 +8,7 @@ import Nagare.Harness.Gate (coveredRevision, fastGateAt, fullGateAt, landableRev
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Release.Candidate (CandidateOptions (..), releaseCandidate)
+import Nagare.Harness.Release.Images (prepareReleaseImages)
 import Nagare.Harness.Release.Intranet (IntranetOptions (..), transitionPinTag, transitionRun)
 import Nagare.Harness.Release.Process (realRuntime, refusing)
 import Nagare.Harness.Release.Rehearse (RehearseOptions (..), transitionRehearse)
@@ -34,6 +35,7 @@ data Command
   | MutationsSweep !Text !(Maybe Text) !Int
   | RouteCheck !RouteCheckOptions
   | ReleaseCandidate !CandidateOptions
+  | ReleaseImagesPrepare
   | TransitionRun !IntranetOptions !Bool
   | TransitionPinTag !IntranetOptions
   | TransitionRehearse !RehearseOptions
@@ -70,6 +72,15 @@ releaseParser =
             )
             (progDesc "Everything up to the tag, unattended: gate, transition rehearsal, attachments, assembly, the intranet, the rehearsal record (scripts/release-candidate.sh)")
         )
+        <> command "images" (info imagesParser (progDesc "Build the release's four service images (EP-237)"))
+    )
+
+imagesParser :: Parser Command
+imagesParser =
+  hsubparser
+    ( command
+        "prepare"
+        (info (pure ReleaseImagesPrepare) (progDesc "Build the four images on the x86_64-linux builder and write their digests and store paths into release.json, before the chore(release) commit"))
     )
 
 -- | The scripts' own grammars, so each wrapper is a bare @exec … "$\@"@.
@@ -303,6 +314,7 @@ harnessMain root parsed =
       unless green exitFailure
     -- The release commands run before the repository root is read.
     ReleaseCandidate _ -> pure ()
+    ReleaseImagesPrepare -> realRuntime >>= \runtime -> refusing "release images" (prepareReleaseImages runtime root)
     TransitionRun _ _ -> pure ()
     TransitionPinTag _ -> pure ()
     TransitionRehearse _ -> pure ()

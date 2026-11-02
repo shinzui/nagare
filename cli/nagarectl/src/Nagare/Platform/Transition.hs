@@ -246,8 +246,15 @@ transitionTable =
   , platformScope 6 "kubeconfig" Unchanged
   , -- EP-198: opt in per context with NAGARE_ADMIN_API_ENABLED=1; the
     -- fixture's local context does not enable it.
-    platformScope 7 "admin-api" NotInLocalContext
-  , platformScope 7 "auth" Unchanged
+    -- EP-237: like auth, its image comes from the target payload.
+    (platformScope 7 "admin-api" NotInLocalContext)
+      { move = "planned in its stage when the context has it; the target payload's release image unless NAGARE_ADMIN_API_IMAGE overrides it, so a new image rolls the Deployment"
+      }
+  , -- EP-237: the target payload's releaseImages select the images; the
+    -- recorded fixture's two releases ran the same exported images.
+    (platformScope 7 "auth" Unchanged)
+      { move = "the target payload's releaseImages select each image unless an immutable override names one; a changed image runs its migration Job, then rolls its server, in reviewed update operations; unchanged images keep the accepted revision"
+      }
   , platformScope 7 "cert-manager" Unchanged
   , platformScope 7 "certificate-issuer" Unchanged
   , platformScope 7 "foundation" ProvenanceOnly

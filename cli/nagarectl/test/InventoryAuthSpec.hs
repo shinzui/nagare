@@ -39,6 +39,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Plan (loadInventoryHistory, noLifecycleDecisions, observationRequirements, planChanges, proposalOperations, requiredResources)
 import Nagare.Inventory.Store (initializeStore, newMemoryStore)
+import Nagare.Platform.ReleaseImages (explicitSelection)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
@@ -46,6 +47,7 @@ import Nagare.Resource.Policy (LifecyclePolicy (Protect), RecoveryClass (Idempot
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import ReleaseImageSelectionSpec (releaseImageSelectionTests)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
@@ -57,6 +59,7 @@ inventoryAuthTests =
   testGroup
     "auth inventory component"
     [ inventoryAdminApiTests
+    , releaseImageSelectionTests
     , testCase "packaged auth manifests bind stable Secrets and revised Jobs" $ do
         (bundle, native) <- compileAuth fixture >>= expectRight
         let members = [resource | Managed resource <- declarations bundle]
@@ -409,7 +412,7 @@ inventoryAuthTests =
             foundation
             CloudAuth
             "example.test"
-            (Map.insert "en" "registry.example.test/en:mutable" pinned)
+            (Map.insert "en" (explicitSelection "registry.example.test/en:mutable") pinned)
             backend
         assertBool "mutable auth image was accepted" (case invalid of Left _ -> True; Right _ -> False)
     , testCase "local MinIO transport compiles as an owned scope" $ do
@@ -853,7 +856,7 @@ fixture =
   where
     images =
       Map.fromList
-        [ (name, "registry.example.test/" <> name <> "@sha256:" <> digest)
+        [ (name, explicitSelection ("registry.example.test/" <> name <> "@sha256:" <> digest))
         | name <- ["en", "shomei", "nagare-access"]
         ]
     digest = mconcat (replicate 64 "a")

@@ -1,0 +1,16 @@
+{
+  "hasql-transaction": [
+    "pqi",
+    "pqi-ffi",
+    "pqi-native"
+  ],
+  "en-servant": [
+    "relay-pagination-conformance"
+  ],
+  "hasql-dynamic-statements": [
+    "pqi-native"
+  ],
+  "shomei-migrations": [
+    "pg-migrate-test-support"
+  ]
+}

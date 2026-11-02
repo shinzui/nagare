@@ -151,6 +151,17 @@ compatibility result has these meanings:
 | `minor-upgrade-required` | An inventory-backed context moves through a [release transition](#move-an-installed-context-to-a-new-release); an untouched legacy context may use the guarded upgrade workflow. |
 | `major-incompatible` | Platform mutation is blocked until a compatible CLI and release are selected. |
 | `legacy-unknown` | At least one identity is absent, old, or unreachable; inspect it before adoption or upgrade. |
+| `image-skew` | Every version agrees, but an enabled service runs an image other than this release's; mutation remains available so a reviewed transition can repair it. |
+
+`platform status` also reads the En, Shōmei, nagare-access and admin API workloads and the image
+their ready replicas report (EP-237), with no image variables. Each is `release` (this release's
+digest), `override` (a reviewed override), `other-release` (the release image the reviewing
+release selected, not this one's), `drift` (nothing recorded explains it), `unknown` (a failed
+read, an absent workload, no ready replica, replicas on different images during a rollout, or an
+image ID with no manifest digest) or `not-enabled` (the admin API on a context that has not
+enabled it). Anything but `release` and `not-enabled` makes an otherwise exact status
+`image-skew`. A payload without release images reports the workloads but leaves the result
+unchanged.
 
 Status and doctor remain read-only and useful when Kubernetes is unreachable.
 For a cloud context, a project- and zone-scoped GCE lookup that explicitly returns NotFound renders

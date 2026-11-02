@@ -15,6 +15,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import ImageStatusSpec (imageStatusTests)
 import Nagare.Dsl.Prelude
 import Nagare.Infra.Plan (SavedPlanMetadata (..))
 import Nagare.Init (resolveInitBase)
@@ -49,6 +50,7 @@ platformTests =
   testGroup
     "Nagare.Platform (EP-106)"
     [ stackConfigTests
+    , imageStatusTests
     , testCase "named init base ignores the active context and ambient target variables" $
         withSystemTempDirectory "nagare-init-base" $ \root ->
           withTemporaryEnv "XDG_CONFIG_HOME" (root </> "config") $

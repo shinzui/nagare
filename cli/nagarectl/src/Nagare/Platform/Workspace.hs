@@ -26,6 +26,7 @@ import Data.List (isPrefixOf, isSuffixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Contract.ReleaseImages (ReleaseImages)
 import Nagare.Dsl.Prelude hiding (Context)
 import Nagare.Platform.Paths (PlatformPaths (..))
 import Nagare.Target (ContextName, contextNameText)
@@ -52,6 +53,9 @@ data PayloadManifest = PayloadManifest
   , transitionsFrom :: ![Text]
   -- ^ The source releases an admitted context may move from to this payload
   -- through the reviewed transition (EP-172). Absent in payloads before 0.5.0.
+  , releaseImages :: !(Maybe ReleaseImages)
+  -- ^ The release's published service images (EP-237). Absent in payloads
+  -- before it; a malformed member refuses the payload.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -66,6 +70,7 @@ instance Aeson.FromJSON PayloadManifest where
       <*> o .: "sourceRevision"
       <*> o Aeson..:? "rollbackSupportedFrom" Aeson..!= []
       <*> o Aeson..:? "transitionsFrom" Aeson..!= []
+      <*> o Aeson..:? "releaseImages"
 
 data PlatformWorkspace = PlatformWorkspace
   { root :: !FilePath

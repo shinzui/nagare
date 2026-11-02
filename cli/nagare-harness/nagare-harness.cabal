@@ -37,6 +37,7 @@ library
     Nagare.Harness.Realise
     Nagare.Harness.Record
     Nagare.Harness.Release.Candidate
+    Nagare.Harness.Release.Images
     Nagare.Harness.Release.Intranet
     Nagare.Harness.Release.Process
     Nagare.Harness.Release.Records
@@ -77,6 +78,7 @@ executable nagare-harness
   hs-source-dirs: app
   build-depends:
     base,
+    bytestring,
     filepath,
     generic-lens ^>=2.3,
     lens ^>=5.3,
@@ -91,6 +93,7 @@ test-suite nagare-harness-test
   hs-source-dirs: test
   other-modules:
     FlakeCheckSpec
+    ReleaseImagesSpec
     ReleaseTransitionSpec
     TransitionCostSpec
 

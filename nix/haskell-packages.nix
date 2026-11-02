@@ -29,11 +29,18 @@ let
   # interpreters. The release transition table test (EP-172 M1) also reads the
   # payload's nixos/ and release.json. Only these are copied, so other repository
   # changes do not invalidate the tested build.
+  # EP-237: release.json's releaseImages member names images whose digests
+  # depend on the tested nagarectl (the admin API links it). The tests read
+  # the rest of the file, so they get it without that member, computed at
+  # evaluation so that writing the member changes no derivation.
+  releaseJsonForTests = pkgs.writeText "release.json"
+    (builtins.toJSON (builtins.removeAttrs (builtins.fromJSON (builtins.readFile ../release.json)) [ "releaseImages" ]));
+
   sourceForTests = pkgs.runCommand "nagare-source-for-tests" { } ''
     mkdir -p "$out"
     cp -R ${../cluster} "$out/cluster"
     cp -R ${../nixos} "$out/nixos"
-    cp ${../release.json} "$out/release.json"
+    cp ${releaseJsonForTests} "$out/release.json"
     mkdir -p "$out/docs"
     cp -R ${../docs/api} "$out/docs/api"
     chmod -R u+w "$out"
@@ -175,6 +182,7 @@ let
                 test/InventoryFoundationSpec.hs test/InventoryAuthSpec.hs \
                 test/InventoryObservabilitySpec.hs test/InventoryCacheSpec.hs \
                 test/InventoryAccessSpec.hs test/InventoryAdminApiSpec.hs \
+                test/ReleaseImageSelectionSpec.hs \
                 --replace-fail "../../cluster/" "${sourceForTests}/cluster/"
               substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
                 --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
@@ -182,6 +190,7 @@ let
                 test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
                 test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs test/InventoryAdminApiSpec.hs \
                 test/PlatformTransitionTableSpec.hs test/Nagare/Test/Contract.hs \
+                test/ReleaseImageSelectionSpec.hs \
                 --replace-fail '"../.."' '"${sourceForTests}"'
               substituteInPlace test/PlatformTransitionTableSpec.hs \
                 --replace-fail 'sourceCompileRoot = sourceRoot' 'sourceCompileRoot = "${transitionFixtureForTests}"'

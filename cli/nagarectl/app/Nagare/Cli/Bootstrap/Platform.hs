@@ -19,6 +19,7 @@ import Nagare.Cli.Runtime.Process (currentTimestamp)
 import Nagare.Cluster.GcsJob
   ( StoreBackend (GcsBackend, MinioBackend)
   )
+import Nagare.Contract.ReleaseImages (ReleaseImageKey (..), ReleaseImages, releaseImageKeyText)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Bootstrap
   ( BootstrapInput (BootstrapInput)
@@ -74,6 +75,7 @@ import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
 import Nagare.Platform.Paths (PlatformPaths)
+import Nagare.Platform.ReleaseImages (renderImageSelectionError, selectImage)
 import Nagare.Platform.Status
   ( ReleaseIdentity
   , identityFromPayload
@@ -174,12 +176,8 @@ buildPlatformCandidate active paths workspace snapshot = do
         (pure rawUpstream)
         (\controller -> either dieT pure (bindHostRegistryCredentials controller cluster rawUpstream))
         host
-  let controllerRegistry =
-        if profile ^. #mode == Local
-          then profile ^. #registryHost
-          else registryPrefix profile
   (controllerImageScope, controllerImage, controllerPublish) <-
-    compileControllerImage root controllerRegistry >>= either (dieT . T.pack . show) pure
+    compileControllerImage root (contextImageRegistry profile) >>= either (dieT . T.pack . show) pure
   upstream <-
     either
       dieT
@@ -235,15 +233,12 @@ buildPlatformCandidate active paths workspace snapshot = do
                   >>= either (dieT . T.pack . show) pure
               )
       else pure Nothing
-  authImages <- fmap Map.fromList
-    $ forM
-      [ ("en", "NAGARE_AUTH_EN_IMAGE")
-      , ("shomei", "NAGARE_AUTH_SHOMEI_IMAGE")
-      , ("nagare-access", "NAGARE_AUTH_ACCESS_IMAGE")
-      ]
-    $ \(service, variable) -> do
-      value <- lookupEnv variable >>= maybe (dieT ("bootstrap requires " <> T.pack variable <> " as an immutable image reference")) pure
-      pure (service, T.pack value)
+  -- EP-237: an explicit override, else the target payload's release image.
+  authImages <- fmap Map.fromList $
+    forM [EnImage, ShomeiImage, AccessImage] $
+      \key -> do
+        selection <- selectImage (contextImageRegistry profile) (manifest ^. #releaseImages) key >>= either (dieT . renderImageSelectionError) pure
+        pure (releaseImageKeyText key, selection)
   backupBackend <- either dieT pure (storeBackendFor profile (profile ^. #backupBucket))
   localStore <- case backupBackend of
     MinioBackend store -> do
@@ -346,6 +341,7 @@ buildPlatformCandidate active paths workspace snapshot = do
         Just
           <$> compilePlatformAdminApi
             active
+            (manifest ^. #releaseImages)
             root
             foundation
             (ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory base))
@@ -515,23 +511,29 @@ readBootstrapKubeVersion active = do
       _ -> dieT "Kubernetes version response has no serverVersion"
     _ -> dieT "Kubernetes version response is not an object"
 
--- | The opt-in admin API scope (EP-198). Its image is an immutable reference
--- like the auth plane's. A cloud context serves its GCS inventory through the
+-- | The registry prefix a context's own published images live under: the
+-- patched controller's and the release images' (EP-237).
+contextImageRegistry :: TargetProfile -> Text
+contextImageRegistry profile
+  | profile ^. #mode == Local = profile ^. #registryHost
+  | otherwise = registryPrefix profile
+
+-- | The opt-in admin API scope (EP-198). Its image is the payload's release
+-- image unless NAGARE_ADMIN_API_IMAGE overrides it (EP-237). A cloud context serves its GCS inventory through the
 -- reader Secret in its cluster-secrets directory; a cloud context whose store
 -- is still on a workstation must migrate it first, and a local context reads
 -- the store its substrate mounts.
 compilePlatformAdminApi ::
   ActiveTarget ->
+  Maybe ReleaseImages ->
   FilePath ->
   FoundationInput ->
   [ResourceInventory.Declaration] ->
   IO (ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
-compilePlatformAdminApi active root foundation declarations = do
+compilePlatformAdminApi active releaseImages root foundation declarations = do
   let profile = active ^. #profile
       context = contextNameText (active ^. #contextName)
-  image <-
-    lookupEnv "NAGARE_ADMIN_API_IMAGE"
-      >>= maybe (dieT "NAGARE_ADMIN_API_ENABLED=1 requires NAGARE_ADMIN_API_IMAGE as an immutable image reference") (pure . T.pack)
+  image <- selectImage (contextImageRegistry profile) releaseImages AdminApiImage >>= either (dieT . renderImageSelectionError) pure
   store <- case profile ^. #mode of
     Local -> pure LocalMountedStore
     Cloud -> do

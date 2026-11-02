@@ -37,6 +37,7 @@ import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (decodeJournalEvent)
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..), decodeHead)
+import Nagare.Platform.ReleaseImages (ImageSelection, explicitSelection)
 import Nagare.Platform.Status (identityFromPayload)
 import Nagare.Platform.Transition
 import Nagare.Platform.Workspace (PayloadManifest)
@@ -244,8 +245,9 @@ compileLocalPlatform root pinnedRoot manifest = do
 platformFoundationOwner :: ScopeId
 platformFoundationOwner = ok (mkScopeId Platform "foundation")
 
-fixtureAuthImages :: Map Text Text
-fixtureAuthImages = Map.fromList [(name, "k3d-registry.localhost:5000/" <> name <> "@sha256:" <> T.replicate 64 "c") | name <- ["en", "shomei", "nagare-access"]]
+-- | The recorded rehearsal exported the same images to both releases.
+fixtureAuthImages :: Map Text ImageSelection
+fixtureAuthImages = Map.fromList [(name, explicitSelection ("k3d-registry.localhost:5000/" <> name <> "@sha256:" <> T.replicate 64 "c")) | name <- ["en", "shomei", "nagare-access"]]
 
 platformCluster :: ResourceId
 platformCluster = mintResourceId (ok (mkScopeId Platform "cluster")) (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
