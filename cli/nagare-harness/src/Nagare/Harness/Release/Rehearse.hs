@@ -29,6 +29,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Contract.V1 (VersionInfo (..))
 import Nagare.Harness.Prelude
+import Nagare.Harness.Release.Images (readReleaseImages)
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.RunIndex
@@ -120,6 +121,10 @@ rehearseIn runtime index repo rev prev work record checkRecord = do
   let wrapper = work </> "bin/source-nagarectl"
   BS.writeFile wrapper (TE.encodeUtf8 (T.pack ("#!/bin/sh\nPATH=" <> sourceHelm <> "/bin:$PATH exec " <> sourceCli <> "/bin/nagarectl \"$@\"\n")))
   getPermissions wrapper >>= setPermissions wrapper . setOwnerExecutable True
+  -- EP-237: the drill moves the workloads off their pins only when the
+  -- candidate names its own images.
+  candidateRelease <- capture runtime ("no release.json at " <> rev) (invocation "git" ["-C", repo, "show", T.unpack rev <> ":release.json"])
+  candidateImages <- either refuse pure (readReleaseImages candidateRelease)
   -- the drill, from an empty environment (no direnv context, payload
   -- root or kubeconfig)
   let user = fromMaybe "" (lookupVariable runtime "USER")
@@ -127,17 +132,19 @@ rehearseIn runtime index repo rev prev work record checkRecord = do
     invocation (runtime ^. #harness) ["transition", "drill"]
       & #environment
       .~ Exactly
-        [ ("HOME", home)
-        , ("USER", user)
-        , ("LOGNAME", fromMaybe user (lookupVariable runtime "LOGNAME"))
-        , ("TMPDIR", fromMaybe "/tmp" (lookupVariable runtime "TMPDIR"))
-        , ("PATH", toolPath)
-        , ("DOCKER_HOST", "unix://" <> socket)
-        , ("NAGARE_REHEARSAL_SOURCE", wrapper)
-        , ("NAGARE_REHEARSAL_TARGET", candidateCli </> "bin/nagarectl")
-        , ("NAGARE_REHEARSAL_ROOT", work </> "run")
-        , ("NAGARE_REHEARSAL_RESET", "1")
-        ]
+        ( [ ("HOME", home)
+          , ("USER", user)
+          , ("LOGNAME", fromMaybe user (lookupVariable runtime "LOGNAME"))
+          , ("TMPDIR", fromMaybe "/tmp" (lookupVariable runtime "TMPDIR"))
+          , ("PATH", toolPath)
+          , ("DOCKER_HOST", "unix://" <> socket)
+          , ("NAGARE_REHEARSAL_SOURCE", wrapper)
+          , ("NAGARE_REHEARSAL_TARGET", candidateCli </> "bin/nagarectl")
+          , ("NAGARE_REHEARSAL_ROOT", work </> "run")
+          , ("NAGARE_REHEARSAL_RESET", "1")
+          ]
+            <> [("NAGARE_REHEARSAL_TARGET_IMAGES", "1") | isJust candidateImages]
+        )
       & #stdoutTo
       .~ Tee (work </> "rehearsal.log")
       & #stderrTo

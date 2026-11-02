@@ -719,6 +719,7 @@ rehearseWorld root' carriesHelm = do
   pure $ \command -> case (command ^. #program, command ^. #arguments) of
     ("git", ["rev-parse", "--show-toplevel"]) -> ok (T.pack (root' </> "repo") <> "\n")
     ("git", ["-C", _, "rev-parse", "--verify", _]) -> ok (rev <> "\n")
+    ("git", ["-C", _, "show", _]) -> ok "{}"
     ("nix", "build" : rest)
       | "nixpkgs#bash" `elem` rest -> ok (T.pack (unlines [tool "bash", tool "kubectl", tool "no-bin"]))
       | "nixpkgs#kubernetes-helm" `elem` rest -> ok "/nix/store/helm\n"
@@ -765,6 +766,7 @@ rehearseTests =
                 , "nix build --no-link --print-out-paths --inputs-from github:shinzui/nagare/v9.8.6 nixpkgs#kubernetes-helm"
                 , "nix build --no-link --print-out-paths --inputs-from git+file://$T/repo?rev=" <> T.unpack rev <> " " <> unwords (map ("nixpkgs#" <>) rehearsalTools)
                 , "/nix/store/candidate-nagarectl/bin/nagarectl version --json"
+                , "git -C $T/repo show " <> T.unpack rev <> ":release.json"
                 , "/harness/bin/nagare-harness transition drill"
                 ]
           [call ^. #names | call <- calls', call ^. #program == "/harness/bin/nagare-harness"]
