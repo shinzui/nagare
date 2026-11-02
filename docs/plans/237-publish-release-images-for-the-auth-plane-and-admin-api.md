@@ -56,10 +56,10 @@ Implement [IR-39](../improvement-requests/publish-release-images-for-the-auth-pl
 - [x] D1: The EP-237 code is restored on master without any GHCR path, and master can still cut a release while no release has adopted it. Evidence: `2632fda5` with its import fix `fa316911`, whose full gate is green on both systems. `release.json` has no `releaseImages`, the candidate and `release-publish.sh` are unchanged, bootstrap keeps its explicit images, and `ImageStatusSpec` proves a payload without images keeps an `exact` aggregate. `git grep ghcr.io/shinzui -- cli nix scripts justfile` finds nothing.
 - [x] D2: The four images build on the builder with the digests `release.json` names; a clean Mac fetches each from `shinzui.cachix.org` by store path with no build and no evaluation of the Linux derivations. Evidence, run on this plan's Nix image definitions just before D1 landed, against `release-images-manifest`, because `release.json` carries no images until a release does: after `nix store delete`, `nix copy --from` took 2–3 s per image with no build and no `.drv` in its log, and `skopeo inspect oci:` printed the manifest's digest for all four. A second fetch into an empty store gave the same digests: en `sha256:2dd89ccc…`, shomei `sha256:39214222…`, nagare-access `sha256:a6cfa4f0…`, admin API `sha256:5f1a0261…`. Each closure is one path of 27–43 MiB. A scan of every layer found no secret; its one hit is the PEM marker string in `libssh2`, with no key after it.
 - [ ] D3: The candidate pushes the four images to the cache and reads them back. It makes no registry call and needs no GitHub credential. Code and interpreter tests landed in `929b1a58`; the native confirmation comes from D7's candidate rehearsal.
-- [ ] D4: Bootstrap and transitions publish the images into the context registry by digest and roll each migration Job and server onto them. Interpreter tests cover a lost acknowledgement, a resume after a partly applied image change, a cache miss and a digest mismatch.
+- [ ] D4: Bootstrap and transitions publish the images into the context registry by digest and roll each migration Job and server onto them. Interpreter tests cover a lost acknowledgement, a resume after a partly applied image change, a cache miss and a digest mismatch. Code and interpreter tests landed in `aa564953`, full gate green; the native confirmation comes from D7.
 - [ ] D5: `platform status` classifies each workload by digest, whatever registry it was pulled from.
 - [x] D6: The candidate refuses before any intranet mutation if the operator shell still exports an image override. Evidence: `929b1a58`, whose candidate tests refuse in preflight, naming the variables, before any worktree exists; a release without images never reads the shell. The same script through the real `mori://tan/tan-ng-labs` shell names all four pins, so a release with images refuses there until D8 removes them.
-- [ ] D7: A disposable local context moves from a pinned release to a release with images. Its seeded row reads back unchanged, it passes login, and a re-added pin returns it to the old images.
+- [ ] D7: A disposable local context moves from a pinned release to a release with images. Its seeded row reads back unchanged, it passes login, and a re-added pin returns `nagare-access` to its old image while one on En or Shōmei refuses at planning.
 - [ ] D8: The intranet adopts the release: verified backups, pins removed from `images.env`, candidate run, login and portal checked, and `images.env` and the per-upgrade rebuild step retired from the operator runbook.
 - [ ] D9: The docs describe the shipped route, ADR 7 records the registry decision, and IR-39's acceptance criteria have evidence.
 
@@ -68,12 +68,20 @@ Implement [IR-39](../improvement-requests/publish-release-images-for-the-auth-pl
 
 2026-11-01: The v0.15.0 candidate stopped because the GHCR packages it had just created were private. Reading the code then showed the release could not have finished anyway: the intranet's `images.env` pins would be reported as `image-skew`, and the release's intranet step refuses anything but `exact`, after the transition has applied. Both led to this redesign, and the second to D6. Evidence: `~/.local/state/nagare/releases/v0.15.0/20261101T230730Z/`.
 
+2026-11-01: The images could not start on any k3s node: `buildLayeredImage` leaves `/etc/passwd` as a symlink into the store, and containerd refuses it (`openat etc/passwd: path escapes from parent`). The earlier start checks ran under Docker, which follows the link. `25f9ef7b` writes real files; all four then started as Pods on containerd 2.2.2 on an arm64 node through qemu.
+
+2026-11-01: A return to an earlier En or Shōmei image refuses at planning with `retained-reactivation`, because its migration Job is named after the image and history retains it. This changed the rollback rule; see the Decision Log. Evidence: `InventoryContributionRetirementSpec`.
+
 2026-11-01: Each layout's closure first held 10 paths, not 1: `buildLayeredImage` names store paths in the config's history comments and Nix kept nine of them (the glibc closure) as references, so a fetch would have pulled Linux store paths to the Mac. See the Decision Log entry on references. Evidence: `nix path-info -r` before and after.
 
 2026-11-01: `nix copy --from` into the daemon store fails on a machine that does not trust the cache's key: `lacks a signature by a trusted key`, reproduced with only `cache.nixos.org` trusted. `nix copy --no-check-sigs --to DIR` into a private store works with no trust setup. This changes how D4 fetches.
 
 
 ## Decision Log
+
+2026-11-01 (operator): En and Shōmei only move forward. A bad adoption is fixed forward with a new image or restored from the recovery point; re-adding an old pin for either refuses at planning, before any change, and that refusal stays. A failed migration Job stops before its server rolls, and a server that never becomes ready leaves the old pod serving, so the case for going back is a bug that passes readiness on an unmoved schema, which a new image also fixes. `nagare-access` and the admin API have no migrations, so their old pins still apply.
+
+2026-11-01: Each image keeps one artifact identity and its digest moves: `requiresMigration` allows exactly this for `platform:release-images`. The first design gave each digest its own retained member, which grew history per release and refused any return to an earlier digest.
 
 2026-11-01: D4 fetches into a private store under nagarectl's state directory with `nix copy --no-check-sigs --from … --to DIR` and reads `oci:DIR/nix/store/…`, not the daemon store. An operator then needs no trusted key, no trusted-user setting and no cache configuration. Integrity comes from the digest in the reviewed `release.json`, so D4 must prove that the copy refuses a tampered blob, not only a wrong manifest.
 
@@ -153,7 +161,7 @@ Per Haskell commit run `just haskell-style-check`, then `just gate-fast`; land w
 
 ## Idempotence and Recovery
 
-Fetching and publishing are by content, so a retry repeats safely: a lost acknowledgement resumes the existing transaction and checks the registry before accepting anything. A digest mismatch or cache miss refuses before any mutation. To go back on a context, add the old pin to `images.env` and plan again; D7 proves this. An older image does not undo a database migration, so a failed adoption whose schema moved restores from the recovery point taken first. Published tags are never moved.
+Fetching and publishing are by content, so a retry repeats safely: a lost acknowledgement resumes the existing transaction and checks the registry before accepting anything. A digest mismatch or cache miss refuses before any mutation. En and Shōmei only move forward: fix a bad adoption with a new image, or restore from the recovery point taken first. To go back on `nagare-access` or the admin API, add the old pin to `images.env` and plan again. Published tags are never moved.
 
 
 ## Interfaces and Dependencies
