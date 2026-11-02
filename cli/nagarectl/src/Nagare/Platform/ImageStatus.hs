@@ -118,6 +118,7 @@ observeWorkloads deployments services pods =
                 [ imageId
                 | pod <- podObjects
                 , labelValue (fst selector) pod == Just (snd selector)
+                , current object pod
                 , podReady pod
                 , Just imageId <- [containerImageId container pod]
                 ]
@@ -167,6 +168,17 @@ observeWorkloads deployments services pods =
       _ -> []
     path (field : rest) (Object fields) = maybe [] (path rest) (KM.lookup field fields)
     path _ _ = []
+    -- A Pod shutting down serves nothing new, and a Knative Service keeps its
+    -- previous revision's Pods until they scale away after the route has moved,
+    -- so neither says what the workload runs. A Service counts only the Pods of
+    -- its latest ready revision.
+    current object pod =
+      isNothing (KM.lookup "deletionTimestamp" (metadata pod))
+        && case [revision | Just (Object status) <- [objectField "status" object], Just (String revision) <- [KM.lookup "latestReadyRevisionName" status]] of
+          [revision] -> labelValue "serving.knative.dev/revision" pod == Just revision
+          _ -> True
+    objectField field (Object fields) = KM.lookup field fields
+    objectField _ _ = Nothing
     podReady pod =
       not (null [() | Object condition <- path ["status", "conditions"] pod, KM.lookup "type" condition == Just (String "Ready"), KM.lookup "status" condition == Just (String "True")])
     containerImageId container pod =

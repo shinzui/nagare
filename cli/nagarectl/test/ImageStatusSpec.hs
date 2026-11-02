@@ -94,6 +94,38 @@ imageStatusTests =
         case Map.lookup ShomeiImage (observeWorkloads (Left "forbidden") (Right servicesJson) (Right podsJson)) of
           Just (Left _) -> pure ()
           other -> assertFailure ("an unreadable Deployment list was " <> show other)
+    , testCase "a Pod shutting down and a Service's previous revision do not make a finished rollout mixed" $ do
+        let pod labels running deleting =
+              object
+                ( [ "metadata"
+                      .= object
+                        ( ["labels" .= object labels]
+                            <> ["deletionTimestamp" .= ("2026-11-02T05:58:00Z" :: Text) | deleting]
+                        )
+                  , "status"
+                      .= object
+                        [ "conditions" .= [object ["type" .= ("Ready" :: Text), "status" .= ("True" :: Text)]]
+                        , "containerStatuses" .= [object ["name" .= ("user-container" :: Text), "imageID" .= imageId AccessImage running]]
+                        ]
+                  ]
+                )
+            serviceLabels revision = ["serving.knative.dev/service" .= ("nagare-access" :: Text), "serving.knative.dev/revision" .= (revision :: Text)]
+            service =
+              object
+                [ "metadata" .= object ["name" .= ("nagare-access" :: Text), "annotations" .= object ["nagare.dev/image-source" .= ("release" :: Text)]]
+                , "spec" .= object ["template" .= object ["spec" .= object ["containers" .= [object ["image" .= ref AccessImage 'b']]]]]
+                , "status" .= object ["latestReadyRevisionName" .= ("nagare-access-00002" :: Text)]
+                ]
+            list values = Right (LBS.toStrict (Aeson.encode (object ["items" .= (values :: [Aeson.Value])])))
+            observedWith pods = Map.lookup AccessImage (observeWorkloads (list []) (list [service]) (list pods))
+            digests observation = case observation of
+              Just (Right (Just seen)) -> seen ^. #readyImageIds
+              other -> error ("no observation: " <> show other)
+            new = pod (serviceLabels "nagare-access-00002") 'b' False
+        digests (observedWith [new, pod (serviceLabels "nagare-access-00001") 'a' False]) @?= [imageId AccessImage 'b']
+        digests (observedWith [new, pod (serviceLabels "nagare-access-00002") 'a' True]) @?= [imageId AccessImage 'b']
+        -- Replicas of the latest revision that disagree are still a rollout.
+        digests (observedWith [new, pod (serviceLabels "nagare-access-00002") 'a' False]) @?= [imageId AccessImage 'b', imageId AccessImage 'a']
     , testCase "status JSON names each workload's expected, selected and observed image" $ do
         let statuses = assess True (Map.insert AdminApiImage (Right (Just (seenAs AdminApiImage 'f' "override" 'b' ['f']))) (current (release 'b')))
             value = platformStatusValue (withImageAssessment (Just (release 'b')) statuses exact)
