@@ -80,7 +80,24 @@ Each item passes only with a recorded observation.
 
 ## Decision Log
 
-(None yet.)
+- Decision: Run in `tan-nb-exp` from a one-run set of step scripts in the session scratchpad, following
+  `scripts/rehearse-gcp-bootstrap.sh --live` without its refusal of that project, its Let's Encrypt stages or its typed
+  confirmations. The tracked script is unchanged.
+  Rationale: operator, 2026-11-02, after being shown that line 470 refuses `tan-nb-exp` and that EP-139 requires a
+  purpose-created project. `docs/guides/running-multiple-clusters.md` also calls two stacks in one project unsupported,
+  so every project-scoped name is overridden (instance, service account, registry, both buckets) and the perimeter
+  review is read before apply. `gcp.projects.Service` sets `disableOnDestroy: false`, so teardown turns no API off.
+  Date: 2026-11-02
+
+- Decision: The context runs from its own XDG root at `~/.local/state/nagare/ep240/run`, with its context, host,
+  cluster-secret and Pulumi files in `nagare-ops` and symlinked into that root, not into `~/.config/nagare`.
+  Rationale: `nagarectl init` makes its context current, and the operator's pointer names `intranet`, which other
+  sessions rely on. Its ADC is a private copy with quota project `tan-nb-exp`, for the same reason.
+  Date: 2026-11-02
+
+- Decision: P5 is not observed. Advanced Certificate Manager is not bought.
+  Rationale: operator, 2026-11-02; the intranet will use the zone itself as its base, so a subdomain base has no customer.
+  Date: 2026-11-02
 
 
 ## Outcomes & Retrospective
@@ -147,6 +164,31 @@ CNAMEs for `*` and the apex to the tunnel; zone settings Always Use HTTPS on, mi
 obfuscation and Rocket Loader off (the zone's defaults were off, 1.0, full and on). Tunnel creation needed no Zero
 Trust onboarding step. The cache bypass rule is deliberately not created yet, so P6 can first observe the leak. The
 cluster side waits for the disposable context.
+
+Bounded sequence for the cluster side, approved by the operator on 2026-11-02. Each step stops the run at the result
+named, and any guard refusal or unexpected result stops it too.
+
+1. Preflight, no mutation: gate record green, packaged `nagarectl` at v0.15.0's revision, a real API call to the project,
+   and `ep240-01`, `ep240-node`, repository `ep240` and both `tan-nb-exp-ep240-*` buckets absent. Stop if any exists.
+2. Operator material: fresh age identity, sops-encrypted host secrets, `context create`, `init --skip-enable`, `host init`,
+   `context guard`. Stop if the guard names anything but `tan-nb-exp` and stack `ep240`, or the operator's current-context
+   pointer changes.
+3. Perimeter: saved preview, then apply. Stop if the review holds any update, replace or delete, or a create named outside
+   this context's overrides.
+4. Image: start `nix-builder-x86`, `nagare host-image`. Stop if the dry run names a builder outside the project.
+5. VM: saved preview, then apply. Stop if the review touches anything but the instance and its attachments, or if
+   `nagare-01`, `nix-builder-x86` or a `cell-*` VM changes state other than the builder start.
+6. First boot: one Ready node, `place-age-key`, `server status` shows the key OK, `kubeconfig fetch`, `cluster guard`. Stop
+   if the node is not Ready within 10 minutes or the guard names another node.
+7. Bootstrap: `platform bootstrap plan` and `apply` until a review has no operations, at most 12 stages. Stop on a refusal
+   or an ambiguous apply that does not resume. `external-domain-tls` stays off, so no certificate is requested.
+8. Connector and fixtures: `domain-template` patch, connector Deployment with the P9 NetworkPolicy, echo service, protected
+   site. Stop if the connector does not register or the site does not answer 302 to an anonymous request.
+9. P1 to P10 in order, recording each. A failed observation is recorded and the rest continue only if they do not depend
+   on it. P9's repointed rules are restored before the next item. Stop if a repointed rule reaches its target.
+10. Teardown: protection off, stack destroyed through the same steps as the driver, image and object deleted, tunnel, both
+    DNS records and any cache rule removed, Tailscale key revoked, `nagare-ops` files and the run root removed. Stop if the
+    final stack export holds any resource, and list what is left.
 
 
 ## Validation and Acceptance
