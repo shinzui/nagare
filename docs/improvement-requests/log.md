@@ -6,6 +6,7 @@
 
 ## 2026-10-31
 * **Created**: Add IR-40 from `mori://tan/tan-ng-labs`: per-context overrides for observability resources (the intranet wants VMSingle at 1Gi), no duplicate apiserver and etcd series from the k3s kubelet scrape, and staggered hourly backup CronJobs. The intranet's VMSingle was OOM-killed 29 times at 512Mi, 21 of 27 times since 2026-10-19 within seconds of the quarter-hour backup burst.
+* **Update**: IR-39 no longer publishes to GitHub (operator, 2026-11-01); ExecPlan 237 moves the images through the Nix binary cache into each context's GCP Artifact Registry.
 * **Update**: Accept IR-39 and link its implementation to ExecPlan 237: docs/plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md. Implementation and acceptance verification remain pending.
 * **Created**: Add IR-39 from `mori://tan/tan-ng-labs` to publish Nix-built en, Shōmei, nagare-access and admin API images with each release and roll them with the platform.
 * **Created**: Add IR-38 from `mori://tan/tan-ng-labs` to report the installed Nagare version, host OS, component and database engine versions through the admin API.

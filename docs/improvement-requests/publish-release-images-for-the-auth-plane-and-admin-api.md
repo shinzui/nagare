@@ -56,7 +56,7 @@ described here visible; this request removes its cause.
 
 ## Implementation plan
 
-Accepted for implementation in [ExecPlan 237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md). Implementation and acceptance verification remain pending.
+Accepted for implementation in [ExecPlan 237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md). Implementation and acceptance verification remain pending. Operator decision, 2026-11-01: packages are never published to GitHub. The images move through the Nix binary cache into each context's GCP Artifact Registry, so this request's "public release registry" and AC-1's "release registry" mean that cache.
 
 
 ## Why
