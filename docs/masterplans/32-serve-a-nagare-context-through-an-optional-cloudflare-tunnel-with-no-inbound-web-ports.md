@@ -15,6 +15,11 @@ provenance:
       at: 2026-11-02T03:00:33Z
       mode: "update"
       note: "Record the operator's low-budget constraint; rule out Business and Enterprise; make a full zone on a new domain the preferred fallback"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-02T20:19:20Z
+      mode: "update"
+      note: "Security review: bound the connector in-cluster, two cache controls and edge policy, both Cloudflare credentials as interception credentials, hostnames and grants carried on a move, DNSSEC in the DNS step"
 ---
 
 # Serve a Nagare context through an optional Cloudflare Tunnel with no inbound web ports
@@ -69,6 +74,13 @@ Out of scope:
 - **Cloudflare decrypts traffic at its edge,** including session cookies and page content.
 - **Free and Pro limits apply:** 100 MB maximum upload, and a 125-second proxy read timeout.
 - **The domain's DNS moves to Cloudflare.**
+- **The Cloudflare account and the registrar become the roots of trust for every site.** Whoever
+  controls either controls DNS, edge TLS and where the tunnel points. Two-factor authentication on
+  both is part of the recommended path, and the API token is scoped to the one account and zone.
+- **The tunnel token is an interception credential.** A connector started anywhere with it receives a
+  share of every request, session cookies included. Nagare keeps it in one namespace, rotates it, and
+  reports any connector it did not start.
+- **No edge request logs on Free or Pro.** Incident response uses the gateway's own logs.
 
 Cost is $0 if the base domain is the Cloudflare zone itself, because the free certificate covers the
 apex and one label below it. A base domain that is a subdomain of the zone needs Advanced Certificate
@@ -140,12 +152,33 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
   server equivalents must agree with Knative's domain template.
 - **DNS expectation.** `dnsExpectationFor` in `cli/nagarectl/src/Nagare/Ops/Domains.hs`. EP-242 changes
   it, and EP-243's move uses `nagarectl domains check` as its gate.
-- **Perimeter.** `infra/pulumi/src/components/NagareNetwork.ts`, `NagarePerimeter.ts`, `domainTopology.ts`
-  and `resource-catalog.json`. Only EP-243 changes them.
+- **Perimeter.** `infra/pulumi/src/components/NagareNetwork.ts`, `NagarePerimeter.ts`,
+  `infra/pulumi/src/domainTopology.ts` and `infra/pulumi/resource-catalog.json`. Only EP-243 changes them.
+  In tunnel mode it also makes the `kourier` Service `ClusterIP`, so k3s binds no host port.
+- **Connector boundary.** EP-241 owns the connector's namespace, its NetworkPolicy (egress only to the
+  external `kourier` Service, cluster DNS and port 7844 TCP and UDP; no ingress), its pod hardening and
+  the tunnel's ingress rules (`<base>`, `*.<base>`, then a 404 catch-all). The tunnel's ingress
+  configuration is managed from Cloudflare, so this policy is the only control over what a change made
+  there can reach. EP-242 and EP-243 must not widen it.
+- **Edge policy and cache.** EP-242 owns them through the platform scope's zone claims from ADR 20's
+  2026-09-25 amendment: Always Use HTTPS, minimum TLS 1.2, SSL mode strict, response-rewriting features
+  off, and one cache rule that bypasses the cache for every hostname. The enforcer's
+  `Cache-Control: private, no-store` on every proxied protected response is the second control, owned by
+  EP-242 in `cli/nagare-access`.
+- **Hostnames on a move.** Flattening changes every default hostname of an existing context, and ADR 29
+  grants are per hostname. EP-242 defines the shape; EP-243's move re-declares protected routes and their
+  grants for the new names, or keeps the old names with Advanced Certificate Manager when the operator
+  chooses that.
+- **Visitor address.** Shomei and the gateway key on the socket peer, which behind Kourier is already a
+  proxy address, and Kourier keeps `trusted-hops-count: "0"`. No plan raises it, because a direct client
+  could then forge `X-Forwarded-For` while both paths are open during a move. Anything new that records a
+  visitor address in tunnel mode reads `CF-Connecting-IP`, and only once the perimeter is closed (EP-241).
 - **Representative check.** EP-240 is the producer/consumer check: a real browser login through a real
   tunnel to a protected site on a disposable context.
-- **ADRs.** EP-240 writes the new ADR for the topology when accepted and amends ADR 20. EP-242 amends
-  ADR 29 if its caching rule changes that decision.
+- **ADRs.** EP-240 writes the new ADR for the topology when accepted and amends ADR 20. The new ADR
+  carries the threat model: the tunnel token and the API token as interception credentials, the
+  in-cluster bound on the connector's reach, the two cache controls and the edge policy. EP-242 amends
+  ADR 29: a protected site behind Cloudflare is not a CDN, and the two cache controls are its rule.
 
 
 ## Progress
@@ -154,12 +187,22 @@ No child plan has started. EP-240 needs from the operator a Cloudflare account, 
 domain on it, and go-ahead for its bounded cloud sequence on a disposable context.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
-  working, and an outside port check finding nothing open (EP-244).
+  working, an outside port check finding nothing open, and the host listening on no web port (EP-244).
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-11-02, security review before any child started. The tunnel's ingress configuration is remotely
+  managed, so the connector pod is a reverse proxy into the cluster whose targets are set from Cloudflare;
+  the plan had no in-cluster bound on its reach. Flattening default names re-keys every ADR 29 grant on a
+  converted context, which EP-243's move did not carry. Verified against the tree: Kourier's
+  `trusted-hops-count: "0"` and `use-remote-address: "false"` (`cluster/bootstrap/vendor/kourier-v1.22.0.yaml`);
+  Knative's default `http-protocol: Enabled` serves plain HTTP
+  (`cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs`); the gateway hard-codes `Secure`
+  cookies and `https://` portal URLs but sets `Cache-Control: no-store` only on its own responses, not on
+  proxied ones (`cli/nagare-access/src/Nagare/Access/Cookie.hs`, `Portal.hs`, `Response.hs`); nothing in the
+  repository sends HSTS; Shomei keys login attempts and throttling on the socket peer; `nagared` checks an
+  HMAC signature and no source address. These changed EP-240 to EP-244 and the Decision Log below.
 
 
 ## Decision Log
@@ -192,6 +235,47 @@ domain on it, and go-ahead for its bounded cloud sequence on a disposable contex
 
 - Decision: If EP-240 fails, stop and bring the operator the alternatives instead of building one.
   Rationale: each alternative changes the cost or the recommendation, which is the operator's call.
+  Date: 2026-11-02
+
+- Decision: The connector's reach is bounded inside the cluster, not at Cloudflare. Its namespace carries
+  a NetworkPolicy allowing egress only to the external `kourier` Service, cluster DNS and port 7844, no
+  ingress, no service-account token, no host network, a restricted pod profile, and ingress rules that
+  name `<base>` and `*.<base>` and end in a 404 catch-all. A repointed tunnel must fail to connect.
+  Rationale: the ingress configuration is remotely managed, so the API token or the Cloudflare account
+  could otherwise turn the tunnel into a path to the API server, En, the object store or the node
+  metadata credential. The same isolation pattern already guards the admin API (ADR 29 amendment).
+  Date: 2026-11-02
+
+- Decision: Protected content is kept out of the edge cache by two independent controls: a zone cache
+  rule that bypasses the cache for every hostname in tunnel mode, and `Cache-Control: private, no-store`
+  from the enforcer on every proxied protected response. EP-240 proves the leak with neither control
+  before proving each alone and both together. Tunnel mode also sets the zone's edge policy: Always Use
+  HTTPS, minimum TLS 1.2, SSL mode strict, and response-rewriting features off.
+  Rationale: Cloudflare caches `.js`, `.css` and `.pdf` by extension regardless of request cookies, so one
+  control between an anonymous visitor and a protected file is too thin. Cloudflare's zone defaults are
+  TLS 1.0 and no redirect, Knative serves plain HTTP, and nothing in Nagare sends HSTS, so without these
+  settings the tunnel would serve sites over `http://`. Public sites lose edge caching, which they do not
+  have today either, and per-site CDN is already refused in tunnel mode.
+  Date: 2026-11-02
+
+- Decision: Both Cloudflare credentials are treated as interception credentials. The tunnel token rests
+  sops-encrypted in `cluster-secrets/<context>/` and in one Kubernetes Secret in the connector's
+  namespace, is never a context variable, and is rotated through the API with the Deployment rolled; the
+  status probe reports any connector Cloudflare lists that the context did not start. The API token is
+  scoped to the one account and zone with exactly Cloudflare Tunnel Edit, DNS Edit, Zone Settings Edit
+  and Cache Rules Edit, and the recommended path uses a Cloudflare account that holds nothing else.
+  Rationale: a connector started anywhere with the tunnel token receives a share of every request;
+  Cloudflare Tunnel Edit reads every tunnel's token in the account.
+  Date: 2026-11-02
+
+- Decision: A move carries hostnames. By default it re-declares every default route, its protected
+  route and its ADR 29 grants for the flattened `<name>-<namespace>.<base>` name in the same reviewed
+  move and lists the changed URLs first; alternatively the operator keeps two-label names by choosing
+  Advanced Certificate Manager at the start. The DNS step refuses while the parent zone publishes a DS
+  record and turns DNSSEC on at Cloudflare after activation.
+  Rationale: ADR 29 grants are per hostname, so a renamed site with its old grants is unreachable to the
+  people it was shared with, and a DS record left at the registrar blackholes the zone after the name
+  server change.
   Date: 2026-11-02
 
 

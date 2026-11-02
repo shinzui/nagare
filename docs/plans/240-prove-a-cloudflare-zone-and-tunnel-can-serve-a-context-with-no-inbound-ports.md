@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-02T03:17:41Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-02T20:19:20Z
+      mode: "update"
+      note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
 ---
 
 # Prove a Cloudflare zone and tunnel can serve a context with no inbound ports
@@ -33,22 +39,37 @@ Each item passes only with a recorded observation.
 - [ ] P1: A proxied wildcard CNAME to `<id>.cfargotunnel.com`, with a catch-all ingress rule, serves a
   one-label name such as `hello.<base>` with its `Host` header intact.
 - [ ] P2: The base domain's apex is served through the tunnel by a proxied CNAME, with a free certificate.
-- [ ] P3: `cloudflared` reaches Kourier inside the cluster with `external-domain-tls` off, and sites
-  still route. If this fails, record what origin TLS works instead.
+- [ ] P3: `cloudflared` reaches the external Service `kourier` inside the cluster with `external-domain-tls`
+  off, and sites still route. If this fails, record what origin TLS works instead. The hop from the
+  connector to Kourier is plain HTTP inside the node, like Kourier to a pod today; record that it is
+  accepted.
 - [ ] P4: Knative's domain template gives one-label default names (`<name>-<namespace>.<base>`), and they
   are served with the free certificate.
 - [ ] P5: With a subdomain base, an Advanced Certificate Manager certificate with `*.<base>` serves tunnel
   hostnames, given that Total TLS excludes them. Record the observed price.
 - [ ] P6: A protected site's `.pdf` and `.js`, fetched once while signed in, are never served to an
-  anonymous request: `cf-cache-status` is not `HIT` and the request reaches the login redirect. Record what
-  makes this true: a zone cache rule, or `Cache-Control: private` from the gateway.
+  anonymous request: `cf-cache-status` is not `HIT` and the request reaches the login redirect. Prove the
+  leak first with neither control, then that each control alone stops it, then both: a zone cache rule
+  that bypasses the cache for every hostname, and `Cache-Control: private, no-store` added by the gateway
+  to the proxied response. Both ship; record each observation.
 - [ ] P7: A full browser login works through the tunnel with the origin as chosen in P3: sign in at the
   auth host, reach a granted site, get refused on an ungranted one, and survive a session renewal. Cookies
-  stay `Secure`, and redirects stay `https`.
+  stay `Secure`, and redirects stay `https`. With Always Use HTTPS on at the zone, an `http://` request is
+  redirected at the edge, and a TLS 1.0 or 1.1 handshake is refused once the minimum is set to 1.2.
 - [ ] P8: Measurements are recorded: time to first byte direct and through the tunnel, and the behaviour of
   a response stream longer than 125 seconds.
-- [ ] Result: the Decision Log states pass or fail. On pass, a new ADR records the topology and ADR 20 is
-  amended. On fail, the work stops and the operator gets the alternatives from RES-7.
+- [ ] P9: The connector is bounded in the cluster. With a NetworkPolicy allowing egress only to the external
+  `kourier` Service, cluster DNS and port 7844, an ingress rule repointed from Cloudflare at
+  `https://kubernetes.default.svc`, `kourier-internal` and `http://169.254.169.254` fails to connect; the
+  rule is then restored. Ingress rules that name `<base>` and `*.<base>` with a 404 catch-all return 404
+  for any other hostname.
+- [ ] P10: Rotating the tunnel secret through the API makes Cloudflare refuse the old token, and a connector
+  restarted with the new token reconnects. Cloudflare's connector listing shows each connector's origin
+  address, so a connector the context did not start is visible.
+- [ ] Result: the Decision Log states pass or fail. On pass, a new ADR records the topology and its threat
+  model (both Cloudflare credentials as interception credentials, the in-cluster bound on the connector,
+  the two cache controls and the edge policy), and ADR 20 is amended. On fail, the work stops and the
+  operator gets the alternatives from RES-7.
 - [ ] Every prototype resource is removed from Cloudflare and the disposable context.
 
 
@@ -92,7 +113,15 @@ Nagare facts:
 - `cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl` issues through Cloud DNS, which would no longer be
   authoritative for a domain on Cloudflare. Keeping a Cloudflare DNS-01 token in the cluster is the rejected
   default, because it gives the cluster power over the whole zone.
-- Service `kourier` in namespace `kourier-system` is the gateway.
+- Service `kourier` in namespace `kourier-system` is the external gateway; `kourier-internal` serves
+  cluster-local routes and must never be the connector's origin. Kourier's `config-kourier` keeps
+  `trusted-hops-count: "0"` and `use-remote-address: "false"`.
+- Knative's default `http-protocol: Enabled` serves plain HTTP
+  (`cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs`), and nothing in the repository
+  sends HSTS. The gateway hard-codes `Secure` cookies and `https://` portal URLs
+  (`cli/nagare-access/src/Nagare/Access/Cookie.hs`, `Portal.hs`) and sets `Cache-Control: no-store` only on
+  its own responses, not on the responses it proxies.
+- Cloudflare's zone defaults are minimum TLS 1.0 and no HTTP to HTTPS redirect.
 - [ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md) records per-hostname access.
 
 
@@ -121,6 +150,10 @@ Removal is by tunnel and record ID.
 
 ## Interfaces and Dependencies
 
-Cloudflare API, with a token holding Cloudflare Tunnel Edit and Zone DNS Edit. Tunnel creation is
-`POST /accounts/{id}/cfd_tunnel`, and configuration is `PUT /accounts/{id}/cfd_tunnel/{tunnel}/configurations`.
-Outbound port 7844 (TCP and UDP) must be open from the VM. No prerequisites.
+Cloudflare API, with a token scoped to the one account and the one zone holding exactly Account: Cloudflare
+Tunnel Edit, Zone: DNS Edit, Zone: Zone Settings Edit and Zone: Cache Rules Edit. Cloudflare Tunnel Edit reads
+every tunnel's token in the account, so the account should hold nothing but this installation. The token rests
+sops-encrypted with the operator's other material and is exported for a command, never written to a context
+file. Tunnel creation is `POST /accounts/{id}/cfd_tunnel`, configuration is
+`PUT /accounts/{id}/cfd_tunnel/{tunnel}/configurations`, and rotation is `PATCH /accounts/{id}/cfd_tunnel/{tunnel}`
+with a new `tunnel_secret`. Outbound port 7844 (TCP and UDP) must be open from the VM. No prerequisites.

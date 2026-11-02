@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-02T03:17:41Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-02T20:19:20Z
+      mode: "update"
+      note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
 ---
 
 # Run a reviewed Cloudflare Tunnel connector beside direct ingress
@@ -35,13 +41,26 @@ change at all.
 - [ ] D3: The tunnel and its ingress configuration are typed inventory resources. Fake-adapter tests cover
   create, a lost acknowledgement on create and on configuration, a drifted configuration and an expired token,
   and each ends in a reviewed outcome.
-- [ ] D4: The connector runs from an image pinned by digest and pulled from the context's Artifact Registry,
-  with bounded resources and no `latest` tag. Pods restart without losing the route.
-- [ ] D5: The tunnel token lives only in the operator's encrypted material and a Kubernetes Secret. A test proves
-  it never appears in a plan, a journal or a log. `CF_API_TOKEN` is never written into the cluster.
+- [ ] D4: The connector runs in its own namespace from an image pinned by digest and pulled from the context's
+  Artifact Registry, with bounded resources and no `latest` tag, as non-root with a read-only root filesystem,
+  no capabilities, `automountServiceAccountToken: false` and no host network. Its readiness probe reads
+  `cloudflared`'s own `/ready` endpoint, which no Service exposes. Pods restart without losing the route.
+- [ ] D5: The tunnel token lives only in the operator's sops-encrypted `cluster-secrets/<context>/` material and
+  one Kubernetes Secret in the connector's namespace. It is not a context variable, and a test proves it never
+  appears in `context env`, a plan, a journal or a log. `CF_API_TOKEN` is never written into the cluster.
 - [ ] D6: `nagarectl platform status` and `nagarectl doctor` report connector health in tunnel mode, and
-  `gradeKourier` neither fails nor warns on a closed public IP in that mode.
+  `gradeKourier` neither fails nor warns on a closed public IP in that mode. The probe also lists the connectors
+  Cloudflare sees: their count and origin addresses must match the context's replicas and the VM, and any other
+  connector, or a remote configuration that differs from the declared one, is a failing check.
 - [ ] D7: On a disposable context, a rebuilt node rejoins the same tunnel with no new Cloudflare resource.
+- [ ] D8: A NetworkPolicy in the connector's namespace allows egress only to the external `kourier` Service in
+  `kourier-system`, cluster DNS, and port 7844 TCP and UDP, and allows no ingress. The declared ingress rules name
+  `<base>` and `*.<base>` and end in a 404 catch-all. On the disposable context of D7, an ingress rule repointed
+  from Cloudflare at the API server, `kourier-internal`, En, the object store and `169.254.169.254` fails to
+  connect, and is then restored.
+- [ ] D9: `nagarectl` rotates the tunnel secret: a new secret through the API, the Secret updated, the Deployment
+  rolled, and the old token refused by Cloudflare, with no failed request in a continuous loop. `docs/user`
+  names when to rotate: a suspected leak, an operator leaving, or a node rebuilt from untrusted material.
 
 
 ## Surprises & Discoveries
@@ -62,7 +81,18 @@ change at all.
 ## Context and Orientation
 
 Web traffic today enters at Service `kourier` in `kourier-system`. A tunnel adds a second path to that gateway: a
-`cloudflared` Deployment connects outbound to Cloudflare on port 7844 and forwards requests to Kourier. Read the
+`cloudflared` Deployment connects outbound to Cloudflare on port 7844 and forwards requests to Kourier. Its
+origin is the external Service `kourier`, never `kourier-internal`, which serves cluster-local routes.
+
+The tunnel's ingress configuration is managed from Cloudflare, so whoever holds the API token or the account can
+repoint it at anything the connector pod can reach. The NetworkPolicy in D8 is the only control over that, as it
+is for the admin API (ADR 29 amendment). The tunnel token is an interception credential: a connector started
+anywhere with it receives a share of every request, session cookies included; D5, D6 and D9 follow from that.
+
+Kourier's `config-kourier` keeps `trusted-hops-count: "0"` and `use-remote-address: "false"`, and Shomei keys
+login attempts and throttling on the socket peer, which behind Kourier is already a proxy address. Do not raise
+the trusted hops: while a move leaves both paths open, a direct client could forge `X-Forwarded-For`. Anything
+new that records a visitor address in tunnel mode reads `CF-Connecting-IP`, and only once the perimeter is closed. Read the
 accepted result of `docs/plans/240-prove-a-cloudflare-zone-and-tunnel-can-serve-a-context-with-no-inbound-ports.md`
 and its ADR first, since they fix the origin settings.
 
