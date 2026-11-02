@@ -32,6 +32,11 @@ provenance:
       at: 2026-11-02T00:22:48Z
       mode: "update"
       note: "Redesigned without GitHub: images go through the Nix cache into each context's GCP Artifact Registry; progress reset after the c4e162d6 revert"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-02T02:49:18Z
+      mode: "implement"
+      note: "D2 proved against the cache; D1 restored on master without any registry name"
 ---
 
 # Publish release images for the auth plane and admin API
@@ -48,10 +53,8 @@ Implement [IR-39](../improvement-requests/publish-release-images-for-the-auth-pl
 
 ## Progress
 
-Master carries none of this code: `c4e162d6` removed it for the v0.14.2 kernel release. The earlier evidence is for the GHCR design; each item below is unticked until it passes on restored code.
-
-- [ ] D1: The EP-237 code is restored on master without any GHCR path, and master can still cut a release while no release has adopted it.
-- [ ] D2: The four images build on the builder with the digests `release.json` names; a clean Mac fetches each from `shinzui.cachix.org` by store path with no build and no evaluation of the Linux derivations. **Do this first: the design depends on it and it has never been run.**
+- [x] D1: The EP-237 code is restored on master without any GHCR path, and master can still cut a release while no release has adopted it. Evidence: `2632fda5`, fast gate green and the whole harness suite passing. `release.json` has no `releaseImages`, the candidate and `release-publish.sh` are unchanged, bootstrap keeps its explicit images, and `ImageStatusSpec` proves a payload without images keeps an `exact` aggregate. `git grep ghcr.io/shinzui -- cli nix scripts justfile` finds nothing.
+- [x] D2: The four images build on the builder with the digests `release.json` names; a clean Mac fetches each from `shinzui.cachix.org` by store path with no build and no evaluation of the Linux derivations. Evidence, run at `d2ebb3f5` on its `release-images-manifest`, because `release.json` carries no images until a release does: after `nix store delete`, `nix copy --from` took 2–3 s per image with no build and no `.drv` in its log, and `skopeo inspect oci:` printed the manifest's digest for all four. A second fetch into an empty store gave the same digests: en `sha256:2dd89ccc…`, shomei `sha256:39214222…`, nagare-access `sha256:a6cfa4f0…`, admin API `sha256:5f1a0261…`. Each closure is one path of 27–43 MiB. A scan of every layer found no secret; its one hit is the PEM marker string in `libssh2`, with no key after it.
 - [ ] D3: The candidate pushes the four images to the cache and reads them back. It makes no registry call and needs no GitHub credential.
 - [ ] D4: Bootstrap and transitions publish the images into the context registry by digest and roll each migration Job and server onto them. Interpreter tests cover a lost acknowledgement, a resume after a partly applied image change, a cache miss and a digest mismatch.
 - [ ] D5: `platform status` classifies each workload by digest, whatever registry it was pulled from.
@@ -65,8 +68,20 @@ Master carries none of this code: `c4e162d6` removed it for the v0.14.2 kernel r
 
 2026-11-01: The v0.15.0 candidate stopped because the GHCR packages it had just created were private. Reading the code then showed the release could not have finished anyway: the intranet's `images.env` pins would be reported as `image-skew`, and the release's intranet step refuses anything but `exact`, after the transition has applied. Both led to this redesign, and the second to D6. Evidence: `~/.local/state/nagare/releases/v0.15.0/20261101T230730Z/`.
 
+2026-11-01: Each layout's closure first held 10 paths, not 1: `buildLayeredImage` names store paths in the config's history comments and Nix kept nine of them (the glibc closure) as references, so a fetch would have pulled Linux store paths to the Mac. See the Decision Log entry on references. Evidence: `nix path-info -r` before and after.
+
+2026-11-01: `nix copy --from` into the daemon store fails on a machine that does not trust the cache's key: `lacks a signature by a trusted key`, reproduced with only `cache.nixos.org` trusted. `nix copy --no-check-sigs --to DIR` into a private store works with no trust setup. This changes how D4 fetches.
+
 
 ## Decision Log
+
+2026-11-01: D4 fetches into a private store under nagarectl's state directory with `nix copy --no-check-sigs --from … --to DIR` and reads `oci:DIR/nix/store/…`, not the daemon store. An operator then needs no trusted key, no trusted-user setting and no cache configuration. Integrity comes from the digest in the reviewed `release.json`, so D4 must prove that the copy refuses a tampered blob, not only a wrong manifest.
+
+2026-11-01: Image layouts drop the config's history comments and set `allowedReferences = [ ]`, so a layout's closure is that one path and the build fails if a reference returns.
+
+2026-11-01: Images carry no release version: the `io.nagare.release-version` label, the archive tag and the index annotations are gone. An image whose inputs did not change now keeps its store path and digest across releases, which is what lets an upgrade skip it. nagare-access and the admin API still move when their Nagare sources do.
+
+2026-11-01: D1 restores no candidate or publish step, so D3 adds the push to the candidate and skips it while `release.json` has no `releaseImages`. D1 keeps only the status text from `db83be4e`'s docs; the release, upgrade, access and bootstrap text describes a route that exists after D4, so its GCP version comes with D9.
 
 2026-11-01 (operator): Never use GitHub for packages. This supersedes the 2026-10-31 entries that use public GHCR, and the review entry that rejects the context registry. The first upload, anonymous-pull check, `ghcr.io` login and release-version image tags all go away with it.
 
@@ -92,7 +107,7 @@ Master carries none of this code: `c4e162d6` removed it for the v0.14.2 kernel r
 
 ## Context and Orientation
 
-The removed code is in history and comes back in D1. `nix/release-images.nix` builds the images; `cli/nagare-harness/src/Nagare/Harness/Release/Images.hs` and `Candidate.hs` publish and verify them in the candidate; `cli/nagarectl/src/Nagare/Platform/ReleaseImages.hs`, `ImageStatus.hs` and `Transition.hs` select and classify them.
+`nix/release-images.nix` builds the images; `cli/nagare-harness/src/Nagare/Harness/Release/Images.hs` prepares them and pushes them to the cache, and D3 calls it from `Candidate.hs`; `cli/nagarectl/src/Nagare/Platform/ReleaseImages.hs`, `ImageStatus.hs` and `Transition.hs` select and classify them.
 
 The precedent for D4 is on master: `cli/nagarectl/src/Nagare/Inventory/Components/ControllerImage.hs` declares a reviewed artifact, binds its digest with `skopeo` before any registry mutation, and publishes the patched net-certmanager controller into the context registry. It reads a `docker-archive:` from the payload; these four read an `oci:` layout from the Nix store, because four Haskell closures would multiply the payload's size. Clusters already pull privately from the context registry, so no new pull credential is needed.
 
@@ -103,11 +118,9 @@ Consulted ADRs: [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency
 
 ## Plan of Work
 
-**D1, D2.** Cherry-pick the four commits. Remove `repository`, the anonymous checks, the tag step and the GHCR text in the same change; add `storePath`. Master must not require images before D4 exists, so `release images prepare` and the candidate's image step stay out of the release path until then. Build on the builder, push one image to the cache, and fetch it on the Mac as in Concrete Steps. If this fails, stop and bring the failure to the operator, because the design changes.
-
 **D3.** The candidate's image step becomes: build, compare digests with `release.json`, push the closures with `cachix push`, read them back. It runs before the rehearsal, which needs them.
 
-**D4.** Add one reviewed artifact per image, modelled on `ControllerImage.hs`. Before any registry mutation: `nix copy --from` the store path, then check the layout's manifest digest with `skopeo` against `release.json`. Publish with `skopeo copy --preserve-digests`. Each workload's reference is `<context registry>/<name>@sha256:<digest>`, and a server rolls only after its migration Job succeeds. An unchanged digest does no fetch and no copy, so an upgrade that leaves an image alone pays nothing for it. Local mode uses the same route into its k3d registry.
+**D4.** Add one reviewed artifact per image, modelled on `ControllerImage.hs`. Before any registry mutation: fetch the store path into a private store as the Decision Log says, then check the layout's manifest digest with `skopeo` against `release.json`. Publish with `skopeo copy --preserve-digests`. Each workload's reference is `<context registry>/<name>@sha256:<digest>`, and a server rolls only after its migration Job succeeds. An unchanged digest does no fetch and no copy, so an upgrade that leaves an image alone pays nothing for it. Local mode uses the same route into its k3d registry.
 
 **D5.** Restore the classifications `release`, `override`, `other-release`, `drift`, `unknown` and `not-enabled`, comparing digests only. Status adds no registry call and needs no image variables.
 
@@ -122,17 +135,7 @@ Consulted ADRs: [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency
 
 ## Concrete Steps
 
-The D2 proof, run from the repository root on the Mac, where `$PATH_FROM_RELEASE_JSON` is an image's `storePath`:
-
-```bash
-nix build --no-link --print-out-paths --max-jobs 0 .#packages.x86_64-linux.release-image-admin-api
-cachix push shinzui "$PATH_FROM_RELEASE_JSON"
-nix store delete "$PATH_FROM_RELEASE_JSON"
-nix copy --from https://shinzui.cachix.org "$PATH_FROM_RELEASE_JSON"
-skopeo inspect --format '{{.Digest}}' "oci:$PATH_FROM_RELEASE_JSON"
-```
-
-Pass: the last command prints the digest `release.json` names, and no derivation was built or evaluated by the `nix copy`. Per Haskell commit run `just haskell-style-check`, then `just gate-fast`; land with `just land`.
+Per Haskell commit run `just haskell-style-check`, then `just gate-fast`; land with `just land`.
 
 
 ## Validation and Acceptance
