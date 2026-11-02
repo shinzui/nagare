@@ -39,6 +39,10 @@ record="docs/release-evidence/$rev/transition-rehearsal.json"
 git cat-file -e "origin/master:$record" 2>/dev/null || die "$record is not on origin/master"
 cmp -s <(git show "origin/master:$record") "$run/dist/nagare-transition-rehearsal-$tag.json" \
   || die "the landed $record differs from the assembled one"
+# EP-237: keep a released image in the binary cache for as long as the release exists.
+git show "$rev:release.json" > "$run/release.json"
+"$repo/scripts/harness.sh" release images pin "$version" --manifest "$run/release.json" \
+  || die "the release images could not be pinned"
 
 publish="$run/publish"
 signers="$(mktemp)"

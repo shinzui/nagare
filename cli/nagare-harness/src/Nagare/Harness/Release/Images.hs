@@ -4,7 +4,8 @@
 -- builds them again from the candidate revision, refuses unless they are the
 -- committed images, pushes their OCI layouts to the binary cache and reads them
 -- back. It makes no registry call: each context publishes the images into its
--- own registry during its reviewed transition.
+-- own registry during its reviewed transition. Publication pins them, so the
+-- cache's garbage collection never evicts a released image.
 --
 -- Credentials stay with cachix's environment; nothing here reads, passes or
 -- records them.
@@ -15,6 +16,7 @@ module Nagare.Harness.Release.Images
   , readReleaseImages
   , prepareReleaseImages
   , pushReleaseImages
+  , pinReleaseImages
   , binaryCache
   )
 where
@@ -71,13 +73,14 @@ data ImagesReceipt = ImagesReceipt
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- | The @releaseImages@ member of a @release.json@.
-readReleaseImages :: ByteString -> Either Text ReleaseImages
+-- | The @releaseImages@ member of a @release.json@. A release without one keeps
+-- naming its images in the context; a malformed one refuses.
+readReleaseImages :: ByteString -> Either Text (Maybe ReleaseImages)
 readReleaseImages bytes = case Aeson.eitherDecodeStrict' bytes :: Either String Value of
   Left err -> Left ("release.json does not decode: " <> T.pack err)
   Right (Aeson.Object fields) -> case KeyMap.lookup "releaseImages" fields of
-    Nothing -> Left "release.json has no releaseImages; run release images prepare before the chore(release) commit"
-    Just value -> first (("release.json releaseImages: " <>) . T.pack) (Aeson.parseEither Aeson.parseJSON value)
+    Nothing -> Right Nothing
+    Just value -> bimap (("release.json releaseImages: " <>) . T.pack) Just (Aeson.parseEither Aeson.parseJSON value)
   Right _ -> Left "release.json is not an object"
 
 -- | Build the four images from the working tree on the builder and write
@@ -136,6 +139,17 @@ pushReleaseImages runtime options = do
   createDirectoryIfMissing True (options ^. #work)
   writeSorted True (options ^. #work </> "release-images.json") (toJSON receipt)
   pure receipt
+
+-- | Publication: keep every image of a published release in the cache. Pinning
+-- a name that already holds this path changes nothing, so a retry is safe.
+pinReleaseImages :: Runtime -> Text -> ReleaseImages -> IO ()
+pinReleaseImages runtime version manifest = do
+  either refuse pure (validateReleaseImages manifest)
+  forM_ (Map.toList (manifest ^. #images)) $ \(key, image) -> do
+    let name = "nagare-v" <> version <> "-" <> releaseImageKeyText key
+    require runtime ("pinning " <> name <> " in the binary cache failed") $
+      invocation "cachix" ["pin", fst binaryCache, T.unpack name, T.unpack (image ^. #storePath), "--keep-forever"]
+    (runtime ^. #say) ("release images: pinned " <> name)
 
 encodeText :: Value -> Text
 encodeText = TE.decodeUtf8 . BL.toStrict . Aeson.encode

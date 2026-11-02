@@ -1,7 +1,14 @@
 -- | EP-237: the release images step, interpreted with a recording fake. Nothing
 -- is pushed unless the candidate builds the images its release.json names, and
 -- a push counts only when the cache serves the result.
-module ReleaseImagesSpec (releaseImagesTests) where
+module ReleaseImagesSpec
+  ( releaseImagesTests
+  , digestFor
+  , fixtureImages
+  , imageKeys
+  , storePathFor
+  )
+where
 
 import Control.Exception (try)
 import Control.Monad (void)
@@ -10,6 +17,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.Types (parseEither)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Text qualified as T
@@ -173,8 +181,19 @@ releaseImagesTests =
           refused (void (pushReleaseImages runtime options)) >>= assertMentions "cachix push failed"
           (runtime', _, options') <- pushWith root' withToken calm {cacheServes = False}
           refused (void (pushReleaseImages runtime' options')) >>= assertMentions "does not serve"
-    , testCase "a release.json without releaseImages names the prepare step" $
-        case readReleaseImages "{\"platformVersion\":\"9.8.7\"}" of
-          Left reason -> assertMentions "release images prepare" reason
-          Right _ -> assertFailure "a release without images decoded"
+    , testCase "a release.json without releaseImages has none, and a malformed member refuses" $ do
+        readReleaseImages "{\"platformVersion\":\"9.8.7\"}" @?= Right Nothing
+        readReleaseImages (BL.toStrict (Aeson.encode (object ["releaseImages" .= fixtureImages]))) @?= Right (Just releaseImagesOf)
+        case readReleaseImages "{\"releaseImages\":{\"schemaVersion\":2,\"images\":{}}}" of
+          Left reason -> assertMentions "releaseImages" reason
+          Right _ -> assertFailure "a malformed member decoded"
+    , testCase "publication pins every image forever, by a name that carries the version" $ do
+        (runtime, world, _) <- pushWith "/unused" withToken calm
+        pinReleaseImages runtime "9.8.7" releaseImagesOf
+        recorded world
+          >>= ( @?=
+                  [ ("cachix", ["pin", "shinzui", "nagare-v9.8.7-" <> T.unpack key, storePathFor package, "--keep-forever"])
+                  | (key, package) <- imageKeys
+                  ]
+              )
     ]

@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -8,9 +9,9 @@ import Nagare.Harness.Gate (coveredRevision, fastGateAt, fullGateAt, landableRev
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Release.Candidate (CandidateOptions (..), releaseCandidate)
-import Nagare.Harness.Release.Images (prepareReleaseImages)
+import Nagare.Harness.Release.Images (pinReleaseImages, prepareReleaseImages, readReleaseImages)
 import Nagare.Harness.Release.Intranet (IntranetOptions (..), transitionPinTag, transitionRun)
-import Nagare.Harness.Release.Process (realRuntime, refusing)
+import Nagare.Harness.Release.Process (realRuntime, refuse, refusing)
 import Nagare.Harness.Release.Rehearse (RehearseOptions (..), transitionRehearse)
 import Nagare.Harness.Release.TransitionDrill (transitionDrill)
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
@@ -36,6 +37,7 @@ data Command
   | RouteCheck !RouteCheckOptions
   | ReleaseCandidate !CandidateOptions
   | ReleaseImagesPrepare
+  | ReleaseImagesPin !Text !FilePath
   | TransitionRun !IntranetOptions !Bool
   | TransitionPinTag !IntranetOptions
   | TransitionRehearse !RehearseOptions
@@ -72,7 +74,7 @@ releaseParser =
             )
             (progDesc "Everything up to the tag, unattended: gate, transition rehearsal, attachments, assembly, the intranet, the rehearsal record (scripts/release-candidate.sh)")
         )
-        <> command "images" (info imagesParser (progDesc "Build the release's four service images (EP-237)"))
+        <> command "images" (info imagesParser (progDesc "Build the release's four service images and pin them (EP-237)"))
     )
 
 imagesParser :: Parser Command
@@ -81,6 +83,12 @@ imagesParser =
     ( command
         "prepare"
         (info (pure ReleaseImagesPrepare) (progDesc "Build the four images on the x86_64-linux builder and write their digests and store paths into release.json, before the chore(release) commit"))
+        <> command
+          "pin"
+          ( info
+              (ReleaseImagesPin <$> versionArgument <*> strOption (long "manifest" <> metavar "FILE" <> help "A release.json"))
+              (progDesc "Keep a published release's images in the binary cache; a release without images needs nothing")
+          )
     )
 
 -- | The scripts' own grammars, so each wrapper is a bare @exec … "$\@"@.
@@ -229,6 +237,10 @@ main = do
   parsed <- execParser (info (commandParser <**> helper) (fullDesc <> failureCode 2 <> progDesc "Nagare release and gate harness"))
   case parsed of
     ReleaseCandidate options -> realRuntime >>= \runtime -> refusing "release-candidate" (releaseCandidate runtime options)
+    ReleaseImagesPin version manifest ->
+      realRuntime >>= \runtime -> refusing "release images" $ do
+        images <- BS.readFile manifest >>= either refuse pure . readReleaseImages
+        forM_ images (pinReleaseImages runtime version)
     TransitionRun options pinTag -> realRuntime >>= \runtime -> refusing "release-intranet" ((if pinTag then transitionPinTag else transitionRun) runtime options)
     TransitionPinTag options -> realRuntime >>= \runtime -> refusing "release-intranet" (transitionPinTag runtime options)
     TransitionRehearse options -> realRuntime >>= \runtime -> refusing "release-rehearse" (transitionRehearse runtime options)
@@ -314,6 +326,7 @@ harnessMain root parsed =
       unless green exitFailure
     -- The release commands run before the repository root is read.
     ReleaseCandidate _ -> pure ()
+    ReleaseImagesPin {} -> pure ()
     ReleaseImagesPrepare -> realRuntime >>= \runtime -> refusing "release images" (prepareReleaseImages runtime root)
     TransitionRun _ _ -> pure ()
     TransitionPinTag _ -> pure ()

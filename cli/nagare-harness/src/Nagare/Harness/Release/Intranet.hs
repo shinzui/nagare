@@ -20,6 +20,7 @@ module Nagare.Harness.Release.Intranet
   ( IntranetOptions (..)
   , transitionRun
   , transitionPinTag
+  , operatorImageOverrides
   , stagesMax
   , loginLocation
   , repoint
@@ -39,6 +40,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
 import Data.Time (defaultTimeLocale, formatTime)
+import Nagare.Contract.ReleaseImages (overrideVariable, releaseImageKeys)
 import Nagare.Contract.V1 (VersionInfo (..))
 import Nagare.Harness.Prelude hiding ((.=))
 import Nagare.Harness.Release.Process
@@ -105,13 +107,7 @@ setup runtime options = do
   forM_ (options ^. #revision) $ \wanted ->
     unless (wanted == revision') (refuse (T.pack run' <> " is a run for " <> revision' <> ", not " <> wanted))
   let context' = fromMaybe (maybe "intranet" T.pack (lookupVariable runtime "NAGARE_RELEASE_CONTEXT")) (options ^. #context)
-  operator' <- case lookupVariable runtime "NAGARE_RELEASE_OPERATOR_REPO" of
-    Just path -> pure path
-    Nothing -> do
-      found <- invoke runtime (invocation "mori" ["path", "mori://tan/tan-ng-labs"] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
-      pure (T.unpack (lastLines 1 (lenient (found ^. #output))))
-  repository <- if null operator' then pure False else doesDirectoryExist (operator' </> ".git")
-  unless repository (refuse ("no operator repository at '" <> T.pack operator' <> "'; set NAGARE_RELEASE_OPERATOR_REPO"))
+  operator' <- operatorRepository runtime
   let pins = ["flake.nix", "flake.lock", "hosts/" <> T.unpack context' <> "/flake.nix", "hosts/" <> T.unpack context' <> "/flake.lock", "contexts/" <> T.unpack context' <> ".env"]
   tracked' <- filterM (\file -> succeeds runtime (git operator' ["ls-files", "--error-unmatch", "--", file] & #stdoutTo .~ Discard & #stderrTo .~ Discard)) pins
   unless ("flake.nix" `elem` tracked') (refuse (T.pack operator' <> " does not track flake.nix"))
@@ -127,6 +123,34 @@ setup runtime options = do
       , tracked = tracked'
       , clean = cleanEnvironment runtime
       }
+
+-- | The operator repository whose dev shell runs the intranet's nagarectl.
+operatorRepository :: Runtime -> IO FilePath
+operatorRepository runtime = do
+  operator' <- case lookupVariable runtime "NAGARE_RELEASE_OPERATOR_REPO" of
+    Just path -> pure path
+    Nothing -> do
+      found <- invoke runtime (invocation "mori" ["path", "mori://tan/tan-ng-labs"] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
+      pure (T.unpack (lastLines 1 (lenient (found ^. #output))))
+  repository <- if null operator' then pure False else doesDirectoryExist (operator' </> ".git")
+  unless repository (refuse ("no operator repository at '" <> T.pack operator' <> "'; set NAGARE_RELEASE_OPERATOR_REPO"))
+  pure operator'
+
+-- | The image overrides the operator's dev shell exports (EP-237). Only their
+-- names leave the shell; an empty variable is no override.
+operatorImageOverrides :: Runtime -> IO [Text]
+operatorImageOverrides runtime = do
+  operator' <- operatorRepository runtime
+  let names = map overrideVariable releaseImageKeys
+      script = "for name do eval \"value=\\${$name:-}\"; [ -z \"$value\" ] || echo \"$name\"; done"
+  said <-
+    capture runtime ("cannot read the image overrides from the shell of " <> T.pack operator') $
+      invocation "direnv" (["exec", operator', "sh", "-c", script, "sh"] <> map T.unpack names)
+        & #environment
+        .~ Exactly (cleanEnvironment runtime)
+        & #stderrTo
+        .~ Discard
+  pure (filter (`elem` names) (T.lines (lenient said)))
 
 git :: FilePath -> [String] -> Invocation
 git operator' arguments' = invocation "git" (["-C", operator'] <> arguments')

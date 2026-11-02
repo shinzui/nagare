@@ -20,7 +20,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
-import Data.List (isPrefixOf, sort)
+import Data.List (isPrefixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -34,6 +34,7 @@ import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Rehearse
 import Nagare.Harness.Release.Review
 import Nagare.Harness.Release.TransitionDrill
+import ReleaseImagesSpec (digestFor, fixtureImages, imageKeys, storePathFor)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, doesPathExist, getPermissions, pathIsSymbolicLink, setOwnerExecutable, setPermissions)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -541,14 +542,21 @@ assertNothingLanded o calls' = do
 -- * release candidate (scripts/release-candidate.sh)
 
 candidateWorld :: FilePath -> IO Responder
-candidateWorld root' = do
+candidateWorld root' = candidateWorldWith root' False ""
+
+-- | @images@: release.json names its service images. @pinned@ is what the
+-- operator shell reports as exported image overrides.
+candidateWorldWith :: FilePath -> Bool -> Text -> IO Responder
+candidateWorldWith root' images pinned = do
   let repo = root' </> "repo"
       ok out = pure (0, out)
   pure $ \command -> case (command ^. #program, command ^. #arguments) of
     ("git", ["rev-parse", "--show-toplevel"]) -> ok (T.pack repo <> "\n")
     ("git", ["rev-parse", "--verify", "HEAD^{commit}"]) -> ok (rev <> "\n")
     ("nix", "eval" : _) -> ok "aarch64-darwin"
-    ("git", ["show", _]) -> ok (encodeText (object ["platformVersion" .= version', "supportedSystems" .= ["x86_64-linux", "aarch64-darwin" :: Text], "transitionsFrom" .= ["9.8.5", "9.8.6", "9.10.0" :: Text]]))
+    ("git", ["show", _]) -> ok (encodeText (object (["platformVersion" .= version', "supportedSystems" .= ["x86_64-linux", "aarch64-darwin" :: Text], "transitionsFrom" .= ["9.8.5", "9.8.6", "9.10.0" :: Text]] <> ["releaseImages" .= fixtureImages | images])))
+    ("direnv", "exec" : _ : "sh" : _) -> ok pinned
+    ("cat", [path]) | "/digest" `isSuffixOf` path -> ok (digestFor 'a' <> "\n")
     ("git", ["rev-parse", "-q", "--verify", tagRef]) -> pure (if tagRef == "refs/tags/v9.10.0" then 0 else 1, "")
     ("git", ["worktree", "add", "-q", "--detach", tree, _]) -> do
       createDirectoryIfMissing True (tree </> "scripts")
@@ -646,6 +654,47 @@ candidateTests =
           fieldAt index ["records"] @?= Just (object ["candidate" .= ("candidate.json" :: Text), "dist" .= ("dist" :: Text), "transitionRehearsal" .= ("transition-rehearsal.json" :: Text)])
           [(fieldAt entry ["name"], fieldAt entry ["status"]) | Just (Aeson.Array entries) <- [fieldAt index ["steps"]], entry <- toList entries]
             @?= [(Just (Aeson.String name), Just "passed") | name <- ["worktree", "gate", "rehearsal", "aarch64-darwin", "x86_64-linux-outputs", "x86_64-linux", "assembly", "gate-wait", "intranet", "record"]]
+    , testCase "a release with images pushes them to the cache after the gate starts and before the rehearsal, with no registry call" $
+        withSystemTempDirectory "candidate" $ \raw -> do
+          root' <- canonicalizePath raw
+          pathless <- withoutPython root'
+          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state"), ("CACHIX_AUTH_TOKEN", "secret")] <> pathless) =<< candidateWorldWith root' True ""
+          releaseCandidate runtime (CandidateOptions version' "HEAD" True)
+          calls' <- rendered root' <$> recorded world
+          let cut = dropWhile (/= "just gate-release " <> T.unpack rev) calls'
+          takeWhile (not . isPrefixOf "mktemp") (drop 1 cut)
+            @?= concat
+              [ ["nix build --no-link --print-out-paths --max-jobs 0 git+file://$T/repo?rev=" <> T.unpack rev <> "#packages.x86_64-linux." <> package, "cat " <> storePathFor package <> "/digest"]
+              | (_, package) <- imageKeys
+              ]
+              <> ["cachix push shinzui " <> unwords [storePathFor package | (_, package) <- imageKeys]]
+              <> ["nix path-info --store https://shinzui.cachix.org " <> storePathFor package | (_, package) <- imageKeys]
+          assertBool "the candidate called a registry" (not (any ("skopeo" `isPrefixOf`) calls'))
+          assertBool "a rehearsal read the operator shell" (not (any ("direnv" `isPrefixOf`) calls'))
+    , testCase "a release with images refuses before anything runs while the operator shell exports a pin, naming it" $
+        withSystemTempDirectory "candidate" $ \raw -> do
+          root' <- canonicalizePath raw
+          createDirectoryIfMissing True (root' </> "operator/.git")
+          pathless <- withoutPython root'
+          let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state"), ("CACHIX_AUTH_TOKEN", "secret"), ("NAGARE_RELEASE_OPERATOR_REPO", root' </> "operator")] <> pathless
+          (runtime, world) <- fake environment' =<< candidateWorldWith root' True "NAGARE_AUTH_EN_IMAGE\nNAGARE_ADMIN_API_IMAGE\n"
+          reason <- refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False))
+          assertMentions "NAGARE_AUTH_EN_IMAGE, NAGARE_ADMIN_API_IMAGE" reason
+          calls' <- rendered root' <$> recorded world
+          assertBool "the run went on after the refusal" (not (any (\call -> "git worktree" `isPrefixOf` call || "just" `isPrefixOf` call) calls'))
+          (runtime', _) <- fake environment' =<< candidateWorldWith root' True ""
+          releaseCandidate runtime' (CandidateOptions version' "HEAD" False)
+    , testCase "a release without images reads no token and no operator shell, and a release with images needs the token" $
+        withSystemTempDirectory "candidate" $ \raw -> do
+          root' <- canonicalizePath raw
+          pathless <- withoutPython root'
+          let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless
+          (runtime, _) <- fake environment' =<< candidateWorldWith root' True ""
+          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" True)) >>= assertMentions "CACHIX_AUTH_TOKEN"
+          (runtime', world') <- fake environment' =<< candidateWorld root'
+          releaseCandidate runtime' (CandidateOptions version' "HEAD" True)
+          calls' <- rendered root' <$> recorded world'
+          assertBool "a release without images read the operator shell" (not (any ("direnv" `isPrefixOf`) calls'))
     , testCase "a red release gate stops the run before the intranet and still removes the worktrees" $
         withSystemTempDirectory "candidate" $ \raw -> do
           root' <- canonicalizePath raw

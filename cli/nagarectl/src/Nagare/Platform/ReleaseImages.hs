@@ -11,7 +11,6 @@ module Nagare.Platform.ReleaseImages
   , ImageSelection (..)
   , ImageSelectionError (..)
   , imageSourceToken
-  , overrideVariable
   , resolveImage
   , selectImage
   , explicitSelection
@@ -34,6 +33,7 @@ import Nagare.Contract.ReleaseImages
   , ReleaseImages
   , immutableReference
   , lookupReleaseImage
+  , overrideVariable
   , releaseImageKeyText
   , releaseImageReference
   )
@@ -61,14 +61,6 @@ data ImageSelectionError
   = MutableOverride !ReleaseImageKey !Text
   | NoReleaseImage !ReleaseImageKey
   deriving stock (Eq, Show, Generic)
-
--- | The environment variable that overrides one image.
-overrideVariable :: ReleaseImageKey -> Text
-overrideVariable = \case
-  EnImage -> "NAGARE_AUTH_EN_IMAGE"
-  ShomeiImage -> "NAGARE_AUTH_SHOMEI_IMAGE"
-  AccessImage -> "NAGARE_AUTH_ACCESS_IMAGE"
-  AdminApiImage -> "NAGARE_ADMIN_API_IMAGE"
 
 -- | @registry@ is the context's image registry prefix.
 resolveImage :: Text -> ReleaseImageKey -> Maybe ReleaseImages -> Maybe Text -> Either ImageSelectionError ImageSelection

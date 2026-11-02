@@ -14,6 +14,7 @@ module Nagare.Contract.ReleaseImages
   , releaseImagesSchemaVersion
   , releaseImagePlatform
   , releaseImageReference
+  , overrideVariable
   , lookupReleaseImage
   , validateReleaseImages
   , immutableReference
@@ -53,6 +54,14 @@ releaseImagesSchemaVersion = 1
 
 releaseImagePlatform :: Text
 releaseImagePlatform = "linux/amd64"
+
+-- | The environment variable that overrides one image.
+overrideVariable :: ReleaseImageKey -> Text
+overrideVariable = \case
+  EnImage -> "NAGARE_AUTH_EN_IMAGE"
+  ShomeiImage -> "NAGARE_AUTH_SHOMEI_IMAGE"
+  AccessImage -> "NAGARE_AUTH_ACCESS_IMAGE"
+  AdminApiImage -> "NAGARE_ADMIN_API_IMAGE"
 
 -- | The reference of a release image in a context's registry.
 releaseImageReference :: Text -> ReleaseImageKey -> ReleaseImage -> Text

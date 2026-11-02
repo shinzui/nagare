@@ -1,5 +1,7 @@
 -- | Everything up to the tag, unattended (MP-26 item 11, ported by EP-229;
--- docs/runbooks/releases.md). The release gate, the transition rehearsal from
+-- docs/runbooks/releases.md). The release gate, a release's service images when
+-- it names them (EP-237: built, checked against release.json and pushed to the
+-- binary cache before anything fetches them), the transition rehearsal from
 -- the newest release the candidate accepts, both systems' native attachments
 -- (aarch64-darwin here, x86_64-linux in an amd64 Apple container), and two
 -- assemblies that must be byte-identical. The release gate runs alongside the
@@ -32,7 +34,10 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
 import Data.Time (defaultTimeLocale, formatTime)
+import Nagare.Contract.ReleaseImages (ReleaseImages)
 import Nagare.Harness.Prelude
+import Nagare.Harness.Release.Images (PushImages (..), pushReleaseImages, readReleaseImages)
+import Nagare.Harness.Release.Intranet (operatorImageOverrides)
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.RunIndex
@@ -69,6 +74,30 @@ newestVersion versions = Just (last (sortOn key versions))
       [(n, "")] -> n
       _ -> -1
 
+-- | What a release with images needs before anything runs. An operator pin
+-- would make the intranet's status non-exact only after it had moved, so it
+-- refuses here; a rehearsal leaves the intranet alone.
+imagesPreflight :: Runtime -> Bool -> IO ()
+imagesPreflight runtime rehearsal' = do
+  when (isNothing (lookupVariable runtime "CACHIX_AUTH_TOKEN")) $
+    refuse "CACHIX_AUTH_TOKEN is not set; this release pushes its images to the binary cache"
+  unless rehearsal' $ do
+    overrides <- operatorImageOverrides runtime
+    unless (null overrides) $
+      refuse ("the operator shell still exports " <> T.intercalate ", " overrides <> "; this release names its own images, and a pin would stop its intranet step after the transition applied. Remove the pins first")
+
+pushImages :: Runtime -> FilePath -> Text -> String -> FilePath -> ReleaseImages -> IO ()
+pushImages runtime repo rev revision' run images' =
+  ()
+    <$ pushReleaseImages
+      runtime
+      PushImages
+        { flake = "git+file://" <> repo <> "?rev=" <> revision'
+        , revision = rev
+        , images = images'
+        , work = run </> "images"
+        }
+
 releaseCandidate :: Runtime -> CandidateOptions -> IO ()
 releaseCandidate outer options = do
   let version' = options ^. #version
@@ -91,6 +120,8 @@ releaseCandidate outer options = do
     refuse ("release.json at " <> rev <> " is not " <> version' <> "; land chore(release): prepare v" <> version' <> " first")
   unless (sort (metadata ^. #supportedSystems) == ["aarch64-darwin", "x86_64-linux"]) $
     refuse ("release.json at " <> rev <> " names systems this command does not build")
+  releaseImages <- either refuse pure (readReleaseImages metadataBytes)
+  forM_ releaseImages (const (imagesPreflight runtime rehearsal'))
   require runtime "git fetch failed" ((git ["fetch", "-q", "origin", "master", "--tags"]))
   require runtime (rev <> " is not on origin/master; land the candidate first") ((git ["merge-base", "--is-ancestor", T.unpack rev, "origin/master"]))
   unless rehearsal' $ do
@@ -131,6 +162,12 @@ releaseCandidate outer options = do
     beginStep index "gate" (Just (run </> "gate-release.log")) True
     gate <- (runtime ^. #transport . #spawn) (inWorktree (invocation "just" ["gate-release", revision']) & #stdoutTo .~ WriteTo (run </> "gate-release.log") & #stderrTo .~ SameAsStdout)
     modifyIORef' backgroundRef (gate :)
+    -- 1a. the release images (EP-237): the rehearsal and the intranet fetch
+    -- them, so they reach the cache before either starts
+    forM_ releaseImages $ \images' -> do
+      phase "images" "release images: build, push to the binary cache, read back"
+      pushImages runtime repo rev revision' run images'
+      setRecord index "releaseImages" (run </> "images/release-images.json")
     -- 2. the transition rehearsal, in the background beside steps 3 and 4
     -- (it runs on the Colima profile, they on the builder and an Apple
     -- container); assembly binds its record, so step 5 waits for it
