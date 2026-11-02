@@ -36,47 +36,72 @@ answers and a design decision.
 
 Each item passes only with a recorded observation.
 
-- [ ] P1: A proxied wildcard CNAME to `<id>.cfargotunnel.com`, with a catch-all ingress rule, serves a
-  one-label name such as `hello.<base>` with its `Host` header intact.
-- [ ] P2: The base domain's apex is served through the tunnel by a proxied CNAME, with a free certificate.
-- [ ] P3: `cloudflared` reaches the external Service `kourier` inside the cluster with `external-domain-tls`
-  off, and sites still route. If this fails, record what origin TLS works instead. The hop from the
-  connector to Kourier is plain HTTP inside the node, like Kourier to a pod today; record that it is
-  accepted.
-- [ ] P4: Knative's domain template gives one-label default names (`<name>-<namespace>.<base>`), and they
-  are served with the free certificate.
-- [ ] P5: With a subdomain base, an Advanced Certificate Manager certificate with `*.<base>` serves tunnel
-  hostnames, given that Total TLS excludes them. Record the observed price.
-- [ ] P6: A protected site's `.pdf` and `.js`, fetched once while signed in, are never served to an
-  anonymous request: `cf-cache-status` is not `HIT` and the request reaches the login redirect. Prove the
-  leak first with neither control, then that each control alone stops it, then both: a zone cache rule
-  that bypasses the cache for every hostname, and `Cache-Control: private, no-store` added by the gateway
-  to the proxied response. Both ship; record each observation.
-- [ ] P7: A full browser login works through the tunnel with the origin as chosen in P3: sign in at the
-  auth host, reach a granted site, get refused on an ungranted one, and survive a session renewal. Cookies
-  stay `Secure`, and redirects stay `https`. With Always Use HTTPS on at the zone, an `http://` request is
-  redirected at the edge, and a TLS 1.0 or 1.1 handshake is refused once the minimum is set to 1.2.
-- [ ] P8: Measurements are recorded: time to first byte direct and through the tunnel, and the behaviour of
-  a response stream longer than 125 seconds.
-- [ ] P9: The connector is bounded in the cluster. With a NetworkPolicy allowing egress only to the external
-  `kourier` Service, cluster DNS and port 7844, an ingress rule repointed from Cloudflare at
-  `https://kubernetes.default.svc`, `kourier-internal` and `http://169.254.169.254` fails to connect; the
-  rule is then restored. Ingress rules that name `<base>` and `*.<base>` with a 404 catch-all return 404
-  for any other hostname.
-- [ ] P10: Rotating the tunnel secret through the API makes Cloudflare refuse the old token, and a connector
-  restarted with the new token reconnects. Cloudflare's connector listing shows each connector's origin
-  address, so a connector the context did not start is visible.
-- [ ] Result: the Decision Log states pass or fail. On pass, a new ADR records the topology and its threat
-  model (both Cloudflare credentials as interception credentials, the in-cluster bound on the connector,
-  the two cache controls and the edge policy), and ADR 20 is amended. On fail, the work stops and the
-  operator gets the alternatives from RES-7.
+- [x] P1: A proxied wildcard CNAME to `<id>.cfargotunnel.com`, with a catch-all ingress rule, serves a one-label name with its
+  `Host` header intact. Observed: `https://probe-personal.topagentnetworklabs.com/echo` answered 200, `"host":
+  "probe-personal.topagentnetworklabs.com"`, `server: cloudflare`, certificate `*.topagentnetworklabs.com` (Let's Encrypt YE1).
+- [x] P2: The apex is served through the tunnel by a proxied CNAME with a free certificate. Observed: `https://topagentnetworklabs.com/echo`
+  answered 200, `"host": "topagentnetworklabs.com"`, through a DomainMapping on the apex.
+- [x] P3: `cloudflared` reaches the external Service `kourier` with `external-domain-tls` off and sites route. Observed: the key is unset in
+  `config-network`, the probe and both protected sites route, no Certificate was requested. The hop from the connector to Kourier is plain
+  HTTP inside the node, and that is accepted.
+- [x] P4: Knative's domain template gives one-label default names served by the free certificate. Observed: with
+  `domain-template: {{.Name}}-{{.Namespace}}.{{.Domain}}`, `ksvc.status.url` was `http://probe-personal.topagentnetworklabs.com` and it answered 200
+  over HTTPS. A two-label name fails the TLS handshake (`a.b.<base>`, alert handshake failure), so flattening is required on the free certificate.
+- [ ] P5: Not observed, by decision (see Decision Log). Advanced Certificate Manager was not bought.
+- [x] P6: Observed on one fresh cache key per case, signed in twice and then anonymous, on both `.pdf` and `.js`:
+  neither control, signed-in `MISS` then `HIT`, anonymous `200 HIT` with the file's bytes (the leak);
+  header only (`Cache-Control: private, no-store`), `BYPASS`, anonymous `302` to `/_nagare/login`;
+  cache rule only, `DYNAMIC`, anonymous `302`; both, `DYNAMIC`, anonymous `302`. With the rule on, the key already cached by the first case also
+  answered `302`, so the rule stops a stored copy being served. The header came from the site's header rule through the gateway, because no product
+  code lands here; EP-242 moves it into the gateway.
+- [x] P7: A real Chrome session signed in through the tunnel with the password form (typed by the operator) and reached the granted site over HTTPS
+  (HTTP/3, `200`); `ungranted.<base>` answered `403 Forbidden`; `http://` redirected to `https://`. Set-Cookie: `nagare_session` and `nagare_refresh`
+  with `Domain=.<base>; Path=/; HttpOnly; Secure; SameSite=Lax`, and JavaScript sees neither. A request with only the refresh cookie answered 200
+  and set new cookies (renewal by curl through the tunnel, not by waiting in the browser). A forged `X-Forwarded-User` from an anonymous client got `302`.
+  Edge: `http://` answers 301 to `https://`; TLS 1.0 and 1.1 fail and 1.2 and 1.3 answer 200, with zone `min_tls_version` 1.2. Passing the form needed
+  a workaround: see Surprises. The auth portal app was not deployed; login was the gateway's built-in form.
+- [x] P8: Time to first byte over 40 requests each, from the operator's workstation: direct to the VM over HTTP, p50 73 ms, p95 84 ms; through the
+  tunnel over HTTPS with a new connection each, p50 134 ms, p95 226 ms; through the tunnel excluding TLS setup, p50 85 ms, p95 111 ms. A stream sending a
+  chunk every 5 s ran its full 200 s. A stream silent after its first chunk was reset at 126 s (`HTTP/2 stream reset, INTERNAL_ERROR`).
+- [x] P9: Observed, target under the policy then from a control pod with no policy: external `kourier` 404/404; `kubernetes.default.svc` 000/401;
+  `kourier-internal` 000/404; `169.254.169.254` 000/200; `api.cloudflare.com` 000/301; `example.com` 000/200. Rules repointed through the API at the API
+  server, `kourier-internal` and the metadata server each answered `502` through the edge, with `cloudflared` logging `Unable to reach the origin
+  service`, while the probe answered 200 in the same configuration. A hostname outside the rules got the catch-all `404`. The original rules were restored
+  and verified (tunnel configuration version 3); the policy was never removed, so no public path to the metadata server existed.
+- [x] P10: After a `tunnel_secret` PATCH the token fingerprint changed. A pod restarted with the old token logged `Unauthorized: Invalid tunnel secret`
+  and never became ready; with the new token it reconnected (4 connections) and sites answered. The listing shows each connector's `origin_ip`,
+  `136.87.131.238`, equal to the VM's address. Rotation alone did not evict the running connector: see Surprises.
+- [x] Result: pass (see Decision Log). The new ADR and the ADR 20 amendment follow teardown.
 - [ ] Every prototype resource is removed from Cloudflare and the disposable context.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-11-02, observed. `scripts/rehearse-gcp-bootstrap.sh --live` no longer matches v0.15.0: a named cloud context gets its
+  foundation, image, VM and host through `platform bootstrap plan`, so `init`, `context guard` before the foundation and
+  `infra-up` all refuse or are wrong. A `context guard` run before the foundation creates an empty stack that the planner
+  then refuses as `unverified-owner`. The sequence below was run stage by stage through the reviewed bootstrap instead.
+- 2026-11-02, observed. A new context on the default `NIX_BUILDER_SSH_KEY` cannot plan its host image: the build goes through
+  the daemon, but `build_present` in `scripts/upload-images.sh` runs `ssh` as the user, and `/etc/nix/builder_ed25519` is
+  root-only. Pre-building does not help, because a present output with no history is also `unverified-owner`. The run used
+  an operator-made user-readable copy of the key, deleted at teardown. Needs a finding for the operator's ledger.
+- 2026-11-02, observed. The operator's tailnet has Tailnet Lock on and an auth key is not pre-signed, so a new host joins but
+  has no connectivity (`this node is locked out`), and the host stage stayed ambiguous through 12 resumes with `host identity
+  or closure does not match the reviewed activation`, which does not name the cause. The operator approved signing this one
+  node key. Onboarding names neither the key copy nor the signature. Needs a finding for the operator's ledger.
 
+- 2026-11-02, observed. The built-in login form fails in a real browser: after it loads, Chrome requests `/favicon.ico`, the anonymous request redirects to
+  `/_nagare/login?rd=%2Ffavicon.ico`, and that response sets a new `__Host-nagare_csrf`, so the form's token no longer matches and the submit answers
+  `403 csrf validation failed`. curl never hits this, which is why the site-access drill did not. It is in the gateway, not the tunnel. P7 passed only after the
+  form's hidden field was set to the current cookie in the tab before the operator submitted. Needs a finding for the operator's ledger.
+- 2026-11-02, observed. Cloudflare injects its analytics beacon (`static.cloudflareinsights.com`, posting to `/cdn-cgi/rum`) into HTML for browser-like requests,
+  including the login form and signed-in protected pages; curl's default headers do not trigger it. Zone setting `rum` already read `off`, and the API token cannot
+  read Web Analytics site settings (403). `Cache-Control: no-transform` stops it; `private, no-store` does not. `automatic_https_rewrites` and
+  `server_side_exclude` are also on and were not in the plan's list. This changes EP-242: the gateway's header needs `no-transform`.
+- 2026-11-02, observed. Rotating the tunnel secret does not evict a running connector: the old one kept its 4 connections and kept serving until restarted. So
+  rotation alone does not remove a connector started with a stolen token. EP-241 must pair it with connection cleanup; that pairing was not tested here.
+- 2026-11-02, observed. `cloudflared`'s precheck reports `Cloudflare API: API is reachable` under a policy that blocks that address (P9: 000), so it is not evidence of
+  reachability. A pod with no policy reaches the node's metadata server (P9 control: 200), as expected, which is why the connector's policy matters.
 
 ## Decision Log
 
@@ -93,6 +118,11 @@ Each item passes only with a recorded observation.
   cluster-secret and Pulumi files in `nagare-ops` and symlinked into that root, not into `~/.config/nagare`.
   Rationale: `nagarectl init` makes its context current, and the operator's pointer names `intranet`, which other
   sessions rely on. Its ADC is a private copy with quota project `tan-nb-exp`, for the same reason.
+  Date: 2026-11-02
+
+- Decision: EP-240 passes. A full Cloudflare zone, a proxied wildcard and apex to one remotely managed tunnel, and a connector bounded by a NetworkPolicy serve a
+  login-protected site with one-label names on the free certificate, for $0. The firewall stayed open during this run; EP-243 proves the closed perimeter.
+  Rationale: P1 to P4 and P6 to P10 observed above. The browser form defect and the beacon do not change the topology; both are carried as findings and into EP-242.
   Date: 2026-11-02
 
 - Decision: P5 is not observed. Advanced Certificate Manager is not bought.
