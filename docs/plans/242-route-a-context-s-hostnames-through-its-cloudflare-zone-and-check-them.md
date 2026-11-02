@@ -50,7 +50,7 @@ and login protection is never weakened by edge caching.
   call and behaves as before.
 - [ ] D6: An anonymous request never receives cached bytes of a protected site, by two independent controls: in
   tunnel mode the platform's zone ruleset bypasses the cache for every hostname, and the enforcer adds
-  `Cache-Control: private, no-store` to every proxied protected response (today it sets `no-store` only on its own
+  `Cache-Control: private, no-store, no-transform` to every proxied protected response (today it sets `no-store` only on its own
   responses). `nagare-access-test` asserts the header on a proxied response, and an automated test on the disposable
   context fetches an asset with a session and then without one.
 - [ ] D7: `nagarectl domains list` and `domains check` expect the tunnel's records and report certificate state from
@@ -64,6 +64,8 @@ and login protection is never weakened by edge caching.
 - [ ] D11: Tunnel mode declares the zone's edge policy through the platform scope's zone claims: Always Use HTTPS on,
   minimum TLS version 1.2, SSL mode strict, and Rocket Loader, email obfuscation and minification off, because they
   rewrite hosted pages. Fake-adapter tests cover drift back to a default, and direct mode declares none of them.
+  This plan also decides `automatic_https_rewrites` and `server_side_exclude`, which EP-240 found on, and the disposable
+  context's test asserts that a browser-like request gets no analytics beacon, which zone setting `rum` did not stop.
 
 
 ## Surprises & Discoveries

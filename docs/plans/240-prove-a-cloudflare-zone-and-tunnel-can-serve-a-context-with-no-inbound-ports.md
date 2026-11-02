@@ -71,8 +71,12 @@ Each item passes only with a recorded observation.
 - [x] P10: After a `tunnel_secret` PATCH the token fingerprint changed. A pod restarted with the old token logged `Unauthorized: Invalid tunnel secret`
   and never became ready; with the new token it reconnected (4 connections) and sites answered. The listing shows each connector's `origin_ip`,
   `136.87.131.238`, equal to the VM's address. Rotation alone did not evict the running connector: see Surprises.
-- [x] Result: pass (see Decision Log). The new ADR and the ADR 20 amendment follow teardown.
-- [ ] Every prototype resource is removed from Cloudflare and the disposable context.
+- [x] Result: pass (see Decision Log). [ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md) records the topology and threat model, and
+  ADR 20 is amended.
+- [x] Every prototype resource is removed from Cloudflare and the disposable context. Observed 2026-11-02: stack `ep240` holds 0 resources after 27 deletes; no `ep240` instance,
+  service account, repository, bucket, network, zone, address, disk, snapshot or image remains in `tan-nb-exp`, and `nagare-01`, the `cell-*` VMs and the older images are unchanged.
+  Cloudflare holds no tunnel, DNS record or cache ruleset; the zone stays active with its edge settings for the intranet. The Tailscale key is revoked. `nagare-ops`, the run root, the
+  builder key copy, the private ADC and the named gcloud configuration are removed. At the last check `ep240-nagare` still listed as an offline ephemeral peer. The scoped Cloudflare API token is kept with the zone.
 
 
 ## Surprises & Discoveries
@@ -125,6 +129,18 @@ Each item passes only with a recorded observation.
   Rationale: P1 to P4 and P6 to P10 observed above. The browser form defect and the beacon do not change the topology; both are carried as findings and into EP-242.
   Date: 2026-11-02
 
+- Decision: Remove the stack with raw Pulumi against its local state, after the legacy path refused it for having inventory history and the reviewed path refused it with `dangling-reference`.
+  Rationale: operator, 2026-11-02, after both refusals were shown; the reviewed path also retains disks, buckets, IAM and the stack by design. The destroy preview was checked to hold only deletes of this stack's own URNs. Recorded as F137.
+  Date: 2026-11-02
+
+- Decision: Sign the one node key `ep240-nagare` with this workstation's Tailnet Lock key, after comparing the listed key with the one the VM reported.
+  Rationale: operator, 2026-11-02; the auth key was not pre-signed and the node had no connectivity.
+  Date: 2026-11-02
+
+- Decision: The findings from this run that risk no data loss go to the deferral ledger as F135 to F138.
+  Rationale: operator, 2026-11-02.
+  Date: 2026-11-02
+
 - Decision: P5 is not observed. Advanced Certificate Manager is not bought.
   Rationale: operator, 2026-11-02; the intranet will use the zone itself as its base, so a subdomain base has no customer.
   Date: 2026-11-02
@@ -132,7 +148,9 @@ Each item passes only with a recorded observation.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+The recommended topology works: a full Cloudflare zone, proxied apex and wildcard records to one tunnel, and a connector bounded by a NetworkPolicy serve a login-protected site on one-label names
+for $0, and the leak the security review predicted was observed and closed by each of its two controls. Not proved here: a closed perimeter (EP-243), a browser renewal by waiting out a session,
+and the built-in form without a workaround (F135). The topology and threat model moved to ADR 34. Most of this run's cost came from the stale driver, the builder key and Tailnet Lock, carried as F136 and F138.
 
 
 ## Context and Orientation

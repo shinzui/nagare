@@ -118,3 +118,12 @@ still required before reviewed Cloudflare writes can run. The direct
 provisioner remains a legacy path. Direct zone-wide provision and purge refuse
 while any Cloudflare zone is accepted or retained in the context or a review
 transaction is active.
+
+## Amendment — 2026-11-02: tunnel mode moves the wildcard to Cloudflare
+
+For a context that opts in to [ADR 34](0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md), the base domain's DNS is on
+Cloudflare and the apex and wildcard are proxied CNAMEs to the context's tunnel, not Pulumi records targeting the VM. Cloud DNS is no longer authoritative
+for that domain, so `letsencrypt-dns` issues nothing there and `external-domain-tls` stays off; Cloudflare's free certificate covers the apex and one label
+below it. The operator's machine holds the scoped Cloudflare API token and the cluster holds only the tunnel token, so the rule that the cluster holds no
+credential for an external DNS provider still stands. A context that does not opt in is unchanged. EP-242 owns the DNS expectation and the platform zone claims
+for this mode, using the zone-and-host ownership of the 2026-09-25 amendment; EP-240 observed the topology by hand and no product code implements it yet.

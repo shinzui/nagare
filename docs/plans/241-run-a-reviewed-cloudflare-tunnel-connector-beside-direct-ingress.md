@@ -59,7 +59,8 @@ change at all.
   from Cloudflare at the API server, `kourier-internal`, En, the object store and `169.254.169.254` fails to
   connect, and is then restored.
 - [ ] D9: `nagarectl` rotates the tunnel secret: a new secret through the API, the Secret updated, the Deployment
-  rolled, and the old token refused by Cloudflare, with no failed request in a continuous loop. `docs/user`
+  rolled, existing connections removed (EP-240 observed that rotation alone leaves a running connector serving), and
+  the old token refused by Cloudflare, with no failed request in a continuous loop. `docs/user`
   names when to rotate: a suspected leak, an operator leaving, or a node rebuilt from untrusted material.
 
 

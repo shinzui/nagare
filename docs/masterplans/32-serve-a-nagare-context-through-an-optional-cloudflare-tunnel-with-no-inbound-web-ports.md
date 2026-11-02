@@ -121,7 +121,7 @@ Relevant ADRs:
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 240 | Prove a Cloudflare zone and tunnel can serve a context with no inbound ports | docs/plans/240-prove-a-cloudflare-zone-and-tunnel-can-serve-a-context-with-no-inbound-ports.md | None | None | Not Started |
+| 240 | Prove a Cloudflare zone and tunnel can serve a context with no inbound ports | docs/plans/240-prove-a-cloudflare-zone-and-tunnel-can-serve-a-context-with-no-inbound-ports.md | None | None | Complete |
 | 241 | Run a reviewed Cloudflare Tunnel connector beside direct ingress | docs/plans/241-run-a-reviewed-cloudflare-tunnel-connector-beside-direct-ingress.md | EP-240 | None | Not Started |
 | 242 | Route a context's hostnames through its Cloudflare zone and check them | docs/plans/242-route-a-context-s-hostnames-through-its-cloudflare-zone-and-check-them.md | EP-240 | EP-241 | Not Started |
 | 243 | Close a context's inbound ports and move existing contexts onto the tunnel | docs/plans/243-close-a-context-s-inbound-ports-and-move-existing-contexts-onto-the-tunnel.md | EP-241, EP-242 | None | Not Started |
@@ -183,8 +183,8 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
 
 ## Progress
 
-No child plan has started. EP-240 needs from the operator a Cloudflare account, a disposable registered
-domain on it, and go-ahead for its bounded cloud sequence on a disposable context.
+EP-240 is complete and passed on 2026-11-02; its topology and threat model are in
+[ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-241 and EP-242 can start.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
   working, an outside port check finding nothing open, and the host listening on no web port (EP-244).
@@ -206,6 +206,11 @@ domain on it, and go-ahead for its bounded cloud sequence on a disposable contex
 
 
 ## Decision Log
+
+- Decision: The enforcer's header on proxied protected responses is `Cache-Control: private, no-store, no-transform`, and rotating the tunnel secret also removes existing connections.
+  Rationale: EP-240 observed Cloudflare injecting its analytics beacon into the login form and protected pages with zone setting `rum` off, stopped only by `no-transform`, and a running connector
+  keeping its connections after rotation. EP-242 and EP-241 own these. The rotation pairing is not yet tested.
+  Date: 2026-11-02
 
 - Decision: The recommended general path is a base domain on a full Cloudflare zone, served through a
   tunnel, and Nagare nudges new installations towards it. Direct ingress stays supported and unchanged.
