@@ -139,12 +139,6 @@ let
 
   executables = package: hl.justStaticExecutables package;
 
-  passwd = pkgs.runCommand "nagare-image-passwd" { } ''
-    mkdir -p "$out/etc"
-    printf '%s\n' 'root:x:0:0:root:/root:/bin/sh' 'nagare:x:10001:10001:nagare:/nonexistent:/sbin/nologin' > "$out/etc/passwd"
-    printf '%s\n' 'root:x:0:' 'nagare:x:10001:' > "$out/etc/group"
-  '';
-
   # /usr/local/bin holds the commands the workloads name: the server, the
   # migration executable Jobs override the command with, and auth-entrypoint.
   binRoot = name: { binaries, entrypoint, script }:
@@ -168,9 +162,20 @@ let
       name = "nagare-${name}";
       tag = "release";
       architecture = "amd64";
-      contents = [ (binRoot name { inherit binaries entrypoint script; }) passwd pkgs.cacert ] ++ contents;
+      contents = [ (binRoot name { inherit binaries entrypoint script; }) pkgs.cacert ] ++ contents;
+      # containerd reads /etc/passwd inside the image's root to resolve the user
+      # and refuses a symlink that leaves it, which is what `contents` would make.
       extraCommands = ''
         mkdir -m 1777 tmp
+        if [ -L etc ]; then
+          target="$(readlink etc)"
+          rm etc
+          mkdir etc
+          for entry in "$target"/*; do ln -s "$entry" etc/; done
+        fi
+        rm -f etc/passwd etc/group
+        printf '%s\n' 'root:x:0:0:root:/root:/bin/sh' 'nagare:x:10001:10001:nagare:/nonexistent:/sbin/nologin' > etc/passwd
+        printf '%s\n' 'root:x:0:' 'nagare:x:10001:' > etc/group
       '';
       config = {
         Entrypoint = [ "/usr/local/bin/auth-entrypoint" ];
