@@ -93,6 +93,7 @@ import Nagare.Target
   ( ActiveTarget
   , InventoryStoreKind (InventoryStoreGcs)
   , Mode (Cloud, Local)
+  , TargetProfile
   , acmeDirectoryUrl
   , contextNameText
   , defaultGcsInventoryStoreUrl
