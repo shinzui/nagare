@@ -70,6 +70,9 @@ spec:
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
+      # The host timer keeps this Secret fresh; the boot token expires within the hour.
+      imagePullSecrets:
+        - name: nagare-registry-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

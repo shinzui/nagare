@@ -7,7 +7,8 @@ let
   # typed modules opt into the exact host-owned footprint and controller grant.
   credentialOwner = config.nagare.host.registryCredentialOwner;
   controllerOwner = config.nagare.host.registryServingControllerOwner;
-  imagePullTargets = [ "personal|default|" "nagare-system|default|" ]
+  # A namespace the context does not have is skipped, as cloudflare-tunnel is on a direct context.
+  imagePullTargets = [ "personal|default|" "nagare-system|default|" "cloudflare-tunnel|default|" ]
     ++ pkgs.lib.optional (controllerOwner != "") "knative-serving|controller|${controllerOwner}";
   registrySourceVersion = builtins.hashFile "sha256" ./registries.nix;
 

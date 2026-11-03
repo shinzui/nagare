@@ -45,6 +45,8 @@ inventoryCloudflareTunnelTests =
         let pod = field ["spec", "template", "spec"] deployment
             container = headOf (field ["containers"] pod)
         field ["automountServiceAccountToken"] pod @?= Bool False
+        -- F142: the boot token expires within the hour, so a later pull needs the timer's Secret.
+        field ["name"] (headOf (field ["imagePullSecrets"] pod)) @?= String "nagare-registry-pull"
         field ["hostNetwork"] pod @?= Null
         field ["securityContext", "runAsNonRoot"] pod @?= Bool True
         field ["securityContext", "readOnlyRootFilesystem"] container @?= Bool True
