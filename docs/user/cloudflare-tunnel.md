@@ -11,9 +11,8 @@ generated:
 
 # Serving a new context through a Cloudflare Tunnel
 
-> 🟡 **Built and tested offline. The topology was proven by hand on a disposable context
-> ([EP-240](../plans/240-prove-a-cloudflare-zone-and-tunnel-can-serve-a-context-with-no-inbound-ports.md)), but this
-> command path has not yet had a native run.** It covers a new context. Moving an existing context is not built.
+> 🟡 **This path has had one full native run on a disposable context: bootstrap, a protected site through the edge, token rotation
+> and retiring a site. It has not yet shipped in a release.** It covers a new context. Moving an existing context is not built.
 
 The VM accepts no connection from the internet. A small program in the cluster, `cloudflared`, connects outbound to
 Cloudflare, and Cloudflare sends each browser request down that connection. SSH stays limited to Google's IAP range and
@@ -139,8 +138,8 @@ To retire a site, revoke its grants first, then review each step:
 nagarectl access revoke --host HOST --user USER --save-plan ./revoke && nagarectl inventory apply ./revoke --yes
 nagarectl inventory retire --scope ACCESS_SCOPE --out ./grant && nagarectl inventory apply ./grant --yes
 nagarectl inventory retire --scope standalone:site-NAME --out ./site && nagarectl inventory apply ./site --yes
-nagarectl inventory collect --resource DOMAIN_MAPPING_ID --out ./mapping && nagarectl inventory apply ./mapping --yes
-nagarectl inventory collect --resource SERVICE_ID --out ./service && nagarectl inventory apply ./service --yes
+nagarectl inventory collect --resource DOMAIN_MAPPING_ID --controller-descendants --out ./mapping && nagarectl inventory apply ./mapping --yes
+nagarectl inventory collect --resource SERVICE_ID --controller-descendants --out ./service && nagarectl inventory apply ./service --yes
 ```
 
 The name stops reaching the site once the gateway picks up the retirement. Its release history stays as a record.

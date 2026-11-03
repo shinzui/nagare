@@ -57,7 +57,7 @@ and login protection is never weakened by edge caching.
   Cloudflare. A missing record or certificate fails the check.
 - [x] D8 (`tunnelUpstreamInputs` drops the issuer scope; `Nagare.Test.Domains` shows no certificate read): In tunnel mode, public origin certificates are not requested and the DNS-01 issuer is not installed, or the
   alternative EP-240 proved is in place. `domains tls` reports this accurately.
-- [x] D9 (native on `ep243`: a real Chrome sign-in on a deployed protected site through the edge reached it, on the custom name `staging.<base>`, after the flat default name was checked anonymously and retired; the retired name answers 502. F140 records that its objects stay until collected): On a disposable context, deploying a new protected site works from a browser through the edge, and retiring
+- [x] D9 (native on `ep243`: a real Chrome sign-in on a deployed protected site through the edge reached it, on the custom name `staging.<base>`, after the flat default name was checked anonymously and retired; retiring and collecting that site left no route, and its name answers 404): On a disposable context, deploying a new protected site works from a browser through the edge, and retiring
   it leaves no route.
 - [x] D10 ([cloudflare-tunnel.md](../user/cloudflare-tunnel.md), ADR 29 amendment): `docs/user` covers hostnames and certificates in tunnel mode. ADR 29 is amended: a protected site behind
   Cloudflare is not a CDN, and the two cache controls of D6 are its rule.
