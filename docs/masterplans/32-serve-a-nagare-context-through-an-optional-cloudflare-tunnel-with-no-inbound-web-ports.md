@@ -122,10 +122,10 @@ Relevant ADRs:
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 240 | Prove a Cloudflare zone and tunnel can serve a context with no inbound ports | docs/plans/240-prove-a-cloudflare-zone-and-tunnel-can-serve-a-context-with-no-inbound-ports.md | None | None | Complete |
-| 241 | Run a reviewed Cloudflare Tunnel connector beside direct ingress | docs/plans/241-run-a-reviewed-cloudflare-tunnel-connector-beside-direct-ingress.md | EP-240 | None | Not Started |
-| 242 | Route a context's hostnames through its Cloudflare zone and check them | docs/plans/242-route-a-context-s-hostnames-through-its-cloudflare-zone-and-check-them.md | EP-240 | EP-241 | Not Started |
-| 243 | Close a context's inbound ports and move existing contexts onto the tunnel | docs/plans/243-close-a-context-s-inbound-ports-and-move-existing-contexts-onto-the-tunnel.md | EP-241, EP-242 | None | Not Started |
-| 244 | Make the tunnel the recommended path for new Nagare installations | docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md | EP-243 | None | Not Started |
+| 241 | Run a reviewed Cloudflare Tunnel connector beside direct ingress | docs/plans/241-run-a-reviewed-cloudflare-tunnel-connector-beside-direct-ingress.md | EP-240 | None | In Progress |
+| 242 | Route a context's hostnames through its Cloudflare zone and check them | docs/plans/242-route-a-context-s-hostnames-through-its-cloudflare-zone-and-check-them.md | EP-240 | EP-241 | Complete |
+| 243 | Close a context's inbound ports and move existing contexts onto the tunnel | docs/plans/243-close-a-context-s-inbound-ports-and-move-existing-contexts-onto-the-tunnel.md | EP-241, EP-242 | None | In Progress |
+| 244 | Make the tunnel the recommended path for new Nagare installations | docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md | EP-243 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -184,7 +184,9 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
 ## Progress
 
 EP-240 is complete and passed on 2026-11-02; its topology and threat model are in
-[ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-241 and EP-242 can start.
+[ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-242 is complete. A new context bootstraps
+through the reviewed path and serves a protected site with no web port, proved natively on `ep243` on 2026-11-03. v0.16.0 carries this.
+Left: EP-241 D2 and D7, EP-244 D6, and EP-243's move of an existing context.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
   working, an outside port check finding nothing open, and the host listening on no web port (EP-244).
@@ -206,6 +208,11 @@ EP-240 is complete and passed on 2026-11-02; its topology and threat model are i
 
 
 ## Decision Log
+
+- Decision: v0.16.0 ships the tunnel for new contexts, and moving the intranet follows as its own work.
+  Rationale: operator, 2026-11-03: "cut the release first, move the intranet later". EP-243's move is not needed to use the tunnel on a new context.
+  The rotation pairing in the entry below is now tested, EP-241 D9.
+  Date: 2026-11-03
 
 - Decision: The enforcer's header on proxied protected responses is `Cache-Control: private, no-store, no-transform`, and rotating the tunnel secret also removes existing connections.
   Rationale: EP-240 observed Cloudflare injecting its analytics beacon into the login form and protected pages with zone setting `rum` off, stopped only by `no-transform`, and a running connector

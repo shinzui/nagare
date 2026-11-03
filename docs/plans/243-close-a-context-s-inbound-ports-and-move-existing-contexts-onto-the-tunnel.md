@@ -75,7 +75,10 @@ open on the VM.
 
 ## Decision Log
 
-(None yet.)
+- Decision: The move of an existing context (D2 to D6, D8 to D11) follows v0.16.0 and does not block it.
+  Rationale: operator, 2026-11-03. A new context reaches the end state without it (D7).
+  Date: 2026-11-03
+
 
 
 ## Outcomes & Retrospective
