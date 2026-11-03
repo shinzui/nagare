@@ -34,6 +34,7 @@ module Nagare.Cluster.GcsJob
   , MinioRef (..)
   , minioContainerImage
   , parseLocalObjectStore
+  , previousStoreImage
   , storeImage
   , storeHostAliases
   , storeEnv
@@ -83,9 +84,16 @@ metadataEnv project =
   ]
 
 -- | The container image shared by every GCS data-movement Job: it ships
--- @gsutil@, @gcloud@, @tar@, and @gzip@.
+-- @gsutil@, @gcloud@, @tar@, @gzip@ and @python3@. Pinned because the @slim@ tag
+-- dropped @python3@ on 2026-11-03, so a node pulling it fresh could take no backup (F143).
 gcsContainerImage :: Text
-gcsContainerImage = "google/cloud-sdk:slim"
+gcsContainerImage = "google/cloud-sdk:slim@sha256:c70885ba9f0450ea9987b1c5dc1ab80acc768bac2fe783962dc98a64ea74c806"
+
+-- | The image of schedules accepted before the pin, to recognize their exact bytes.
+previousStoreImage :: StoreBackend -> Text
+previousStoreImage backend = case backend of
+  GcsBackend {} -> "google/cloud-sdk:slim"
+  _ -> storeImage backend
 
 -- | The container image for every local (MinIO) data-movement Job: it ships
 -- @aws s3@ on an Amazon Linux base that also carries @tar@ and @gzip@, so the

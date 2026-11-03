@@ -31,7 +31,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
-import Nagare.Database.Backup (renderDbBackupCronJob, renderInventoryDbBackupCronJob, renderPreviousInventoryDbBackupCronJob, renderPreviousSignedInventoryDbBackupCronJob)
+import Nagare.Database.Backup (renderDbBackupCronJob, renderInventoryDbBackupCronJob, renderPreviousInventoryDbBackupCronJob, renderPreviousSignedInventoryDbBackupCronJob, renderUnpinnedInventoryDbBackupCronJob)
 import Nagare.Dsl.Broker (Broker (..), BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Dsl.Broker.Render (brokerPvcName, renderBroker)
 import Nagare.Dsl.Database (Database (..), dbSecretName, parseEngine)
@@ -123,13 +123,17 @@ compileBackupPruneRemovalScope name namespaceName (DatabaseBackupTarget backend 
   previousSafeCanonical <- decode invalid previousSafe >>= first invalid . canonicalValue
   previousSignedCanonical <- decode invalid previousSigned >>= first invalid . canonicalValue
   otherPresetCanonicals <- traverse (\bytes -> decode invalid bytes >>= first invalid . canonicalValue) otherPresets
+  unpinnedCanonicals <-
+    traverse
+      (\preset -> decode invalid (renderUnpinnedInventoryDbBackupCronJob preset namespaceName name engine version backend 7) >>= first invalid . canonicalValue)
+      [minBound .. maxBound :: RecoveryPointObjective]
   safeValue <- decode invalid safe
   safeCanonical <- first invalid (canonicalValue safeValue)
   if backupCanonical == safeCanonical
     then pure (accepted, native)
     else do
       unless
-        (backupCanonical `elem` ([legacyCanonical, previousSafeCanonical, previousSignedCanonical] <> otherPresetCanonicals))
+        (backupCanonical `elem` ([legacyCanonical, previousSafeCanonical, previousSignedCanonical] <> otherPresetCanonicals <> unpinnedCanonicals))
         (Left (invalid "accepted backup CronJob does not match a known earlier schedule"))
       cluster <- case backup ^. #address of
         Kubernetes clusterId _ _ _ _ -> Right clusterId

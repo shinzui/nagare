@@ -70,7 +70,7 @@ gcsJobHostAliasesTests =
       let y = TE.decodeUtf8 rendered
       assertBool "hostAliases for metadata.google.internal" ("metadata.google.internal" `T.isInfixOf` y)
       assertBool "metadata IP" ("169.254.169.254" `T.isInfixOf` y)
-      assertBool "cloud-sdk image" ("google/cloud-sdk:slim" `T.isInfixOf` y)
+      assertBool "cloud-sdk image pinned by digest (F143)" ("google/cloud-sdk:slim@sha256:" `T.isInfixOf` y)
       assertBool "restartPolicy Never" ("Never" `T.isInfixOf` y)
   | (name, rendered) <-
       [ ("db backup Job", renderBackupJob backupJobInputsPg)

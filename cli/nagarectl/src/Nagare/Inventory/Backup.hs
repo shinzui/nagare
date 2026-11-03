@@ -321,6 +321,7 @@ compileManualBackupScope request accepted native = do
           , jobName = jobName
           , source = DatabaseSource engine
           , clientImage = engineImage engine <> ":" <> version
+          , unpinnedStoreImage = False
           , serviceHost = database
           , secretName = dbSecretName database
           , name = database

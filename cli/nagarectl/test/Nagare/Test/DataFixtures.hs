@@ -12,6 +12,7 @@ where
 import Nagare.Cluster.GcsJob
   ( MinioRef (MinioRef)
   , StoreBackend (..)
+  , gcsContainerImage
   )
 import Nagare.Database.Backup
   ( BackupDest (BackupDestUrl)
@@ -47,6 +48,7 @@ backupJobInputsPg =
     , jobName = "nagare-dbbackup-mydb-20260610t141503z"
     , source = DatabaseSource Postgres
     , clientImage = "postgres:18"
+    , unpinnedStoreImage = False
     , serviceHost = "mydb"
     , secretName = "nagare-db-mydb"
     , name = "mydb"

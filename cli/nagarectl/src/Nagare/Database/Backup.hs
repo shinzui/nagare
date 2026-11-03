@@ -45,6 +45,7 @@ module Nagare.Database.Backup
   , renderInventoryDbBackupCronJob
   , renderPreviousInventoryDbBackupCronJob
   , renderPreviousSignedInventoryDbBackupCronJob
+  , renderUnpinnedInventoryDbBackupCronJob
   , renderInventoryVolumeBackupCronJob
   , appDatabaseBackupExt
   , renderScheduledCronJob
@@ -70,6 +71,7 @@ import Nagare.Cluster.GcsJob
   ( DataMovementJob (..)
   , StoreBackend (..)
   , dataMovementJobSpec
+  , previousStoreImage
   , storeCpCreateOnlyFromFile
   , storeCpFromStdin
   , storeCpToStdout
@@ -253,6 +255,8 @@ data BackupJobInputs = BackupJobInputs
   , jobName :: !Text
   , source :: !BackupSource
   , clientImage :: !Text
+  , unpinnedStoreImage :: !Bool
+  -- ^ when True, only to recognize a schedule accepted before the image was pinned (F143).
   , serviceHost :: !Text
   , secretName :: !Text
   , name :: !Text
@@ -363,7 +367,7 @@ sourceProbeContainer :: Bool -> BackupJobInputs -> Value
 sourceProbeContainer timed i =
   object
     [ "name" .= ("source" :: Text)
-    , "image" .= storeImage (i ^. #backend)
+    , "image" .= uploadImage i
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON [(if timed then "set -eu; python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))' > /dump/recovery-point; " else "") <> sourceProbeShell (i ^. #source) <> " > /dump/source.json"]
     , "env" .= toJSON [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name)]
@@ -426,7 +430,7 @@ dumpContainer i = case i ^. #source of
   VolumeSource ->
     object
       [ "name" .= ("dump" :: Text)
-      , "image" .= storeImage (i ^. #backend)
+      , "image" .= uploadImage i
       , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
       , "args" .= toJSON ["set -e; " <> storeShellPreamble (i ^. #backend) <> "tar -C /source-data -cf /dump/backup.tar ."]
       , "volumeMounts"
@@ -482,7 +486,7 @@ uploadContainer :: Bool -> BackupJobInputs -> Value
 uploadContainer timed i =
   object
     [ "name" .= ("upload" :: Text)
-    , "image" .= storeImage (i ^. #backend)
+    , "image" .= uploadImage i
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON [uploadShellWithRecoveryPoint timed i]
     , "env"
@@ -772,8 +776,13 @@ backupCronJobValueWithRecoveryPoint timed i =
 
 -- | Legacy scheduled backup. Inline keep-last-N deletion is confined to
 -- unadmitted contexts while reviewed pruning remains a separate lifecycle action.
+uploadImage :: BackupJobInputs -> Text
+uploadImage i
+  | i ^. #unpinnedStoreImage = previousStoreImage (i ^. #backend)
+  | otherwise = storeImage (i ^. #backend)
+
 renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJob = renderDbBackupCronJobWithOptions HourlyRecoveryPoint True False True
+renderDbBackupCronJob = renderDbBackupCronJobWithOptions True HourlyRecoveryPoint True False True
 
 -- | A reviewed database may schedule uploads, but the CronJob must not delete
 -- older backup objects without a separate reviewed pruning decision. The Job
@@ -783,19 +792,23 @@ renderDbBackupCronJob = renderDbBackupCronJobWithOptions HourlyRecoveryPoint Tru
 -- graded against the accepted schedule. Hourly omits the field, keeping the
 -- bytes of schedules accepted before the objective became configurable.
 renderInventoryDbBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions objective False True True
+renderInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions False objective False True True
+
+-- | The current producer as accepted before its image was pinned (F143), to recognize it.
+renderUnpinnedInventoryDbBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderUnpinnedInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions True objective False True True
 
 -- | Native bytes issued before reviewed backup readback verification was added.
 -- Used only to recognize and upgrade an already accepted schedule.
 renderPreviousInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions HourlyRecoveryPoint False False True
+renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions True HourlyRecoveryPoint False False True
 
 -- | Exact signed-v4 daily producer, for recognition of accepted schedules only.
 renderPreviousSignedInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions HourlyRecoveryPoint False True False
+renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions True HourlyRecoveryPoint False True False
 
-renderDbBackupCronJobWithOptions :: RecoveryPointObjective -> Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJobWithOptions objective shouldPrune shouldVerify timed ns name eng version backend keep =
+renderDbBackupCronJobWithOptions :: Bool -> RecoveryPointObjective -> Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderDbBackupCronJobWithOptions unpinned objective shouldPrune shouldVerify timed ns name eng version backend keep =
   renderScheduledCronJob objective shouldVerify timed baseInputs $ \revision ->
     [ "database" .= name
     , "namespace" .= ns
@@ -812,6 +825,7 @@ renderDbBackupCronJobWithOptions objective shouldPrune shouldVerify timed ns nam
         , jobName = "nagare-dbbackup-" <> name
         , source = DatabaseSource eng
         , clientImage = engineImage eng <> ":" <> version
+        , unpinnedStoreImage = unpinned
         , serviceHost = name
         , secretName = dbSecretName name
         , name = name
@@ -846,6 +860,7 @@ renderInventoryVolumeBackupCronJob objective ns app volume backend keep =
         , jobName = schedule
         , source = VolumeSource
         , clientImage = storeImage backend
+        , unpinnedStoreImage = False
         , serviceHost = ""
         , secretName = ""
         , name = pvcName app volume
@@ -924,6 +939,7 @@ previewDbBackup ns databaseName backend keep = do
                 , jobName = manualBackupJobName databaseName ts
                 , source = DatabaseSource eng
                 , clientImage = image
+                , unpinnedStoreImage = False
                 , serviceHost = databaseName
                 , secretName = dbSecretName databaseName
                 , name = databaseName

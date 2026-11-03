@@ -24,7 +24,7 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import InventoryKubernetesLifecycleSpec (liveTaskDeletionCommandProof, liveTaskDeletionProof, nativeSiblingCarryForward, reviewedManualReceiptCleanup, reviewedReleaseCleanup)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (GcsBackend, MinioBackend))
-import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob, renderPreviousSignedInventoryDbBackupCronJob)
+import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob, renderPreviousSignedInventoryDbBackupCronJob, renderUnpinnedInventoryDbBackupCronJob)
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, engineVersionText, mkDatabaseName)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -3215,14 +3215,10 @@ inventoryKubernetesTests =
             backend
             7
         forM_
-          [ renderPreviousInventoryDbBackupCronJob
-              "personal"
-              "pg-main"
-              Postgres
-              (engineVersionText (defaultEngineVersion Postgres))
-              backend
-              7
+          [ renderPreviousInventoryDbBackupCronJob "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) backend 7
           , signedV4
+          , -- F143: today's schedule, accepted before its image was pinned.
+            renderUnpinnedInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) backend 7
           ]
           $ \earlierBytes -> do
             let previousValue = ok (Yaml.decodeEither' earlierBytes :: Either Yaml.ParseException Value)

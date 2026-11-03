@@ -70,6 +70,7 @@ renderInventoryAppDatabaseBackupCronJob objective backup backend keep =
         , jobName = schedule
         , source = AppDatabaseSource (backup ^. #engine) (backup ^. #databases)
         , clientImage = backup ^. #clientImage
+        , unpinnedStoreImage = False
         , serviceHost = backup ^. #server
         , secretName = backup ^. #appDatabase <> "-migration"
         , name = backup ^. #server
