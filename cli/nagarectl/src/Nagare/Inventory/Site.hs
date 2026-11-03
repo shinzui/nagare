@@ -44,6 +44,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Access.Resolve (backendConfigMapNamespace)
 import Nagare.Cdn.Provision (CdnTarget (..), GcpStackRefs (..), planCdn)
+import Nagare.Deploy.Host (HostShape)
 import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Cdn.Types (Cdn (..), CdnProvider (CloudflareCdn, GcpCloudCdn))
 import Nagare.Dsl.Prelude
@@ -59,6 +60,7 @@ import Nagare.Inventory.ProtectedRoute (ProtectedRoute (..), ProtectedRoutes (..
 import Nagare.Inventory.Site.Member (bindOne, checkAddress, reviewedBuildReference, siteSecretDependency)
 import Nagare.Inventory.Site.Preview (acceptedSitePreviewDependencies, acceptedSitePreviewStoreIds, compileServerSitePreviewScope, compileServerSitePreviewScopeWithBuild, compileStaticSitePreviewScope)
 import Nagare.Inventory.Site.Release (SiteReleaseAction (..), acceptedSiteReleaseLog, acceptedSiteSource, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteReleaseHistory, validLog)
+import Nagare.Inventory.TunnelRoute (checkTunnelRoutes, defaultHostClaims)
 import Nagare.Resource.Application (domainMappingResourceId, volumeResourceId)
 import Nagare.Resource.Cdn (compileCloudflareCacheContribution, compileCloudflareDnsRecord, compileGoogleDnsRecord)
 import Nagare.Resource.Inventory
@@ -68,6 +70,7 @@ import Nagare.Resource.Types
 import Nagare.Server.Deploy qualified as Server
 import Nagare.Static.Deploy (DeployInputs (..), StaticManifests (..), productionManifests)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), renderReleaseConfigMap)
+import Nagare.Target.Kinds (hostShapeFor)
 
 compileStaticSiteScope ::
   DeployInputs ->
@@ -199,6 +202,7 @@ compileStaticSiteScopeWith action cdnBinding accessBinding inputs cluster namesp
     (Left (invalid "static-site prior release history is inconsistent"))
   history <- first invalid (siteReleaseHistory action prior release)
   compileSiteRenderedScope
+    (hostShapeFor (inputs ^. #targetProfile . #ingress))
     name
     ns
     (site ^. #domains)
@@ -442,6 +446,7 @@ compileServerSiteScopeWith action cdnBinding accessBinding buildSecrets inputs c
     (length volumeBytes == length (site ^. #volumes))
     (Left (invalid "server-site volume renderer changed membership"))
   compileSiteRenderedScope
+    (hostShapeFor (inputs ^. #targetProfile . #ingress))
     name
     ns
     (site ^. #domains)
@@ -463,6 +468,7 @@ compileServerSiteScopeWith action cdnBinding accessBinding buildSecrets inputs c
     source
 
 compileSiteRenderedScope ::
+  HostShape ->
   T.Text ->
   T.Text ->
   [DomainSpec] ->
@@ -486,6 +492,7 @@ compileSiteRenderedScope ::
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileSiteRenderedScope
+  hostShape
   name
   ns
   domains
@@ -522,6 +529,8 @@ compileSiteRenderedScope
     unless
       (length domains == length domainBytes)
       (Left (invalid "site domain renderer changed membership"))
+    first invalid (checkTunnelRoutes hostShape baseDomain (isJust cdn) domains)
+    defaultClaims <- first invalid (defaultHostClaims hostShape name ns baseDomain domains)
     -- EP-186: a protected site keeps its rendered origin private and answers
     -- only through enforcer routes in nagare-system, one per hostname, each
     -- contributed to the auth owner's backend map. Its policy is the supported
@@ -606,6 +615,7 @@ compileSiteRenderedScope
         serviceSource
         originBytes
     checkAddress invalid cluster "serving.knative.dev/v1" "Service" ns name serviceMember
+    let claimedService = first (\resource -> if isJust protection then resource else resource {aliases = defaultClaims}) serviceMember
     domainMembers <-
       traverse
         ( \(domain, bytes) -> do
@@ -755,7 +765,7 @@ compileSiteRenderedScope
       ns
       ("nagare-static-releases-" <> name)
       historyMember
-    let members = volumeMembers <> [serviceMember] <> domainMembers <> [historyMember]
+    let members = volumeMembers <> [claimedService] <> domainMembers <> [historyMember]
         ids = map ((^. #identity) . fst) members
         native =
           Map.fromList

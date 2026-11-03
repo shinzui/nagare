@@ -70,6 +70,7 @@ import Nagare.Inventory.Application.Types
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ProtectedRoute (ProtectedRoute (..), ProtectedRoutes (..), composeProtectedRoutes, protectedHosts)
+import Nagare.Inventory.TunnelRoute (checkTunnelRoutes, defaultHostClaims)
 import Nagare.Resource.Application
   ( applicationScopeId
   , deploymentResourceId
@@ -109,6 +110,7 @@ import Nagare.Resource.Types
   )
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Static.Release (StaticRelease, StaticReleaseLog)
+import Nagare.Target.Kinds (hostShapeFor)
 
 -- | The service, its volume claims, and automatic-TLS domain mappings, all
 -- bound to the same render used by preview. Supplied TLS needs an explicit
@@ -556,6 +558,17 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
             (rollout ^. #baseDomain)
             (service ^. #domains)
         )
+  first invalid (checkTunnelRoutes hostShape (rollout ^. #baseDomain) False (service ^. #domains))
+  defaultClaims <-
+    first
+      invalid
+      ( defaultHostClaims
+          hostShape
+          (serviceNameText (service ^. #name))
+          (namespaceText (service ^. #namespace))
+          (rollout ^. #baseDomain)
+          domains
+      )
   let renderedService = service & #domains .~ domains
   case service ^. #access of
     Just policy | policy ^. #role == AuthPortal -> do
@@ -630,13 +643,14 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
   volumeMembers <- traverse compileVolume (zip volumes (map snd volumeRendered))
   let volumeIds = map ((^. #identity) . fst) volumeMembers
   serviceMember <-
-    bindOne
-      resource
-      DeleteWhenUnreferenced
-      Stateless
-      (map OrderedAfter (namespaceId : imageId : volumeIds <> databasePrerequisites <> secretIds))
-      source
-      serviceBytes
+    first (\declaration -> if isJust protected then declaration else declaration {aliases = defaultClaims})
+      <$> bindOne
+        resource
+        DeleteWhenUnreferenced
+        Stateless
+        (map OrderedAfter (namespaceId : imageId : volumeIds <> databasePrerequisites <> secretIds))
+        source
+        serviceBytes
   let routeBytes = maybe (map snd domainRendered) (map (^. #mapping) . (^. #routes)) protected
       contributions = maybe [] (map (^. #contribution) . (^. #routes)) protected
   domainMembers <- traverse (compileDomain accessIds resource) (zip domains routeBytes)
@@ -650,6 +664,7 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
     (Left (invalid "service members share an identity"))
   pure (bundle, native)
   where
+    hostShape = hostShapeFor (rollout ^. #targetProfile . #ingress)
     known = either (error . T.unpack) id . mkName
     invalid message =
       single

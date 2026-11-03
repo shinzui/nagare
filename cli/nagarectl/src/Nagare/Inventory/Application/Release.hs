@@ -25,7 +25,7 @@ import Nagare.App.Deployments
   ( appConfigMapName
   , appDeploymentsPrefix
   )
-import Nagare.Deploy (serviceUrl)
+import Nagare.Deploy (serviceUrlFor)
 import Nagare.Dsl.Application
   ( Application
       ( access
@@ -89,6 +89,7 @@ import Nagare.Static.Release
   , findRelease
   , renderReleaseConfigMapWith
   )
+import Nagare.Target.Kinds (hostShapeFor)
 
 releaseResourceId :: ScopeId -> Application -> Either T.Text ResourceId
 releaseResourceId owner app = do
@@ -295,7 +296,8 @@ compileApplicationRelease app rollout owner cluster namespaceId imageId priorBun
           == maybe
             ""
             ( \service ->
-                serviceUrl
+                serviceUrlFor
+                  (hostShapeFor (rollout ^. #targetProfile . #ingress))
                   service
                   (rollout ^. #baseDomain)
             )

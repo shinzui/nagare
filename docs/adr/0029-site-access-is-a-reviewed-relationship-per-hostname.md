@@ -131,3 +131,10 @@ cluster guards stay on kubectl and retain their safety checks. The En API remain
 Kubernetes API server's authentication and authorization; this change does not expose it on the
 tailnet. [EP-221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md)
 measures the current transport independently and does not assume this held change has landed.
+
+## Amendment — 2026-11-03: a protected site behind a tunnel
+
+A protected site in a Cloudflare Tunnel context ([ADR 34](0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md))
+sits behind Cloudflare without being a CDN site. The per-site CDN stays refused. Two independent controls keep any cache from
+answering for the identity check: the zone's cache rule bypasses every hostname, and the enforcer adds
+`Cache-Control: private, no-store, no-transform` to each proxied protected response.

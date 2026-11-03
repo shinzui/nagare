@@ -33,19 +33,19 @@ and login protection is never weakened by edge caching.
 
 ## Progress
 
-- [ ] D1: The base domain's proxied apex and wildcard records are typed inventory resources in the Cloudflare zone.
+- [x] D1 (`InventoryCloudflareZoneSpec`, read-only requests against the real API): The base domain's proxied apex and wildcard records are typed inventory resources in the Cloudflare zone.
   Planning refuses a base domain outside `CF_ZONE_ID`'s zone. Fake-adapter tests cover a lost acknowledgement, a
   conflicting existing record, and resume after partial application.
-- [ ] D2: In tunnel mode, default names are one label below the base (`<name>-<namespace>.<base>`), for every web kind
+- [x] D2 (`Nagare.Test.SiteInventory.Tunnel`; `-p flatten`): In tunnel mode, default names are one label below the base (`<name>-<namespace>.<base>`), for every web kind
   and every preview. Knative's domain template, `serviceUrl` and its static and server equivalents, protected-route
   hostnames and `domains list` agree. Two workloads that flatten to one name are refused, using ADR 20's ownership
   check, across namespaces and including protected-route DomainMappings in `nagare-system` and preview names, so a
   workload in namespace `b-c` cannot claim the default name of `a-b` in namespace `c`. The platform's own hostnames
   (auth portal, admin API, `nagared` hooks, apex) are reserved from flattened names.
-- [ ] D3: A custom domain deeper than the certificate covers is refused at planning, with a message naming Advanced
+- [x] D3 (`Nagare.Test.SiteInventory.Tunnel`; the subdomain base is replaced, see the Decision Log): A custom domain deeper than the certificate covers is refused at planning, with a message naming Advanced
   Certificate Manager at $10 a month. A subdomain base where that certificate exists passes.
-- [ ] D4: A redeploy makes no per-hostname Cloudflare call. A call-count test proves it.
-- [ ] D5: In tunnel mode, planning refuses a per-site Cloudflare or Google CDN, a supplied origin TLS secret if EP-240
+- [x] D4 (`Nagare.Test.SiteInventory.Tunnel`: a site's scope holds only Kubernetes members): A redeploy makes no per-hostname Cloudflare call. A call-count test proves it.
+- [x] D5 (`Nagare.Test.SiteInventory.Tunnel`; EP-240 ran with `external-domain-tls` off, so a supplied Secret is refused): In tunnel mode, planning refuses a per-site Cloudflare or Google CDN, a supplied origin TLS secret if EP-240
   shows it cannot work, and a custom domain outside the zone, each with a clear message. Direct mode makes no Cloudflare
   call and behaves as before.
 - [ ] D6: An anonymous request never receives cached bytes of a protected site, by two independent controls: in
@@ -53,15 +53,15 @@ and login protection is never weakened by edge caching.
   `Cache-Control: private, no-store, no-transform` to every proxied protected response (today it sets `no-store` only on its own
   responses). `nagare-access-test` asserts the header on a proxied response, and an automated test on the disposable
   context fetches an asset with a session and then without one.
-- [ ] D7: `nagarectl domains list` and `domains check` expect the tunnel's records and report certificate state from
+- [x] D7 (`Nagare.Test.Domains`; certificate state is the one a visitor gets from a verified handshake, and the wildcard is probed through an unused label): `nagarectl domains list` and `domains check` expect the tunnel's records and report certificate state from
   Cloudflare. A missing record or certificate fails the check.
-- [ ] D8: In tunnel mode, public origin certificates are not requested and the DNS-01 issuer is not installed, or the
+- [x] D8 (`tunnelUpstreamInputs` drops the issuer scope; `Nagare.Test.Domains` shows no certificate read): In tunnel mode, public origin certificates are not requested and the DNS-01 issuer is not installed, or the
   alternative EP-240 proved is in place. `domains tls` reports this accurately.
 - [ ] D9: On a disposable context, deploying a new protected site works from a browser through the edge, and retiring
   it leaves no route.
-- [ ] D10: `docs/user` covers hostnames and certificates in tunnel mode. ADR 29 is amended: a protected site behind
+- [x] D10 ([cloudflare-tunnel.md](../user/cloudflare-tunnel.md), ADR 29 amendment): `docs/user` covers hostnames and certificates in tunnel mode. ADR 29 is amended: a protected site behind
   Cloudflare is not a CDN, and the two cache controls of D6 are its rule.
-- [ ] D11: Tunnel mode declares the zone's edge policy through the platform scope's zone claims: Always Use HTTPS on,
+- [x] D11 (`InventoryCloudflareZoneSpec`; both settings EP-240 left on are off, and Cloudflare retired minification): Tunnel mode declares the zone's edge policy through the platform scope's zone claims: Always Use HTTPS on,
   minimum TLS version 1.2, SSL mode strict, and Rocket Loader, email obfuscation and minification off, because they
   rewrite hosted pages. Fake-adapter tests cover drift back to a default, and direct mode declares none of them.
   This plan also decides `automatic_https_rewrites` and `server_side_exclude`, which EP-240 found on, and the disposable
@@ -75,9 +75,13 @@ and login protection is never weakened by edge caching.
 
 ## Decision Log
 
-- Decision: A tunnel context's protected routes, previews and site URLs flatten now. An ordinary service's printed and generated URL (`serviceUrl`) does not yet, and the refusal of two workloads
-  that flatten to one name is not built, so D2 stays open.
-  Rationale: the operator asked for a usable new context first; those routes would fail TLS outright, while Knative's template already serves the flattened service name.
+- Decision: The base domain is the Cloudflare zone itself, so D3's subdomain base with its own certificate is out of scope, and a name deeper than one label is refused.
+  Rationale: ADR 34 fixes the topology on a full zone, and nothing in this plan manages an Advanced Certificate Manager certificate.
+  Date: 2026-11-03
+
+- Decision: Two workloads on one name are refused by a `Hostname` claim on the public Knative Service, not by a new check. A protected workload's route already holds that claim. Platform services hold none, so
+  the suffix `-nagare-system` is reserved outside that namespace.
+  Rationale: ADR 20's claim machinery already covers accepted history and retained incarnations.
   Date: 2026-11-03
 
 

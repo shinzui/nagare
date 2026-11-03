@@ -323,6 +323,7 @@ library
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
     Nagare.Inventory.Trace
+    Nagare.Inventory.TunnelRoute
     Nagare.Inventory.VmPower
     Nagare.Inventory.VolumePrune
     Nagare.Inventory.VolumeRebuildRestore
@@ -735,6 +736,7 @@ test-suite nagarectl-test
     Nagare.Test.SiteInventory.Preview
     Nagare.Test.SiteInventory.Server
     Nagare.Test.SiteInventory.Static
+    Nagare.Test.SiteInventory.Tunnel
     Nagare.Test.Static
     Nagare.Test.StaticPublish
     Nagare.Test.Storage

@@ -5,6 +5,7 @@ module Nagare.Static.Deploy
   , productionManifests
   , previewManifests
   , staticUrl
+  , staticUrlFor
   )
 where
 

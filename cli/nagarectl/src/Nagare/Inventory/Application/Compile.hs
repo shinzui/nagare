@@ -76,6 +76,7 @@ import Nagare.Inventory.Application.VolumeBackup (compileVolumeBackups)
 import Nagare.Inventory.Application.Worker
   ( compileApplicationWorkers
   )
+import Nagare.Inventory.TunnelRoute (checkTunnelRoutes)
 import Nagare.Resource.Application
   ( applicationScopeId
   , domainMappingResourceId
@@ -124,6 +125,7 @@ import Nagare.Resource.Types
   , resourceIdText
   , scopeKind
   )
+import Nagare.Target.Kinds (hostShapeFor)
 
 -- | Compose the currently supported application members once, checking
 -- duplicate IDs and provider claims across component boundaries. Unsupported
@@ -295,6 +297,14 @@ compileApplicationScope input = do
     first
       invalid
       (runtimeSecretNamesWithBuild (scopeBuildSecrets input) envValues)
+  first
+    invalid
+    ( checkTunnelRoutes
+        (hostShapeFor (scopeRollout input ^. #targetProfile . #ingress))
+        (scopeRollout input ^. #baseDomain)
+        (isJust (app ^. #service >>= (^. #cdn)))
+        []
+    )
   case (app ^. #service >>= (^. #cdn), scopeCdnBinding input) of
     (Nothing, Nothing) -> pure ()
     (Just cdn, Just (GoogleCdnBindingFor binding)) -> do

@@ -7,7 +7,6 @@ module Nagare.Deploy.Host
   ( HostShape (..)
   , defaultHostName
   , previewHostName
-  , reservedHostLabels
   )
 where
 
@@ -29,8 +28,3 @@ defaultHostName FlatHosts name namespace base = name <> "-" <> namespace <> "." 
 previewHostName :: HostShape -> Text -> Text -> Text -> Text
 previewHostName NestedHosts preview site base = preview <> "." <> site <> ".preview." <> base
 previewHostName FlatHosts preview site base = preview <> "-" <> site <> "-preview." <> base
-
--- | One-label names the platform itself uses. A flattened default name cannot contain a dot, so it can
--- only collide with these if a workload's name and namespace are chosen to spell one.
-reservedHostLabels :: [Text]
-reservedHostLabels = ["admin", "auth", "hooks"]

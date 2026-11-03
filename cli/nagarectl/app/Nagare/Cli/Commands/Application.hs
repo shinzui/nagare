@@ -79,7 +79,7 @@ import Nagare.Cli.Runtime.Target
   )
 import Nagare.Contract.Project (deployPreview)
 import Nagare.Contract.Sink (emitDocument)
-import Nagare.Deploy (serviceUrl)
+import Nagare.Deploy (serviceUrlFor)
 import Nagare.Dsl.Build (resolveImageTag)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
@@ -158,6 +158,7 @@ import Nagare.Static.Release
       )
   )
 import Nagare.Target (TargetProfile, storeBackendFor)
+import Nagare.Target.Kinds (hostShapeFor)
 import System.Directory (doesFileExist)
 
 -- | @app list@: print a table of apps in a namespace (Nagare-managed unless
@@ -389,7 +390,7 @@ runAppDeployPlan mctx params appOptions output = do
             , url =
                 maybe
                   ""
-                  (\service -> serviceUrl service (rollout ^. #baseDomain))
+                  (\service -> serviceUrlFor (hostShapeFor (rollout ^. #targetProfile . #ingress)) service (rollout ^. #baseDomain))
                   (app ^. #service)
             , source = T.pack <$> appOptions ^. #source
             , createdAt = releasedAt

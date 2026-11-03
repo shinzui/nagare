@@ -107,7 +107,20 @@ Default names are one label below the base, because a two-label name fails TLS o
 | Site or service | `<name>-<namespace>.<base>` |
 | Preview | `<preview>-<site>-preview.<base>` |
 
-Custom domains must be inside the zone and one label deep.
+Planning refuses:
+
+- two workloads that flatten to one name, such as `a-b` in namespace `c` and `a` in namespace `b-c`;
+- a default name ending in `-nagare-system` outside that namespace, or with a first label over 63 characters;
+- a custom domain outside the zone;
+- a custom domain deeper than one label, which needs Cloudflare's Advanced Certificate Manager at $10 a month;
+- a per-site CDN, because the whole zone is already proxied;
+- a supplied origin TLS Secret, because Cloudflare ends TLS.
+
+Deploying a site makes no Cloudflare call: the zone's two records carry every name.
+
+`nagarectl domains check` probes the apex and the wildcard as well as your routes. Each must answer in public DNS with an
+address other than the VM's and complete a TLS handshake with a certificate that verifies. `nagarectl domains tls HOST`
+reports the edge certificate; there is no origin certificate to renew.
 
 ## Rotate the token
 

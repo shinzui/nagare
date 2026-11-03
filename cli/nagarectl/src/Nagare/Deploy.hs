@@ -12,6 +12,7 @@ module Nagare.Deploy
   , waitForWorkerRollout
   , requireWait
   , serviceUrl
+  , serviceUrlFor
   )
 where
 
@@ -21,6 +22,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Deploy.Host (HostShape (..), defaultHostName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( Deployment
@@ -156,13 +158,12 @@ requireWait what (ExitFailure code) = do
 -- the resolved base (e.g. @"apps.example.com"@), supplied via @--base-domain@
 -- or the @NAGARE_BASE_DOMAIN@ env var, defaulting to @"apps.example.com"@.
 serviceUrl :: Deployment -> Text -> Text
-serviceUrl dep baseDomain =
+serviceUrl = serviceUrlFor NestedHosts
+
+-- | 'serviceUrl' in the context's host shape; a tunnel context's default name is one label (ADR 34).
+serviceUrlFor :: HostShape -> Deployment -> Text -> Text
+serviceUrlFor shape dep baseDomain =
   case canonicalDomain (dep ^. #domains) of
     Just d -> "https://" <> domainText d
     Nothing ->
-      "https://"
-        <> serviceNameText (dep ^. #name)
-        <> "."
-        <> namespaceText (dep ^. #namespace)
-        <> "."
-        <> baseDomain
+      "https://" <> defaultHostName shape (serviceNameText (dep ^. #name)) (namespaceText (dep ^. #namespace)) baseDomain

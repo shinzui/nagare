@@ -46,12 +46,15 @@ import Nagare.Ops.Domains
   , dnsExpectationFor
   , domainCheckFailures
   , domainReportValue
+  , edgeCertificateStateWith
   , extractCertificateEvidence
   , extractDomainMappings
   , formatDomainList
   , observeDnsWith
   , parseDigShort
   , queryDomainRowsWith
+  , queryTunnelBaseRowsWith
+  , queryTunnelDomainRowsWith
   )
 import Nagare.Resource.Types (mkContextId)
 import System.Exit (ExitCode (..))
@@ -155,6 +158,34 @@ domainsTests =
       commands <- readIORef calls
       assertBool "DomainMapping queried" (("kubectl", ["get", "domainmapping", "-n", "personal", "-o", "json"]) `elem` commands)
       assertBool "dig queried" (("dig", ["+short", "A", "blog.apps.example.com"]) `elem` commands)
+  , testCase "a tunnel context's rows pass only with a proxied answer and a good edge certificate" $ do
+      let edge = "198.51.100.77"
+          answered address = tunnelRunner address (Observed "0\n")
+      rows <- queryTunnelBaseRowsWith (answered edge) base (Just vmIp)
+      map (^. #domain) rows @?= [base, "*." <> base]
+      domainCheckFailures rows @?= []
+      -- A record that is not proxied answers with the VM's address.
+      exposed <- queryTunnelBaseRowsWith (answered vmIp) base (Just vmIp)
+      assertBool "exposed" (length (domainCheckFailures exposed) == 2)
+      -- A missing record has no answer at all.
+      missing <- queryTunnelBaseRowsWith (tunnelRunner "" (Unavailable "curl exited 6: could not resolve")) base (Just vmIp)
+      assertBool "missing" (not (null (domainCheckFailures missing)))
+      -- A name the certificate does not cover fails the handshake.
+      badCertificate <- queryTunnelBaseRowsWith (tunnelRunner edge (Unavailable "curl exited 35: handshake failure")) base (Just vmIp)
+      assertBool "certificate" (any ("handshake" `T.isInfixOf`) (domainCheckFailures badCertificate))
+      unverified <- edgeCertificateStateWith (tunnelRunner edge (Observed "60")) "a.apps.example.com"
+      assertBool "verify result" (case unverified of CertificateFailed _ -> True; _ -> False)
+  , testCase "a tunnel context reads no origin certificate state" $ do
+      calls <- newIORef []
+      let runner tool args = do
+            modifyIORef' calls ((tool, args) :)
+            if tool == "kubectl" then pure (Observed domainMappingJson) else tunnelRunner "198.51.100.77" (Observed "0") tool args
+      observed <- queryTunnelDomainRowsWith runner base (Just vmIp) "personal"
+      case observed of
+        Observed rows -> domainCheckFailures rows @?= ["app.nadeem.dev: route failed: DomainAlreadyClaimed: owned by other"]
+        other -> assertFailure ("expected observed rows, got " <> show other)
+      commands <- readIORef calls
+      [args | ("kubectl", args) <- commands] @?= [["get", "domainmapping", "-n", "personal", "-o", "json"]]
   , testCase "versioned JSON report does not depend on table columns" $
       assertBool
         "schemaVersion"
@@ -423,3 +454,11 @@ certificateChainTests =
     findIndexOf p = fromMaybe maxBound . lookup True . flip zip [0 :: Int ..] . map p
     time :: Text -> UTCTime
     time t = fromMaybe (error ("bad time " <> T.unpack t)) (iso8601ParseM (T.unpack t))
+
+-- | Public DNS and the edge as a visitor sees them. Empty address: no answer.
+tunnelRunner :: Text -> Observation BS.ByteString -> ToolRunner
+tunnelRunner address edge tool args = pure $ case (tool, args) of
+  ("dig", ["+short", "A", _]) -> Observed (TE.encodeUtf8 address)
+  ("dig", _) -> Observed ""
+  ("curl", _) -> edge
+  _ -> Unavailable "unexpected tool"

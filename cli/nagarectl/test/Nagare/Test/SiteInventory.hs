@@ -14,7 +14,8 @@ import Nagare.Test.SiteInventory.Server
 import Nagare.Test.SiteInventory.Static
   ( staticSiteInventoryTests
   )
+import Nagare.Test.SiteInventory.Tunnel (tunnelSiteInventoryTests)
 import Test.Tasty (TestTree)
 
 staticInventoryTests :: [TestTree]
-staticInventoryTests = staticSiteInventoryTests <> previewSiteInventoryTests <> serverSiteInventoryTests <> protectedSiteInventoryTests
+staticInventoryTests = tunnelSiteInventoryTests <> staticSiteInventoryTests <> previewSiteInventoryTests <> serverSiteInventoryTests <> protectedSiteInventoryTests

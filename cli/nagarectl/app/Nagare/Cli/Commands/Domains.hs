@@ -33,16 +33,19 @@ import Nagare.Ops.Domains
   , Observation (NotFound, Observed, Unavailable)
   , domainCheckFailures
   , domainReportValue
+  , edgeCertificateStateWith
   , formatDomainList
   , observeNamespaces
   , queryBaseDomainRow
   , queryDomainRows
+  , queryTunnelBaseRowsWith
+  , queryTunnelDomainRowsWith
   , systemToolRunner
   )
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (Mode (Cloud, Local), contextNameText)
-import System.Exit (exitFailure)
+import Nagare.Target (IngressMode (..), Mode (Cloud, Local), contextNameText)
+import System.Exit (exitFailure, exitSuccess)
 import System.IO (stderr)
 
 runDomains :: Maybe String -> DomainsCommand -> IO ()
@@ -79,9 +82,16 @@ runDomainsInventory checking mctx o = do
   let nss = case namespaceObservation of
         Observed namespaces -> namespaces
         _ -> []
-  baseRow <- queryBaseDomainRow base apexIp
-  observations <- traverse (queryDomainRows base publicIp apexIp cdnGlobalIp) nss
-  let rows = baseRow : concat [found | Observed found <- observations]
+  (baseRows, observations) <- case tp ^. #ingress of
+    IngressDirect ->
+      (,)
+        <$> (pure <$> queryBaseDomainRow base apexIp)
+        <*> traverse (queryDomainRows base publicIp apexIp cdnGlobalIp) nss
+    IngressCloudflareTunnel ->
+      (,)
+        <$> queryTunnelBaseRowsWith systemToolRunner base publicIp
+        <*> traverse (queryTunnelDomainRowsWith systemToolRunner base publicIp) nss
+  let rows = baseRows <> concat [found | Observed found <- observations]
       namespaceFailures = case namespaceObservation of
         Observed _ -> []
         NotFound -> ["namespace inventory was not found"]
@@ -117,6 +127,12 @@ runDomainsTls mctx o = do
       runner executable args
         | executable == "kubectl" = systemToolRunner executable (["--context", kubeContext, "--request-timeout=10s"] <> args)
         | otherwise = systemToolRunner executable args
+  when (active ^. #profile . #ingress == IngressCloudflareTunnel) $ do
+    when (o ^. #renew) (dieT "this context requests no origin certificate: Cloudflare ends TLS, and its edge certificate renews itself")
+    edge <- edgeCertificateStateWith systemToolRunner hostName
+    TIO.putStrLn ("Cloudflare ends TLS for " <> hostName <> ", and this context requests no origin certificate.")
+    TIO.putStrLn ("edge certificate: " <> T.pack (show edge))
+    exitSuccess
   if o ^. #renew
     then do
       unless (o ^. #yes) (dieT "domains tls --renew triggers a re-issuance; confirm with --yes")

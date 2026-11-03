@@ -47,7 +47,7 @@ import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
   )
-import Nagare.Deploy (serviceUrl)
+import Nagare.Deploy (serviceUrlFor)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
@@ -89,6 +89,7 @@ import Nagare.Static.Release
       , url
       )
   )
+import Nagare.Target.Kinds (hostShapeFor)
 
 runDeploy :: Maybe String -> DeployOpts -> IO ()
 runDeploy mctx dopts =
@@ -272,7 +273,7 @@ runDeployPlan mctx options output = do
             , namespace = namespaceName
             , image = imageRefText (rollout ^. #qualifiedImage)
             , imageTag = releaseTag
-            , url = serviceUrl service (rollout ^. #baseDomain)
+            , url = serviceUrlFor (hostShapeFor (rollout ^. #targetProfile . #ingress)) service (rollout ^. #baseDomain)
             , source = T.pack <$> options ^. #source
             , createdAt = releasedAt
             }

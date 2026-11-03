@@ -23,6 +23,9 @@ module Nagare.Ops.Domains
   , queryDomainRows
   , queryDomainRowsWith
   , queryBaseDomainRow
+  , queryTunnelBaseRowsWith
+  , queryTunnelDomainRowsWith
+  , edgeCertificateStateWith
   , systemToolRunner
   , observeNamespaces
   , listNamespaces
@@ -42,7 +45,7 @@ import Data.ByteString (ByteString)
 import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.List (find, nub)
-import Data.Maybe (catMaybes, listToMaybe)
+import Data.Maybe (catMaybes, listToMaybe, maybeToList)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
@@ -68,6 +71,8 @@ data DnsExpectation
   = ExpectedAddresses ![Text]
   | NoPlatformDnsExpectation
   | DnsExpectationUnavailable !Text
+  | -- | Proxied through the zone's tunnel records: any answer but these addresses (ADR 34).
+    BehindTunnel ![Text]
   deriving stock (Generic, Eq, Show)
 
 data MappingState
@@ -364,6 +369,60 @@ queryDomainRowsWith runner base publicIp apexIp cdnGlobalIp namespace = do
               Unavailable detail -> CertificateUnknown detail
           }
 
+-- | A tunnel context's zone records. The wildcard has no row of its own in public DNS, so an unused label
+-- proves it: an answer and a good certificate, whatever the route says about the label.
+queryTunnelBaseRowsWith :: ToolRunner -> Text -> Maybe Text -> IO [DomainRow]
+queryTunnelBaseRowsWith runner base publicIp =
+  traverse
+    (\(shown, probed) -> tunnelRow runner base publicIp shown probed Nothing NotFound)
+    [(base, base), ("*." <> base, "nagare-domains-check." <> base)]
+
+queryTunnelDomainRowsWith :: ToolRunner -> Text -> Maybe Text -> Text -> IO (Observation [DomainRow])
+queryTunnelDomainRowsWith runner base publicIp namespace = do
+  mappings <- observeParsed extractDomainMappings =<< runner "kubectl" ["get", "domainmapping", "-n", T.unpack namespace, "-o", "json"]
+  case mappings of
+    Unavailable detail -> pure (Unavailable detail)
+    NotFound -> pure NotFound
+    Observed domainMappings ->
+      Observed
+        <$> traverse
+          ( \domainMapping ->
+              tunnelRow
+                runner
+                base
+                publicIp
+                (domainMapping ^. #host)
+                (domainMapping ^. #host)
+                (domainMapping ^. #service)
+                (Observed (domainMapping ^. #state))
+          )
+          domainMappings
+
+tunnelRow :: ToolRunner -> Text -> Maybe Text -> Text -> Text -> Maybe Text -> Observation MappingState -> IO DomainRow
+tunnelRow runner base publicIp shown probed routedService routeState = do
+  dnsObservation <- observeDnsWith runner base probed
+  edge <- edgeCertificateStateWith runner probed
+  pure
+    DomainRow
+      { domain = shown
+      , service = routedService
+      , mapping = routeState
+      , dnsExpectation = BehindTunnel (maybeToList publicIp)
+      , dns = dnsObservation
+      , certificate = edge
+      }
+
+-- | Cloudflare ends TLS for a tunnel context, so the certificate that matters is the one a visitor gets.
+edgeCertificateStateWith :: ToolRunner -> Text -> IO CertificateState
+edgeCertificateStateWith runner host = do
+  probe <- runner "curl" ["-sS", "-o", "/dev/null", "--max-time", "15", "-w", "%{ssl_verify_result}", "https://" <> T.unpack host]
+  pure $ case probe of
+    Observed bytes
+      | T.strip (decodeUtf8With lenientDecode bytes) == "0" -> CertificateReady "Cloudflare edge"
+      | otherwise -> CertificateFailed ("edge certificate did not verify: " <> T.strip (decodeUtf8With lenientDecode bytes))
+    NotFound -> CertificateFailed "no TLS handshake with the edge"
+    Unavailable detail -> CertificateFailed detail
+
 parseConfiguredIssuerName :: ByteString -> Either Text Text
 parseConfiguredIssuerName bytes = do
   value <- first (T.pack . ("could not decode config-certmanager JSON: " <>)) (eitherDecodeStrict bytes)
@@ -479,6 +538,7 @@ dnsCell row = observation <> expectation
       ExpectedAddresses targets -> " (expected " <> T.intercalate " or " targets <> ")"
       NoPlatformDnsExpectation -> " (external DNS)"
       DnsExpectationUnavailable detail -> " (expectation unavailable: " <> detail <> ")"
+      BehindTunnel _ -> " (behind the tunnel)"
 
 certificateCell :: CertificateState -> Text
 certificateCell = \case
@@ -525,6 +585,7 @@ dnsExpectationValue = \case
   ExpectedAddresses targets -> Aeson.object ["state" .= ("expected" :: Text), "addresses" .= targets]
   NoPlatformDnsExpectation -> stateOnly "external"
   DnsExpectationUnavailable detail -> stateDetail "unavailable" detail
+  BehindTunnel _ -> stateOnly "tunnel"
 
 dnsObservationValue :: DnsObservation -> Aeson.Value
 dnsObservationValue value =
@@ -572,6 +633,9 @@ domainCheckFailures = concatMap failures
         | otherwise -> case row ^. #dnsExpectation of
             NoPlatformDnsExpectation -> []
             DnsExpectationUnavailable detail -> issue row ("DNS expectation unavailable: " <> detail)
+            BehindTunnel exposed
+              | any (`elem` exposed) (value ^. #addresses) -> issue row "DNS answers with the VM's address, so this name is not proxied through the tunnel"
+              | otherwise -> []
             ExpectedAddresses expected
               | all (`elem` expected) (value ^. #addresses) -> []
               | otherwise ->
