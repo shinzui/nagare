@@ -11,7 +11,8 @@ import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Target
-  ( InventoryStoreKind (InventoryStoreLocal)
+  ( IngressMode (IngressDirect)
+  , InventoryStoreKind (InventoryStoreLocal)
   , Mode (Cloud)
   , PulumiBackendKind (PulumiBackendLocal)
   , TargetProfile (..)
@@ -39,6 +40,7 @@ initProfile =
     , nixCacheBucket = "acme-prod-nagare-nix-cache"
     , baseDomain = "apps.acme.com"
     , externalDomainTlsEnabled = False
+    , ingress = IngressDirect
     , instanceName = "nagare-01"
     , serviceAccountId = "nagare-node"
     , machineType = "e2-standard-2"
@@ -84,6 +86,7 @@ tnbProfile =
     , nixCacheBucket = "tan-nb-exp-nagare-nix-cache"
     , baseDomain = "apps.example.com"
     , externalDomainTlsEnabled = False
+    , ingress = IngressDirect
     , instanceName = "nagare-01"
     , serviceAccountId = "nagare-node"
     , machineType = "e2-standard-2"

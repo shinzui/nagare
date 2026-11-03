@@ -51,7 +51,7 @@ become anything but fail-closed.
    names, so interactive `gcloud` and the Pulumi GCP provider honor them), plus
    `NAGARE_REGISTRY_HOST`, `NAGARE_ARTIFACT_REGISTRY_ID`,
    `NAGARE_IMAGE_BUCKET`, `NAGARE_BACKUP_BUCKET`, `NAGARE_BASE_DOMAIN`,
-   `NAGARE_INSTANCE_NAME`, `NAGARE_TARGET_PLATFORM`, `NAGARE_MODE`, and
+   `NAGARE_INSTANCE_NAME`, `NAGARE_TARGET_PLATFORM`, `NAGARE_MODE`, `NAGARE_INGRESS`, and
    `NAGARE_LOCAL_OBJECT_STORE`, `NAGARE_INVENTORY_STORE`,
    `NAGARE_INVENTORY_STORE_URL`, and `NAGARE_BACKUP_RECOVERY_POINT`. Selection precedence: `--context` /
    `NAGARE_CONTEXT` > current-context pointer > in-repo profile > built-in

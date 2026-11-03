@@ -53,6 +53,7 @@ import Nagare.Ops.Probe (captureTool)
 import Nagare.Platform.Paths (PlatformRootSource (..))
 import Nagare.Target
   ( ContextName
+  , IngressMode (..)
   , InventoryStoreKind (..)
   , Mode (..)
   , PulumiBackendKind (..)
@@ -62,6 +63,7 @@ import Nagare.Target
   , contextNameText
   , defaultGcsPulumiBackendUrl
   , effectivePulumiBackend
+  , ingressModeToken
   , inventoryStoreToken
   , mergeContextOverrides
   , parseInventoryStoreKind
@@ -342,6 +344,7 @@ renderTargetEnv tp =
     , "export NAGARE_DATA_DISK_SIZE_GB=" <> tp ^. #dataDiskSizeGb
     , "export NAGARE_TARGET_PLATFORM=" <> tp ^. #targetPlatform
     , "export NAGARE_MODE=" <> modeToken (tp ^. #mode)
+    , "export NAGARE_INGRESS=" <> ingressModeToken (tp ^. #ingress)
     , "export NAGARE_LOCAL_OBJECT_STORE=" <> tp ^. #localObjectStore
     , "export NAGARE_PULUMI_BACKEND=" <> pulumiBackendToken (tp ^. #pulumiBackend)
     , "export NAGARE_PULUMI_BACKEND_URL=" <> tp ^. #pulumiBackendUrl
@@ -383,6 +386,8 @@ seedKeys tp =
   , ("nagare:dataDiskSizeGb", tp ^. #dataDiskSizeGb)
   , ("nagare:manageProjectApis", "false")
   ]
+    -- MasterPlan 32: absent for direct, so an existing stack previews unchanged.
+    <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | tp ^. #ingress == IngressCloudflareTunnel]
     -- An inventory context keeps its apex on the VM: the CDN is created as
     -- reviewed cloud members first, and application hostnames opt into it with
     -- --cdn-backend-resource. Absent keys keep older stacks unchanged (F43).

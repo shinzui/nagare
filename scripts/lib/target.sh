@@ -40,7 +40,7 @@ _NAGARE_CONTEXT_VARS=(
   NAGARE_BOOT_DISK_SIZE_GB NAGARE_DATA_DISK_SIZE_GB
   NAGARE_TARGET_PLATFORM NAGARE_SSH_USER
   NAGARE_BUILDER_PROJECT NAGARE_BUILDER_ZONE NAGARE_BUILDER_INSTANCE
-  NAGARE_MODE NAGARE_LOCAL_OBJECT_STORE
+  NAGARE_MODE NAGARE_INGRESS NAGARE_LOCAL_OBJECT_STORE
   NAGARE_PULUMI_BACKEND NAGARE_PULUMI_BACKEND_URL
   NAGARE_INVENTORY_STORE NAGARE_INVENTORY_STORE_URL
   NAGARE_BACKUP_RECOVERY_POINT
@@ -274,6 +274,20 @@ _nagare_resolve_context() {
   fi
   # MasterPlan 23 D6: the scheduled database backup recovery-point objective.
   # Each reviewed backup CronJob carries it in its signed metadata.
+  export NAGARE_INGRESS="${NAGARE_INGRESS:-direct}"
+  case "${NAGARE_INGRESS}" in
+    direct) ;;
+    cloudflare-tunnel)
+      if [ "${NAGARE_MODE}" = "local" ]; then
+        echo "nagare: NAGARE_INGRESS=cloudflare-tunnel is cloud-only" >&2
+        return 1 2>/dev/null || exit 1
+      fi
+      ;;
+    *)
+      echo "nagare: NAGARE_INGRESS must be direct or cloudflare-tunnel" >&2
+      return 1 2>/dev/null || exit 1
+      ;;
+  esac
   export NAGARE_BACKUP_RECOVERY_POINT="${NAGARE_BACKUP_RECOVERY_POINT:-hourly}"
   case "${NAGARE_BACKUP_RECOVERY_POINT}" in
     hourly|daily) ;;

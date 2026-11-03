@@ -43,6 +43,7 @@ import Nagare.Target
   , mergeContextOverrides
   , nagareStateDir
   , parseAcmeDirectory
+  , parseIngressMode
   , profileFromContextMap
   , pulumiEnvFor
   , readContextMap
@@ -51,6 +52,7 @@ import Nagare.Target
   , renderContextShellEnv
   , setCurrentContext
   , validateAcmeEmail
+  , validateIngressMode
   , validateNixCacheMode
   , validateVmShape
   , vmShapeOf
@@ -108,6 +110,7 @@ runContext mctx = \case
     -- renderer's refusal is the backstop for a context written without one.
     mapM_ (either dieT (const (pure ())) . validateAcmeEmail . T.pack) (o ^. #acmeEmail)
     mapM_ (either dieT (const (pure ())) . parseAcmeDirectory . T.pack) (o ^. #acmeDirectory)
+    either dieT (const (pure ())) (parseIngressMode (o ^. #ingress))
     (_, workspace) <- resolvePlatformWorkspace name
     path <- contextFilePath name
     -- EP-121: --force merges onto the stored context rather than resetting every
@@ -117,6 +120,7 @@ runContext mctx = \case
         tp = profileFromContextMap contextMap
     void (either dieT pure (validateVmShape (vmShapeOf tp)))
     either dieT pure (validateNixCacheMode tp)
+    either dieT pure (validateIngressMode tp)
     when
       (tp ^. #mode == Local && tp ^. #externalDomainTlsEnabled)
       (dieT "external domain TLS belongs to cloud contexts")

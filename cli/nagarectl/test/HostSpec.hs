@@ -28,7 +28,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Host.AgeKey
 import Nagare.Host.Config
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
-import Nagare.Target (ContextName, InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..), contextNameText, mkContextName)
+import Nagare.Target (ContextName, IngressMode (IngressDirect), InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..), contextNameText, mkContextName)
 import Nagare.Version (BuildVersion (..))
 import System.Directory
   ( Permissions (executable, readable)
@@ -465,6 +465,7 @@ fixtureProfile =
     , nixCacheBucket = "labs-project-nagare-nix-cache"
     , baseDomain = "apps.example.com"
     , externalDomainTlsEnabled = False
+    , ingress = IngressDirect
     , instanceName = "nagare-01"
     , serviceAccountId = "nagare-node"
     , machineType = "e2-standard-2"

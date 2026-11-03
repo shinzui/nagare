@@ -472,6 +472,7 @@ data ContextCreateOpts = ContextCreateOpts
   , zone :: !(Maybe String)
   , baseDomain :: !(Maybe String)
   , externalDomainTlsEnabled :: !(Maybe String)
+  , ingress :: !(Maybe String)
   , machineType :: !(Maybe String)
   , bootDiskType :: !(Maybe String)
   , bootDiskSizeGb :: !(Maybe String)

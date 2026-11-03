@@ -11,11 +11,14 @@ module Nagare.Target.Kinds
   , parseInventoryStoreKind
   , inventoryStoreToken
   , parseBackupRecoveryPoint
+  , IngressMode (..)
+  , parseIngressMode
+  , ingressModeToken
   )
 where
 
 import Data.Char (toLower)
-import Data.Text (Text)
+import Data.Text (Text, pack)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 
@@ -72,6 +75,27 @@ parseInventoryStoreKind raw = case fmap (map toLower) raw of
 inventoryStoreToken :: InventoryStoreKind -> Text
 inventoryStoreToken InventoryStoreLocal = "local"
 inventoryStoreToken InventoryStoreGcs = "gcs"
+
+-- | How web traffic reaches a context's gateway (MasterPlan 32, ADR 34). 'IngressDirect'
+-- is the VM's public address and the default; 'IngressCloudflareTunnel' is one tunnel
+-- on a full Cloudflare zone.
+data IngressMode = IngressDirect | IngressCloudflareTunnel
+  deriving stock (Eq, Show)
+
+-- | Parse @NAGARE_INGRESS@. Unlike the other kinds this one refuses an unknown value
+-- instead of defaulting: a typo must not silently leave a context on the ingress the
+-- operator meant to close.
+parseIngressMode :: Maybe String -> Either Text IngressMode
+parseIngressMode raw = case raw of
+  Nothing -> Right IngressDirect
+  Just "" -> Right IngressDirect
+  Just "direct" -> Right IngressDirect
+  Just "cloudflare-tunnel" -> Right IngressCloudflareTunnel
+  Just other -> Left ("NAGARE_INGRESS must be direct or cloudflare-tunnel, not " <> pack other)
+
+ingressModeToken :: IngressMode -> Text
+ingressModeToken IngressDirect = "direct"
+ingressModeToken IngressCloudflareTunnel = "cloudflare-tunnel"
 
 -- | NAGARE_BACKUP_RECOVERY_POINT (MasterPlan 23, D6). Only an explicit
 -- @daily@ relaxes the objective; any other value keeps the stricter hourly

@@ -34,6 +34,7 @@ import Nagare.Target
   , contextsDir
   , effectiveInventoryStore
   , effectivePulumiBackend
+  , ingressModeToken
   , inventoryStoreToken
   , mkContextName
   , pulumiBackendToken
@@ -77,6 +78,7 @@ exportProfileEnv name tp = mapM_ (uncurry setOrUnset) fields
       , ("NAGARE_INVENTORY_STORE", inventoryStoreToken (effectiveInventoryStore tp))
       , ("NAGARE_INVENTORY_STORE_URL", tp ^. #inventoryStoreUrl)
       , ("NAGARE_BACKUP_RECOVERY_POINT", recoveryPointObjectiveText (tp ^. #backupRecoveryPoint))
+      , ("NAGARE_INGRESS", ingressModeToken (tp ^. #ingress))
       , ("NAGARE_REGISTRY_PREFIX", registryPrefix tp)
       , ("NAGARE_PULUMI_STACK", context)
       ]
@@ -163,6 +165,7 @@ contextEnvPairs o =
     , pair "NAGARE_SERVICE_ACCOUNT_ID" (o ^. #serviceAccountId)
     , pair "NAGARE_TARGET_PLATFORM" (o ^. #targetPlatform)
     , pair "NAGARE_MODE" (o ^. #mode)
+    , pair "NAGARE_INGRESS" (o ^. #ingress)
     , pair "NAGARE_LOCAL_OBJECT_STORE" (o ^. #localObjectStore)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)

@@ -29,6 +29,7 @@ import Nagare.Platform.Paths
   )
 import Nagare.Target
   ( AcmeDirectory (AcmeCustom, AcmeProduction, AcmeStaging)
+  , IngressMode (IngressCloudflareTunnel, IngressDirect)
   , InventoryStoreKind (InventoryStoreGcs, InventoryStoreLocal)
   , Mode (Cloud, Local)
   , PulumiBackendKind (PulumiBackendGcs, PulumiBackendLocal)
@@ -43,12 +44,14 @@ import Nagare.Target
   , mkContextName
   , parseAcmeDirectory
   , parseContextEnv
+  , parseIngressMode
   , parseInventoryStoreKind
   , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
   , renderContextShellEnv
   , validateAcmeEmail
+  , validateIngressMode
   , validateNixCacheMode
   , validateVmShape
   )
@@ -230,6 +233,24 @@ initTests =
         checkInitOwnership False "labs" initProfile @?= Right ()
         assertBool "stored foreign GCS URL refused" (isLeft (checkInitOwnership False "labs" foreignBackend))
         checkInitOwnership True "labs" foreignBackend @?= Right ()
+    , testCase "ingress defaults to direct, refuses a typo, and a tunnel is cloud-only (EP-241 D1)" $ do
+        parseIngressMode Nothing @?= Right IngressDirect
+        parseIngressMode (Just "") @?= Right IngressDirect
+        parseIngressMode (Just "direct") @?= Right IngressDirect
+        parseIngressMode (Just "cloudflare-tunnel") @?= Right IngressCloudflareTunnel
+        assertBool "a typo is refused, not defaulted" (isLeft (parseIngressMode (Just "cloudflare")))
+        initProfile ^. #ingress @?= IngressDirect
+        let tunnel = initProfile & #ingress .~ IngressCloudflareTunnel
+        validateIngressMode initProfile @?= Right ()
+        validateIngressMode tunnel @?= Right ()
+        assertBool "refused in local mode" (isLeft (validateIngressMode (tunnel & #mode .~ Local)))
+        assertBool "refused beside cloud-domain TLS" (isLeft (validateIngressMode (tunnel & #externalDomainTlsEnabled .~ True)))
+        validateIngressMode (initProfile & #mode .~ Local) @?= Right ()
+        -- A direct stack's projection is unchanged, so its preview is too (D2).
+        lookup "nagare:ingress" (seedKeys initProfile) @?= Nothing
+        lookup "nagare:ingress" (seedKeys tunnel) @?= Just "cloudflare-tunnel"
+        let parsed = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_INGRESS=cloudflare-tunnel\n")
+        parsed ^. #ingress @?= IngressCloudflareTunnel
     , testCase "nix cache is cloud-only and round-trips when enabled" $ do
         let enabled = initProfile & #nixCacheEnabled .~ True
         validateNixCacheMode enabled @?= Right ()

@@ -40,6 +40,10 @@ module Nagare.Target
   , writeContextPlatformVersion
   , writeContextInventoryStore
   , parseMode
+  , IngressMode (..)
+  , parseIngressMode
+  , ingressModeToken
+  , validateIngressMode
   , parseAcmeDirectory
   , acmeDirectoryToken
   , acmeDirectoryUrl
@@ -391,6 +395,8 @@ data TargetProfile = TargetProfile
   , externalDomainTlsEnabled :: !Bool
   -- ^ NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED; opt in to reviewed cloud-domain TLS
   -- after DNS delegation. Local bootstrap enables its own local TLS policy.
+  , ingress :: !IngressMode
+  -- ^ NAGARE_INGRESS, default 'IngressDirect'; see 'validateIngressMode'
   , instanceName :: !Text
   -- ^ NAGARE_INSTANCE_NAME, default @"nagare-01"@
   , serviceAccountId :: !Text
@@ -560,6 +566,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_DATA_DISK_SIZE_GB" (tp ^. #dataDiskSizeGb)
     , line "NAGARE_TARGET_PLATFORM" (tp ^. #targetPlatform)
     , line "NAGARE_MODE" (modeToken (tp ^. #mode))
+    , line "NAGARE_INGRESS" (ingressModeToken (tp ^. #ingress))
     , line "NAGARE_LOCAL_OBJECT_STORE" (tp ^. #localObjectStore)
     , line "NAGARE_PULUMI_BACKEND" (pulumiBackendToken (effectivePulumiBackend tp))
     , line "NAGARE_PULUMI_BACKEND_URL" (tp ^. #pulumiBackendUrl)
@@ -764,6 +771,7 @@ profileFromContextMap ctx =
       nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
+      ingress = either (error . T.unpack) id (parseIngressMode (mapRaw ctx "NAGARE_INGRESS"))
       instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
       serviceAccountId = mapOr ctx "NAGARE_SERVICE_ACCOUNT_ID" "nagare-node"
       machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
@@ -797,6 +805,7 @@ profileFromContextMap ctx =
         , nixCacheBucket = nixCacheBucket
         , baseDomain = baseDomain
         , externalDomainTlsEnabled = externalDomainTlsEnabled
+        , ingress = ingress
         , instanceName = instanceName
         , serviceAccountId = serviceAccountId
         , machineType = machineType
@@ -833,6 +842,7 @@ resolveProfileFrom ctx = do
   nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
+  ingress <- either (ioError . userError . T.unpack) pure . parseIngressMode =<< ctxRaw ctx "NAGARE_INGRESS"
   instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
   serviceAccountId <- ctxOr ctx "NAGARE_SERVICE_ACCOUNT_ID" "nagare-node"
   machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
@@ -867,6 +877,7 @@ resolveProfileFrom ctx = do
       , nixCacheBucket = nixCacheBucket
       , baseDomain = baseDomain
       , externalDomainTlsEnabled = externalDomainTlsEnabled
+      , ingress = ingress
       , instanceName = instanceName
       , serviceAccountId = serviceAccountId
       , machineType = machineType
@@ -911,6 +922,8 @@ resolveActiveTarget arg = do
                 .~ (storedProfile ^. #platformVersion)
                 & #externalDomainTlsEnabled
                 .~ (storedProfile ^. #externalDomainTlsEnabled)
+                & #ingress
+                .~ (storedProfile ^. #ingress)
                 & #nixCacheEnabled
                 .~ (storedProfile ^. #nixCacheEnabled)
                 & #cdnEnabled
@@ -952,6 +965,16 @@ validateNixCacheMode tp
       Left "NAGARE_NIX_CACHE_ENABLED=1 is cloud-only; disable it for local contexts"
   | tp ^. #cdnEnabled && tp ^. #mode == Local =
       Left "NAGARE_CDN_ENABLED=1 is cloud-only; disable it for local contexts"
+  | otherwise = Right ()
+
+-- | A tunnel needs a Cloudflare zone and a cloud VM, and a local context has neither.
+-- A tunnel also replaces the DNS-01 issuer, so reviewed cloud-domain TLS cannot be on (ADR 34).
+validateIngressMode :: TargetProfile -> Either Text ()
+validateIngressMode tp
+  | tp ^. #ingress /= IngressCloudflareTunnel = Right ()
+  | tp ^. #mode == Local = Left "NAGARE_INGRESS=cloudflare-tunnel is cloud-only; local contexts use their loopback ingress"
+  | tp ^. #externalDomainTlsEnabled =
+      Left "NAGARE_INGRESS=cloudflare-tunnel requires NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=0: Cloudflare's edge certificate serves the zone"
   | otherwise = Right ()
 
 -- | The Kubernetes Secret (in the data-movement Job's namespace) holding the
