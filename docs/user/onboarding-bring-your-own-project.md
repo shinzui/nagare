@@ -23,9 +23,26 @@ page and the pages it links. Commands use the placeholders `CURRENT_RELEASE_TAG`
 For new setups, put those values in a named [target context](contexts.md), such as `prod` or
 `labs`.
 
-**This page describes direct ingress.** For a new context we recommend a Cloudflare Tunnel, which opens no web port and needs no
-Cloud DNS delegation. Read [Choosing how a context receives traffic](choosing-ingress.md), then follow
-[Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md) instead of this page.
+## Recommended: serve through a Cloudflare Tunnel
+
+For a new context we recommend a Cloudflare Tunnel: the VM accepts no web traffic and there is no Cloud DNS delegation.
+[Choosing how a context receives traffic](choosing-ingress.md) states what you accept in return, mainly that Cloudflare decrypts
+traffic at its edge.
+
+1. **Add your domain to Cloudflare** on a full setup and set the name servers at your registrar. If the domain is signed, remove the
+   DS record at the registrar before the change, and turn DNSSEC on at Cloudflare after it.
+2. **Protect the accounts.** Turn on two-factor authentication at Cloudflare and at the registrar, and use a Cloudflare account that
+   holds nothing else: whoever controls it controls every site.
+3. **Create the API token,** scoped to that account and zone, with exactly Cloudflare Tunnel Edit, DNS Edit, Zone Settings Edit and
+   Cache Rules Edit.
+4. **Do Step 0, Step 1, Step 3 and Step 4 below,** skipping the domain delegation in Step 1.
+5. **Follow [Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md)** from "Create the context" to a protected site
+   you can sign in to. It replaces Step 2 and Steps 5 to 11.
+
+## Alternative: direct ingress
+
+The rest of this page sets up direct ingress: Kourier takes web traffic on the VM's public address, with Cloud DNS and origin
+certificates. Choose it when you cannot use Cloudflare as the zone's name server.
 
 **Before you begin:**
 

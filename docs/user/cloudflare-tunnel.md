@@ -123,6 +123,14 @@ Deploying a site makes no Cloudflare call: the zone's two records carry every na
 address other than the VM's and complete a TLS handshake with a certificate that verifies. `nagarectl domains tls HOST`
 reports the edge certificate; there is no origin certificate to renew.
 
+## Deploy a protected site and sign in
+
+Deploy as in [Protected sites](static-hosting.md#protected-sites), with a site config that names no domain. It answers on
+`<site>-<namespace>.<base>`, and the deploy makes no Cloudflare call. A request with no session gets a 302 to `/_nagare/login`.
+
+Create the first user and grant them the site as in [the auth portal](auth-portal.md), with `--host` set to that name, then open it in
+a browser. A sign-in form left open for more than ten minutes comes back asking you to sign in again.
+
 ## Rotate the token
 
 ```bash

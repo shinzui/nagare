@@ -32,7 +32,7 @@ can choose direct ingress instead without friction. Someone with a running direc
 
 ## Progress
 
-- [ ] D1: `docs/user/onboarding-bring-your-own-project.md` leads with the tunnel path: add your domain to Cloudflare and set the name servers,
+- [x] D1 ([onboarding](../user/onboarding-bring-your-own-project.md) leads with these steps and [the tunnel guide](../user/cloudflare-tunnel.md) carries them to a protected site): `docs/user/onboarding-bring-your-own-project.md` leads with the tunnel path: add your domain to Cloudflare and set the name servers,
   with no Cloud DNS delegation step. It says to turn on two-factor authentication at Cloudflare and the registrar, to remove any DS
   record before the name server change and turn DNSSEC on at Cloudflare after, and to create the API token with exactly the
   permissions EP-240 lists, in an account that holds nothing else. Direct ingress is a clearly labelled alternative.
