@@ -170,13 +170,13 @@ import System.Environment (setEnv)
 import System.Exit (ExitCode)
 import System.FilePath ((</>))
 
--- | The registry that settles a stopped transaction. A bootstrap stage planned by another payload can
--- only be settled by this one: resume stays refused, and close writes to no provider (F139).
+-- | The registry that settles a stopped transaction. A stage planned by another payload can only be
+-- settled by this one: resume stays refused, and close writes to no provider (F139).
 inventoryCloseRegistry :: Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO (InventoryExecute.CloseScope, InventoryAdapter.AdapterRegistry)
 inventoryCloseRegistry mctx inventory bundle = do
   let identity = InventoryPlan.reviewPayloadIdentity (InventoryPlan.reviewBundleDocument bundle)
   across <-
-    if "nagare-bootstrap:" `T.isPrefixOf` identity
+    if "nagare-bootstrap:" `T.isPrefixOf` identity || "nagare-transition:" `T.isPrefixOf` identity
       then do
         active <- activeTarget mctx
         (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)

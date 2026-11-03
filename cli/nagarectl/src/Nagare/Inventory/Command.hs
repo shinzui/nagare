@@ -95,7 +95,7 @@ import Nagare.Inventory.Store.Remote qualified as Remote
 import Nagare.Inventory.Store.Target (openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
 import Nagare.Inventory.Store.TargetMigration (migrateTargetStore)
 import Nagare.Platform.Paths (renderPlatformPathError, resolvePlatformPaths)
-import Nagare.Platform.Transition (transitionContinueRefusal)
+import Nagare.Platform.Transition (transitionCloseRefusal, transitionContinueRefusal)
 import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -754,7 +754,7 @@ closeInventoryWithFactory registryFor target transactionToken reviewToken attest
     bytes <- try (BS.readFile file) :: IO (Either IOException ByteString)
     either (dieText . showText) (either (dieText . ("attestation: " <>)) pure . decodeAttestation) bytes
   store <- openTargetStore target
-  requireTransitionOwner store
+  readHead store >>= either (dieText . showText) pure >>= mapM_ (\headValue -> forM_ (headTransition headValue >>= transitionCloseRefusal) dieText)
   bundle <- loadPublishedReview store review >>= either (dieText . showText) pure
   (scope, registry) <- registryFor (ReviewInventory store Nothing) bundle
   record <- closeTransactionWith scope store registry (CloseInput transaction review takeOver attestation) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure

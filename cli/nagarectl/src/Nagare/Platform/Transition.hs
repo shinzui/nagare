@@ -9,6 +9,7 @@ module Nagare.Platform.Transition
   , platformReviewExpectation
   , renderTransitionRefusal
   , transitionOwnerRefusal
+  , transitionCloseRefusal
   , transitionContinueRefusal
   , transitionCommitRefusal
   , TransitionState (..)
@@ -93,6 +94,14 @@ transitionContinueRefusal headValue marker payload
       Just ("the release transition from " <> transitionSource marker <> " is finalizing the context pin to " <> pin <> "; run platform transition commit to finish it")
   | isNothing (headActiveTransaction headValue) && isNothing (headExecutorClaim headValue) = Nothing
   | otherwise = transitionOwnerRefusal marker payload
+
+-- | F139: close writes to no provider, so any payload may settle a transition's stopped stage. Its target
+-- could be the very payload whose defect stopped it, with a resume that can only refuse again. Only a
+-- finalizing transition, which has already moved past its stages, refuses.
+transitionCloseRefusal :: TransitionMarker -> Maybe Text
+transitionCloseRefusal marker = case transitionFinalizing marker of
+  Just pin -> Just ("the release transition from " <> transitionSource marker <> " is finalizing the context pin to " <> pin <> "; finish it with platform transition commit")
+  Nothing -> Nothing
 
 -- | Why `platform transition commit` may not write the pin yet, if anything:
 -- no transition is open, another payload's is, a transaction is unresolved, or

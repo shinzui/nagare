@@ -189,6 +189,9 @@ compatibilityTests =
         recorded <- BS.readFile "test/fixtures/transition-0.4.0/store/head.json" >>= either (assertFailure . show) pure . decodeHead
         let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z" Nothing
             idle = recorded {headTransition = Just marker, headActiveTransaction = Nothing, headExecutorClaim = Nothing}
+        -- F139: a stopped stage can always be settled, whichever payload stopped it.
+        transitionCloseRefusal marker @?= Nothing
+        assertBool "a finalizing transition was closed" (isJust (transitionCloseRefusal marker {transitionFinalizing = Just "0.2.0"}))
         transitionContinueRefusal idle marker "payload-s" @?= Nothing
         case transitionContinueRefusal idle {headActiveTransaction = Just "tx-1"} marker "payload-s" of
           Nothing -> assertFailure "a foreign payload continued a busy transition"

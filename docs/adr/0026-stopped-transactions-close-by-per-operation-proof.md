@@ -115,8 +115,9 @@ also had hazards:
 
 ## Amendment, 2026-11-03: a stage another payload planned
 
-Resuming a bootstrap stage requires the payload that planned it, so a stage stopped by that payload's own defect had no exit
+Resuming a platform stage requires the payload that planned it, so a stage stopped by that payload's own defect had no exit
 ([F139](../audits/mp23-findings.md)): the old payload could not prove the operation and the fixed one was refused. `inventory close` now
 settles such a stage from the running payload. From there resume cannot progress by definition, and the running adapters need not be
 the reviewed versions, because close only observes and writes to no provider. Every other condition of decision 2 stands, and an operation
-the running adapter cannot prove still blocks close until it is attested. Transitions are excluded and keep their own reverse path.
+the running adapter cannot prove still blocks close until it is attested. A transition's stage is included: it has no reverse path while
+`rollbackSupportedFrom` is empty, and v0.16.0's first intranet run stopped on one whose own payload could never resume it (F141). Only a finalizing transition refuses.
