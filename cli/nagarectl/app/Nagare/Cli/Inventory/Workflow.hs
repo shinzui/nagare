@@ -32,7 +32,8 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryKubernetesAdapter
   )
 import Nagare.Cli.Inventory.Execution
-  ( inventoryExecutionRegistry
+  ( inventoryCloseRegistry
+  , inventoryExecutionRegistry
   , inventoryExecutionRegistryIn
   )
 import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inventoryPlanRegistry)
@@ -364,7 +365,7 @@ runInventoryRecover mctx transaction operation decisionFile takeOver = do
 runInventoryClose :: Maybe String -> Text -> Text -> Maybe FilePath -> Bool -> IO ()
 runInventoryClose mctx transaction review attest takeOver = do
   target <- activeTarget mctx
-  Inventory.closeInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction review attest takeOver
+  Inventory.closeInventoryWithFactory (inventoryCloseRegistry mctx) target transaction review attest takeOver
 
 -- | F81: the release runs against the active context's cluster, under the
 -- same guard as every Kubernetes write.

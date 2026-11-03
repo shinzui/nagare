@@ -27,6 +27,7 @@ import Nagare.Dsl.Types
   , mkServiceName
   , withTlsSecret
   )
+import Nagare.Inventory.CollectionPolicy (retainedConsumerInert)
 import Nagare.Inventory.Site (compileStaticSiteScope)
 import Nagare.Inventory.TunnelRoute (checkTunnelRoutes, defaultHostClaims)
 import Nagare.Resource.Inventory
@@ -63,6 +64,10 @@ tunnelSiteInventoryTests =
       scope <- siteScope IngressCloudflareTunnel "a" "c" [("www.example.com", True)]
       let executors = [resource ^. #executor | bundle <- scopeBundles scope, Managed resource <- declarations bundle]
       assertBool (show executors) (not (null executors) && all (== KubernetesExecutor) executors)
+  , testCase "a site's release history does not hold its route for collection, and its route members do (F140)" $ do
+      scope <- siteScope IngressCloudflareTunnel "a" "c" [("www.example.com", True)]
+      let inert = [Resource.resourceIdText (resource ^. #identity) | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations, retainedConsumerInert resource]
+      inert @?= ["standalone:site-a/release-history/configmap"]
   , testCase "a custom domain cannot take another workload's flattened name" $ do
       public <- siteScope IngressCloudflareTunnel "a" "c" []
       claiming <- siteScope IngressCloudflareTunnel "other" "c" [("a-c.example.com", True)]

@@ -3,15 +3,25 @@
 module Nagare.Inventory.CollectionPolicy
   ( supportsRetainedCollection
   , requiresControllerCollection
+  , retainedConsumerInert
   )
 where
 
 import Data.Generics.Labels ()
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.CloudCollection (cloudCollectionEligible)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
+
+-- | A retained member that can no longer use what it names and can never be collected itself, so it
+-- must not hold it: a revoked grant admits nobody, and a release history is only a record that orders
+-- after its workload. Counting them would keep a retired site's route forever (F140).
+retainedConsumerInert :: ManagedResource -> Bool
+retainedConsumerInert declaration = case declaration ^. #spec of
+  AccessGrantSpec _ granted -> not granted
+  _ -> any (`T.isSuffixOf` resourceIdText (declaration ^. #identity)) ["/release-history/configmap", "/release-history"]
 
 supportsRetainedCollection :: ManagedResource -> Bool
 supportsRetainedCollection declaration =

@@ -44,7 +44,7 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
-import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
+import Nagare.Inventory.CollectionPolicy (retainedConsumerInert, supportsRetainedCollection)
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical)
@@ -147,7 +147,7 @@ consumersOf history inventory target =
   ]
   where
     active = [resource | Managed resource <- inventoryDeclarations inventory]
-    retained = [resource | (_, resource) <- Map.elems (historyRetained history)]
+    retained = [resource | (_, resource) <- Map.elems (historyRetained history), not (retainedConsumerInert resource)]
     dependencyTarget dependency = case dependency of
       Consumes reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
       ReadyAfter reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)

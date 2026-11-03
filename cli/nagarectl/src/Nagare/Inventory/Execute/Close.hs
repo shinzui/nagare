@@ -13,6 +13,8 @@
 -- converges nothing and binds no incarnation.
 module Nagare.Inventory.Execute.Close
   ( CloseInput (..)
+  , CloseScope (..)
+  , closeTransactionWith
   , closeTransaction
   , closeRolledBack
   , releaseClosedTransaction
@@ -123,12 +125,21 @@ data CloseInput = CloseInput
   }
   deriving stock (Eq, Show)
 
+-- | Whether the running payload planned the review. A stage's review resumes only under the payload
+-- that planned it, so from another one resume cannot progress by definition, and the running adapters
+-- need not be the reviewed versions: they only observe, and close writes to no provider (F139).
+data CloseScope = ClosesOwnPayload | ClosesAcrossPayloads
+  deriving stock (Eq, Show)
+
+closeTransaction :: InventoryStore -> AdapterRegistry -> CloseInput -> IO (Either (NonEmpty AdmissionError) CloseRecord)
+closeTransaction = closeTransactionWith ClosesOwnPayload
+
 -- | Close the active transaction when every operation is proved and resume
 -- cannot progress. A repeated close, after its event was journalled, only
 -- completes the head release. With an attestation, close is admissible when
 -- unknown operations are all that block it, and it accepts nothing (§5).
-closeTransaction :: InventoryStore -> AdapterRegistry -> CloseInput -> IO (Either (NonEmpty AdmissionError) CloseRecord)
-closeTransaction store registry input = do
+closeTransactionWith :: CloseScope -> InventoryStore -> AdapterRegistry -> CloseInput -> IO (Either (NonEmpty AdmissionError) CloseRecord)
+closeTransactionWith scope store registry input = do
   locked <- withProcessLock store closeLocked
   pure $ case locked of
     Left err -> failure "process-lock" (showText err)
@@ -184,11 +195,12 @@ closeTransaction store registry input = do
           entries = reviewOperations document
           versionErrors =
             [ AdmissionError "adapter-version" ("the adapter differs from the issued review for " <> T.pack (show (plannedOperationId (reviewPlannedOperation entry))))
-            | entry <- entries
+            | scope == ClosesOwnPayload
+            , entry <- entries
             , Right adapter <- [lookupAdapter registry (plannedExecutor (reviewPlannedOperation entry))]
             , adapterIdentity adapter /= reviewAdapterIdentity entry || adapterVersion adapter /= reviewAdapterVersion entry
             ]
-      progress <- resumeProgress registry reviewed transaction entries states
+      progress <- if scope == ClosesOwnPayload then resumeProgress registry reviewed transaction entries states else pure Nothing
       case (versionErrors, progress) of
         (err : more, _) -> pure (Left (err :| more))
         (_, Just why) -> pure (failure "resume-progresses" ("resume can still progress: " <> why <> "; run inventory resume first"))

@@ -42,6 +42,7 @@ inventoryCloseTests =
         -- The same run refuses the release and its retries.
         _ <- landedClose [(Boundary StorePutCall n, PutRefused) | n <- [writes .. writes + 3]]
         pure ()
+    , testCase "a fixed payload settles a stage another payload planned, though the adapter changed and resume could progress (F139)" crossPayloadClose
     , testCase "a review in which nothing took effect reverts every changed scope and its retained additions" revertedClose
     , testCase "close refuses while an operation is unproved, naming what would resolve it; an attested close then accepts nothing" unknownBlocks
     , testCase "an attestation file is strict" $ do
@@ -114,6 +115,39 @@ landedClose releaseFaults = do
   headIncarnations after @?= incarnations
   Map.lookup owner (headAccepted after) @?= Map.lookup owner (reviewDesiredRevisions (reviewedDocument reviewed))
   pure writes
+
+-- | The first native tunnel run: the old payload's parser could never prove a landed update, and the
+-- fixed payload is not the one that planned it. Only close can end it, and only across payloads.
+crossPayloadClose :: Assertion
+crossPayloadClose = do
+  store <- newMemoryStore
+  _ <- initializeStore store fixtureBinding "cross-payload" >>= expectRight
+  let owner = ok (mkScopeId Application "web")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      service digest = member owner cluster "service" digest
+      landed = ok (mkPhysicalIdentity "landed-uid")
+      registry =
+        recordingRegistryWith
+          (\_ _ -> pure (Right ()))
+          (\operation _ -> pure (if plannedAction operation == UpdateResource then AdapterEffectAmbiguous "the old parser refused the answer" else AdapterEffectCompleted))
+          (\_ _ -> pure (RecoveryLandedUnready landed))
+  _ <- converge store registry owner [service "v1"] [(declarationId (service "v1"), ConfirmedAbsent (contentDigest "absent"))]
+  reviewed <- reviewFor store registry owner [service "v2"] [(declarationId (service "v2"), ObservedPresent landed)]
+  applied <- applyReviewed store registry reviewed >>= expectRight
+  transaction <- case applied of
+    StoppedAmbiguous tx _ _ -> pure tx
+    other -> assertFailure ("the update did not stop: " <> show other) >> pure (error "unreachable")
+  let base = ok (lookupAdapter registry KubernetesExecutor)
+      fixed = ok (mkAdapterRegistry [base {adapterVersion = adapterVersion base <> "-fixed"}])
+      input = CloseInput transaction (reviewedDigest reviewed) False Nothing
+  closeTransaction store fixed input >>= \case
+    Left errors -> assertBool (show errors) (any ((== "adapter-version") . admissionErrorCode) (NE.toList errors))
+    Right _ -> assertFailure "a changed adapter closed under its own payload's rule"
+  record <- closeTransactionWith ClosesAcrossPayloads store fixed input >>= either (\errors -> assertFailure (show (NE.toList errors)) >> pure (error "unreachable")) pure
+  assertBool "the landed update is proved" (ClassLanded landed `elem` Map.elems (closedClasses record))
+  Map.elems (closedScopes record) @?= [KeepDesired]
+  after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
+  headActiveTransaction after @?= Nothing
 
 -- | A changed scope whose update was refused at preflight (never started) and
 -- a retired scope with retention proofs: nothing took effect, so both revert to

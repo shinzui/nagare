@@ -21,6 +21,7 @@ import Nagare.Inventory.Access
 import Nagare.Inventory.AccessRuntime
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
+import Nagare.Inventory.CollectionPolicy (retainedConsumerInert)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
@@ -253,6 +254,10 @@ inventoryAccessTests =
             Left errors | granted -> assertBool (show errors) (any ((== "access-grant-live") . planErrorCode) (NE.toList errors))
             Left errors -> assertFailure ("a revoked grant's retirement refused: " <> show errors)
             Right _ -> assertFailure "a live grant's retirement was planned"
+    , testCase "a revoked grant does not hold what it names for collection, and a live one does (F140)" $ do
+        let grantOf granted = head [r | bundle <- scopeBundles (ok (compileAccessScope snapshot "one.example.test" alice granted)), Managed r <- bundle ^. #declarations]
+        retainedConsumerInert (grantOf False) @?= True
+        retainedConsumerInert (grantOf True) @?= False
     , testCase "a team membership and a team grant are exact typed relationships with their own scopes (EP-187)" $ do
         let engineering = ok (mkTeamKey "engineering")
             member = ok (compileTeamMemberScope snapshot engineering alice True)

@@ -6,10 +6,12 @@ import Data.Generics.Labels ()
 import Data.IORef
 import Data.List (isPrefixOf)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkSecretName)
 import Nagare.Inventory.Adapter
@@ -21,6 +23,8 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Environment (compileBuildSecretChannel)
 import Nagare.Inventory.ImageBuild (buildDockerArchiveWith, dockerBuildArguments, validateSecretMounts)
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Plan
+import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -179,6 +183,19 @@ inventoryArtifactTests =
             reconstructed <- expectRight (artifactExecutionSpecsFromDeclarations declared)
             Map.lookup artifactResource reconstructed @?= Map.lookup artifactResource specs
           values -> assertFailure ("expected one artifact bundle, got " <> show (length values))
+    , testCase "an identical artifact from a removed context is planned as a create that writes nothing (F139)" $ do
+        declaration <- expectRight (compileArtifactScope artifactBundle)
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "identical-artifact" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let snapshot = either (error . show) id (mkScopeSnapshot fixtureBinding Map.empty Map.empty)
+            candidate = either (error . show) id (composeInventory snapshot (ReplaceScope declaration :| []))
+            present = either (error . show) id (mkPhysicalIdentity "oci://registry.example/image")
+            owned = [resource | bundle <- scopeBundles declaration, Managed resource <- bundle ^. #declarations]
+            facts = either (error . show) id (observationSet [(resource ^. #identity, ObservedPresent present) | resource <- owned])
+        case planChanges candidate noLifecycleDecisions history facts of
+          Right proposal -> assertBool "the artifact is not created" (CreateResource `elem` map plannedAction (proposalOperations proposal))
+          Left failures -> assertFailure ("an identical artifact refused: " <> show (NE.toList failures))
     , testCase "OCI archive source survives accepted declaration reconstruction" $ do
         let archived =
               imageSpec

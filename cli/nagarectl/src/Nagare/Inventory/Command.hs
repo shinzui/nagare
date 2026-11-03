@@ -745,7 +745,7 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
 
 -- | ADR 26: close a stopped transaction by per-operation proof.
 closeInventoryWithFactory ::
-  (ReviewInventory -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> Maybe FilePath -> Bool -> IO ()
+  (ReviewInventory -> ReviewBundle -> IO (CloseScope, AdapterRegistry)) -> ActiveTarget -> Text -> Text -> Maybe FilePath -> Bool -> IO ()
 closeInventoryWithFactory registryFor target transactionToken reviewToken attestFile takeOver = do
   rejectReentry
   transaction <- either dieText pure (mkTransactionId transactionToken)
@@ -756,8 +756,8 @@ closeInventoryWithFactory registryFor target transactionToken reviewToken attest
   store <- openTargetStore target
   requireTransitionOwner store
   bundle <- loadPublishedReview store review >>= either (dieText . showText) pure
-  registry <- registryFor (ReviewInventory store Nothing) bundle
-  record <- closeTransaction store registry (CloseInput transaction review takeOver attestation) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure
+  (scope, registry) <- registryFor (ReviewInventory store Nothing) bundle
+  record <- closeTransactionWith scope store registry (CloseInput transaction review takeOver attestation) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure
   TIO.putStr (renderCloseRecord record)
 
 reportRecovery :: InventoryStore -> TransactionId -> OperatorRecoveryInput -> IO ()

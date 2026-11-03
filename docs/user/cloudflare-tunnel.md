@@ -133,6 +133,18 @@ A new protected name can answer 502 for about a minute after the deploy reports 
 Create the first user and grant them the site as in [the auth portal](auth-portal.md), with `--host` set to that name, then open it in
 a browser. A sign-in form left open for more than ten minutes comes back asking you to sign in again.
 
+To retire a site, revoke its grants first, then review each step:
+
+```bash
+nagarectl access revoke --host HOST --user USER --save-plan ./revoke && nagarectl inventory apply ./revoke --yes
+nagarectl inventory retire --scope ACCESS_SCOPE --out ./grant && nagarectl inventory apply ./grant --yes
+nagarectl inventory retire --scope standalone:site-NAME --out ./site && nagarectl inventory apply ./site --yes
+nagarectl inventory collect --resource DOMAIN_MAPPING_ID --out ./mapping && nagarectl inventory apply ./mapping --yes
+nagarectl inventory collect --resource SERVICE_ID --out ./service && nagarectl inventory apply ./service --yes
+```
+
+The name stops reaching the site once the gateway picks up the retirement. Its release history stays as a record.
+
 ## Rotate the token
 
 ```bash

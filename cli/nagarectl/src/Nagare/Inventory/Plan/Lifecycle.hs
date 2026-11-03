@@ -30,7 +30,8 @@ import Nagare.Inventory.Adapter
   , observationMap
   )
 import Nagare.Inventory.CollectionPolicy
-  ( supportsRetainedCollection
+  ( retainedConsumerInert
+  , supportsRetainedCollection
   )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Lineage (RebuildProof, RebuildSource (Fresh, FromRecoveryPoint))
@@ -366,6 +367,7 @@ validateLifecycleDecisions candidate history observations proposals =
                     [ consumer
                     | consumer <- historyDeclarations history <> map (Managed . snd) (Map.elems (historyRetained history))
                     , any ((== resource) . dependencyTarget) (declarationDependencies consumer)
+                    , not (inertRetained consumer)
                     ] ->
                     []
               (_, Just (_, old), _)
@@ -412,6 +414,9 @@ validateLifecycleDecisions candidate history observations proposals =
                 CollectRetained _ -> Nothing
             ]
         ]
+    inertRetained = \case
+      Managed consumer -> Map.member (consumer ^. #identity) (historyRetained history) && retainedConsumerInert consumer
+      _ -> False
     dependencyTarget dependency = case dependency of
       Consumes reference -> let (resource, _, _, _, _) = refSignature reference in resource
       ReadyAfter reference -> let (resource, _, _, _, _) = refSignature reference in resource

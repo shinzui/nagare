@@ -48,7 +48,7 @@ and login protection is never weakened by edge caching.
 - [x] D5 (`Nagare.Test.SiteInventory.Tunnel`; EP-240 ran with `external-domain-tls` off, so a supplied Secret is refused): In tunnel mode, planning refuses a per-site Cloudflare or Google CDN, a supplied origin TLS secret if EP-240
   shows it cannot work, and a custom domain outside the zone, each with a clear message. Direct mode makes no Cloudflare
   call and behaves as before.
-- [ ] D6: An anonymous request never receives cached bytes of a protected site, by two independent controls: in
+- [x] D6 (`EdgeCacheControlSpec`; native on `ep243`: after signed-in browser fetches answered 200 with `private, no-store, no-transform`, the same URLs answered an anonymous client 302 with `cf-cache-status: DYNAMIC`, never `HIT`): An anonymous request never receives cached bytes of a protected site, by two independent controls: in
   tunnel mode the platform's zone ruleset bypasses the cache for every hostname, and the enforcer adds
   `Cache-Control: private, no-store, no-transform` to every proxied protected response (today it sets `no-store` only on its own
   responses). `nagare-access-test` asserts the header on a proxied response, and an automated test on the disposable
@@ -57,7 +57,7 @@ and login protection is never weakened by edge caching.
   Cloudflare. A missing record or certificate fails the check.
 - [x] D8 (`tunnelUpstreamInputs` drops the issuer scope; `Nagare.Test.Domains` shows no certificate read): In tunnel mode, public origin certificates are not requested and the DNS-01 issuer is not installed, or the
   alternative EP-240 proved is in place. `domains tls` reports this accurately.
-- [ ] D9: On a disposable context, deploying a new protected site works from a browser through the edge, and retiring
+- [x] D9 (native on `ep243`: a real Chrome sign-in on a deployed protected site through the edge reached it, on the custom name `staging.<base>`, after the flat default name was checked anonymously and retired; the retired name answers 502. F140 records that its objects stay until collected): On a disposable context, deploying a new protected site works from a browser through the edge, and retiring
   it leaves no route.
 - [x] D10 ([cloudflare-tunnel.md](../user/cloudflare-tunnel.md), ADR 29 amendment): `docs/user` covers hostnames and certificates in tunnel mode. ADR 29 is amended: a protected site behind
   Cloudflare is not a CDN, and the two cache controls of D6 are its rule.

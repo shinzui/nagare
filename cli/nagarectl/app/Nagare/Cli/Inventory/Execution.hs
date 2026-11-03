@@ -1,6 +1,7 @@
 -- | Inventory / Execution. Executable-private CLI boundary.
 module Nagare.Cli.Inventory.Execution
-  ( inventoryExecutionRegistry
+  ( inventoryCloseRegistry
+  , inventoryExecutionRegistry
   , inventoryExecutionRegistryIn
   )
 where
@@ -123,6 +124,7 @@ import Nagare.Inventory.BootstrapRegistryTransport
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Collection.Adapter (controllerCollectionIdentity)
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Execute qualified as InventoryExecute
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesReview
@@ -168,6 +170,23 @@ import System.Environment (setEnv)
 import System.Exit (ExitCode)
 import System.FilePath ((</>))
 
+-- | The registry that settles a stopped transaction. A bootstrap stage planned by another payload can
+-- only be settled by this one: resume stays refused, and close writes to no provider (F139).
+inventoryCloseRegistry :: Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO (InventoryExecute.CloseScope, InventoryAdapter.AdapterRegistry)
+inventoryCloseRegistry mctx inventory bundle = do
+  let identity = InventoryPlan.reviewPayloadIdentity (InventoryPlan.reviewBundleDocument bundle)
+  across <-
+    if "nagare-bootstrap:" `T.isPrefixOf` identity
+      then do
+        active <- activeTarget mctx
+        (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
+        manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+        pure (maybe False ((/= manifest ^. #payloadId) . fst) (platformReviewExpectation manifest identity))
+      else pure False
+  if across
+    then (InventoryExecute.ClosesAcrossPayloads,) <$> inventoryExecutionRegistryWith SettlesOnly Nothing mctx inventory bundle
+    else (InventoryExecute.ClosesOwnPayload,) <$> inventoryExecutionRegistry mctx inventory bundle
+
 inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
 inventoryExecutionRegistry = inventoryExecutionRegistryIn Nothing
 
@@ -175,7 +194,13 @@ inventoryExecutionRegistry = inventoryExecutionRegistryIn Nothing
 -- @inventory resume@ pass theirs, so every access phase shares one forward and
 -- one guard. Without one, each access call opens its own forward.
 inventoryExecutionRegistryIn :: Maybe EnTransport -> Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryExecutionRegistryIn session mctx inventory bundle
+inventoryExecutionRegistryIn = inventoryExecutionRegistryWith RunsReviewedPayload
+
+data PayloadBinding = RunsReviewedPayload | SettlesOnly
+  deriving stock (Eq)
+
+inventoryExecutionRegistryWith :: PayloadBinding -> Maybe EnTransport -> Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryExecutionRegistryWith _ session mctx inventory bundle
   | not (null operations)
   , all ((== ResourceInventory.AccessExecutor) . InventoryAdapter.plannedExecutor) operations = do
       active <- activeTarget mctx
@@ -196,7 +221,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle
       map
         InventoryPlan.reviewPlannedOperation
         (InventoryPlan.reviewAdapterOperations (InventoryPlan.reviewBundleDocument bundle))
-inventoryExecutionRegistryIn session mctx inventory bundle = do
+inventoryExecutionRegistryWith binding session mctx inventory bundle = do
   let store = inventory ^. #executionStore
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let document = InventoryPlan.reviewBundleDocument bundle
@@ -214,8 +239,11 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
       declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
   let reviewIdentity = InventoryPlan.reviewPayloadIdentity document
       transitionReview = "nagare-transition:" `T.isPrefixOf` reviewIdentity
-      releaseGuard = if transitionReview then guardTransitionMutation else guardPlatformMutation
-  when ("nagare-bootstrap:" `T.isPrefixOf` reviewIdentity || "nagare-transition:" `T.isPrefixOf` reviewIdentity) $ do
+      releaseGuard
+        | binding == SettlesOnly = const (Right ())
+        | transitionReview = guardTransitionMutation
+        | otherwise = guardPlatformMutation
+  when (binding == RunsReviewedPayload && ("nagare-bootstrap:" `T.isPrefixOf` reviewIdentity || "nagare-transition:" `T.isPrefixOf` reviewIdentity)) $ do
     active <- activeTarget mctx
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
@@ -318,7 +346,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
           stampOwner
           (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "bootstrap"))
           (either (error . T.unpack) (\name -> name) (Resource.mkName "version"))
-  forM_ (Map.lookup stampId reviewedKubernetesSpecs) $ \(_, markerBytes) -> do
+  forM_ (if binding == RunsReviewedPayload then Map.lookup stampId reviewedKubernetesSpecs else Nothing) $ \(_, markerBytes) -> do
     active <- activeTarget mctx
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure

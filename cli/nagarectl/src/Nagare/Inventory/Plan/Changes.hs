@@ -844,12 +844,12 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
           ([], Just (resourceOperation VerifyResource resource))
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
       (Nothing, Just (ConfirmedAbsent _)) -> ([], Just (resourceOperation CreateResource resource))
-      (Nothing, Just (ObservedPresent _)) ->
-        ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
-      (Nothing, Just (ObservedDrifted _ _)) ->
-        ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
-      (Nothing, Just (ObservedReplacementRequired _ _)) ->
-        ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
+      -- Observed only with this review's stamp, and its create writes nothing unless the digest differs (F139).
+      (Nothing, Just (ObservedPresent _))
+        | resource ^. #executor == ArtifactExecutor -> ([], Just (resourceOperation CreateResource resource))
+      (Nothing, Just (ObservedPresent _)) -> unverifiedOwner resourceId
+      (Nothing, Just (ObservedDrifted _ _)) -> unverifiedOwner resourceId
+      (Nothing, Just (ObservedReplacementRequired _ _)) -> unverifiedOwner resourceId
       (Nothing, Just (ObservedUnowned _)) ->
         if decisionIs ApproveAdoption resourceId
           then ([], Just (resourceOperation AdoptResource resource))
@@ -940,6 +940,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       | decisionIs ApproveRetirement resource || decisionIs ApproveCollection resource = []
       | Set.member resource (supersededMigrationJobs candidate history) = []
       | otherwise = [PlanError "retirement-required" "accepted resource is absent from desired inventory without a lifecycle decision" [resource]]
+    unverifiedOwner resourceId = ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
     retireOperation (resource, Managed old)
       | decisionIs ApproveCollection resource = Just (resourceOperation RetireResource old)
       | otherwise = Nothing
