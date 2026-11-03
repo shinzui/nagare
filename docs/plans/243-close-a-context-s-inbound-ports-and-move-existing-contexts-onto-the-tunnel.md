@@ -58,7 +58,7 @@ open on the VM.
 - [ ] D8: Operator paths still work with no inbound web ports: `nagarectl` over the tailnet, `just host-switch`, IAP SSH,
   backups, and signed `nagared` webhooks through the edge. Tailscale's move to relays is measured on a `kubectl` round trip and
   reported to the operator.
-- [ ] D9: The upgrade path holds: a tunnel-mode disposable context upgrades through a release and still serves, and the EP-172
+- [x] D9 (native: `ep243` moved from a 0.15.0 build through published v0.16.0 with 220 requests and no failure, connectors and doctor intact; the v0.16.0 rehearsal read its seeded row back): The upgrade path holds: a tunnel-mode disposable context upgrades through a release and still serves, and the EP-172
   rehearsal for `direct` contexts still reads its seeded data back unchanged.
 - [ ] D10: `docs/user` and `docs/runbooks` describe the move and rollback. ADR 20 records the final state.
 - [ ] D11: The move carries hostnames. It first lists every URL that changes (default hostnames, OIDC redirect URIs,

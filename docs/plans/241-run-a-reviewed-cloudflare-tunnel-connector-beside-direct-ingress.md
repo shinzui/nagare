@@ -36,7 +36,7 @@ change at all.
 - [x] D1: `NAGARE_INGRESS` parses to `direct` (the default) or `cloudflare-tunnel`, is refused in local mode
   and on any other value, and is exported by `.envrc`, `context env` and the Pulumi projection. Tests pass, and
   `CLAUDE.md` lists it among the canonical variables.
-- [ ] D2: A `direct` context's Pulumi preview and inventory plan are unchanged, proven by the existing parity
+- [x] D2 (`resourceProgramParity.test.ts`; the v0.16.0 rehearsal; the intranet's direct context moved through v0.16.0 with no tunnel member): A `direct` context's Pulumi preview and inventory plan are unchanged, proven by the existing parity
   tests and `just release-rehearse`.
 - [x] D3 (`InventoryCloudflareZoneSpec`, native: `ep243`'s zone stage, 12 operations; a tunnel token does not expire, so the equivalent is a rotated one, which rolls the pods by review): The tunnel and its ingress configuration are typed inventory resources. Fake-adapter tests cover
   create, a lost acknowledgement on create and on configuration, a drifted configuration and an expired token,
