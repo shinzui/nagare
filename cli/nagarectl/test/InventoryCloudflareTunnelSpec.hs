@@ -61,7 +61,9 @@ inventoryCloudflareTunnelTests =
     , testCase "the policy allows only the external gateway, cluster DNS and port 7844 to public addresses" $ do
         (_, native) <- compileWith fixtureSecret >>= expectRight
         policy <- objectOf "networkpolicy" native
-        field ["spec", "ingress"] policy @?= Array mempty
+        -- Listing Ingress with no rules denies it all.
+        field ["spec", "policyTypes"] policy @?= toJSONList ["Ingress", "Egress"]
+        field ["spec", "ingress"] policy @?= Null
         field ["spec", "policyTypes"] policy @?= toJSONList ["Ingress", "Egress"]
         [gateway, dns, edge] <- pure (arrayOf (field ["spec", "egress"] policy))
         let gatewayPeer = headOf (field ["to"] gateway)
