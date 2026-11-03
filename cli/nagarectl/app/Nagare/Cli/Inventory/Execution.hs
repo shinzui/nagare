@@ -435,6 +435,8 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
           (Map.keysSet (InventoryPlan.reviewRetentions document))
       retainedHosts = retainedOnlyOf ResourceInventory.HostExecutor
       retainedArtifacts = retainedOnlyOf ResourceInventory.ArtifactExecutor
+      -- A revoked grant is a tuple in En, reread at admission through its accepted binding.
+      retainedAccess = retainedOnlyOf ResourceInventory.AccessExecutor
       manifestObserver executor retained = case retainedHistory of
         Just history | not (Set.null retained) -> Inventory.manifestAdapterFor history executor
         _ -> Inventory.executionBlockedAdapterFor executor
@@ -444,7 +446,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
         )
           `Set.difference` Map.keysSet historicalCdn
           `Set.difference` Map.keysSet (cloudHistoricalMembers cloudHistory)
-          `Set.difference` Set.union retainedHosts retainedArtifacts
+          `Set.difference` Set.unions [retainedHosts, retainedArtifacts, retainedAccess]
       binding = InventoryPlan.reviewContextBinding document
       activeExecutors =
         Set.fromList
@@ -511,7 +513,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
         Map.restrictKeys
           (Map.union helmSpecs retiringHelmSpecs)
           (selected ResourceInventory.HelmExecutor `Set.union` Map.keysSet retiringHelmSpecs)
-  if null registrations && Set.null retainedHosts && Set.null retainedArtifacts && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null appDatabaseMembers && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
+  if null registrations && Set.null retainedHosts && Set.null retainedArtifacts && Set.null retainedAccess && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null appDatabaseMembers && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor, ResourceInventory.AccessExecutor, ResourceInventory.AppDatabaseExecutor]))
     else do
       let needsWorkspace =
@@ -551,6 +553,7 @@ inventoryExecutionRegistryIn session mctx inventory bundle = do
           withWorkspace action = maybe (dieT "selected executor requires a platform workspace") action workspace
       when
         ( not (Set.null (selected ResourceInventory.AccessExecutor))
+            || not (Set.null retainedAccess)
             || ( active ^. #profile . #mode == Local
                    && (not (Map.null kubernetesSpecs) || not (Map.null allHelmSpecs))
                )
