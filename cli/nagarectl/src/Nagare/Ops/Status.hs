@@ -42,7 +42,7 @@ import Nagare.Host.AgeKey (RemoteAgeKeyStatus (..), parseRemoteAgeKeyStatus)
 import Nagare.Ops.Probe
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Ops.StuckRollout (probeStuckRollouts)
-import Nagare.Target (TargetProfile (..), registryPrefix)
+import Nagare.Target (IngressMode (IngressCloudflareTunnel), TargetProfile (..), registryPrefix)
 
 -- | The inventory knobs derived from a resolved 'TargetProfile' (EP-62): the zone
 -- and instance come from the profile; the Pulumi project dir is fixed and the
@@ -77,15 +77,16 @@ gatherInventory tp o = do
         , probeDeploy "cert-manager" "cert-manager-webhook" "cert-manager-webhook"
         , probeDeploy "cert-manager" "cert-manager-cainjector" "cert-manager-cainjector"
         , probeDeploy "knative-serving" "net-certmanager-controller" "net-certmanager"
-        , probeClusterIssuer
-        , probeKourierIp publicIp
         , probeBaseDomain baseDomain
-        , probeTls
-        , probeCertificatePolicy
         , probeRegistryAuth tp
         , probePrivateImagePull tp
         , probeArch tp
         ]
+          -- ADR 34: a tunnel context has no DNS-01 issuer and no origin certificates, on purpose.
+          <> ( if tp ^. #ingress == IngressCloudflareTunnel
+                 then [probeTunnelIngress publicIp]
+                 else [probeClusterIssuer, probeKourierIp publicIp, probeTls, probeCertificatePolicy]
+             )
           <> map (probeBackup bucket) (backupPrefixes [])
       )
   -- EP-181: a database StatefulSet whose rollout is stuck behind a pod.
@@ -167,6 +168,22 @@ probeKourierIp publicIp = do
             , httpCode = httpCode
             , nodeExternalIp = nodeExtIp
             }
+
+-- | The tunnel context's counterpart of 'probeKourierIp'.
+probeTunnelIngress :: Maybe Text -> IO Probe
+probeTunnelIngress publicIp = do
+  svcJson <- captureTool "kubectl" ["get", "svc", "kourier", "-n", "kourier-system", "-o", "json"]
+  connectorJson <- captureTool "kubectl" ["get", "deployment", "cloudflared", "-n", "cloudflare-tunnel", "-o", "json"]
+  httpCode <- maybe (pure Nothing) curlHttpCode publicIp
+  pure $ case svcJson of
+    Nothing -> Probe "Tunnel ingress" StatusUnknown "no kubeconfig / not reachable"
+    Just _ ->
+      gradeTunnelIngress
+        TunnelEvidence
+          { gatewayServiceType = svcJson >>= parseServiceType
+          , connectorReadyReplicas = connectorJson >>= parseReadyReplicas
+          , publicHttpCode = httpCode
+          }
 
 -- | Probe HTTP reachability of the gateway at @ip@: run @curl@ for the status
 -- code. Returns 'Nothing' when curl is absent or yields @000@/empty (unreachable

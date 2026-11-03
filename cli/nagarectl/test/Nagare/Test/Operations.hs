@@ -35,9 +35,11 @@ import Nagare.Ops.Probe
   ( KourierEvidence (..)
   , Probe (..)
   , ProbeStatus (..)
+  , TunnelEvidence (..)
   , backupPrefixes
   , gradeArch
   , gradeKourier
+  , gradeTunnelIngress
   , parseClusterIssuerReady
   , parseConfigDomain
   , parseDeploymentReady
@@ -47,6 +49,8 @@ import Nagare.Ops.Probe
   , parseNodeArch
   , parseNodeExternalIp
   , parseNodeReady
+  , parseReadyReplicas
+  , parseServiceType
   , parseSkipTagResolvingHosts
   , recoveryPointProbe
   , renderInventory
@@ -91,6 +95,16 @@ opsProbeTests =
       parseNodeExternalIp nodeAddrsJson @?= Just "34.145.74.203"
   , testCase "parseNodeExternalIp: Nothing when only InternalIP advertised" $
       parseNodeExternalIp nodeInternalOnlyJson @?= Nothing
+  , testCase "gradeTunnelIngress: healthy only with ClusterIP, a ready connector and a closed public IP (ADR 34)" $ do
+      let graded serviceType ready code = (gradeTunnelIngress (TunnelEvidence serviceType ready code)) ^. #status
+      graded (Just "ClusterIP") (Just 2) Nothing @?= StatusOk
+      graded (Just "ClusterIP") (Just 2) (Just "404") @?= StatusFail
+      graded (Just "LoadBalancer") (Just 2) Nothing @?= StatusFail
+      graded (Just "ClusterIP") (Just 0) Nothing @?= StatusFail
+      graded (Just "ClusterIP") Nothing Nothing @?= StatusFail
+      parseServiceType "{\"spec\":{\"type\":\"ClusterIP\"}}" @?= Just "ClusterIP"
+      parseReadyReplicas "{\"status\":{\"readyReplicas\":2}}" @?= Just 2
+      parseReadyReplicas "{\"status\":{}}" @?= Just 0
   , testCase "gradeKourier: reachable (curl 404) -> OK" $
       (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") (Just "404") Nothing)) ^. #status @?= StatusOk
   , testCase "gradeKourier: no curl, node ExternalIP fronts publicIp -> OK" $

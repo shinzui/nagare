@@ -52,6 +52,10 @@ module Nagare.Ops.Probe
   , parseNodeExternalIp
   , KourierEvidence (..)
   , gradeKourier
+  , TunnelEvidence (..)
+  , gradeTunnelIngress
+  , parseServiceType
+  , parseReadyReplicas
   , parseSkipTagResolvingHosts
   , parseNodeArch
   , gradeArch
@@ -373,6 +377,40 @@ gradeKourier ev = case ev ^. #loadBalancerExternalIp of
   where
     nm = "Kourier ingress"
     publicIpStr = fromMaybe "the public IP" (ev ^. #publicIp)
+
+-- | What a healthy tunnel context looks like from the cluster and from outside (ADR 34).
+data TunnelEvidence = TunnelEvidence
+  { gatewayServiceType :: !(Maybe Text)
+  , connectorReadyReplicas :: !(Maybe Int)
+  , publicHttpCode :: !(Maybe Text)
+  -- ^ A curl of @http://\<publicIp>/@. 'Nothing' means closed, which is what a tunnel context wants.
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Unlike 'gradeKourier', reachability on the public IP is the failure here: a tunnel context
+-- with an answering public address has not closed its perimeter.
+gradeTunnelIngress :: TunnelEvidence -> Probe
+gradeTunnelIngress ev
+  | Just code <- ev ^. #publicHttpCode =
+      Probe nm StatusFail ("the public IP still answers HTTP " <> code <> "; a tunnel context's perimeter must be closed")
+  | ev ^. #gatewayServiceType /= Just "ClusterIP" =
+      Probe nm StatusFail ("the kourier Service is " <> fromMaybe "absent" (ev ^. #gatewayServiceType) <> ", not ClusterIP")
+  | maybe True (< 1) (ev ^. #connectorReadyReplicas) =
+      Probe nm StatusFail "no Cloudflare Tunnel connector is ready"
+  | otherwise =
+      Probe nm StatusOk (T.pack (show (fromMaybe 0 (ev ^. #connectorReadyReplicas))) <> " connector(s) ready; kourier is ClusterIP; the public IP is closed")
+  where
+    nm = "Tunnel ingress"
+
+parseServiceType :: ByteString -> Maybe Text
+parseServiceType bs = decodeStrict bs >>= textAt ["spec", "type"]
+
+parseReadyReplicas :: ByteString -> Maybe Int
+parseReadyReplicas bs = do
+  v <- decodeStrict bs
+  case lookupPath ["status", "readyReplicas"] v of
+    Just (Aeson.Number count) -> Just (round count)
+    _ -> Just 0
 
 -- | The registry hosts listed in @config-deployment@'s
 -- @.data.registriesSkippingTagResolving@ (a comma-separated string), trimmed and

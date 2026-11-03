@@ -100,6 +100,7 @@ why tp name detail
   | isDeploy name = "The " <> name <> " control plane is not ready."
   | name == "ClusterIssuer" = "TLS issuance is not ready."
   | name == "Kourier ingress" = "The gateway is not reachable on the reserved public IP (and could not be confirmed fronting the node)."
+  | name == "Tunnel ingress" = "The tunnel connector is not ready, or the context's perimeter is not closed."
   | name == "base domain" = "The cluster's configured base domain disagrees with infrastructure."
   | name == "external-domain-tls" = "External-domain TLS is disabled (HTTP-first)."
   | name == "certificate policy" = "A public ACME certificate contains an internal name or belongs to an unlabeled namespace."
