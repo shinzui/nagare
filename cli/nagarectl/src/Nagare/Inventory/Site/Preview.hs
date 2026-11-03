@@ -37,7 +37,8 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Server.Deploy qualified as Server
 import Nagare.Static.Deploy (DeployInputs (..), StaticManifests (..), previewManifests)
-import Nagare.Static.Preview (previewDomain)
+import Nagare.Static.Preview (previewDomainFor)
+import Nagare.Target.Kinds (hostShapeFor)
 
 -- | A preview is an independent short-lived scope. The exact rendered
 -- envFrom references require all four accepted Runtime/Preview stores.
@@ -63,7 +64,7 @@ compileStaticSitePreviewScope accessBinding inputs raw cluster namespaceId image
           .~ [source]
           & (:| [])
   rendered <- first invalid (previewManifests inputs raw)
-  host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
+  host <- first invalid (previewDomainFor (hostShapeFor (inputs ^. #targetProfile . #ingress)) name raw (inputs ^. #baseDomain))
   compileRenderedSitePreviewScope
     name
     ns
@@ -153,7 +154,7 @@ compileServerSitePreviewScopeWithBuild accessBinding buildSecrets inputs raw clu
       (first invalid . siteSecretDependency cluster ns envSecrets)
       (Set.toAscList (Set.fromList activeSecretRefs))
   rendered <- first invalid (Server.serverPreviewManifests inputs raw)
-  host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
+  host <- first invalid (previewDomainFor (hostShapeFor (inputs ^. #targetProfile . #ingress)) name raw (inputs ^. #baseDomain))
   let previewName = rendered ^. #serviceName
       volumeBytes =
         ServerRender.renderServerVolumeClaims

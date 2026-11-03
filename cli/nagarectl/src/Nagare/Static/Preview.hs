@@ -12,6 +12,7 @@ module Nagare.Static.Preview
   , previewPrefix
   , previewServiceName
   , previewDomain
+  , previewDomainFor
   , listPreviews
   , deletePreview
   )
@@ -20,6 +21,7 @@ where
 import Cradle
 import Data.Char (isAsciiLower, isDigit)
 import Data.Text qualified as T
+import Nagare.Deploy.Host (HostShape (..), previewHostName)
 import Nagare.Dsl.Prelude
 import System.Exit (ExitCode)
 
@@ -72,9 +74,12 @@ previewServiceName site raw = do
 -- | The preview public hostname: @"<preview>.<site>.preview.<baseDomain>"@,
 -- using the normalized preview name.
 previewDomain :: Text -> Text -> Text -> Either Text Text
-previewDomain site raw baseDomain = do
+previewDomain = previewDomainFor NestedHosts
+
+previewDomainFor :: HostShape -> Text -> Text -> Text -> Either Text Text
+previewDomainFor shape site raw baseDomain = do
   norm <- normalizePreviewName raw
-  Right (norm <> "." <> site <> ".preview." <> baseDomain)
+  Right (previewHostName shape norm site baseDomain)
 
 -- ---------------------------------------------------------------------------
 -- kubectl IO

@@ -707,6 +707,9 @@ inventoryUpstreamTests =
         length tunnel @?= length scopes - 1
         templates scopes @?= []
         templates tunnel @?= [Just tunnelDomainTemplate]
+        let kourierAddress = ok (kubernetesAddress fixtureCluster "v1" "Service" (Just "kourier-system") "kourier")
+        assertBool "the direct gateway keeps its node exposure" (all (Set.notMember kourierAddress . upstreamClusterIpServices) scopes)
+        assertBool "the tunnel gateway has no node exposure" (any (Set.member kourierAddress . upstreamClusterIpServices) tunnel)
         Map.size cloudTlsNative @?= Map.size cloudNative
         let networkAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
             networkData native =
@@ -753,7 +756,7 @@ inventoryUpstreamTests =
     ]
 
 component :: Text -> [(FilePath, ContentDigest)] -> UpstreamInput
-component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Map.empty [] Map.empty Map.empty True Map.empty
+component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Set.empty Map.empty [] Map.empty Map.empty True Map.empty
 
 componentOwner :: Text -> ScopeId
 componentOwner name = ok (mkScopeId Platform name)

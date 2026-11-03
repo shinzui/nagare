@@ -29,6 +29,7 @@ import Nagare.Access.Resolve
   , renderAccessDomainMapping
   , upstreamFor
   )
+import Nagare.Deploy.Host (HostShape, defaultHostName)
 import Nagare.Dsl.Access (AccessPolicy, AccessRole (..), accessPermissionText, audienceText)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), Namespace, ServiceName, domainText, mkDomain)
@@ -111,11 +112,11 @@ siteAccessPolicy policy = do
 -- public hostname is the Knative default @<name>.<namespace>.<base>@, which
 -- must become an explicit enforcer route because the origin stops answering
 -- there once it is cluster-local.
-protectedHosts :: Text -> Text -> Text -> [DomainSpec] -> Either Text [DomainSpec]
-protectedHosts name ns baseDomain [] = do
-  host <- mkDomain (name <> "." <> ns <> "." <> baseDomain)
+protectedHosts :: HostShape -> Text -> Text -> Text -> [DomainSpec] -> Either Text [DomainSpec]
+protectedHosts shape name ns baseDomain [] = do
+  host <- mkDomain (defaultHostName shape name ns baseDomain)
   pure [DomainSpec host Nothing True AutomaticTls]
-protectedHosts _ _ _ domains = Right domains
+protectedHosts _ _ _ _ domains = Right domains
 
 -- | Compose the private origin, one enforcer route per hostname and the
 -- backend contributions, after checking that the binding really is the

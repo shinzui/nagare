@@ -28,7 +28,7 @@ import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (ActiveTarget, Mode (Cloud), contextNameText)
+import Nagare.Target (ActiveTarget, IngressMode (IngressCloudflareTunnel), Mode (Cloud), contextNameText)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.Process (readProcessWithExitCode)
 
@@ -43,7 +43,8 @@ buildCloudStageCandidate ::
 buildCloudStageCandidate active workspace snapshot
   | active ^. #profile . #mode /= Cloud = pure Nothing
   | otherwise = do
-      (catalogBytes, rawCatalog) <- loadCloudCatalog workspace
+      (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
+      let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter loadedCatalog else loadedCatalog
       let profile = active ^. #profile
           catalog =
             InventoryCloud.withCloudInstanceName

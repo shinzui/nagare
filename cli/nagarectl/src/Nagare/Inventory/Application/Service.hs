@@ -27,6 +27,7 @@ import Nagare.Access.Resolve
   , mkPublicHost
   )
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects)
+import Nagare.Deploy.Host (HostShape (NestedHosts))
 import Nagare.Dsl.Access (AccessRole (..))
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Broker (BrokerName, TopicName)
@@ -549,6 +550,7 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
       first
         invalid
         ( protectedHosts
+            (maybe NestedHosts (accessHostShape . snd) access)
             (serviceNameText (service ^. #name))
             (namespaceText (service ^. #namespace))
             (rollout ^. #baseDomain)

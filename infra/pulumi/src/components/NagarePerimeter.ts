@@ -8,6 +8,8 @@ import { resolveDomainTopology } from "../domainTopology";
 import { CdnCertificateMode } from "../cdnCertificateMode";
 
 export interface NagarePerimeterArgs {
+    /** ADR 34: served through a Cloudflare Tunnel, so no web firewall rule and no Cloud DNS. */
+    tunnel?: boolean;
     gcpProject: string;
     region: string;
     zone: string;
@@ -60,7 +62,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
     constructor(name: string, args: NagarePerimeterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("nagare:env:NagarePerimeter", name, {}, opts);
 
-        const net = shouldDeclareResource("nagare:net:NagareNetwork", `${name}-network`) ? new NagareNetwork(`${name}-network`, { region: args.region }, { parent: this }) : undefined;
+        const net = shouldDeclareResource("nagare:net:NagareNetwork", `${name}-network`) ? new NagareNetwork(`${name}-network`, { region: args.region, tunnel: args.tunnel }, { parent: this }) : undefined;
 
         // Static external IPv4 address, regional. Reserving it means the
         // VM keeps the same public IP across rebuilds, so the wildcard DNS
@@ -173,7 +175,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // Cloud DNS managed zone for the apps domain (IP-4). dnsName must
         // be a fully-qualified domain with a trailing dot.
         const dnsName = `${args.baseDomain}.`;
-        const dnsZone = shouldDeclareResource("gcp:dns/managedZone:ManagedZone", `${name}-zone`) ? new gcp.dns.ManagedZone(`${name}-zone`, {
+        const dnsZone = (!args.tunnel && shouldDeclareResource("gcp:dns/managedZone:ManagedZone", `${name}-zone`)) ? new gcp.dns.ManagedZone(`${name}-zone`, {
             dnsName,
             description: "Nagare apps wildcard zone",
         }, { parent: this }) : undefined;
@@ -191,17 +193,19 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // record in it (covered by the zone-scoped admin). roles/dns.reader is
         // read-only. Tightening further by setting `hostedZoneName` in the
         // template and dropping dns.reader is an optional follow-up.
-        new gcp.dns.DnsManagedZoneIamMember(`${name}-iam-dns-zone`, {
-            project: args.gcpProject,
-            managedZone: dnsZone!.name,
-            role: "roles/dns.admin",
-            member: saMember,
-        }, { parent: this });
-        new gcp.projects.IAMMember(`${name}-iam-dns-read`, {
-            project: args.gcpProject,
-            role: "roles/dns.reader",
-            member: saMember,
-        }, { parent: this });
+        if (!args.tunnel) {
+            new gcp.dns.DnsManagedZoneIamMember(`${name}-iam-dns-zone`, {
+                project: args.gcpProject,
+                managedZone: dnsZone!.name,
+                role: "roles/dns.admin",
+                member: saMember,
+            }, { parent: this });
+            new gcp.projects.IAMMember(`${name}-iam-dns-read`, {
+                project: args.gcpProject,
+                role: "roles/dns.reader",
+                member: saMember,
+            }, { parent: this });
+        }
 
         // Artifact Registry Docker repository (IP for EP-6). Location is
         // the region; repositoryId is the short name "nagare".
@@ -271,14 +275,14 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             vmPublicIp: (address?.address ?? pulumi.output("(collected)")),
             cdnGlobalIp: cdn?.cdnGlobalIp,
         });
-        shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-wildcard`) ? new gcp.dns.RecordSet(`${name}-wildcard`, {
+        (!args.tunnel && shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-wildcard`)) ? new gcp.dns.RecordSet(`${name}-wildcard`, {
             managedZone: dnsZone!.name,
             name: pulumi.interpolate`*.${dnsName}`,
             type: "A",
             ttl: 300,
             rrdatas: [domainTopology.wildcardIp],
         }, { parent: this }) : undefined;
-        shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-apex`) ? new gcp.dns.RecordSet(`${name}-apex`, {
+        (!args.tunnel && shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-apex`)) ? new gcp.dns.RecordSet(`${name}-apex`, {
             managedZone: dnsZone!.name,
             name: dnsName,
             type: "A",

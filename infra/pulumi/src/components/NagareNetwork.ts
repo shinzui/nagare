@@ -4,6 +4,8 @@ import { shouldDeclareResource } from "../resourceDeclarations";
 
 export interface NagareNetworkArgs {
     region: string;
+    /** ADR 34: no internet-facing rule; only SSH from the IAP range remains. */
+    tunnel?: boolean;
 }
 
 // The subnet's private IP range. /24 is 256 addresses — far more than a
@@ -41,7 +43,7 @@ export class NagareNetwork extends pulumi.ComponentResource {
         // gateway, backed by Envoy, installed by EP-4). On a single k3s
         // node, k3s's ServiceLB binds host ports 80 and 443 to Kourier's
         // LoadBalancer Service, so the world must be able to reach 80/443.
-        shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-web`) ? new gcp.compute.Firewall(`${name}-fw-web`, {
+        (!args.tunnel && shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-web`)) ? new gcp.compute.Firewall(`${name}-fw-web`, {
             network: this.network!.id,
             direction: "INGRESS",
             sourceRanges: ["0.0.0.0/0"],
@@ -64,7 +66,7 @@ export class NagareNetwork extends pulumi.ComponentResource {
         // reach already-open ports (fw-web opens 80/443 to 0.0.0.0/0), so it is
         // free and harmless when the CDN is off, and it documents the dependency
         // and survives any future tightening of fw-web.
-        shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-lb-health`) ? new gcp.compute.Firewall(`${name}-fw-lb-health`, {
+        (!args.tunnel && shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-lb-health`)) ? new gcp.compute.Firewall(`${name}-fw-lb-health`, {
             network: this.network!.id,
             direction: "INGRESS",
             sourceRanges: ["130.211.0.0/22", "35.191.0.0/16"],
@@ -77,7 +79,7 @@ export class NagareNetwork extends pulumi.ComponentResource {
         // anywhere lets Tailscale establish direct (non-relayed) links;
         // if blocked, Tailscale still works via its relays (DERP), so
         // this is an optimization, not a hard requirement.
-        shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-tailscale`) ? new gcp.compute.Firewall(`${name}-fw-tailscale`, {
+        (!args.tunnel && shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-tailscale`)) ? new gcp.compute.Firewall(`${name}-fw-tailscale`, {
             network: this.network!.id,
             direction: "INGRESS",
             sourceRanges: ["0.0.0.0/0"],

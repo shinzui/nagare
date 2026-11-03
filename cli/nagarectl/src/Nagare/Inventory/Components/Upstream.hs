@@ -56,6 +56,8 @@ data UpstreamInput = UpstreamInput
   , upstreamNamespaces :: !(Map Name ResourceId)
   , upstreamTransferred :: !(Set ProviderAddress)
   , upstreamConfigMapData :: !(Map ProviderAddress (Map Text (Maybe Text)))
+  , upstreamClusterIpServices :: !(Set.Set ProviderAddress)
+  -- ^ Services rendered as @ClusterIP@ in a tunnel context, so ServiceLB binds no host port.
   , upstreamImageOverrides :: !(Map ProviderAddress (Map Text Text))
   , upstreamGenerated :: ![(SourceLocation, Value)]
   , upstreamAfter :: !(Map ProviderAddress [ProviderAddress])
@@ -155,6 +157,7 @@ pinnedUpstreamInputs cluster root =
         , upstreamNamespaces = Map.empty
         , upstreamTransferred = transferred
         , upstreamConfigMapData = Map.empty
+        , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
         , upstreamGenerated = []
         , upstreamAfter =
@@ -326,12 +329,28 @@ tunnelUpstreamInputs = map flatten . filter ((/= issuerOwner) . upstreamOwner)
   where
     issuerOwner = either (error . T.unpack) id (mkScopeId Platform "certificate-issuer")
     flatten input =
-      input {upstreamConfigMapData = Map.mapWithKey withTemplate (upstreamConfigMapData input)}
+      input
+        { upstreamConfigMapData = Map.mapWithKey withTemplate (upstreamConfigMapData input)
+        , upstreamClusterIpServices =
+            if upstreamOwner input == kourierOwner
+              then Set.singleton (either (error . T.unpack) id (kubernetesAddress (upstreamCluster input) "v1" "Service" (Just "kourier-system") "kourier"))
+              else Set.empty
+        }
+    kourierOwner = either (error . T.unpack) id (mkScopeId Platform "kourier")
     withTemplate address entries
       | Kubernetes _ _ _ _ name <- address
       , nameText name == "config-network" =
           Map.insert "domain-template" (Just tunnelDomainTemplate) entries
       | otherwise = entries
+
+-- | The gateway Service with no node exposure: 'ClusterIP', and without the fields only a
+-- @LoadBalancer@ has. A firewall rule added by mistake then reaches nothing.
+asClusterIpService :: Value -> Either Text Value
+asClusterIpService (Object root) = case KM.lookup "spec" root of
+  Just (Object spec) ->
+    Right (Object (KM.insert "spec" (Object (KM.insert "type" (String "ClusterIP") (KM.delete "externalTrafficPolicy" spec))) root))
+  _ -> Left "the kourier Service has no spec"
+asClusterIpService _ = Left "the kourier Service is not an object"
 
 -- | Knative's template for a one-label default name.
 tunnelDomainTemplate :: Text
@@ -387,6 +406,7 @@ issuerComponent cluster root mode = do
         , upstreamNamespaces = Map.empty
         , upstreamTransferred = Set.empty
         , upstreamConfigMapData = Map.empty
+        , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
         , upstreamGenerated = objects
         , upstreamAfter = ordering
@@ -509,7 +529,9 @@ compileUpstream input = do
               location
       probed <- first single (compileKubernetesObject template)
       configured <- case Map.lookup (probed ^. #address) (upstreamConfigMapData input) of
-        Nothing -> Right value
+        Nothing
+          | Set.member (probed ^. #address) (upstreamClusterIpServices input) -> first (single . invalid) (asClusterIpService value)
+          | otherwise -> Right value
         Just entries -> first (single . invalid) (mergeConfigMapData entries value)
       imaged <- case Map.lookup (probed ^. #address) (upstreamImageOverrides input) of
         Nothing -> Right configured

@@ -109,6 +109,7 @@ compileCloudflareTunnel input = case validated of
         , upstreamNamespaces = Map.empty
         , upstreamTransferred = Set.empty
         , upstreamConfigMapData = Map.empty
+        , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
         , upstreamGenerated = generated
         , -- The policy exists before a pod can start, so no connector runs unbounded.

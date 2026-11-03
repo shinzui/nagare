@@ -11,6 +11,7 @@ where
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
+import Nagare.Deploy.Host (HostShape (..), defaultHostName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
   ( ServerDeployContext (..)
@@ -22,8 +23,9 @@ import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (siteNameText)
 import Nagare.Dsl.Types (canonicalDomain, domainText, mkDomains, namespaceText)
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
-import Nagare.Static.Preview (previewDomain, previewServiceName)
+import Nagare.Static.Preview (previewDomain, previewDomainFor, previewServiceName)
 import Nagare.Target (TargetProfile)
+import Nagare.Target.Kinds (hostShapeFor)
 
 -- | The CLI-independent inputs to a server deploy.
 data ServerDeployInputs = ServerDeployInputs
@@ -53,7 +55,7 @@ serverManifests inputs =
     { dockerfile = renderServerDockerfile s
     , service = renderServerService s ctx
     , domainMappings = renderServerDomainMappings s ctx
-    , url = serverUrl s (inputs ^. #baseDomain)
+    , url = serverUrlFor (hostShapeFor (inputs ^. #targetProfile . #ingress)) s (inputs ^. #baseDomain)
     , serviceName = siteNameText (s ^. #name)
     }
   where
@@ -68,7 +70,7 @@ serverPreviewManifests inputs raw = do
   let s = inputs ^. #site
       prodName = siteNameText (s ^. #name)
   svcName <- previewServiceName prodName raw
-  host <- previewDomain prodName raw (inputs ^. #baseDomain)
+  host <- previewDomainFor (hostShapeFor (inputs ^. #targetProfile . #ingress)) prodName raw (inputs ^. #baseDomain)
   previewDomains <- mkDomains [(host, True)]
   let previewSite = s & #domains .~ previewDomains
       ctx = ServerDeployContext {imageTag = inputs ^. #imageTag, previewName = Just svcName}
@@ -84,13 +86,10 @@ serverPreviewManifests inputs raw = do
 -- | The server site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.
 serverUrl :: ServerSite -> Text -> Text
-serverUrl s baseDomain =
+serverUrl = serverUrlFor NestedHosts
+
+serverUrlFor :: HostShape -> ServerSite -> Text -> Text
+serverUrlFor shape s baseDomain =
   case canonicalDomain (s ^. #domains) of
     Just d -> "https://" <> domainText d
-    Nothing ->
-      "https://"
-        <> siteNameText (s ^. #name)
-        <> "."
-        <> namespaceText (s ^. #namespace)
-        <> "."
-        <> baseDomain
+    Nothing -> "https://" <> defaultHostName shape (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace)) baseDomain

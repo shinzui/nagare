@@ -133,6 +133,7 @@ compileAuth input = do
                   , upstreamNamespaces = Map.singleton (known "nagare-system") (authNamespace input)
                   , upstreamTransferred = Set.singleton (address "v1" "ConfigMap" "nagare-access-backends")
                   , upstreamConfigMapData = Map.empty
+                  , upstreamClusterIpServices = Set.empty
                   , upstreamImageOverrides = Map.empty
                   , upstreamGenerated =
                       objects

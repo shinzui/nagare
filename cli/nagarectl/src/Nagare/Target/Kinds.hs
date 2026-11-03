@@ -15,11 +15,13 @@ module Nagare.Target.Kinds
   , parseIngressMode
   , ingressModeToken
   , checkIngressMode
+  , hostShapeFor
   )
 where
 
 import Data.Char (toLower)
 import Data.Text (Text, pack)
+import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 
@@ -93,6 +95,10 @@ parseIngressMode raw = case raw of
   Just "direct" -> Right IngressDirect
   Just "cloudflare-tunnel" -> Right IngressCloudflareTunnel
   Just other -> Left ("NAGARE_INGRESS must be direct or cloudflare-tunnel, not " <> pack other)
+
+hostShapeFor :: IngressMode -> HostShape
+hostShapeFor IngressDirect = NestedHosts
+hostShapeFor IngressCloudflareTunnel = FlatHosts
 
 ingressModeToken :: IngressMode -> Text
 ingressModeToken IngressDirect = "direct"

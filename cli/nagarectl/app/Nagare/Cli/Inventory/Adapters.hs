@@ -138,6 +138,7 @@ import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Target
   ( ActiveTarget
+  , IngressMode (IngressCloudflareTunnel)
   , Mode (Cloud)
   , contextNameText
   , nagareStateDir
@@ -568,7 +569,8 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
   allRegistrations <-
     if profile ^. #mode == Cloud && hasCloudScope
       then do
-        (catalogBytes, rawCatalog) <- loadCloudCatalog workspace
+        (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
+        let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter loadedCatalog else loadedCatalog
         imageLink <-
           foundationImageLink
             active

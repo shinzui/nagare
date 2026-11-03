@@ -11,6 +11,7 @@ where
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
+import Nagare.Deploy.Host (HostShape (..), defaultHostName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
   ( StaticDeployContext (..)
@@ -21,8 +22,9 @@ import Nagare.Dsl.Static.Render
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types (canonicalDomain, domainText, mkDomains, namespaceText)
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
-import Nagare.Static.Preview (previewDomain, previewServiceName)
+import Nagare.Static.Preview (previewDomain, previewDomainFor, previewServiceName)
 import Nagare.Target (TargetProfile)
+import Nagare.Target.Kinds (hostShapeFor)
 
 -- | The CLI-independent inputs to a static deploy.
 data DeployInputs = DeployInputs
@@ -52,7 +54,7 @@ productionManifests inputs =
     { nginxConf = renderNginxConfig s
     , service = renderStaticService s ctx
     , domainMappings = renderStaticDomainMappings s ctx
-    , url = staticUrl s (inputs ^. #baseDomain)
+    , url = staticUrlFor (hostShapeFor (inputs ^. #targetProfile . #ingress)) s (inputs ^. #baseDomain)
     , serviceName = siteNameText (s ^. #name)
     }
   where
@@ -66,7 +68,7 @@ previewManifests inputs raw = do
   let s = inputs ^. #site
       prodName = siteNameText (s ^. #name)
   svcName <- previewServiceName prodName raw
-  pdomText <- previewDomain prodName raw (inputs ^. #baseDomain)
+  pdomText <- previewDomainFor (hostShapeFor (inputs ^. #targetProfile . #ingress)) prodName raw (inputs ^. #baseDomain)
   previewDomains <- mkDomains [(pdomText, True)]
   let previewSite = s & #domains .~ previewDomains
       ctx = StaticDeployContext {imageTag = inputs ^. #imageTag, previewName = Just svcName}
@@ -84,13 +86,10 @@ previewManifests inputs raw = do
 -- | The static site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.
 staticUrl :: StaticSite -> Text -> Text
-staticUrl s baseDomain =
+staticUrl = staticUrlFor NestedHosts
+
+staticUrlFor :: HostShape -> StaticSite -> Text -> Text
+staticUrlFor shape s baseDomain =
   case canonicalDomain (s ^. #domains) of
     Just d -> "https://" <> domainText d
-    Nothing ->
-      "https://"
-        <> siteNameText (s ^. #name)
-        <> "."
-        <> namespaceText (s ^. #namespace)
-        <> "."
-        <> baseDomain
+    Nothing -> "https://" <> defaultHostName shape (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace)) baseDomain

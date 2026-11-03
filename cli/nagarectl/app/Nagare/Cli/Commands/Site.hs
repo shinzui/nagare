@@ -119,6 +119,7 @@ import Nagare.Static.Deploy
 import Nagare.Static.Preview
   ( listPreviews
   , previewDomain
+  , previewDomainFor
   , previewServiceName
   )
 import Nagare.Static.Release
@@ -129,6 +130,7 @@ import Nagare.Static.Release
   , readReleaseLog
   )
 import Nagare.Target (TargetProfile)
+import Nagare.Target.Kinds (hostShapeFor)
 
 -- | Deploy a site (EP-14/EP-15/EP-18). Dispatches on the config's @kind@: a
 -- @StaticSite@ runs the Nginx path, a @ServerSite@ runs the Node path. Both share
@@ -810,7 +812,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
       name = siteNameText (qualified ^. #name)
       ns = namespaceText (qualified ^. #namespace)
   previewName <- orDie (previewServiceName name pname)
-  host <- orDie (previewDomain name pname bd)
+  host <- orDie (previewDomainFor (hostShapeFor (tp ^. #ingress)) name pname bd)
   let sourceText = T.pack <$> options ^. #source
       site =
         serverSiteWithGeneratedEnvFor

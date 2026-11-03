@@ -53,7 +53,7 @@ import Nagare.Dsl.Server.Types (ServerSite (..))
 import Nagare.Dsl.Static.Types (StaticSite (..), siteNameText)
 import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, mkNamespace, mkServiceName, namespaceText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
-import Nagare.Inventory.Application (AccessBinding, CloudflareCdnBinding (..), GoogleCdnBinding (..), ReviewedCdnBinding (..))
+import Nagare.Inventory.Application (AccessBinding (..), CloudflareCdnBinding (..), GoogleCdnBinding (..), ReviewedCdnBinding (..))
 import Nagare.Inventory.PreviewOwnership (sitePreviewRetirementScope)
 import Nagare.Inventory.ProtectedRoute (ProtectedRoute (..), ProtectedRoutes (..), composeProtectedRoutes, protectedHosts, siteAccessPolicy)
 import Nagare.Inventory.Site.Member (bindOne, checkAddress, reviewedBuildReference, siteSecretDependency)
@@ -533,7 +533,7 @@ compileSiteRenderedScope
         when
           (isJust cdn)
           (Left (invalid "a protected site cannot be served through a CDN: remove cdn, or keep the site public"))
-        hosts <- first invalid (protectedHosts name ns baseDomain domains)
+        hosts <- first invalid (protectedHosts (accessHostShape binding) name ns baseDomain domains)
         namespace <- first invalid (mkNamespace ns)
         serviceName <- first invalid (mkServiceName name)
         Just

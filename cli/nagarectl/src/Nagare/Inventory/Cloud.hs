@@ -22,6 +22,7 @@ module Nagare.Inventory.Cloud
   , decodeCloudCatalog
   , selectedCloudCatalog
   , withCloudInstanceName
+  , withTunnelPerimeter
   , cloudCatalogUrn
   , cloudBookkeepingRegistrations
   )
@@ -171,6 +172,24 @@ selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalo
     <> (if imageEnabled then catalogImageEnabled catalog else [])
     <> (if imageEnabled && cdnEnabled then catalogCdnEnabled catalog else [])
     <> (if adminApiEnabled then catalogAdminApiReaderEnabled catalog else [])
+
+-- | A tunnel context's perimeter (ADR 34): no internet-facing firewall rule, and no Cloud DNS zone or
+-- record, since the domain's DNS is on Cloudflare. @infra/pulumi@ omits the same members from
+-- @nagare:ingress@, and its parity test holds the two together.
+withTunnelPerimeter :: CloudCatalog -> CloudCatalog
+withTunnelPerimeter catalog =
+  catalog {catalogFoundationManaged = filter ((`notElem` omitted) . nameText . catalogKey) (catalogFoundationManaged catalog)}
+  where
+    omitted =
+      [ "nagare-network-fw-web"
+      , "nagare-network-fw-lb-health"
+      , "nagare-network-fw-tailscale"
+      , "nagare-zone"
+      , "nagare-iam-dns-zone"
+      , "nagare-iam-dns-read"
+      , "nagare-wildcard"
+      , "nagare-apex"
+      ]
 
 withCloudInstanceName :: Name -> CloudCatalog -> CloudCatalog
 withCloudInstanceName instanceName catalog =

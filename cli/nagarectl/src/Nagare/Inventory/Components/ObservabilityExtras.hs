@@ -49,6 +49,7 @@ compileObservabilityExtras root foundation metricsRelease = do
               , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
               , upstreamTransferred = Set.empty
               , upstreamConfigMapData = Map.empty
+              , upstreamClusterIpServices = Set.empty
               , upstreamImageOverrides = Map.empty
               , upstreamGenerated = objects
               , upstreamAfter = Map.empty

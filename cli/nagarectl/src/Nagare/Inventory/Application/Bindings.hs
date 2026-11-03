@@ -31,6 +31,7 @@ import Nagare.Broker.Connection
   , brokerConnectionEnv
   , mergeBrokerConnectionEnvs
   )
+import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.AppDatabase (logicalDatabaseNameText)
 import Nagare.Dsl.Broker
   ( BrokerBinding (..)
@@ -376,7 +377,10 @@ acceptedAccessBinding snapshot cluster = do
         , resource ^. #address == expected
         ]
   case enforcers of
-    [enforcer] -> Right (AccessBinding authOwner enforcer baseDomain)
+    [enforcer] -> do
+      zoneOwner <- mkScopeId Platform "cloudflare-zone"
+      let shape = if Map.member zoneOwner (snapshotScopes snapshot) then FlatHosts else NestedHosts
+      Right (AccessBinding authOwner enforcer baseDomain shape)
     _ -> Left "auth owner has no unique accepted enforcer Service"
 
 brokerEvidenceIds ::

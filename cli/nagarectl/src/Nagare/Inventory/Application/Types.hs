@@ -17,6 +17,7 @@ import Data.Text qualified as T
 import Nagare.App.Deploy (RolloutEnv)
 import Nagare.Cdn.Provision (GcpStackRefs)
 import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Deploy.Host (HostShape)
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker (BrokerName, TopicName)
 import Nagare.Dsl.Database (Engine)
@@ -37,6 +38,8 @@ data AccessBinding = AccessBinding
   { accessOwner :: !ScopeId
   , accessEnforcer :: !Declaration
   , accessBaseDomain :: !Name
+  , accessHostShape :: !HostShape
+  -- ^ Flat when the context's accepted zone scope serves it through a tunnel (ADR 34).
   }
   deriving stock (Eq, Show)
 

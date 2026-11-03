@@ -55,6 +55,9 @@ inventoryCloudTests =
             )
         length (selectedCloudCatalog False False False False catalog) @?= 2
         length (selectedCloudCatalog True False False False catalog) @?= 3
+        -- ADR 34: a tunnel context's perimeter drops only what it says it drops.
+        selectedCloudCatalog False False False False (withTunnelPerimeter catalog)
+          @?= filter ((`notElem` tunnelOmitted) . nameText . catalogKey) (selectedCloudCatalog False False False False catalog)
         let image = last (catalogFoundationManaged catalog)
         imageUrn <- expectRight (cloudCatalogUrn (name "dev") catalog image)
         imageUrn @?= "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-images"
@@ -400,3 +403,15 @@ expectRight result = case result of
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
+
+tunnelOmitted :: [Text]
+tunnelOmitted =
+  [ "nagare-network-fw-web"
+  , "nagare-network-fw-lb-health"
+  , "nagare-network-fw-tailscale"
+  , "nagare-zone"
+  , "nagare-iam-dns-zone"
+  , "nagare-iam-dns-read"
+  , "nagare-wildcard"
+  , "nagare-apex"
+  ]

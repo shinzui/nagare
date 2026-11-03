@@ -193,6 +193,7 @@ compileAdminApi input declarations = case validated of
               (foundationNamespaceId (input ^. #foundation) (known (mkName backendConfigMapNamespace)))
         , upstreamTransferred = Set.empty
         , upstreamConfigMapData = Map.empty
+        , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
         , upstreamGenerated = generated
         , upstreamAfter =

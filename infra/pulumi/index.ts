@@ -41,6 +41,8 @@ const adminApiInventoryPrefixCfg = cfg.get("adminApiInventoryPrefix") ?? `nagare
 // A second stack in an already provisioned project must not acquire another
 // Pulumi ownership claim over the shared project API enablement resources.
 const manageProjectApisCfg = cfg.getBoolean("manageProjectApis") ?? true;
+// ADR 34: absent on a direct context, so its preview is unchanged.
+const tunnelCfg = cfg.get("ingress") === "cloudflare-tunnel";
 
 // IP-10: EP-3 writes this after building+registering the NixOS image.
 // `get` (not `require`) so the VM is simply omitted until it is set.
@@ -105,6 +107,7 @@ const perimeter = new NagarePerimeter(
         instanceName: instanceNameCfg,
         machineType: machineTypeCfg,
         dataDiskSizeGb: dataDiskSizeGbCfg,
+        tunnel: tunnelCfg,
         baseDomain: baseDomainCfg,
         artifactRegistryId: artifactRegistryIdCfg,
         serviceAccountId: serviceAccountIdCfg,

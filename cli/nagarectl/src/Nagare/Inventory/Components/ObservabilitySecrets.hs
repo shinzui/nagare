@@ -115,6 +115,7 @@ compileObservabilitySecrets foundation objects = case traverse validate objects 
               , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
               , upstreamTransferred = Set.empty
               , upstreamConfigMapData = Map.empty
+              , upstreamClusterIpServices = Set.empty
               , upstreamImageOverrides = Map.empty
               , upstreamGenerated = normalized
               , upstreamAfter = Map.empty

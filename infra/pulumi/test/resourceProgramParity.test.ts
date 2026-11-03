@@ -18,6 +18,7 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("foundation-managed")) config["nagare:manageProjectApis"] = "false";
     if (variant.includes("image") || variant.includes("cdn-")) config["nagare:nagareImageSelfLink"] = "projects/example-project/global/images/nagare-image";
     if (variant.includes("cache")) config["nagare:enableNixCache"] = "true";
+    if (variant.includes("tunnel")) config["nagare:ingress"] = "cloudflare-tunnel";
     if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
     if (variant.includes("cdn-legacy")) {
         config["nagare:enableCdn"] = "true";
@@ -155,6 +156,15 @@ async function main(): Promise<void> {
     const foundationManagedCache = runVariant("foundation-managed-cache");
     const foundationManagedImage = runVariant("foundation-managed-image");
     const foundationManagedAdminApi = runVariant("foundation-managed-admin-api");
+    // ADR 34: a tunnel context keeps only the IAP SSH rule and declares no Cloud DNS.
+    const tunnel = runVariant("foundation-managed-image-tunnel");
+    const tunnelNames = names(tunnel);
+    const tunnelOmitted = ["nagare-network-fw-web", "nagare-network-fw-lb-health", "nagare-network-fw-tailscale", "nagare-zone", "nagare-iam-dns-zone", "nagare-iam-dns-read", "nagare-wildcard", "nagare-apex"];
+    for (const name of tunnelOmitted) {
+        assert(![...tunnelNames].some((key) => String(key).endsWith(`::${name}`) || String(key) === name), `tunnel variant still declares ${name}`);
+    }
+    assert([...tunnelNames].some((key) => String(key).includes("nagare-network-fw-iap-ssh")), "tunnel variant lost the IAP SSH rule");
+    verifyGuardedVariant("foundation-managed-image-tunnel", tunnel);
     const image = runVariant("image");
     const cache = runVariant("cache");
     const legacyCdn = runVariant("cdn-legacy");

@@ -11,9 +11,12 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Deploy.Host
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Dsl.Types (domainText)
 import Nagare.Inventory.Components.CloudflareTunnel
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
+import Nagare.Inventory.ProtectedRoute (protectedHosts)
 import Nagare.Ops.CloudflareTunnel
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
@@ -21,6 +24,8 @@ import Nagare.Resource.Policy (Sensitivity (Secret))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (decodeScope, encodeCanonicalScope)
+import Nagare.Static.Preview (previewDomain, previewDomainFor)
+import Nagare.Target.Kinds (IngressMode (..), hostShapeFor)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -108,6 +113,20 @@ inventoryCloudflareTunnelTests =
           @?= Right [Connector "c1" "v" ["1.2.3.4"]]
         parseTunnelId "nagare-x" 200 "{\"success\":true,\"result\":[{\"id\":\"t1\",\"name\":\"nagare-x\"}]}" @?= Right "t1"
         assertBool "an absent tunnel is an error" (isLeftOf (parseTunnelId "nagare-x" 200 "{\"success\":true,\"result\":[]}"))
+    , testCase "a tunnel context's default names are one label, and a direct context's are unchanged" $ do
+        defaultHostName NestedHosts "site" "personal" "example.test" @?= "site.personal.example.test"
+        defaultHostName FlatHosts "site" "personal" "example.test" @?= "site-personal.example.test"
+        previewHostName NestedHosts "pr1" "site" "example.test" @?= "pr1.site.preview.example.test"
+        previewHostName FlatHosts "pr1" "site" "example.test" @?= "pr1-site-preview.example.test"
+        hostShapeFor IngressDirect @?= NestedHosts
+        hostShapeFor IngressCloudflareTunnel @?= FlatHosts
+        previewDomainFor FlatHosts "site" "Pr1" "example.test" @?= Right "pr1-site-preview.example.test"
+        previewDomain "site" "Pr1" "example.test" @?= Right "pr1.site.preview.example.test"
+        -- Both flattened and declared protected hostnames stay one label below the base.
+        flat <- either (assertFailure . T.unpack) pure (protectedHosts FlatHosts "site" "personal" "example.test" [])
+        map (domainText . (^. #domain)) flat @?= ["site-personal.example.test"]
+        nested <- either (assertFailure . T.unpack) pure (protectedHosts NestedHosts "site" "personal" "example.test" [])
+        map (domainText . (^. #domain)) nested @?= ["site.personal.example.test"]
     , testCase "a misfiled token and a mutable image refuse at planning" $ do
         expectRefused (compileWith (secretWith "other" "value"))
         expectRefused (compileInput (fixtureInput (fixtureLocation, renamedSecret)))

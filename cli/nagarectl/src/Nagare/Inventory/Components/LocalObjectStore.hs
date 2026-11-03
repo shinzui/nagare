@@ -248,6 +248,7 @@ compileLocalObjectStore root foundation store images
               ]
         , upstreamTransferred = Set.singleton namespace
         , upstreamConfigMapData = Map.empty
+        , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
         , upstreamGenerated = []
         , upstreamAfter =
