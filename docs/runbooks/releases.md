@@ -32,7 +32,7 @@ files:
 - `release.json`: `platformVersion`, and `transitionsFrom`, the releases an installed context may
   move from. It must include the release the intranet runs; its newest entry is the release the
   rehearsal starts from. Claim rollback in `rollbackSupportedFrom` only for a tested reverse
-  transaction. Then `releaseImages`, the four service images (EP-237): set the version first and
+  transaction. Then `releaseImages`, the service images and the tunnel connector (EP-237): set the version first and
   run `scripts/harness.sh release images prepare` on that tree. It builds the En, Shōmei,
   nagare-access and admin API images on the x86_64-linux builder
   (`.#packages.x86_64-linux.release-image-*`, from [`nix/release-images.nix`](../../nix/release-images.nix))
