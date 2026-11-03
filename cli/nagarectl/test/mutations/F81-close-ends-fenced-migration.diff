@@ -10,4 +10,4 @@ index 84ec6ae7..21d0cdcd 100644
 +          | fencedMigration document states && False ->
                pure (failure "migration-fenced" "the migration fenced its source and has not finished; inventory abandon-migration releases the fence and ends the transaction")
          (_, Nothing) -> do
-           classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify registry reviewed transaction states entry) entries
+           classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify scope registry reviewed transaction states entry) entries

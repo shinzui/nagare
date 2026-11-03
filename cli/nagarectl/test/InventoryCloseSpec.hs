@@ -42,7 +42,8 @@ inventoryCloseTests =
         -- The same run refuses the release and its retries.
         _ <- landedClose [(Boundary StorePutCall n, PutRefused) | n <- [writes .. writes + 3]]
         pure ()
-    , testCase "a fixed payload settles a stage another payload planned, though the adapter changed and resume could progress (F139)" crossPayloadClose
+    , testCase "a fixed payload settles a stage another payload planned, though the adapter changed and resume could progress (F139)" (crossPayloadClose (RecoveryLandedUnready (ok (mkPhysicalIdentity "landed-uid"))) (ClassLanded (ok (mkPhysicalIdentity "landed-uid"))))
+    , testCase "a fixed payload that proves the effect complete settles it, since resume is refused across payloads (F139)" (crossPayloadClose (RecoveryProvedComplete (contentDigest "proof")) ClassCompleted)
     , testCase "a review in which nothing took effect reverts every changed scope and its retained additions" revertedClose
     , testCase "close refuses while an operation is unproved, naming what would resolve it; an attested close then accepts nothing" unknownBlocks
     , testCase "an attestation file is strict" $ do
@@ -118,8 +119,8 @@ landedClose releaseFaults = do
 
 -- | The first native tunnel run: the old payload's parser could never prove a landed update, and the
 -- fixed payload is not the one that planned it. Only close can end it, and only across payloads.
-crossPayloadClose :: Assertion
-crossPayloadClose = do
+crossPayloadClose :: RecoveryDecision -> OperationClass -> Assertion
+crossPayloadClose decision expected = do
   store <- newMemoryStore
   _ <- initializeStore store fixtureBinding "cross-payload" >>= expectRight
   let owner = ok (mkScopeId Application "web")
@@ -130,7 +131,7 @@ crossPayloadClose = do
         recordingRegistryWith
           (\_ _ -> pure (Right ()))
           (\operation _ -> pure (if plannedAction operation == UpdateResource then AdapterEffectAmbiguous "the old parser refused the answer" else AdapterEffectCompleted))
-          (\_ _ -> pure (RecoveryLandedUnready landed))
+          (\_ _ -> pure decision)
   _ <- converge store registry owner [service "v1"] [(declarationId (service "v1"), ConfirmedAbsent (contentDigest "absent"))]
   reviewed <- reviewFor store registry owner [service "v2"] [(declarationId (service "v2"), ObservedPresent landed)]
   applied <- applyReviewed store registry reviewed >>= expectRight
@@ -144,7 +145,7 @@ crossPayloadClose = do
     Left errors -> assertBool (show errors) (any ((== "adapter-version") . admissionErrorCode) (NE.toList errors))
     Right _ -> assertFailure "a changed adapter closed under its own payload's rule"
   record <- closeTransactionWith ClosesAcrossPayloads store fixed input >>= either (\errors -> assertFailure (show (NE.toList errors)) >> pure (error "unreachable")) pure
-  assertBool "the landed update is proved" (ClassLanded landed `elem` Map.elems (closedClasses record))
+  assertBool "the update is settled" (expected `elem` Map.elems (closedClasses record))
   Map.elems (closedScopes record) @?= [KeepDesired]
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   headActiveTransaction after @?= Nothing

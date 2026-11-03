@@ -208,7 +208,7 @@ closeTransactionWith scope store registry input = do
           | fencedMigration document states ->
               pure (failure "migration-fenced" "the migration fenced its source and has not finished; inventory abandon-migration releases the fence and ends the transaction")
         (_, Nothing) -> do
-          classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify registry reviewed transaction states entry) entries
+          classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify scope registry reviewed transaction states entry) entries
           case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes] of
             unknowns@(_ : _)
               | Just attestation <- closeAttestation input ->
@@ -316,21 +316,27 @@ resumeProgress registry reviewed transaction entries states = case nextOperation
     operationText = T.pack . show . plannedOperationId
 
 -- | ADR 26 §1: first match wins. Journal classes need no adapter call.
-classify :: AdapterRegistry -> ReviewedPlan -> TransactionId -> Map OperationId OperationState -> ReviewOperation -> IO OperationClass
-classify registry reviewed transaction states entry = case journalClass states operation of
+classify :: CloseScope -> AdapterRegistry -> ReviewedPlan -> TransactionId -> Map OperationId OperationState -> ReviewOperation -> IO OperationClass
+classify scope registry reviewed transaction states entry = case journalClass states operation of
   Just cls -> pure cls
   Nothing -> case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed entry) of
     (Left reason, _) -> pure (ClassUnknown reason "an installed adapter")
     (_, Left reason) -> pure (ClassUnknown reason "the saved review's native bundle")
     (Right adapter, Right prepared) -> do
       settled <- withAdapterEnv transaction operation (settleOperationWith adapter operation prepared)
-      pure $ case settled of
-        SettledNoEffect evidence -> ClassNoEffect evidence
-        SettledLanded physical -> ClassLanded physical
-        SettledTargetGone physical -> ClassTargetGone physical
-        SettledTerminalPartial physical -> ClassTerminalPartial physical
-        SettledPartial present absent -> ClassPartial present absent
-        SettledUnknown reason resolvesBy -> ClassUnknown reason resolvesBy
+      case settled of
+        SettledNoEffect evidence -> pure (ClassNoEffect evidence)
+        SettledLanded physical -> pure (ClassLanded physical)
+        SettledTargetGone physical -> pure (ClassTargetGone physical)
+        SettledTerminalPartial physical -> pure (ClassTerminalPartial physical)
+        SettledPartial present absent -> pure (ClassPartial present absent)
+        -- Resume would finish a proved effect, and across payloads resume is refused, so the proof is the finish.
+        SettledUnknown reason resolvesBy
+          | scope == ClosesAcrossPayloads ->
+              withAdapterEnv transaction operation (adapterRecover adapter operation prepared) >>= \case
+                RecoveryProvedComplete _ -> pure ClassCompleted
+                _ -> pure (ClassUnknown reason resolvesBy)
+          | otherwise -> pure (ClassUnknown reason resolvesBy)
   where
     operation = reviewPlannedOperation entry
 

@@ -5,7 +5,7 @@ index 84ec6ae7..c902b556 100644
 @@ -197,7 +197,7 @@ closeTransaction store registry input = do
                pure (failure "migration-fenced" "the migration fenced its source and has not finished; inventory abandon-migration releases the fence and ends the transaction")
          (_, Nothing) -> do
-           classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify registry reviewed transaction states entry) entries
+           classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify scope registry reviewed transaction states entry) entries
 -          case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes] of
 +          case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes, False] of
              unknowns@(_ : _)
