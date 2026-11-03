@@ -80,6 +80,7 @@ imageKeys =
   , ("shomei", "release-image-shomei")
   , ("nagare-access", "release-image-access")
   , ("nagare-admin-api", "release-image-admin-api")
+  , ("cloudflared", "release-image-cloudflared")
   ]
 
 digestFor :: Char -> Text

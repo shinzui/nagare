@@ -47,6 +47,7 @@ imagePackage = \case
   ShomeiImage -> "release-image-shomei"
   AccessImage -> "release-image-access"
   AdminApiImage -> "release-image-admin-api"
+  CloudflaredImage -> "release-image-cloudflared"
 
 -- | The public binary cache the flake names as a substituter.
 binaryCache :: (String, String)
