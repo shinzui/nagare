@@ -128,6 +128,8 @@ reports the edge certificate; there is no origin certificate to renew.
 Deploy as in [Protected sites](static-hosting.md#protected-sites), with a site config that names no domain. It answers on
 `<site>-<namespace>.<base>`, and the deploy makes no Cloudflare call. A request with no session gets a 302 to `/_nagare/login`.
 
+A new protected name can answer 502 for about a minute after the deploy reports success, while the gateway picks up its route.
+
 Create the first user and grant them the site as in [the auth portal](auth-portal.md), with `--host` set to that name, then open it in
 a browser. A sign-in form left open for more than ten minutes comes back asking you to sign in again.
 
