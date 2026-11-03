@@ -8,6 +8,8 @@ module Nagare.Inventory.Components.Upstream
   , configuredUpstreamInputsWithIssuer
   , bindNetCertManagerControllerImage
   , bindHostRegistryCredentials
+  , tunnelDomainTemplate
+  , tunnelUpstreamInputs
   , compileUpstream
   )
 where
@@ -315,6 +317,25 @@ configuredUpstreamInputsWithIssuer cluster root domain registry issuerMode = do
     case scopes of
       certManager : remaining -> Right (certManager : issuerScope : remaining)
       [] -> Left "configured upstream release set is empty"
+
+-- | The upstream set for a tunnel context (ADR 34). Default names are one label below the
+-- base, because the free edge certificate covers no deeper, and no DNS-01 issuer is installed:
+-- Cloud DNS is not authoritative for a zone on Cloudflare, and no certificate is requested.
+tunnelUpstreamInputs :: [UpstreamInput] -> [UpstreamInput]
+tunnelUpstreamInputs = map flatten . filter ((/= issuerOwner) . upstreamOwner)
+  where
+    issuerOwner = either (error . T.unpack) id (mkScopeId Platform "certificate-issuer")
+    flatten input =
+      input {upstreamConfigMapData = Map.mapWithKey withTemplate (upstreamConfigMapData input)}
+    withTemplate address entries
+      | Kubernetes _ _ _ _ name <- address
+      , nameText name == "config-network" =
+          Map.insert "domain-template" (Just tunnelDomainTemplate) entries
+      | otherwise = entries
+
+-- | Knative's template for a one-label default name.
+tunnelDomainTemplate :: Text
+tunnelDomainTemplate = "{{.Name}}-{{.Namespace}}.{{.Domain}}"
 
 issuerComponent :: ResourceId -> FilePath -> IssuerMode -> IO (Either Text UpstreamInput)
 issuerComponent cluster root mode = do

@@ -120,6 +120,20 @@ inventoryAuthTests =
               )
               members
           )
+        -- ADR 34: only a context behind an edge carries the enforcer's header.
+        (_, edgeNative) <- compileAuth fixture {authProxiedCacheControl = Just "private, no-store, no-transform"} >>= expectRight
+        let enforcerBytes members' =
+              [ bytes
+              | (resource, bytes) <- Map.elems members'
+              , Kubernetes _ "serving.knative.dev" _ _ name <- [resource ^. #address]
+              , nameText name == "nagare-access"
+              ]
+        assertBool
+          "a direct context's enforcer gained the edge variable"
+          (not (any ("NAGARE_ACCESS_PROXIED_CACHE_CONTROL" `BS.isInfixOf`) (enforcerBytes native)))
+        assertBool
+          "the edge enforcer lacks its header"
+          (any ("private, no-store, no-transform" `BS.isInfixOf`) (enforcerBytes edgeNative))
         (localBundle, localNative) <- compileAuth fixture {authMode = LocalAuth} >>= expectRight
         length (declarations localBundle) @?= length members
         localNative @?= native
@@ -856,6 +870,7 @@ fixture =
     []
     Map.empty
     CloudAuth
+    Nothing
   where
     images =
       Map.fromList

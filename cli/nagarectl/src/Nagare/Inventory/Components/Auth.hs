@@ -55,6 +55,10 @@ data AuthInput = AuthInput
   -- image is the release's; only that service's workloads, so a release that
   -- moves one image leaves the others' declarations alone.
   , authMode :: !AuthMode
+  , authProxiedCacheControl :: !(Maybe Text)
+  -- ^ ADR 34: set on the enforcer for a context behind an edge, replacing
+  -- @Cache-Control@ on every proxied protected response. 'Nothing' adds no
+  -- variable, so a direct context's revision is unchanged.
   }
 
 -- | The two auth databases and workloads share one complete owner scope.
@@ -257,7 +261,8 @@ compileAuth input = do
         Object root | KM.lookup "kind" root == Just (String "Namespace") -> Right []
         _ -> do
           rendered <- renderTemplateValue value
-          withSettings <- addShomeiEnv rendered
+          withShomei <- addShomeiEnv rendered
+          withSettings <- addEnforcerEnv withShomei
           revised <- reviseJob withSettings
           recorded <- recordSelection revised
           pure [(location, recorded)]
@@ -353,6 +358,21 @@ compileAuth input = do
             Just (String "shomei") -> updateAt ["spec", "template", "spec", "containers"] appendShomeiEnv value
             _ -> Right value
     addShomeiEnv value = Right value
+    addEnforcerEnv value@(Object root)
+      | Just header <- authProxiedCacheControl input
+      , KM.lookup "kind" root == Just (String "Service")
+      , Just (Object metadata) <- KM.lookup "metadata" root
+      , KM.lookup "name" metadata == Just (String "nagare-access") =
+          updateAt ["spec", "template", "spec", "containers"] (appendEnforcerEnv header) value
+    addEnforcerEnv value = Right value
+    appendEnforcerEnv header (Array containers) = case V.uncons containers of
+      Just (Object container, rest) -> case KM.lookup "env" container of
+        Just (Array items) ->
+          let extra = object ["name" .= ("NAGARE_ACCESS_PROXIED_CACHE_CONTROL" :: Text), "value" .= header]
+           in Right (Array (V.cons (Object (KM.insert "env" (Array (V.snoc items extra)) container)) rest))
+        _ -> Left "the enforcer has no env array"
+      _ -> Left "the enforcer has no container"
+    appendEnforcerEnv _ _ = Left "the enforcer's containers are not a list"
     appendShomeiEnv (Array containers) = case V.uncons containers of
       Just (Object container, rest) -> do
         unless

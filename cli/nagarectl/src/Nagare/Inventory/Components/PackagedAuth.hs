@@ -65,6 +65,7 @@ packagedAuthInputs root foundation mode domain images backend =
               []
               Map.empty
               mode
+              Nothing
        in Right (auth, [(service, direct, backend) | (service, direct, _) <- inputs])
   where
     owner = known (mkScopeId Platform "auth")

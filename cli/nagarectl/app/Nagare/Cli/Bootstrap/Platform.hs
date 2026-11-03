@@ -78,6 +78,7 @@ import Nagare.Inventory.Components.Upstream
   , bindHostRegistryCredentials
   , bindNetCertManagerControllerImage
   , configuredUpstreamInputsWithIssuer
+  , tunnelUpstreamInputs
   )
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
@@ -152,6 +153,7 @@ buildPlatformCandidate active paths workspace snapshot = do
           cluster
           (root </> "cluster/bootstrap/job-runs/resourcequota.yaml")
           granted
+      tunnelMode = profile ^. #ingress == IngressCloudflareTunnel
       issuer = case profile ^. #mode of
         Local -> LocalIssuer
         Cloud ->
@@ -170,13 +172,15 @@ buildPlatformCandidate active paths workspace snapshot = do
     (profile ^. #mode == Local && profile ^. #externalDomainTlsEnabled)
     (dieT "external domain TLS belongs to cloud bootstrap; local TLS is enabled by its own issuer")
   rawUpstream <-
-    configuredUpstreamInputsWithIssuer
-      cluster
-      root
-      (profile ^. #baseDomain)
-      (profile ^. #registryHost)
-      issuer
-      >>= either dieT pure
+    (if tunnelMode then tunnelUpstreamInputs else id)
+      <$> ( configuredUpstreamInputsWithIssuer
+              cluster
+              root
+              (profile ^. #baseDomain)
+              (profile ^. #registryHost)
+              issuer
+              >>= either dieT pure
+          )
   credentialUpstream <- case profile ^. #mode of
     Local -> pure rawUpstream
     Cloud -> do
@@ -279,7 +283,7 @@ buildPlatformCandidate active paths workspace snapshot = do
             )
     GcsBackend {} -> pure Nothing
   let authMode = if profile ^. #mode == Local then LocalAuth else CloudAuth
-  (rawAuth, authDatabases) <-
+  (packagedAuth, authDatabases) <-
     either
       (dieT . T.pack . show)
       pure
@@ -291,6 +295,11 @@ buildPlatformCandidate active paths workspace snapshot = do
           authImages
           (DatabaseBackupTarget backupBackend (profile ^. #backupRecoveryPoint))
       )
+  let rawAuth =
+        packagedAuth
+          { authProxiedCacheControl =
+              if tunnelMode then Just "private, no-store, no-transform" else Nothing
+          }
   localPrerequisites <- case localStore of
     Nothing -> pure []
     Just (_, members) -> case [ resource ^. #identity

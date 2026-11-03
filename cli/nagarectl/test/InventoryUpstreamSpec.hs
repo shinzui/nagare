@@ -683,6 +683,30 @@ inventoryUpstreamTests =
         Map.size (inventoryScopes (candidateInventory local)) @?= 6
         Map.size (inventoryScopes (candidateInventory cloud)) @?= 6
         Map.size localNative @?= Map.size cloudNative + 2
+        -- ADR 34: a tunnel context installs no DNS-01 issuer and has one-label default names.
+        scopes <-
+          configuredUpstreamInputsWithIssuer
+            fixtureCluster
+            "../.."
+            "example.test"
+            "registry.example.test"
+            (CloudIssuer "https://acme-staging-v02.api.letsencrypt.org/directory" "admin@example.test" "project" False)
+            >>= expectRight
+        let tunnel = tunnelUpstreamInputs scopes
+            issuerOwner = ok (mkScopeId Platform "certificate-issuer")
+            templates inputs =
+              [ value
+              | input <- inputs
+              , (address, entries) <- Map.toList (upstreamConfigMapData input)
+              , address == networkAddress'
+              , Just value <- [Map.lookup "domain-template" entries]
+              ]
+            networkAddress' = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
+        assertBool "the direct set keeps its issuer" (issuerOwner `elem` map upstreamOwner scopes)
+        assertBool "the tunnel set has no issuer" (issuerOwner `notElem` map upstreamOwner tunnel)
+        length tunnel @?= length scopes - 1
+        templates scopes @?= []
+        templates tunnel @?= [Just tunnelDomainTemplate]
         Map.size cloudTlsNative @?= Map.size cloudNative
         let networkAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
             networkData native =
