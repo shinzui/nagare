@@ -117,9 +117,27 @@ reviewed decision, then restores each database and application volume from the
 one recovery point its decision names ([ADR 27 amendment](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)).
 Note the start time; the recovery time runs to the service answering.
 
-1. **Recreate the host and the cluster.** Follow
-   [Rebuilding the host](../user/backups-and-disaster-recovery.md#rebuilding-the-host),
-   then run the reviewed bootstrap. In local mode, `just local-up` and
+1. **Recreate the host and the cluster.** In a cloud context, Pulumi still records the lost VM, so
+   every reviewed read reports it as converged until you drop that record. Then the bootstrap
+   recreates the VM, re-attaching the protected data disk:
+
+   ```bash
+   nagarectl --context "$CONTEXT" infra forget-lost-vm     # refuses unless GCP confirms the VM is gone
+   nagarectl --context "$CONTEXT" platform bootstrap plan --out reviews/vm
+   nagarectl --context "$CONTEXT" platform bootstrap apply reviews/vm --yes
+   nagarectl --context "$CONTEXT" host plan --save-plan reviews/host
+   nagarectl --context "$CONTEXT" inventory apply reviews/host --yes
+   nagarectl --context "$CONTEXT" kubeconfig plan --save-plan reviews/kubeconfig
+   nagarectl --context "$CONTEXT" inventory apply reviews/kubeconfig --yes
+   ```
+
+   A tailnet with Tailnet Lock needs the new node signed; the host apply stops until it is, and
+   `inventory resume` continues it. Wait about an hour for an ephemeral Tailscale device to release
+   its name before creating the VM. A linked kubeconfig must be replaced with a regular file before
+   its review. `platform bootstrap plan` now stops on `durable-resource-missing`, which steps 2 to 4
+   answer; run it again after step 4 to recreate what no durable member depends on. See also
+   [Rebuilding the host](../user/backups-and-disaster-recovery.md#rebuilding-the-host).
+   In local mode, `just local-up` and
    `just local-bootstrap` stand in for this. In local mode the backup bucket is
    the in-cluster MinIO, so it went with the cluster: restore the preserved copy
    of MinIO's data directory (it keeps object versions; `mc mirror` does not)
@@ -162,6 +180,8 @@ Note the start time; the recovery time runs to the service answering.
    nagarectl --context "$CONTEXT" inventory apply reviews/rebuild --yes
    ```
 
+   The review also recreates every cluster scope those members depend on, such as their namespace.
+   A volume started with `--fresh` runs its scope's migrations again; a restored one does not.
    Admission refuses if a member reappeared after review. A standalone
    database's scope holds no writer. An application's scope also recreates its
    workloads, so apply steps 5 and 6 straight away and keep traffic away from

@@ -157,6 +157,11 @@ nagarectl tunnel evict CONNECTOR_ID --yes           # anything still listed that
 Rotation refuses the old token for **new** connections only. A connector already running keeps serving until it restarts,
 so after a suspected leak, always check `tunnel status` and evict what you do not recognize.
 
+## After losing the VM
+
+Follow [Rebuild the service after losing the VM](../runbooks/disaster-recovery.md#rebuild-the-service-after-losing-the-vm).
+The new node rejoins the same tunnel: no Cloudflare object changes, and sites answer 530 until the connectors return.
+
 ## Removing a context
 
 There is no reviewed way to remove a cloud context once it has history

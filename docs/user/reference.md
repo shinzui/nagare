@@ -230,6 +230,7 @@ transaction's staged host flake, so inherited values from another context cannot
 | `nagarectl infra guard [--allow-replacement]` | Compatibility guard that previews and classifies protected replacements. New apply workflows use the saved-plan commands below. |
 | `nagarectl infra preview --save-plan DIR [--allow-replacement]` | Guard, save, classify, and bind one Pulumi preview as a private immutable bundle. |
 | `nagarectl infra apply --plan DIR --yes [--allow-replacement]` | Apply an inventory review through the shared executor, or re-run guards and apply an older Pulumi plan only while the context has no substantive inventory history. |
+| `nagarectl infra forget-lost-vm` | Drop a lost VM's record from Pulumi state so the bootstrap can recreate it. Refuses unless GCP confirms the VM is gone and the refresh changes nothing else. Writes only Pulumi state. |
 | `nagarectl infra destroy --save-plan DIR` | Review stateless cloud policy, retained scope retirement, then one eligible exact collection per invocation; preserve protected data, authority and dependency-blocked members. Apply each saved review separately. |
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
 | `nagarectl host place-age-key [--context NAME] --key-file PATH [--force] [--save-plan DIR]` | Save a reviewed credential transition with `--save-plan`; replacement pins the observed prior key and requires `--force`. Apply with `host apply` and the same `NAGARE_HOST_AGE_KEY_FILE`. Private key bytes stay outside reviews. Direct placement remains available only before inventory admission. |
@@ -238,6 +239,7 @@ transaction's staged host flake, so inherited values from another context cannot
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |
 | `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
 | `nagarectl host name [--context NAME] [--json]` | Print the generated NixOS/flake/Tailscale host name after validating that `host.nix` declares it exactly once. |
+| `nagarectl kubeconfig plan --save-plan DIR` | Review the credentials of a cluster rebuilt on a new VM; the only way to accept credentials that differ from the accepted ones. Refuses a linked kubeconfig. |
 | `nagarectl kubeconfig fetch [--context NAME] [--output FILE]` | Fetch k3s credentials through the context's project-confined IAP transport, normalize all identities and the API endpoint, and atomically install a private per-context kubeconfig. |
 | `nagarectl cluster guard [--context NAME] [--json]` | Refuse unless ambient kubectl selects the named Nagare context and reports exactly its context-owned server node. Cloud Kubernetes mutation recipes run this automatically. |
 

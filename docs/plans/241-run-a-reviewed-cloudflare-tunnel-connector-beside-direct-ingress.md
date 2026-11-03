@@ -52,7 +52,7 @@ change at all.
   `gradeKourier` neither fails nor warns on a closed public IP in that mode. The probe also lists the connectors
   Cloudflare sees: their count and origin addresses must match the context's replicas and the VM, and any other
   connector, or a remote configuration that differs from the declared one, is a failing check.
-- [ ] D7: On a disposable context, a rebuilt node rejoins the same tunnel with no new Cloudflare resource.
+- [x] D7 (native on `ep243`: VM deleted with its data disk kept, sites answered 530, a new VM and cluster converged to a review with no operations, the tunnel list is byte-identical, and two connectors returned from the VM; found F142): On a disposable context, a rebuilt node rejoins the same tunnel with no new Cloudflare resource.
 - [x] D8 (native on `ep243`: through Cloudflare the external gateway answered 404 from Knative, and the API server, `kourier-internal`, En, Shomei, the metadata server, the object store and the kubelet all answered 502; rules restored): A NetworkPolicy in the connector's namespace allows egress only to the external `kourier` Service in
   `kourier-system`, cluster DNS, and port 7844 TCP and UDP, and allows no ingress. The declared ingress rules name
   `<base>` and `*.<base>` and end in a 404 catch-all. On the disposable context of D7, an ingress rule repointed
@@ -88,7 +88,7 @@ change at all.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+The reviewed connector, its token, its rotation and its status checks ship in v0.16.0 and held through a pod restart, an upgrade and a lost VM. The rebuild drill exposed that a cloud context had no reviewed rebuild at all, recorded as F142, whose fixes follow v0.16.0. Moving an existing context remains with EP-243.
 
 
 ## Context and Orientation
