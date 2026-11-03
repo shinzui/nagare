@@ -446,7 +446,13 @@ jsonResponseWithHeaders status headers body =
   responseLBS status (("Content-Type", "application/json; charset=utf-8") : headers) (encode body)
 
 loginFormResponse :: AccessServices -> Request -> IO Response
-loginFormResponse services req = do
+loginFormResponse services req =
+  renderLoginForm services req status200 Nothing (safeReturn (queryTextValue "rd" (rawQueryString req)))
+
+-- | The CSRF cookie lives ten minutes, so a form left open longer comes back
+-- as this page again, ready to submit, rather than a dead end.
+renderLoginForm :: AccessServices -> Request -> Status -> Maybe Text -> Text -> IO Response
+renderLoginForm services req status notice returnDestination = do
   -- F135: a browser's follow-up requests (a favicon redirected here while
   -- anonymous) must not replace the token the open form already carries. The
   -- @__Host-@ prefix means only this host can have set the cookie being reused.
@@ -459,13 +465,12 @@ loginFormResponse services req = do
         textResponse status500 err
       Right csrfHeader ->
         responseLBS
-          status200
+          status
           [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store, no-transform"), csrfHeader]
-          (LBS.fromStrict (TE.encodeUtf8 (loginFormHtml csrf returnDestination)))
-  where
-    returnDestination =
-      safeReturnDestination (maybe "/" id (queryTextValue "rd" (rawQueryString req)))
-        & maybe "/" id
+          (LBS.fromStrict (TE.encodeUtf8 (loginFormHtml notice csrf returnDestination)))
+
+safeReturn :: Maybe Text -> Text
+safeReturn = maybe "/" id . safeReturnDestination . maybe "/" id
 
 loginSubmitResponse :: AccessServices -> Request -> IO Response
 loginSubmitResponse services req = do
@@ -478,7 +483,7 @@ loginSubmitResponse services req = do
       | submitted == stored ->
           submitLogin services form
     _ ->
-      pure (textResponse status403 "csrf validation failed")
+      renderLoginForm services req status403 (Just "This sign-in form expired. Please sign in again.") (safeReturn (formTextValue "rd" form))
 
 submitLogin :: AccessServices -> [(BS.ByteString, Maybe BS.ByteString)] -> IO Response
 submitLogin services form =
@@ -674,12 +679,13 @@ nonEmpty value
   | Text.null (Text.strip value) = Nothing
   | otherwise = Just value
 
-loginFormHtml :: Text -> Text -> Text
-loginFormHtml csrf returnDestination =
+loginFormHtml :: Maybe Text -> Text -> Text -> Text
+loginFormHtml notice csrf returnDestination =
   Text.concat
     [ "<!doctype html><html><head><meta charset=\"utf-8\"><title>Sign in</title>"
     , "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
     , "</head><body><main><h1>Sign in</h1>"
+    , maybe "" (\message -> "<p role=\"alert\">" <> htmlEscape message <> "</p>") notice
     , "<form method=\"post\" action=\"/_nagare/login\">"
     , "<input type=\"hidden\" name=\"csrf\" value=\""
     , htmlEscape csrf

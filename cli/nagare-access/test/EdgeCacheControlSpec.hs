@@ -1,6 +1,8 @@
 -- | ADR 34: a context behind an edge replaces @Cache-Control@ on proxied protected responses.
 module EdgeCacheControlSpec (edgeCacheControlTests) where
 
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Nagare.Access.App (appWithRuntime)
@@ -10,10 +12,10 @@ import Nagare.Access.Config (parseRuntimeConfig)
 import Nagare.Access.Prelude
 import Nagare.Access.Proxy (proxyForwarder, withProxiedCacheControl)
 import Network.HTTP.Client qualified as HC
-import Network.HTTP.Types (status200)
+import Network.HTTP.Types (status200, status403)
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
-import Network.Wai.Test (defaultRequest, request, runSession, setPath, simpleBody, simpleHeaders, simpleStatus)
+import Network.Wai.Test (SRequest (..), defaultRequest, request, runSession, setPath, simpleBody, simpleHeaders, simpleStatus, srequest)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import TestServices (testServices)
@@ -50,6 +52,19 @@ edgeCacheControlTests =
             (appWithRuntime emptyBackendMap (testServices & #newCsrfToken .~ pure "fresh-token"))
         lookup "Set-Cookie" (simpleHeaders res)
           @?= Just "__Host-nagare_csrf=fresh-token; Path=/; Max-Age=600; Secure; SameSite=Lax"
+    , testCase "a sign-in form submitted after its CSRF cookie expired comes back ready to submit, and signs nobody in" $ do
+        let submit = (setPath defaultRequest "/_nagare/login") {Wai.requestMethod = "POST"}
+        res <-
+          runSession
+            (srequest (SRequest submit "loginId=alice&password=secret&csrf=old-token&rd=%2Ftools"))
+            (appWithRuntime emptyBackendMap (testServices & #newCsrfToken .~ pure "fresh-token"))
+        simpleStatus res @?= status403
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "__Host-nagare_csrf=fresh-token; Path=/; Max-Age=600; Secure; SameSite=Lax"
+        let body = LBS.toStrict (simpleBody res)
+        assertBool "the form must carry the fresh token" ("name=\"csrf\" value=\"fresh-token\"" `BS.isInfixOf` body)
+        assertBool "the form must keep the return destination" ("name=\"rd\" value=\"/tools\"" `BS.isInfixOf` body)
+        assertBool "the form must say why" ("expired" `BS.isInfixOf` body)
     ]
 
 cacheableUpstreamApp :: Wai.Application
