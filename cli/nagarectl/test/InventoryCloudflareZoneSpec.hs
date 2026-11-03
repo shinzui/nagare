@@ -328,7 +328,7 @@ fakeCloudflare world method path body = do
            in success (toJSONList [recordJson name record | Just record <- [Map.lookup name (records state)]])
       | p == "/zones/zone1/rulesets/phases/http_request_cache_settings/entrypoint" -> case rulesBody state of
           Nothing -> notFound
-          Just (Object fields) -> success (Object (fields <> KM.fromList [("id", String "rs1"), ("version", String "1"), ("phase", String "http_request_cache_settings"), ("kind", String "zone")]))
+          Just (Object fields) -> success (Object (KM.mapWithKey (\key value -> if key == "rules" then withProviderFields value else value) fields <> KM.fromList [("id", String "rs1"), ("version", String "1"), ("phase", String "http_request_cache_settings"), ("kind", String "zone")]))
           Just other -> success other
       | Just setting <- T.stripPrefix "/zones/zone1/settings/" p ->
           -- As observed: modified_on can be null or absent.
@@ -379,3 +379,11 @@ fakeCloudflare world method path body = do
 
 toJSONList :: [Value] -> Value
 toJSONList = Array . foldMap pure
+
+-- | Cloudflare adds these to every stored rule (observed 2026-11-03).
+withProviderFields :: Value -> Value
+withProviderFields (Array rules) = Array (fmap added rules)
+  where
+    added (Object rule) = Object (rule <> KM.fromList [("id", String "rule1"), ("ref", String "rule1"), ("version", String "1"), ("last_updated", String "2026-11-03T00:00:00Z")])
+    added other = other
+withProviderFields other = other

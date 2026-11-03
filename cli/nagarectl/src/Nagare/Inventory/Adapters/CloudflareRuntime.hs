@@ -153,7 +153,7 @@ normalizeRule :: Value -> Either Text Value
 normalizeRule rule@(Object fields) = do
   unless
     ( all
-        (`elem` ["id", "version", "last_updated", "enabled", "expression", "action", "action_parameters"])
+        (`elem` ["id", "ref", "version", "last_updated", "enabled", "expression", "action", "action_parameters"])
         (map Key.toText (KM.keys fields))
     )
     (Left "Cloudflare cache rule has an unsupported behavior field")
