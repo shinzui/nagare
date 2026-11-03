@@ -190,7 +190,7 @@ let
                 test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
                 test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs test/InventoryAdminApiSpec.hs \
                 test/PlatformTransitionTableSpec.hs test/Nagare/Test/Contract.hs \
-                test/ReleaseImageSelectionSpec.hs \
+                test/ReleaseImageSelectionSpec.hs test/InventoryCloudflareTunnelSpec.hs \
                 --replace-fail '"../.."' '"${sourceForTests}"'
               substituteInPlace test/PlatformTransitionTableSpec.hs \
                 --replace-fail 'sourceCompileRoot = sourceRoot' 'sourceCompileRoot = "${transitionFixtureForTests}"'
