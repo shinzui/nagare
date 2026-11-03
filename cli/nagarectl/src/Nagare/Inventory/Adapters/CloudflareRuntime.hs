@@ -8,6 +8,7 @@ module Nagare.Inventory.Adapters.CloudflareRuntime
   ( CloudflareRuntimeConfig (..)
   , CloudflareResponse
   , cloudflareRuntimeOps
+  , tunnelIngressRules
   , parseCloudflareZone
   , parseCloudflareResource
   )

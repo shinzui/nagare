@@ -123,6 +123,15 @@ inventoryCloudflareTunnelTests =
         graded Nothing @?= StatusWarn
         graded (Just (Left "unreachable")) @?= StatusUnknown
         assertBool "an absent tunnel is an error" (isLeftOf (parseTunnelId "nagare-x" 200 "{\"success\":true,\"result\":[]}"))
+    , testCase "the rules check passes on the declared rules and fails on one repointed from Cloudflare" $ do
+        let declared = "{\"success\":true,\"result\":{\"config\":{\"ingress\":[{\"hostname\":\"e.example\",\"service\":\"http://kourier.kourier-system.svc.cluster.local:80\",\"originRequest\":{}},{\"hostname\":\"*.e.example\",\"service\":\"http://kourier.kourier-system.svc.cluster.local:80\"},{\"service\":\"http_status:404\"}]}}}"
+            repointed = "{\"success\":true,\"result\":{\"config\":{\"ingress\":[{\"hostname\":\"e.example\",\"service\":\"https://kubernetes.default.svc:443\"},{\"service\":\"http_status:404\"}]}}}"
+            graded = (^. #status) . gradeTunnelRules "e.example"
+        fmap (tunnelRuleProblems "e.example") (parseTunnelRules 200 declared) @?= Right []
+        graded (Just (parseTunnelRules 200 declared)) @?= StatusOk
+        graded (Just (parseTunnelRules 200 repointed)) @?= StatusFail
+        graded Nothing @?= StatusWarn
+        graded (Just (parseTunnelRules 500 "")) @?= StatusUnknown
     , testCase "a tunnel context's default names are one label, and a direct context's are unchanged" $ do
         defaultHostName NestedHosts "site" "personal" "example.test" @?= "site.personal.example.test"
         defaultHostName FlatHosts "site" "personal" "example.test" @?= "site-personal.example.test"

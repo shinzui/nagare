@@ -87,8 +87,10 @@ runTunnel mctx command = do
               <> " from "
               <> T.intercalate "," (connector ^. #connectorOrigins)
           )
-      case connectorProblems expectedConnectors address connectors of
-        [] -> TIO.putStrLn "ok: only this context's connectors"
+      configured <- request "GET" (tunnelPath "/configurations" tunnelId) Nothing >>= orDie
+      rules <- either dieT pure (uncurry parseTunnelRules configured)
+      case connectorProblems expectedConnectors address connectors <> tunnelRuleProblems (active ^. #profile . #baseDomain) rules of
+        [] -> TIO.putStrLn "ok: only this context's connectors, and the declared rules"
         problems -> do
           mapM_ (TIO.putStrLn . ("FAIL: " <>)) problems
           exitFailure

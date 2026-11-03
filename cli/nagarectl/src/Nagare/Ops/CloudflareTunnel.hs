@@ -7,10 +7,13 @@ module Nagare.Ops.CloudflareTunnel
   , connectorProblems
   , expectedConnectors
   , gradeTunnelConnectors
+  , gradeTunnelRules
   , parseConnectors
   , parseTunnelId
+  , parseTunnelRules
   , parseTunnelToken
   , tokenSecretYaml
+  , tunnelRuleProblems
   )
 where
 
@@ -24,6 +27,8 @@ import Data.List (nub, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapters.CloudflareRuntime (tunnelIngressRules)
+import Nagare.Inventory.Components.CloudflareZone (connectorOrigin)
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 
 data Connector = Connector
@@ -115,6 +120,37 @@ gradeTunnelConnectors expected (Just address) (Just (Right connectors)) =
 
 probeName :: Text
 probeName = "Tunnel connectors"
+
+-- | One stored ingress rule: its hostname and path, and where it sends them.
+ingressRule :: Value -> Maybe (Maybe Text, Maybe Text, Text)
+ingressRule rule = (text "hostname" rule,text "path" rule,) <$> text "service" rule
+
+parseTunnelRules :: Int -> ByteString -> Either Text [(Maybe Text, Maybe Text, Text)]
+parseTunnelRules status bytes = do
+  value <- result status bytes
+  case value of
+    Object fields
+      | Just (Object config) <- KM.lookup "config" fields
+      , Just (Array rules) <- KM.lookup "ingress" config ->
+          maybe (Left "a stored tunnel rule has no service") Right (traverse ingressRule (toList rules))
+    _ -> Left "Cloudflare's tunnel configuration has no ingress rules"
+
+-- | Whoever holds the API token or the account can repoint these at anything the pod can reach, so any
+-- difference from the declared rules is worth an operator's look.
+tunnelRuleProblems :: Text -> [(Maybe Text, Maybe Text, Text)] -> [Text]
+tunnelRuleProblems base stored =
+  [ "Cloudflare's tunnel rules differ from the declared ones: " <> T.intercalate ", " (map describe stored)
+  | Just stored /= traverse ingressRule (tunnelIngressRules base connectorOrigin)
+  ]
+  where
+    describe (hostname, path, service) = maybe "*" id hostname <> maybe "" ("/" <>) path <> " -> " <> service
+
+gradeTunnelRules :: Text -> Maybe (Either Text [(Maybe Text, Maybe Text, Text)]) -> Probe
+gradeTunnelRules _ Nothing = Probe "Tunnel rules" StatusWarn "not checked: set CF_ACCOUNT_ID and CF_API_TOKEN to compare Cloudflare's rules with the declared ones"
+gradeTunnelRules _ (Just (Left reason)) = Probe "Tunnel rules" StatusUnknown reason
+gradeTunnelRules base (Just (Right stored)) = case tunnelRuleProblems base stored of
+  [] -> Probe "Tunnel rules" StatusOk "Cloudflare's rules are the declared ones"
+  problems -> Probe "Tunnel rules" StatusFail (T.intercalate "; " problems)
 
 -- | The Secret the connector scope binds, in the shape it checks. It goes to sops on stdin.
 tokenSecretYaml :: Text -> Text

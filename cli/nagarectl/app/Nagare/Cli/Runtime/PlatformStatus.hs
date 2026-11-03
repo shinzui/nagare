@@ -23,7 +23,7 @@ import Nagare.Contract.ReleaseImages (ReleaseImageKey (..))
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir)
 import Nagare.Inventory.Components.CloudflareZone (cloudflareTunnelName)
-import Nagare.Ops.CloudflareTunnel (expectedConnectors, gradeTunnelConnectors, parseConnectors, parseTunnelId)
+import Nagare.Ops.CloudflareTunnel (expectedConnectors, gradeTunnelConnectors, gradeTunnelRules, parseConnectors, parseTunnelId, parseTunnelRules)
 import Nagare.Ops.Probe (Probe, captureTool)
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Platform.Deployment
@@ -111,7 +111,7 @@ tunnelConnectorProbes mctx = do
       address <- stackOutput (workspace ^. #pulumiDir) "publicIp"
       account <- lookupEnv "CF_ACCOUNT_ID"
       apiToken <- lookupEnv "CF_API_TOKEN"
-      listing <- case (account, apiToken) of
+      looks <- case (account, apiToken) of
         (Just accountId, Just token)
           | not (null accountId)
           , not (null token) -> do
@@ -120,12 +120,16 @@ tunnelConnectorProbes mctx = do
                   name = cloudflareTunnelName (contextNameText (active ^. #contextName))
               found <- request "GET" (base <> "?is_deleted=false&name=" <> name) Nothing
               case found >>= uncurry (parseTunnelId name) of
-                Left reason -> pure (Just (Left reason))
+                Left reason -> pure (Just (Left reason), Just (Left reason))
                 Right tunnelId -> do
                   listed <- request "GET" (base <> "/" <> tunnelId <> "/connections") Nothing
-                  pure (Just (listed >>= uncurry parseConnectors))
-        _ -> pure Nothing
-      pure [gradeTunnelConnectors expectedConnectors address listing]
+                  rules <- request "GET" (base <> "/" <> tunnelId <> "/configurations") Nothing
+                  pure (Just (listed >>= uncurry parseConnectors), Just (rules >>= uncurry parseTunnelRules))
+        _ -> pure (Nothing, Nothing)
+      pure
+        [ gradeTunnelConnectors expectedConnectors address (fst looks)
+        , gradeTunnelRules (active ^. #profile . #baseDomain) (snd looks)
+        ]
 
 gatherPlatformStatusWithImages :: Maybe String -> IO (ActiveTarget, PlatformStatus)
 gatherPlatformStatusWithImages mctx = do
