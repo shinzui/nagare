@@ -19,6 +19,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , readLiveManagedObject
+  , waitForReadiness
   , jobCompleted
   , readBackupReceiptFromCompletedPod
   , readCompletedJobContainerMessage
@@ -288,6 +289,10 @@ waitForReadiness config address = case address of
   Kubernetes _ "cert-manager.io" kind namespace name
     | nameText kind `elem` ["certificate", "clusterissuer"] ->
         waitCondition "ready" (T.unpack (nameText kind)) namespace name "cert-manager resource"
+  -- Readiness holds Knative's own Certificate to Ready as well, so it needs the same wait.
+  Kubernetes _ "networking.internal.knative.dev" kind namespace name
+    | nameText kind == "certificate" ->
+        waitCondition "ready" "certificates.networking.internal.knative.dev" namespace name "Knative Certificate"
   Kubernetes _ "serving.knative.dev" kind namespace name
     | nameText kind == "service" ->
         waitForWithin statelessReadiness "condition=ready" "ksvc" namespace name "Knative Service"

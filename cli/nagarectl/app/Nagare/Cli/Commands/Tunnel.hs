@@ -19,6 +19,7 @@ import Data.Text.IO qualified as TIO
 import Nagare.Cdn.Cloudflare (cfRequestWithStatus)
 import Nagare.Cli.Options (TunnelCommand (..))
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Components.CloudflareTunnel (cloudflareTunnelTokenSecretFile)
@@ -72,7 +73,7 @@ runTunnel mctx command = do
       tunnelId <- findTunnel
       listed <- request "GET" (tunnelPath "/connections" tunnelId) Nothing >>= orDie
       connectors <- either dieT pure (uncurry parseConnectors listed)
-      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+      (_, workspace) <- ensurePulumiForActiveContext mctx
       address <-
         maybe (dieT "this context's stack has no publicIp output") pure
           =<< stackOutput (workspace ^. #pulumiDir) "publicIp"

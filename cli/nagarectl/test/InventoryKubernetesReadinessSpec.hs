@@ -6,22 +6,25 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Adapter (EffectOutcome (..), OperationAction (CreateResource), effectIdentity)
+import Nagare.Inventory.Adapter (AdapterExecution (..), EffectOutcome (..), OperationAction (CreateResource), effectIdentity)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), kubernetesObserve)
-import Nagare.Inventory.Adapters.KubernetesRuntime (deploymentAvailable, domainMappingReady, knativeReady, readinessForAddress)
+import Nagare.Inventory.Adapters.KubernetesRuntime (deploymentAvailable, domainMappingReady, knativeReady, readinessForAddress, waitForReadiness)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
 import Nagare.Resource.Types (ProviderAddress (..), mkContextId, mkName)
 import Nagare.Test.Model.Fixtures (bindMember, extraId, ok)
 import Nagare.Test.World.Adversary (newAdversary)
 import Nagare.Test.World.ApiServer (emptyServer, settleControllers)
 import Nagare.Test.World.Cluster (clusterOps, newCluster)
 import Nagare.Test.World.Cluster qualified as Cluster
+import System.Exit (ExitCode (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -29,7 +32,19 @@ inventoryKubernetesReadinessTests :: TestTree
 inventoryKubernetesReadinessTests =
   testGroup
     "Kubernetes readiness (RES-4)"
-    [ testCase "a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70)" $ do
+    [ testCase "Knative's own Certificate is awaited, because readiness holds it to Ready and its controller answers a moment later" $ do
+        asked <- newIORef []
+        let answer request = (Right (ExitSuccess, "", "")) <$ modifyIORef' asked (<> [request ^. #arguments])
+            config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (ok (mkContextId "context-1")) "readiness" (pure (Right ())))
+            address = Kubernetes extraId "networking.internal.knative.dev" (ok (mkName "certificate")) (Just (ok (mkName "knative-serving"))) (ok (mkName "routing-serving-certs"))
+        waitForReadiness config address >>= \case
+          AdapterEffectCompleted -> pure ()
+          _ -> assertFailure "the wait did not complete"
+        calls <- readIORef asked
+        case calls of
+          [("wait" : "--for=condition=ready" : target : _)] -> target @?= "certificates.networking.internal.knative.dev/routing-serving-certs"
+          other -> assertFailure ("expected one kubectl wait, got " <> show other)
+    , testCase "a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70)" $ do
         -- RES-4 §2 (E5): during a bad-image update of one replica the old
         -- ReplicaSet keeps Available=True, and the controller has observed the
         -- new generation, but the new pod never becomes available.
