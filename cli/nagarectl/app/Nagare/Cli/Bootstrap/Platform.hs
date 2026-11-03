@@ -35,6 +35,12 @@ import Nagare.Inventory.Components.Auth
   ( AuthInput (..)
   , AuthMode (..)
   )
+import Nagare.Inventory.Components.CloudflareTunnel
+  ( CloudflareTunnelInput (..)
+  , cloudflareTunnelTokenSecretFile
+  , compileCloudflareTunnel
+  , connectorImage
+  )
 import Nagare.Inventory.Components.ControllerImage
   ( compileControllerImage
   )
@@ -92,6 +98,7 @@ import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Target
   ( ActiveTarget
+  , IngressMode (IngressCloudflareTunnel)
   , InventoryStoreKind (InventoryStoreGcs)
   , Mode (Cloud, Local)
   , TargetProfile
@@ -367,12 +374,17 @@ buildPlatformCandidate active paths workspace snapshot = do
             (ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory base))
       else pure Nothing
   let (adminApiScopes, adminApiNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) adminApi
-      nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative, adminApiNative]
+  tunnel <-
+    if profile ^. #ingress == IngressCloudflareTunnel
+      then Just <$> compilePlatformCloudflareTunnel active root foundation
+      else pure Nothing
+  let (tunnelScopes, tunnelNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) tunnel
+      nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative, adminApiNative, tunnelNative]
       native = Map.unions nativeMaps
   unless
     (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
-  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> adminApiScopes of
+  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> adminApiScopes <> tunnelScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
   let kubeconfigEdges =
@@ -543,6 +555,24 @@ contextImageRegistry profile
 -- reader Secret in its cluster-secrets directory; a cloud context whose store
 -- is still on a workstation must migrate it first, and a local context reads
 -- the store its substrate mounts.
+compilePlatformCloudflareTunnel ::
+  ActiveTarget ->
+  FilePath ->
+  FoundationInput ->
+  IO (ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, BC.ByteString))
+compilePlatformCloudflareTunnel active root foundation = do
+  token <-
+    loadContextSecretObject root (contextNameText (active ^. #contextName)) "Cloudflare tunnel token" cloudflareTunnelTokenSecretFile
+      >>= either dieT pure
+  compileCloudflareTunnel
+    CloudflareTunnelInput
+      { root = root
+      , foundation = foundation
+      , image = connectorImage
+      , tokenSecret = token
+      }
+    >>= either (dieT . T.pack . show) pure
+
 compilePlatformAdminApi ::
   ActiveTarget ->
   Maybe ReleaseImages ->

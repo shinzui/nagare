@@ -1,0 +1,96 @@
+# The Cloudflare Tunnel connector (MasterPlan 32, ADR 34). Its ingress rules are managed from
+# Cloudflare, so this namespace's NetworkPolicy is the only control over what a change made there can
+# reach: the external Kourier gateway, cluster DNS and port 7844 to public addresses, and nothing else.
+# EP-240 proved a rule repointed at the API server, kourier-internal or the metadata server fails.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflare-tunnel
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared
+  namespace: cloudflare-tunnel
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kourier-system}
+          podSelector:
+            matchLabels: {app: 3scale-kourier-gateway}
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - {protocol: TCP, port: 7844}
+        - {protocol: UDP, port: 7844}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflare-tunnel
+  labels:
+    app.kubernetes.io/name: cloudflared
+spec:
+  # Two replicas tolerate a pod restart, not a node loss: the context is single-node (ADR 28).
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudflared
+      annotations:
+        # A rotated token must roll the pods: a running connector keeps serving otherwise (EP-240 P10).
+        nagare.dev/tunnel-token-digest: "@TOKEN_DIGEST@"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: cloudflared
+          image: "@IMAGE@"
+          args: [tunnel, --no-autoupdate, --metrics, "0.0.0.0:2000", run]
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef: {name: cloudflare-tunnel-token, key: token}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          readinessProbe:
+            httpGet: {path: /ready, port: 2000}
+            periodSeconds: 5
+            failureThreshold: 3
