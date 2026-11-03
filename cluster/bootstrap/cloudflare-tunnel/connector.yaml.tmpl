@@ -16,8 +16,8 @@ metadata:
   namespace: cloudflare-tunnel
 spec:
   podSelector: {}
+  # Ingress is listed with no rules, which denies it all. An empty `ingress: []` would be dropped by the API server.
   policyTypes: [Ingress, Egress]
-  ingress: []
   egress:
     - to:
         - namespaceSelector:

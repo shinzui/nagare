@@ -1,6 +1,7 @@
 module InventoryCloudflareTunnelSpec (inventoryCloudflareTunnelTests) where
 
-import Data.Aeson (Value (..), object, (.=))
+import Control.Monad (forM_)
+import Data.Aeson (Value (..), decodeStrict, object, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -134,6 +135,12 @@ inventoryCloudflareTunnelTests =
         map (domainText . (^. #domain)) flat @?= ["site-personal.example.test"]
         nested <- either (assertFailure . T.unpack) pure (protectedHosts NestedHosts "site" "personal" "example.test" [])
         map (domainText . (^. #domain)) nested @?= ["site.personal.example.test"]
+    , testCase "the rendered objects state nothing the API server drops, so their proof can match" $ do
+        (_, native) <- compileWith fixtureSecret >>= expectRight
+        forM_ (Map.elems native) $ \(_, bytes) ->
+          case decodeStrict bytes of
+            Just value -> assertBool "an empty list is dropped by the API server" (not (hasEmptyList value))
+            Nothing -> assertFailure "a rendered object is not JSON"
     , testCase "a misfiled token and a mutable image refuse at planning" $ do
         expectRefused (compileWith (secretWith "other" "value"))
         expectRefused (compileInput (fixtureInput (fixtureLocation, renamedSecret)))
@@ -248,3 +255,9 @@ headOf value = case arrayOf value of
 
 toJSONList :: [Text] -> Value
 toJSONList = Array . foldMap (pure . String)
+
+hasEmptyList :: Value -> Bool
+hasEmptyList = \case
+  Array values -> null values || any hasEmptyList values
+  Object fields -> any hasEmptyList fields
+  _ -> False
