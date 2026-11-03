@@ -38,22 +38,22 @@ change at all.
   `CLAUDE.md` lists it among the canonical variables.
 - [ ] D2: A `direct` context's Pulumi preview and inventory plan are unchanged, proven by the existing parity
   tests and `just release-rehearse`.
-- [ ] D3: The tunnel and its ingress configuration are typed inventory resources. Fake-adapter tests cover
+- [x] D3 (`InventoryCloudflareZoneSpec`, native: `ep243`'s zone stage, 12 operations; a tunnel token does not expire, so the equivalent is a rotated one, which rolls the pods by review): The tunnel and its ingress configuration are typed inventory resources. Fake-adapter tests cover
   create, a lost acknowledgement on create and on configuration, a drifted configuration and an expired token,
   and each ends in a reviewed outcome.
-- [ ] D4: The connector runs in its own namespace from an image pinned by digest and pulled from the context's
+- [x] D4 (native on `ep243`: image from the context's registry by digest, hardening read from the live Deployment, 302 requests with no failure while a pod restarted): The connector runs in its own namespace from an image pinned by digest and pulled from the context's
   Artifact Registry, with bounded resources and no `latest` tag, as non-root with a read-only root filesystem,
   no capabilities, `automountServiceAccountToken: false` and no host network. Its readiness probe reads
   `cloudflared`'s own `/ready` endpoint, which no Service exposes. Pods restart without losing the route.
-- [ ] D5: The tunnel token lives only in the operator's sops-encrypted `cluster-secrets/<context>/` material and
+- [x] D5 (`InventoryCloudflareTunnelSpec`, native on `ep243`: neither token in 3,345 run files, `context env` or the connector log; the tunnel token in exactly one Secret, the API token in none): The tunnel token lives only in the operator's sops-encrypted `cluster-secrets/<context>/` material and
   one Kubernetes Secret in the connector's namespace. It is not a context variable, and a test proves it never
   appears in `context env`, a plan, a journal or a log. `CF_API_TOKEN` is never written into the cluster.
-- [ ] D6: `nagarectl platform status` and `nagarectl doctor` report connector health in tunnel mode, and
+- [x] D6 (`InventoryCloudflareTunnelSpec`, native on `ep243`: `doctor` reports `Tunnel ingress` and `Tunnel connectors` OK, `tunnel status` checks both connectors and rules): `nagarectl platform status` and `nagarectl doctor` report connector health in tunnel mode, and
   `gradeKourier` neither fails nor warns on a closed public IP in that mode. The probe also lists the connectors
   Cloudflare sees: their count and origin addresses must match the context's replicas and the VM, and any other
   connector, or a remote configuration that differs from the declared one, is a failing check.
 - [ ] D7: On a disposable context, a rebuilt node rejoins the same tunnel with no new Cloudflare resource.
-- [ ] D8: A NetworkPolicy in the connector's namespace allows egress only to the external `kourier` Service in
+- [x] D8 (native on `ep243`: through Cloudflare the external gateway answered 404 from Knative, and the API server, `kourier-internal`, En, Shomei, the metadata server, the object store and the kubelet all answered 502; rules restored): A NetworkPolicy in the connector's namespace allows egress only to the external `kourier` Service in
   `kourier-system`, cluster DNS, and port 7844 TCP and UDP, and allows no ingress. The declared ingress rules name
   `<base>` and `*.<base>` and end in a 404 catch-all. On the disposable context of D7, an ingress rule repointed
   from Cloudflare at the API server, `kourier-internal`, En, the object store and `169.254.169.254` fails to
@@ -75,6 +75,10 @@ change at all.
 
 - Decision: The connector is a release image, built from nixpkgs and published into the context's own registry only when the context is on the tunnel. A release before v0.16.0 names no connector and stays readable.
   Rationale: a context then pulls nothing from Docker Hub, and an existing release image path covers publication, overrides and `platform status`.
+  Date: 2026-11-03
+
+- Decision: D3's expired token is read as a rotated one, because a remotely managed tunnel token has no expiry.
+  Rationale: Cloudflare's token carries no lifetime; the only way one stops working is rotation, and D9 covers that.
   Date: 2026-11-03
 
 - Decision: Typed inventory resources from the start, not a setup command.

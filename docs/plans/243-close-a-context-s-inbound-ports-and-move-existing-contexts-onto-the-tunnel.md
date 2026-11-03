@@ -33,7 +33,7 @@ open on the VM.
 
 ## Progress
 
-- [ ] D1: In tunnel mode, Pulumi declares no `fw-web`, `fw-lb-health` or `fw-tailscale`, keeps `fw-iap-ssh`, and on a new
+- [x] D1 (`resourceProgramParity.test.ts` tunnel variant, native on `ep243`: `fw-iap-ssh` is the network's only rule, no Cloud DNS, `kourier` is `ClusterIP`): In tunnel mode, Pulumi declares no `fw-web`, `fw-lb-health` or `fw-tailscale`, keeps `fw-iap-ssh`, and on a new
   context declares no Cloud DNS zone, wildcard or apex record. A `direct` context's preview is unchanged. `npm test` in
   `infra/pulumi` passes with new variants in `test/resourceProgramParity.test.ts`. In tunnel mode the `kourier`
   Service is `ClusterIP`, so ServiceLB binds no host port and a rule added by mistake reaches nothing.
@@ -54,7 +54,7 @@ open on the VM.
 - [ ] D6: On a disposable context, a full move has no failed request in the same loop. A port check from outside the project
   and the tailnet then finds TCP 80 and 443 closed, `gcloud compute firewall-rules list` for the context's network shows
   exactly `fw-iap-ssh` from `35.235.240.0/20` and no other rule, and `ss -ltn` on the host shows no listener on 80 or 443.
-- [ ] D7: A new context reaches the same end state with no move.
+- [x] D7 (native on `ep243`, bootstrapped by review with no move: TCP 80, 443, 6443 and 8443 closed from outside, `fw-iap-ssh` from `35.235.240.0/20` the only rule, no listener on 80 or 443): A new context reaches the same end state with no move.
 - [ ] D8: Operator paths still work with no inbound web ports: `nagarectl` over the tailnet, `just host-switch`, IAP SSH,
   backups, and signed `nagared` webhooks through the edge. Tailscale's move to relays is measured on a `kubectl` round trip and
   reported to the operator.
