@@ -4,6 +4,7 @@ module Nagare.Inventory.Components.ObservabilitySecrets
   ( compileObservabilitySecrets
   , loadObservabilitySecretObjects
   , loadObservabilitySecretObjectsFromDirectory
+  , contextSecretsDirectory
   , loadContextSecretObject
   , normalizeSecretData
   , readAlertmanagerEnabled
@@ -196,6 +197,9 @@ normalizeSecretData (location, Object root) = do
     isString (String _) = True
     isString _ = False
 normalizeSecretData _ = Left "Secret is not an object"
+
+contextSecretsDirectory :: FilePath -> Text -> IO FilePath
+contextSecretsDirectory = resolveDirectory
 
 resolveDirectory :: FilePath -> Text -> IO FilePath
 resolveDirectory root context = do

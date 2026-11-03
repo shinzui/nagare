@@ -388,6 +388,10 @@ inventoryCloudflareAdapter active binding specs accepted
                   Resource.CloudflareDnsRecord selected _ -> [selected]
                   Resource.CloudflareRuleset selected -> [selected]
                   Resource.CloudflareTlsSetting selected -> [selected]
+                  Resource.CloudflareTunnel selected _ -> [selected]
+                  Resource.CloudflareTunnelConfig selected _ -> [selected]
+                  Resource.CloudflareTunnelRecord selected _ -> [selected]
+                  Resource.CloudflareZoneSetting selected _ -> [selected]
                   _ -> []
               ]
       case Set.toList zones of

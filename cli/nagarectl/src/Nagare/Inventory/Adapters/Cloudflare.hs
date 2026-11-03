@@ -8,7 +8,10 @@ module Nagare.Inventory.Adapters.Cloudflare
   , CloudflareMutationPlan (..)
   , CloudflareAdapterOps (..)
   , cloudflareBindingsFromDeclarations
+  , foreignTunnel
+  , isTunnelFamily
   , mkCloudflareAdapter
+  , unproxiedTunnel
   )
 where
 
@@ -40,7 +43,23 @@ data CloudflareTarget
   = CloudflareDnsTarget !Name !Text !Bool !Int
   | CloudflareRulesTarget !Value
   | CloudflareTlsTarget !CloudflareTlsMode
+  | CloudflareTunnelTarget !Name
+  | -- | The tunnel, base domain and origin; an unrecognized remote configuration reads back
+    -- with @drifted@ as the base, so it can never equal a declared one.
+    CloudflareTunnelConfigTarget !Name !Text !Text
+  | -- | The record's name and the tunnel it points at; a record pointing elsewhere reads back
+    -- with 'foreignTunnel', and an unproxied one with 'unproxiedTunnel'.
+    CloudflareTunnelRecordTarget !Text !Name
+  | CloudflareZoneSettingTarget !Name !Text
   deriving stock (Eq, Show, Generic)
+
+-- | Observed in place of a tunnel name when a record points at something else.
+foreignTunnel :: Name
+foreignTunnel = either (error . T.unpack) id (mkName "foreign-target")
+
+-- | Observed in place of a tunnel name when a record points at the tunnel unproxied.
+unproxiedTunnel :: Name
+unproxiedTunnel = either (error . T.unpack) id (mkName "unproxied-target")
 
 data CloudflareObservation
   = CloudflareMissing
@@ -86,9 +105,19 @@ cloudflareBindingsFromDeclarations declarations = do
           CloudflareRuleset {} -> True
           CloudflareTlsSetting {} -> True
           CloudflareDnsRecord {} -> True
+          CloudflareTunnel {} -> True
+          CloudflareTunnelConfig {} -> True
+          CloudflareTunnelRecord {} -> True
+          CloudflareZoneSetting {} -> True
           _ -> False
       ]
     bind resource = case (resource ^. #address, resource ^. #spec) of
+      (address, _)
+        | isTunnelFamily address && scopeKind (resource ^. #owner) == Platform ->
+            Right (resource ^. #identity, CloudflareBinding resource)
+      (CloudflareRuleset _, CloudflareBypassCacheSpec)
+        | scopeKind (resource ^. #owner) == Platform ->
+            Right (resource ^. #identity, CloudflareBinding resource)
       (CloudflareRuleset zone, CloudflareRulesSpec _)
         | scopeKind (resource ^. #owner) == Platform
         , OrderedAfter (cloudflareTlsResourceId (resource ^. #owner) zone)
@@ -133,6 +162,27 @@ cloudflareBindingsFromDeclarations declarations = do
                                     ] of
       [declaration] -> Just declaration
       _ -> Nothing
+
+isTunnelFamily :: ProviderAddress -> Bool
+isTunnelFamily = \case
+  CloudflareTunnel {} -> True
+  CloudflareTunnelConfig {} -> True
+  CloudflareTunnelRecord {} -> True
+  CloudflareZoneSetting {} -> True
+  _ -> False
+
+-- | The zone-wide bypass of a tunnel context. Provider rule IDs are not part of it.
+bypassCacheRules :: Value
+bypassCacheRules =
+  object
+    [ "rules"
+        .= [ object
+               [ "expression" .= ("true" :: Text)
+               , "action" .= ("set_cache_settings" :: Text)
+               , "action_parameters" .= object ["cache" .= False]
+               ]
+           ]
+    ]
 
 mkCloudflareAdapter ::
   Map ResourceId ManagedResource ->
@@ -235,6 +285,14 @@ mkCloudflareAdapter accepted specs ops =
               , ConfirmedAbsent
                   (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))
               )
+          -- A zone setting always has a value, so first ownership is a reviewed write and not an adoption.
+          CloudflarePresent _ _ CloudflareZoneSettingTarget {}
+            | Map.notMember resource accepted ->
+                Right
+                  ( resource
+                  , ConfirmedAbsent
+                      (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":unclaimed")))
+                  )
           CloudflarePresent physical _ target
             | Map.notMember resource accepted -> Right (resource, ObservedUnowned physical)
             | Right (_, desired) <- targetFor (cloudflareDeclaration binding)
@@ -300,6 +358,16 @@ targetFor resource = case (resource ^. #address, resource ^. #spec) of
     Right (zone, CloudflareRulesTarget (buildComposedCacheRulesPayload intents))
   (CloudflareTlsSetting zone, CloudflareZoneTlsSpec mode) ->
     Right (zone, CloudflareTlsTarget mode)
+  (CloudflareRuleset zone, CloudflareBypassCacheSpec) ->
+    Right (zone, CloudflareRulesTarget bypassCacheRules)
+  (CloudflareTunnel zone tunnel, CloudflareTunnelSpec) ->
+    Right (zone, CloudflareTunnelTarget tunnel)
+  (CloudflareTunnelConfig zone tunnel, CloudflareTunnelConfigSpec base origin) ->
+    Right (zone, CloudflareTunnelConfigTarget tunnel base origin)
+  (CloudflareTunnelRecord zone _, CloudflareTunnelRecordSpec record tunnel) ->
+    Right (zone, CloudflareTunnelRecordTarget record tunnel)
+  (CloudflareZoneSetting zone setting, CloudflareZoneSettingSpec value) ->
+    Right (zone, CloudflareZoneSettingTarget setting value)
   _ -> Left "Cloudflare address or desired specification is invalid"
 
 preparePhysical ::
@@ -308,6 +376,9 @@ preparePhysical ::
   Either Text (Maybe PhysicalIdentity, Maybe Text)
 preparePhysical plan fact = case (cloudflarePlanAction plan, fact) of
   (CreateResource, CloudflareMissing) -> Right (Nothing, Nothing)
+  -- First ownership of a setting records what it replaces; the check below keeps it bound.
+  (CreateResource, CloudflarePresent physical version CloudflareZoneSettingTarget {}) ->
+    Right (Just physical, version)
   (RetireResource, CloudflarePresent physical version target)
     | Just target == cloudflarePlanPrevious plan, isJust version -> Right (Just physical, version)
   (UpdateResource, CloudflarePresent physical version target)
@@ -351,6 +422,12 @@ summary plan = case cloudflarePlanTarget plan of
       <> T.pack (show mode)
       <> " for zone "
       <> nameText (cloudflarePlanZone plan)
+  CloudflareTunnelTarget tunnel -> "review Cloudflare tunnel " <> nameText tunnel
+  CloudflareTunnelConfigTarget tunnel base origin ->
+    "review tunnel " <> nameText tunnel <> " ingress: " <> base <> " and *." <> base <> " to " <> origin <> ", then a 404 catch-all"
+  CloudflareTunnelRecordTarget record tunnel -> "review proxied CNAME " <> record <> " to tunnel " <> nameText tunnel
+  CloudflareZoneSettingTarget setting value ->
+    "review Cloudflare zone setting " <> nameText setting <> " = " <> value
 
 absentProof :: CloudflareMutationPlan -> ContentDigest
 absentProof plan =

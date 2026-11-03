@@ -72,6 +72,14 @@ data DesiredSpec
   | CloudflareZoneTlsSpec !CloudflareTlsMode
   | CloudflareProxiedARecord !Text
   | CloudflareDnsOnlyARecord !Text
+  | CloudflareTunnelSpec
+  | -- | The base domain and the origin service: @\<base>@ and @*.\<base>@, then a 404 catch-all.
+    CloudflareTunnelConfigSpec !Text !Text
+  | -- | The record's full name and the tunnel it points at, whose ID is resolved at execution.
+    CloudflareTunnelRecordSpec !Text !Name
+  | CloudflareZoneSettingSpec !Text
+  | -- | A zone-wide bypass in tunnel mode, in place of per-host composed rules (ADR 34).
+    CloudflareBypassCacheSpec
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Whether an app-database user may log in: open, quiesced by a reviewed

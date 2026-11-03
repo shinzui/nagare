@@ -206,6 +206,7 @@ library
     Nagare.Inventory.Components.AdminApi
     Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.CloudflareTunnel
+    Nagare.Inventory.Components.CloudflareZone
     Nagare.Inventory.Components.ControllerImage
     Nagare.Inventory.Components.Foundation
     Nagare.Inventory.Components.LocalObjectStore
@@ -328,6 +329,7 @@ library
     Nagare.Inventory.VolumeRestoreSource
     Nagare.Ops.CertificateChain
     Nagare.Ops.Cleanup
+    Nagare.Ops.CloudflareTunnel
     Nagare.Ops.ClusterGuard
     Nagare.Ops.ContextGuard
     Nagare.Ops.Doctor
@@ -424,6 +426,7 @@ executable nagarectl
     Nagare.Cli.Application.Config
     Nagare.Cli.Application.Inputs
     Nagare.Cli.Bootstrap.Cloud
+    Nagare.Cli.Bootstrap.CloudflareZone
     Nagare.Cli.Bootstrap.Foundation
     Nagare.Cli.Bootstrap.Host
     Nagare.Cli.Bootstrap.Image
@@ -456,6 +459,7 @@ executable nagarectl
     Nagare.Cli.Commands.Storage
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Transition
+    Nagare.Cli.Commands.Tunnel
     Nagare.Cli.Commands.Worker
     Nagare.Cli.Data.AppDatabase
     Nagare.Cli.Data.Backup
@@ -532,6 +536,7 @@ executable nagarectl
     aeson,
     async,
     base,
+    base64-bytestring,
     bytestring,
     containers,
     directory,
@@ -610,6 +615,7 @@ test-suite nagarectl-test
     InventoryCloudSpec
     InventoryCloudflareSpec
     InventoryCloudflareTunnelSpec
+    InventoryCloudflareZoneSpec
     InventoryCompanionCollectionSpec
     InventoryContributionRetirementSpec
     InventoryControllerCollectionSpec

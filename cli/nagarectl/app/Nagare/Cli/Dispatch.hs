@@ -33,10 +33,7 @@ import Nagare.Cli.Commands.Image (runAppImagePlan)
 import Nagare.Cli.Commands.Infrastructure
   ( runCleanup
   , runDoctor
-  , runInfraApply
-  , runInfraDestroy
-  , runInfraGuard
-  , runInfraPreview
+  , runInfra
   , runServerStatus
   )
 import Nagare.Cli.Commands.Init (runInit)
@@ -73,6 +70,7 @@ import Nagare.Cli.Commands.SitePublish (runSitePackage, runSitePublish)
 import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
 import Nagare.Cli.Commands.Transition (runPlatformTransitionCommit, runPlatformTransitionPlan)
+import Nagare.Cli.Commands.Tunnel (runTunnel)
 import Nagare.Cli.Commands.Worker (runWorker)
 import Nagare.Cli.Inventory.Rebuild (runInventoryRebuild, runInventoryRebuildDecisions)
 import Nagare.Cli.Inventory.Workflow
@@ -164,12 +162,10 @@ dispatch (mctx, cmd0) = case cmd0 of
   Doctor o -> runDoctor mctx o
   ContextCmdGroup ccmd -> runContext mctx ccmd
   Init o -> runInit mctx o
-  Infra (InfraGuard allowReplacement) -> runInfraGuard mctx allowReplacement
-  Infra (InfraPreview options) -> runInfraPreview mctx options
-  Infra (InfraApply options) -> runInfraApply mctx options
-  Infra (InfraDestroy yes output) -> runInfraDestroy mctx yes output
+  Infra icmd -> runInfra mctx icmd
   Domains c -> runDomains mctx c
   CdnCmd ccmd -> runCdn mctx ccmd
+  Tunnel tcmd -> runTunnel mctx tcmd
   Cleanup o -> runCleanup mctx o
   NixCache ncmd -> runNixCache mctx ncmd
   InventoryCompile input output json -> Inventory.compileInventory input output json

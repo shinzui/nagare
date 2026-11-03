@@ -187,6 +187,12 @@ data ProviderAddress
   | CloudflareRuleset Name
   | CloudflareTlsSetting Name
   | CloudflareDnsRecord Name Name
+  | -- | A remotely managed tunnel: its zone binding and tunnel name (ADR 34).
+    CloudflareTunnel Name Name
+  | CloudflareTunnelConfig Name Name
+  | -- | A proxied CNAME to the tunnel: its zone and role, @apex@ or @wildcard@.
+    CloudflareTunnelRecord Name Name
+  | CloudflareZoneSetting Name Name
   deriving stock (Eq, Ord, Show, Generic)
 
 newtype CanonicalClaim = CanonicalClaim [Text] deriving stock (Eq, Ord, Show)
@@ -251,6 +257,10 @@ canonicalClaim =
     CloudflareRuleset zone -> ["cloudflare-ruleset", nameText zone, "http_request_cache_settings"]
     CloudflareTlsSetting zone -> ["cloudflare-tls-setting", nameText zone, "ssl"]
     CloudflareDnsRecord zone host -> ["cloudflare-dns-record", nameText zone, nameText host]
+    CloudflareTunnel zone tunnel -> ["cloudflare-tunnel", nameText zone, nameText tunnel]
+    CloudflareTunnelConfig zone tunnel -> ["cloudflare-tunnel-config", nameText zone, nameText tunnel]
+    CloudflareTunnelRecord zone role -> ["cloudflare-tunnel-record", nameText zone, nameText role]
+    CloudflareZoneSetting zone setting -> ["cloudflare-zone-setting", nameText zone, nameText setting]
 
 claimParts :: CanonicalClaim -> [Text]
 claimParts (CanonicalClaim xs) = xs

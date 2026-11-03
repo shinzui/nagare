@@ -2,10 +2,7 @@
 module Nagare.Cli.Commands.Infrastructure
   ( runCleanup
   , runDoctor
-  , runInfraApply
-  , runInfraDestroy
-  , runInfraGuard
-  , runInfraPreview
+  , runInfra
   , runServerStatus
   )
 where
@@ -21,6 +18,7 @@ import Nagare.Cli.Inventory.Workflow
 import Nagare.Cli.Options
   ( DoctorOpts (..)
   , InfraApplyOpts (..)
+  , InfraCommand (..)
   , InfraPreviewOpts (..)
   , ServerStatusOpts (..)
   )
@@ -95,6 +93,13 @@ runDoctor mctx o = do
   let checks = gradeChecksAt (workspace ^. #root) (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp (probes <> recoveryPoints <> [platformProbe versionStatus])
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
+
+runInfra :: Maybe String -> InfraCommand -> IO ()
+runInfra mctx = \case
+  InfraGuard allowReplacement -> runInfraGuard mctx allowReplacement
+  InfraPreview options -> runInfraPreview mctx options
+  InfraApply options -> runInfraApply mctx options
+  InfraDestroy yes output -> runInfraDestroy mctx yes output
 
 runInfraGuard :: Maybe String -> Bool -> IO ()
 runInfraGuard mctx allowReplacementFlag = do

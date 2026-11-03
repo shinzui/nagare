@@ -24,6 +24,7 @@ module Nagare.Cli.Options
   , BrokerListOpts (..)
   , BrokerNameOpts (..)
   , CdnCommand (..)
+  , TunnelCommand (..)
   , CdnDisableOpts (..)
   , CdnListOpts (..)
   , CdnPurgeOpts (..)
@@ -369,6 +370,7 @@ data Command
   | Infra InfraCommand
   | Domains DomainsCommand
   | CdnCmd CdnCommand
+  | Tunnel TunnelCommand
   | Cleanup CleanupOpts
   | NixCache NixCacheCommand
   deriving stock (Generic, Show)
@@ -916,6 +918,14 @@ data DomainsListOpts = DomainsListOpts
 -- | MasterPlan 11 / EP-58: the @cdn@ command group. The constructor is named
 -- 'CdnCmd' (not @Cdn@) to avoid clashing with the 'Cdn' type from
 -- 'Nagare.Dsl.Cdn.Types', mirroring the 'Domains'/'DomainsCommand' split.
+-- | The operator's side of a tunnel context (ADR 34).
+data TunnelCommand
+  = TunnelToken
+  | TunnelRotate !Bool
+  | TunnelStatus
+  | TunnelEvict !String !Bool
+  deriving stock (Generic, Show)
+
 data CdnCommand
   = CdnList CdnListOpts
   | CdnStatus CdnStatusOpts

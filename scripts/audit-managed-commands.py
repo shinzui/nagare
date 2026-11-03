@@ -33,7 +33,7 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryPublications InventoryLegacyGuard InventoryExplain InventoryStoreStatus InventoryRebuildDecisions PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SiteList SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
-        "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache",
+        "group": "Tunnel Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache",
         "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck SitePackage",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init PlatformVersions",
@@ -102,6 +102,10 @@ ROUTES = {
     "CdnCommand": {
         "read": "CdnList CdnStatus",
         "reviewed": "CdnPurge CdnDisable",
+    },
+    "TunnelCommand": {
+        "read": "TunnelStatus",
+        "bounded": "TunnelToken TunnelRotate TunnelEvict",
     },
 }
 
@@ -212,6 +216,9 @@ FAMILY_ROUTES = {
     "HostCommand.HostStart HostCommand.HostStop": "VM start/stop",
     "KubeconfigCommand.KubeconfigRecover": "Context kubeconfig fetch and accepted-history recovery",
     "DomainsCommand.DomainsTls": "Certificate re-issuance trigger",
+    "TunnelCommand.TunnelToken": "Save the tunnel token to the operator's sops material; changes nothing at Cloudflare",
+    "TunnelCommand.TunnelRotate": "Credential rotation guarded by --yes; the connector rolls through a later reviewed apply",
+    "TunnelCommand.TunnelEvict": "Remove one named connector's connections, guarded by --yes",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore DbCommand.DbRestoreRebuilt": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
     "AppDatabaseCommand.AppDatabasePlan AppDatabaseCommand.AppDatabaseRotate AppDatabaseCommand.AppDatabaseRetire AppDatabaseCommand.AppDatabaseQuiesce AppDatabaseCommand.AppDatabaseResume AppDatabaseCommand.AppDatabaseBackup AppDatabaseCommand.AppDatabaseBackupReceipts AppDatabaseCommand.AppDatabaseRestore AppDatabaseCommand.AppDatabasePruneScheduledBackups AppDatabaseCommand.AppDatabaseRecoverScheduledPrune": "App databases on shared servers: users, databases and grants",

@@ -205,6 +205,10 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       CloudflareRuleset {} -> r ^. #executor == CdnExecutor
       CloudflareTlsSetting {} -> r ^. #executor == CdnExecutor
       CloudflareDnsRecord {} -> r ^. #executor == CdnExecutor
+      CloudflareTunnel {} -> r ^. #executor == CdnExecutor
+      CloudflareTunnelConfig {} -> r ^. #executor == CdnExecutor
+      CloudflareTunnelRecord {} -> r ^. #executor == CdnExecutor
+      CloudflareZoneSetting {} -> r ^. #executor == CdnExecutor
       _ -> True
     specMatches = case (r ^. #address, r ^. #spec) of
       (Kubernetes _ "serving.knative.dev" k (Just _) _, KnativeService _) -> nameText k == "service"
@@ -241,7 +245,17 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (DnsRecord {}, _) -> False
       (CloudflareRuleset _, CloudflareRulesSpec intents) ->
         all validCacheIntent intents && null (duplicates (map cacheHost intents))
+      (CloudflareRuleset _, CloudflareBypassCacheSpec) -> True
       (CloudflareRuleset {}, _) -> False
+      (CloudflareTunnel {}, CloudflareTunnelSpec) -> True
+      (CloudflareTunnel {}, _) -> False
+      (CloudflareTunnelConfig {}, CloudflareTunnelConfigSpec base origin) -> not (Data.Text.null base) && not (Data.Text.null origin)
+      (CloudflareTunnelConfig {}, _) -> False
+      (CloudflareTunnelRecord _ role, CloudflareTunnelRecordSpec record _) ->
+        nameText role `elem` ["apex", "wildcard"] && not (Data.Text.null record)
+      (CloudflareTunnelRecord {}, _) -> False
+      (CloudflareZoneSetting {}, CloudflareZoneSettingSpec value) -> not (Data.Text.null value)
+      (CloudflareZoneSetting {}, _) -> False
       (CloudflareTlsSetting _, CloudflareZoneTlsSpec _) -> True
       (CloudflareTlsSetting {}, _) -> False
       (CloudflareDnsRecord _ _, CloudflareProxiedARecord target) -> validDnsIpv4 target

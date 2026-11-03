@@ -4,6 +4,7 @@ module Nagare.Cli.Bootstrap.Sequence (planNextStage) where
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Nagare.Cli.Bootstrap.Cloud (buildCloudStageCandidate)
+import Nagare.Cli.Bootstrap.CloudflareZone (buildCloudflareZoneStageCandidate)
 import Nagare.Cli.Bootstrap.Host
   ( buildHostStageCandidate
   , buildKubeconfigStageCandidate
@@ -85,16 +86,21 @@ planNextStage mode active paths workspace identity output = do
           kubeconfigStage <- buildKubeconfigStageCandidate active workspace snapshot
           case kubeconfigStage of
             Just candidate -> plan candidate
-            Nothing -> do
-              when (active ^. #profile . #mode == Local) $ do
-                selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
-                exists <- doesFileExist selectedKubeconfig
-                unless exists (dieT "reviewed local context kubeconfig is missing")
-                setEnv "KUBECONFIG" selectedKubeconfig
-              (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
-              Inventory.planInventoryCandidateWithPayloadIdentity
-                (inventoryPlanRegistryWithNative active workspace native)
-                identity
-                active
-                candidate
-                output
+            Nothing -> afterKubeconfig snapshot
+    afterKubeconfig snapshot = do
+      zoneStage <- buildCloudflareZoneStageCandidate active snapshot
+      case zoneStage of
+        Just candidate -> plan candidate
+        Nothing -> do
+          when (active ^. #profile . #mode == Local) $ do
+            selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
+            exists <- doesFileExist selectedKubeconfig
+            unless exists (dieT "reviewed local context kubeconfig is missing")
+            setEnv "KUBECONFIG" selectedKubeconfig
+          (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
+          Inventory.planInventoryCandidateWithPayloadIdentity
+            (inventoryPlanRegistryWithNative active workspace native)
+            identity
+            active
+            candidate
+            output

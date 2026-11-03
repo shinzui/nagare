@@ -1,6 +1,7 @@
 -- | Parser / Operations. Executable-private CLI boundary.
 module Nagare.Cli.Parser.Operations
   ( cdnCmd
+  , tunnelCmd
   , cleanupCmd
   , doctorCmd
   , domainsCmd
@@ -21,6 +22,7 @@ import Nagare.Cli.Options
   , DomainsListOpts (..)
   , DomainsTlsOpts (..)
   , ServerStatusOpts (..)
+  , TunnelCommand (..)
   )
 import Nagare.Cli.Parser.Common
   ( baseDomainOpt
@@ -174,6 +176,41 @@ domainsTlsOptsParser =
     <*> switch (long "json" <> help "Emit versioned JSON instead of the human report")
     <*> switch (long "renew" <> help "Trigger one re-issuance when the verdict is failed and this context owns the host")
     <*> switch (long "yes" <> help "Confirm --renew")
+
+tunnelCmd :: ParserInfo Command
+tunnelCmd =
+  info
+    (tunnelSubparser <**> helper)
+    (fullDesc <> progDesc "The operator's side of a Cloudflare Tunnel context: its token, rotation and connectors")
+
+tunnelSubparser :: Parser Command
+tunnelSubparser =
+  subparser
+    ( command
+        "token"
+        ( info
+            (pure (Tunnel TunnelToken) <**> helper)
+            (progDesc "Fetch the tunnel's token and sops-encrypt it into this context's cluster-secrets")
+        )
+        <> command
+          "rotate"
+          ( info
+              (Tunnel . TunnelRotate <$> switch (long "yes" <> help "Rotate now") <**> helper)
+              (progDesc "Rotate the tunnel secret and save the new token; the next reviewed apply rolls the connector")
+          )
+        <> command
+          "status"
+          ( info
+              (pure (Tunnel TunnelStatus) <**> helper)
+              (progDesc "List the connectors Cloudflare sees; fails on a wrong count or a foreign address")
+          )
+        <> command
+          "evict"
+          ( info
+              (Tunnel <$> (TunnelEvict <$> strArgument (metavar "CONNECTOR_ID") <*> switch (long "yes" <> help "Evict now")) <**> helper)
+              (progDesc "Remove one connector's connections; rotate first or it can reconnect")
+          )
+    )
 
 cdnCmd :: ParserInfo Command
 cdnCmd =

@@ -14,6 +14,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Components.CloudflareTunnel
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
+import Nagare.Ops.CloudflareTunnel
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
 import Nagare.Resource.Policy (Sensitivity (Secret))
@@ -81,6 +82,32 @@ inventoryCloudflareTunnelTests =
         a <- memberBytesOf "deployment" first'
         b <- memberBytesOf "deployment" second'
         assertBool "the Deployment must change" (a /= b)
+    , testCase "the token command's Secret is the shape the scope binds, and errors never quote the token" $ do
+        let token = T.replicate 60 "a"
+            bytes = TE.encodeUtf8 (tokenSecretYaml token)
+        (_, native) <- case parseKubernetesManifest fixtureLocation bytes of
+          Right [secret] -> compileWith secret >>= expectRight
+          _ -> assertFailure "the Secret does not parse"
+        _ <- memberOf "secret" native
+        let response = "{\"success\":true,\"result\":\"" <> TE.encodeUtf8 token <> "\"}"
+        parseTunnelToken 200 response @?= Right token
+        case parseTunnelToken 403 response of
+          Left reason -> assertBool "the error quotes the token" (not (token `T.isInfixOf` reason))
+          Right _ -> assertFailure "a refused request yielded a token"
+        assertBool "a short result is not a token" (isLeftOf (parseTunnelToken 200 "{\"success\":true,\"result\":\"short\"}"))
+    , testCase "the connector check fails on a wrong count and on a foreign address" $ do
+        let connector identifier origin = Connector identifier "2026.10.7" [origin]
+            mine = connector "a" "136.87.131.238"
+            two = [mine, connector "b" "136.87.131.238"]
+        connectorProblems 2 "136.87.131.238" two @?= []
+        length (connectorProblems 2 "136.87.131.238" [mine]) @?= 1
+        -- A connector started elsewhere with the token is what this check exists for.
+        length (connectorProblems 2 "136.87.131.238" [mine, connector "stolen" "203.0.113.9"]) @?= 1
+        length (connectorProblems 2 "136.87.131.238" (two <> [connector "stolen" "203.0.113.9"])) @?= 2
+        parseConnectors 200 "{\"success\":true,\"result\":[{\"id\":\"c1\",\"version\":\"v\",\"conns\":[{\"origin_ip\":\"1.2.3.4\"},{\"origin_ip\":\"1.2.3.4\"}]}]}"
+          @?= Right [Connector "c1" "v" ["1.2.3.4"]]
+        parseTunnelId "nagare-x" 200 "{\"success\":true,\"result\":[{\"id\":\"t1\",\"name\":\"nagare-x\"}]}" @?= Right "t1"
+        assertBool "an absent tunnel is an error" (isLeftOf (parseTunnelId "nagare-x" 200 "{\"success\":true,\"result\":[]}"))
     , testCase "a misfiled token and a mutable image refuse at planning" $ do
         expectRefused (compileWith (secretWith "other" "value"))
         expectRefused (compileInput (fixtureInput (fixtureLocation, renamedSecret)))
@@ -142,6 +169,9 @@ renamedSecret =
     , "metadata" .= object ["name" .= ("other" :: Text), "namespace" .= ("cloudflare-tunnel" :: Text)]
     , "stringData" .= object ["token" .= ("x" :: Text)]
     ]
+
+isLeftOf :: Either a b -> Bool
+isLeftOf = either (const True) (const False)
 
 ok :: Either Text a -> a
 ok = either (error . T.unpack) id

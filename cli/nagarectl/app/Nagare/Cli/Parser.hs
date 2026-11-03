@@ -24,6 +24,7 @@ import Nagare.Cli.Parser.Operations
   , doctorCmd
   , domainsCmd
   , serverCmd
+  , tunnelCmd
   )
 import Nagare.Cli.Parser.Platform
   ( clusterCmd
@@ -100,6 +101,7 @@ commandParser =
         <> command "infra" infraCmd
         <> command "domains" domainsCmd
         <> command "cdn" cdnCmd
+        <> command "tunnel" tunnelCmd
         <> command "cleanup" cleanupCmd
         <> command "nix-cache" nixCacheCmd
     )

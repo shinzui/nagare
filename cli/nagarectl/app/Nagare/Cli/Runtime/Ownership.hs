@@ -164,6 +164,10 @@ cloudflareZoneOwned history = accepted || retained || unresolved
             Resource.CloudflareRuleset _ -> True
             Resource.CloudflareTlsSetting _ -> True
             Resource.CloudflareDnsRecord _ _ -> True
+            Resource.CloudflareTunnel {} -> True
+            Resource.CloudflareTunnelConfig {} -> True
+            Resource.CloudflareTunnelRecord {} -> True
+            Resource.CloudflareZoneSetting {} -> True
             _ -> False
         ]
     unresolved = isJust (InventoryStore.headActiveTransaction (InventoryPlan.historyHead history))

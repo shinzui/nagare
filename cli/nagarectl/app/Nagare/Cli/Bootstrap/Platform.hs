@@ -572,7 +572,7 @@ compilePlatformCloudflareTunnel ::
 compilePlatformCloudflareTunnel active root foundation = do
   token <-
     loadContextSecretObject root (contextNameText (active ^. #contextName)) "Cloudflare tunnel token" cloudflareTunnelTokenSecretFile
-      >>= either dieT pure
+      >>= either (\reason -> dieT (reason <> "\nrun `nagarectl tunnel token` to save it, then plan again")) pure
   compileCloudflareTunnel
     CloudflareTunnelInput
       { root = root

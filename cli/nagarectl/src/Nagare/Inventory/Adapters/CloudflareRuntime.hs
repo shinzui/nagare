@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Context-bound Cloudflare transport for reviewed zone and host resources.
@@ -28,7 +29,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Cloudflare
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Resource.Inventory (CloudflareTlsMode (..), ManagedResource (..))
+import Nagare.Resource.Inventory (CloudflareTlsMode (..), DesiredSpec (..), ManagedResource (..))
 import Nagare.Resource.Types
 
 type CloudflareResponse = (Int, ByteString)
@@ -59,6 +60,9 @@ inspect config resource = do
       guardResult <- cloudflareRuntimeGuard config resource
       case guardResult of
         Left reason -> pure (CloudflareUnavailable reason)
+        Right ()
+          | isTunnelFamily (cloudflareDeclaration selected ^. #address) ->
+              inspectTunnelFamily config (cloudflareDeclaration selected)
         Right () -> case cloudflareAddress (cloudflareDeclaration selected) of
           Left reason -> pure (CloudflareUnavailable reason)
           Right (zone, path)
@@ -186,26 +190,30 @@ submit config plan = do
                 "Cloudflare provider state changed before mutation or its binding is unavailable"
             )
         )
-    else case mutationRequest plan of
-      Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-      Right (method, path, body) -> do
-        response <- cloudflareRuntimeRequest config method path (if method == "DELETE" then Nothing else Just body)
-        case response of
-          Left _ -> pure (AdapterEffectAmbiguous "Cloudflare mutation has no verifiable response")
-          Right received -> case successfulResult received of
-            Left _ -> pure (AdapterEffectAmbiguous "Cloudflare mutation response was unsuccessful or unreadable")
-            Right _ -> do
-              observed <- inspect config (cloudflarePlanResource plan)
-              pure $
-                if matchesTarget plan observed
-                  then AdapterEffectCompleted
-                  else AdapterEffectAmbiguous "Cloudflare mutation response did not yield its exact reviewed target"
+    else
+      tunnelFamilyRequest config plan >>= \case
+        Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+        Right (method, path, body) -> do
+          response <- cloudflareRuntimeRequest config method path (if method == "DELETE" then Nothing else Just body)
+          case response of
+            Left _ -> pure (AdapterEffectAmbiguous "Cloudflare mutation has no verifiable response")
+            Right received -> case successfulResult received of
+              Left _ -> pure (AdapterEffectAmbiguous "Cloudflare mutation response was unsuccessful or unreadable")
+              Right _ -> do
+                observed <- inspect config (cloudflarePlanResource plan)
+                pure $
+                  if matchesTarget plan observed
+                    then AdapterEffectCompleted
+                    else AdapterEffectAmbiguous "Cloudflare mutation response did not yield its exact reviewed target"
 
 matchesBase :: CloudflareMutationPlan -> CloudflareObservation -> Bool
 matchesBase plan fact = case (cloudflarePlanAction plan, fact) of
   (CreateResource, CloudflareMissing) ->
     isNothing (cloudflarePlanPrevious plan)
       && isNothing (cloudflarePlanPhysical plan)
+  -- A zone setting always exists, so its first write is bound to the value reviewed.
+  (CreateResource, CloudflarePresent physical version CloudflareZoneSettingTarget {}) ->
+    Just physical == cloudflarePlanPhysical plan && version == cloudflarePlanVersion plan
   (action, CloudflarePresent physical version target)
     | action `elem` [UpdateResource, RetireResource] ->
         Just target == cloudflarePlanPrevious plan
@@ -221,6 +229,189 @@ matchesTarget plan (CloudflarePresent physical _ target) =
     && target == cloudflarePlanTarget plan
     && maybe True (== physical) (cloudflarePlanPhysical plan)
 matchesTarget _ _ = False
+
+-- | The tunnel family's request, resolving the tunnel's ID when the reviewed target names it.
+tunnelFamilyRequest :: CloudflareRuntimeConfig -> CloudflareMutationPlan -> IO (Either Text (Text, Text, Value))
+tunnelFamilyRequest config plan = case cloudflarePlanTarget plan of
+  CloudflareTunnelTarget tunnel ->
+    pure
+      ( case cloudflarePlanAction plan of
+          CreateResource ->
+            Right ("POST", accountPath config <> "/cfd_tunnel", object ["name" .= nameText tunnel, "config_src" .= ("cloudflare" :: Text)])
+          _ -> Left "a Cloudflare tunnel is only created; nothing else about it is mutable"
+      )
+  CloudflareTunnelConfigTarget tunnel base origin -> withTunnel tunnel $ \tunnelId ->
+    Right
+      ( "PUT"
+      , accountPath config <> "/cfd_tunnel/" <> tunnelId <> "/configurations"
+      , object ["config" .= object ["ingress" .= tunnelIngressRules base origin]]
+      )
+  CloudflareTunnelRecordTarget record tunnel -> withTunnel tunnel $ \tunnelId ->
+    let body =
+          object
+            [ "type" .= ("CNAME" :: Text)
+            , "name" .= record
+            , "content" .= tunnelCnameTarget tunnelId
+            , "proxied" .= True
+            , "ttl" .= (1 :: Int)
+            ]
+        base = zonePath (cloudflarePlanZone plan) <> "/dns_records"
+     in case cloudflarePlanAction plan of
+          CreateResource -> Right ("POST", base, body)
+          UpdateResource -> do
+            physical <- maybe (Left "reviewed DNS update has no provider ID") Right (cloudflarePlanPhysical plan)
+            recordId <- case T.stripPrefix ("cloudflare:zone/" <> nameText (cloudflarePlanZone plan) <> "/dns/") (physicalIdentityText physical) of
+              Just value | validProviderId value -> Right value
+              _ -> Left "reviewed DNS record ID differs from the bound zone"
+            Right ("PUT", base <> "/" <> recordId, body)
+          _ -> Left "a tunnel record is only created or updated"
+  CloudflareZoneSettingTarget setting value ->
+    pure (Right ("PATCH", zonePath (cloudflarePlanZone plan) <> "/settings/" <> nameText setting, object ["value" .= value]))
+  _ -> pure (mutationRequest plan)
+  where
+    withTunnel tunnel build =
+      findTunnel config tunnel <&> \case
+        Left reason -> Left reason
+        Right Nothing -> Left "the reviewed tunnel does not exist yet"
+        Right (Just (tunnelId, _)) -> build tunnelId
+
+accountPath :: CloudflareRuntimeConfig -> Text
+accountPath config = "/accounts/" <> cloudflareRuntimeAccount config
+
+tunnelCnameTarget :: Text -> Text
+tunnelCnameTarget tunnelId = tunnelId <> ".cfargotunnel.com"
+
+-- | The declared rules: the two names the free certificate covers, then a catch-all.
+tunnelIngressRules :: Text -> Text -> [Value]
+tunnelIngressRules base origin =
+  [ object ["hostname" .= base, "service" .= origin]
+  , object ["hostname" .= ("*." <> base), "service" .= origin]
+  , object ["service" .= ("http_status:404" :: Text)]
+  ]
+
+-- | The tunnel's ID and creation time, by its exact name among undeleted tunnels.
+findTunnel :: CloudflareRuntimeConfig -> Name -> IO (Either Text (Maybe (Text, Maybe Text)))
+findTunnel config tunnel = do
+  listed <- cloudflareRuntimeRequest config "GET" (accountPath config <> "/cfd_tunnel?is_deleted=false&name=" <> nameText tunnel) Nothing
+  pure $ do
+    response <- listed
+    result <- successfulResult response
+    case result of
+      Array values -> case [value | value <- toList values, fieldText "name" value == Just (nameText tunnel)] of
+        [] -> Right Nothing
+        [one] -> do
+          tunnelId <- requiredText "id" one
+          unless (validTunnelId tunnelId) (Left "Cloudflare returned an invalid tunnel ID")
+          Right (Just (tunnelId, fieldText "created_at" one))
+        _ -> Left "more than one Cloudflare tunnel has this name"
+      _ -> Left "Cloudflare tunnel listing has no result array"
+
+validTunnelId :: Text -> Bool
+validTunnelId value = not (T.null value) && T.all (\c -> c `elem` ['a' .. 'f'] <> ['0' .. '9'] <> "-") value
+
+inspectTunnelFamily :: CloudflareRuntimeConfig -> ManagedResource -> IO CloudflareObservation
+inspectTunnelFamily config resource = case resource ^. #address of
+  CloudflareTunnel zone tunnel -> bound zone $ do
+    found <- findTunnel config tunnel
+    pure $ case found of
+      Left reason -> CloudflareUnavailable reason
+      Right Nothing -> CloudflareMissing
+      Right (Just (tunnelId, created)) -> present ("cloudflare:account/" <> cloudflareRuntimeAccount config <> "/tunnel/" <> tunnelId) created (CloudflareTunnelTarget tunnel)
+  CloudflareTunnelConfig zone tunnel
+    | CloudflareTunnelConfigSpec base origin <- resource ^. #spec -> bound zone $ do
+        found <- findTunnel config tunnel
+        case found of
+          Left reason -> pure (CloudflareUnavailable reason)
+          Right Nothing -> pure CloudflareMissing
+          Right (Just (tunnelId, _)) -> do
+            response <- cloudflareRuntimeRequest config "GET" (accountPath config <> "/cfd_tunnel/" <> tunnelId <> "/configurations") Nothing
+            pure (either CloudflareUnavailable id (response >>= parseTunnelConfig config tunnel tunnelId base origin))
+  CloudflareTunnelRecord zone _
+    | CloudflareTunnelRecordSpec record tunnel <- resource ^. #spec -> bound zone $ do
+        found <- findTunnel config tunnel
+        response <- cloudflareRuntimeRequest config "GET" (zonePath zone <> "/dns_records?type=CNAME&name.exact=" <> T.replace "*" "%2A" record) Nothing
+        pure $ either CloudflareUnavailable id $ do
+          tunnelId <- found
+          received <- response
+          parseTunnelRecord zone record tunnel (fst <$> tunnelId) received
+  CloudflareZoneSetting zone setting -> bound zone $ do
+    response <- cloudflareRuntimeRequest config "GET" (zonePath zone <> "/settings/" <> nameText setting) Nothing
+    pure $ either CloudflareUnavailable id $ do
+      result <- response >>= successfulResult
+      unless (fieldText "id" result == Just (nameText setting)) (Left "Cloudflare returned another zone setting")
+      value <- requiredText "value" result
+      physical <- physicalId ("cloudflare:zone/" <> nameText zone <> "/setting/" <> nameText setting)
+      -- A setting's @modified_on@ can be null or absent (observed 2026-11-02); its value is what a review binds.
+      Right (CloudflarePresent physical (Just (fromMaybe value (fieldText "modified_on" result))) (CloudflareZoneSettingTarget setting value))
+  _ -> pure (CloudflareUnavailable "resource is not in the Cloudflare tunnel family")
+  where
+    present raw version target = either CloudflareUnavailable (\physical -> CloudflarePresent physical version target) (physicalId raw)
+    bound zone action
+      | zone /= cloudflareRuntimeZone config = pure (CloudflareUnavailable "Cloudflare zone differs from the bound context")
+      | otherwise = do
+          zoneResult <- cloudflareRuntimeRequest config "GET" (zonePath zone) Nothing
+          case zoneResult >>= parseCloudflareZone zone (cloudflareRuntimeAccount config) of
+            Left reason -> pure (CloudflareUnavailable reason)
+            Right () -> case declaredBase resource of
+              Just base
+                | Right received <- zoneResult
+                , Right result <- successfulResult received
+                , fieldText "name" result /= Just base ->
+                    pure (CloudflareUnavailable ("the base domain " <> base <> " is not this Cloudflare zone"))
+              _ -> action
+
+-- | The base domain a member declares, which must be the zone itself (EP-242 D1).
+declaredBase :: ManagedResource -> Maybe Text
+declaredBase resource = case resource ^. #spec of
+  CloudflareTunnelConfigSpec base _ -> Just base
+  CloudflareTunnelRecordSpec record _ -> Just (fromMaybe record (T.stripPrefix "*." record))
+  _ -> Nothing
+
+parseTunnelConfig :: CloudflareRuntimeConfig -> Name -> Text -> Text -> Text -> CloudflareResponse -> Either Text CloudflareObservation
+parseTunnelConfig config tunnel tunnelId base origin response = do
+  result <- successfulResult response
+  physical <- physicalId ("cloudflare:account/" <> cloudflareRuntimeAccount config <> "/tunnel/" <> tunnelId <> "/configuration")
+  let version = case field "version" result of
+        Just (Number n) -> Just (T.pack (show n))
+        _ -> Nothing
+      observed = nestedField ["config", "ingress"] result
+  pure $ case observed of
+    Nothing -> CloudflareMissing
+    Just (Array rules)
+      | null rules -> CloudflareMissing
+      | map essentialRule (toList rules) == tunnelIngressRules base origin ->
+          CloudflarePresent physical version (CloudflareTunnelConfigTarget tunnel base origin)
+    Just other ->
+      -- Drift: a rule set this context did not declare reads back as never equal to it.
+      CloudflarePresent physical version (CloudflareTunnelConfigTarget tunnel "drifted" (T.pack (show other)))
+  where
+    essentialRule rule = case rule of
+      Object fields -> Object (KM.filterWithKey (\key _ -> Key.toText key `elem` ["hostname", "service"]) fields)
+      other -> other
+
+nestedField :: [Text] -> Value -> Maybe Value
+nestedField [] value = Just value
+nestedField (key : rest) value = field key value >>= nestedField rest
+
+parseTunnelRecord :: Name -> Text -> Name -> Maybe Text -> CloudflareResponse -> Either Text CloudflareObservation
+parseTunnelRecord zone record tunnel tunnelId response = do
+  result <- successfulResult response
+  case result of
+    Array values -> case toList values of
+      [] -> Right CloudflareMissing
+      [one] -> do
+        recordId <- requiredText "id" one
+        content <- requiredText "content" one
+        physical <- physicalId ("cloudflare:zone/" <> nameText zone <> "/dns/" <> recordId)
+        let proxied = field "proxied" one == Just (Bool True)
+            pointsAt = Just content == (tunnelCnameTarget <$> tunnelId)
+            observed
+              | pointsAt && proxied = tunnel
+              | pointsAt = unproxiedTunnel
+              | otherwise = foreignTunnel
+        Right (CloudflarePresent physical (fieldText "modified_on" one) (CloudflareTunnelRecordTarget record observed))
+      _ -> Left "more than one CNAME has this exact name"
+    _ -> Left "Cloudflare DNS listing has no result array"
 
 mutationRequest :: CloudflareMutationPlan -> Either Text (Text, Text, Value)
 mutationRequest plan = case cloudflarePlanTarget plan of
@@ -259,6 +450,7 @@ mutationRequest plan = case cloudflarePlanTarget plan of
           <> "/settings/ssl"
       , object ["value" .= tlsToken mode]
       )
+  _ -> Left "this Cloudflare target needs the tunnel family's request"
 
 tlsToken :: CloudflareTlsMode -> Text
 tlsToken CloudflareFlexible = "flexible"
@@ -286,7 +478,10 @@ explicitNotFound bytes = case eitherDecodeStrict bytes of
   Right envelope | field "success" envelope == Just (Bool False) ->
     case field "errors" envelope of
       Just (Array errors) -> case toList errors of
-        [entry] -> maybe False (T.isInfixOf "not found" . T.toLower) (fieldText "message" entry)
+        -- Cloudflare says "could not find entrypoint ruleset in the ... phase", code 10003 (observed 2026-11-02).
+        [entry] ->
+          field "code" entry == Just (Number 10003)
+            || maybe False (\message -> any (`T.isInfixOf` T.toLower message) ["not found", "could not find"]) (fieldText "message" entry)
         _ -> False
       _ -> False
   _ -> False

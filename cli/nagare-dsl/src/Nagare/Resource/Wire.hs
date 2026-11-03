@@ -279,6 +279,10 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   ["cloudflare-ruleset", zone, "http_request_cache_settings"] -> CloudflareRuleset <$> name zone
   ["cloudflare-tls-setting", zone, "ssl"] -> CloudflareTlsSetting <$> name zone
   ["cloudflare-dns-record", zone, host] -> CloudflareDnsRecord <$> name zone <*> name host
+  ["cloudflare-tunnel", zone, tunnel] -> CloudflareTunnel <$> name zone <*> name tunnel
+  ["cloudflare-tunnel-config", zone, tunnel] -> CloudflareTunnelConfig <$> name zone <*> name tunnel
+  ["cloudflare-tunnel-record", zone, role] -> CloudflareTunnelRecord <$> name zone <*> name role
+  ["cloudflare-zone-setting", zone, setting] -> CloudflareZoneSetting <$> name zone <*> name setting
   _ -> fail "unsupported canonical claim"
   where
     name = check . mkName

@@ -18,6 +18,7 @@ import Data.Text qualified as T
 import InventoryCdnCollectionSpec (inventoryCdnCollectionTests)
 import InventoryCdnPurgeSpec (inventoryCdnPurgeTests)
 import InventoryCloudflareSpec (inventoryCloudflareTests)
+import InventoryCloudflareZoneSpec (inventoryCloudflareZoneTests)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn
@@ -354,6 +355,7 @@ inventoryCdnTests =
     , inventoryCdnCollectionTests
     , inventoryCdnPurgeTests
     , inventoryCloudflareTests
+    , inventoryCloudflareZoneTests
     ]
 
 -- All provider effects are recorded in a fresh in-memory context. The Google
