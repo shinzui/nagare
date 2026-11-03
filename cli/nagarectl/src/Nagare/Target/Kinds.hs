@@ -14,6 +14,7 @@ module Nagare.Target.Kinds
   , IngressMode (..)
   , parseIngressMode
   , ingressModeToken
+  , checkIngressMode
   )
 where
 
@@ -96,6 +97,16 @@ parseIngressMode raw = case raw of
 ingressModeToken :: IngressMode -> Text
 ingressModeToken IngressDirect = "direct"
 ingressModeToken IngressCloudflareTunnel = "cloudflare-tunnel"
+
+-- | A tunnel needs a Cloudflare zone and a cloud VM, and a local context has neither. It also
+-- replaces the DNS-01 issuer, so reviewed cloud-domain TLS cannot be on (ADR 34).
+checkIngressMode :: IngressMode -> Bool -> Bool -> Either Text ()
+checkIngressMode IngressDirect _ _ = Right ()
+checkIngressMode IngressCloudflareTunnel isLocal externalDomainTls
+  | isLocal = Left "NAGARE_INGRESS=cloudflare-tunnel is cloud-only; local contexts use their loopback ingress"
+  | externalDomainTls =
+      Left "NAGARE_INGRESS=cloudflare-tunnel requires NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=0: Cloudflare's edge certificate serves the zone"
+  | otherwise = Right ()
 
 -- | NAGARE_BACKUP_RECOVERY_POINT (MasterPlan 23, D6). Only an explicit
 -- @daily@ relaxes the objective; any other value keeps the stricter hourly

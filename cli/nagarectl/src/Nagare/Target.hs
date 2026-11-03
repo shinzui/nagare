@@ -967,15 +967,8 @@ validateNixCacheMode tp
       Left "NAGARE_CDN_ENABLED=1 is cloud-only; disable it for local contexts"
   | otherwise = Right ()
 
--- | A tunnel needs a Cloudflare zone and a cloud VM, and a local context has neither.
--- A tunnel also replaces the DNS-01 issuer, so reviewed cloud-domain TLS cannot be on (ADR 34).
 validateIngressMode :: TargetProfile -> Either Text ()
-validateIngressMode tp
-  | tp ^. #ingress /= IngressCloudflareTunnel = Right ()
-  | tp ^. #mode == Local = Left "NAGARE_INGRESS=cloudflare-tunnel is cloud-only; local contexts use their loopback ingress"
-  | tp ^. #externalDomainTlsEnabled =
-      Left "NAGARE_INGRESS=cloudflare-tunnel requires NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=0: Cloudflare's edge certificate serves the zone"
-  | otherwise = Right ()
+validateIngressMode tp = checkIngressMode (tp ^. #ingress) (tp ^. #mode == Local) (tp ^. #externalDomainTlsEnabled)
 
 -- | The Kubernetes Secret (in the data-movement Job's namespace) holding the
 -- local MinIO credentials (@AWS_ACCESS_KEY_ID@ / @AWS_SECRET_ACCESS_KEY@). EP-84
