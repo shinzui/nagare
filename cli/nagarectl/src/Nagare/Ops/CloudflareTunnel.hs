@@ -5,6 +5,7 @@
 module Nagare.Ops.CloudflareTunnel
   ( Connector (..)
   , connectorProblems
+  , gradeTunnelConnectors
   , parseConnectors
   , parseTunnelId
   , parseTunnelToken
@@ -22,6 +23,7 @@ import Data.List (nub, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 
 data Connector = Connector
   { connectorId :: !Text
@@ -93,6 +95,21 @@ connectorProblems expected vmAddress connectors =
        , origin <- connector ^. #connectorOrigins
        , origin /= vmAddress
        ]
+
+-- | What @doctor@ and @status@ say about Cloudflare's own listing. Without the operator's credentials it
+-- cannot look, which is a warning: an operator without them can still read everything else.
+gradeTunnelConnectors :: Int -> Maybe Text -> Maybe (Either Text [Connector]) -> Probe
+gradeTunnelConnectors _ _ Nothing =
+  Probe probeName StatusWarn "not checked: set CF_ACCOUNT_ID and CF_API_TOKEN to compare Cloudflare's listing with this context"
+gradeTunnelConnectors _ _ (Just (Left reason)) = Probe probeName StatusUnknown reason
+gradeTunnelConnectors _ Nothing (Just (Right _)) = Probe probeName StatusUnknown "this context's stack has no publicIp output to compare with"
+gradeTunnelConnectors expected (Just address) (Just (Right connectors)) =
+  case connectorProblems expected address connectors of
+    [] -> Probe probeName StatusOk (T.pack (show (length connectors)) <> " connector(s), all from this context's VM")
+    problems -> Probe probeName StatusFail (T.intercalate "; " problems)
+
+probeName :: Text
+probeName = "Tunnel connectors"
 
 -- | The Secret the connector scope binds, in the shape it checks. It goes to sops on stdin.
 tokenSecretYaml :: Text -> Text

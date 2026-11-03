@@ -18,6 +18,7 @@ import Nagare.Inventory.Components.CloudflareTunnel
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.ProtectedRoute (protectedHosts)
 import Nagare.Ops.CloudflareTunnel
+import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 import Nagare.Platform.ReleaseImages (ImageSelection (..), ImageSource (ReleaseSource))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
@@ -113,6 +114,11 @@ inventoryCloudflareTunnelTests =
         parseConnectors 200 "{\"success\":true,\"result\":[{\"id\":\"c1\",\"version\":\"v\",\"conns\":[{\"origin_ip\":\"1.2.3.4\"},{\"origin_ip\":\"1.2.3.4\"}]}]}"
           @?= Right [Connector "c1" "v" ["1.2.3.4"]]
         parseTunnelId "nagare-x" 200 "{\"success\":true,\"result\":[{\"id\":\"t1\",\"name\":\"nagare-x\"}]}" @?= Right "t1"
+        let graded = (^. #status) . gradeTunnelConnectors 2 (Just "136.87.131.238")
+        graded (Just (Right two)) @?= StatusOk
+        graded (Just (Right (two <> [connector "stolen" "203.0.113.9"]))) @?= StatusFail
+        graded Nothing @?= StatusWarn
+        graded (Just (Left "unreachable")) @?= StatusUnknown
         assertBool "an absent tunnel is an error" (isLeftOf (parseTunnelId "nagare-x" 200 "{\"success\":true,\"result\":[]}"))
     , testCase "a tunnel context's default names are one label, and a direct context's are unchanged" $ do
         defaultHostName NestedHosts "site" "personal" "example.test" @?= "site.personal.example.test"

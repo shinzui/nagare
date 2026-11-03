@@ -10,6 +10,7 @@ where
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Cli.Commands.Tunnel (tunnelConnectorProbes)
 import Nagare.Cli.Data.ScheduledReceipts (scheduledRecoveryPointProbes)
 import Nagare.Cli.Inventory.Workflow
   ( runInventoryApply
@@ -72,7 +73,7 @@ runServerStatus mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
   let invOpts = inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp & #skipVm .~ o ^. #skipVm
-  probes <- gatherInventory tp invOpts
+  probes <- (<>) <$> gatherInventory tp invOpts <*> tunnelConnectorProbes mctx
   recoveryPoints <- scheduledRecoveryPointProbes mctx
   (_, versionStatus) <- gatherPlatformStatus mctx
   TIO.putStr (renderInventory (probes <> recoveryPoints <> [platformProbe versionStatus]))
@@ -87,7 +88,7 @@ runDoctor mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
   let invOpts = inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp & #skipVm .~ o ^. #skipVm
-  probes <- gatherInventory tp invOpts
+  probes <- (<>) <$> gatherInventory tp invOpts <*> tunnelConnectorProbes mctx
   recoveryPoints <- scheduledRecoveryPointProbes mctx
   (_, versionStatus) <- gatherPlatformStatus mctx
   let checks = gradeChecksAt (workspace ^. #root) (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp (probes <> recoveryPoints <> [platformProbe versionStatus])
