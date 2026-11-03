@@ -10,6 +10,7 @@ okf_version: "0.2"
 # Guide
 
 - [Accessing the host](accessing-the-host.md) - Reach a Nagare host through Tailscale SSH, an IAP tunnel, or the serial console boot menu, and obtain cluster access.
+- [Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md) - Create a context with no inbound web ports, served through one tunnel on a full Cloudflare zone.
 - [CDN (edge caching)](cdn.md) - Configure and operate edge caching for Nagare applications through the supported CDN workflow.
 - [Target contexts](contexts.md) - Create, select, inspect, migrate, and troubleshoot named Nagare target contexts.
 - [Deploying apps](deploying-apps.md) - Define, deploy, verify, and operate applications on Nagare with the typed configuration model and nagarectl.

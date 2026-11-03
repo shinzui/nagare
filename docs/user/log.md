@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-11-03
+
+* **Add**: Guide for serving a new context through a Cloudflare Tunnel, with no inbound web ports.
+
 ## 2026-10-20
 
 * **Update**: Pin the installation, getting-started and upgrade examples to 0.9.0, and explain the migration user's write-only `FILE` grant and the one restart an existing ClickHouse server takes (BUG-7).

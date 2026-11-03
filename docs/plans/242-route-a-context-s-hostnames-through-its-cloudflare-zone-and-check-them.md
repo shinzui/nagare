@@ -75,7 +75,10 @@ and login protection is never weakened by edge caching.
 
 ## Decision Log
 
-(None yet.)
+- Decision: A tunnel context's protected routes, previews and site URLs flatten now. An ordinary service's printed and generated URL (`serviceUrl`) does not yet, and the refusal of two workloads
+  that flatten to one name is not built, so D2 stays open.
+  Rationale: the operator asked for a usable new context first; those routes would fail TLS outright, while Knative's template already serves the flattened service name.
+  Date: 2026-11-03
 
 
 ## Outcomes & Retrospective

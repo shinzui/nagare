@@ -33,7 +33,7 @@ change at all.
 
 ## Progress
 
-- [ ] D1: `NAGARE_INGRESS` parses to `direct` (the default) or `cloudflare-tunnel`, is refused in local mode
+- [x] D1: `NAGARE_INGRESS` parses to `direct` (the default) or `cloudflare-tunnel`, is refused in local mode
   and on any other value, and is exported by `.envrc`, `context env` and the Pulumi projection. Tests pass, and
   `CLAUDE.md` lists it among the canonical variables.
 - [ ] D2: A `direct` context's Pulumi preview and inventory plan are unchanged, proven by the existing parity
@@ -66,12 +66,20 @@ change at all.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-11-03, observed by read-only requests against the real API. Cloudflare answers a missing cache ruleset with `could not find entrypoint ruleset`, code 10003, which the
+  runtime read as unavailable because it looked for "not found"; every fresh zone would have refused, on the CDN path too. A zone setting's `modified_on` can be null or absent. Both are fixed and
+  the fake provider now answers the same way.
 
 
 ## Decision Log
 
-(None yet.)
+- Decision: The connector image is pinned by digest from Docker Hub for now, so D4 stays open on "pulled from the context's Artifact Registry".
+  Rationale: release images are built from Nix and published per release; mirroring a third-party image needs its own transport, and the operator asked for a usable path first.
+  Date: 2026-11-03
+
+- Decision: Typed inventory resources from the start, not a setup command.
+  Rationale: operator, 2026-11-03, shown both with their cost. It keeps ADR 22 and leaves nothing to adopt later.
+  Date: 2026-11-03
 
 
 ## Outcomes & Retrospective
