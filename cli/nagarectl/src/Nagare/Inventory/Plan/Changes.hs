@@ -91,6 +91,7 @@ import Nagare.Inventory.Plan.Types
   , RebindProof (..)
   , RetentionProof (..)
   , freshDataScopes
+  , heldForRestore
   , historyComposition
   , historyDeclarations
   , historyReservations
@@ -512,9 +513,8 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         , Set.notMember (resource ^. #owner) unconvergedSelectedScopeIds && Set.notMember resourceId requiredTopics
         ]
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
-    -- Accepted markers stay composed during ordinary reviews. Only selecting a marker requests
-    -- the bootstrap-wide verification needed before publishing it. A marker already published over
-    -- converged scopes, whose members all observe as accepted, publishes nothing (F124).
+    -- Accepted markers stay composed during ordinary reviews; only selecting one requests the
+    -- bootstrap-wide verification. One already published over converged scopes publishes nothing (F124).
     bootstrapReview =
       any
         (not . markerSettled)
@@ -864,6 +864,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
               else ([PlanError code message [resourceId]], Nothing)
       (Nothing, Just (ObservationUnavailable reason)) -> ([PlanError "observation-unavailable" (unavailableMessage resource reason) [resourceId]], Nothing)
       (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
+        Stateless | heldForRestore decisions desiredDeclarations resource -> ([], Nothing)
         Stateless
           | Set.member resourceId provenMigrationJobs
           , sameManaged old resource

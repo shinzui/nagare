@@ -98,7 +98,7 @@ compileRebuildRestoreScope request accepted native = do
         [member] -> Right member
         _ -> Left (invalid ("rebuild restore has no unique " <> label))
   unless
-    (scopeKind (scopeId accepted) `elem` [Application, Standalone])
+    (scopeKind (scopeId accepted) `elem` [Application, Standalone, Platform])
     (Left (invalid "rebuild restore requires an accepted database scope"))
   _ <- first invalid (mkServiceName db)
   _ <- first invalid (mkServiceName ns)

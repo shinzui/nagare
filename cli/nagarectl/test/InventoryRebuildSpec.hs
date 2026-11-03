@@ -107,6 +107,32 @@ inventoryRebuildTests =
         selected @?= Set.fromList [authId, foundationId]
         assertBool "the host outlives the cluster" (Set.notMember hostId selected)
         assertBool "an unrelated scope waits for its own review" (Set.notMember unrelatedId selected)
+    , testCase "F144: a platform writer waits for its database's restore, and nothing else does" $ do
+        let auth = expectOk (mkScopeId Platform "auth")
+            member kind name dependenciesValue =
+              volumeMember
+                { identity = mintResourceId auth (expectOk (mkLogicalKey "auth")) (expectOk (mkName name))
+                , owner = auth
+                , address = Kubernetes (volumeMember ^. #identity) "apps" (expectOk (mkName kind)) Nothing (expectOk (mkName name))
+                , dependencies = dependenciesValue
+                }
+            database = member "statefulset" "en-db" []
+            claim = member "persistentvolumeclaim" "nagare-db-en-db-data" []
+            writer = member "deployment" "en" [OrderedAfter (database ^. #identity)]
+            migration = member "job" "en-migrate" [OrderedAfter (database ^. #identity)]
+            gateway = member "deployment" "nagare-access" []
+            other = member "deployment" "shomei" [OrderedAfter ((member "statefulset" "shomei-db" []) ^. #identity)]
+            declared = Map.fromList [(found ^. #identity, Managed found) | found <- [database, claim, writer, migration, gateway, other, member "statefulset" "shomei-db" []]]
+            decided source = Map.fromList [(claim ^. #identity, LifecycleProposal (claim ^. #identity) (ApproveRebuild (RebuildProof accepted source)) (contentDigest "evidence"))]
+            elsewhere = writer & #owner .~ rebuildOwner
+            held source = heldForRestore (decided source) declared
+        held (FromRecoveryPoint point) writer @?= True
+        held (FromRecoveryPoint point) migration @?= True
+        held (FromRecoveryPoint point) gateway @?= False
+        held (FromRecoveryPoint point) other @?= False
+        held (FromRecoveryPoint point) database @?= False
+        held (FromRecoveryPoint point) elsewhere @?= False
+        held Fresh writer @?= False
     , testCase "F142: an empty volume runs its scope's migrations again, and a restored one or a new Secret does not" $ do
         let declared = Map.fromList [(volumeId, Managed volumeMember)]
             secretAddress = Kubernetes (volumeMember ^. #identity) "" (expectOk (mkName "secret")) Nothing (expectOk (mkName "credential"))

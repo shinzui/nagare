@@ -9,6 +9,7 @@ module Nagare.Inventory.Plan.Types
   , LifecycleDecisions (..)
   , LifecycleProposal (..)
   , freshDataScopes
+  , heldForRestore
   , MigrationProof (..)
   , ObservationRequirements (..)
   , PlanError (..)
@@ -67,6 +68,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Adapter
   ( PlannedOperation
@@ -75,7 +77,7 @@ import Nagare.Inventory.Adapter
   )
 import Nagare.Inventory.DataFence (dataFenceIntentDigest)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Lineage (RebuildProof (..), RebuildSource (Fresh))
+import Nagare.Inventory.Lineage (RebuildProof (..), RebuildSource (Fresh, FromRecoveryPoint))
 import Nagare.Inventory.Migration.Types
   ( MigrationContract
   , ValidatedMigration
@@ -95,6 +97,7 @@ import Nagare.Resource.Inventory
   , ScopeDeclaration
   , claimsOf
   , composedDeclarations
+  , dependencyProducer
   )
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types
@@ -106,9 +109,11 @@ import Nagare.Resource.Types
   , ProviderAddress (Kubernetes)
   , ResourceId
   , ScopeId
+  , ScopeKind (Platform)
   , nameText
   , physicalIdentityText
   , resourceIdText
+  , scopeKind
   )
 import Nagare.Resource.Wire (canonicalValue)
 
@@ -156,6 +161,36 @@ freshDataScopes decisions declared =
   where
     isSecret = \case
       Kubernetes _ _ kind _ _ -> nameText kind == "secret"
+      _ -> False
+
+-- | A platform workload that writes to a database this review rebuilds from a recovery
+-- point. It stays absent, so nothing writes before the restore, which refuses a target
+-- holding data. The next bootstrap plan creates it. An application's writers are
+-- not held: its runbook restores straight away (F144).
+heldForRestore :: Map ResourceId LifecycleProposal -> Map ResourceId Declaration -> ManagedResource -> Bool
+heldForRestore decisions declared resource =
+  scopeKind (resource ^. #owner) == Platform
+    && kindOf resource `elem` ["deployment", "job"]
+    && any restored (resource ^. #dependencies)
+  where
+    kindOf member = case member ^. #address of
+      Kubernetes _ _ kind _ _ -> nameText kind
+      _ -> ""
+    nameOf member = case member ^. #address of
+      Kubernetes _ _ _ _ name -> nameText name
+      _ -> ""
+    restoredClaims =
+      Set.fromList
+        [ (claim ^. #owner, nameOf claim)
+        | proposal <- Map.elems decisions
+        , ApproveRebuild proof <- [lifecycleDecision proposal]
+        , FromRecoveryPoint _ <- [proof ^. #source]
+        , Just (Managed claim) <- [Map.lookup (lifecycleResource proposal) declared]
+        ]
+    restored dependency = case Map.lookup (dependencyProducer dependency) declared of
+      Just (Managed database) ->
+        kindOf database == "statefulset"
+          && Set.member (database ^. #owner, dbPvcName (nameOf database)) restoredClaims
       _ -> False
 
 data LifecycleDecisions
