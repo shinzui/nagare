@@ -87,7 +87,9 @@ mkArtifactAdapter specs ops =
           ArtifactMissing _ -> artifactPublish ops plan
           ArtifactOwnershipMismatch _ reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           ArtifactObservationUnavailable reason -> pure (AdapterEffectAmbiguous reason)
-          ArtifactPresent _ _ -> pure (AdapterEffectFailed (KnownNoEffect "remote artifact digest disagrees with review"))
+          ArtifactPresent _ _
+            | artifactPlanKind plan == KubeconfigArtifact -> artifactPublish ops plan
+            | otherwise -> pure (AdapterEffectFailed (KnownNoEffect "remote artifact digest disagrees with review"))
     verifyPlan operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
       Left err -> pure (Left err)
       Right plan -> do
@@ -134,6 +136,8 @@ preflightObservation plan observation = case observation of
   ArtifactMissing _ -> Right ()
   ArtifactPresent _ digest
     | digest == artifactPlanExpectedDigest plan -> Right ()
+    -- A rebuilt cluster's credentials replace the accepted ones (F142); every other artifact is immutable.
+    | artifactPlanKind plan == KubeconfigArtifact -> Right ()
     | otherwise -> Left "a named remote artifact exists with a different digest"
   ArtifactOwnershipMismatch _ reason -> Left ("remote artifact ownership mismatch: " <> reason)
   ArtifactObservationUnavailable reason -> Left ("artifact observation unavailable: " <> reason)
@@ -143,7 +147,9 @@ recoveryObservation plan observation = case observation of
   ArtifactPresent physical digest
     | digest == artifactPlanExpectedDigest plan -> RecoveryProvedComplete (artifactCompletionProof plan physical)
   ArtifactMissing _ -> RecoverySafeToRetry
-  ArtifactPresent _ _ -> RecoveryUnresolved "named remote artifact has a different digest"
+  ArtifactPresent _ _
+    | artifactPlanKind plan == KubeconfigArtifact -> RecoverySafeToRetry
+    | otherwise -> RecoveryUnresolved "named remote artifact has a different digest"
   ArtifactOwnershipMismatch _ reason -> RecoveryUnresolved reason
   ArtifactObservationUnavailable reason -> RecoveryUnresolved reason
 

@@ -8,6 +8,7 @@ module Nagare.Inventory.Plan.Types
   , LifecycleDecisionKind (..)
   , LifecycleDecisions (..)
   , LifecycleProposal (..)
+  , freshDataScopes
   , MigrationProof (..)
   , ObservationRequirements (..)
   , PlanError (..)
@@ -58,11 +59,13 @@ import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Adapter
@@ -72,7 +75,7 @@ import Nagare.Inventory.Adapter
   )
 import Nagare.Inventory.DataFence (dataFenceIntentDigest)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Lineage (RebuildProof (..))
+import Nagare.Inventory.Lineage (RebuildProof (..), RebuildSource (Fresh))
 import Nagare.Inventory.Migration.Types
   ( MigrationContract
   , ValidatedMigration
@@ -100,9 +103,10 @@ import Nagare.Resource.Types
   , ContextBinding
   , InventoryError
   , PhysicalIdentity
-  , ProviderAddress
+  , ProviderAddress (Kubernetes)
   , ResourceId
   , ScopeId
+  , nameText
   , physicalIdentityText
   , resourceIdText
   )
@@ -136,6 +140,23 @@ data LifecycleProposal = LifecycleProposal
   , lifecycleEvidence :: !ContentDigest
   }
   deriving stock (Eq, Show, Generic)
+
+-- | Scopes whose data this review starts empty, so their forward-only migrations
+-- must run again. A restored volume keeps its schema, and a new Secret holds no data.
+freshDataScopes :: Map ResourceId LifecycleProposal -> Map ResourceId Declaration -> Set ScopeId
+freshDataScopes decisions declared =
+  Set.fromList
+    [ resource ^. #owner
+    | proposal <- Map.elems decisions
+    , ApproveRebuild proof <- [lifecycleDecision proposal]
+    , Fresh <- [proof ^. #source]
+    , Just (Managed resource) <- [Map.lookup (lifecycleResource proposal) declared]
+    , not (isSecret (resource ^. #address))
+    ]
+  where
+    isSecret = \case
+      Kubernetes _ _ kind _ _ -> nameText kind == "secret"
+      _ -> False
 
 data LifecycleDecisions
   = LifecycleDecisions

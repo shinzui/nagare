@@ -3,7 +3,8 @@ module Nagare.Cli.Bootstrap.Host
   ( buildHostStageCandidate
   , buildHostTransitionCandidate
   , buildKubeconfigStageCandidate
-  , buildKubeconfigStageCandidateWithRecovery
+  , KubeconfigStageMode (..)
+  , buildKubeconfigCandidate
   )
 where
 
@@ -30,6 +31,7 @@ import Nagare.Cluster.Kubeconfig
   , inspectKubeconfigDestination
   , kubeconfigPath
   , kubeconfigStageDecision
+  , kubeconfigTransitionDecision
   , normalizeLocalKubeconfig
   )
 import Nagare.Dsl.Prelude
@@ -260,15 +262,22 @@ buildKubeconfigStageCandidate ::
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildKubeconfigStageCandidate = buildKubeconfigStageCandidateWithRecovery False
+buildKubeconfigStageCandidate = buildKubeconfigCandidate KubeconfigStage
 
-buildKubeconfigStageCandidateWithRecovery ::
-  Bool ->
+data KubeconfigStageMode
+  = KubeconfigStage
+  | KubeconfigRecovery
+  | -- | Only an explicit review may accept credentials that differ from the accepted ones.
+    KubeconfigNewCluster
+  deriving stock (Eq)
+
+buildKubeconfigCandidate ::
+  KubeconfigStageMode ->
   ActiveTarget ->
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildKubeconfigStageCandidateWithRecovery recover active workspace snapshot = do
+buildKubeconfigCandidate mode active workspace snapshot = do
   let context = active ^. #contextName
       contextText = contextNameText context
   destination <- kubeconfigPath context
@@ -348,14 +357,16 @@ buildKubeconfigStageCandidateWithRecovery recover active workspace snapshot = do
       ( InventoryArtifact.compileArtifactScope
           (ArtifactDeclarationBundle 1 owner (artifact NE.:| []))
       )
-  case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
-    Just (_, prior)
-      | not (InventoryArtifact.sameKubeconfigProjection prior scope) ->
-          dieT "accepted kubeconfig differs from the selected host; use a reviewed credential transition"
-    _ -> pure ()
+  let accepted = snd <$> Map.lookup owner (ResourceInventory.snapshotScopes snapshot)
+      differs = maybe False (\prior -> not (InventoryArtifact.sameKubeconfigProjection prior scope)) accepted
+  when (differs && mode /= KubeconfigNewCluster) $
+    dieT "accepted kubeconfig differs from the selected host; after rebuilding the VM, review the new cluster's credentials with nagarectl kubeconfig plan"
   destinationState <- inspectKubeconfigDestination destination >>= either dieT pure
-  let accepted = Map.member owner (ResourceInventory.snapshotScopes snapshot)
-  either dieT pure (kubeconfigStageDecision accepted recover bytes destinationState) >>= \case
+  let decision = case mode of
+        KubeconfigNewCluster -> kubeconfigTransitionDecision (isJust accepted) differs destinationState
+        KubeconfigRecovery -> kubeconfigStageDecision (isJust accepted) True bytes destinationState
+        KubeconfigStage -> kubeconfigStageDecision (isJust accepted) False bytes destinationState
+  either dieT pure decision >>= \case
     KubeconfigUnchanged -> pure Nothing
     KubeconfigRecover -> do
       createDirectoryIfMissing True (takeDirectory destination)

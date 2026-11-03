@@ -17,9 +17,10 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Bootstrap.Foundation (foundationStageTarget)
 import Nagare.Cli.Bootstrap.Host
-  ( buildHostStageCandidate
+  ( KubeconfigStageMode (..)
+  , buildHostStageCandidate
   , buildHostTransitionCandidate
-  , buildKubeconfigStageCandidateWithRecovery
+  , buildKubeconfigCandidate
   )
 import Nagare.Cli.Bootstrap.Stage (StageMode (FreshBootstrap))
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
@@ -225,9 +226,19 @@ runKubeconfig globalContext = \case
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     host <- buildHostStageCandidate FreshBootstrap paths active workspace snapshot
     when (isJust host) (dieT "kubeconfig recovery requires an accepted host configuration")
-    recovered <- buildKubeconfigStageCandidateWithRecovery True active workspace snapshot
+    recovered <- buildKubeconfigCandidate KubeconfigRecovery active workspace snapshot
     when (isJust recovered) (dieT "kubeconfig recovery requires an accepted credential scope")
     TIO.putStrLn "Materialized the accepted kubeconfig in the selected context root"
+  KubeconfigPlan output -> do
+    active <- activeTarget globalContext
+    when (active ^. #profile . #mode == Local) (dieT "kubeconfig plan needs a cloud context")
+    snapshot <- Inventory.loadTargetSnapshot active
+    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    candidate <-
+      buildKubeconfigCandidate KubeconfigNewCluster active workspace snapshot
+        >>= maybe (dieT "the accepted kubeconfig already matches this cluster") pure
+    Inventory.planInventoryCandidateWith (inventoryPlanRegistry active workspace) active candidate output
+    TIO.putStrLn "Kubeconfig review saved; apply it with inventory apply."
   KubeconfigFetch options -> do
     active <- activeTarget (options ^. #context <|> globalContext)
     let profile = active ^. #profile

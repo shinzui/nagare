@@ -94,6 +94,16 @@ inventoryArtifactTests =
           $ \changed -> do
             candidate <- compile changed
             assertBool "changed credential accepted" (not (sameKubeconfigProjection accepted candidate))
+    , testCase "F142: a rebuilt cluster's kubeconfig updates by review, and another artifact still migrates" $ do
+        let managed spec = do
+              scope <- expectRight (compileArtifactScope (ArtifactDeclarationBundle 1 (ok (mkScopeId Platform "kubeconfig")) (spec :| [])))
+              pure (head [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations])
+            credential = imageSpec {artifactKind = KubeconfigArtifact, artifactPublishOperation = False}
+        accepted <- managed credential
+        rebuilt <- managed credential {artifactContentDigest = contentDigest "rebuilt"}
+        renamed <- managed credential {artifactName = name "different", artifactContentDigest = contentDigest "rebuilt"}
+        assertBool "a new digest is an update" (not (requiresMigration accepted rebuilt))
+        assertBool "a new name is a migration" (requiresMigration accepted renamed)
     , testCase "local BuildKit archive uses required secret mounts without argv values" $ do
         validateSecretMounts
           "FROM alpine\nRUN --mount=type=secret,id=TOKEN,required=true cat /run/secrets/TOKEN >/dev/null\n"
@@ -372,6 +382,20 @@ inventoryArtifactTests =
         readIORef calls >>= (@?= 0)
         adapterVerify adapter publishOperation prepared >>= expectRight >>= (@?= artifactCompletionProof mutationPlan physical)
         adapterRecover adapter publishOperation prepared >>= (@?= RecoveryProvedComplete (artifactCompletionProof mutationPlan physical))
+    , testCase "F142: a reviewed kubeconfig replaces the accepted one" $ do
+        calls <- newIORef (0 :: Int)
+        state <- newIORef (ArtifactPresent physical (contentDigest "accepted"))
+        let credentialSpecs = (\spec -> spec {executionArtifactKind = KubeconfigArtifact}) <$> specs
+            base = ops calls state
+            adapter =
+              mkArtifactAdapter
+                credentialSpecs
+                base {artifactPrepareMutation = fmap (fmap (\plan -> plan {artifactPlanKind = KubeconfigArtifact})) . artifactPrepareMutation base}
+        prepared <- adapterPrepare adapter publishOperation >>= expectRight
+        adapterPreflight adapter publishOperation prepared >>= expectRight
+        adapterRecover adapter publishOperation prepared >>= (@?= RecoverySafeToRetry)
+        adapterExecute adapter publishOperation prepared >>= (@?= AdapterEffectCompleted)
+        readIORef calls >>= (@?= 1)
     , testCase "wrong remote digest refuses before publication" $ do
         calls <- newIORef (0 :: Int)
         state <- newIORef (ArtifactPresent physical (contentDigest "wrong"))

@@ -10,6 +10,7 @@ module Nagare.Inventory.Rebuild
   , RebuildInput (..)
   , decodeRebuildInput
   , decideRebuild
+  , rebuildScopes
   , rebuildTargets
   )
 where
@@ -88,6 +89,31 @@ decideRebuild candidate history observations input = do
     confirmedAbsent = \case
       Just (ConfirmedAbsent _) -> True
       _ -> False
+
+-- | The scopes a rebuild recreates: those its members belong to, and every cluster
+-- scope they depend on, because a lost cluster took those too. A scope with any
+-- other executor stays as accepted: its members outlive the cluster.
+rebuildScopes :: [ScopeDeclaration] -> Set.Set ScopeId -> Set.Set ScopeId
+rebuildScopes scopes = go
+  where
+    members scope = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
+    inCluster member = member ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
+    cluster = Map.fromList [(scopeId scope, members scope) | scope <- scopes, all inCluster (members scope)]
+    owners = Map.fromList [(member ^. #identity, scopeId scope) | scope <- scopes, member <- members scope]
+    go selected
+      | grown == selected = selected
+      | otherwise = go grown
+      where
+        grown =
+          selected
+            <> Set.fromList
+              [ owner
+              | scope <- Set.toList selected
+              , member <- Map.findWithDefault [] scope cluster
+              , dependency <- member ^. #dependencies
+              , Just owner <- [Map.lookup (dependencyProducer dependency) owners]
+              , Map.member owner cluster
+              ]
 
 -- | One rebuild per accepted durable Kubernetes member, or app database
 -- logical database (EP-202 M6), that stays declared and is confirmed absent,

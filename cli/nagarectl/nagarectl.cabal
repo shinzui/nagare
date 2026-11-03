@@ -336,6 +336,7 @@ library
     Nagare.Ops.ContextGuard
     Nagare.Ops.Doctor
     Nagare.Ops.Domains
+    Nagare.Ops.LostVm
     Nagare.Ops.NixCacheProducer
     Nagare.Ops.Probe
     Nagare.Ops.Pulumi
@@ -679,6 +680,7 @@ test-suite nagarectl-test
     InventoryVolumeRestorePinSpec
     InventoryWorldConformanceSpec
     InventoryWorldFaultsSpec
+    LostVmSpec
     Nagare.Test.Application
     Nagare.Test.Backend
     Nagare.Test.Backup.BatchIngest

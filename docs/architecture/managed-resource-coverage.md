@@ -10,11 +10,11 @@ authority.
 | --- | ---: | --- |
 | `Command` | 84 | none |
 | `HostCommand` | 10 | none |
-| `KubeconfigCommand` | 2 | none |
+| `KubeconfigCommand` | 3 | none |
 | `ClusterCommand` | 2 | none |
 | `NixCacheCommand` | 3 | none |
 | `ContextCommand` | 10 | none |
-| `InfraCommand` | 4 | none |
+| `InfraCommand` | 5 | none |
 | `EnvCommand` | 4 | none |
 | `SecretCommand` | 4 | none |
 | `StorageCommand` | 9 | none |

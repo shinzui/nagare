@@ -90,6 +90,7 @@ import Nagare.Inventory.Plan.Types
   , PlanError (..)
   , RebindProof (..)
   , RetentionProof (..)
+  , freshDataScopes
   , historyComposition
   , historyDeclarations
   , historyReservations
@@ -511,11 +512,9 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         , Set.notMember (resource ^. #owner) unconvergedSelectedScopeIds && Set.notMember resourceId requiredTopics
         ]
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
-    -- Accepted markers remain in the composed inventory during ordinary
-    -- application/access reviews. Only selecting a marker requests the
-    -- bootstrap-wide verification needed before publishing that marker. A
-    -- marker already published over converged scopes, whose members all
-    -- observe as accepted, publishes nothing, so its replan is empty (F124).
+    -- Accepted markers stay composed during ordinary reviews. Only selecting a marker requests
+    -- the bootstrap-wide verification needed before publishing it. A marker already published over
+    -- converged scopes, whose members all observe as accepted, publishes nothing (F124).
     bootstrapReview =
       any
         (not . markerSettled)
@@ -556,7 +555,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     provenOperations =
       Map.fromList
         [ (operation ^. #identity, operation)
-        | (scope, (revision, declaration)) <- Map.toAscList (historyAccepted history)
+        | (scope, (revision, declaration)) <- Map.toAscList (Map.withoutKeys (historyAccepted history) (freshDataScopes decisions desiredDeclarations))
         , Map.lookup scope (historyConverged history) == Just revision
         , bundle <- scopeBundles declaration
         , operation <- bundle ^. #operations

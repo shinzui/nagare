@@ -209,7 +209,8 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
   let generatedNative = Map.unions [namespaceNative, backendNative, shomeiNative]
   unless
     ( Map.size generatedNative == Map.size namespaceNative + Map.size backendNative + Map.size shomeiNative
-        && Map.null (Map.intersection suppliedNative generatedNative)
+        -- A rebuild supplies the accepted bytes of members its scopes also generate (F142).
+        && and (Map.intersectionWith (==) suppliedNative generatedNative)
     )
     (dieT "generated native members overlap a supplied or contributed resource")
   let allSuppliedNative = Map.union suppliedNative generatedNative
@@ -219,7 +220,8 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
       declaredIds = Set.fromList (map (^. #identity) kubernetesResources)
       helmSuppliedIds = Map.keysSet helmSuppliedNative
       declaredHelmIds = Set.fromList (map (^. #identity) helmResources)
-  unless (suppliedIds `Set.isSubsetOf` declaredIds) (dieT "generated native members include an undeclared Kubernetes resource")
+  unless (suppliedIds `Set.isSubsetOf` declaredIds) $
+    dieT ("generated native members include an undeclared Kubernetes resource: " <> T.unwords (map Resource.resourceIdText (Set.toList (suppliedIds `Set.difference` declaredIds))))
   unless
     ( helmSuppliedIds `Set.isSubsetOf` declaredHelmIds
         && (selectedHelm `Set.intersection` declaredHelmIds) `Set.isSubsetOf` helmSuppliedIds

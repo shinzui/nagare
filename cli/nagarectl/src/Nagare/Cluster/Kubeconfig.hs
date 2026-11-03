@@ -10,6 +10,7 @@ module Nagare.Cluster.Kubeconfig
   , fetchKubeconfig
   , inspectKubeconfigDestination
   , kubeconfigStageDecision
+  , kubeconfigTransitionDecision
   , kubeconfigPath
   , normalizeKubeconfig
   , normalizeLocalKubeconfig
@@ -130,6 +131,17 @@ kubeconfigStageDecision accepted recover expected destination = case destination
   _
     | recover -> Left "kubeconfig recovery requires an accepted credential scope"
     | otherwise -> Right KubeconfigReplace
+
+-- | An explicit review of a rebuilt cluster's credentials. The executor never
+-- writes through a link, so a linked destination is replaced by hand first.
+kubeconfigTransitionDecision :: Bool -> Bool -> KubeconfigDestination -> Either Text KubeconfigStageDecision
+kubeconfigTransitionDecision accepted differs destination = case destination of
+  DestinationLink target _ ->
+    Left ("context kubeconfig destination is a symlink to " <> T.pack target <> "; replace it with a regular file before this review")
+  _
+    | not accepted -> Left "kubeconfig plan needs an accepted credential scope; run the reviewed bootstrap"
+    | differs -> Right KubeconfigReplace
+    | otherwise -> Right KubeconfigUnchanged
 
 -- | Fetch through the existing project-confined IAP helper, normalize the
 -- single-cluster k3s file, validate it with kubectl, and replace the destination

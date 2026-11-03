@@ -397,6 +397,7 @@ data HostCommand
 data KubeconfigCommand
   = KubeconfigFetch KubeconfigFetchOpts
   | KubeconfigRecover
+  | KubeconfigPlan FilePath
   deriving stock (Generic, Show)
 
 data KubeconfigFetchOpts = KubeconfigFetchOpts
@@ -511,6 +512,7 @@ data InfraCommand
   | InfraPreview InfraPreviewOpts
   | InfraApply InfraApplyOpts
   | InfraDestroy Bool (Maybe FilePath)
+  | InfraForgetLostVm
   deriving stock (Generic, Show)
 
 data InfraPreviewOpts = InfraPreviewOpts

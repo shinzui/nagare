@@ -49,6 +49,7 @@ ROUTES = {
     "KubeconfigCommand": {
         "local": "KubeconfigFetch",
         "bounded": "KubeconfigRecover",
+        "reviewed": "KubeconfigPlan",
     },
     "ClusterCommand": {"read": "ClusterGuard ClusterCertificatePolicy"},
     # EP-230: session-bound token minting, a fixed-port forward, and Attic pushes.
@@ -61,6 +62,7 @@ ROUTES = {
     "InfraCommand": {
         "read": "InfraGuard",
         "reviewed": "InfraPreview InfraApply InfraDestroy",
+        "bounded": "InfraForgetLostVm",
     },
     "EnvCommand": {"read": "EnvList", "reviewed": "EnvSet EnvDelete EnvSync"},
     "SecretCommand": {"read": "SecretList", "reviewed": "SecretSet SecretDelete SecretSync"},
@@ -214,7 +216,7 @@ FAMILY_ROUTES = {
     "HostCommand.HostPlaceAgeKey": "Host age-key placement",
     "HostCommand.HostImagePlan": "NixOS image object and GCE image publication",
     "HostCommand.HostStart HostCommand.HostStop": "VM start/stop",
-    "KubeconfigCommand.KubeconfigRecover": "Context kubeconfig fetch and accepted-history recovery",
+    "KubeconfigCommand.KubeconfigRecover KubeconfigCommand.KubeconfigPlan": "Context kubeconfig fetch and accepted-history recovery",
     "DomainsCommand.DomainsTls": "Certificate re-issuance trigger",
     "TunnelCommand.TunnelToken TunnelCommand.TunnelRotate TunnelCommand.TunnelEvict": "Cloudflare tunnel credential",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore DbCommand.DbRestoreRebuilt": "Database backup and restore",

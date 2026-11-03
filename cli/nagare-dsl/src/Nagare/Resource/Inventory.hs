@@ -7,6 +7,7 @@ module Nagare.Resource.Inventory
   , validAccessEndpoint
   , validDnsIpv4
   , ManagedResource (..)
+  , dependencyProducer
   , requiresMigration
   , Declaration (..)
   , ClaimKind (..)
@@ -916,11 +917,12 @@ pairedDnsRouteClaim claim holders = case (claimParts claim, holders) of
 requiresMigration :: ManagedResource -> ManagedResource -> Bool
 requiresMigration old new =
   old ^. #executor /= new ^. #executor
-    || (old ^. #address /= new ^. #address && not releaseImageDigestMove)
+    || (old ^. #address /= new ^. #address && not artifactDigestMove)
   where
-    releaseImageDigestMove = case (old ^. #address, new ^. #address) of
+    -- A release image and a rebuilt cluster's kubeconfig keep their name while their bytes change.
+    artifactDigestMove = case (old ^. #address, new ^. #address) of
       (Artifact oldName _, Artifact newName _) ->
         oldName == newName
           && old ^. #owner == new ^. #owner
-          && scopeIdText (old ^. #owner) == "platform:release-images"
+          && scopeIdText (old ^. #owner) `elem` ["platform:release-images", "platform:kubeconfig"]
       _ -> False

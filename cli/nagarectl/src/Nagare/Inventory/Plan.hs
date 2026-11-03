@@ -24,6 +24,7 @@ module Nagare.Inventory.Plan
   , observeMigrationIncarnations
   , LifecycleDecisionKind (..)
   , LifecycleProposal (..)
+  , freshDataScopes
   , LifecycleDecisions
   , noLifecycleDecisions
   , lifecycleObservationDigest
@@ -132,6 +133,7 @@ import Nagare.Inventory.Plan.Types
   , ReviewedPlan (..)
   , duplicateValues
   , encodeReviewDocument
+  , freshDataScopes
   , historyDeclarations
   , historyReservations
   , renderPlanErrors

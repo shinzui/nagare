@@ -7,8 +7,10 @@ module Nagare.Cli.Commands.Infrastructure
   )
 where
 
+import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Data.ScheduledReceipts (scheduledRecoveryPointProbes)
 import Nagare.Cli.Inventory.Workflow
@@ -26,6 +28,7 @@ import Nagare.Cli.Platform.InfrastructureReview
   ( applyReviewedPlan
   , instanceReplacementGuard
   , prepareInfraMutation
+  , prepareVmPowerMutation
   , saveReviewedPlan
   )
 import Nagare.Cli.Runtime.Cleanup (saveReviewedReleaseCleanup)
@@ -53,6 +56,11 @@ import Nagare.Ops.Doctor
   , formatDoctor
   , gradeChecksAt
   )
+import Nagare.Ops.LostVm
+  ( LostVmOps (..)
+  , forgetLostVm
+  , vmPresenceFromGcloud
+  )
 import Nagare.Ops.Probe (renderInventory)
 import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
 import Nagare.Platform.Status (platformProbe)
@@ -66,6 +74,7 @@ import System.Exit
   )
 import System.FilePath ((</>))
 import System.IO (stderr)
+import System.Process (readProcessWithExitCode)
 
 runServerStatus :: Maybe String -> ServerStatusOpts -> IO ()
 runServerStatus mctx o = do
@@ -101,6 +110,7 @@ runInfra mctx = \case
   InfraPreview options -> runInfraPreview mctx options
   InfraApply options -> runInfraApply mctx options
   InfraDestroy yes output -> runInfraDestroy mctx yes output
+  InfraForgetLostVm -> runInfraForgetLostVm mctx
 
 runInfraGuard :: Maybe String -> Bool -> IO ()
 runInfraGuard mctx allowReplacementFlag = do
@@ -157,6 +167,44 @@ runInfraDestroy mctx yes Nothing = do
   let stack = T.unpack (contextNameText (active ^. #contextName))
   result <- runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "destroy", "--stack", stack, "--yes", "--non-interactive"] ""
   either dieT TIO.putStr result
+
+-- | Reads no guest and no cluster, because the VM is what is missing (F142).
+runInfraForgetLostVm :: Maybe String -> IO ()
+runInfraForgetLostVm mctx = do
+  (active, workspace) <- prepareVmPowerMutation mctx
+  let profile = active ^. #profile
+      stack = T.unpack (contextNameText (active ^. #contextName))
+      pulumi arguments = runExternalOutput "pulumi" (["-C", workspace ^. #pulumiDir] <> arguments <> ["--stack", stack, "--non-interactive"])
+      ops =
+        LostVmOps
+          { lostVmPresence = do
+              (code, _, err) <-
+                readProcessWithExitCode
+                  "gcloud"
+                  [ "compute"
+                  , "instances"
+                  , "describe"
+                  , T.unpack (profile ^. #instanceName)
+                  , "--project"
+                  , T.unpack (profile ^. #project)
+                  , "--zone"
+                  , T.unpack (profile ^. #zone)
+                  , "--format=value(id)"
+                  ]
+                  ""
+              pure (vmPresenceFromGcloud code (T.pack err))
+          , lostVmStackExport = pulumi ["stack", "export", "--show-secrets=false"]
+          , lostVmRefreshPreview = \urn -> pulumi ["refresh", "--preview-only", "--json", "--target", T.unpack urn]
+          , lostVmRefresh = \urn -> void <$> pulumi ["refresh", "--yes", "--skip-preview", "--target", T.unpack urn]
+          }
+  forgetLostVm ops (profile ^. #instanceName) >>= either dieT TIO.putStrLn
+
+runExternalOutput :: FilePath -> [String] -> IO (Either Text ByteString)
+runExternalOutput program arguments = do
+  (code, out, err) <- readProcessWithExitCode program arguments ""
+  pure $ case code of
+    ExitSuccess -> Right (TE.encodeUtf8 (T.pack out))
+    _ -> Left (T.pack program <> " failed: " <> T.pack err)
 
 -- | @cleanup@: gather (and, under @--confirm@, perform) reclamation across
 -- images/previews/releases, then print the report. Dry-run by default.

@@ -32,7 +32,7 @@ import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPoint (..), RecoveryPointKind (ScheduledRecoveryPoint, ScheduledVolumeRecoveryPoint, VolumeSnapshotRecoveryPoint), renderRebuild)
 import Nagare.Inventory.Plan qualified as InventoryPlan
-import Nagare.Inventory.Rebuild (RebuildInput (..), decideRebuild, decodeRebuildInput, rebuildTargets)
+import Nagare.Inventory.Rebuild (RebuildInput (..), decideRebuild, decodeRebuildInput, rebuildScopes, rebuildTargets)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.VolumeRestoreSource (verifyIngestedVolumeRun, verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -60,7 +60,7 @@ runInventoryRebuildDecisions mctx pointArgs snapshotArgs runArgs freshArgs bucke
   active <- activeTarget mctx
   scheduled <- either dieT pure (traverse parsePoint pointArgs)
   fresh <- either dieT pure (traverse (Resource.mkResourceId . T.pack) freshArgs)
-  (snapshot, history, candidate, registry) <- acceptedRebuild active (const True)
+  (snapshot, history, candidate, registry) <- acceptedRebuild active holdsDurableMember
   snapshots <- case snapshotArgs of
     [] -> pure []
     _ -> do
@@ -132,9 +132,10 @@ runInventoryRebuild mctx input output = do
           , (member ^. #identity) `elem` map (^. #resource) (decisions ^. #targets)
           ]
   when (Set.null owners) (dieT "the rebuild names no accepted member")
-  (_, _, candidate, _) <- acceptedRebuild active (`Set.member` owners)
+  let selected = rebuildScopes (map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))) owners
+  (_, _, candidate, _) <- acceptedRebuild active ((`Set.member` selected) . ResourceInventory.scopeId)
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-  native <- acceptedNative active
+  native <- declaredNative candidate <$> acceptedNative active
   Inventory.planInventoryCandidateWithDecider
     (inventoryPlanRegistryWithNative active workspace native)
     (\history observations -> decideRebuild candidate history observations decisions)
@@ -146,7 +147,7 @@ runInventoryRebuild mctx input output = do
 -- replaced by themselves, and a registry over their accepted native evidence.
 acceptedRebuild ::
   ActiveTarget ->
-  (Resource.ScopeId -> Bool) ->
+  (ResourceInventory.ScopeDeclaration -> Bool) ->
   IO (ResourceInventory.ScopeSnapshot, InventoryPlan.InventoryHistory, ResourceInventory.CompositionCandidate, InventoryAdapter.AdapterRegistry)
 acceptedRebuild active selected = do
   snapshot <- Inventory.loadTargetSnapshotReadOnly active
@@ -155,21 +156,34 @@ acceptedRebuild active selected = do
   let scopes =
         [ scope
         | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
-        , selected (ResourceInventory.scopeId scope)
-        , or
-            [ True
-            | bundle <- ResourceInventory.scopeBundles scope
-            , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
-            , Durable _ <- [member ^. #dataPolicy]
-            , member ^. #executor == ResourceInventory.KubernetesExecutor
-            ]
+        , selected scope
         ]
   changes <- maybe (dieT "no accepted scope holds a durable Kubernetes member") pure (NE.nonEmpty (map ResourceInventory.ReplaceScope scopes))
   candidate <- either (dieT . T.pack . show) pure (ResourceInventory.composeInventory snapshot changes)
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-  native <- acceptedNative active
+  native <- declaredNative candidate <$> acceptedNative active
   registry <- inventoryPlanRegistryWithNative active workspace native candidate history
   pure (snapshot, history, candidate, registry)
+
+-- | A retired site's retained objects keep their accepted bytes, but a rebuild recreates only declared members.
+declaredNative ::
+  ResourceInventory.CompositionCandidate ->
+  Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, BS.ByteString) ->
+  Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, BS.ByteString)
+declaredNative candidate native =
+  Map.restrictKeys
+    native
+    (Set.fromList (map ResourceInventory.declarationId (ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory candidate))))
+
+holdsDurableMember :: ResourceInventory.ScopeDeclaration -> Bool
+holdsDurableMember scope =
+  or
+    [ True
+    | bundle <- ResourceInventory.scopeBundles scope
+    , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+    , Durable _ <- [member ^. #dataPolicy]
+    , member ^. #executor == ResourceInventory.KubernetesExecutor
+    ]
 
 acceptedNative :: ActiveTarget -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, BS.ByteString))
 acceptedNative active = do

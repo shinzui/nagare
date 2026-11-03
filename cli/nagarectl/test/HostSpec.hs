@@ -15,13 +15,16 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import LostVmSpec (lostVmTests)
 import Nagare.Cluster.Kubeconfig
   ( FetchOps (..)
+  , KubeconfigDestination (..)
   , KubeconfigIdentity (..)
   , KubeconfigStageDecision (..)
   , fetchKubeconfig
   , inspectKubeconfigDestination
   , kubeconfigStageDecision
+  , kubeconfigTransitionDecision
   , normalizeKubeconfig
   )
 import Nagare.Dsl.Prelude
@@ -50,7 +53,8 @@ hostTests :: TestTree
 hostTests =
   testGroup
     "Nagare.Host"
-    [ testCase "validates public keys and rejects private material" $ do
+    [ lostVmTests
+    , testCase "validates public keys and rejects private material" $ do
         validateSshPublicKey fixtureKey @?= Right fixtureKey
         assertBool "private key is rejected" (either (const True) (const False) (validateSshPublicKey "-----BEGIN OPENSSH PRIVATE KEY-----"))
         assertBool "unknown key type is rejected" (either (const True) (const False) (validateSshPublicKey "ssh-dss AAAAB3NzaC1kc3MAAACBAexample"))
@@ -344,6 +348,13 @@ hostTests =
           createFileLink (root </> "missing-target") destination
           result <- fetchKubeconfig (FetchOps "/unused/iap" "/unused/kubectl") (KubeconfigIdentity "labs" "labs-nagare") fixtureProfile destination
           assertBool "dangling symlink destination is rejected before transport" (either (T.isInfixOf "symlink") (const False) result)
+    , testCase "F142: only an explicit review accepts a rebuilt cluster's credentials" $ do
+        kubeconfigStageDecision True False "new" (DestinationFile "old") @?= Left "accepted context kubeconfig has a different content digest"
+        kubeconfigTransitionDecision True True (DestinationFile "old") @?= Right KubeconfigReplace
+        kubeconfigTransitionDecision True True DestinationAbsent @?= Right KubeconfigReplace
+        kubeconfigTransitionDecision True False (DestinationFile "same") @?= Right KubeconfigUnchanged
+        assertBool "no accepted scope" (either (T.isInfixOf "accepted credential scope") (const False) (kubeconfigTransitionDecision False True DestinationAbsent))
+        assertBool "a link is not written through" (either (T.isInfixOf "symlink") (const False) (kubeconfigTransitionDecision True True (DestinationLink "/run/secret" Nothing)))
     , testCase "F127: the kubeconfig stage accepts a matching link and never writes through one" $
         withSystemTempDirectory "nagare-kubeconfig-stage-link" $ \root -> do
           let target = root </> "agenix-secret"

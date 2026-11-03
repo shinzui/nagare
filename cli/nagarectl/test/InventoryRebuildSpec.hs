@@ -28,13 +28,14 @@ import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Lineage
 import Nagare.Inventory.LineageHistory (RebuildLineage (..), memberLineage)
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Rebuild (RebuildInput (..), RebuildTarget (..), decideRebuild, rebuildTargets)
+import Nagare.Inventory.Rebuild (RebuildInput (..), RebuildTarget (..), decideRebuild, rebuildScopes, rebuildTargets)
 import Nagare.Inventory.RebuildRestore (RebuildRestoreRequest (..), compileRebuildRestoreScope)
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures qualified as Fixtures
 import Test.Tasty
@@ -93,6 +94,27 @@ inventoryRebuildTests =
           Left errors -> assertBool (show errors) (any (("no longer confirmed absent" `T.isInfixOf`) . admissionErrorMessage) errors)
           Right other -> assertFailure ("a reappeared member was rebuilt: " <> show other)
         incarnations store >>= (@?= Map.singleton volumeId (uid "uid-accepted"))
+    , testCase "F142: a rebuild takes the cluster scopes its members depend on, and leaves the rest" $ do
+        let scopeOf name executorValue dependenciesValue =
+              let owner' = expectOk (mkScopeId Platform name)
+                  member = volumeMember {identity = mintResourceId owner' (expectOk (mkLogicalKey "member")) (expectOk (mkName name)), owner = owner', executor = executorValue, address = if executorValue == ArtifactExecutor then Artifact (expectOk (mkName name)) (contentDigest "artifact") else volumeAddress, dependencies = dependenciesValue}
+               in (member ^. #identity, owner', expectOk (mkScopeDeclaration owner' [ResourceBundle [Managed member] [] [] [] [] []]))
+            (hostMember, hostId, hostScope) = scopeOf "host" ArtifactExecutor []
+            (namespace, foundationId, foundationScope) = scopeOf "foundation" KubernetesExecutor [OrderedAfter hostMember]
+            (_, unrelatedId, unrelatedScope) = scopeOf "unrelated" KubernetesExecutor []
+            (_, authId, authScope) = scopeOf "auth" KubernetesExecutor [OrderedAfter namespace]
+            selected = rebuildScopes [hostScope, foundationScope, unrelatedScope, authScope] (Set.singleton authId)
+        selected @?= Set.fromList [authId, foundationId]
+        assertBool "the host outlives the cluster" (Set.notMember hostId selected)
+        assertBool "an unrelated scope waits for its own review" (Set.notMember unrelatedId selected)
+    , testCase "F142: an empty volume runs its scope's migrations again, and a restored one or a new Secret does not" $ do
+        let declared = Map.fromList [(volumeId, Managed volumeMember)]
+            secretAddress = Kubernetes (volumeMember ^. #identity) "" (expectOk (mkName "secret")) Nothing (expectOk (mkName "credential"))
+            secret = Map.fromList [(volumeId, Managed volumeMember {address = secretAddress})]
+            decided source = Map.fromList [(volumeId, LifecycleProposal volumeId (ApproveRebuild (RebuildProof accepted source)) (contentDigest "evidence"))]
+        freshDataScopes (decided Fresh) declared @?= Set.singleton rebuildOwner
+        freshDataScopes (decided (FromRecoveryPoint point)) declared @?= Set.empty
+        freshDataScopes (decided Fresh) secret @?= Set.empty
     , testCase "rebuild targets name each missing durable member's recorded incarnation" $ do
         (store, live) <- acceptedVolume
         writeIORef (live ^. #current) Nothing

@@ -340,6 +340,12 @@ kubeconfigSubparser =
               (pure KubeconfigRecover <**> helper)
               (progDesc "Materialize accepted shared-history credentials in this context root")
           )
+        <> command
+          "plan"
+          ( info
+              (KubeconfigPlan <$> strOption (long "save-plan" <> metavar "DIR" <> help "Save a review accepting the rebuilt cluster's credentials") <**> helper)
+              (progDesc "Review the credentials of a cluster rebuilt on a new VM")
+          )
     )
 
 clusterCmd :: ParserInfo Command
@@ -414,6 +420,12 @@ infraCmd =
               ( info
                   ((Infra <$> (InfraDestroy <$> switch (long "yes" <> help "Confirm legacy teardown only") <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the next staged inventory teardown review")))) <**> helper)
                   (progDesc "Review cloud teardown policy, retained retirement, and exact leaf collection")
+              )
+            <> command
+              "forget-lost-vm"
+              ( info
+                  (pure (Infra InfraForgetLostVm) <**> helper)
+                  (progDesc "Drop a VM that GCP confirms is gone from Pulumi state, so bootstrap can recreate it")
               )
         )
         <**> helper
