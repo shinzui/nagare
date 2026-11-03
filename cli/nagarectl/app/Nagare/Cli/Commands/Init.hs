@@ -57,6 +57,7 @@ import Nagare.Platform.Workspace
   )
 import Nagare.Target
   ( ContextName
+  , IngressMode (..)
   , Mode (Cloud)
   , PulumiBackendKind
   , VmShape
@@ -67,14 +68,18 @@ import Nagare.Target
     , machineType
     )
   , acmeDirectoryToken
+  , contextExists
   , contextNameText
   , effectivePulumiBackend
+  , ingressModeToken
   , parseAcmeDirectory
+  , parseIngressMode
   , parseInventoryStoreKind
   , parsePulumiBackendKind
   , profileFromContextMap
   , setCurrentContext
   , validateAcmeEmail
+  , validateIngressMode
   , validateNixCacheMode
   , validateVmShape
   , vmShapeOf
@@ -82,7 +87,7 @@ import Nagare.Target
 import Nagare.Version (currentBuildVersion)
 import System.Exit (ExitCode (..), exitFailure)
 import System.FilePath ((</>))
-import System.IO (stderr)
+import System.IO (hIsTerminalDevice, stderr, stdin)
 
 -- | @nagarectl init@: the guided onboarding flow (EP-63). Order: resolve target
 -- (flags or prompts) -> preflight (gcloud auth + operator IAM) -> write the profile
@@ -128,6 +133,8 @@ runNamedInit o contextName = do
           , bootDiskSizeGb = bootDiskSizeGb
           , dataDiskSizeGb = dataDiskSizeGb
           }
+  existing <- contextExists contextName
+  ingress <- resolveInitIngress (if existing then Just (storedDefaults ^. #ingress) else Nothing) (o ^. #ingress)
   acmeEmailRaw <- resolveField (T.null acmeEmailDefault) "Let's Encrypt contact address" "acme-email" (o ^. #acmeEmail) acmeEmailDefault
   acmeEmail <- either dieT pure (validateAcmeEmail acmeEmailRaw)
   let acmeDirectoryRaw = maybe (storedDefaults ^. #acmeDirectory) T.pack (o ^. #acmeDirectory)
@@ -155,6 +162,8 @@ runNamedInit o contextName = do
           .~ Just (T.unpack acmeEmail)
           & #acmeDirectory
           .~ Just (T.unpack acmeDirectory)
+          & #ingress
+          .~ Just (T.unpack (ingressModeToken ingress))
       tp =
         profileFromContextMap
           (initContextMap base (initFlagPairs resolvedOpts) (manifest ^. #platformVersion))
@@ -162,6 +171,7 @@ runNamedInit o contextName = do
 
   void (either dieT pure (validateVmShape (vmShapeOf tp)))
   either dieT pure (validateNixCacheMode tp)
+  either dieT pure (validateIngressMode tp)
   TIO.putStr (renderInitSummary context tp)
   either dieT pure (checkInitOwnership (isJust (o ^. #pulumiBackendUrl)) context tp)
   (paths, workspace) <- resolvePlatformWorkspace contextName
@@ -333,6 +343,24 @@ runLegacyInit mctx o = do
 
   -- Next steps.
   TIO.putStr (nextStepsText (paths ^. #rootSource))
+
+-- | EP-244: a flag wins. A terminal asks and preselects the tunnel; a script keeps direct, so no
+-- existing automation changes what it provisions, and is told once where the choice is explained.
+--
+-- An existing context keeps what it has unless the flag says otherwise.
+resolveInitIngress :: Maybe IngressMode -> Maybe String -> IO IngressMode
+resolveInitIngress _ flag@(Just _) = either dieT pure (parseIngressMode flag)
+resolveInitIngress (Just stored) Nothing = pure stored
+resolveInitIngress Nothing Nothing = do
+  tty <- hIsTerminalDevice stdin
+  if tty
+    then do
+      TIO.putStrLn "cloudflare-tunnel opens no web port, and Cloudflare decrypts traffic at its edge; direct opens 80 and 443."
+      answer <- resolveField False "How this context receives traffic" "ingress" Nothing (ingressModeToken IngressCloudflareTunnel)
+      either dieT pure (parseIngressMode (Just (T.unpack answer)))
+    else do
+      TIO.putStrLn "Using direct ingress: web ports are open to the internet. docs/user/choosing-ingress.md explains --ingress cloudflare-tunnel."
+      pure IngressDirect
 
 preflightInitTools :: InitOpts -> PulumiBackendKind -> IO ()
 preflightInitTools o backend = do

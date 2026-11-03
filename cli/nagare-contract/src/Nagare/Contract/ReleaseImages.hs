@@ -36,6 +36,7 @@ data ReleaseImageKey
   | ShomeiImage
   | AccessImage
   | AdminApiImage
+  | CloudflaredImage
   deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
 
 releaseImageKeys :: [ReleaseImageKey]
@@ -48,6 +49,7 @@ releaseImageKeyText = \case
   ShomeiImage -> "shomei"
   AccessImage -> "nagare-access"
   AdminApiImage -> "nagare-admin-api"
+  CloudflaredImage -> "cloudflared"
 
 releaseImagesSchemaVersion :: Int
 releaseImagesSchemaVersion = 1
@@ -62,6 +64,7 @@ overrideVariable = \case
   ShomeiImage -> "NAGARE_AUTH_SHOMEI_IMAGE"
   AccessImage -> "NAGARE_AUTH_ACCESS_IMAGE"
   AdminApiImage -> "NAGARE_ADMIN_API_IMAGE"
+  CloudflaredImage -> "NAGARE_CLOUDFLARED_IMAGE"
 
 -- | The reference of a release image in a context's registry.
 releaseImageReference :: Text -> ReleaseImageKey -> ReleaseImage -> Text
@@ -110,14 +113,15 @@ instance ToJSON ReleaseImages where
 lookupReleaseImage :: ReleaseImageKey -> ReleaseImages -> Maybe ReleaseImage
 lookupReleaseImage key ReleaseImages {images} = Map.lookup key images
 
--- | A complete manifest: this schema version, exactly the four images, each
+-- | A complete manifest: this schema version, every image a release has always carried (a release before
+-- v0.16.0 names no connector, and an upgrade still reads its payload), each
 -- linux/amd64 and named by its SHA-256 manifest digest and store path.
 validateReleaseImages :: ReleaseImages -> Either Text ()
 validateReleaseImages ReleaseImages {schemaVersion, images} = do
   unless
     (schemaVersion == releaseImagesSchemaVersion)
     (Left ("releaseImages schemaVersion " <> T.pack (show schemaVersion) <> " is not supported"))
-  let missing = [releaseImageKeyText key | key <- releaseImageKeys, Map.notMember key images]
+  let missing = [releaseImageKeyText key | key <- releaseImageKeys, key /= CloudflaredImage, Map.notMember key images]
   unless (null missing) (Left ("releaseImages lacks " <> T.intercalate ", " missing))
   mapM_ checkImage (Map.toList images)
   where

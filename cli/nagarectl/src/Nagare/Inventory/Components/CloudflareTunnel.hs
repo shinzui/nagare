@@ -9,7 +9,6 @@ module Nagare.Inventory.Components.CloudflareTunnel
   ( CloudflareTunnelInput (..)
   , cloudflareTunnelTokenSecretFile
   , compileCloudflareTunnel
-  , connectorImage
   )
 where
 
@@ -31,6 +30,7 @@ import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.ObservabilitySecrets (normalizeSecretData)
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Platform.ReleaseImages (ImageSelection, annotateImageSelection)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
 import Nagare.Resource.Types
@@ -40,16 +40,14 @@ import System.FilePath ((</>))
 data CloudflareTunnelInput = CloudflareTunnelInput
   { root :: !FilePath
   , foundation :: !FoundationInput
-  , image :: !Text
-  -- ^ An immutable @…\@sha256:…@ reference.
+  , image :: !ImageSelection
+  -- ^ The release's image or a reviewed override, always an immutable @…\@sha256:…@ reference.
+  , imagePublication :: !(Maybe ResourceId)
+  -- ^ The publication the Deployment waits for when its image is the release's.
   , tokenSecret :: !(SourceLocation, Value)
   -- ^ The decrypted Secret from 'cloudflareTunnelTokenSecretFile'.
   }
   deriving stock (Generic)
-
--- | The connector image, pinned by digest (cloudflared 2026.10.7, observed in EP-240).
-connectorImage :: Text
-connectorImage = "docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba"
 
 -- | The context's sops-encrypted token Secret in its cluster-secrets directory.
 cloudflareTunnelTokenSecretFile :: FilePath
@@ -68,12 +66,14 @@ compileCloudflareTunnel input = case validated of
         Left reason -> pure (Left (invalid reason :| []))
         Right rendered -> case parseKubernetesManifest (SourceLocation (T.pack templatePath) "cloudflare-tunnel") rendered of
           Left reason -> pure (Left (reason :| []))
-          Right objects -> do
-            result <- compileUpstream (upstreamInput (objects <> [secretObject]))
-            pure $ do
-              (bundle, native) <- result
-              scope <- mkScopeDeclaration owner [bundle]
-              pure (scope, native)
+          Right objects -> case traverse recordSelection objects of
+            Left reason -> pure (Left (invalid reason :| []))
+            Right recorded -> do
+              result <- compileUpstream (upstreamInput (recorded <> [secretObject]))
+              pure $ do
+                (bundle, native) <- result
+                scope <- mkScopeDeclaration owner [bundle]
+                pure (scope, native)
   where
     templatePath = "cluster/bootstrap/cloudflare-tunnel/connector.yaml.tmpl"
     owner = known (mkScopeId Platform "cloudflare-tunnel")
@@ -87,7 +87,7 @@ compileCloudflareTunnel input = case validated of
     secret = address "v1" "Secret" tokenSecretName
 
     validated = do
-      unless (immutableImage (input ^. #image)) (Left "the connector image must be an immutable @sha256 reference")
+      unless (immutableImage (input ^. #image . #selected)) (Left "the connector image must be an immutable @sha256 reference")
       checkTokenSecret (input ^. #tokenSecret)
       normalized <- normalizeSecretData (input ^. #tokenSecret)
       tokenBytes <- canonicalValue (snd normalized)
@@ -95,9 +95,14 @@ compileCloudflareTunnel input = case validated of
 
     render tokenDigest bytes = do
       text <- first (const "the connector template is not UTF-8") (TE.decodeUtf8' bytes)
-      let rendered = T.replace "@TOKEN_DIGEST@" tokenDigest (T.replace "@IMAGE@" (input ^. #image) text)
+      let rendered = T.replace "@TOKEN_DIGEST@" tokenDigest (T.replace "@IMAGE@" (input ^. #image . #selected) text)
       when (any (`T.isInfixOf` rendered) ["@TOKEN_DIGEST@", "@IMAGE@"]) (Left "the connector template kept a placeholder")
       Right (TE.encodeUtf8 rendered)
+
+    recordSelection (location, value@(Object fields))
+      | KM.lookup "kind" fields == Just (String "Deployment") =
+          (location,) <$> annotateImageSelection (input ^. #image) value
+    recordSelection object = Right object
 
     upstreamInput generated =
       UpstreamInput
@@ -114,7 +119,7 @@ compileCloudflareTunnel input = case validated of
         , upstreamGenerated = generated
         , -- The policy exists before a pod can start, so no connector runs unbounded.
           upstreamAfter = Map.singleton deployment [policy, secret]
-        , upstreamExternalAfter = Map.empty
+        , upstreamExternalAfter = Map.fromList [(deployment, [publication]) | publication <- maybe [] pure (input ^. #imagePublication)]
         , upstreamOrderDeployments = False
         , upstreamRegistryDelegations = Map.empty
         }

@@ -58,6 +58,7 @@ initOptsParser =
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during bootstrap (not persisted)"))
     <*> optional (strOption (long "acme-email" <> metavar "ADDRESS" <> help "Let's Encrypt contact address for this context (REQUIRED; prompted if absent on a TTY)"))
     <*> optional (strOption (long "acme-directory" <> metavar "ENDPOINT" <> help "production | staging | https:// ACME directory URL (default production)"))
+    <*> optional (strOption (long "ingress" <> metavar "MODE" <> help "cloudflare-tunnel | direct (a terminal asks and preselects the tunnel; a script keeps direct)"))
     <*> switch (long "force" <> help "Overwrite an existing nagare.target.env")
     <*> switch (long "skip-preflight" <> help "Skip the gcloud auth + operator-IAM checks")
     <*> switch (long "skip-enable" <> help "Skip running scripts/enable-apis.sh")

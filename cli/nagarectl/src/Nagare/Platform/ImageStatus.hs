@@ -94,6 +94,7 @@ workloadTarget = \case
   ShomeiImage -> ("Deployment", "shomei", "shomei", ("app.kubernetes.io/name", "shomei"))
   AccessImage -> ("Service", "nagare-access", "user-container", ("serving.knative.dev/service", "nagare-access"))
   AdminApiImage -> ("Deployment", "nagare-admin-api", "nagare-admin-api", ("app.kubernetes.io/name", "nagare-admin-api"))
+  CloudflaredImage -> ("Deployment", "cloudflared", "cloudflared", ("app.kubernetes.io/name", "cloudflared"))
 
 -- | Decode @kubectl get … -o json@ lists of the Deployments, Knative Services
 -- and Pods in nagare-system. @Left@ is a failed or unreadable read;
@@ -247,12 +248,12 @@ assessWorkloadImage key enabled release observation
                   _ -> at ImageUnknown "ready replicas run more than one image; a rollout has not finished"
 
 assessWorkloadImages ::
-  Bool ->
+  (ReleaseImageKey -> Bool) ->
   Maybe ReleaseImages ->
   Map ReleaseImageKey (Either Text (Maybe WorkloadObservation)) ->
   [WorkloadImageStatus]
-assessWorkloadImages adminApiEnabled release observations =
-  [ assessWorkloadImage key (key /= AdminApiImage || adminApiEnabled) release (Map.findWithDefault (Left "not observed") key observations)
+assessWorkloadImages enabled release observations =
+  [ assessWorkloadImage key (enabled key) release (Map.findWithDefault (Left "not observed") key observations)
   | key <- releaseImageKeys
   ]
 

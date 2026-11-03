@@ -279,6 +279,12 @@ let
       entrypoint = "${adminApiServer}/bin/nagare-api-server";
       labels = { };
     };
+    # The tunnel connector (ADR 34), from nixpkgs so a context pulls nothing from Docker Hub.
+    cloudflared = mkImage "cloudflared" {
+      binaries = [ "${pkgs.cloudflared}/bin/cloudflared" ];
+      entrypoint = "${pkgs.cloudflared}/bin/cloudflared";
+      labels = { };
+    };
   };
 
   layouts = lib.mapAttrs ociLayout images;
@@ -289,6 +295,7 @@ let
     shomei = { shomei = sourcePins.shomei.rev; };
     nagare-access = { shomei = sourcePins.shomei.rev; en = sourcePins.en.rev; };
     nagare-admin-api = { };
+    cloudflared = { };
   };
   manifest = pkgs.runCommand "nagare-release-images-manifest"
     { nativeBuildInputs = [ pkgs.jq ]; } ''

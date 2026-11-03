@@ -55,6 +55,7 @@ import Nagare.Target
   , validateNixCacheMode
   , validateVmShape
   )
+import Nagare.Target.Kinds (directIngressNotice)
 import Nagare.Test.Support.Profiles (initProfile)
 import System.Exit (ExitCode (ExitFailure))
 import System.FilePath ((</>))
@@ -248,6 +249,10 @@ initTests =
         validateIngressMode (initProfile & #mode .~ Local) @?= Right ()
         -- A direct stack's projection is unchanged, so its preview is too (D2).
         lookup "nagare:ingress" (seedKeys initProfile) @?= Nothing
+        assertBool "a direct cloud context hears once" (isJust (directIngressNotice Cloud IngressDirect Nothing))
+        directIngressNotice Cloud IngressDirect (Just "off") @?= Nothing
+        directIngressNotice Local IngressDirect Nothing @?= Nothing
+        directIngressNotice Cloud IngressCloudflareTunnel Nothing @?= Nothing
         lookup "nagare:ingress" (seedKeys tunnel) @?= Just "cloudflare-tunnel"
         let parsed = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_INGRESS=cloudflare-tunnel\n")
         parsed ^. #ingress @?= IngressCloudflareTunnel
@@ -506,6 +511,7 @@ defaultInitOpts =
     , pulumiBackendMember = Nothing
     , acmeEmail = Nothing
     , acmeDirectory = Nothing
+    , ingress = Nothing
     , force = False
     , skipPreflight = False
     , skipEnable = False

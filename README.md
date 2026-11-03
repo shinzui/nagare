@@ -64,7 +64,7 @@ See [Deploying an app](#deploying-an-app) below for the publication workflow.
 | **Host** | [NixOS](https://nixos.org/) — users, SSH, firewall, disks, Tailscale, sops-nix, backups |
 | **Cluster** | [k3s](https://k3s.io/) (Traefik disabled; built-in ServiceLB kept for Kourier) |
 | **Apps** | Knative Serving web services, static/full-stack sites, workers, scheduled tasks |
-| **Ingress** | [Kourier](https://github.com/knative-extensions/net-kourier) / Envoy |
+| **Ingress** | [Kourier](https://github.com/knative-extensions/net-kourier) / Envoy, through a [Cloudflare Tunnel with no inbound web ports](docs/user/choosing-ingress.md) (recommended for a new context) or direct |
 | **TLS** | cert-manager + Let's Encrypt (wildcard via DNS-01) |
 | **Observability** | [VictoriaMetrics](https://victoriametrics.com/), VictoriaLogs, VictoriaTraces, OpenTelemetry Collector |
 | **Dashboards** | [Grafana](https://grafana.com/) |

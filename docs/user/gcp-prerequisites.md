@@ -136,6 +136,9 @@ gcloud services enable compute.googleapis.com dns.googleapis.com storage.googlea
 
 ## 5. Register and delegate a domain to Cloud DNS
 
+Skip this section for a [Cloudflare Tunnel](cloudflare-tunnel.md) context: add your domain to Cloudflare and set its name servers instead.
+Before the name server change, remove any DS record at your registrar, and turn DNSSEC on at Cloudflare afterwards.
+
 Nagare serves apps under a wildcard `*.<baseDomain>` (the example base domain is
 `apps.example.com`). You bring a domain you own. During provisioning Pulumi creates the
 Cloud DNS **managed zone** and the wildcard A record; you then perform **DNS delegation**:

@@ -23,6 +23,7 @@
       release-image-shomei = nagarePackages.releaseImages.layouts.shomei;
       release-image-access = nagarePackages.releaseImages.layouts.nagare-access;
       release-image-admin-api = nagarePackages.releaseImages.layouts.nagare-admin-api;
+      release-image-cloudflared = nagarePackages.releaseImages.layouts.cloudflared;
       release-images-manifest = nagarePackages.releaseImages.manifest;
       release-images-check = nagarePackages.releaseImages.check;
     };

@@ -65,8 +65,12 @@ you can observe.
   `prod`, `labs`, and `local` isolation. ✅
 - [GCP prerequisites](gcp-prerequisites.md) — gcloud auth + ADC, operator IAM
   roles, project + billing, service-API enablement, DNS delegation. ✅
+- [Choosing how a context receives traffic](choosing-ingress.md) — the recommended
+  Cloudflare Tunnel, what it trades away, and when to stay on direct ingress. 🟡
+- [Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md) — the
+  recommended path for a new context, with no inbound web ports. 🟡
 - [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) — the
-  single ordered zero-to-running runbook centered on `nagarectl init`. ✅
+  zero-to-running runbook for direct ingress. ✅
 - [Local development](local-development.md) — run Nagare on your laptop with k3d,
   a local registry, HTTP loopback domains, and MinIO backups. 🟢
 

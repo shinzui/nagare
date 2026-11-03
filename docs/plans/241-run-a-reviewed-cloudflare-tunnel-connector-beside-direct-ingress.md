@@ -73,8 +73,8 @@ change at all.
 
 ## Decision Log
 
-- Decision: The connector image is pinned by digest from Docker Hub for now, so D4 stays open on "pulled from the context's Artifact Registry".
-  Rationale: release images are built from Nix and published per release; mirroring a third-party image needs its own transport, and the operator asked for a usable path first.
+- Decision: The connector is a release image, built from nixpkgs and published into the context's own registry only when the context is on the tunnel. A release before v0.16.0 names no connector and stays readable.
+  Rationale: a context then pulls nothing from Docker Hub, and an existing release image path covers publication, overrides and `platform status`.
   Date: 2026-11-03
 
 - Decision: Typed inventory resources from the start, not a setup command.

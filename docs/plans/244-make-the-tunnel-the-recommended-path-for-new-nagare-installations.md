@@ -36,16 +36,16 @@ can choose direct ingress instead without friction. Someone with a running direc
   with no Cloud DNS delegation step. It says to turn on two-factor authentication at Cloudflare and the registrar, to remove any DS
   record before the name server change and turn DNSSEC on at Cloudflare after, and to create the API token with exactly the
   permissions EP-240 lists, in an account that holds nothing else. Direct ingress is a clearly labelled alternative.
-- [ ] D2: A new page in `docs/user` states the recommendation and when not to follow it, covering cost ($0 with the domain as base, $10 a month
+- [x] D2 ([choosing-ingress.md](../user/choosing-ingress.md); `just user-documentation-validate`): A new page in `docs/user` states the recommendation and when not to follow it, covering cost ($0 with the domain as base, $10 a month
   with a subdomain base), Cloudflare decrypting traffic, the Cloudflare account and registrar as roots of trust, the tunnel token as an
   interception credential and when to rotate it, the absence of edge request logs on Free and Pro, the edge policy Nagare sets, the
   upload and timeout limits, and the alternatives from RES-7. `just user-documentation-validate` passes.
-- [ ] D3: On a terminal, `nagarectl init` asks how the context receives traffic and preselects the tunnel, naming the trade-off in one line. It
+- [x] D3 (`resolveInitIngress`; an existing context keeps what it has): On a terminal, `nagarectl init` asks how the context receives traffic and preselects the tunnel, naming the trade-off in one line. It
   accepts `--ingress direct|cloudflare-tunnel`. A non-interactive run without the flag stays `direct` and prints one line pointing at the page.
   Tests cover each case.
-- [ ] D4: `nagarectl platform status` and `nagarectl doctor` on a `direct` cloud context show one informational line: web ports are open to the
+- [x] D4 (`directIngressNotice`, tested in `Nagare.Test.Init`; silenced by `NAGARE_INGRESS_NOTICE=off` in the context file): `nagarectl platform status` and `nagarectl doctor` on a `direct` cloud context show one informational line: web ports are open to the
   internet, with the page to read. It never changes the exit code, makes no network call, and can be silenced per context.
-- [ ] D5: `README.md`'s ingress description, `docs/user/gcp-prerequisites.md` and the `docs/user` index reflect the recommendation.
+- [x] D5 (README, `gcp-prerequisites.md`, both indexes): `README.md`'s ingress description, `docs/user/gcp-prerequisites.md` and the `docs/user` index reflect the recommendation.
 - [ ] D6: Following the onboarding page alone on a fresh disposable project ends with a deployed protected site, working login, an outside port
   check finding nothing open, and a host listening on no web port. Each place the page was wrong is fixed in the page.
 

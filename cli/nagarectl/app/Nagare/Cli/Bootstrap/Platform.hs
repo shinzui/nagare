@@ -39,7 +39,6 @@ import Nagare.Inventory.Components.CloudflareTunnel
   ( CloudflareTunnelInput (..)
   , cloudflareTunnelTokenSecretFile
   , compileCloudflareTunnel
-  , connectorImage
   )
 import Nagare.Inventory.Components.ControllerImage
   ( compileControllerImage
@@ -258,7 +257,7 @@ buildPlatformCandidate active paths workspace snapshot = do
       (dieT . T.pack . show)
       pure
       ( traverse
-          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled]))
+          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled] <> [CloudflaredImage | profile ^. #ingress == IngressCloudflareTunnel]))
           (manifest ^. #releaseImages)
       )
   let releaseImagePublications = maybe Map.empty snd releaseImages
@@ -385,7 +384,14 @@ buildPlatformCandidate active paths workspace snapshot = do
   let (adminApiScopes, adminApiNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) adminApi
   tunnel <-
     if profile ^. #ingress == IngressCloudflareTunnel
-      then Just <$> compilePlatformCloudflareTunnel active root foundation
+      then
+        Just
+          <$> compilePlatformCloudflareTunnel
+            active
+            (manifest ^. #releaseImages)
+            (Map.lookup CloudflaredImage releaseImagePublications)
+            root
+            foundation
       else pure Nothing
   let (tunnelScopes, tunnelNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) tunnel
       nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative, adminApiNative, tunnelNative]
@@ -566,10 +572,13 @@ contextImageRegistry profile
 -- the store its substrate mounts.
 compilePlatformCloudflareTunnel ::
   ActiveTarget ->
+  Maybe ReleaseImages ->
+  Maybe Resource.ResourceId ->
   FilePath ->
   FoundationInput ->
   IO (ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, BC.ByteString))
-compilePlatformCloudflareTunnel active root foundation = do
+compilePlatformCloudflareTunnel active releaseImages publication root foundation = do
+  image <- selectImage (contextImageRegistry (active ^. #profile)) releaseImages CloudflaredImage >>= either (dieT . renderImageSelectionError) pure
   token <-
     loadContextSecretObject root (contextNameText (active ^. #contextName)) "Cloudflare tunnel token" cloudflareTunnelTokenSecretFile
       >>= either (\reason -> dieT (reason <> "\nrun `nagarectl tunnel token` to save it, then plan again")) pure
@@ -577,7 +586,8 @@ compilePlatformCloudflareTunnel active root foundation = do
     CloudflareTunnelInput
       { root = root
       , foundation = foundation
-      , image = connectorImage
+      , image = image
+      , imagePublication = publication
       , tokenSecret = token
       }
     >>= either (dieT . T.pack . show) pure

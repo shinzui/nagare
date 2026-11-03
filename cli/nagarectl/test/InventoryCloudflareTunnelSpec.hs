@@ -18,6 +18,7 @@ import Nagare.Inventory.Components.CloudflareTunnel
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.ProtectedRoute (protectedHosts)
 import Nagare.Ops.CloudflareTunnel
+import Nagare.Platform.ReleaseImages (ImageSelection (..), ImageSource (ReleaseSource))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
 import Nagare.Resource.Policy (Sensitivity (Secret))
@@ -47,7 +48,7 @@ inventoryCloudflareTunnelTests =
         field ["securityContext", "readOnlyRootFilesystem"] container @?= Bool True
         field ["securityContext", "allowPrivilegeEscalation"] container @?= Bool False
         field ["securityContext", "capabilities", "drop"] container @?= toJSONList ["ALL"]
-        field ["image"] container @?= String connectorImage
+        field ["image"] container @?= String fixtureImage
         field ["readinessProbe", "httpGet", "path"] container @?= String "/ready"
         assertBool "bounded memory" (field ["resources", "limits", "memory"] container /= Null)
         member <- memberOf "deployment" native
@@ -130,7 +131,7 @@ inventoryCloudflareTunnelTests =
     , testCase "a misfiled token and a mutable image refuse at planning" $ do
         expectRefused (compileWith (secretWith "other" "value"))
         expectRefused (compileInput (fixtureInput (fixtureLocation, renamedSecret)))
-        expectRefused (compileInput ((fixtureInput fixtureSecret) & #image .~ "docker.io/cloudflare/cloudflared:latest"))
+        expectRefused (compileInput ((fixtureInput fixtureSecret) & #image . #selected .~ "docker.io/cloudflare/cloudflared:latest"))
     ]
 
 compileInput :: CloudflareTunnelInput -> IO (Either NonEmpty' (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString)))
@@ -152,9 +153,13 @@ fixtureInput secret =
   CloudflareTunnelInput
     { root = "../.."
     , foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster "cluster/bootstrap/job-runs/resourcequota.yaml" []
-    , image = connectorImage
+    , image = ImageSelection (Just fixtureImage) fixtureImage ReleaseSource
+    , imagePublication = Nothing
     , tokenSecret = secret
     }
+
+fixtureImage :: Text
+fixtureImage = "us-west1-docker.pkg.dev/project/nagare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba"
 
 fixtureCluster :: ResourceId
 fixtureCluster =

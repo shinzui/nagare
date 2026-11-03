@@ -23,6 +23,10 @@ page and the pages it links. Commands use the placeholders `CURRENT_RELEASE_TAG`
 For new setups, put those values in a named [target context](contexts.md), such as `prod` or
 `labs`.
 
+**This page describes direct ingress.** For a new context we recommend a Cloudflare Tunnel, which opens no web port and needs no
+Cloud DNS delegation. Read [Choosing how a context receives traffic](choosing-ingress.md), then follow
+[Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md) instead of this page.
+
 **Before you begin:**
 
 1. The GCP-side setup from [GCP prerequisites](gcp-prerequisites.md) is done.

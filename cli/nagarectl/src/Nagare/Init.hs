@@ -102,6 +102,7 @@ data InitOpts = InitOpts
   , pulumiBackendMember :: !(Maybe String)
   , acmeEmail :: !(Maybe String)
   , acmeDirectory :: !(Maybe String)
+  , ingress :: !(Maybe String)
   , force :: !Bool
   , skipPreflight :: !Bool
   , skipEnable :: !Bool
@@ -135,6 +136,7 @@ initFlagPairs o =
     , pair "NAGARE_INVENTORY_STORE" (o ^. #inventoryStore)
     , pair "NAGARE_INVENTORY_STORE_URL" (o ^. #inventoryStoreUrl)
     , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)
+    , pair "NAGARE_INGRESS" (o ^. #ingress)
     , pair "NAGARE_ACME_DIRECTORY" (o ^. #acmeDirectory)
     ]
   where

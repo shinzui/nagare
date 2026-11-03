@@ -33,7 +33,7 @@ import Nagare.Cli.Runtime.CloudTeardown (saveReviewedCloudTeardown)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Cli.Runtime.ImageCleanup (saveReviewedImageCleanup)
-import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
+import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus, ingressNoticeFor)
 import Nagare.Cli.Runtime.PreviewCleanup (saveReviewedPreviewCleanup)
 import Nagare.Cli.Runtime.Process (runExternal)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
@@ -92,6 +92,7 @@ runDoctor mctx o = do
   (_, versionStatus) <- gatherPlatformStatus mctx
   let checks = gradeChecksAt (workspace ^. #root) (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp (probes <> recoveryPoints <> [platformProbe versionStatus])
   TIO.putStr (formatDoctor checks)
+  activeTarget mctx >>= ingressNoticeFor >>= mapM_ TIO.putStrLn
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
 
 runInfra :: Maybe String -> InfraCommand -> IO ()

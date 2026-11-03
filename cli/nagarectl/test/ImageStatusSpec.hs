@@ -28,7 +28,7 @@ imageStatusTests =
     "release image status"
     [ testCase "ready replicas of every workload on this release's images are exact" $ do
         let statuses = assess True (current (release 'b'))
-        map (^. #classification) statuses @?= replicate 4 ImageRelease
+        map (^. #classification) statuses @?= replicate (length releaseImageKeys) ImageRelease
         withImageAssessment (Just (release 'b')) statuses exact ^. #compatibility @?= Exact
     , testCase "a previous release's live digest is skew although every version marker agrees" $ do
         let observed = Map.insert ShomeiImage (Right (Just (seenAs ShomeiImage 'a' "release" 'a' ['a']))) (current (release 'b'))
@@ -81,7 +81,7 @@ imageStatusTests =
         let stale = assess True (Map.insert EnImage (Right (Just (seenAs EnImage 'a' "release" 'a' ['a']))) (current (release 'b')))
             patch = assessPlatformStatus identity identity (ReleaseIdentity (Just "1.2.4") Nothing Nothing) identity Deployed identity Deployed
         withImageAssessment (Just (release 'b')) stale patch ^. #compatibility @?= PatchSkew
-        let legacy = assessWorkloadImages True Nothing (current (release 'b'))
+        let legacy = assessWorkloadImages (const True) Nothing (current (release 'b'))
         withImageAssessment Nothing legacy exact ^. #compatibility @?= Exact
     , testCase "kubectl lists decode into workload observations by exact container and ready replica" $ do
         let observations = observeWorkloads (Right deploymentsJson) (Right servicesJson) (Right podsJson)
@@ -90,7 +90,7 @@ imageStatusTests =
         Map.lookup AccessImage observations
           @?= Just (Right (Just (WorkloadObservation (ref AccessImage 'b') (Just "override") Nothing ["docker-pullable://" <> imageId AccessImage 'b'])))
         Map.lookup AdminApiImage observations @?= Just (Right Nothing)
-        classificationOf AccessImage (assessWorkloadImages True (Just (release 'b')) observations) @?= ImageRelease
+        classificationOf AccessImage (assessWorkloadImages (const True) (Just (release 'b')) observations) @?= ImageRelease
         case Map.lookup ShomeiImage (observeWorkloads (Left "forbidden") (Right servicesJson) (Right podsJson)) of
           Just (Left _) -> pure ()
           other -> assertFailure ("an unreadable Deployment list was " <> show other)
@@ -169,7 +169,7 @@ current images =
     ]
 
 assess :: Bool -> Map.Map ReleaseImageKey (Either Text (Maybe WorkloadObservation)) -> [WorkloadImageStatus]
-assess adminEnabled = assessWorkloadImages adminEnabled (Just (release 'b'))
+assess adminEnabled = assessWorkloadImages (\key -> key /= AdminApiImage || adminEnabled) (Just (release 'b'))
 
 classificationOf :: ReleaseImageKey -> [WorkloadImageStatus] -> ImageClassification
 classificationOf key statuses = case [value ^. #classification | value <- statuses, value ^. #workload == releaseImageKeyText key] of

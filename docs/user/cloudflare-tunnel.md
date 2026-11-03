@@ -33,8 +33,9 @@ has the design and threat model.
 
 ## Before you begin
 
-- A domain whose name servers point at Cloudflare. The base domain must be the zone itself: the free certificate covers
-  the apex and one label below it.
+- A domain whose name servers point at Cloudflare. Remove any DS record at your registrar before the change, and turn DNSSEC on at
+  Cloudflare after it. The base domain must be the zone itself: the free certificate covers the apex and one label below it.
+- Two-factor authentication on your Cloudflare account and registrar. Use an account that holds nothing else.
 - A Cloudflare API token scoped to that account and zone with exactly Cloudflare Tunnel Edit, DNS Edit, Zone Settings Edit
   and Cache Rules Edit.
 - Everything in [GCP prerequisites](gcp-prerequisites.md), and a `builder` key your user can read, named in the context

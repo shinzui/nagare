@@ -16,6 +16,7 @@ module Nagare.Target.Kinds
   , ingressModeToken
   , checkIngressMode
   , hostShapeFor
+  , directIngressNotice
   )
 where
 
@@ -95,6 +96,14 @@ parseIngressMode raw = case raw of
   Just "direct" -> Right IngressDirect
   Just "cloudflare-tunnel" -> Right IngressCloudflareTunnel
   Just other -> Left ("NAGARE_INGRESS must be direct or cloudflare-tunnel, not " <> pack other)
+
+-- | One informational line on a direct cloud context (EP-244). @NAGARE_INGRESS_NOTICE=off@ in the context
+-- silences it; it is never a check, so it makes no call and changes no exit code.
+directIngressNotice :: Mode -> IngressMode -> Maybe Text -> Maybe Text
+directIngressNotice Cloud IngressDirect setting
+  | setting /= Just "off" =
+      Just "Note: this context's web ports are open to the internet. docs/user/choosing-ingress.md explains the alternative."
+directIngressNotice _ _ _ = Nothing
 
 hostShapeFor :: IngressMode -> HostShape
 hostShapeFor IngressDirect = NestedHosts
