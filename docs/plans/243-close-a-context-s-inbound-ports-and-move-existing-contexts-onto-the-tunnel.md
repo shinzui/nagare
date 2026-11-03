@@ -126,6 +126,17 @@ Add the Pulumi variants first, proven in parity tests. Build the move and rollba
 context with a continuous request loop. Prove a new context, the operator paths and the upgrade path there too.
 
 
+Bounded sequence for D7, the first native run of a new tunnel context (2026-11-03). Disposable context `ep243` in `tan-nb-exp`, base domain `topagentnetworklabs.com`, from the packaged build of
+the landed revision, in its own XDG root with its names overridden as in EP-240. Each step stops the run at the result named, and any guard refusal stops it too.
+
+1. Preflight, no mutation: gate record green, no `ep243` resource exists, the zone holds no tunnel, record or cache rule. Stop if anything exists.
+2. `context create --ingress cloudflare-tunnel`, then stages through the perimeter. Stop if the review or Pulumi preview holds an update, replace or delete, or declares a firewall rule other than `fw-iap-ssh` or any Cloud DNS member.
+3. Image, VM, host. Stop if `nagare-01`, a `cell-*` VM or another image changes. Sign exactly the new node's key if Tailnet Lock locks it out.
+4. The zone stage. Stop if a member is planned outside this zone or the base domain is refused.
+5. `nagarectl tunnel token`, then platform stages until a review has no operations. Stop if the token reaches a log or plan, or an apply stays ambiguous.
+6. Observe: a protected site on its flattened default name through a real browser login without the form workaround; `nagarectl tunnel status` and `doctor` green; anonymous fetch of a protected `.pdf` and `.js` gets `302` and never `HIT`; a browser-like request gets no analytics beacon; from outside, TCP 80 and 443 closed; `firewall-rules list` shows only `fw-iap-ssh`; `ss -ltn` on the host shows no 80 or 443.
+7. Teardown as EP-240 did it, recording F137, and check the same list of leftovers. The zone and its edge settings stay.
+
 ## Validation and Acceptance
 
 Per Haskell commit run `just haskell-style-check`, then `just gate-fast`. Land with `just land`. The outside port check must run from a
