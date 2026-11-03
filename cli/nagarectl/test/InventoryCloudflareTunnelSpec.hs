@@ -141,7 +141,7 @@ inventoryCloudflareTunnelTests =
         (_, native) <- compileWith fixtureSecret >>= expectRight
         forM_ (Map.elems native) $ \(_, bytes) ->
           case decodeStrict bytes of
-            Just value -> assertBool "an empty list is dropped by the API server" (not (hasEmptyList value))
+            Just value -> assertBool "a field the API server drops" (not (statesDropped value))
             Nothing -> assertFailure "a rendered object is not JSON"
     , testCase "a misfiled token and a mutable image refuse at planning" $ do
         expectRefused (compileWith (secretWith "other" "value"))
@@ -258,8 +258,9 @@ headOf value = case arrayOf value of
 toJSONList :: [Text] -> Value
 toJSONList = Array . foldMap (pure . String)
 
-hasEmptyList :: Value -> Bool
-hasEmptyList = \case
-  Array values -> null values || any hasEmptyList values
-  Object fields -> any hasEmptyList fields
+-- | An empty list, and write-only stringData, never read back.
+statesDropped :: Value -> Bool
+statesDropped = \case
+  Array values -> null values || any statesDropped values
+  Object fields -> KM.member "stringData" fields || any statesDropped fields
   _ -> False

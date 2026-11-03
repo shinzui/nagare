@@ -91,7 +91,8 @@ compileCloudflareTunnel input = case validated of
       checkTokenSecret (input ^. #tokenSecret)
       normalized <- normalizeSecretData (input ^. #tokenSecret)
       tokenBytes <- canonicalValue (snd normalized)
-      Right (digestText (contentDigest tokenBytes), input ^. #tokenSecret)
+      -- The API server turns stringData into data and never returns it, so only data can be proved.
+      Right (digestText (contentDigest tokenBytes), normalized)
 
     render tokenDigest bytes = do
       text <- first (const "the connector template is not UTF-8") (TE.decodeUtf8' bytes)
