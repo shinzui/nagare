@@ -3,6 +3,7 @@ module Nagare.Cli.Runtime.PlatformStatus
   ( gatherPlatformStatus
   , gatherPlatformStatusWithImages
   , ingressNoticeFor
+  , tunnelConnectorProbes
   )
 where
 
@@ -12,6 +13,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Cdn.Cloudflare (cfRequestWithStatus)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target
   ( activeTarget
@@ -20,7 +22,10 @@ import Nagare.Cli.Runtime.Target
 import Nagare.Contract.ReleaseImages (ReleaseImageKey (..))
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir)
-import Nagare.Ops.Probe (captureTool)
+import Nagare.Inventory.Components.CloudflareZone (cloudflareTunnelName)
+import Nagare.Ops.CloudflareTunnel (expectedConnectors, gradeTunnelConnectors, parseConnectors, parseTunnelId)
+import Nagare.Ops.Probe (Probe, captureTool)
+import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Platform.Deployment
   ( DeploymentState (..)
   , defaultDeploymentOps
@@ -42,10 +47,11 @@ import Nagare.Platform.Workspace
   ( readPayloadManifest
   , renderWorkspaceError
   )
-import Nagare.Target (ActiveTarget, IngressMode (IngressCloudflareTunnel), Mode (Cloud, Local), contextFilePath, readContextMap)
+import Nagare.Target (ActiveTarget, IngressMode (IngressCloudflareTunnel), Mode (Cloud, Local), contextFilePath, contextNameText, readContextMap)
 import Nagare.Target.Kinds (directIngressNotice)
 import Nagare.Version (currentBuildVersion)
 import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
 gatherPlatformStatus :: Maybe String -> IO (ActiveTarget, PlatformStatus)
@@ -93,6 +99,33 @@ ingressNoticeFor active = do
         (active ^. #profile . #ingress)
         (stored >>= Map.lookup "NAGARE_INGRESS_NOTICE")
     )
+
+-- | Doctor's look at Cloudflare's own listing, for a tunnel context only.
+tunnelConnectorProbes :: Maybe String -> IO [Probe]
+tunnelConnectorProbes mctx = do
+  active <- activeTarget mctx
+  if active ^. #profile . #ingress /= IngressCloudflareTunnel
+    then pure []
+    else do
+      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+      address <- stackOutput (workspace ^. #pulumiDir) "publicIp"
+      account <- lookupEnv "CF_ACCOUNT_ID"
+      apiToken <- lookupEnv "CF_API_TOKEN"
+      listing <- case (account, apiToken) of
+        (Just accountId, Just token)
+          | not (null accountId)
+          , not (null token) -> do
+              let request = cfRequestWithStatus (T.pack token)
+                  base = "/accounts/" <> T.pack accountId <> "/cfd_tunnel"
+                  name = cloudflareTunnelName (contextNameText (active ^. #contextName))
+              found <- request "GET" (base <> "?is_deleted=false&name=" <> name) Nothing
+              case found >>= uncurry (parseTunnelId name) of
+                Left reason -> pure (Just (Left reason))
+                Right tunnelId -> do
+                  listed <- request "GET" (base <> "/" <> tunnelId <> "/connections") Nothing
+                  pure (Just (listed >>= uncurry parseConnectors))
+        _ -> pure Nothing
+      pure [gradeTunnelConnectors expectedConnectors address listing]
 
 gatherPlatformStatusWithImages :: Maybe String -> IO (ActiveTarget, PlatformStatus)
 gatherPlatformStatusWithImages mctx = do

@@ -5,7 +5,6 @@
 -- Cloudflare sees. The API token stays in this process's environment.
 module Nagare.Cli.Commands.Tunnel
   ( runTunnel
-  , tunnelConnectorProbes
   )
 where
 
@@ -26,7 +25,6 @@ import Nagare.Inventory.Components.CloudflareTunnel (cloudflareTunnelTokenSecret
 import Nagare.Inventory.Components.CloudflareZone (cloudflareTunnelName)
 import Nagare.Inventory.Components.ObservabilitySecrets (contextSecretsDirectory)
 import Nagare.Ops.CloudflareTunnel
-import Nagare.Ops.Probe (Probe)
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Target
   ( ActiveTarget
@@ -40,10 +38,6 @@ import System.FilePath ((</>))
 import System.IO (IOMode (ReadMode), withBinaryFile)
 import System.Posix.Files (ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
 import System.Process (proc, readCreateProcessWithExitCode)
-
--- | The connector Deployment's replicas.
-expectedConnectors :: Int
-expectedConnectors = 2
 
 runTunnel :: Maybe String -> TunnelCommand -> IO ()
 runTunnel mctx command = do
@@ -105,33 +99,6 @@ runTunnel mctx command = do
       TIO.putStrLn ("Evicted " <> T.pack connector <> ".")
   where
     orDie = either dieT pure
-
--- | Doctor's look at Cloudflare's own listing, for a tunnel context only.
-tunnelConnectorProbes :: Maybe String -> IO [Probe]
-tunnelConnectorProbes mctx = do
-  active <- activeTarget mctx
-  if active ^. #profile . #ingress /= IngressCloudflareTunnel
-    then pure []
-    else do
-      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-      address <- stackOutput (workspace ^. #pulumiDir) "publicIp"
-      account <- lookupEnv "CF_ACCOUNT_ID"
-      apiToken <- lookupEnv "CF_API_TOKEN"
-      listing <- case (account, apiToken) of
-        (Just accountId, Just token)
-          | not (null accountId)
-          , not (null token) -> do
-              let request = cfRequestWithStatus (T.pack token)
-                  base = "/accounts/" <> T.pack accountId <> "/cfd_tunnel"
-                  name = cloudflareTunnelName (contextNameText (active ^. #contextName))
-              found <- request "GET" (base <> "?is_deleted=false&name=" <> name) Nothing
-              case found >>= uncurry (parseTunnelId name) of
-                Left reason -> pure (Just (Left reason))
-                Right tunnelId -> do
-                  listed <- request "GET" (base <> "/" <> tunnelId <> "/connections") Nothing
-                  pure (Just (listed >>= uncurry parseConnectors))
-        _ -> pure Nothing
-      pure [gradeTunnelConnectors expectedConnectors address listing]
 
 requiredEnv :: String -> IO T.Text
 requiredEnv name =

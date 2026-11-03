@@ -5,6 +5,7 @@
 module Nagare.Ops.CloudflareTunnel
   ( Connector (..)
   , connectorProblems
+  , expectedConnectors
   , gradeTunnelConnectors
   , parseConnectors
   , parseTunnelId
@@ -82,6 +83,10 @@ parseConnectors status bytes = do
             _ -> []
       Right (Connector identifier (maybe "" id (text "version" value)) (sort (nub origins)))
     connector _ = Left "a connector is not an object"
+
+-- | The connector Deployment's replicas.
+expectedConnectors :: Int
+expectedConnectors = 2
 
 -- | What should make an operator look: the wrong number of connectors, or any from another address,
 -- since a connector started anywhere with the token receives a share of every request.

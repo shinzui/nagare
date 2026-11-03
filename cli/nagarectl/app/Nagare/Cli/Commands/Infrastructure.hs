@@ -10,7 +10,6 @@ where
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Nagare.Cli.Commands.Tunnel (tunnelConnectorProbes)
 import Nagare.Cli.Data.ScheduledReceipts (scheduledRecoveryPointProbes)
 import Nagare.Cli.Inventory.Workflow
   ( runInventoryApply
@@ -34,7 +33,7 @@ import Nagare.Cli.Runtime.CloudTeardown (saveReviewedCloudTeardown)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Cli.Runtime.ImageCleanup (saveReviewedImageCleanup)
-import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus, ingressNoticeFor)
+import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus, ingressNoticeFor, tunnelConnectorProbes)
 import Nagare.Cli.Runtime.PreviewCleanup (saveReviewedPreviewCleanup)
 import Nagare.Cli.Runtime.Process (runExternal)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
