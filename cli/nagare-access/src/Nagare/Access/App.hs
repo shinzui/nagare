@@ -447,7 +447,12 @@ jsonResponseWithHeaders status headers body =
 
 loginFormResponse :: AccessServices -> Request -> IO Response
 loginFormResponse services req = do
-  csrf <- services ^. #newCsrfToken
+  -- F135: a browser's follow-up requests (a favicon redirected here while
+  -- anonymous) must not replace the token the open form already carries. The
+  -- @__Host-@ prefix means only this host can have set the cookie being reused.
+  csrf <- case cookieTextValue "__Host-nagare_csrf" (requestHeaders req) of
+    Just existing | Right _ <- csrfCookieHeader existing 600 -> pure existing
+    _ -> services ^. #newCsrfToken
   pure $
     case csrfCookieHeader csrf 600 of
       Left err ->
@@ -455,7 +460,7 @@ loginFormResponse services req = do
       Right csrfHeader ->
         responseLBS
           status200
-          [("Content-Type", "text/html; charset=utf-8"), csrfHeader]
+          [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store, no-transform"), csrfHeader]
           (LBS.fromStrict (TE.encodeUtf8 (loginFormHtml csrf returnDestination)))
   where
     returnDestination =

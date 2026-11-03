@@ -521,6 +521,25 @@ proxyTests =
           simpleBody res @?= "event: one\n\nevent: two\n\n"
           lookup "Content-Type" (simpleHeaders res) @?= Just "text/event-stream"
           lookup "Connection" (simpleHeaders res) @?= Nothing
+    , testCase "replaces Cache-Control on a proxied response only when configured (ADR 34)" $
+        testWithApplication (pure cacheableUpstreamApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          let user = AuthenticatedUser {subject = "user:alice"}
+              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend Nothing Nothing
+              proxyApp header req respond =
+                proxyForwarder manager user "tools.example.com" target req >>= respond . withProxiedCacheControl header
+          edge <- runSession (request (setPath defaultRequest "/report.pdf")) (proxyApp (Just "private, no-store, no-transform"))
+          simpleStatus edge @?= status200
+          simpleBody edge @?= "pdf"
+          filter ((== "Cache-Control") . fst) (simpleHeaders edge) @?= [("Cache-Control", "private, no-store, no-transform")]
+          direct <- runSession (request (setPath defaultRequest "/report.pdf")) (proxyApp Nothing)
+          lookup "Cache-Control" (simpleHeaders direct) @?= Just "public, max-age=600"
+    , testCase "parses the proxied Cache-Control and refuses a header injection" $ do
+        cfg <- assertRight (parseRuntimeConfig [("NAGARE_ACCESS_PROXIED_CACHE_CONTROL", " private, no-store, no-transform ")])
+        cfg ^. #proxiedCacheControl @?= Just "private, no-store, no-transform"
+        unset <- assertRight (parseRuntimeConfig [])
+        unset ^. #proxiedCacheControl @?= Nothing
+        assertBool "expected a refusal" (isLeft (parseRuntimeConfig [("NAGARE_ACCESS_PROXIED_CACHE_CONTROL", "x\r\nSet-Cookie: a=b")]))
     , testCase "strips forged session-control headers from protected upstreams" $
         testWithApplication (pure forgedSessionUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
@@ -827,6 +846,23 @@ appTests =
           @?= Just "__Host-nagare_csrf=csrf-token; Path=/; Max-Age=600; Secure; SameSite=Lax"
         assertBool "expected hidden csrf" (bodyContains "name=\"csrf\" value=\"csrf-token\"" res)
         assertBool "expected hidden rd" (bodyContains "name=\"rd\" value=\"/tools?tab=1\"" res)
+    , testCase "login form keeps the CSRF token a browser's open form already carries (F135)" $ do
+        -- A favicon fetch redirects here while anonymous; a new token would make the open form's stale.
+        res <-
+          runSession
+            (request (setPath defaultRequest "/_nagare/login?rd=%2Ffavicon.ico") {requestHeaders = [("Cookie", "__Host-nagare_csrf=open-form-token")]})
+            (appWithRuntime emptyBackendMap (testServices & #newCsrfToken .~ pure "fresh-token"))
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "__Host-nagare_csrf=open-form-token; Path=/; Max-Age=600; Secure; SameSite=Lax"
+        assertBool "expected the existing token in the form" (bodyContains "name=\"csrf\" value=\"open-form-token\"" res)
+        lookup "Cache-Control" (simpleHeaders res) @?= Just "no-store, no-transform"
+    , testCase "login form replaces a CSRF cookie it could not safely echo" $ do
+        res <-
+          runSession
+            (request (setPath defaultRequest "/_nagare/login") {requestHeaders = [("Cookie", "__Host-nagare_csrf=\"bad value\"")]})
+            (appWithRuntime emptyBackendMap (testServices & #newCsrfToken .~ pure "fresh-token"))
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "__Host-nagare_csrf=fresh-token; Path=/; Max-Age=600; Secure; SameSite=Lax"
     , testCase "login form rejects an unsafe return destination by falling back to root" $ do
         res <-
           runSession
@@ -1436,6 +1472,10 @@ appRef host =
 userRef :: Text -> EnTuple.ObjectRef
 userRef user =
   EnTuple.ObjectRef {EnTuple.objectType = EnRaw.ObjectType "user", EnTuple.objectId = user}
+
+cacheableUpstreamApp :: Wai.Application
+cacheableUpstreamApp _ respond =
+  respond (Wai.responseLBS status200 [("Content-Type", "application/pdf"), ("Cache-Control", "public, max-age=600")] "pdf")
 
 streamingUpstreamApp :: Wai.Application
 streamingUpstreamApp _req respond =

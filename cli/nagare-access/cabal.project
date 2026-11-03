@@ -6,6 +6,8 @@
 write-ghc-environment-files: always
 
 constraints:
+  -- smtp-mail 0.5.0.1 (through shomei) does not compile against newer network: getHostName is ambiguous.
+  network <3.2.8,
   time ==1.14,
   crypton >=1.1,
   crypton-x509-validation >=1.9.1,

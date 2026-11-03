@@ -9,6 +9,7 @@ module Nagare.Access.Proxy
   , proxyForwarder
   , proxyResponseToWai
   , stripEnforcerCookies
+  , withProxiedCacheControl
   )
 where
 
@@ -239,6 +240,14 @@ buildPortalWebSocketRequest portal identity waiReq = do
           , HC.decompress = const False
           , HC.redirectCount = 0
           }
+
+-- | Replace @Cache-Control@ on a proxied response, whatever the upstream sent
+-- (ADR 34: an edge must neither store a protected response nor rewrite it).
+-- 'Nothing' leaves the response as the upstream sent it.
+withProxiedCacheControl :: Maybe BS.ByteString -> Wai.Response -> Wai.Response
+withProxiedCacheControl Nothing = id
+withProxiedCacheControl (Just value) =
+  Wai.mapResponseHeaders (\headers -> ("Cache-Control", value) : filter ((/= "Cache-Control") . fst) headers)
 
 proxyResponseToWai :: HC.Response HC.BodyReader -> Wai.Response
 proxyResponseToWai response =

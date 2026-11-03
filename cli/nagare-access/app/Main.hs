@@ -4,13 +4,15 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (IOException, try)
 import Control.Monad (forever, when)
 import Data.ByteString qualified as BS
+import Data.Functor ((<&>))
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TE
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import GHC.Clock (getMonotonicTime)
 import Nagare.Access.App (appWithBackends, appWithRuntime)
-import Nagare.Access.Auth (AccessServices (..))
+import Nagare.Access.Auth (AccessServices (..), PortalUpstreamResult (..))
 import Nagare.Access.BackendMap (BackendMap, emptyBackendMap)
 import Nagare.Access.BackendSource (BackendSource, RefreshResult (..), liveApplication, newBackendSource, refreshBackends)
 import Nagare.Access.Config (AuthPlaneConfig (..), RuntimeConfig (..), listenPort, parseRuntimeConfig)
@@ -19,7 +21,7 @@ import Nagare.Access.DecisionCache (newDecisionCache)
 import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Prelude
-import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder)
+import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder, withProxiedCacheControl)
 import Nagare.Access.RefreshCoalescer (coalesceRefresh, defaultRefreshReuseSeconds, newRefreshCoalescer)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
 import Nagare.Access.ShomeiClient (completeMfaWithShomei, loginWithShomei, logoutWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
@@ -89,16 +91,20 @@ buildAccessServices runtime cfg = do
   shomeiLoginEnv <- shomeiLoginEnvFromAuthPlane cfg
   decisionCache <- newDecisionCache (runtime ^. #decisionTtlSeconds) currentSeconds
   refreshCoalescer <- newRefreshCoalescer defaultRefreshReuseSeconds currentSeconds
+  let edgeCacheControl = TE.encodeUtf8 <$> runtime ^. #proxiedCacheControl
   pure
     AccessServices
       { verifyCredential = verifyShomeiCredentialCached jwksCache cfg
       , authorizeUser = authorizeWithEn enEnv
-      , forwardAuthorized = proxyForwarder manager
+      , forwardAuthorized = \user host target req -> withProxiedCacheControl edgeCacheControl <$> proxyForwarder manager user host target req
       , loginUser = loginWithShomei shomeiLoginEnv
       , completeMfa = completeMfaWithShomei shomeiLoginEnv
       , refreshUserSession = coalesceRefresh refreshCoalescer (refreshWithShomei shomeiLoginEnv)
       , revokeSession = logoutWithShomei shomeiLoginEnv
-      , forwardPortal = portalForwarder manager
+      , forwardPortal = \portal identity req ->
+          portalForwarder manager portal identity req <&> \case
+            PortalPassThrough response -> PortalPassThrough (withProxiedCacheControl edgeCacheControl response)
+            other -> other
       , fetchPortalPage = portalPageFetcher manager
       , newCsrfToken = toText <$> nextRandom
       , decisionCache

@@ -38,6 +38,10 @@ data RuntimeConfig = RuntimeConfig
   , backendMapPath :: !(Maybe FilePath)
   , authPlaneConfig :: !(Maybe AuthPlaneConfig)
   , decisionTtlSeconds :: !Int
+  , proxiedCacheControl :: !(Maybe Text)
+  -- ^ @NAGARE_ACCESS_PROXIED_CACHE_CONTROL@: replaces @Cache-Control@ on every
+  -- proxied protected response. Set only when an edge sits in front of the
+  -- gateway (ADR 34); unset leaves upstream headers alone.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -71,16 +75,26 @@ parseRuntimeConfig env = do
   listen <- parseListen (envText "NAGARE_ACCESS_LISTEN")
   decisionTtlSeconds <- parseDecisionTtl (envText "NAGARE_ACCESS_DECISION_TTL")
   authPlaneConfig <- parseAuthPlane env
+  proxiedCacheControl <- parseHeaderValue "NAGARE_ACCESS_PROXIED_CACHE_CONTROL" (envText "NAGARE_ACCESS_PROXIED_CACHE_CONTROL")
   pure
     RuntimeConfig
       { listen
       , backendMapPath = envFilePath "NAGARE_ACCESS_BACKENDS"
       , authPlaneConfig
       , decisionTtlSeconds
+      , proxiedCacheControl
       }
   where
     envText name = maybe "" Text.pack (lookup name env)
     envFilePath name = nonEmptyString =<< lookup name env
+
+parseHeaderValue :: Text -> Text -> Either Text (Maybe Text)
+parseHeaderValue name raw
+  | Text.null trimmed = Right Nothing
+  | Text.any (`elem` ['\r', '\n']) trimmed = Left (name <> " must be one header value")
+  | otherwise = Right (Just trimmed)
+  where
+    trimmed = Text.strip raw
 
 splitHostPort :: Text -> Maybe (Text, Text)
 splitHostPort t =
