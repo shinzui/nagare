@@ -186,7 +186,7 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
 EP-240 is complete and passed on 2026-11-02; its topology and threat model are in
 [ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-242 is complete. A new context bootstraps
 through the reviewed path and serves a protected site with no web port, proved natively on `ep243` on 2026-11-03. v0.16.0 carries this.
-Left: EP-241 D2 and D7, EP-244 D6, and EP-243's move of an existing context.
+Left: EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed on master after v0.16.0.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
   working, an outside port check finding nothing open, and the host listening on no web port (EP-244).
@@ -208,6 +208,10 @@ Left: EP-241 D2 and D7, EP-244 D6, and EP-243's move of an existing context.
 
 
 ## Decision Log
+
+- Decision: The rebuild fixes (F142) and the backup image pin (F143) land now and ship in the next release, ahead of EP-244 D6.
+  Rationale: the drill showed a cloud context had no reviewed rebuild and that a node pulling the current image takes no backup. Both reach the intranet, and the operator's requirement is upgrades without data loss.
+  Date: 2026-11-03
 
 - Decision: v0.16.0 ships the tunnel for new contexts, and moving the intranet follows as its own work.
   Rationale: operator, 2026-11-03: "cut the release first, move the intranet later". EP-243's move is not needed to use the tunnel on a new context.
