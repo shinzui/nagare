@@ -73,6 +73,14 @@ case " $* " in
   *" compute instances describe "*) printf '%s\n' "${NAGARE_TEST_BUILDER_STATUS:-RUNNING}" ;;
   *" compute start-iap-tunnel "*) sleep 30 ;;
   *" compute images describe "*" --format=value(name) "*) exit 1 ;;
+  *" compute images describe "*" --format=value(description) "*)
+    case "${NAGARE_TEST_IMAGE_DESCRIBE:-}" in
+      published) printf '%s\n' 'nagare-content-digest=fixture' ;;
+      unstamped) printf '%s\n' 'an image Nagare did not register' ;;
+      denied) echo 'PERMISSION_DENIED' >&2; exit 1 ;;
+      *) echo 'The resource was not found' >&2; exit 1 ;;
+    esac
+    ;;
   *" compute images describe "*" --format=value(selfLink) "*)
     printf '%s\n' 'https://www.googleapis.com/compute/v1/projects/labs-project/global/images/nagare-image-fixture'
     ;;
@@ -164,6 +172,21 @@ if NAGARE_ARTIFACT_DESTINATION="$unavailable_path" NAGARE_ARTIFACT_EXPECTED_DIGE
   echo 'failed image inspection became confirmed absence' >&2; exit 1
 fi
 grep -q 'failed transport is not absence' "$work/unavailable.err"
+# A build output collected everywhere has still been built when its stamped image
+# exists, and that answer needs no builder. An unstamped image proves nothing, and
+# a failed read of the image is not absence.
+NAGARE_TEST_IMAGE_DESCRIBE=published NAGARE_ARTIFACT_DESTINATION="$unavailable_path" NAGARE_ARTIFACT_EXPECTED_DIGEST="$unavailable_digest" \
+  bash scripts/upload-images.sh --inspect-build > "$work/published.out"
+grep -Fqx "$(printf 'nagare-build\tpresent\t%s\t%s' "$unavailable_path" "$unavailable_digest")" "$work/published.out"
+if NAGARE_TEST_IMAGE_DESCRIBE=unstamped NAGARE_ARTIFACT_DESTINATION="$unavailable_path" NAGARE_ARTIFACT_EXPECTED_DIGEST="$unavailable_digest" \
+  bash scripts/upload-images.sh --inspect-build > "$work/unstamped.out" 2> "$work/unstamped.err"; then
+  echo 'an unstamped image proved a build output' >&2; exit 1
+fi
+if NAGARE_TEST_IMAGE_DESCRIBE=denied NAGARE_ARTIFACT_DESTINATION="$unavailable_path" NAGARE_ARTIFACT_EXPECTED_DIGEST="$unavailable_digest" \
+  bash scripts/upload-images.sh --inspect-build > "$work/denied.out" 2> "$work/denied.err"; then
+  echo 'a failed image read became an answer' >&2; exit 1
+fi
+grep -q 'failed transport is not absence' "$work/denied.err"
 grep -q -- '--read-only$' "$XDG_STATE_HOME/nagare/labs/nix-builder/ssh_config_read_only"
 grep -q -- '--no-update-lock-file' "$work/tools.log"
 if grep -Eq 'gsutil cp|compute images create' "$work/tools.log"; then

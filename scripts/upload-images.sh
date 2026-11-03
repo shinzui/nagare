@@ -197,9 +197,29 @@ check_reviewed_build() {
   printf '%s' "${digest}"
 }
 
+image_hash() { local b; b="$(basename "$1")"; b="${b%%-*}"; echo "${b:0:12}"; }
+
+# The image outlives the build cache. An output collected from this machine and
+# the builder has still been built when the stamped image registered from it exists.
+published_image_present() {
+  local path="$1" output
+  if ! output="$(gcloud --project="${PROJECT}" compute images describe "${OUTPUT}-$(image_hash "${path}")" --format='value(description)' 2>&1)"; then
+    grep -Eqi 'not found|was not found' <<<"${output}" && return 1
+    echo 'host image observation unavailable; failed transport is not absence' >&2
+    return 2
+  fi
+  grep -q '^nagare-content-digest=' <<<"${output}"
+}
+
 build_present() {
-  local path="$1" q result
+  local path="$1" q result published=0
   [ -d "${path}" ] && return 0
+  published_image_present "${path}" || published=$?
+  case "${published}" in
+    0) return 0 ;;
+    1) ;;
+    *) return "${published}" ;;
+  esac
   q="$(printf '%q' "${path}")"
   result="$(ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "if test -d ${q}; then printf present; else printf missing; fi")" || {
     echo 'host image observation unavailable; failed transport is not absence' >&2
@@ -274,8 +294,6 @@ build_image() {
   fi
   log "Build failed and is not on the builder; surfacing the nix error:"; cat "${NIX_BUILD_ERR}" >&2; return 1
 }
-
-image_hash() { local b; b="$(basename "$1")"; b="${b%%-*}"; echo "${b:0:12}"; }
 
 locate_tarball() {
   local store_path="$1" tarball
