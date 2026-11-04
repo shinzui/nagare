@@ -1,0 +1,60 @@
+# VM loss with app databases on the disposable context ep246, 2026-11-04. nagarectl built from 838e823f, which carries F145, F150 and F151 on top of v0.16.2 and is unreleased.
+# One manual step: stage 44 stopped on an ambiguous readiness result for a 2 MB CRD that was Established; inventory resume converged it (F153).
+15:34:47 seeding kept-153447
+Escrowed the scheduled-backup signing key for nagare-system/en-db at ~/.local/state/nagare/ep246/
+15:36:12 en-db backed up and escrowed
+Escrowed the scheduled-backup signing key for nagare-system/shomei-db at ~/.local/state/nagare/ep
+Escrowed Shomei's key-encryption key at ~/.local/state/nagare/ep246/run/config/nagare/cluster-sec
+15:36:47 shomei-db backed up and escrowed
+Escrowed the scheduled-backup signing key for personal/drill-pg at ~/.local/state/nagare/ep246/ru
+15:37:22 drill-pg backed up and escrowed
+Escrowed the scheduled-backup signing key for personal/drill-ch at ~/.local/state/nagare/ep246/ru
+15:37:58 drill-ch backed up and escrowed
+Escrowed the scheduled-backup signing key for personal/drill-app-pg at ~/.local/state/nagare/ep24
+Verified scheduled backup 056f5e5b-79dc-4560-b4c3-e89fb2654e6e of personal/drill-app-pg with the escrowed sign
+Escrowed the scheduled-backup signing key for personal/drill-app-ch at ~/.local/state/nagare/ep24
+Verified scheduled backup 3922594a-b1c3-4b9b-8c40-f4bf092ca4c8 of personal/drill-app-ch with the escrowed sign
+15:39:13 old device 100.78.188.107
+15:39:13 deleting the VM; the clock starts
+ep246-01 is gone from the stack
+16:43:29 old device gone after 64 min
+16:43:56 plan 43: 1 operations; changed scopes: 
+      1 CreateResource	PulumiExecutor
+converged tx-69b00d0d4111e366254c7647c484242fe70a8a2883c6ca3df14916a39712a96b
+16:45:08 VM reachable
+16:49:02 signed exactly ep246-nagare (nodekey:db7f4bd6…)
+16:49:58 host converged
+ep246-nagare   Ready   control-plane   4m54s   v1.35.9+k3s1
+Waiting for their server, so not in this rebuild: standalone:appdb-drill-app-ch, standalone:appdb-drill-app-pg. Run rebuild-decisions again once the server's rebuild has 
+Wrote 12 rebuild decisions to ~/.local/state/nagare/ep246/run/reviews/rb1.json; review them, then run inventory rebuild --input.
+16:50:19 applying the servers' rebuild
+16:56:41 en-db restored
+16:57:15 shomei-db restored
+16:57:48 drill-pg restored
+16:58:20 drill-ch restored
+STOP: apply 44 did not converge
+STOP: stage 44 failed
+STOP: the platform did not converge
+# --- after the resume
+17:03:50 resuming tx-582a693c475acda1c47b65efd433a1ef922bdc1aaee5b845ae3ac1fbf9f5a5f7
+17:05:33 stage 44 converged on resume 1
+17:06:42 plan 45: 0 operations; changed scopes: 
+17:06:42 converged at 45: a review with no operations
+logical databases started empty: 2
+17:07:51 app databases back, empty
+17:08:25 drill-app-pg restored
+17:08:59 drill-app-ch restored
+17:08:59 elapsed since VM deletion: 89 min
+17:08:59 pg: kept-153447 read through the runtime login
+17:09:00 ch: kept-153447 read through the runtime login
+17:09:02 both write
+17:09:19 nagare-appdb-drill-app-pg takes backups
+17:09:38 nagare-appdb-drill-app-ch takes backups
+17:09:58 nagare-dbbackup-drill-ch takes backups
+17:10:19 nagare-dbbackup-drill-pg takes backups
+17:10:39 nagare-dbbackup-en-db takes backups
+Kept the replaced database's escrow at ~/.local/state/nagare/ep246/run/config/nagare/cluster-secrets/ep246/
+Kept the replaced database's escrow at ~/.local/state/nagare/ep246/run/config/nagare/cluster-secrets/ep246/
+no operations
+17:10:57 tunnel: ok: only this context's connectors, and the declared rules
+17:10:57 PASS
