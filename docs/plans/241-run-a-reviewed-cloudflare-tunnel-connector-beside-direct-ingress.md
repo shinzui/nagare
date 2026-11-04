@@ -16,6 +16,12 @@ provenance:
       at: 2026-11-02T20:19:20Z
       mode: "update"
       note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      verdict: "approved"
+      note: "Every deliverable evidenced and the retrospective written; the registry still said In Progress, now Complete; the connector's metrics port is unreachable behind its own policy (EP-245 D6)"
 ---
 
 # Run a reviewed Cloudflare Tunnel connector beside direct ingress

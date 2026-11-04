@@ -16,6 +16,12 @@ provenance:
       at: 2026-11-02T20:19:20Z
       mode: "update"
       note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      verdict: "comments"
+      note: "D1-D5 evidenced; D6 should wait for EP-245 D1-D3 and check a bearer request with no User-Agent and a 304 through the edge"
 ---
 
 # Make the tunnel the recommended path for new Nagare installations

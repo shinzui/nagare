@@ -16,6 +16,17 @@ provenance:
       at: 2026-11-02T20:19:20Z
       mode: "update"
       note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      mode: "update"
+      note: "Outcomes & Retrospective written; the header and edge-policy follow-ups point at EP-245"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      verdict: "comments"
+      note: "D6 replaces the upstream Cache-Control and defeats the admin API's ETag revalidation and browser caching in tunnel mode; D11 declares nothing about Browser Integrity Check or HSTS; Outcomes was empty for a Complete plan"
 ---
 
 # Route a context's hostnames through its Cloudflare zone and check them
@@ -87,7 +98,13 @@ and login protection is never weakened by edge caching.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Flattened one-label names, the zone's records, edge policy and cache bypass, the enforcer's header on proxied protected
+responses, and `domains check` for the tunnel path ship in v0.16.0; a real browser signed in through the edge and an
+anonymous request never saw a cached protected byte. Two things move on: the review of 2026-11-04 found that D6's header
+replaces the upstream's `Cache-Control`, which breaks the admin API's `ETag` revalidation and browser caching of protected
+assets in tunnel mode, and that the edge policy says nothing about Browser Integrity Check or HSTS; both go to
+`docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md`. The Advanced Certificate
+Manager path (D3's subdomain base) was dropped by decision and stays unbuilt.
 
 
 ## Context and Orientation

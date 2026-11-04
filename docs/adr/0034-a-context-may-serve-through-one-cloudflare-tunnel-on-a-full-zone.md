@@ -18,7 +18,8 @@ related:
 
 Accepted, 2026-11-02, on the observations in
 [EP-240](../plans/240-prove-a-cloudflare-zone-and-tunnel-can-serve-a-context-with-no-inbound-ports.md). The prototype ran with the
-firewall still open. Closing the perimeter is proved by EP-243, and no product code implements this yet.
+firewall still open. Implemented for new contexts in v0.16.0 (EP-241, EP-242, EP-243 D1 and D7), which proved the closed perimeter
+on a disposable context on 2026-11-03. Amended 2026-11-04, below.
 
 ## Context
 
@@ -74,3 +75,26 @@ browser -> Cloudflare edge -> tunnel -> cloudflared pod -> external kourier Serv
 - Measured from one workstation, time to first byte excluding TLS setup was 85 ms at p50 through the tunnel against 73 ms direct.
 - Moving a context changes its default hostnames, and ADR 29 grants are per hostname, so a move carries its routes and grants.
 - Local-mode contexts, more than one tunnel per context, and per-site CDN stay out of scope.
+
+## Amendment — 2026-11-04: machine clients, caching validators and attribution
+
+A review of the shipped code against the API, performance and security found four gaps, decided here and implemented by
+[EP-245](../plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md).
+
+- **The header control tightens and never replaces.** The enforcer adds `private` and `no-transform` to a proxied protected
+  response, removes `public` and `s-maxage`, strips `Cloudflare-CDN-Cache-Control`, `CDN-Cache-Control` and `Surrogate-Control`,
+  which Cloudflare reads in preference to `Cache-Control`, and keeps everything else the upstream said: `no-cache`, `no-store`,
+  `max-age`, `immutable` and its validators. A response with no `Cache-Control` gets `private, no-store, no-transform`. Cloudflare
+  documents `private` as uncacheable on its own, so the two independent controls stand. Replacing the header had turned the admin
+  API's `private, no-cache` and strong `ETag` into `no-store`, so no client revalidated, and had emptied the browser cache of every
+  protected site on each visit.
+- **The edge never challenges a machine client.** Browser Integrity Check is off on the zone, Browser Cache TTL respects origin
+  headers, and Bot Fight Mode and Under Attack mode are never turned on, because a challenge is a hard failure for a bearer-token
+  client or a webhook sender and no rule can skip those two.
+- **HSTS is set at the edge:** six months, `includeSubDomains`, no preload. The zone holds nothing but the installation, so every
+  name under it serves HTTPS already.
+- **Attribution without edge logs.** In tunnel mode the enforcer's and the admin API's access lines carry `CF-Connecting-IP` and
+  `CF-Ray`. No access decision or throttle keys on them: Kourier's external Service is a `ClusterIP` any pod can reach with a forged
+  header.
+
+The first measured latency and load baseline through the edge is EP-245 D7; its numbers replace the single figure above when recorded.

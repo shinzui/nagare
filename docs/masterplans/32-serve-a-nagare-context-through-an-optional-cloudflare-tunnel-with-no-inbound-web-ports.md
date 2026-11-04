@@ -20,6 +20,17 @@ provenance:
       at: 2026-11-02T20:19:20Z
       mode: "update"
       note: "Security review: bound the connector in-cluster, two cache controls and edge policy, both Cloudflare credentials as interception credentials, hostnames and grants carried on a move, DNSSEC in the DNS step"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      mode: "update"
+      note: "EP-245 added for the review's findings; EP-241 marked Complete; header, edge policy and attribution decisions recorded; EP-244 D6 waits for EP-245 D1-D3"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      verdict: "changes-requested"
+      note: "API, performance and security review of the shipped code: the enforcer's header replacement kills the admin API's validators and browser caching, the edge policy leaves Browser Integrity Check on and sets no HSTS, CDN override headers are not stripped, no visitor attribution; EP-245 added"
 ---
 
 # Serve a Nagare context through an optional Cloudflare Tunnel with no inbound web ports
@@ -122,10 +133,11 @@ Relevant ADRs:
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 240 | Prove a Cloudflare zone and tunnel can serve a context with no inbound ports | docs/plans/240-prove-a-cloudflare-zone-and-tunnel-can-serve-a-context-with-no-inbound-ports.md | None | None | Complete |
-| 241 | Run a reviewed Cloudflare Tunnel connector beside direct ingress | docs/plans/241-run-a-reviewed-cloudflare-tunnel-connector-beside-direct-ingress.md | EP-240 | None | In Progress |
+| 241 | Run a reviewed Cloudflare Tunnel connector beside direct ingress | docs/plans/241-run-a-reviewed-cloudflare-tunnel-connector-beside-direct-ingress.md | EP-240 | None | Complete |
 | 242 | Route a context's hostnames through its Cloudflare zone and check them | docs/plans/242-route-a-context-s-hostnames-through-its-cloudflare-zone-and-check-them.md | EP-240 | EP-241 | Complete |
 | 243 | Close a context's inbound ports and move existing contexts onto the tunnel | docs/plans/243-close-a-context-s-inbound-ports-and-move-existing-contexts-onto-the-tunnel.md | EP-241, EP-242 | None | In Progress |
-| 244 | Make the tunnel the recommended path for new Nagare installations | docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md | EP-243 | None | In Progress |
+| 244 | Make the tunnel the recommended path for new Nagare installations | docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md | EP-243 | EP-245 D1–D3 | In Progress |
+| 245 | Make the tunnel's edge safe and fast for API clients and protected assets | docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md | EP-241, EP-242 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -135,6 +147,8 @@ Status values: Not Started, In Progress, Complete, Cancelled.
 EP-240 blocks everything, because a failed topology changes the design. EP-241 and EP-242 can then
 run in parallel. EP-243 needs both, because closing the firewall is safe only when the connector runs
 and every hostname has a route. EP-244 comes last, so that the recommendation rests on a proven path.
+EP-245 follows EP-241 and EP-242, whose shipped code it corrects, and runs beside EP-243; EP-244's final gate (D6)
+waits for EP-245 D1 to D3 so the onboarding run observes the final edge, not one that still challenges API clients.
 
 
 ## Integration Points
@@ -162,9 +176,15 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
   there can reach. EP-242 and EP-243 must not widen it.
 - **Edge policy and cache.** EP-242 owns them through the platform scope's zone claims from ADR 20's
   2026-09-25 amendment: Always Use HTTPS, minimum TLS 1.2, SSL mode strict, response-rewriting features
-  off, and one cache rule that bypasses the cache for every hostname. The enforcer's
-  `Cache-Control: private, no-store` on every proxied protected response is the second control, owned by
-  EP-242 in `cli/nagare-access`.
+  off, and one cache rule that bypasses the cache for every hostname. The enforcer's header on every
+  proxied protected response is the second control, in `cli/nagare-access`. EP-245 owns its final shape
+  (tighten, never replace: `private` and `no-transform` added, `public` and `s-maxage` removed, the CDN
+  override headers stripped, the upstream's validators and `max-age` kept) and the policy's additions:
+  Browser Integrity Check off, Browser Cache TTL respecting origin headers, and HSTS.
+- **API clients.** The admin API at `admin.<base>` (ADR 29, 2026-10-16 amendment), `nagared`'s signed
+  webhooks and any relying party reaching Shomei are machine clients on the same edge. They must never meet
+  a challenge, and the admin API's `ETag` revalidation must survive the enforcer. EP-245 owns both; EP-244's
+  onboarding gate checks them with a bearer request carrying no `User-Agent`.
 - **Hostnames on a move.** Flattening changes every default hostname of an existing context, and ADR 29
   grants are per hostname. EP-242 defines the shape; EP-243's move re-declares protected routes and their
   grants for the new names, or keeps the old names with Advanced Certificate Manager when the operator
@@ -172,7 +192,9 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
 - **Visitor address.** Shomei and the gateway key on the socket peer, which behind Kourier is already a
   proxy address, and Kourier keeps `trusted-hops-count: "0"`. No plan raises it, because a direct client
   could then forge `X-Forwarded-For` while both paths are open during a move. Anything new that records a
-  visitor address in tunnel mode reads `CF-Connecting-IP`, and only once the perimeter is closed (EP-241).
+  visitor address in tunnel mode reads `CF-Connecting-IP`, and only once the perimeter is closed. EP-245 reads
+  it, with `CF-Ray`, for the access lines of the enforcer and the admin API only; no decision or throttle keys
+  on it, because any pod can reach Kourier's `ClusterIP` with a forged header.
 - **Representative check.** EP-240 is the producer/consumer check: a real browser login through a real
   tunnel to a protected site on a disposable context.
 - **ADRs.** EP-240 writes the new ADR for the topology when accepted and amends ADR 20. The new ADR
@@ -186,10 +208,13 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
 EP-240 is complete and passed on 2026-11-02; its topology and threat model are in
 [ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-242 is complete. A new context bootstraps
 through the reviewed path and serves a protected site with no web port, proved natively on `ep243` on 2026-11-03. v0.16.0 carries this.
-Left: EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed in v0.16.1. A restore from real backups on `ep245` found F144, F146 and F147 and passed with no hand fixes on 2026-11-04, in v0.16.2 ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)). `ep245` showed D6's site, login, closed ports and no web listener, but was driven by scripts, so "from the onboarding page alone" stays unproved and D6 stays open.
+EP-241 is complete. Left: EP-245, EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed in v0.16.1. A restore from real backups on `ep245` found F144, F146 and F147 and passed with no hand fixes on 2026-11-04, in v0.16.2 ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)). `ep245` showed D6's site, login, closed ports and no web listener, but was driven by scripts, so "from the onboarding page alone" stays unproved and D6 stays open. The review of 2026-11-04 (API, performance, security) found the shipped edge wrong for machine clients and protected assets; EP-245 holds the fixes and the first measured baseline, and EP-244 D6 waits for its D1 to D3. EP-243 D8, the operator paths with no inbound ports, needs no move and can run on a new context now.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
   working, an outside port check finding nothing open, and the host listening on no web port (EP-244).
+- [ ] Gate: through the edge, a bearer request with no `User-Agent` to the admin API answers 200 and a
+  matching `If-None-Match` answers 304; an anonymous request never receives cached protected bytes, with the
+  tightened header and a `Cloudflare-CDN-Cache-Control` response from the upstream (EP-245).
 
 
 ## Surprises & Discoveries
@@ -205,9 +230,49 @@ Left: EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild d
   proxied ones (`cli/nagare-access/src/Nagare/Access/Cookie.hs`, `Portal.hs`, `Response.hs`); nothing in the
   repository sends HSTS; Shomei keys login attempts and throttling on the socket peer; `nagared` checks an
   HMAC signature and no source address. These changed EP-240 to EP-244 and the Decision Log below.
+- 2026-11-04, review of the shipped code for API, performance and security. The enforcer's
+  `withProxiedCacheControl` (`cli/nagare-access/src/Nagare/Access/Proxy.hs`) replaces `Cache-Control` on every proxied
+  protected response, so in tunnel mode the admin API's `private, no-cache` with a strong `ETag`
+  (`cli/nagare-api-server/src/Nagare/Api/Server/Validators.hs`) becomes `no-store` and a conforming client never
+  revalidates; a protected site's `immutable` assets are refetched on every visit, which `docs/user/cloudflare-tunnel.md`
+  states as a fact rather than a defect. `tunnelEdgePolicy` leaves Browser Integrity Check on, which Cloudflare documents
+  as challenging a client with no or a non-standard `User-Agent`, and sets no HSTS. Cloudflare reads
+  `Cloudflare-CDN-Cache-Control`, `CDN-Cache-Control` and `Surrogate-Control` in preference to `Cache-Control`, so the
+  header control alone is weaker than ADR 34 states, and nothing strips them. No component records a visitor address
+  and nothing reads `CF-Connecting-IP`. `domains check` probes one hostname at a time and `doctor` makes its three
+  Cloudflare reads in sequence. The connector's metrics port is unreachable behind its own policy. The only performance
+  evidence is EP-240 P8's 40 requests. These became EP-245.
 
 
 ## Decision Log
+
+- Decision: The enforcer tightens the proxied `Cache-Control` and never replaces it: `private` and `no-transform` are added,
+  `public` and `s-maxage` removed, `Cloudflare-CDN-Cache-Control`, `CDN-Cache-Control` and `Surrogate-Control` stripped, and
+  the upstream's `no-cache`, `no-store`, `max-age`, `immutable` and validators kept; a response with no header gets
+  `private, no-store, no-transform`. This supersedes the 2026-11-02 header decision below and amends ADR 34; EP-245 D1.
+  Rationale: Cloudflare documents `private` alone as uncacheable, so both controls stand, while `no-store` on every
+  response defeats the admin API's `ETag` revalidation and empties the browser cache of every protected site on each
+  visit. The operator, 2026-11-04: the API and performance are essential, and security is important.
+  Date: 2026-11-04
+
+- Decision: The edge policy also declares Browser Integrity Check off, Browser Cache TTL as respect existing headers, and
+  HSTS (six months, `includeSubDomains`, no preload); Bot Fight Mode and Under Attack mode are documented as never on.
+  Rationale: a challenge is a hard failure for a bearer-token client or a webhook sender, and nothing in Nagare sends HSTS,
+  which the 2026-11-02 review noted without closing. EP-245 D2 and D3.
+  Date: 2026-11-04
+
+- Decision: `CF-Connecting-IP` and `CF-Ray` are recorded on the enforcer's and the admin API's access lines in tunnel mode
+  for attribution only. No access decision or throttle keys on them.
+  Rationale: Free and Pro have no edge request logs and today no component records any visitor address; a pod in the
+  cluster can still reach Kourier's `ClusterIP` with a forged header, so the value is not evidence for a decision. EP-245 D4.
+  Date: 2026-11-04
+
+- Decision: EP-245 is added for the review's findings, with the first measured latency and load baseline (D7) as a
+  pass/fail deliverable, and EP-244 D6 waits for EP-245 D1 to D3. EP-241 is marked Complete: every deliverable has its
+  evidence and its retrospective is written.
+  Rationale: the findings correct shipped code from EP-241 and EP-242, which are complete, and the onboarding gate must
+  observe the edge new installations will get.
+  Date: 2026-11-04
 
 - Decision: The rebuild fixes (F142) and the backup image pin (F143) land now and ship in the next release, ahead of EP-244 D6.
   Rationale: the drill showed a cloud context had no reviewed rebuild and that a node pulling the current image takes no backup. Both reach the intranet, and the operator's requirement is upgrades without data loss.

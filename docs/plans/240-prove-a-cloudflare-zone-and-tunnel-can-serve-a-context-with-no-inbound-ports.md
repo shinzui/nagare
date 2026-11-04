@@ -16,6 +16,12 @@ provenance:
       at: 2026-11-02T20:19:20Z
       mode: "update"
       note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      verdict: "approved"
+      note: "Complete with observations recorded for every item; P6's header-only control is weaker than stated because CDN-Cache-Control headers were not tested (EP-245 D1)"
 ---
 
 # Prove a Cloudflare zone and tunnel can serve a context with no inbound ports

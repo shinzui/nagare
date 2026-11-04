@@ -16,6 +16,12 @@ provenance:
       at: 2026-11-02T20:19:20Z
       mode: "update"
       note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:04:32Z
+      verdict: "comments"
+      note: "D1, D7 and D9 evidenced; D8 (operator paths and the Tailscale relay measurement) does not depend on the move and can run on a new context now"
 ---
 
 # Close a context's inbound ports and move existing contexts onto the tunnel
