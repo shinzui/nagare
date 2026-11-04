@@ -25,6 +25,11 @@ provenance:
       at: 2026-11-04T14:04:32Z
       mode: "update"
       note: "EP-245 added for the review's findings; EP-241 marked Complete; header, edge policy and attribution decisions recorded; EP-244 D6 waits for EP-245 D1-D3"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-04T17:52:52Z
+      mode: "update"
+      note: "EP-246 added: move a context to a new base domain, extending EP-243's move"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -138,6 +143,7 @@ Relevant ADRs:
 | 243 | Close a context's inbound ports and move existing contexts onto the tunnel | docs/plans/243-close-a-context-s-inbound-ports-and-move-existing-contexts-onto-the-tunnel.md | EP-241, EP-242 | None | In Progress |
 | 244 | Make the tunnel the recommended path for new Nagare installations | docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md | EP-243 | EP-245 D1–D3 | In Progress |
 | 245 | Make the tunnel's edge safe and fast for API clients and protected assets | docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md | EP-241, EP-242 | None | Not Started |
+| 246 | Move a context to a new base domain and carry its routes, grants and sign-in | docs/plans/246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md | EP-243 D2, D3, D5, D11; EP-245 D1–D3 for its rehearsal | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -149,6 +155,7 @@ run in parallel. EP-243 needs both, because closing the firewall is safe only wh
 and every hostname has a route. EP-244 comes last, so that the recommendation rests on a proven path.
 EP-245 follows EP-241 and EP-242, whose shipped code it corrects, and runs beside EP-243; EP-244's final gate (D6)
 waits for EP-245 D1 to D3 so the onboarding run observes the final edge, not one that still challenges API clients.
+EP-246 adds a new base domain to EP-243's move, so it needs EP-243's engine and grant carrier, and its rehearsal needs EP-245's edge.
 
 
 ## Integration Points
@@ -245,6 +252,13 @@ EP-241 is complete. Left: EP-245, EP-244 D6, and EP-243's move of an existing co
 
 
 ## Decision Log
+
+- Decision: EP-246 is added now, ahead of EP-243's completion, as the capability the 2026-11-02 entry below held back: re-homing
+  a context onto a new base domain. It extends EP-243's move rather than running beside it, with one command and a second step
+  list. The intranet's run stays in `mori://tan/tan-ng-labs/plans/14-re-home-the-intranet-onto-topagentnetworklabs-com-through-a-cloudflare-tunnel`
+  and is not this MasterPlan's acceptance.
+  Rationale: operator, 2026-11-04, asked for the plan so that it and EP-243 finish before the team is given a date.
+  Date: 2026-11-04
 
 - Decision: The enforcer tightens the proxied `Cache-Control` and never replaces it: `private` and `no-transform` are added,
   `public` and `s-maxage` removed, `Cloudflare-CDN-Cache-Control`, `CDN-Cache-Control` and `Surrogate-Control` stripped, and

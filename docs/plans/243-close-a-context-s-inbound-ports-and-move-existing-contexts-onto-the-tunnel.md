@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-02T20:19:20Z
       mode: "update"
       note: "Security review of MasterPlan 32: deliverables added for the connector bound, cache and edge policy, credential handling, hostnames and grants on a move"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-04T17:52:52Z
+      mode: "update"
+      note: "Move command, step list, host map and retained dnsName decided for EP-246"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -80,6 +85,13 @@ open on the VM.
 
 
 ## Decision Log
+
+- Decision: The command is `nagarectl context move`, and its engine takes a step list and D11's carrier takes a host map, because
+  [EP-246](246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md) adds `--base-domain` to the same move.
+  Retention (D2) holds the zone under a retained `dnsName`, not one derived from the current base. That plan's Decision Log
+  states the division.
+  Rationale: operator, 2026-11-04: reuse this plan's ordering and hostname work rather than duplicating it.
+  Date: 2026-11-04
 
 - Decision: The move of an existing context (D2 to D6, D8 to D11) follows v0.16.0 and does not block it.
   Rationale: operator, 2026-11-03. A new context reaches the end state without it (D7).
@@ -177,3 +189,4 @@ reversing the registrar change, and DNS-01 renewal resumes after that.
 
 Requires EP-241 and EP-242 complete. Consumes `NAGARE_INGRESS`, the connector health probe and `nagarectl domains check`. The exact command
 names are this plan's choice. Add no `just` recipe unless the operator asks for one.
+EP-246 consumes the move engine, D2's retention, D5's rollback rule and D11's carrier.
