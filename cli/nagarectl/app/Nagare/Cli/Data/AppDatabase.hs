@@ -19,6 +19,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Cli.Data.ScheduledPrune (runReviewedScheduledPrunePlan, runReviewedScheduledPruneRecoveryPlan)
 import Nagare.Cli.Data.ScheduledReceipts (IngestSelection (..), runReviewedAppDatabaseReceiptPlan)
+import Nagare.Cli.Data.SigningKeyEscrow (defaultAppDatabaseEscrowPath, runEscrowAppDatabaseSigningKey, runVerifyEscrowedBackup)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Options.AppDatabase
@@ -47,7 +48,7 @@ import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (ActiveTarget, storeBackendFor)
+import Nagare.Target (ActiveTarget, contextNameText, storeBackendFor)
 import System.IO.Temp (withSystemTempDirectory)
 
 runAppDatabase :: Maybe String -> AppDatabaseCommand -> IO ()
@@ -152,6 +153,13 @@ runAppDatabase mctx = \case
             accepted
         )
     planReview active snapshot [restoreScope] native (Just (o ^. #savePlan))
+  AppDatabaseEscrowSigningKey o ->
+    runEscrowAppDatabaseSigningKey mctx (T.pack (o ^. #name)) (maybe "personal" T.pack (o ^. #namespace)) (o ^. #output)
+  AppDatabaseVerifyEscrowedBackup o -> do
+    active <- activeTarget mctx
+    let namespaceName = maybe "personal" T.pack (o ^. #namespace)
+    path <- maybe (defaultAppDatabaseEscrowPath (contextNameText (active ^. #contextName)) namespaceName (T.pack (o ^. #name))) pure (o ^. #escrow)
+    runVerifyEscrowedBackup mctx (T.pack (o ^. #name)) namespaceName path (o ^. #bucket) (T.pack (o ^. #backupId)) Nothing
   AppDatabasePruneScheduledBackups o ->
     runReviewedScheduledPrunePlan mctx (AppDatabasePruneSource (T.pack (o ^. #name))) (maybe "personal" T.pack (o ^. #namespace)) (o ^. #bucket) (o ^. #savePlan)
   AppDatabaseRecoverScheduledPrune o ->

@@ -12,6 +12,7 @@ module Nagare.Cli.Data.ScheduledReceipts
   , scheduledRecoveryPointProbes
   , ScheduledSource (..)
   , resolveScheduledSource
+  , resolveAppDatabaseScheduledSource
   )
 where
 

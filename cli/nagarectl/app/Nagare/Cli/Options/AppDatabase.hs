@@ -8,6 +8,8 @@ module Nagare.Cli.Options.AppDatabase
   , AppDatabaseRestoreOpts (..)
   , AppDatabasePruneOpts (..)
   , AppDatabaseRecoverPruneOpts (..)
+  , AppDatabaseEscrowOpts (..)
+  , AppDatabaseVerifyEscrowOpts (..)
   )
 where
 
@@ -29,6 +31,25 @@ data AppDatabaseCommand
   | AppDatabaseRestore AppDatabaseRestoreOpts
   | AppDatabasePruneScheduledBackups AppDatabasePruneOpts
   | AppDatabaseRecoverScheduledPrune AppDatabaseRecoverPruneOpts
+  | -- | F145: keep the schedule's signing key off the cluster
+    AppDatabaseEscrowSigningKey AppDatabaseEscrowOpts
+  | AppDatabaseVerifyEscrowedBackup AppDatabaseVerifyEscrowOpts
+  deriving stock (Generic, Show)
+
+data AppDatabaseEscrowOpts = AppDatabaseEscrowOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , output :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+data AppDatabaseVerifyEscrowOpts = AppDatabaseVerifyEscrowOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , backupId :: !String
+  , escrow :: !(Maybe FilePath)
+  , bucket :: !(Maybe String)
+  }
   deriving stock (Generic, Show)
 
 -- | Review an app database's accepted scheduled runs past the retention

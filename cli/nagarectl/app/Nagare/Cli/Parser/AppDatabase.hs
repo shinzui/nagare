@@ -152,6 +152,34 @@ appDatabaseParser =
               (progDesc "Review deletion of the exact receipt left by an abandoned partial scheduled app-database prune")
           )
         <> command
+          "escrow-signing-key"
+          ( info
+              ( AppDatabaseEscrowSigningKey
+                  <$> ( AppDatabaseEscrowOpts
+                          <$> strArgument (metavar "NAME" <> help "App database name")
+                          <*> namespaceOpt
+                          <*> optional (strOption (long "output" <> metavar "FILE" <> help "sops-encrypted escrow path (default: the context's cluster-secrets backup-signing/app-databases directory)"))
+                      )
+                    <**> helper
+              )
+              (progDesc "Escrow an app database's scheduled-backup signing key in sops-encrypted operator material")
+          )
+        <> command
+          "verify-escrowed-backup"
+          ( info
+              ( AppDatabaseVerifyEscrowedBackup
+                  <$> ( AppDatabaseVerifyEscrowOpts
+                          <$> strArgument (metavar "NAME" <> help "App database name")
+                          <*> namespaceOpt
+                          <*> strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to verify")
+                          <*> optional (strOption (long "escrow" <> metavar "FILE" <> help "sops-encrypted escrow path (default: the context's cluster-secrets backup-signing/app-databases directory)"))
+                          <*> bucketOpt
+                      )
+                    <**> helper
+              )
+              (progDesc "Verify one scheduled backup with only the escrowed key and the object store")
+          )
+        <> command
           "list"
           ( info
               (AppDatabaseList <$> namespaceOpt <**> helper)

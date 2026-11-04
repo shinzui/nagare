@@ -87,6 +87,35 @@ signingKeyEscrowTests =
       assertBool
         "a short key was accepted"
         (isLeft (parseSigningKeyEscrow (renderSigningKeyEscrow escrow {hmacKey = "abc"})))
+  , testCase "F145: an escrow written before app databases still reads as a server's" $ do
+      let current = TE.decodeUtf8 (renderSigningKeyEscrow escrow)
+      assertBool "a server's escrow gained a field" (not ("source:" `T.isInfixOf` current))
+      fmap sourceKind (parseSigningKeyEscrow (renderSigningKeyEscrow escrow)) @?= Right DatabaseEscrow
+  , testCase "F145: an app database's escrow round-trips and keeps to its own key space" $ do
+      parseSigningKeyEscrow (renderSigningKeyEscrow appEscrow) @?= Right appEscrow
+      assertBool
+        "another source was accepted"
+        (isLeft (parseSigningKeyEscrow (TE.encodeUtf8 (T.replace "appDatabase" "other" (TE.decodeUtf8 (renderSigningKeyEscrow appEscrow))))))
+      escrowObjectPrefix appEscrow @?= "app-databases/personal/kansoku-pg/"
+      escrowObjectPrefix escrow @?= "databases/mydb/"
+      escrowDecision appEscrow appEscrow {pvcUid = otherUid} @?= KeepPrevious
+      escrowDecision escrow escrow {sourceKind = AppDatabaseEscrow, pvcUid = otherUid} @?= DifferentEscrow
+  , testCase "F145: an app database's escrow verifies its own receipts and refuses others" $ do
+      let prefix = "gs://bucket/" <> escrowObjectPrefix appEscrow
+          address = prefix <> runId <> ".dump.gz.receipt.json"
+          bytes = signedReceiptAt (prefix <> runId <> ".dump.gz") (appMetadata "kansoku-pg") keyBytes sourceUid
+      expectation <- either (assertFailure . T.unpack) pure (escrowReceiptExpectation appEscrow prefix bytes)
+      receipt <- either (assertFailure . T.unpack) pure (parseScheduledBackupReceipt expectation address keyHex bytes)
+      scheduledRecoveryPoint receipt @?= Just recoveryPoint
+      assertBool
+        "another app database's receipt was accepted"
+        (isLeft (escrowReceiptExpectation appEscrow prefix (signedReceipt (appMetadata "kansoku-ch") keyBytes sourceUid)))
+      assertBool
+        "a server's receipt was accepted"
+        (isLeft (escrowReceiptExpectation appEscrow prefix (signedReceipt hourlyMetadata keyBytes sourceUid)))
+      assertBool
+        "an app database's receipt verified under a server's escrow"
+        (isLeft (escrowReceiptExpectation escrow prefix bytes))
   , testCase "an escrowed key verifies a signed receipt without the cluster" $ do
       let prefix = "gs://bucket/databases/mydb/"
           address = prefix <> runId <> ".sql.gz.receipt.json"
@@ -131,7 +160,23 @@ signingKeyEscrowTests =
         , statefulSetUid = uid sourceUid
         , pvcUid = uid sourceUid
         , hmacKey = keyHex
+        , sourceKind = DatabaseEscrow
         }
+    appEscrow = escrow {database = "kansoku-pg", format = "dump.gz", sourceKind = AppDatabaseEscrow}
+    appMetadata name =
+      Aeson.object
+        [ "appDatabase" Aeson..= (name :: T.Text)
+        , "server" Aeson..= ("labs-postgres" :: T.Text)
+        , "databases" Aeson..= (["kansoku"] :: [T.Text])
+        , "declaration" Aeson..= digest
+        , "namespace" Aeson..= ("personal" :: T.Text)
+        , "engine" Aeson..= ("postgres" :: T.Text)
+        , "format" Aeson..= ("dump.gz" :: T.Text)
+        , "schedule" Aeson..= ("nagare-appdb-" <> name)
+        , "scheduleRevision" Aeson..= digest
+        , "keep" Aeson..= (7 :: Int)
+        ]
+    digest = T.replicate 64 "c"
     recoveryPoint = UTCTime (fromGregorian 2026 10 3) 3600
     metadataFor database objective =
       Aeson.object $
@@ -152,13 +197,14 @@ signingKeyEscrowTests =
       "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"metadata\":{\"annotations\":{\"nagare.dev/auth-credential-template\":\"v1\"},\"name\":\""
         <> name
         <> "\",\"namespace\":\"nagare-system\"},\"type\":\"Opaque\"}"
-    signedReceipt metadata signingKey source =
+    signedReceipt = signedReceiptAt ("gs://bucket/databases/mydb/" <> runId <> ".sql.gz")
+    signedReceiptAt object metadata signingKey source =
       let canonical = either (error . T.unpack) id . canonicalValue
           payload =
             Aeson.object
               [ "sha256" Aeson..= Resource.digestText (contentDigest "archive")
               , "jobUid" Aeson..= runId
-              , "object" Aeson..= ("gs://bucket/databases/mydb/" <> runId <> ".sql.gz")
+              , "object" Aeson..= (object :: Text)
               , "source" Aeson..= Aeson.object ["statefulSetUid" Aeson..= source, "pvcUid" Aeson..= source]
               , "backup" Aeson..= metadata
               , "recoveryPoint" Aeson..= ("2026-10-03T01:00:00Z" :: Text)

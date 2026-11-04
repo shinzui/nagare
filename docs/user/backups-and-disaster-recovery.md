@@ -351,6 +351,17 @@ For `shomei-db` in `nagare-system`, the command also escrows Shomei's key-encryp
 key to `cluster-secrets/<context>/shomei-key-encryption-key.sops.yaml`. A restored
 Shomei database cannot start without that key, and a rebuild reuses it.
 
+An app database has its own schedule and signing key, so it has its own escrow:
+
+```bash
+nagarectl db app-database escrow-signing-key kansoku-pg
+nagarectl db app-database verify-escrowed-backup kansoku-pg --backup-id JOB_UID
+```
+
+The file goes to `backup-signing/app-databases/<namespace>-<name>.sops.yaml` in the same directory tree. After losing the
+VM it proves the newest backups are intact, but it doesn't restore them yet: `db app-database restore --rebuilt` takes only
+a run ingested before the loss, and ingestion reads the signing key from the cluster ([F145](../audits/mp23-findings.md)).
+
 `verify-escrowed-backup` needs only the escrow and the object store, not the
 cluster. It rereads the exact receipt and archive versions, checks the signature,
 source identities and archive hash, and prints the recovery point. It is evidence

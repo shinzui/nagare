@@ -108,7 +108,7 @@ nagarectl db escrow-signing-key en-db -n nagare-system
 nagarectl db escrow-signing-key shomei-db -n nagare-system   # also escrows Shomei's key-encryption key
 ```
 
-Do the same for each managed database you add. See
+Do the same for each managed database you add, with `nagarectl db app-database escrow-signing-key NAME` for an app database. See
 [Escrow the signing key](backups-and-disaster-recovery.md#escrow-the-signing-key-off-the-cluster).
 
 ## Hostnames

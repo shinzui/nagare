@@ -7,6 +7,8 @@
 -- grants restore authority, which still requires reviewed ingestion.
 module Nagare.Inventory.SigningKeyEscrow
   ( SigningKeyEscrow (..)
+  , EscrowSourceKind (..)
+  , escrowObjectPrefix
   , renderSigningKeyEscrow
   , parseSigningKeyEscrow
   , escrowReceiptExpectation
@@ -22,15 +24,23 @@ import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
+import Nagare.Database.AppDatabase.Backup (appDatabaseBackupKeyPrefix, appDatabaseBackupScheduleName)
+import Nagare.Database.Backup (dbBackupKeyPrefix)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.BackupReceipt
   ( ScheduledReceiptExpectation (..)
   , scheduleMetadataObjective
+  , scheduleMetadataObjectiveWith
   )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types (PhysicalIdentity, mkContentDigest, mkPhysicalIdentity, physicalIdentityText)
 import Nagare.Resource.Wire (canonicalValue)
 import System.FilePath (dropExtensions, takeExtensions)
+
+-- | Which schedule signed the receipts: a database server's own, or one app
+-- database's on a shared server (F145).
+data EscrowSourceKind = DatabaseEscrow | AppDatabaseEscrow
+  deriving stock (Eq, Show)
 
 data SigningKeyEscrow = SigningKeyEscrow
   { context :: !Text
@@ -41,6 +51,7 @@ data SigningKeyEscrow = SigningKeyEscrow
   , statefulSetUid :: !PhysicalIdentity
   , pvcUid :: !PhysicalIdentity
   , hmacKey :: !Text
+  , sourceKind :: !EscrowSourceKind
   }
   deriving stock (Eq, Generic)
 
@@ -66,6 +77,7 @@ escrowDecision stored new
   | context stored == context new
       && namespace stored == namespace new
       && database stored == database new
+      && sourceKind stored == sourceKind new
       && pvcUid stored /= pvcUid new =
       KeepPrevious
   | otherwise = DifferentEscrow
@@ -78,28 +90,30 @@ archivedEscrowPath path stored =
 renderSigningKeyEscrow :: SigningKeyEscrow -> ByteString
 renderSigningKeyEscrow escrow =
   Yaml.encode $
-    object
-      [ "kind" .= ("NagareBackupSigningKeyEscrow" :: Text)
-      , "version" .= (1 :: Int)
-      , "context" .= context escrow
-      , "namespace" .= namespace escrow
-      , "database" .= database escrow
-      , "format" .= format escrow
-      , "signingSecretUid" .= physicalIdentityText (signingSecretUid escrow)
-      , "statefulSetUid" .= physicalIdentityText (statefulSetUid escrow)
-      , "pvcUid" .= physicalIdentityText (pvcUid escrow)
-      , "hmacKey" .= hmacKey escrow
+    object $
+      [ "source" .= ("appDatabase" :: Text) | sourceKind escrow == AppDatabaseEscrow
       ]
+        <> [ "kind" .= ("NagareBackupSigningKeyEscrow" :: Text)
+           , "version" .= (1 :: Int)
+           , "context" .= context escrow
+           , "namespace" .= namespace escrow
+           , "database" .= database escrow
+           , "format" .= format escrow
+           , "signingSecretUid" .= physicalIdentityText (signingSecretUid escrow)
+           , "statefulSetUid" .= physicalIdentityText (statefulSetUid escrow)
+           , "pvcUid" .= physicalIdentityText (pvcUid escrow)
+           , "hmacKey" .= hmacKey escrow
+           ]
 
 parseSigningKeyEscrow :: ByteString -> Either Text SigningKeyEscrow
 parseSigningKeyEscrow bytes = do
   value <- first (const "signing-key escrow is not valid YAML") (Yaml.decodeEither' bytes)
-  fields <- case value of
+  (fields, kind) <- case value of
     Object root
-      | KM.size root == 10
-      , KM.lookup "kind" root == Just (String "NagareBackupSigningKeyEscrow")
-      , KM.lookup "version" root == Just (Number 1) ->
-          Right root
+      | KM.lookup "kind" root == Just (String "NagareBackupSigningKeyEscrow")
+      , KM.lookup "version" root == Just (Number 1)
+      , Just selected <- sourceOf root ->
+          Right (root, selected)
     _ -> Left "signing-key escrow has an unknown kind, version or field set"
   let text key = case KM.lookup key fields of
         Just (String found) | not (T.null found) -> Right found
@@ -117,6 +131,18 @@ parseSigningKeyEscrow bytes = do
     <*> (text "statefulSetUid" >>= mkPhysicalIdentity)
     <*> (text "pvcUid" >>= mkPhysicalIdentity)
     <*> pure key
+    <*> pure kind
+  where
+    sourceOf root = case (KM.size root, KM.lookup "source" root) of
+      (10, Nothing) -> Just DatabaseEscrow
+      (11, Just (String "appDatabase")) -> Just AppDatabaseEscrow
+      _ -> Nothing
+
+-- | Where the escrowed schedule writes its objects, under the store's root.
+escrowObjectPrefix :: SigningKeyEscrow -> Text
+escrowObjectPrefix escrow = case sourceKind escrow of
+  DatabaseEscrow -> dbBackupKeyPrefix (database escrow)
+  AppDatabaseEscrow -> appDatabaseBackupKeyPrefix (namespace escrow) (database escrow)
 
 -- | Derive a receipt expectation without the cluster. The source incarnation
 -- comes from the escrow; the schedule metadata comes from the receipt itself,
@@ -136,16 +162,19 @@ escrowReceiptExpectation escrow objectPrefix receiptBytes = do
   fields <- case metadata of
     Object found -> Right found
     _ -> Left "scheduled receipt has no schedule metadata"
+  let (nameField, scheduleName, objectiveOf) = case sourceKind escrow of
+        DatabaseEscrow -> ("database", "nagare-dbbackup-" <> database escrow, scheduleMetadataObjective fields)
+        AppDatabaseEscrow -> ("appDatabase", appDatabaseBackupScheduleName (database escrow), scheduleMetadataObjectiveWith 10 fields)
   objective <-
     maybe
       (Left "scheduled receipt metadata has an unknown field set")
       Right
-      (scheduleMetadataObjective fields)
+      objectiveOf
   let field key = KM.lookup key fields
   unless
-    ( field "database" == Just (String (database escrow))
+    ( field nameField == Just (String (database escrow))
         && field "namespace" == Just (String (namespace escrow))
-        && field "schedule" == Just (String ("nagare-dbbackup-" <> database escrow))
+        && field "schedule" == Just (String scheduleName)
         && field "format" == Just (String (format escrow))
     )
     (Left "scheduled receipt belongs to another database, namespace or format than the escrow")

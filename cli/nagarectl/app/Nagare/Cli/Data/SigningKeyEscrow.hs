@@ -5,7 +5,9 @@
 -- inventory, and verification never grants restore authority.
 module Nagare.Cli.Data.SigningKeyEscrow
   ( defaultEscrowPath
+  , defaultAppDatabaseEscrowPath
   , runEscrowSigningKey
+  , runEscrowAppDatabaseSigningKey
   , runVerifyEscrowedBackup
   , decryptEscrow
   , escrowedReceiptEvidence
@@ -24,13 +26,14 @@ import Data.Text.IO qualified as TIO
 import Data.Time (diffUTCTime, getCurrentTime)
 import Nagare.Cli.Data.ScheduledReceipts
   ( ScheduledSource (ScheduledSource)
+  , resolveAppDatabaseScheduledSource
   , resolveScheduledSource
   )
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ObjectStore (resolveStoreBackend)
 import Nagare.Cli.Runtime.Target (activeTarget)
 import Nagare.Cluster.GcsJob (StoreBackend (MinioBackend), storePrefixUrl)
-import Nagare.Database.Backup (dbBackupKeyPrefix)
+import Nagare.Database.AppDatabase.Backup (appDatabaseBackupScheduleName)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..)
@@ -51,9 +54,11 @@ import Nagare.Inventory.ShomeiKeyEscrow
   )
 import Nagare.Inventory.SigningKeyEscrow
   ( EscrowDecision (..)
+  , EscrowSourceKind (..)
   , SigningKeyEscrow (SigningKeyEscrow)
   , archivedEscrowPath
   , escrowDecision
+  , escrowObjectPrefix
   , escrowReceiptExpectation
   , parseSigningKeyEscrow
   , renderSigningKeyEscrow
@@ -83,14 +88,48 @@ defaultEscrowPath context namespaceName database = do
         </> T.unpack (namespaceName <> "-" <> database <> ".sops.yaml")
     )
 
+-- | An app database's escrow keeps to its own directory, as its backups keep to
+-- their own key space, so it never shares a path with a server of the same name.
+defaultAppDatabaseEscrowPath :: Text -> Text -> Text -> IO FilePath
+defaultAppDatabaseEscrowPath context namespaceName appDatabase = do
+  config <- nagareConfigDir
+  pure
+    ( config
+        </> "cluster-secrets"
+        </> T.unpack context
+        </> "backup-signing"
+        </> "app-databases"
+        </> T.unpack (namespaceName <> "-" <> appDatabase <> ".sops.yaml")
+    )
+
 runEscrowSigningKey :: Maybe String -> Text -> Text -> Maybe FilePath -> IO ()
 runEscrowSigningKey mctx database namespaceName output = do
   source <- resolveScheduledSource mctx database namespaceName Nothing
+  context <- escrowScheduledSource DatabaseEscrow source ("nagare-dbbackup-" <> database) defaultEscrowPath database namespaceName output
+  when (database == "shomei-db" && namespaceName == "nagare-system") (escrowShomeiKey context)
+
+-- | F145: the same escrow for one app database's schedule. Its receipts name the
+-- shared server's StatefulSet and claim, which is what the escrow records.
+runEscrowAppDatabaseSigningKey :: Maybe String -> Text -> Text -> Maybe FilePath -> IO ()
+runEscrowAppDatabaseSigningKey mctx appDatabase namespaceName output = do
+  source <- resolveAppDatabaseScheduledSource mctx appDatabase namespaceName Nothing
+  void (escrowScheduledSource AppDatabaseEscrow source (appDatabaseBackupScheduleName appDatabase) defaultAppDatabaseEscrowPath appDatabase namespaceName output)
+
+escrowScheduledSource ::
+  EscrowSourceKind ->
+  ScheduledSource ->
+  Text ->
+  (Text -> Text -> Text -> IO FilePath) ->
+  Text ->
+  Text ->
+  Maybe FilePath ->
+  IO Text
+escrowScheduledSource kind source schedule defaultPath database namespaceName output = do
   let ScheduledSource active _ _ statefulSource pvcUid signingUid _ expectation _ _ _ = source
   statefulUid <- maybe (dieT "a database backup source has no StatefulSet") pure statefulSource
   let context = contextNameText (active ^. #contextName)
   (secretUid, key) <-
-    readSecretFieldWithUid context namespaceName ("nagare-dbbackup-" <> database <> "-signing") "HMAC_KEY"
+    readSecretFieldWithUid context namespaceName (schedule <> "-signing") "HMAC_KEY"
       >>= either dieT pure
   unless
     (secretUid == Just (physicalIdentityText signingUid))
@@ -105,7 +144,8 @@ runEscrowSigningKey mctx database namespaceName output = do
           statefulUid
           pvcUid
           key
-  path <- maybe (defaultEscrowPath context namespaceName database) pure output >>= makeAbsolute
+          kind
+  path <- maybe (defaultPath context namespaceName database) pure output >>= makeAbsolute
   exists <- doesFileExist path
   decision <- if exists then Just . (`escrowDecision` escrow) <$> decryptEscrow path else pure Nothing
   case decision of
@@ -130,7 +170,7 @@ runEscrowSigningKey mctx database namespaceName output = do
       createExclusive path ciphertext
       TIO.putStrLn ("Escrowed the scheduled-backup signing key for " <> namespaceName <> "/" <> database <> " at " <> T.pack path)
       TIO.putStrLn "Keep this file in the context's private operator repository; it verifies receipts without the cluster."
-  when (database == "shomei-db" && namespaceName == "nagare-system") (escrowShomeiKey context)
+  pure context
 
 -- | F146: Shomei's restored rows are unreadable without its key-encryption key,
 -- so the escrow that makes a restore possible takes the key as well.
@@ -163,7 +203,7 @@ escrowShomeiKey context = do
 runVerifyEscrowedBackup :: Maybe String -> Text -> Text -> FilePath -> Maybe String -> Text -> Maybe (String, FilePath) -> IO ()
 runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath bucketArg backupId offline = do
   active <- activeTarget mctx
-  escrow@(SigningKeyEscrow context namespaceName database _ _ _ _ _) <- decryptEscrow escrowPath
+  escrow@(SigningKeyEscrow context namespaceName database _ _ _ _ _ kind) <- decryptEscrow escrowPath
   unless
     (context == contextNameText (active ^. #contextName))
     (dieT "the escrow belongs to another context")
@@ -178,8 +218,11 @@ runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath buc
   TIO.putStrLn ("  object:  " <> scheduledObjectAddress receipt <> " (version " <> scheduledObjectVersion evidence <> ")")
   TIO.putStrLn ("  receipt: version " <> scheduledReceiptVersion evidence)
   TIO.putStrLn ("  sha256:  " <> scheduledSha256 receipt)
-  -- EP-183 M4: what a rebuild decision names as this recovery point.
-  TIO.putStrLn ("  rebuild recovery point: " <> scheduledObjectAddress receipt <> ".receipt.json@" <> digestText (scheduledReceiptDigest evidence))
+  -- EP-183 M4: what a rebuild decision names as this recovery point. A rebuild
+  -- names server volumes, never an app database's run.
+  when
+    (kind == DatabaseEscrow)
+    (TIO.putStrLn ("  rebuild recovery point: " <> scheduledObjectAddress receipt <> ".receipt.json@" <> digestText (scheduledReceiptDigest evidence)))
   case scheduledRecoveryPoint receipt of
     Just point ->
       TIO.putStrLn
@@ -195,8 +238,8 @@ runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath buc
 -- | Read and verify one scheduled receipt and its archive with only the
 -- escrowed key and the object store, never the cluster or the inventory store.
 escrowedReceiptEvidence :: SigningKeyEscrow -> StoreBackend -> Text -> Maybe (String, FilePath) -> IO (Either Text ScheduledReceiptEvidence)
-escrowedReceiptEvidence escrow@(SigningKeyEscrow context _ database format _ _ _ key) backend backupId offline = do
-  let prefix = storePrefixUrl backend (dbBackupKeyPrefix database)
+escrowedReceiptEvidence escrow@(SigningKeyEscrow context _ _ format _ _ _ key _) backend backupId offline = do
+  let prefix = storePrefixUrl backend (escrowObjectPrefix escrow)
       receiptAddress = prefix <> backupId <> "." <> format <> ".receipt.json"
   withRecoveryStore context backend offline $ \reader ->
     withSystemTempDirectory "nagare-escrowed-receipt" $ \scratch -> do

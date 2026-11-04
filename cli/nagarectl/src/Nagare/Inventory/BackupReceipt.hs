@@ -8,6 +8,7 @@ module Nagare.Inventory.BackupReceipt
   , scheduledAppDatabaseReceiptExpectationFromCronJob
   , scheduledReceiptDatabases
   , scheduleMetadataObjective
+  , scheduleMetadataObjectiveWith
   , manualBackupJobReceiptExpectation
   , parseBackupReceipt
   , parseManualBackupReceipt

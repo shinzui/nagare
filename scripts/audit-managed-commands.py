@@ -80,7 +80,8 @@ ROUTES = {
         "group": "DbAppDatabase",
     },
     "AppDatabaseCommand": {
-        "read": "AppDatabaseList AppDatabaseEvidence",
+        "read": "AppDatabaseList AppDatabaseEvidence AppDatabaseVerifyEscrowedBackup",
+        "local": "AppDatabaseEscrowSigningKey",
         "reviewed": "AppDatabasePlan AppDatabaseRotate AppDatabaseRetire AppDatabaseQuiesce AppDatabaseResume AppDatabaseBackup AppDatabaseBackupReceipts AppDatabaseRestore AppDatabasePruneScheduledBackups",
         "recovery": "AppDatabaseRecoverScheduledPrune",
     },
