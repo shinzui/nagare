@@ -98,6 +98,19 @@ nagarectl doctor
 `tunnel status` fails on a wrong connector count or a connector from another address. `doctor` reports `Tunnel ingress`,
 which is healthy only when the connector is ready, `kourier` is `ClusterIP` and the public IP does **not** answer.
 
+## Escrow the keys a restore needs
+
+Without these files, a backup of your platform databases can't be restored after losing the VM. Run this once the platform is up,
+and commit the encrypted files with your other secrets:
+
+```bash
+nagarectl db escrow-signing-key en-db -n nagare-system
+nagarectl db escrow-signing-key shomei-db -n nagare-system   # also escrows Shomei's key-encryption key
+```
+
+Do the same for each managed database you add. See
+[Escrow the signing key](backups-and-disaster-recovery.md#escrow-the-signing-key-off-the-cluster).
+
 ## Hostnames
 
 Default names are one label below the base, because a two-label name fails TLS on the free certificate:

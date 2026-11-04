@@ -385,6 +385,14 @@ back up the context configuration plus Pulumi state. An installed release keeps 
 context under the XDG configuration/state roots shown by `nagarectl context path` and
 `nagarectl platform root --json`; a remote Pulumi backend needs its own tested recovery path.
 
+Escrow each database's backup signing key once the platform is up, or its backups can't be restored after
+losing the VM. The escrow of `shomei-db` also takes Shomei's key-encryption key:
+
+```bash
+nagarectl db escrow-signing-key en-db -n nagare-system
+nagarectl db escrow-signing-key shomei-db -n nagare-system
+```
+
 ---
 
 ## Switching projects later
