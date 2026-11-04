@@ -232,7 +232,11 @@ Note the start time; the recovery time runs to the service answering.
    recovery-time objective.
 
 The new incarnations' backups start from the first scheduled run after step 4;
-take a manual snapshot of each restored volume.
+take a manual snapshot of each restored volume. If the VM is lost again before those backups exist,
+no reviewed path restores the older ones ([F149](../audits/mp23-findings.md)).
+
+A disposable context ran these steps on 2026-11-04 in 85 minutes, about 66 of them Tailscale holding
+the device's name ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)).
 
 ### If Shomei's key-encryption key is lost
 

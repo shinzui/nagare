@@ -12,7 +12,7 @@ generated:
 # Serving a new context through a Cloudflare Tunnel
 
 > 🟡 **Available since v0.16.0. This path has had one full native run on a disposable context: bootstrap, a protected site through
-> the edge, token rotation and retiring a site.** It covers a new context. Moving an existing context is not built.
+> the edge, token rotation and retiring a site. Since v0.16.2 a disposable context has also lost its VM and come back from its backups.** It covers a new context. Moving an existing context is not built.
 
 The VM accepts no connection from the internet. A small program in the cluster, `cloudflared`, connects outbound to
 Cloudflare, and Cloudflare sends each browser request down that connection. SSH stays limited to Google's IAP range and

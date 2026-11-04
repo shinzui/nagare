@@ -186,7 +186,7 @@ and every hostname has a route. EP-244 comes last, so that the recommendation re
 EP-240 is complete and passed on 2026-11-02; its topology and threat model are in
 [ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-242 is complete. A new context bootstraps
 through the reviewed path and serves a protected site with no web port, proved natively on `ep243` on 2026-11-03. v0.16.0 carries this.
-Left: EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed on master after v0.16.0.
+Left: EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed in v0.16.1. A restore from real backups on `ep245` found F144, F146 and F147 and passed with no hand fixes on 2026-11-04, in v0.16.2 ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)). `ep245` showed D6's site, login, closed ports and no web listener, but was driven by scripts, so "from the onboarding page alone" stays unproved and D6 stays open.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
   working, an outside port check finding nothing open, and the host listening on no web port (EP-244).

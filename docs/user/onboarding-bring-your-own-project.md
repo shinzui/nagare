@@ -377,7 +377,7 @@ app's `nagare/Config.hs` now supplies only the image **name** (e.g. `mkImageRef 
 the registry prefix comes from your active context at deploy time. A `/`-bearing ref (a
 public image) is used as-is.
 
-## Step 12 — Backups and recovery  🟡  *(DB/volume backups built; full DR drill deferred)*
+## Step 12 — Backups and recovery  🟡  *(a VM loss and restore proved on a disposable cloud context, 2026-11-04)*
 
 See [backups and disaster recovery](backups-and-disaster-recovery.md) and the
 [runbooks](../runbooks/disaster-recovery.md). Keep the host **age private key** off-machine and

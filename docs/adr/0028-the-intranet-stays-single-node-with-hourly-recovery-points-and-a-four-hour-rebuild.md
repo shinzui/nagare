@@ -55,6 +55,8 @@ of downtime after the VM is lost.
 5. **Restore is tested by drills, not assumed.** The four-hour objective counts as met only after a
    timed drill that deletes the VM and rebuilds the installation with its data (EP-183 M5, native
    run N2). The drill is repeated for any release that changes a backup, receipt or rebuild format.
+   A disposable context met it on 2026-11-04 in 85 minutes on v0.16.2's code
+   ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)); the intranet itself has not run it.
 6. **Backups stay in the installation's region.** The regional bucket survives the loss of the
    VM's zone, but not of the region. Surviving a region loss is not an objective.
 

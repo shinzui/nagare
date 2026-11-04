@@ -1,0 +1,59 @@
+# VM loss and restore on the disposable context ep245, 2026-11-04, no hand fixes. Code of v0.16.2 (4c03c457; later commits change documentation and release.json only).
+05:43:16 only receipts after 2026-11-04T05:43:16Z count
+05:46:26 en-db newest receipt 2026-11-04T05:45:56Z c48f75bb-4195-4346-8ab4-6c4b548e875b
+  recovery point: 2026-11-04 05:45:40 UTC (age 63s)
+05:46:43 shomei-db newest receipt 2026-11-04T05:45:56Z 469e25bc-9b61-4de3-9812-30d096530bc7
+  recovery point: 2026-11-04 05:45:40 UTC (age 81s)
+05:47:01 old device 100.116.54.114
+05:47:01 deleting the VM; the clock starts
+.....done.
+Deleted [https://www.googleapis.com/compute/v1/projects/tan-nb-exp/zones/us-west1-a/instances/ep245-
+site with no VM: 530
+ep245-01 is gone from the stack
+06:53:23 old device gone
+06:53:48 plan 70: 1 operations; changed scopes: 
+      1 CreateResource	PulumiExecutor
+converged tx-bd3e95a6e2126d6c323eed3a6e36d245548268402b48ea6df91d00861e5de406
+06:54:58 VM reachable
+ambiguous tx-0959220bc07ffda18bc35cc5a68447579f5790cd482c54b24b1c505c53c6f7fc at op-0afab41a6a95a42a88724b4a: adapter result was ambiguous: host transport exited 255: age
+ssh: connect to host 100.100.187.76 port 22: Operation timed out
+06:59:56 signed exactly ep245-nagare (nodekey:a33b20a0…)
+07:00:53 host converged
+ep245-nagare   Ready   control-plane   5m58s   v1.35.9+k3s1
+CreateResource KubernetesExecutor: 164
+07:01:11 applying the rebuild; no hand steps from here
+07:04:52 the recreated Secret holds the escrowed key
+07:06:01 en-db restored
+07:06:33 shomei-db restored
+07:06:35 xid 776 max restored 771 metadata rows 0
+07:06:35 users 1 grants 1
+07:06:36 same signing key after the restore
+07:07:44 apply 71
+converged tx-ef4f34040a9c0c6dbf0a0571d934c20c9dc18c2476743556dfce92c12755b99c
+07:12:22 plan 72: 0 operations; changed scopes: 
+07:12:22 converged at 72: a review with no operations
+07:12:22 site
+form 200 https://staging.topagentnetworklabs.com/_nagare/login?rd=%2F
+post 302 -> https://staging.topagentnetworklabs.com/
+site 200 https://staging.topagentnetworklabs.com/
+Nagare protected static site
+['Nagare', 'protected', 'static', 'site', 'Protected', 'static', 'site:', 'you', 'are', 'signed', 'in', 'and', 'granted', 'This', 'page', 'is', 'served', 'only'
+anonymous 302
+07:12:40 elapsed since VM deletion: 85 min
+07:12:40 tunnel list identical
+ok: only this context's connectors, and the declared rules
+07:12:42 drill script finished
+
+# Outside check on the rebuilt VM
+public IP present: yes
+22 closed
+80 closed
+443 closed
+6443 closed
+8443 closed
+10250 closed
+kourier type ClusterIP
+[OK]    Tunnel ingress           2 connector(s) ready; kourier is ClusterIP; the public IP is closed
+[OK]    Tunnel connectors        2 connector(s), all from this context's VM
+[OK]    Tunnel rules             Cloudflare's rules are the declared ones
+ok: only this context's connectors, and the declared rules
