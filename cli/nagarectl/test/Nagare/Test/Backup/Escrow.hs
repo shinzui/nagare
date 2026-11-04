@@ -16,17 +16,22 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
 import Nagare.Database.Secret (b64encode)
 import Nagare.Dsl.Prelude hiding ((<.>))
-import Nagare.Inventory.Adapters.CredentialTemplate (materializeCredentialWith)
+import Nagare.Inventory.Adapters.CredentialTemplate (materializeCredentialWith, materializeLocalObjectStoreCredentialWith)
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..)
   , ScheduledReceiptExpectation (scheduledObjective)
   , parseScheduledBackupReceipt
   )
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
 import Nagare.Inventory.ShomeiKeyEscrow
 import Nagare.Inventory.SigningKeyEscrow
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Types qualified as Resource
+import Nagare.Test.Support.Environment (withTestEnv)
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (takeDirectory)
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit
 
@@ -52,6 +57,19 @@ signingKeyEscrowTests =
       unreadable @?= Left "cannot decrypt"
       other <- materializeCredentialWith (pure (Left "must not be read")) (authTemplate "nagare-access")
       assertBool "another auth Secret read the escrow" (not (isLeft other))
+  , testCase "F146: a real apply's cached runtime still reads the escrow" $
+      withSystemTempDirectory "shomei-escrow" $ \root -> withTestEnv [("XDG_CONFIG_HOME", Just root)] $ do
+        path <- shomeiKeyEscrowPath "escrow-context"
+        createDirectoryIfMissing True (takeDirectory path)
+        BS.writeFile path "not an encrypted escrow\n"
+        let live = KubernetesRuntimeConfig (either (error . T.unpack) id (Resource.mkContextId "escrow-context")) "escrow-context" (pure (Right ()))
+            cached = withKubectlInterpreter (runKubectlWith (\_ -> pure (Left "must not read Kubernetes"))) live
+        refused <-
+          materializeLocalObjectStoreCredentialWith
+            (pure (Left "must not read the object store's Secret"))
+            cached
+            (authTemplate "nagare-shomei-keys")
+        assertBool "an unreadable escrow was replaced with a new key" (isLeft refused)
   , testCase "a replaced database's escrow keeps the old one; a changed key is refused" $ do
       let replaced = escrow {pvcUid = otherUid, hmacKey = T.replicate 64 "b"}
       escrowDecision escrow escrow @?= AlreadyEscrowed

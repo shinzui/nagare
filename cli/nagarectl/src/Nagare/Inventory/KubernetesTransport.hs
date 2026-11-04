@@ -123,9 +123,7 @@ runtimePause config microseconds = case config of
 -- (EP-224), then answered by the selected interpreter.
 -- | Only a live runtime reads operator material; an interpreted one has none.
 runtimeEscrowedShomeiKey :: KubernetesRuntimeConfig -> IO (Either Text (Maybe Text))
-runtimeEscrowedShomeiKey config = case config of
-  KubernetesRuntimeConfig {} -> readShomeiKeyEscrow (runtimeKubectlContext config)
-  InterpretedRuntime {} -> pure (Right Nothing)
+runtimeEscrowedShomeiKey = readShomeiKeyEscrow . runtimeKubectlContext
 
 invokeKubectl :: KubernetesRuntimeConfig -> [String] -> String -> IO KubectlResult
 invokeKubectl config arguments input = do
