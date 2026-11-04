@@ -3,9 +3,13 @@
 -- checks its exact bytes, then, as the server's administrator, loads it under
 -- scratch names owned by the app's migration user with the declared access.
 -- No other app database's names are touched, and the target server is pinned
--- to its recorded incarnations.
+-- to its recorded incarnations. After losing the server, the run is verified
+-- with its escrowed key instead (F145), because ingestion needs the cluster's
+-- signing Secret and the server's old incarnation.
 module Nagare.Inventory.AppDatabaseRestore
   ( AppDatabaseRestoreRequest (..)
+  , RestoreRun (..)
+  , EscrowedRun (..)
   , RestoreTarget (..)
   , compileAppDatabaseRestoreScope
   , appDatabaseRestoreShell
@@ -30,15 +34,18 @@ import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl)
 import Nagare.Database.AppDatabase.Backup (appDatabaseBackupKeyPrefix)
 import Nagare.Database.AppDatabase.Sql (renderScratchRestore)
 import Nagare.Database.Backup (appDatabaseBackupExt, manualDatabaseJobName)
-import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), renderAppDatabaseRestoreJob)
+import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), clickHouseBackupsDirShell, renderAppDatabaseRestoreJob)
 import Nagare.Dsl.AppDatabase (DatabasePrivileges, noDatabasePrivileges)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Backup (ScheduledBackupReceipt (..))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.LineageHistory (RebuildLineage (..))
 import Nagare.Inventory.Restore (scratchDatabaseName)
 import Nagare.Inventory.RestoreNative (acceptedValue, sameCluster)
+import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -55,8 +62,8 @@ data AppDatabaseRestoreRequest = AppDatabaseRestoreRequest
   -- ^ the accepted @appdb-@ scope
   , serverScope :: !ScopeDeclaration
   -- ^ the accepted scope of the server the app database lives in
-  , receiptScope :: !ScopeDeclaration
-  -- ^ the accepted ingestion of the scheduled run to restore
+  , run :: !RestoreRun
+  -- ^ the scheduled run to restore
   , targetStatefulUid :: !PhysicalIdentity
   , targetPvcUid :: !PhysicalIdentity
   , backend :: !StoreBackend
@@ -64,6 +71,27 @@ data AppDatabaseRestoreRequest = AppDatabaseRestoreRequest
   , target :: !RestoreTarget
   , serverRevision :: !ScopeRevision
   -- ^ the server scope's accepted revision, which admission re-checks
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | What vouches for the run: its accepted ingestion, or its escrowed key.
+data RestoreRun
+  = IngestedRun !ScopeDeclaration
+  | FromEscrow !EscrowedRun
+  deriving stock (Eq, Show)
+
+-- | A run of the server's previous incarnation, verified without the cluster.
+-- It restores only into the incarnation a converged rebuild created from the
+-- volume the escrow binds, the same exception to ADR 27 a server's own restore
+-- takes. The server's volume may start fresh: its own backup never holds an app
+-- database.
+data EscrowedRun = EscrowedRun
+  { backupId :: !Text
+  , databases :: ![Text]
+  -- ^ the databases the run's signed receipt says it holds
+  , lineage :: !RebuildLineage
+  , escrowPvcUid :: !PhysicalIdentity
+  , evidence :: !ScheduledReceiptEvidence
   }
   deriving stock (Generic, Eq, Show)
 
@@ -80,17 +108,10 @@ compileAppDatabaseRestoreScope request native = do
   let appName = request ^. #appDatabase
       ns = request ^. #namespace
       appMembers = members (request ^. #appScope)
-      receipt = scopeOverrides (request ^. #receiptScope)
-      required key = maybe (Left (invalid ("accepted backup lacks " <> key))) Right (Map.lookup key receipt)
   unless
     (T.length (request ^. #restoreId) <= 20 && T.all (\c -> c `elem` ['a' .. 'z'] || c `elem` ['0' .. '9']) (request ^. #restoreId) && not (T.null (request ^. #restoreId)))
     (Left (invalid "restore ID must be 1-20 lowercase letters or digits"))
-  -- The backup is an ingested run of exactly this app database.
-  sourceScope <- required "scheduled.backup.source.scope"
-  kind <- required "scheduled.backup.source.kind"
-  unless
-    (sourceScope == scopeIdText (scopeId (request ^. #appScope)) && kind == "app-database")
-    (Left (invalid "the backup is not an ingested run of this app database"))
+  facts <- runFacts
   (engine, migration, runtime, declaredDatabases, stateful) <- case ( [(engineText, nameText user, role) | member <- appMembers, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec engineText role _ _ _ <- [member ^. #spec]]
                                                                     , [(nameText db, target) | member <- appMembers, DatabaseName target db <- [member ^. #address]]
                                                                     ) of
@@ -103,10 +124,10 @@ compileAppDatabaseRestoreScope request native = do
   -- EP-207: the databases the run holds. A run taken before a logical
   -- database was declared does not hold it; one ingested before EP-207 was
   -- ingested under its own revision, so the declared databases are its.
-  databases <- case Map.lookup "scheduled.backup.databases" receipt of
+  databases <- case heldDatabases facts of
     Nothing -> Right declaredDatabases
     Just recorded
-      | held <- sort (T.splitOn "," recorded)
+      | held <- sort recorded
       , not (null held)
       , all (`elem` declaredDatabases) held ->
           Right held
@@ -124,6 +145,23 @@ compileAppDatabaseRestoreScope request native = do
   credential <- case byAddress "secret" (dbSecretName server) of
     [member] -> Right member
     _ -> Left (invalid "the server scope has no unique administrator credential")
+  rebuild <- case request ^. #run of
+    IngestedRun _ -> Right []
+    FromEscrow escrowed -> do
+      let lineage' = escrowed ^. #lineage
+      unless
+        (request ^. #target == RebuiltTarget)
+        (Left (invalid "an escrowed run restores only into a rebuilt server's declared databases"))
+      unless
+        (lineage' ^. #resource == pvc ^. #identity && lineage' ^. #incarnation == request ^. #targetPvcUid)
+        (Left (invalid "the server's volume is not the incarnation a reviewed rebuild created; ingest the run and restore it instead"))
+      unless
+        (Just (escrowed ^. #escrowPvcUid) == lineage' ^. #proof . #predecessor)
+        (Left (invalid "the backup was verified with the escrow of another incarnation than the rebuild's predecessor"))
+      Right
+        [ ("restore.rebuild.review", digestText (lineage' ^. #review))
+        , ("restore.rebuild.predecessor", physicalIdentityText (escrowed ^. #escrowPvcUid))
+        ]
   statefulValue <- acceptedValue invalid native serverStateful
   _ <- acceptedValue invalid native pvc
   _ <- acceptedValue invalid native credential
@@ -132,13 +170,7 @@ compileAppDatabaseRestoreScope request native = do
     _ -> Left (invalid "the server has no Kubernetes address")
   unless (all (sameCluster cluster) [pvc, credential]) (Left (invalid "restore resources belong to different clusters"))
   clientImage <- first invalid (containerImage statefulValue)
-  objectUrl <- required "scheduled.backup.object"
-  receiptUrl <- required "scheduled.backup.receipt"
-  backupId <- required "scheduled.backup.id"
-  checksum <- required "scheduled.backup.object.sha256"
-  receiptDigest <- required "scheduled.backup.receipt.digest" >>= first invalid . mkContentDigest
-  objectVersion <- required "scheduled.backup.object.version"
-  receiptVersion <- required "scheduled.backup.receipt.version"
+  let RunFacts backupId objectUrl receiptUrl checksum receiptDigest objectVersion receiptVersion _ backupScope receiptJobs = facts
   unless
     ( objectUrl == storeObjectUrl (request ^. #backend) (appDatabaseBackupKeyPrefix ns appName <> backupId <> "." <> appDatabaseBackupExt engine)
         && receiptUrl == objectUrl <> ".receipt.json"
@@ -204,33 +236,70 @@ compileAppDatabaseRestoreScope request native = do
             , sourceLocation = request ^. #source
             }
       )
-  receiptJobs <- Right [member ^. #identity | member <- members (request ^. #receiptScope)]
   let member = bound {dependencies = sort (map OrderedAfter ([serverStateful ^. #identity, pvc ^. #identity, credential ^. #identity] <> receiptJobs))}
       proof = DeclaredOperation proofId (jobId :| []) (sort [ContentInput (contentDigest bytes), ContentInput receiptDigest]) VerifyBeforeRetry RestoreData
       overrides =
-        Map.fromList
-          [ ("restore.id", request ^. #restoreId)
-          , ("restore.app-database", appName)
-          , ("restore.namespace", ns)
-          , ("restore.backup.id", backupId)
-          , ("restore.backup.scope", scopeIdText (scopeId (request ^. #receiptScope)))
-          , ("restore.backup.object", objectUrl)
-          , ("restore.backup.receipt", receiptUrl)
-          , ("restore.backup.receipt.digest", digestText receiptDigest)
-          , ("restore.backup.sha256", checksum)
-          , ("restore.target.scope", scopeIdText (scopeId (request ^. #serverScope)))
-          , ("restore.target.generation", T.pack (show (generationNumber (revisionGeneration (request ^. #serverRevision)))))
-          , ("restore.target.revision", digestText (revisionDigest (request ^. #serverRevision)))
-          , ("restore.target.statefulset", resourceIdText stateful)
-          , ("restore.target.statefulset.uid", physicalIdentityText (request ^. #targetStatefulUid))
-          , ("restore.target.pvc", resourceIdText (pvc ^. #identity))
-          , ("restore.target.pvc.uid", physicalIdentityText (request ^. #targetPvcUid))
-          , ("restore.target.databases", T.intercalate "," targets)
-          , ("restore.target.kind", if request ^. #target == RebuiltTarget then "rebuilt" else "scratch")
-          ]
+        Map.fromList $
+          rebuild
+            <> [("restore.backup.scope", scopeIdText selected) | Just selected <- [backupScope]]
+            <> [ ("restore.id", request ^. #restoreId)
+               , ("restore.app-database", appName)
+               , ("restore.namespace", ns)
+               , ("restore.backup.id", backupId)
+               , ("restore.backup.object", objectUrl)
+               , ("restore.backup.receipt", receiptUrl)
+               , ("restore.backup.receipt.digest", digestText receiptDigest)
+               , ("restore.backup.sha256", checksum)
+               , ("restore.target.scope", scopeIdText (scopeId (request ^. #serverScope)))
+               , ("restore.target.generation", T.pack (show (generationNumber (revisionGeneration (request ^. #serverRevision)))))
+               , ("restore.target.revision", digestText (revisionDigest (request ^. #serverRevision)))
+               , ("restore.target.statefulset", resourceIdText stateful)
+               , ("restore.target.statefulset.uid", physicalIdentityText (request ^. #targetStatefulUid))
+               , ("restore.target.pvc", resourceIdText (pvc ^. #identity))
+               , ("restore.target.pvc.uid", physicalIdentityText (request ^. #targetPvcUid))
+               , ("restore.target.databases", T.intercalate "," targets)
+               , ("restore.target.kind", if request ^. #target == RebuiltTarget then "rebuilt" else "scratch")
+               ]
   base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
   pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base), Map.singleton jobId (member, bytes))
   where
+    runFacts = case request ^. #run of
+      -- An ingested run of exactly this app database.
+      IngestedRun scope -> do
+        let receipt = scopeOverrides scope
+            required key = maybe (Left (invalid ("accepted backup lacks " <> key))) Right (Map.lookup key receipt)
+        sourceScope <- required "scheduled.backup.source.scope"
+        kind <- required "scheduled.backup.source.kind"
+        unless
+          (sourceScope == scopeIdText (scopeId (request ^. #appScope)) && kind == "app-database")
+          (Left (invalid "the backup is not an ingested run of this app database"))
+        RunFacts
+          <$> required "scheduled.backup.id"
+          <*> required "scheduled.backup.object"
+          <*> required "scheduled.backup.receipt"
+          <*> required "scheduled.backup.object.sha256"
+          <*> (required "scheduled.backup.receipt.digest" >>= first invalid . mkContentDigest)
+          <*> required "scheduled.backup.object.version"
+          <*> required "scheduled.backup.receipt.version"
+          <*> pure (T.splitOn "," <$> Map.lookup "scheduled.backup.databases" receipt)
+          <*> pure (Just (scopeId scope))
+          <*> pure [member ^. #identity | member <- members scope]
+      FromEscrow escrowed ->
+        let checked = escrowed ^. #evidence
+            object' = scheduledObjectAddress (scheduledReceipt checked)
+         in Right
+              RunFacts
+                { factBackupId = escrowed ^. #backupId
+                , factObject = object'
+                , factReceipt = object' <> ".receipt.json"
+                , factChecksum = scheduledSha256 (scheduledReceipt checked)
+                , factReceiptDigest = scheduledReceiptDigest checked
+                , factObjectVersion = scheduledObjectVersion checked
+                , factReceiptVersion = scheduledReceiptVersion checked
+                , heldDatabases = Just (escrowed ^. #databases)
+                , factScope = Nothing
+                , factJobs = []
+                }
     members scope = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
     invalid message =
       (inventoryError "invalid-app-database-restore" message & #scopes .~ [scopeId (request ^. #appScope)] & #sources .~ [request ^. #source]) :| []
@@ -250,6 +319,20 @@ compileAppDatabaseRestoreScope request native = do
         , Just (String found) <- KM.lookup "image" container ->
             Right found
       _ -> Left "server StatefulSet has no single container image"
+
+-- | What the restore needs of a run, however it was vouched for.
+data RunFacts = RunFacts
+  { factBackupId :: !Text
+  , factObject :: !Text
+  , factReceipt :: !Text
+  , factChecksum :: !Text
+  , factReceiptDigest :: !ContentDigest
+  , factObjectVersion :: !Text
+  , factReceiptVersion :: !Text
+  , heldDatabases :: !(Maybe [Text])
+  , factScope :: !(Maybe ScopeId)
+  , factJobs :: ![ResourceId]
+  }
 
 -- | M6: load into the declared databases of a rebuilt server, re-applied
 -- empty by the app-database scope. Each engine first refuses a database that
@@ -273,7 +356,9 @@ appDatabaseRebuiltShell ClickHouse server databases restoreKey =
         <> ")\")\"; test \"$tables\" = 0 || { echo \"the declared databases already hold $tables tables; refusing to restore over data\" >&2; exit 3; }; "
         <> "ARCHIVE=\"/source-data/backups/"
         <> archive
-        <> "\"; test ! -e \"$ARCHIVE\"; mkdir -p /source-data/backups; cp /dump/backup.zip \"$ARCHIVE\"; "
+        <> "\"; test ! -e \"$ARCHIVE\"; "
+        <> clickHouseBackupsDirShell
+        <> "cp /dump/backup.zip \"$ARCHIVE\"; "
         <> "ch \"RESTORE "
         <> T.intercalate ", " ["DATABASE " <> db | db <- databases]
         <> " FROM File('"
@@ -309,7 +394,9 @@ appDatabaseRestoreShell ClickHouse declared server scratches migration runtime =
       firstScratch = maybe "" snd (listToMaybe scratches)
    in "set -e; ARCHIVE=\"/source-data/backups/"
         <> archive
-        <> "\"; test ! -e \"$ARCHIVE\"; mkdir -p /source-data/backups; cp /dump/backup.zip \"$ARCHIVE\"; "
+        <> "\"; test ! -e \"$ARCHIVE\"; "
+        <> clickHouseBackupsDirShell
+        <> "cp /dump/backup.zip \"$ARCHIVE\"; "
         <> "clickhouse-client -h "
         <> server
         <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" --multiquery <<'SQL'\n"

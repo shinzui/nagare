@@ -82,7 +82,7 @@ ROUTES = {
     "AppDatabaseCommand": {
         "read": "AppDatabaseList AppDatabaseEvidence AppDatabaseVerifyEscrowedBackup",
         "local": "AppDatabaseEscrowSigningKey",
-        "reviewed": "AppDatabasePlan AppDatabaseRotate AppDatabaseRetire AppDatabaseQuiesce AppDatabaseResume AppDatabaseBackup AppDatabaseBackupReceipts AppDatabaseRestore AppDatabasePruneScheduledBackups",
+        "reviewed": "AppDatabasePlan AppDatabaseRotate AppDatabaseRetire AppDatabaseQuiesce AppDatabaseResume AppDatabaseBackup AppDatabaseBackupReceipts AppDatabaseRestoreRebuilt AppDatabaseRestore AppDatabasePruneScheduledBackups",
         "recovery": "AppDatabaseRecoverScheduledPrune",
     },
     "BrokerCommand": {
@@ -222,7 +222,7 @@ FAMILY_ROUTES = {
     "TunnelCommand.TunnelToken TunnelCommand.TunnelRotate TunnelCommand.TunnelEvict": "Cloudflare tunnel credential",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore DbCommand.DbRestoreRebuilt": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
-    "AppDatabaseCommand.AppDatabasePlan AppDatabaseCommand.AppDatabaseRotate AppDatabaseCommand.AppDatabaseRetire AppDatabaseCommand.AppDatabaseQuiesce AppDatabaseCommand.AppDatabaseResume AppDatabaseCommand.AppDatabaseBackup AppDatabaseCommand.AppDatabaseBackupReceipts AppDatabaseCommand.AppDatabaseRestore AppDatabaseCommand.AppDatabasePruneScheduledBackups AppDatabaseCommand.AppDatabaseRecoverScheduledPrune": "App databases on shared servers: users, databases and grants",
+    "AppDatabaseCommand.AppDatabasePlan AppDatabaseCommand.AppDatabaseRotate AppDatabaseCommand.AppDatabaseRetire AppDatabaseCommand.AppDatabaseQuiesce AppDatabaseCommand.AppDatabaseResume AppDatabaseCommand.AppDatabaseRestoreRebuilt AppDatabaseCommand.AppDatabaseBackup AppDatabaseCommand.AppDatabaseBackupReceipts AppDatabaseCommand.AppDatabaseRestore AppDatabaseCommand.AppDatabasePruneScheduledBackups AppDatabaseCommand.AppDatabaseRecoverScheduledPrune": "App databases on shared servers: users, databases and grants",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",
 }
 

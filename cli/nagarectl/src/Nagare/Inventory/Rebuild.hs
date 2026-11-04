@@ -12,6 +12,7 @@ module Nagare.Inventory.Rebuild
   , decideRebuild
   , rebuildScopes
   , rebuildTargets
+  , rebuildWaitingScopes
   )
 where
 
@@ -119,7 +120,8 @@ rebuildScopes scopes = go
 -- logical database (EP-202 M6), that stays declared and is confirmed absent,
 -- naming its recorded incarnation (none when none was recorded). A generated Secret starts fresh; the caller chooses every other
 -- member's source from its recorded predecessor: a verified recovery point,
--- or, only by the operator's explicit choice, fresh.
+-- or, only by the operator's explicit choice, fresh. A scope waiting for its
+-- server ('rebuildWaitingScopes') yields no target until the server is back.
 rebuildTargets ::
   CompositionCandidate ->
   InventoryHistory ->
@@ -140,6 +142,7 @@ rebuildTargets candidate history observations sourceFor = case partitionEithers 
       , declaration ^. #executor `elem` [KubernetesExecutor, AppDatabaseExecutor]
       , Durable _ <- [declaration ^. #dataPolicy]
       , Set.member (declaration ^. #identity) accepted
+      , declaration ^. #owner `notElem` rebuildWaitingScopes candidate observations
       , Just (ConfirmedAbsent _) <- [Map.lookup (declaration ^. #identity) (observationMap observations)]
       ]
     target declaration = do
@@ -149,6 +152,19 @@ rebuildTargets candidate history observations sourceFor = case partitionEithers 
         Kubernetes _ "" kind _ _ | nameText kind == "secret" -> Right Fresh
         _ -> sourceFor member predecessor'
       pure (RebuildTarget member (declaration ^. #address) (RebuildProof predecessor' source'))
+
+-- | App database scopes that can't be rebuilt yet: their users and logical
+-- databases live in a server that can't be read, so no plan can observe them.
+-- They come back in a second rebuild, once the server's own has converged.
+rebuildWaitingScopes :: CompositionCandidate -> ObservationSet -> [ScopeId]
+rebuildWaitingScopes candidate observations =
+  Set.toAscList $
+    Set.fromList
+      [ declaration ^. #owner
+      | Managed declaration <- inventoryDeclarations (candidateInventory candidate)
+      , declaration ^. #executor == AppDatabaseExecutor
+      , Just (ObservationUnavailable _) <- [Map.lookup (declaration ^. #identity) (observationMap observations)]
+      ]
 
 instance ToJSON RebuildTarget where
   toJSON target = case toJSON (target ^. #proof) of

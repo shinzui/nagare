@@ -152,6 +152,23 @@ appDatabaseParser =
               (progDesc "Review deletion of the exact receipt left by an abandoned partial scheduled app-database prune")
           )
         <> command
+          "restore-rebuilt"
+          ( info
+              ( AppDatabaseRestoreRebuilt
+                  <$> ( AppDatabaseRestoreRebuiltOpts
+                          <$> strArgument (metavar "NAME" <> help "App database name")
+                          <*> namespaceOpt
+                          <*> strOption (long "backup-id" <> metavar "JOB_UID" <> help "A scheduled run of the server's previous incarnation")
+                          <*> strOption (long "restore-id" <> metavar "ID" <> help "Fixed ID of this restore review")
+                          <*> optional (strOption (long "escrow" <> metavar "FILE" <> help "sops-encrypted escrow path (default: the context's cluster-secrets backup-signing/app-databases directory)"))
+                          <*> bucketOpt
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the restore review")
+                      )
+                    <**> helper
+              )
+              (progDesc "After losing the server: review loading a run verified with its escrowed key into the re-applied, empty databases")
+          )
+        <> command
           "escrow-signing-key"
           ( info
               ( AppDatabaseEscrowSigningKey

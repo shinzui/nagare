@@ -28,7 +28,7 @@ import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Lineage
 import Nagare.Inventory.LineageHistory (RebuildLineage (..), memberLineage)
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Rebuild (RebuildInput (..), RebuildTarget (..), decideRebuild, rebuildScopes, rebuildTargets)
+import Nagare.Inventory.Rebuild (RebuildInput (..), RebuildTarget (..), decideRebuild, rebuildScopes, rebuildTargets, rebuildWaitingScopes)
 import Nagare.Inventory.RebuildRestore (RebuildRestoreRequest (..), compileRebuildRestoreScope)
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
@@ -159,6 +159,17 @@ inventoryRebuildTests =
             candidate = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding (Map.map (\(revision, scope) -> (revisionGeneration revision, scope)) (historyAccepted logical)) (historyReservations logical))) (ReplaceScope logicalScope :| []))
             absent = expectOk (observationSet [(volumeId, ConfirmedAbsent (contentDigest "absent"))])
         fmap (map (^. #resource)) (rebuildTargets candidate logical absent (\_ _ -> Right Fresh)) @?= Right [volumeId]
+    , testCase "F145: an app database waits for a server that can't be read" $ do
+        (store, _) <- acceptedVolume
+        history <- loadInventoryHistory store >>= expectRight
+        let logical = history {historyAccepted = Map.map (fmap (const logicalScope)) (historyAccepted history)}
+            candidate = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding (Map.map (\(revision, scope) -> (revisionGeneration revision, scope)) (historyAccepted logical)) (historyReservations logical))) (ReplaceScope logicalScope :| []))
+            serverLost = expectOk (observationSet [(volumeId, ObservationUnavailable "the server is gone")])
+            serverBack = expectOk (observationSet [(volumeId, ConfirmedAbsent (contentDigest "absent"))])
+        rebuildWaitingScopes candidate serverLost @?= [scopeId logicalScope]
+        rebuildTargets candidate logical serverLost (\_ _ -> Right Fresh) @?= Right []
+        rebuildWaitingScopes candidate serverBack @?= []
+        fmap (map (^. #resource)) (rebuildTargets candidate logical serverBack (\_ _ -> Right Fresh)) @?= Right [volumeId]
     , testCase "a rebuild input and review proof round-trip, with exactly one source" $ do
         let input = RebuildInput fixtureBinding [target accepted (FromRecoveryPoint point), target Nothing Fresh]
         Aeson.eitherDecode (Aeson.encode input) @?= Right input

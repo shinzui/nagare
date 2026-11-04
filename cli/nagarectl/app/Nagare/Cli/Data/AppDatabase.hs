@@ -19,7 +19,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Cli.Data.ScheduledPrune (runReviewedScheduledPrunePlan, runReviewedScheduledPruneRecoveryPlan)
 import Nagare.Cli.Data.ScheduledReceipts (IngestSelection (..), runReviewedAppDatabaseReceiptPlan)
-import Nagare.Cli.Data.SigningKeyEscrow (defaultAppDatabaseEscrowPath, runEscrowAppDatabaseSigningKey, runVerifyEscrowedBackup)
+import Nagare.Cli.Data.SigningKeyEscrow (decryptEscrow, defaultAppDatabaseEscrowPath, escrowedAppDatabaseRun, runEscrowAppDatabaseSigningKey, runVerifyEscrowedBackup)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Options.AppDatabase
@@ -36,13 +36,15 @@ import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.AppDatabase
 import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope)
 import Nagare.Inventory.AppDatabaseEvidence (loadAppDatabaseEvidence, renderAppDatabaseEvidence)
-import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
+import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), EscrowedRun (EscrowedRun), RestoreRun (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
+import Nagare.Inventory.LineageHistory (memberLineage)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Restore (restoreTargetPins)
 import Nagare.Inventory.ScheduledPrune (PruneSource (AppDatabasePruneSource))
+import Nagare.Inventory.SigningKeyEscrow (EscrowSourceKind (AppDatabaseEscrow))
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -142,12 +144,56 @@ runAppDatabase mctx = \case
               , restoreId = T.pack (o ^. #restoreId)
               , appScope = appScope
               , serverScope = serverScope
-              , receiptScope = receiptScope
+              , run = IngestedRun receiptScope
               , targetStatefulUid = statefulUid
               , targetPvcUid = pvcUid
               , backend = backend
               , source = Resource.SourceLocation "db app-database restore" (T.pack (o ^. #name))
               , target = if o ^. #rebuilt then RebuiltTarget else ScratchTarget
+              , serverRevision = serverRevision
+              }
+            accepted
+        )
+    planReview active snapshot [restoreScope] native (Just (o ^. #savePlan))
+  AppDatabaseRestoreRebuilt o -> do
+    (active, snapshot) <- loadSnapshot mctx
+    let namespaceName = maybe "personal" T.pack (o ^. #namespace)
+        appDatabase = T.pack (o ^. #name)
+        context = contextNameText (active ^. #contextName)
+        backupId = T.pack (o ^. #backupId)
+    appScope <- either dieT pure (namedAppDatabaseScope snapshot appDatabase Nothing)
+    (serverScope, _, pvc, statefulUid, pvcUid, history, accepted) <- serverPins active snapshot appScope
+    serverRevision <-
+      maybe (dieT "the app database's server scope is not accepted") (pure . fst) (Map.lookup (ResourceInventory.scopeId serverScope) (InventoryPlan.historyAccepted history))
+    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+    lineage <-
+      memberLineage store (InventoryPlan.historyHead history) (pvc ^. #identity)
+        >>= either dieT pure
+        >>= maybe (dieT "the server's volume was not created by a converged rebuild; ingest the run with db app-database backup-receipts and restore it") pure
+    path <- maybe (defaultAppDatabaseEscrowPath context namespaceName appDatabase) pure (o ^. #escrow)
+    escrow <- decryptEscrow path
+    unless
+      (escrow ^. #context == context && escrow ^. #database == appDatabase && escrow ^. #namespace == namespaceName && escrow ^. #sourceKind == AppDatabaseEscrow)
+      (dieT "the escrow belongs to another context, namespace or app database")
+    backend <- resolveStoreBackend mctx (o ^. #bucket)
+    (evidence, held) <- escrowedAppDatabaseRun escrow backend backupId >>= either dieT pure
+    (restoreScope, native) <-
+      either
+        (dieT . renderErrors)
+        pure
+        ( compileAppDatabaseRestoreScope
+            AppDatabaseRestoreRequest
+              { appDatabase = appDatabase
+              , namespace = namespaceName
+              , restoreId = T.pack (o ^. #restoreId)
+              , appScope = appScope
+              , serverScope = serverScope
+              , run = FromEscrow (EscrowedRun backupId held lineage (escrow ^. #pvcUid) evidence)
+              , targetStatefulUid = statefulUid
+              , targetPvcUid = pvcUid
+              , backend = backend
+              , source = Resource.SourceLocation "db app-database restore-rebuilt" appDatabase
+              , target = RebuiltTarget
               , serverRevision = serverRevision
               }
             accepted

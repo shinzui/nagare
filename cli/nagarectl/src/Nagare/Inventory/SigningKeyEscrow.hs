@@ -12,6 +12,7 @@ module Nagare.Inventory.SigningKeyEscrow
   , renderSigningKeyEscrow
   , parseSigningKeyEscrow
   , escrowReceiptExpectation
+  , escrowReceiptDatabases
   , EscrowDecision (..)
   , escrowDecision
   , archivedEscrowPath
@@ -21,6 +22,7 @@ where
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.Foldable (toList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
@@ -143,6 +145,21 @@ escrowObjectPrefix :: SigningKeyEscrow -> Text
 escrowObjectPrefix escrow = case sourceKind escrow of
   DatabaseEscrow -> dbBackupKeyPrefix (database escrow)
   AppDatabaseEscrow -> appDatabaseBackupKeyPrefix (namespace escrow) (database escrow)
+
+-- | The databases an app database's signed receipt says the run holds. Read
+-- only from bytes whose digest the verified evidence covers.
+escrowReceiptDatabases :: ByteString -> Either Text [Text]
+escrowReceiptDatabases receiptBytes = do
+  value <- first (const "scheduled receipt is not JSON") (eitherDecodeStrict receiptBytes)
+  case value of
+    Object root
+      | Just (Object payload) <- KM.lookup "payload" root
+      , Just (Object backup) <- KM.lookup "backup" payload
+      , Just (Array names) <- KM.lookup "databases" backup
+      , Just held <- traverse (\case String name -> Just name; _ -> Nothing) (toList names)
+      , not (null held) ->
+          Right held
+    _ -> Left "scheduled receipt names no databases"
 
 -- | Derive a receipt expectation without the cluster. The source incarnation
 -- comes from the escrow; the schedule metadata comes from the receipt itself,

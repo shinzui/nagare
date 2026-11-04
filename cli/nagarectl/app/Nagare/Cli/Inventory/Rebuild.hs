@@ -32,7 +32,7 @@ import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPoint (..), RecoveryPointKind (ScheduledRecoveryPoint, ScheduledVolumeRecoveryPoint, VolumeSnapshotRecoveryPoint), renderRebuild)
 import Nagare.Inventory.Plan qualified as InventoryPlan
-import Nagare.Inventory.Rebuild (RebuildInput (..), decideRebuild, decodeRebuildInput, rebuildScopes, rebuildTargets)
+import Nagare.Inventory.Rebuild (RebuildInput (..), decideRebuild, decodeRebuildInput, rebuildScopes, rebuildTargets, rebuildWaitingScopes)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.VolumeRestoreSource (verifyIngestedVolumeRun, verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -105,14 +105,25 @@ runInventoryRebuildDecisions mctx pointArgs snapshotArgs runArgs freshArgs bucke
                   )
                   [member]
               )
+  let waiting = rebuildWaitingScopes candidate observed
+      noteWaiting =
+        unless
+          (null waiting)
+          ( TIO.putStrLn
+              ( "Waiting for their server, so not in this rebuild: "
+                  <> T.intercalate ", " (map Resource.scopeIdText waiting)
+                  <> ". Run rebuild-decisions again once the server's rebuild has converged."
+              )
+          )
   case rebuildTargets candidate history observed pointFor of
     Left errors -> do
       traverse_ (TIO.hPutStrLn stderr . renderError) (NE.toList errors)
       exitFailure
-    Right [] -> dieT "no accepted durable member is confirmed absent; there is nothing to rebuild"
+    Right [] -> noteWaiting >> dieT "no accepted durable member is confirmed absent; there is nothing to rebuild"
     Right targets -> do
       BL.writeFile output (Aeson.encode (RebuildInput (ResourceInventory.snapshotBinding snapshot) targets))
       traverse_ (\target -> TIO.putStrLn (renderRebuild (target ^. #resource) (target ^. #proof))) targets
+      noteWaiting
       TIO.putStrLn ("Wrote " <> T.pack (show (length targets)) <> " rebuild decisions to " <> T.pack output <> "; review them, then run inventory rebuild --input.")
 
 -- | Save the review that recreates the input's members and every absent

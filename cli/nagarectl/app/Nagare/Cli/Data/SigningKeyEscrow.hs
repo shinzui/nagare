@@ -11,6 +11,7 @@ module Nagare.Cli.Data.SigningKeyEscrow
   , runVerifyEscrowedBackup
   , decryptEscrow
   , escrowedReceiptEvidence
+  , escrowedAppDatabaseRun
   , withRecoveryStore
   )
 where
@@ -39,6 +40,7 @@ import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..)
   , ScheduledReceiptExpectation (scheduledFormat)
   )
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
@@ -59,6 +61,7 @@ import Nagare.Inventory.SigningKeyEscrow
   , archivedEscrowPath
   , escrowDecision
   , escrowObjectPrefix
+  , escrowReceiptDatabases
   , escrowReceiptExpectation
   , parseSigningKeyEscrow
   , renderSigningKeyEscrow
@@ -238,7 +241,22 @@ runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath buc
 -- | Read and verify one scheduled receipt and its archive with only the
 -- escrowed key and the object store, never the cluster or the inventory store.
 escrowedReceiptEvidence :: SigningKeyEscrow -> StoreBackend -> Text -> Maybe (String, FilePath) -> IO (Either Text ScheduledReceiptEvidence)
-escrowedReceiptEvidence escrow@(SigningKeyEscrow context _ _ format _ _ _ key _) backend backupId offline = do
+escrowedReceiptEvidence escrow backend backupId offline =
+  fmap fst <$> escrowedReceiptWithBytes escrow backend backupId offline
+
+-- | An app database's run with the databases its verified receipt names.
+escrowedAppDatabaseRun :: SigningKeyEscrow -> StoreBackend -> Text -> IO (Either Text (ScheduledReceiptEvidence, [Text]))
+escrowedAppDatabaseRun escrow backend backupId = do
+  verified <- escrowedReceiptWithBytes escrow backend backupId Nothing
+  pure $ do
+    (evidence, bytes) <- verified
+    unless
+      (contentDigest bytes == scheduledReceiptDigest evidence)
+      (Left "the receipt changed while it was verified; run the command again")
+    (evidence,) <$> escrowReceiptDatabases bytes
+
+escrowedReceiptWithBytes :: SigningKeyEscrow -> StoreBackend -> Text -> Maybe (String, FilePath) -> IO (Either Text (ScheduledReceiptEvidence, BS.ByteString))
+escrowedReceiptWithBytes escrow@(SigningKeyEscrow context _ _ format _ _ _ key _) backend backupId offline = do
   let prefix = storePrefixUrl backend (escrowObjectPrefix escrow)
       receiptAddress = prefix <> backupId <> "." <> format <> ".receipt.json"
   withRecoveryStore context backend offline $ \reader ->
@@ -250,7 +268,7 @@ escrowedReceiptEvidence escrow@(SigningKeyEscrow context _ _ format _ _ _ key _)
           bytes <- BS.readFile (scratch </> "receipt")
           case escrowReceiptExpectation escrow prefix bytes of
             Left reason -> pure (Left reason)
-            Right expectation -> inspectScheduledReceipt reader expectation backupId key
+            Right expectation -> fmap (,bytes) <$> inspectScheduledReceipt reader expectation backupId key
 
 -- | Read a recovery point's objects through the context's object store, or
 -- (local mode, F41) an offline copy of it at an explicit loopback endpoint,

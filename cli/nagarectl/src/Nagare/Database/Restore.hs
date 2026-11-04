@@ -6,7 +6,8 @@
 -- Pure helpers (@resolveBackupObject@, @isGsUrl@, @renderRestoreJob@) are
 -- unit-testable without a cluster.
 module Nagare.Database.Restore
-  ( isObjectUrl
+  ( clickHouseBackupsDirShell
+  , isObjectUrl
   , resolveBackupObject
   , RestoreJobInputs (..)
   , VerifiedRestoreSource (..)
@@ -49,6 +50,12 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp)
 import System.Exit (exitFailure)
 import System.IO (stderr)
+
+-- | The folder a restore places its archive in, which the server's own later
+-- backups write to. A rebuilt server has none yet, and this Job runs as root, so
+-- it hands the folder to the server: a root-owned one fails every later backup.
+clickHouseBackupsDirShell :: Text
+clickHouseBackupsDirShell = "mkdir -p /source-data/backups; chown clickhouse:clickhouse /source-data/backups; "
 
 -- | Is the BACKUP_ID already a full object URL (@gs://@ in cloud mode or
 -- @s3://@ in local mode)?
@@ -171,7 +178,9 @@ rebuildRestoreShell ClickHouse svc stage =
     <> "'\")\" = 0; "
     <> "ARCHIVE=\"/source-data/backups/nagare-restore-"
     <> stage
-    <> ".zip\"; test ! -e \"$ARCHIVE\"; mkdir -p /source-data/backups; cp /dump/backup.zip \"$ARCHIVE\"; "
+    <> ".zip\"; test ! -e \"$ARCHIVE\"; "
+    <> clickHouseBackupsDirShell
+    <> "cp /dump/backup.zip \"$ARCHIVE\"; "
     <> "ch \"RESTORE DATABASE default AS \\`"
     <> stage
     <> "\\` FROM File('nagare-restore-"

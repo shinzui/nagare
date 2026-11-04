@@ -57,14 +57,17 @@ import Nagare.Inventory.Adapters.AppDatabaseRuntime (clickHouseLoginVerdict)
 import Nagare.Inventory.Adapters.CredentialTemplate (credentialDataMatches, materializeCredential)
 import Nagare.Inventory.AppDatabase
 import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope, onDemandBackupJobName, validOnDemandBackupId)
-import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
+import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), EscrowedRun (EscrowedRun), RestoreRun (..), RestoreTarget (..), appDatabaseRebuiltShell, compileAppDatabaseRestoreScope)
 import Nagare.Inventory.Application (DatabaseBinding, acceptedAppDatabaseBindings, acceptedAppDatabaseReaderBindings, acceptedDatabaseBindings, compileStandaloneWorkerWithDependencies)
+import Nagare.Inventory.Backup (ScheduledBackupReceipt (ScheduledBackupReceipt))
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
 import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledAppDatabaseReceiptExpectationFromCronJob)
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (..), JournalEvent (..), OperationState (..), mkOperationId, mkTransactionId)
+import Nagare.Inventory.Lineage (RebuildProof (RebuildProof), RebuildSource (Fresh))
+import Nagare.Inventory.LineageHistory (RebuildLineage (RebuildLineage))
 import Nagare.Inventory.Restore (manualRestoreTargetProof)
 import Nagare.Inventory.ScheduleHistory (convergedReviews)
 import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope, compileScheduledIngestScopeWithHistory)
@@ -290,7 +293,7 @@ appDatabaseTests =
         , testCase "a restore loads one app database into scratch names as the administrator (M5)" $ do
             (appScope, serverScope, native, receiptScope, _, _) <- ingested
             let request scope =
-                  AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" scope serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+                  AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" scope serverScope (IngestedRun receiptScope) (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
             (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope (request appScope) native)
             [bytes] <- pure (map snd (Map.elems restoreNative))
             let text = TE.decodeUtf8 bytes
@@ -309,7 +312,7 @@ appDatabaseTests =
         , testCase "a scratch restore extends no reader to the scratch databases (IR-33 AC-8)" $ do
             let reader = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "gamma")] False
             (appScope, serverScope, native, receiptScope, _, _) <- ingestedWith (alpha Postgres & #access . #readers .~ [reader])
-            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope (IngestedRun receiptScope) (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
             (_, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope request native)
             [bytes] <- pure (map snd (Map.elems restoreNative))
             let text = TE.decodeUtf8 bytes
@@ -357,13 +360,13 @@ appDatabaseTests =
               jobMetadata (compileScheduledIngestScopeWithHistory [cronOf oldNative] request newScope native) @?= [digestOf oldNative]
               (receiptScope, _) <- either (assertFailure . show) pure (compileScheduledIngestScopeWithHistory [cronOf oldNative] request newScope native)
               Map.lookup "scheduled.backup.databases" (scopeOverrides receiptScope) @?= Just "alpha"
-              let restoreRequest = AppDatabaseRestoreRequest (if engine' == Postgres then "alpha-pg" else "alpha-ch") "personal" "r1" newScope (fst newServer) receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+              let restoreRequest = AppDatabaseRestoreRequest (if engine' == Postgres then "alpha-pg" else "alpha-ch") "personal" "r1" newScope (fst newServer) (IngestedRun receiptScope) (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
               (restoreScope, _) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope restoreRequest native)
               -- Only the databases the run holds are restored.
               Map.lookup "restore.target.databases" (scopeOverrides restoreScope) @?= Just "alpha_restore_r1"
               -- A run naming a database the app no longer declares is refused.
               let foreign' = withScopeOverrides (Map.insert "scheduled.backup.databases" "alpha,gone" (scopeOverrides receiptScope)) receiptScope
-              assertBool "a run naming an undeclared database is refused" (isLeft (compileAppDatabaseRestoreScope (restoreRequest & #receiptScope .~ foreign') native))
+              assertBool "a run naming an undeclared database is refused" (isLeft (compileAppDatabaseRestoreScope (restoreRequest & #run .~ IngestedRun foreign') native))
         , testCase "only a converged transaction's review authorizes a schedule revision (EP-207)" $ do
             let tx name = known (mkTransactionId ("tx-" <> name))
                 event n transaction operation state = JournalEvent 1 n Nothing (tx transaction) operation state "t" "" Nothing
@@ -382,7 +385,7 @@ appDatabaseTests =
             convergedReviews events @?= [contentDigest "review-a", contentDigest "review-e"]
         , testCase "a rebuilt-server restore loads into the declared, still-empty databases (M6)" $ do
             (appScope, serverScope, native, receiptScope, _, _) <- ingested
-            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope receiptScope (known (mkPhysicalIdentity "sts2")) (known (mkPhysicalIdentity "pvc2")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") RebuiltTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope (IngestedRun receiptScope) (known (mkPhysicalIdentity "sts2")) (known (mkPhysicalIdentity "pvc2")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") RebuiltTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
             (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope request native)
             [bytes] <- pure (map snd (Map.elems restoreNative))
             let text = TE.decodeUtf8 bytes
@@ -392,6 +395,37 @@ appDatabaseTests =
             nub (sort (secretKeyRefs bytes)) @?= ["nagare-db-smoke-pg"]
             Map.lookup "restore.target.kind" (scopeOverrides restoreScope) @?= Just "rebuilt"
             Map.lookup "restore.target.databases" (scopeOverrides restoreScope) @?= Just "alpha"
+        , testCase "F145: a rebuilt server loads a run its escrowed key verified, and only that server" $ do
+            (appScope, serverScope, native, _, _, pvcMember) <- ingested
+            let pvcId = pvcMember ^. #identity
+                newVolume = known (mkPhysicalIdentity "pvc2")
+                oldVolume = known (mkPhysicalIdentity "pvc1")
+                object' = "gs://bucket/app-databases/personal/alpha-pg/job-1.dump.gz"
+                checked =
+                  ScheduledReceiptEvidence
+                    (ScheduledBackupReceipt (known (mkPhysicalIdentity "job-1")) object' "sum" (contentDigest "revision") Nothing)
+                    "7"
+                    "8"
+                    1
+                    1
+                    (contentDigest "receipt")
+                lineage' = RebuildLineage pvcId newVolume (RebuildProof (Just oldVolume) Fresh) (contentDigest "review")
+                escrowed = EscrowedRun "job-1" ["alpha"] lineage' oldVolume checked
+                request run' target' volume =
+                  AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope run' (known (mkPhysicalIdentity "sts2")) volume (GcsBackend "project" "bucket") (SourceLocation "test" "r1") target' (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+                compile run' target' volume = compileAppDatabaseRestoreScope (request run' target' volume) native
+            (restoreScope, restoreNative) <- either (assertFailure . show) pure (compile (FromEscrow escrowed) RebuiltTarget newVolume)
+            [bytes] <- pure (map snd (Map.elems restoreNative))
+            assertBool "refuses a database that already holds relations" ("refusing to restore over data" `T.isInfixOf` TE.decodeUtf8 bytes)
+            assertBool
+              "a ClickHouse restore left its backups folder to root, which fails every later backup"
+              ("chown clickhouse:clickhouse /source-data/backups" `T.isInfixOf` appDatabaseRebuiltShell ClickHouse "smoke-ch" ["alpha"] "r1")
+            Map.lookup "restore.rebuild.predecessor" (scopeOverrides restoreScope) @?= Just "pvc1"
+            Map.lookup "restore.backup.object" (scopeOverrides restoreScope) @?= Just object'
+            assertBool "an escrowed run restored beside a live server" (isLeft (compile (FromEscrow escrowed) ScratchTarget newVolume))
+            assertBool "an escrowed run restored into a volume no rebuild created" (isLeft (compile (FromEscrow escrowed) RebuiltTarget oldVolume))
+            assertBool "another incarnation's escrow was accepted" (isLeft (compile (FromEscrow (escrowed & #escrowPvcUid .~ newVolume)) RebuiltTarget newVolume))
+            assertBool "a database no longer declared was accepted" (isLeft (compile (FromEscrow (escrowed & #databases .~ ["gone"])) RebuiltTarget newVolume))
         , testCase "two app databases cannot claim one logical database on a server" $
             assertComposeRefused "claim-conflict" pgServer [alpha Postgres, beta Postgres & #logicalDatabases .~ (logical "alpha" :| [])]
         , testCase "two app databases cannot claim one user on a server" $
@@ -434,7 +468,7 @@ appDatabaseTests =
             fmap scheduledPolicyRevision (expectationOf retiredBytes) @?= fmap scheduledPolicyRevision (expectationOf (snd (native Map.! (cron ^. #identity))))
             let retiredNative = Map.union suspended native
             (receiptScope, _) <- either (assertFailure . show) pure (compileScheduledIngestScope (ingestRequest serverScope native retired) retired retiredNative)
-            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" retired serverScope receiptScope (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+            let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" retired serverScope (IngestedRun receiptScope) (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
             either (assertFailure . show) (const (pure ())) (compileAppDatabaseRestoreScope request retiredNative)
             (again, _) <- either (assertFailure . show) pure (retireAppDatabaseScope (snapshotWith [pgServer] [retired]) retiredNative retired)
             again @?= retired

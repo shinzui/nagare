@@ -218,9 +218,24 @@ admitWithHistory locked registry reviewed pinned = do
                 ]
             -- ADR 27 §3: a rebind records the reviewed live object, so that
             -- object must still be the live one.
-            -- EP-183 M4: a rebuild recreates a member reviewed as absent.
-            rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document) <> Map.keys (reviewRebuilds document)) | not (Map.null (reviewRebinds document) && Map.null (reviewRebuilds document))]
-            retainedRequests = Map.unionsWith (<>) [retentionRequests, collectionRequests, rebindRequests]
+            rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document)) | not (Map.null (reviewRebinds document))]
+            -- EP-183 M4: a rebuild recreates a member reviewed as absent, read
+            -- through the executor that creates it (an app database's logical
+            -- database is not a Kubernetes object).
+            rebuildExecutors =
+              Map.fromList
+                [ (resource, plannedExecutor operation)
+                | entry <- reviewOperations document
+                , let operation = reviewPlannedOperation entry
+                , resource <- NE.toList (plannedResources operation)
+                ]
+            rebuildRequests =
+              Map.fromListWith
+                (<>)
+                [ (Map.findWithDefault KubernetesExecutor resource rebuildExecutors, [resource])
+                | resource <- Map.keys (reviewRebuilds document)
+                ]
+            retainedRequests = Map.unionsWith (<>) [retentionRequests, collectionRequests, rebindRequests, rebuildRequests]
         migrationChecked <- migrationCoverage store historyAt document
         migrationSourceErrors <- case migrationChecked of
           Left _ -> pure []

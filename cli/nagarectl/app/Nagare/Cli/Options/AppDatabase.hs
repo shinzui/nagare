@@ -10,6 +10,7 @@ module Nagare.Cli.Options.AppDatabase
   , AppDatabaseRecoverPruneOpts (..)
   , AppDatabaseEscrowOpts (..)
   , AppDatabaseVerifyEscrowOpts (..)
+  , AppDatabaseRestoreRebuiltOpts (..)
   )
 where
 
@@ -34,6 +35,19 @@ data AppDatabaseCommand
   | -- | F145: keep the schedule's signing key off the cluster
     AppDatabaseEscrowSigningKey AppDatabaseEscrowOpts
   | AppDatabaseVerifyEscrowedBackup AppDatabaseVerifyEscrowOpts
+  | -- | F145: load a run of the lost server, verified with its escrowed key
+    AppDatabaseRestoreRebuilt AppDatabaseRestoreRebuiltOpts
+  deriving stock (Generic, Show)
+
+data AppDatabaseRestoreRebuiltOpts = AppDatabaseRestoreRebuiltOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , backupId :: !String
+  , restoreId :: !String
+  , escrow :: !(Maybe FilePath)
+  , bucket :: !(Maybe String)
+  , savePlan :: !FilePath
+  }
   deriving stock (Generic, Show)
 
 data AppDatabaseEscrowOpts = AppDatabaseEscrowOpts

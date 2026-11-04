@@ -97,7 +97,7 @@ import Nagare.Resource.Reference
 import Nagare.Resource.Types
   ( ContentDigest
   , ContextBinding
-  , ProviderAddress (Kubernetes)
+  , ProviderAddress (DatabaseName, Kubernetes)
   , ResourceId
   , ScopeKind (Platform)
   , nameText
@@ -391,8 +391,8 @@ validateLifecycleDecisions candidate history observations proposals =
             -- generates is generated anew.
             ApproveRebuild proof -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
               (Just (Managed next), Just (Managed old), Just (ConfirmedAbsent _))
-                | next ^. #executor == KubernetesExecutor
-                , old ^. #executor == KubernetesExecutor
+                | next ^. #executor `elem` [KubernetesExecutor, AppDatabaseExecutor]
+                , next ^. #executor == old ^. #executor
                 , next ^. #owner == old ^. #owner
                 , next ^. #address == old ^. #address
                 , Durable _ <- old ^. #dataPolicy
@@ -434,6 +434,9 @@ rebuildSourceFits :: ProviderAddress -> RebuildProof -> Bool
 rebuildSourceFits address proof = case (address, proof ^. #source) of
   (Kubernetes _ "" kind _ _, FromRecoveryPoint _) -> nameText kind == "persistentvolumeclaim" && isJust (proof ^. #predecessor)
   (Kubernetes _ "" kind _ _, Fresh) -> nameText kind `elem` ["persistentvolumeclaim", "secret"]
+  -- An app database's logical database starts empty; its data comes from
+  -- `db app-database restore-rebuilt`, which the server's own lineage admits.
+  (DatabaseName _ _, Fresh) -> True
   _ -> False
 
 -- | Whether an access grant's accepted declaration grants access.
