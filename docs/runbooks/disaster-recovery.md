@@ -169,7 +169,8 @@ Note the start time; the recovery time runs to the service answering.
    incarnation, and the archive must match the receipt's checksum. A volume you
    choose to start empty takes `--fresh RESOURCE_ID` instead; nothing of its
    data is then recovered. Generated Secrets (credentials, backup signing keys)
-   always start fresh. The command prints what each decision approves and
+   start fresh, except Shomei's key-encryption key, which comes from its escrow
+   ([If that key is lost](#if-shomeis-key-encryption-key-is-lost)). The command prints what each decision approves and
    refuses a volume with no choice. The input's shape is in
    [Rebuilt members](inventory-operations.md#rebuilt-members).
 4. **Review and apply the rebuild.** It recreates the decided members and every
@@ -195,6 +196,11 @@ Note the start time; the recovery time runs to the service answering.
    nagarectl --context "$CONTEXT" inventory apply reviews/restore-pg --yes
    ```
 
+   The platform's own databases are `en-db` and `shomei-db`, with `-n nagare-system`. En and Shomei
+   stay absent until the next `platform bootstrap plan`, so nothing writes first: restore both, then
+   plan and apply until a review has no operations. En's Job also runs the transaction counter past
+   the restored rows and rotates En's datastore id, so a token minted before the loss fails cleanly.
+
    The command verifies the receipt with the predecessor's escrowed key. The Job
    re-reads the receipt and archive at their pinned versions, refuses a target
    that already holds data, and loads as atomically as the engine allows:
@@ -219,13 +225,23 @@ Note the start time; the recovery time runs to the service answering.
    directory on the claim, checks again that nothing else arrived, and renames
    each entry into place. It prints the restored files' manifest.
 7. **Escrow the new signing keys.** Each rebuilt database has a new signing key:
-   run `nagarectl db escrow-signing-key NAME` for each, and commit the escrow.
+   run `nagarectl db escrow-signing-key NAME` for each, and commit the result. The previous escrow
+   moves aside under its volume's ID; pass it with `--escrow` to verify an older backup.
 8. **Deploy or restart the applications** through their saved reviews, read back
    known rows and files, and record the elapsed time against the
    recovery-time objective.
 
 The new incarnations' backups start from the first scheduled run after step 4;
 take a manual snapshot of each restored volume.
+
+### If Shomei's key-encryption key is lost
+
+Shomei wraps its signing keys and TOTP secrets with this key, and `db escrow-signing-key shomei-db`
+escrows it. Without the escrow, a restored Shomei stops at startup with `did not decrypt`, and nothing
+recovers those rows. Passwords and passkeys are not wrapped with it. On Shomei's database, run
+`DELETE FROM shomei.shomei_signing_keys`, and also `DELETE FROM shomei.shomei_totp_credentials` if any
+user enrolled TOTP. Delete Shomei's pod so it generates a new signing key, then resume the transaction.
+Everyone signs in again, and those users enrol TOTP again.
 
 ## Power management (stop / start / full teardown)
 

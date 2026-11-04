@@ -10,6 +10,9 @@ module Nagare.Inventory.SigningKeyEscrow
   , renderSigningKeyEscrow
   , parseSigningKeyEscrow
   , escrowReceiptExpectation
+  , EscrowDecision (..)
+  , escrowDecision
+  , archivedEscrowPath
   )
 where
 
@@ -27,6 +30,7 @@ import Nagare.Inventory.BackupReceipt
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types (PhysicalIdentity, mkContentDigest, mkPhysicalIdentity, physicalIdentityText)
 import Nagare.Resource.Wire (canonicalValue)
+import System.FilePath (dropExtensions, takeExtensions)
 
 data SigningKeyEscrow = SigningKeyEscrow
   { context :: !Text
@@ -46,6 +50,30 @@ instance Show SigningKeyEscrow where
     "SigningKeyEscrow "
       <> show (context escrow, namespace escrow, database escrow, format escrow)
       <> " <hmac key redacted>"
+
+-- | What a new escrow does to the file already at its path.
+data EscrowDecision
+  = AlreadyEscrowed
+  | -- | A replaced database: its old backups still need the old key, so the old
+    -- file moves aside under its own volume's name.
+    KeepPrevious
+  | DifferentEscrow
+  deriving stock (Eq, Show)
+
+escrowDecision :: SigningKeyEscrow -> SigningKeyEscrow -> EscrowDecision
+escrowDecision stored new
+  | stored == new = AlreadyEscrowed
+  | context stored == context new
+      && namespace stored == namespace new
+      && database stored == database new
+      && pvcUid stored /= pvcUid new =
+      KeepPrevious
+  | otherwise = DifferentEscrow
+
+-- | Where a previous incarnation's escrow goes.
+archivedEscrowPath :: FilePath -> SigningKeyEscrow -> FilePath
+archivedEscrowPath path stored =
+  dropExtensions path <> "." <> T.unpack (physicalIdentityText (pvcUid stored)) <> takeExtensions path
 
 renderSigningKeyEscrow :: SigningKeyEscrow -> ByteString
 renderSigningKeyEscrow escrow =

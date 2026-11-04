@@ -7,6 +7,7 @@ module Nagare.Inventory.Adapters.CredentialTemplate
   , fieldText
   , textAt
   , materializeCredential
+  , materializeCredentialWith
   , materializeLocalObjectStoreCredentialWith
   , minioSourceData
   , generatedCredentialTemplate
@@ -37,7 +38,7 @@ import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), appDat
 import Nagare.Dsl.AppDatabase (parseAppDatabaseRole)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), runtimeEscrowedShomeiKey)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import System.Exit (ExitCode (..))
@@ -61,7 +62,13 @@ textAt key value = case KM.lookup key value of Just (String textValue) -> Just t
 -- mutation time only, materialize their data from a newly generated password.
 -- The template's identity, labels and inventory stamps remain unchanged.
 materializeCredential :: Text -> IO (Either Text Text)
-materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
+materializeCredential = materializeCredentialWith (pure (Right Nothing))
+
+-- | F146: Shomei's key-encryption key comes from the context's escrow when one
+-- exists, because restored rows are wrapped with it. Everything else generated
+-- here carries no data that outlives the cluster.
+materializeCredentialWith :: IO (Either Text (Maybe Text)) -> Text -> IO (Either Text Text)
+materializeCredentialWith readEscrowedKey native = case eitherDecodeStrict (TE.encodeUtf8 native) of
   Left (_ :: String) -> pure (Left "reviewed Kubernetes object is malformed")
   Right value -> case authCredentialKind value of
     Left reason -> pure (Left reason)
@@ -69,7 +76,7 @@ materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
       Left reason -> pure (Left reason)
       Right (Just _) -> pure (Left "Secret cannot carry both auth and database credential templates")
       Right Nothing -> do
-        generated <- traverse generateAuthKey keys
+        generated <- traverse (authKey readEscrowedKey) keys
         pure $ do
           entries <- sequence generated
           case value of
@@ -127,7 +134,7 @@ materializeLocalObjectStoreCredentialWith readSource config native =
     Left (_ :: String) -> pure (Left "reviewed Kubernetes object is malformed")
     Right value -> case minioCredentialKind value of
       Left reason -> pure (Left reason)
-      Right Nothing -> materializeCredential native
+      Right Nothing -> materializeCredentialWith (runtimeEscrowedShomeiKey config) native
       Right (Just False) -> do
         access <- generateAuthKey "AWS_ACCESS_KEY_ID"
         secret <- generateAuthKey "AWS_SECRET_ACCESS_KEY"
@@ -217,6 +224,14 @@ validMinioData fields =
     && all
       (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False)
       (KM.elems fields)
+
+authKey :: IO (Either Text (Maybe Text)) -> Text -> IO (Either Text (Key, Value))
+authKey readEscrowedKey key@"key-encryption-key" =
+  readEscrowedKey >>= \case
+    Left reason -> pure (Left reason)
+    Right (Just escrowed) -> pure (Right (Key.fromText key, String (b64encode escrowed)))
+    Right Nothing -> generateAuthKey key
+authKey _ key = generateAuthKey key
 
 generateAuthKey :: Text -> IO (Either Text (Key, Value))
 generateAuthKey key = do

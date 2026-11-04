@@ -19,7 +19,9 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend), storeObjectUrl)
+import Nagare.Database.Restore (RestoreJobInputs (..), renderRebuildRestoreJob)
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types qualified as Dsl
@@ -43,6 +45,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Test.DataFixtures (restoreJobInputsPg)
 import Nagare.Test.Model.Fixtures qualified as Fixtures
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -51,7 +54,20 @@ inventoryRebuildRestoreTests :: TestTree
 inventoryRebuildRestoreTests =
   testGroup
     "rebuild restores of ClickHouse, Redis and volumes"
-    [ testCase "a ClickHouse rebuild restore stages the archive and moves every table into the empty default database" $ do
+    [ testCase "F147: only En's restore advances the transaction counter and rotates the datastore id" $ do
+        let script inputs = either (error . show) (TE.decodeUtf8 . Fixtures.ok . canonicalValue) (Yaml.decodeEither' (renderRebuildRestoreJob inputs) :: Either Yaml.ParseException Value)
+            en = restoreJobInputsPg {name = "en-db", namespace = "nagare-system"}
+        traverse_
+          (\marker -> assertBool ("En's Job lacks " <> T.unpack marker) (marker `T.isInfixOf` script en))
+          ["pg_current_xact_id() <= t", "pg_snapshot_xmax(snapshot)", "created_xid", "DELETE FROM en_datastore_metadata"]
+        assertBool "Kubernetes would collapse a $$ tag in args" (not ("$$" `T.isInfixOf` script en))
+        assertBool
+          "another database ran En's recovery"
+          (not ("en_datastore_metadata" `T.isInfixOf` script restoreJobInputsPg {name = "shomei-db", namespace = "nagare-system"}))
+        assertBool
+          "an application's database named en-db ran En's recovery"
+          (not ("en_datastore_metadata" `T.isInfixOf` script restoreJobInputsPg {name = "en-db", namespace = "personal"}))
+    , testCase "a ClickHouse rebuild restore stages the archive and moves every table into the empty default database" $ do
         let (scope, native) = engineDatabase ClickHouse
         (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileRebuildRestoreScope (engineRequest ClickHouse) scope native)
         job <- singleJob restoreNative

@@ -22,6 +22,7 @@ module Nagare.Inventory.KubernetesTransport
   , countedTransport
   , kubectlPurpose
   , runtimePause
+  , runtimeEscrowedShomeiKey
   )
 where
 
@@ -36,6 +37,7 @@ import GHC.Clock (getMonotonicTimeNSec)
 import Nagare.Contract.Trace (CountCategory (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.ClusterSession (kubectlConnectionArguments)
+import Nagare.Inventory.ShomeiKeyEscrow (readShomeiKeyEscrow)
 import Nagare.Inventory.Store.Counters (traceCount, traceProcess)
 import Nagare.Resource.Types (ContextId)
 import System.Exit (ExitCode)
@@ -119,6 +121,12 @@ runtimePause config microseconds = case config of
 
 -- | One Kubernetes request the runtime asks for: counted as logical work
 -- (EP-224), then answered by the selected interpreter.
+-- | Only a live runtime reads operator material; an interpreted one has none.
+runtimeEscrowedShomeiKey :: KubernetesRuntimeConfig -> IO (Either Text (Maybe Text))
+runtimeEscrowedShomeiKey config = case config of
+  KubernetesRuntimeConfig {} -> readShomeiKeyEscrow (runtimeKubectlContext config)
+  InterpretedRuntime {} -> pure (Right Nothing)
+
 invokeKubectl :: KubernetesRuntimeConfig -> [String] -> String -> IO KubectlResult
 invokeKubectl config arguments input = do
   traceCount CategoryKubernetesLogical (kubectlPurpose arguments) 0

@@ -118,7 +118,7 @@ renderRebuildRestoreJob i =
         [ "name" .= ("restore" :: Text)
         , "image" .= (i ^. #clientImage)
         , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-        , "args" .= toJSON [rebuildRestoreShell (i ^. #engine) (i ^. #serviceHost) (maybe "" (^. #scratchDatabase) (i ^. #verifiedSource))]
+        , "args" .= toJSON [rebuildRestoreShell (i ^. #engine) (i ^. #serviceHost) (maybe "" (^. #scratchDatabase) (i ^. #verifiedSource)) <> enDatastoreRecovery i]
         , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName))
         , "volumeMounts"
             .= toJSON
@@ -130,6 +130,24 @@ renderRebuildRestoreJob i =
         ]
     )
     i
+
+-- | F147: En stamps every grant with a PostgreSQL transaction id, and a dump
+-- does not carry that counter. In the new database it restarts behind the
+-- restored rows, so En cannot see them until it passes them, and writes meanwhile
+-- would sort before them. Run the counter past every restored id, then rotate the
+-- datastore id so tokens minted before the loss fail cleanly, as En's own restore
+-- runbook requires. Each loop iteration commits one transaction. The tag is not
+-- @$$@, which Kubernetes collapses to @$@ in container args.
+enDatastoreRecovery :: RestoreJobInputs -> Text
+enDatastoreRecovery i
+  | i ^. #engine == Postgres && i ^. #name == "en-db" && i ^. #namespace == "nagare-system" =
+      "; "
+        <> psql
+        <> " -c 'DO $x$ DECLARE t xid8 := (SELECT max(x) FROM (SELECT max(xid) AS x FROM en_transaction UNION ALL SELECT max(pg_snapshot_xmax(snapshot)) FROM en_transaction UNION ALL SELECT max(created_xid) FROM relation_tuple) AS restored); BEGIN WHILE pg_current_xact_id() <= t LOOP COMMIT; END LOOP; END $x$'"
+        <> " -c 'DELETE FROM en_datastore_metadata'"
+  | otherwise = ""
+  where
+    psql = "psql -v ON_ERROR_STOP=1 -h " <> (i ^. #serviceHost) <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
 
 -- | The staging name (ClickHouse) or file (Redis) is the restore's own, so a
 -- leftover from a failed attempt refuses rather than mixing with a new one.

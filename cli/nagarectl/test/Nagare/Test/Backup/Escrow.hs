@@ -14,13 +14,16 @@ import Data.Either (isLeft)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
+import Nagare.Database.Secret (b64encode)
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.Adapters.CredentialTemplate (materializeCredentialWith)
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..)
   , ScheduledReceiptExpectation (scheduledObjective)
   , parseScheduledBackupReceipt
   )
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
+import Nagare.Inventory.ShomeiKeyEscrow
 import Nagare.Inventory.SigningKeyEscrow
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Types qualified as Resource
@@ -29,7 +32,35 @@ import Test.Tasty.HUnit
 
 signingKeyEscrowTests :: [TestTree]
 signingKeyEscrowTests =
-  [ testCase "signing-key escrow round-trips and never shows its key" $ do
+  [ testCase "F146: Shomei's key escrow round-trips and never shows its key" $ do
+      let stored = ShomeiKeyEscrow "ctx" shomeiKey
+      parseShomeiKeyEscrow (renderShomeiKeyEscrow stored) @?= Right stored
+      assertBool "escrow Show leaked the key" (not (shomeiKey `T.isInfixOf` T.pack (show stored)))
+      assertBool
+        "a short key was accepted"
+        (isLeft (parseShomeiKeyEscrow (renderShomeiKeyEscrow stored {keyEncryptionKey = "abc="})))
+      assertBool
+        "an escrow with an extra field was accepted"
+        (isLeft (parseShomeiKeyEscrow (renderShomeiKeyEscrow stored <> "extra: field\n")))
+  , testCase "F146: a recreated Shomei Secret takes the escrowed key" $ do
+      let escrowed = pure (Right (Just shomeiKey))
+      created <- materializeCredentialWith escrowed (authTemplate "nagare-shomei-keys") >>= either (assertFailure . T.unpack) pure
+      assertBool "the Secret did not hold the escrowed key" (b64encode shomeiKey `T.isInfixOf` created)
+      generated <- materializeCredentialWith (pure (Right Nothing)) (authTemplate "nagare-shomei-keys") >>= either (assertFailure . T.unpack) pure
+      assertBool "no escrow still used a key" (not (b64encode shomeiKey `T.isInfixOf` generated))
+      unreadable <- materializeCredentialWith (pure (Left "cannot decrypt")) (authTemplate "nagare-shomei-keys")
+      unreadable @?= Left "cannot decrypt"
+      other <- materializeCredentialWith (pure (Left "must not be read")) (authTemplate "nagare-access")
+      assertBool "another auth Secret read the escrow" (not (isLeft other))
+  , testCase "a replaced database's escrow keeps the old one; a changed key is refused" $ do
+      let replaced = escrow {pvcUid = otherUid, hmacKey = T.replicate 64 "b"}
+      escrowDecision escrow escrow @?= AlreadyEscrowed
+      escrowDecision escrow replaced @?= KeepPrevious
+      escrowDecision escrow escrow {hmacKey = T.replicate 64 "b"} @?= DifferentEscrow
+      escrowDecision escrow replaced {database = "other"} @?= DifferentEscrow
+      archivedEscrowPath "/s/nagare-system-en-db.sops.yaml" escrow
+        @?= "/s/nagare-system-en-db." <> T.unpack (Resource.physicalIdentityText (pvcUid escrow)) <> ".sops.yaml"
+  , testCase "signing-key escrow round-trips and never shows its key" $ do
       parseSigningKeyEscrow (renderSigningKeyEscrow escrow) @?= Right escrow
       assertBool "escrow Show leaked the key" (not (keyHex `T.isInfixOf` T.pack (show escrow)))
       assertBool
@@ -97,6 +128,12 @@ signingKeyEscrowTests =
           <> ["recoveryPoint" Aeson..= (value :: Text) | Just value <- [objective]]
     hourlyMetadata = metadataFor "mydb" Nothing
     dailyMetadata = metadataFor "mydb" (Just "daily")
+    shomeiKey = T.replicate 43 "k" <> "="
+    otherUid = either (error . T.unpack) id (Resource.mkPhysicalIdentity "55555555-5555-5555-5555-555555555555")
+    authTemplate name =
+      "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"metadata\":{\"annotations\":{\"nagare.dev/auth-credential-template\":\"v1\"},\"name\":\""
+        <> name
+        <> "\",\"namespace\":\"nagare-system\"},\"type\":\"Opaque\"}"
     signedReceipt metadata signingKey source =
       let canonical = either (error . T.unpack) id . canonicalValue
           payload =

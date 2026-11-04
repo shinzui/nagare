@@ -341,10 +341,15 @@ PVC UIDs, and writes a sops-encrypted file. By default the file goes to
 `$XDG_CONFIG_HOME/nagare/cluster-secrets/<context>/backup-signing/<namespace>-<name>.sops.yaml`;
 `--output` overrides that. sops finds the `.sops.yaml` creation rules from that
 directory, as for other operator secrets ([Secrets](secrets.md)). The plaintext
-never touches disk or argv. The command refuses to overwrite a different escrow,
-and it checks that the result decrypts with your available age key. Keep the file
-in the context's private operator repository. Re-run it after a database is
-replaced, because a new incarnation has a new key.
+never touches disk or argv. The command refuses to overwrite a different key for the
+same volume, and it checks that the result decrypts with your available age key. Keep
+the file in the context's private operator repository. Re-run it after a database is
+replaced, because a new incarnation has a new key. The previous file moves aside under
+its volume's ID, because older backups still verify with it through `--escrow`.
+
+For `shomei-db` in `nagare-system`, the command also escrows Shomei's key-encryption
+key to `cluster-secrets/<context>/shomei-key-encryption-key.sops.yaml`. A restored
+Shomei database cannot start without that key, and a rebuild reuses it.
 
 `verify-escrowed-backup` needs only the escrow and the object store, not the
 cluster. It rereads the exact receipt and archive versions, checks the signature,

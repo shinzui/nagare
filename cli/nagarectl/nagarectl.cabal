@@ -300,6 +300,7 @@ library
     Nagare.Inventory.ScheduledReceipt
     Nagare.Inventory.ScheduledStatus
     Nagare.Inventory.ScheduledStore
+    Nagare.Inventory.ShomeiKeyEscrow
     Nagare.Inventory.SigningKeyEscrow
     Nagare.Inventory.Site
     Nagare.Inventory.Site.Listing

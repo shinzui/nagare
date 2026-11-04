@@ -42,16 +42,25 @@ import Nagare.Inventory.ScheduledReceipt
   , inspectScheduledReceipt
   )
 import Nagare.Inventory.ScheduledStore (ObjectReader (readObjectToFile), parseOfflineObjectStore, readOfflineCredentials, readSecretFieldWithUid, withOfflineObjectStore)
+import Nagare.Inventory.ShomeiKeyEscrow
+  ( ShomeiKeyEscrow (ShomeiKeyEscrow)
+  , parseShomeiKeyEscrow
+  , renderShomeiKeyEscrow
+  , shomeiKeyEscrowPath
+  , sopsEnvironment
+  )
 import Nagare.Inventory.SigningKeyEscrow
-  ( SigningKeyEscrow (SigningKeyEscrow)
+  ( EscrowDecision (..)
+  , SigningKeyEscrow (SigningKeyEscrow)
+  , archivedEscrowPath
+  , escrowDecision
   , escrowReceiptExpectation
   , parseSigningKeyEscrow
   , renderSigningKeyEscrow
   )
 import Nagare.Resource.Types (digestText, physicalIdentityText)
 import Nagare.Target (contextNameText, nagareConfigDir)
-import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
-import System.Environment (getEnvironment, lookupEnv)
+import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, renameFile)
 import System.Exit (ExitCode (ExitSuccess), exitFailure)
 import System.FilePath (takeDirectory, (</>))
 import System.IO (IOMode (WriteMode), hClose, hSetBinaryMode)
@@ -98,22 +107,53 @@ runEscrowSigningKey mctx database namespaceName output = do
           key
   path <- maybe (defaultEscrowPath context namespaceName database) pure output >>= makeAbsolute
   exists <- doesFileExist path
-  if exists
-    then do
-      stored <- decryptEscrow path
-      if stored == escrow
-        then TIO.putStrLn ("Signing key already escrowed for " <> namespaceName <> "/" <> database <> " at " <> T.pack path)
-        else dieT "an escrow with a different key or source identity exists; refusing to overwrite it"
-    else do
+  decision <- if exists then Just . (`escrowDecision` escrow) <$> decryptEscrow path else pure Nothing
+  case decision of
+    Just AlreadyEscrowed ->
+      TIO.putStrLn ("Signing key already escrowed for " <> namespaceName <> "/" <> database <> " at " <> T.pack path)
+    Just DifferentEscrow ->
+      dieT "an escrow with a different key or source identity exists; refusing to overwrite it"
+    _ -> do
       createDirectoryIfMissing True (takeDirectory path)
       ciphertext <- sopsEncrypt path (renderSigningKeyEscrow escrow)
-      roundTrip <- sopsDecryptBytes (takeDirectory path) ciphertext
+      roundTrip <- sopsDecryptBytes parseSigningKeyEscrow (takeDirectory path) ciphertext
       unless
         (roundTrip == Right escrow)
         (dieT "the encrypted escrow does not decrypt with the available age key; check .sops.yaml recipients and SOPS_AGE_KEY_FILE")
+      when (decision == Just KeepPrevious) $ do
+        previous <- decryptEscrow path
+        let archived = archivedEscrowPath path previous
+        taken <- doesFileExist archived
+        when taken (dieT ("a kept escrow already exists at " <> T.pack archived <> "; refusing to overwrite it"))
+        renameFile path archived
+        TIO.putStrLn ("Kept the replaced database's escrow at " <> T.pack archived <> "; its older backups still verify with it through --escrow.")
       createExclusive path ciphertext
       TIO.putStrLn ("Escrowed the scheduled-backup signing key for " <> namespaceName <> "/" <> database <> " at " <> T.pack path)
       TIO.putStrLn "Keep this file in the context's private operator repository; it verifies receipts without the cluster."
+  when (database == "shomei-db" && namespaceName == "nagare-system") (escrowShomeiKey context)
+
+-- | F146: Shomei's restored rows are unreadable without its key-encryption key,
+-- so the escrow that makes a restore possible takes the key as well.
+escrowShomeiKey :: Text -> IO ()
+escrowShomeiKey context = do
+  (_, key) <- readSecretFieldWithUid context "nagare-system" "nagare-shomei-keys" "key-encryption-key" >>= either dieT pure
+  let escrow = ShomeiKeyEscrow context key
+  path <- shomeiKeyEscrowPath context
+  exists <- doesFileExist path
+  if exists
+    then do
+      stored <- BS.readFile path >>= sopsDecryptBytes parseShomeiKeyEscrow (takeDirectory path) >>= either dieT pure
+      unless (stored == escrow) (dieT "an escrow of a different Shomei key exists; refusing to overwrite it")
+      TIO.putStrLn ("Shomei's key-encryption key already escrowed at " <> T.pack path)
+    else do
+      createDirectoryIfMissing True (takeDirectory path)
+      ciphertext <- sopsEncrypt path (renderShomeiKeyEscrow escrow)
+      roundTrip <- sopsDecryptBytes parseShomeiKeyEscrow (takeDirectory path) ciphertext
+      unless
+        (roundTrip == Right escrow)
+        (dieT "the encrypted Shomei key does not decrypt with the available age key; check .sops.yaml recipients and SOPS_AGE_KEY_FILE")
+      createExclusive path ciphertext
+      TIO.putStrLn ("Escrowed Shomei's key-encryption key at " <> T.pack path <> ". Keep it in the private operator repository; a restored Shomei database is unreadable without it.")
 
 -- | Verify one scheduled receipt with only the escrow and the object store.
 -- Success is evidence about stored bytes; restore still requires reviewed
@@ -187,7 +227,7 @@ decryptEscrow path = do
   exists <- doesFileExist path
   unless exists (dieT ("signing-key escrow not found: " <> T.pack path))
   ciphertext <- BS.readFile path
-  sopsDecryptBytes (takeDirectory path) ciphertext >>= either dieT pure
+  sopsDecryptBytes parseSigningKeyEscrow (takeDirectory path) ciphertext >>= either dieT pure
 
 -- | Plaintext travels on standard input only, never in argv or a temp file.
 -- Running from the destination directory lets sops find the operator's
@@ -213,8 +253,8 @@ sopsEncrypt path plaintext = do
     Right (_, _, errors) -> dieT ("sops could not encrypt the escrow: " <> T.strip (T.pack errors))
     Left _ -> dieT "sops is not available; install sops and configure .sops.yaml for the escrow directory"
 
-sopsDecryptBytes :: FilePath -> BS.ByteString -> IO (Either Text SigningKeyEscrow)
-sopsDecryptBytes directory ciphertext = do
+sopsDecryptBytes :: (BS.ByteString -> Either Text a) -> FilePath -> BS.ByteString -> IO (Either Text a)
+sopsDecryptBytes parse directory ciphertext = do
   environment <- sopsEnvironment
   outcome <-
     try
@@ -227,23 +267,9 @@ sopsDecryptBytes directory ciphertext = do
       ) ::
       IO (Either IOException (ExitCode, String, String))
   pure $ case outcome of
-    Right (ExitSuccess, plaintext, _) -> parseSigningKeyEscrow (BC.pack plaintext)
-    Right _ -> Left "could not decrypt the signing-key escrow with the available age key"
+    Right (ExitSuccess, plaintext, _) -> parse (BC.pack plaintext)
+    Right _ -> Left "could not decrypt the escrow with the available age key"
     Left _ -> Left "sops is not available"
-
--- | The conventional age key location used by the other operator-secret
--- readers, unless SOPS_AGE_KEY_FILE is already set.
-sopsEnvironment :: IO [(String, String)]
-sopsEnvironment = do
-  environment <- getEnvironment
-  age <- lookupEnv "SOPS_AGE_KEY_FILE"
-  case age of
-    Just value | not (null value) -> pure environment
-    _ -> do
-      config <- nagareConfigDir
-      let conventional = config </> ".." </> "sops/age/keys.txt"
-      found <- doesFileExist conventional
-      pure (if found then ("SOPS_AGE_KEY_FILE", conventional) : environment else environment)
 
 -- | Create-only: an escrow appearing concurrently is never overwritten.
 createExclusive :: FilePath -> BS.ByteString -> IO ()
