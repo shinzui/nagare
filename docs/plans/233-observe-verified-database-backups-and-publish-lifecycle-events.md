@@ -17,6 +17,17 @@ provenance:
       at: 2026-10-31T14:34:39Z
       mode: "other"
       note: "Completed initial planning draft and checked source commit, control history, dependencies, recovery and validation interfaces."
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:35:45Z
+      mode: "update"
+      note: "Applied the 2026-11-04 review: convergence journal event instead of a second chain, Nagare.Events modules, /v1/events inspection routes, nagare-events in the nagare-api-server package and image, in-process receipt discovery with a five-minute default, request budget."
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:35:45Z
+      verdict: "changes-requested"
+      note: "Architecture, API and cost review against the code: reuse the journal as the source chain, transport-neutral inspection routes, second executable in the existing service image, in-process receipt discovery, page and polling defaults, Nagare.Events namespace."
 ---
 
 # Observe verified database backups and publish lifecycle events
@@ -49,6 +60,8 @@ Consumers learn when Nagare has verified a database backup even when no operator
 
 2026-10-31: Identify a backup by logical source/recorded lineage, producer run ID and exact archive/receipt versions, independent of discovery path and current database display name.
 
+2026-11-04: Discover receipts in process, with one listing of the shared backup prefix per five-minute cycle, through gogol for GCS and an in-cluster MinIO reader for local mode; the existing `gcloud` and `curl` subprocess paths stay operator tools. Archive bytes are verified once per exact version within a budget. The modules are `Nagare.Events.Backup` and `Nagare.Events.BackupCollector`.
+
 
 ## Outcomes & Retrospective
 
@@ -63,7 +76,7 @@ A backup receipt is authenticated metadata describing a stored archive and its s
 
 `cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs` decodes and authenticates manual and scheduled receipts. `ScheduledReceipt.hs`, `ScheduledStore.hs` and `ScheduledGcs.hs` provide the existing evidence/provider paths. `ScheduledIngest.hs` compiles verified scheduled runs into reviewed ingestion Jobs; `ManualReceipt.hs` creates durable Job-free manual receipt records. `ScheduledStatus.hs` finds accepted managed database, application-volume and app-database schedules. The new collector selects only the database and app-database kinds. `AppDatabaseBackup.hs` and `cli/nagarectl/src/Nagare/Database/AppDatabase/Backup.hs` handle app-database-specific bindings. `docs/user/backups-and-disaster-recovery.md` describes verified candidates, unresolved objects and accepted receipts.
 
-Scheduled producers upload and authenticate independently of the CLI. Their Kubernetes Job may already have been collected when Nagare discovers a durable receipt. This is why journal-only projection cannot provide prompt completion events. Reuse the existing archive/receipt verification code and exact identity accessors; do not create a weaker HMAC-only notification verifier. Verification may include expensive archive reads and needs independent concurrency/bandwidth limits.
+Scheduled producers upload and authenticate independently of the CLI. Their Kubernetes Job may already have been collected when Nagare discovers a durable receipt. This is why journal-only projection cannot provide prompt completion events. Reuse the existing archive/receipt verification code and exact identity accessors; do not create a weaker HMAC-only notification verifier. Verification may include expensive archive reads and needs independent concurrency/bandwidth limits: a scheduled receipt pins the archive's SHA-256 (`scheduledSha256`), which a provider's object metadata cannot confirm, so byte verification downloads each archive once per exact version. [ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md) uploads scheduled database backups every 15 minutes. The existing provider paths are operator-workstation tools: `ScheduledGcs.hs` runs `gcloud storage objects list` as a subprocess and `ScheduledStore.hs` opens a port-forward and runs `curl` with SigV4 credentials, while a service image (`nix/release-images.nix`) holds the Haskell binaries, busybox and CA certificates only. The collector needs in-process access: `cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs` already pages object listings and reads exact generations, and local mode needs an in-cluster MinIO reader on the same `ObjectOps` shape.
 
 [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md) requires recorded source incarnation and rejects same-name replacements. [ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md) retains reviewed retention and single-node operation. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) retains the cross-tool journal and reviewed recovery authority. [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) requires adversarial provider worlds. The hard prerequisite is the complete source/feed implementation in `docs/plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md`.
 
@@ -74,7 +87,7 @@ Scheduled producers upload and authenticate independently of the CLI. Their Kube
 ### M1 — A real scheduled backup to a durable notification
 
 
-Add `cli/nagarectl/src/Nagare/Lifecycle/Backup.hs` for pure event construction and `BackupCollector.hs` for bounded collection over injected inventory/object-store/receipt-verifier operations. Enumerate database schedules from a checked context snapshot. Pin each schedule's accepted revision and recorded source/PVC incarnation and use retained accepted schedule history where a receipt belongs to an earlier schedule version. Discover complete archive/receipt pairs and invoke the existing verifier at exact MinIO versions or GCS generations. A receipt without an archive, invalid signature, mismatched identity, changed stored bytes, wrong schedule lineage or unresolved provider result creates a diagnostic, not an event.
+Add `cli/nagarectl/src/Nagare/Events/Backup.hs` for pure event construction and `BackupCollector.hs` for bounded collection over injected inventory/object-store/receipt-verifier operations. Enumerate database schedules from a checked context snapshot. Pin each schedule's accepted revision and recorded source/PVC incarnation and use retained accepted schedule history where a receipt belongs to an earlier schedule version. Discover complete archive/receipt pairs with one paginated listing of the shared backup prefix per cycle through in-process object operations, gogol for GCS and the chosen reader for MinIO, never a `gcloud` or `curl` subprocess, and invoke the existing verifier at exact MinIO versions or GCS generations. Decide the local-mode reader in this milestone: reuse the SigV4 approach of `ScheduledStore.hs` in process, or an existing S3 dependency located through Mori; record the choice in the Decision Log before adding any package. A receipt without an archive, invalid signature, mismatched identity, changed stored bytes, wrong schedule lineage or unresolved provider result creates a diagnostic, not an event.
 
 First prove one PostgreSQL run by executing the real verifier against faultable provider interpreters and feeding its validated result through EP-231's source-key/materialization interface. Once verified, persist a digest-bound verification observation in the lifecycle prefix before advancing any discovery checkpoint. A crash after verification but before publication can recover from that immutable observation without assuming the archive remains available forever. Orphan observations not committed by their observation head remain invisible. Observation time is distinct from signed recovery-point time and receipt completion time. Missing completion time stays unknown; never label the dump's recovery-point timestamp as its finish time.
 
@@ -90,26 +103,26 @@ Use a normalized backup identity including context, logical database/source line
 ### M3 — Acceptance events and bounded unattended collection
 
 
-Integrate a typed `database.backup.accepted` producer with EP-231's atomic final-convergence source records for scheduled ingestion and durable manual receipt acceptance. The event identifies the normalized backup ID, its completion event ID when known, the accepted receipt scope/revision, transaction/review and recovery-point metadata. Acceptance never emits at save-plan or admission. Repeated receipt verification or a later no-op review must not produce another acceptance event for the same receipt identity. A reviewed bulk ingestion emits one acceptance event per new backup. Completion and acceptance may be discovered in either order; cross-references use deterministic IDs without claiming feed-order causality. Acceptance also supplies the original verified completion fact when that backup has not yet been observed, using the same key to avoid duplicates.
+Integrate a typed `database.backup.accepted` producer with EP-231's facts object and convergence journal event for scheduled ingestion and durable manual receipt acceptance. The event identifies the normalized backup ID, its completion event ID when known, the accepted receipt scope/revision, transaction/review and recovery-point metadata. Acceptance never emits at save-plan or admission. Repeated receipt verification or a later no-op review must not produce another acceptance event for the same receipt identity. A reviewed bulk ingestion emits one acceptance event per new backup. Completion and acceptance may be discovered in either order; cross-references use deterministic IDs without claiming feed-order causality. Acceptance also supplies the original verified completion fact when that backup has not yet been observed, using the same key to avoid duplicates.
 
 Persist per-schedule discovery continuation and bounded outstanding candidates. Do not advance past an unresolved candidate as if verified; quarantine its identity and reason durably while letting later runs progress. A lexicographic object-name cursor alone is insufficient because delayed receipts can appear behind it. Use paginated discovery with a retained rescan window and a resumable full reconciliation sweep so late objects are eventually considered. Keep verifications cached by exact immutable archive/receipt version plus verifier/schema and signing-key identity; do not redownload every old archive on every poll. Invalidate authority if binding, lineage or verifier requirements change.
 
 At reviewed activation, pin the schedule set and a baseline of existing provider versions; preexisting runs are not sent as new completion notifications. Receipts created after that baseline are discovered, including archives pending at activation whose receipts arrive later. Runs created while the collector is down must be caught up after restart. Explicit historical notification backfill is outside v1; accepted old recovery points may still create acceptance events when newly ingested after activation. Document that deletion by an external actor before verification can prevent a completion event: notification is not a guarantee of observing arbitrary external changes. Collector errors and oldest unverified candidate age must be visible.
 
-Use a default 30-second polling interval, four concurrent verification tasks and configurable byte/work budgets. On a healthy fixture with one small run, publish within two polling intervals after verification inputs are available; total latency includes archive verification and backlog. Add a virtual clock to tests instead of sleeping. Existing backup schedules, ingestion reviews and pruning policy stay unchanged.
+Use a default five-minute discovery interval, matched to the 15-minute upload cadence and configurable down to 30 seconds, four concurrent verification tasks and configurable byte/work budgets; one cycle lists the shared backup prefix once, so cost does not grow with the number of schedules. Archive verification downloads each archive once per exact version within the byte budget and reports a deferred verification rather than skipping it. On a healthy fixture with one small run, publish within two discovery intervals after verification inputs are available; total latency includes archive verification and backlog. Add a virtual clock to tests instead of sleeping. Existing backup schedules, ingestion reviews and pruning policy stay unchanged.
 
 
 ## Concrete Steps
 
 
-From the repository root, after EP-231 is Complete, locate dependency code through Mori before using APIs, and verify current registry releases/tags before any bound change. This plan adds no engine, broker or backup-tool dependency.
+From the repository root, after EP-231 is Complete, locate dependency code through Mori before using APIs, and verify current registry releases/tags before any bound change. This plan adds no engine or broker dependency; the local-mode object reader is its one dependency decision, recorded in the Decision Log.
 
 ```bash
 python3 scripts/check-haskell-architecture.py
-cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /Lifecycle.Backup/' --test-show-details=direct
+cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /Events.Backup/' --test-show-details=direct
 ```
 
-Create a nonempty `Lifecycle.Backup` test group that drives the real existing receipt parser/verifier through filesystem and object-store interpreters and the real materializer. After the fixture harness exports an isolated context and seeds one completed backup, run the new commands:
+Create a nonempty `Events.Backup` test group that drives the real existing receipt parser/verifier through filesystem and object-store interpreters and the real materializer. After the fixture harness exports an isolated context and seeds one completed backup, run the new commands:
 
 ```bash
 cabal run nagarectl --project-dir=cli/nagarectl -- events collect-backups --once
@@ -124,7 +137,7 @@ Expected output: one completion event for the seeded exact versions and a collec
 
 Prove PostgreSQL end to end before expanding variants. Cover all supported managed database and app-database producer formats, manual completion, bulk scheduled acceptance and durable manual receipt acceptance. Test signature failure, replaced PVC/StatefulSet, wrong schedule history, missing archive, changed generation/version, truncated archive, listing pagination, delayed receipt behind the scan cursor, Job disappearance, transient errors, collector death between durable writes and overlapping collectors. Neither collection nor event publication mutates the inventory head or provider archive/receipt objects.
 
-Seed a history of 1,000 verified runs and introduce one new run. Subsequent cycles may scan metadata/index pages within declared budgets, but archive verification reads only newly unverified versions; assert byte/object counts. One permanently invalid old object does not starve later valid backups. A restart catches up runs completed during downtime and preserves completion IDs. Source lineage and exact provider versions distinguish same-name replacements and rebuilt databases. Verify completion and acceptance can appear in either publication order and still refer to the same backup. API/CLI payloads contain no secret material. EP-235 owns live scheduled execution and latency confirmation.
+Seed a history of 1,000 verified runs and introduce one new run. Subsequent cycles issue one listing request per 1,000 objects and no per-schedule listing, and archive verification reads only newly unverified versions; assert byte/object counts with `Store/Counters.hs` or the collector's own counters. One permanently invalid old object does not starve later valid backups. A restart catches up runs completed during downtime and preserves completion IDs. Source lineage and exact provider versions distinguish same-name replacements and rebuilt databases. Verify completion and acceptance can appear in either publication order and still refer to the same backup. API/CLI payloads contain no secret material. EP-235 owns live scheduled execution and latency confirmation.
 
 
 ## Idempotence and Recovery

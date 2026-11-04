@@ -17,6 +17,17 @@ provenance:
       at: 2026-10-31T14:34:39Z
       mode: "other"
       note: "Completed initial planning draft and checked source commit, control history, dependencies, recovery and validation interfaces."
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:35:45Z
+      mode: "update"
+      note: "Applied the 2026-11-04 review: convergence journal event instead of a second chain, Nagare.Events modules, /v1/events inspection routes, nagare-events in the nagare-api-server package and image, in-process receipt discovery with a five-minute default, request budget."
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-11-04T14:35:45Z
+      verdict: "changes-requested"
+      note: "Architecture, API and cost review against the code: reuse the journal as the source chain, transport-neutral inspection routes, second executable in the existing service image, in-process receipt discovery, page and polling defaults, Nagare.Events namespace."
 ---
 
 # Record successful application deployments as lifecycle events
@@ -48,6 +59,8 @@ After a changed production release successfully deploys, an operator or event co
 
 2026-10-31: Reuse the shared executor source-fact boundary. Commands, static publishers and deployment adapters do not send HTTP requests or append public events themselves.
 
+2026-11-04: The producer contributes candidates to the transaction's facts object; EP-231's convergence journal event commits them. The module is `Nagare.Events.Deployment`.
+
 
 ## Outcomes & Retrospective
 
@@ -62,7 +75,7 @@ A release subject is the logical application, standalone service or production s
 
 `cli/nagarectl/src/Nagare/Inventory/Application.hs` exposes application compilation. `cli/nagarectl/src/Nagare/Inventory/Application/Compile.hs` composes workloads; `Application/Release.hs` owns immutable release-history members and accepted application/standalone release log access. Site compilation is in `cli/nagarectl/src/Nagare/Inventory/Site.hs`. User commands live in `cli/nagarectl/app/Nagare/Cli/Commands/Application.hs`, `Deployment.hs`, `Site.hs` and `SitePublish.hs`. Those command handlers are entry points, not independent lifecycle authorities. Read `docs/user/deploying-apps.md` and [ADR 32](../adr/0032-static-publication-is-a-local-package-then-two-reviewed-stages.md) to distinguish image publication, configuration and actual site deployment before wiring site events. ADR 32 makes local packaging, reviewed image publication and reviewed serving deployment separate stages; only the final stage is eligible here.
 
-The executor in `cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs` records journal completion before its final converged head write. `Execute/Claims.hs`, `releaseClaimWith`, establishes the final boundary. EP-231 supplies a typed source fact linked atomically from that final write and materializes it into a separate feed. Its complete accepted implementation is a hard prerequisite: `docs/plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md`. Do not substitute parsing journal text or inspecting only the current head after the fact.
+The executor in `cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs` records journal completion before its final converged head write. `Execute/Claims.hs`, `releaseClaimWith`, establishes the final boundary. EP-231 supplies a typed facts object named by a convergence journal event appended in that final write, and materializes it into a separate feed. Its complete accepted implementation is a hard prerequisite: `docs/plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md`. Do not substitute parsing journal text or inspecting only the current head after the fact.
 
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) retains reviewed scope ownership, recovery and the distinction between deployment meaning and diagnostic provenance. [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md) requires recorded incarnation identity. [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md) governs module boundaries. [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) requires interrupted and uncertain outcomes in offline worlds. No existing ADR defines deployment notifications; record new durable semantics in EP-231's lifecycle ADR during implementation.
 
@@ -73,7 +86,7 @@ The executor in `cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs` reco
 ### M1 — One application release through the real executor
 
 
-Add `cli/nagarectl/src/Nagare/Lifecycle/Deployment.hs` as the typed producer. Compute a candidate from the exact reviewed prior/desired application release member and required completion evidence. Carry the semantic subject and immutable release identity through the existing review/execution model with explicit codec/version handling where needed; do not add a command-name heuristic. Use the shared source-commit hook supplied by EP-231. The public payload contains subject kind, scope/logical identity, namespace, new and previous release identity, exact scope revision, transaction/review identifiers and the readiness proof reference. Omit private config, native bytes and generated environment values. A URL is optional descriptive metadata only.
+Add `cli/nagarectl/src/Nagare/Events/Deployment.hs` as the typed producer. Compute a candidate from the exact reviewed prior/desired application release member and required completion evidence. Carry the semantic subject and immutable release identity through the existing review/execution model with explicit codec/version handling where needed; do not add a command-name heuristic. Add candidates to the transaction's facts object through EP-231's facade; the producer never writes the journal or head itself. The public payload contains subject kind, scope/logical identity, namespace, new and previous release identity, exact scope revision, transaction/review identifiers and the readiness proof reference. Omit private config, native bytes and generated environment values. A URL is optional descriptive metadata only.
 
 Emit after all workloads and pre-deploy hooks required by that subject's reviewed deployment pass. A transaction changing two application subjects yields two distinct facts; one application with multiple workloads yields one. No event is emitted for a partial application rollout, operator close, admission alone, pre-deploy hook failure or unresolved provider outcome. Preserve existing supported recovery paths. A later successful resume of the original transaction produces the original source identity.
 
@@ -96,11 +109,11 @@ Work from the repository root, after EP-231 is Complete. Use Mori to locate any 
 
 ```bash
 python3 scripts/check-haskell-architecture.py
-cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /Lifecycle.Deployment/' --test-show-details=direct
+cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /Events.Deployment/' --test-show-details=direct
 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /application inventory compilation/' --test-show-details=direct
 ```
 
-Add the nonempty test group `Lifecycle.Deployment`, using the real application compiler, planner, executor, source store and materializer. The second command selects the existing group in `cli/nagarectl/test/InventoryApplicationSpec.hs`; both commands must select actual tests rather than succeed with zero cases.
+Add the nonempty test group `Events.Deployment`, using the real application compiler, planner, executor, source store and materializer. The second command selects the existing group in `cli/nagarectl/test/InventoryApplicationSpec.hs`; both commands must select actual tests rather than succeed with zero cases.
 
 In the disposable fixture context established by those tests, the new public read command is:
 
