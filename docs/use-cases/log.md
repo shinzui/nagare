@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-11-07
+* **Addition**: Add UC-4: engineers deploy sites by pushing through a CI/CD deployer the operator
+  delegated a bounded part of the installation to. Nagare owns delegation, deployer credentials,
+  rendered-config deploys, default access and journal attribution; Kotei owns hosting, isolated
+  builds and self-service repository admission.
+
 ## 2026-10-10
 * **Addition**: Add UC-3 and the team-operation theme, recording the operator's workplace
   intranet requirements (EP-162 M1): one operator, no second approval, the journal as audit

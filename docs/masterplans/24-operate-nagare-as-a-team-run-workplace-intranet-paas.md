@@ -26,6 +26,11 @@ provenance:
       at: 2026-10-10T02:46:57Z
       mode: "update"
       note: "Add EP-183 for the v0.4.0 intranet gaps; EP-172 is the work-data upgrade path"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-07T18:57:26Z
+      mode: "update"
+      note: "Record the permissions path for MP-24 streams 1-3 and the design rules MP-33 follows"
 ---
 
 # Operate Nagare as a team-run workplace intranet PaaS
@@ -128,6 +133,66 @@ ExecPlans for these planned streams, each shaped by the chosen tooling:
    Only its volume milestone touched the tooling choice; the operator decided it on 2026-10-09
    (Decision Log).
 
+**Permissions path for streams 1–3 (recorded 2026-11-07, not planned).** MasterPlan 33
+([33](33-delegate-a-bounded-part-of-a-context-to-a-ci-deployer-so-engineers-deploy-by-pushing.md))
+adds a delegated CI deployer as a second writer. Its child plans already build part of what streams 1–3 need. This
+section records how streams 1–3 build on that work, so that neither initiative has to redo the other's. The trigger is
+unchanged: these streams are planned only when a UC-3 requirement asks for them, for example operator succession.
+
+What MasterPlan 33 provides:
+
+- EP-247 records an actor on every review as `{kind, name}`. The kinds are `operator` and `deployer`, and an operator
+  is named with `NAGARE_OPERATOR`. It adds `inventory history` and checks bounds with a pure function,
+  `checkDelegatedProposal`, run both when a review is prepared and at admission against the accepted head. It also adds
+  a retryable `review_stale` refusal for a writer that lost a race on the head.
+- EP-248 issues, rotates and revokes a scoped credential bundle per identity, through a reviewed record.
+- EP-250 adds a relationship, `delegation:D#access`, to the access service En
+  ([ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md)).
+- EP-251 adds a second `ObjectOps` store transport. This shows that the store's transport is a replaceable seam.
+
+What remains is one limit, stated in MasterPlan 33's trust model: actors are asserted by the client, and anyone who can
+write to the store can bypass the checks in `nagarectl`. Three layers address it, in order. Each layer is useful
+without the next:
+
+1. **Permissions as reviewed relationships.** Who may operate a context, approve a change, deploy to a namespace or
+   hold a delegation becomes a relationship in En, applied through a review like ADR 29's access grants. Bounds (which
+   namespaces, kinds, hostnames and quotas) stay in reviewed inventory records such as the delegation. Relationships
+   say who; records say what. Alone, this layer is checked by the client and stays advisory. It serves streams 2 and 3.
+2. **Signed reviews and approvals.** Each principal has a signing key. The public key is in a reviewed principal record,
+   and the private key is in that person's material (ADR 13, stream 3). The author signs the review digest, and
+   named-reviewer approval (stream 2) adds approvers' signatures on the same digest. Admission verifies every
+   signature, and the signer's relationship, against the accepted head. This keeps ADR 22's client-side executor. It
+   proves the actor, so a forged or unapproved change in the history is detected. Honest clients refuse to apply it,
+   but this does not stop a direct write by someone who holds the store's write credential.
+3. **A server-side admission service, only if prevention is required.** One service holds the store's write
+   credential. People authenticate through the existing login portal
+   ([ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md)) and deployers
+   through their workload identity. The service runs the same pure admission checks before the conditional head write.
+   Clients reach it through the `ObjectOps` seam. This layer only prevents bypass when cluster and cloud credentials
+   are also scoped per person, as EP-248 does for the deployer, or sit behind the service; until then, a shared
+   cluster-admin kubeconfig bypasses the store. It partly supersedes ADR 22's single client-side executor and needs
+   its own ADR.
+
+Stream 1 (writer exclusion) still needs a lease or liveness rule for an executor claim held by a writer that died. The
+conditional head write and the `review_stale` refusal cover the race but not an abandoned claim. Revisit this once the
+deployer runs unattended.
+
+Design rules for work done before these streams, so that nothing has to be redone. MasterPlan 33's plans follow
+them:
+
+- Authority is read only from the accepted head the change commits on, never from the environment, the cluster or
+  the review alone. Environment values such as `NAGARE_DEPLOYER` only select the actor that is claimed.
+- Every authorization check is a pure function of the accepted head, the actor and the proposal, called both when the
+  review is prepared and at admission. Then layer 2 can add signature checks next to it, and layer 3 can run it in a
+  service, without changing it.
+- Everything an approval must cover is inside the review digest. Signatures and approvals are added later as separate
+  objects keyed by that digest. They are never added by editing a review, so adding them does not change the review
+  wire.
+- Each identity gets its own credential, issued and revoked through a reviewed record. No new shared credential is
+  introduced. The operator's cluster-admin kubeconfig is the last shared one.
+- Store writes go only through `ObjectOps` conditional writes. A new direct write path would close the seam that layer
+  3 needs.
+
 Alternatives considered: writing all implementation ExecPlans up front (rejected, because their
 content would be speculative until the tooling is chosen); a single ExecPlan for requirements and
 evaluation (rejected, because the availability decision and the tooling evaluation are
@@ -163,6 +228,9 @@ A whole-child hard dependency requires that child to be Complete. If only a mile
 accepted output is needed, it is named explicitly and explained below.
 
 ## Progress
+
+2026-11-07: Streams 1–3 remain unplanned. Their permissions path and the design rules that current work follows are
+recorded in Decomposition Strategy, and MasterPlan 33's plans follow those rules.
 
 2026-10-10 (overnight): EP-183 M1 is landed (`1e40d5c0`). The MinIO default fix, M2 (retention,
 GCS prune, batch ingestion, lagged cleanup) and M4 (rebuild with PostgreSQL, ClickHouse, Redis
@@ -230,6 +298,14 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
   receipt `keep` field is at `cli/nagarectl/src/Nagare/Database/Backup.hs:196`, not around line 708.
 
 ## Decision Log
+
+- Decision: Record a three-layer permissions path for streams 1–3, together with design rules that current work must
+  follow, but plan no ExecPlan. The layers are reviewed relationships in En, signed reviews and approvals, and a
+  server-side admission service only if prevention is required.
+  Rationale: MasterPlan 33 adds a second writer and an actor model now. Writing the path and the rules down keeps that
+  work compatible with several named operators, so streams 1–3 can start later without reworking the review wire,
+  credentials or admission checks. The 2026-10-10 trigger still decides when the streams are planned.
+  Date: 2026-11-07
 
 - Decision: Accept RES-6 (EP-163). Adopt no established backup tool. Nagare's native path stays
   for databases and volumes. K8up/restic is EP-183 M3's fallback if its slice checkpoint stops.
