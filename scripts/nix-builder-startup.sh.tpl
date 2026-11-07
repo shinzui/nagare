@@ -51,17 +51,26 @@ ensure_tailscale || echo "nix-builder: tailscale setup failed; the IAP path stil
 # Stops the VM after 30 minutes in which every check found it idle. A check
 # runs every 5 minutes and finds it busy when ANY of these is true, which
 # resets the idle clock:
-#   * an established TCP connection on port 22 (the headless
-#     `nix-store --serve` transport while the consumer's SSH channel is open)
-#   * a `nix-store --serve` process (a build in flight whose SSH session
-#     dropped between derivations; single-user Determinate Nix keeps the
-#     process across the gap; MasterPlan #2 EP-7 surprises 2026-05-17 #10/#11)
-#   * a live build subprocess of the nix-daemon
+#   * an established TCP connection on port 22 (any consumer's SSH session)
+#   * a remote-store transport process: `nix-daemon --stdio` for ssh-ng://,
+#     `nix-store --serve` for legacy ssh:// (a build in flight whose SSH session
+#     dropped between derivations keeps it across the gap; MasterPlan #2 EP-7
+#     surprises 2026-05-17 #10/#11)
+#   * a process of the nixbld group (a build is running)
+#   * a per-connection worker of the system nix-daemon
 # It used to stop the VM on one idle check, every 15 minutes. A full gate
 # whose remote work paused between derivations lost the builder that way
 # (2026-10-14: guestTerminate at 18:29Z mid-gate); a woken VM then needs about
 # 30 s before SSH answers, longer than Nix's 10 s connect timeout. Runs before
 # the first-boot sentinel so existing builders get it too.
+#
+# Until 2026-11-07 only the `nix-store --serve` check could ever fire, so ssh-ng
+# builds were stopped mid-build 30 minutes after boot (observed twice on the
+# intranet builder on 2026-11-06). The ss filter put the expression before
+# `state`, which ss rejects ("\"state\" does not look like a port"), so it always
+# counted 0; and the daemon was looked up as `nix-daemon --daemon`, while
+# Determinate Nix starts it as `nix-daemon --option json-log-path ...`. ss now
+# fails closed: if it cannot answer, the check counts the VM busy.
 cat >/usr/local/bin/idle-shutdown.sh <<'WD'
 #!/usr/bin/env bash
 set -e
@@ -70,10 +79,16 @@ busy() {
   rm -f "$SINCE_FILE"
   exit 0
 }
-ESTABLISHED=$(ss -Htn 'sport = :22' state established 2>/dev/null | wc -l)
-[ "$ESTABLISHED" -gt 0 ] && busy
-pgrep -f 'nix-store --serve' >/dev/null 2>&1 && busy
-DAEMON_PID=$(pgrep -f 'nix-daemon --daemon' | head -n1 || true)
+if ! CONNECTIONS=$(ss -Htn state established '( sport = :22 )' 2>&1); then
+  logger -t idle-shutdown "ss failed, counting the VM busy: $CONNECTIONS"
+  busy
+fi
+[ -n "$CONNECTIONS" ] && busy
+pgrep -f 'nix-daemon --stdio|nix-store --serve' >/dev/null 2>&1 && busy
+pgrep -G nixbld >/dev/null 2>&1 && busy
+# The system daemon is the oldest process named nix-daemon; it forks one worker
+# per client connection.
+DAEMON_PID=$(pgrep -o -x nix-daemon || true)
 if [ -n "$DAEMON_PID" ]; then
   CHILDREN=$(pgrep -P "$DAEMON_PID" 2>/dev/null | wc -l)
   [ "$CHILDREN" -gt 0 ] && busy
