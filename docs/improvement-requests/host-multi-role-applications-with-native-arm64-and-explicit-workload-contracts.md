@@ -2,12 +2,12 @@
 type: Improvement Request
 title: Host multi-role applications with a native ARM64 SDK and explicit workload contracts
 description: Provide a qualified ARM64 Linux configuration SDK and reviewed readiness, independent web probes, shutdown and token controls so Kotei can run as an ordinary Nagare application without patching inventory-owned workloads.
-timestamp: "2026-11-09T15:52:00Z"
+timestamp: "2026-11-09T21:49:54Z"
 generated:
   by: process:codex
   at: "2026-11-09T15:52:00Z"
 requestId: IR-42
-status: proposed
+status: accepted
 origin: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
 reviews:
   - kind: model
@@ -52,6 +52,12 @@ the hosting child of
 `mori://shinzui/kotei/masterplans/26-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare`.
 The operator deploys Kotei using Nagare; this request does not implement Kotei
 self-upgrade or the separate delegated-deployer initiative.
+
+## Accepted implementation scope (2026-11-09)
+
+[MasterPlan 33](../masterplans/33-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk.md) coordinates ExecPlans 247–250. Nagare already has the Application aggregate, web/worker/task composition, shared image and environment configuration, rollout hooks, and journaled inventory execution. This request extends those existing capabilities with native ARM64 Linux tooling, independent probes and explicit workload shutdown/token policy. All deployed changes use the existing saved reviews, ownership checks, operation journal and recovery path.
+
+AC-5 receives a bounded audit of existing role-specific delivery and retained-content mechanisms. Any unsupported requirement remains open with a scoped follow-up; the MasterPlan does not presume a new secret or shared-storage subsystem. Acceptance here means the narrowed implementation is planned, not that any criterion has passed.
 
 ## Consumer outcome
 
