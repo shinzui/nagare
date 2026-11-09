@@ -1,11 +1,11 @@
 ---
-id: 247
+id: 253
 slug: package-a-native-arm64-linux-configuration-sdk-and-cli
 title: "Package a native ARM64 Linux configuration SDK and CLI"
 kind: exec-plan
 created_at: 2026-11-09T21:45:41Z
 intention: "intention_01m714rsd7ecesc6rf1mczbzhx"
-master_plan: "docs/masterplans/33-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk.md"
+master_plan: "docs/masterplans/34-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk.md"
 provenance:
   created_by:
     model: "gpt-6-astra"
@@ -17,6 +17,11 @@ provenance:
       at: 2026-11-09T21:52:55Z
       mode: "update"
       note: "Associate the initiative and child plans with the user-requested Mina intention."
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-09T23:20:14Z
+      mode: "update"
+      note: "Renumbered from EP-247-250 and aligned with the MasterPlan 34 review findings."
 ---
 
 # Package a native ARM64 Linux configuration SDK and CLI
@@ -32,7 +37,7 @@ An ARM64 Linux application runner can use a packaged Nagare CLI and configuratio
 ## Progress
 
 
-- [ ] M1: Native tooling exports and support metadata distinguish SDK support from platform-host support.
+- [ ] M1: `packages.aarch64-linux.nagarectl` and `nagare-config-sdk` build natively, with `release.json` unchanged.
 - [ ] M2: An isolated ARM64 Linux consumer executes the packaged CLI and compiles the representative Application, with revision-bound evidence.
 
 ## Surprises & Discoveries
@@ -44,6 +49,7 @@ None during implementation yet.
 
 
 - Decision: Publish an explicit SDK export and distinguish tooling support from host support, because adding a system to every existing release matrix would overstate the requested capability. Date: 2026-11-09.
+- Decision: Leave `release.json` `supportedSystems` unchanged and list tooling systems in `flake.nix`. Rationale: that field is read by the gate, the verify step, release evidence and a candidate check requiring exactly the two current systems; extending it would need a schema change and migration tests to say something a flake output already says (operator, 2026-11-09). Date: 2026-11-09.
 
 ## Outcomes & Retrospective
 
@@ -60,7 +66,7 @@ Implementation has not started. Before completion, retain acceptance evidence an
 ## Plan of Work
 
 
-M1 adds a documented `packages.aarch64-linux.nagarectl` and `packages.aarch64-linux.nagare-config-sdk` export using the same locked compiler and DSL as the CLI. Expose the SDK on existing tooling systems too. Separate tooling-system evaluation/checks from production-host and release-image eligibility before adding ARM64 Linux; audit every consumer of supportedSystems so no field falsely promises platform support. Exercise old metadata readers and choose a compatible extension or explicit schema bump with migration tests. Native platform outputs and x86 release images retain their existing policy. Verify attribute evaluation and package builds on the candidate revision.
+M1 adds a documented `packages.aarch64-linux.nagarectl` and `packages.aarch64-linux.nagare-config-sdk` export using the same locked compiler and DSL as the CLI. Expose the SDK on existing tooling systems too. Do not change `release.json`: `supportedSystems` keeps meaning systems the platform release is gated on, and `cli/nagare-harness` (`Gate.hs`, `Verify.hs`, `Release/Candidate.hs`) reads it. Add a tooling-systems list in `flake.nix` that includes `aarch64-linux` and generate only these two package attributes from it, so no host, image or check output appears for ARM64 Linux. Start the first native build as the plan's first action and let it run unattended: no binary cache is expected for this system, so the GHC closure builds from source. Native platform outputs and x86 release images retain their existing policy. Verify attribute evaluation and package builds on the candidate revision.
 
 M2 creates a checked-in isolated consumer fixture under `cli/nagarectl/test/fixtures/` and a repeatable native harness check. In a native ARM64 Linux Apple container, realize the candidate packages, run from a temporary directory with an empty home, no Cabal environment and no Nagare checkout, then execute `nagarectl app check` on a copied typed Application fixture and compile it using the public SDK. Disable network access for the load/compile step after artifact realization. Record architecture, source revision, package identity, compiler version and exit status. Amend ADR 3 and packaging documentation with the new public exports and tooling-only support boundary.
 
@@ -82,7 +88,7 @@ nagarectl --version
 nagarectl app check -f nagare/Config.hs
 ```
 
-Expect native aarch64 execution and a successful config check. Add the fixture to architecture-appropriate flake checks and run `just gate-fast` for the candidate. EP-250 records immutable tag qualification later.
+Expect native aarch64 execution and a successful config check. Expose the fixture as an `aarch64-linux` flake check that runs per release candidate in the native Apple container. Keep it out of `just gate-fast` and the per-landing full gate, whose Linux builder is x86_64. Run `just gate-fast` for the candidate. EP-256 records immutable tag qualification later.
 
 ## Validation and Acceptance
 
@@ -92,9 +98,9 @@ Both packages build and execute natively; successful Nix evaluation alone does n
 ## Idempotence and Recovery
 
 
-Builds and isolated fixture checks can be repeated. Do not create or upgrade a production context. Keep failed-build evidence without publishing support claims. Existing release publication and artifact recovery are reused by EP-250; no application inventory event is needed merely to compile a local configuration.
+Builds and isolated fixture checks can be repeated. Do not create or upgrade a production context. Keep failed-build evidence without publishing support claims. Existing release publication and artifact recovery are reused by EP-256; no application inventory event is needed merely to compile a local configuration.
 
 ## Interfaces and Dependencies
 
 
-No hard prerequisites. EP-250 M3 consumes the public SDK/CLI exports and M2 evidence. Do not wait for a public release to mark this child complete: its output is the tested candidate source and stable package interface, not publication.
+No hard prerequisites. EP-256 M2 consumes the public SDK/CLI exports and this plan's M2 evidence. This plan shares no files with EP-254, so run it in its own worktree session from the start. Do not wait for a public release to mark this child complete: its output is the tested candidate source and stable package interface, not publication.

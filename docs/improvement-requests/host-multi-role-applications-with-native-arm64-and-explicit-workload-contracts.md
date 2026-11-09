@@ -55,7 +55,7 @@ self-upgrade or the separate delegated-deployer initiative.
 
 ## Accepted implementation scope (2026-11-09)
 
-[MasterPlan 33](../masterplans/33-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk.md) coordinates ExecPlans 247–250. Nagare already has the Application aggregate, web/worker/task composition, shared image and environment configuration, rollout hooks, and journaled inventory execution. This request extends those existing capabilities with native ARM64 Linux tooling, independent probes and explicit workload shutdown/token policy. All deployed changes use the existing saved reviews, ownership checks, operation journal and recovery path.
+[MasterPlan 34](../masterplans/34-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk.md) coordinates ExecPlans 253, 254 and 256. Nagare already has the Application aggregate, web/worker/task composition, shared image and environment configuration, rollout hooks, and journaled inventory execution. This request extends those existing capabilities with native ARM64 Linux tooling, independent probes and explicit workload shutdown/token policy. All deployed changes use the existing saved reviews, ownership checks, operation journal and recovery path.
 
 AC-5 receives a bounded audit of existing role-specific delivery and retained-content mechanisms. Any unsupported requirement remains open with a scoped follow-up; the MasterPlan does not presume a new secret or shared-storage subsystem. Acceptance here means the narrowed implementation is planned, not that any criterion has passed.
 

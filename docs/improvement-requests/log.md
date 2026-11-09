@@ -1,7 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-09
-* **Accept**: Plan the narrowed IR-42 controls in [MasterPlan 33](../masterplans/33-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk.md) and ExecPlans 247–250, extending the existing Application and inventory journal. AC-5 remains a delivery audit with explicit residual gaps; implementation and release acceptance are pending.
+* **Accept**: Plan the narrowed IR-42 controls in [MasterPlan 34](../masterplans/34-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk.md) and ExecPlans 253, 254 and 256, extending the existing Application and inventory journal. AC-5 remains a delivery audit with explicit residual gaps; implementation and release acceptance are pending.
 * **Added**: IR-42 requests a native ARM64 configuration SDK and explicit reviewed worker readiness, web probes, lifecycle/token and hosting delivery contracts for mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application.
 
 ## 2026-11-02
