@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-07T17:05:29Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T03:56:33Z
+      verdict: "approved"
+      note: "Daemonless packaging is independently scoped with deterministic archive, base verification, and native serving acceptance."
 ---
 
 # Package a static site image archive without a Docker daemon

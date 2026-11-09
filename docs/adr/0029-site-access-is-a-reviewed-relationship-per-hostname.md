@@ -138,3 +138,14 @@ A protected site in a Cloudflare Tunnel context ([ADR 34](0034-a-context-may-ser
 sits behind Cloudflare without being a CDN site. The per-site CDN stays refused. Two independent controls keep any cache from
 answering for the identity check: the zone's cache rule bypasses every hostname, and the enforcer adds
 `Cache-Control: private, no-store, no-transform` to each proxied protected response.
+
+## Amendment — 2026-11-08: delegated protected-route authority (planned)
+
+[MasterPlan 33](../masterplans/33-delegate-a-bounded-part-of-a-context-to-a-ci-deployer-so-engineers-deploy-by-pushing.md)
+keeps the existing central-enforcer route: protected DomainMappings live in `nagare-system`, while workload origins
+live in delegated namespaces. EP-247 must permit only generated mappings for owned, in-bound hostnames targeting the
+accepted enforcer, and EP-248 must provide their lifecycle permissions in that namespace alongside the named backend
+ConfigMap permission. Kubernetes RBAC does not encode the hostname suffix or target; these are checks by the trusted
+client as recorded in [ADR 35](0035-a-delegated-deployer-is-trusted-and-repository-content-is-not.md).
+The bundle-backed acceptance must create, update and retire those routes and refuse unrelated system mutations.
+This records the design constraint, not completed implementation; EP-250's access-inheritance amendment remains pending.

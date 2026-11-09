@@ -16,6 +16,17 @@ provenance:
       at: 2026-11-07T18:55:03Z
       mode: "update"
       note: "Named operator actor ({kind, name}) for future multi-operator compatibility"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T04:04:19Z
+      mode: "update"
+      note: "Bound generated system routes and align rendered-worker permission; repair MP-31 link and cite accepted trust ADR."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T03:56:32Z
+      verdict: "changes-requested"
+      note: "Protected DomainMappings require an explicit nagare-system bounds exception; align standalone worker permission with rendered inputs; repair MP-31 link."
 ---
 
 # Review a bounded namespace delegation for a named deployer and record who applied each change
@@ -71,13 +82,14 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
   context.
 - [ ] D4, the bounds at planning: in a deployer context, preparing a review refuses, before any store write, a proposal
   whose changed scopes (a) are not `application`, `standalone` or `publication` scopes, (b) place any member in a
-  namespace outside the delegation, (c) declare a hostname that is neither the default name of a delegated namespace nor
+  namespace outside the delegation except the generated protected-route members specified below, (c) declare a hostname that is neither the default name of a delegated namespace nor
   one label under the base domain ending in an allowed suffix, (d) declare a host without `access = requireLogin`, (e)
   contain a member kind the delegation does not allow (managed databases, app databases, brokers, volumes, CDN resources,
   supplied TLS, public routes and namespace requests are never allowed), (f) publish an image outside the delegation's
   image repository, or (g) touch a scope another actor created. Each refusal names the delegation, the bound and the
   member. Evidence: a fake-store table test with one passing proposal and one proposal per bound, run through
-  `prepareReview`'s caller, with no store object written for a refused one.
+  `prepareReview`'s caller, with no store object written for a refused one. Include a protected route in `nagare-system`, a foreign hostname,
+  an out-of-bound hostname, a route targeting another Service, and an unrelated system-object write.
 - [ ] D5, the bounds at admission and revocation: `admit` repeats D4's check against the delegation as recorded in the
   head it admits on, so a review saved before a revocation, or against an older delegation, is refused at apply with
   `delegation-revoked` or `delegation-bounds`. `nagarectl delegation revoke NAME --save-plan DIR` reviews setting the
@@ -109,8 +121,8 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
   into the delegated namespace; a second proposal with a hostname outside the suffix is refused; `inventory history`
   shows `deployer:NAME` and the source; after `delegation revoke`, the next deployer review is refused. Evidence: an audit
   file under `docs/audits/` with the transcript.
-- [ ] D10, docs and decision: a new ADR `docs/adr/0035-a-delegated-deployer-is-trusted-and-repository-content-is-not.md`
-  records the trust model of MasterPlan 33 and its limit for several operators (the actor is asserted, and enforcing
+- [ ] D10, docs and decision: update the accepted trust-model ADR `docs/adr/0035-a-delegated-deployer-is-trusted-and-repository-content-is-not.md`
+  with implementation evidence for the trust model of MasterPlan 33 and its limit for several operators (the actor is asserted, and enforcing
   approval against another holder of the store needs a server-side check or signed reviews); ADR 22 is amended with delegation-owned namespaces; `docs/user/` gains a
   "Delegating deployments" guide and reference rows. Evidence: the linked pages.
 - [ ] D11, a retryable stale-review refusal: admission refusals caused only by another change landing first
@@ -138,12 +150,18 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
   fields move to a transaction-start journal event instead.
 - 2026-11-07, same reading. A protected site's deploy already rewrites a resource outside its namespace: the composer
   regenerates the `nagare-access-backends` ConfigMap in `nagare-system` from every `RegisterBackend` contribution
-  (`backendMaps` in `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs`). D4's rule (g) must therefore allow the
-  contribution-generated backend map and Shomei settings members that a delegated protected host produces, and refuse
-  every other change to a scope the deployer did not create. EP-248's RBAC grants exactly that ConfigMap by name.
+  (`backendMaps` in `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs`). D4 permits the contribution-generated backend map, preserving unrelated entries. It also permits generated
+  DomainMappings in `nagare-system` only for owned, in-bound hostnames targeting the accepted `nagare-access`
+  enforcer; arbitrary targets, foreign routes and other system objects are refused. Protected-site deployment does
+  not change Shomei settings. EP-248 owns the matching RBAC and the credential-backed route proof.
 
 
 ## Decision Log
+
+- Decision: Permit only compiler-generated protected DomainMappings in nagare-system, alongside the composed backend map, as explicit namespace exceptions.
+  Rationale: protected origins route through the central enforcer; the exception preserves hostname ownership and target checks rather than allowing arbitrary system resources. See ADR 29's delegation amendment.
+  Date: 2026-11-08
+
 
 - Decision: The delegation is its own platform scope, `platform:delegation-NAME`, that owns its namespaces, quotas and
   record; it is not folded into `platform:foundation`.
@@ -224,7 +242,7 @@ encoder and decoder. Publication of the review object is in `cli/nagarectl/src/N
 
 **Wire changes.** Store objects are read by older CLIs during a release transition; EP-172 introduced reviewed release
 transitions with a `TransitionMarker` in the head. Any new field that an older decoder would refuse must ride such a
-transition. [MasterPlan 31](../masterplans/31-publish-durable-lifecycle-events-and-deliver-webhook-subscriptions.md)'s
+transition. [MasterPlan 31](../masterplans/31-publish-durable-nagare-lifecycle-events-and-deliver-webhook-subscriptions.md)'s
 EP-231 also plans a journal and head wire change; it was Not Started when this plan was written. If both are in
 flight, they share one wire version.
 
@@ -263,7 +281,7 @@ Add the bounds: a pure `checkDelegatedProposal` in `DeployerDelegation.hs` over 
 domain and the changed scope declarations (`ScopeDeclaration`, as `compileTeamMemberScope` in
 `cli/nagarectl/src/Nagare/Inventory/Access.hs` returns), called from the review preparation path when the
 profile is a deployer context, and from `admitWithHistory` against `acceptedDelegations` of the admitted head. Hostname
-rules reuse the host shapes in `cli/nagarectl/src/Nagare/Deploy/Host.hs` so direct and tunnel contexts both work.
+checks include ownership and the fixed enforcer target for generated system routes; worker deploy accepts EP-249's rendered-worker document and otherwise refuses config execution. Hostname rules reuse the host shapes in `cli/nagarectl/src/Nagare/Deploy/Host.hs` so direct and tunnel contexts both work.
 
 Add attribution: extend `ReviewDocument` with `reviewActor` and `reviewSource`, update its encoder, decoder and digest,
 thread `--source-repository` and `--source-run` through the app, worker and site deploy parsers next to `--source`, and
@@ -319,3 +337,5 @@ EP-250 reads `team` and `namespaces`. Kotei's
 `mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` reads the
 `delegation` document and passes `--source-repository`, `--source` and `--source-run`. A field added later is recorded
 in this plan's Decision Log first.
+
+Revision (2026-11-08): applied the MasterPlan 33 review findings to the interfaces, acceptance and ownership described above.

@@ -10,6 +10,18 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-07T17:05:29Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T03:56:33Z
+      verdict: "changes-requested"
+      note: "Assign scoped local object-store credential provisioning, bundle integration, and revocation to explicit deliverables shared with EP-248."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T04:04:19Z
+      mode: "update"
+      note: "Define private S3 credential-file input and hand scoped identity lifecycle and bundle acceptance to EP-248."
 ---
 
 # Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply
@@ -57,7 +69,10 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
   prefix; `effectiveInventoryStore` (`cli/nagarectl/src/Nagare/Target.hs`) stops forcing every local context to the
   filesystem and honours it. A cloud context refuses `object`, so the GCP guardrail and the GCS path are untouched.
   Credentials come from the existing local object-store Secret named by `minioCredentialsSecret`, read once and held in
-  memory, or from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in the environment for an in-cluster client. Evidence:
+  memory for an operator, or from a private JSON file named by `NAGARE_INVENTORY_STORE_CREDENTIALS_FILE`
+  (fields `accessKeyId` and `secretAccessKey`), or from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` for an
+  in-cluster client. Refuse simultaneous file and environment credentials. A deployer must supply explicit scoped
+  credentials and never falls back to reading the administrator Secret. Evidence:
   target-resolution tests for each kind and mode, including the refusals.
 - [ ] D5, reaching it from the workstation: the operator's `nagarectl` reaches the in-cluster endpoint through a
   port-forward it opens and closes itself, the way reviewed access grants reach En, so no new host port is published.
@@ -68,7 +83,7 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
   `cli/nagarectl/src/Nagare/Inventory/Store/Migrate.hs` and `TargetMigration.hs`. Evidence: the existing migration tests
   extended to the new pair, interrupted after every step and resumed.
 - [ ] D7, the local confirmation: on a fresh local context with the object store, the operator deploys a fixture app
-  from the workstation, then a Pod in the cluster holding only the object-store credential applies a second change to
+  from the workstation, then a Pod in the cluster holding the object-store credential and the fixture Kubernetes credential applies a second change to
   the same context, then the operator's next saved review is refused as stale and succeeds after re-planning. Evidence:
   an audit file under `docs/audits/` with the transcript.
 - [ ] D8, docs: `docs/user/local-development.md` and `docs/user/resource-inventory.md` describe the object store for
@@ -81,6 +96,11 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
 
 
 ## Decision Log
+
+- Decision: Keep transport and credential loading here; EP-248 owns scoped identities, policy and the bundle-only integration gate.
+  Rationale: EP-251 remains independently testable with fixture credentials while EP-248 cannot complete with a workstation-only fallback.
+  Date: 2026-11-08
+
 
 - Decision: Use the S3 API with ETag conditions as a second `ObjectOps` transport, opt-in for local contexts only.
   Rationale: the store already isolates its transport behind `ObjectOps`, and its correctness rests on conditional
@@ -122,8 +142,10 @@ A local context already runs an S3-compatible object store in `nagare-system` fo
 or prefix of that store.
 
 **Related plans.** [EP-248](248-issue-least-privilege-credentials-to-a-delegated-deployer.md) issues the deployer's
-bundle; with this plan its local bundle carries an object-store credential limited by a bucket policy to the inventory
-prefix, instead of `NAGARE_INVENTORY_STORE_ROOT`. EP-248's workstation-only local deployer remains for contexts that do
+bundle and owns scoped policy creation, key issuance, rotation and revocation in its D10. This plan owns only
+the transport, credential-file reader and endpoint selection. EP-248 hard-depends on this plan and must prove
+a bundle-only in-cluster apply and prefix isolation; this plan's D7 independently uses fixture credentials.
+The bundle uses an object-store credential limited to the inventory prefix instead of `NAGARE_INVENTORY_STORE_ROOT`. EP-248's workstation-only local deployer remains for contexts that do
 not opt in.
 
 **ADRs.** [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) keeps one executor and
@@ -158,4 +180,8 @@ D7 runs on a disposable local context created for it and deleted afterwards.
 
 `s3ObjectOps :: S3Endpoint -> S3Credentials -> Text -> IO ObjectOps` in a new module
 `cli/nagarectl/src/Nagare/Inventory/Store/S3.hs`; `InventoryStoreObject` added to `InventoryStoreKind`; `Generation`
-becomes an opaque transport token with the same `Eq`. No contract document changes.
+becomes an opaque transport token with the same `Eq`. `NAGARE_INVENTORY_STORE_CREDENTIALS_FILE` names a
+private JSON object with `accessKeyId` and `secretAccessKey`, read as data and never logged. File credentials
+select the same ObjectOps path as environment credentials; endpoint and prefix stay in the context. No contract document changes.
+
+Revision (2026-11-08): applied the MasterPlan 33 review findings to the interfaces, acceptance and ownership described above.

@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-07T16:50:58Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T03:56:33Z
+      verdict: "approved"
+      note: "Access inheritance has clear ownership, fail-closed behavior, explicit revocation semantics, and observable acceptance."
 ---
 
 # Open a delegated namespace's sites to the delegation's team without a per-site grant
