@@ -9,6 +9,18 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-01T22:20:53Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T04:27:51Z
+      verdict: "changes-requested"
+      note: "M1 AC-3 assumes rotated cookies reach raw WebSocket responses, but mapResponseHeaders ignores ResponseRaw; M2 needs isolated request counters and deterministic held-response synchronization."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-11-09T04:36:22Z
+      mode: "update"
+      note: "Apply review findings: require real WebSocket handshake cookie delivery and socket regressions, isolate browser counters per attempt, and replace timed upstream holds with explicit release barriers."
 ---
 
 # Deliver rotated session cookies before waiting on the upstream
@@ -48,10 +60,12 @@ turned off reproduces the labs sign-out, so the test demonstrably detects the de
 
 - [ ] M1: the enforcer answers a refresh-leading GET or HEAD with a 307. `cabal test
   nagare-access-test` passes with new tests for AC-1 to AC-5 on protected and portal backends,
-  including the refusal of unsafe paths and cross-origin requests.
+  including the refusal of unsafe paths and cross-origin requests, and rotated cookies on real
+  WebSocket handshake responses.
 - [ ] M2: `just access-browser-test` passes in Chromium, Firefox and WebKit, covering AC-6 and the
   behaviour matrix of AC-7, and the control scenario without the redirect ends the session with one
-  `refresh_token_reuse_detected`.
+  `refresh_token_reuse_detected`. Each test attempt has isolated counters and explicitly controls
+  release of its held upstream response.
 - [ ] M3: `docs/user/access.md`, `docs/user/auth-portal.md` and ADR 15 state the new behaviour and the
   measured matrix (AC-7), and `just user-documentation-validate` passes.
 - [ ] M4: the labs portal's analytics fetches follow the redirect, committed and deployed in
@@ -96,6 +110,19 @@ turned off reproduces the labs sign-out, so the test demonstrably detects the de
   `nix/checks/default.nix` leaves the access suite to `hydraJobs`, which nothing here runs. This plan
   therefore runs it by hand on every commit. It took 50 seconds on 2026-11-01 (184 tests, all passing).
 
+- The 2026-11-09 review found that AC-3's assumed WebSocket cookie delivery does not work today.
+  `addResponseHeaders` in `cli/nagare-access/src/Nagare/Access/App.hs` uses WAI's
+  `mapResponseHeaders`, which leaves `ResponseRaw` unchanged. In
+  `cli/nagare-access/src/Nagare/Access/Proxy.hs`, `runWebSocketTunnel` writes the handshake directly
+  to the socket using only the upstream headers. A test with a fake ordinary response would pass
+  while the real handshake loses the rotated cookies. M1 must repair this path to meet AC-3.
+
+- The review also found that the proposed M2 counters outlive individual tests: both enforcers and
+  all three browser projects reuse `/held` and `/plain`. A count of one can describe an earlier
+  request, and later tests cannot reliably assert zero or one. A five-second sleep also does not
+  prove that the upstream is still withholding headers when the browser aborts. M2 now allocates
+  state per test attempt and uses an explicit release barrier.
+
 
 ## Decision Log
 
@@ -137,6 +164,21 @@ turned off reproduces the labs sign-out, so the test demonstrably detects the de
   risk a sign-out.
   Date: 2026-11-01
 
+- Decision: Meet AC-3 by passing enforcer-owned response headers explicitly to the raw WebSocket
+  forwarder for both protected and portal backends. Keep ordinary response decoration in `App.hs`,
+  and inject these headers exactly once when the raw handshake is serialized. Verify the bytes
+  received over a real socket, including an upstream refusal, rather than accepting a fake-response
+  assertion as evidence. This repairs an existing gap in the accepted criterion; WebSockets still
+  wait for the upstream handshake and do not receive the rotation redirect.
+  Date: 2026-11-09
+
+- Decision: Allocate a fresh browser-harness case for every test attempt, including retries and
+  each engine. Key upstream counts and release barriers by that case. A held request cannot send
+  headers until explicitly released; a deadline fails the test and runs cleanup rather than
+  silently releasing a successful response. This makes the abort proof independent of test order
+  and machine speed.
+  Date: 2026-11-09
+
 
 ## Outcomes & Retrospective
 
@@ -162,6 +204,14 @@ where `Left` means "answer this now" and is already used for sign-in challenges.
 `refreshOrChallenge` holds the refresh logic. `handlePortal` serves the one sign-in portal backend
 through `authenticatePortal` and `refreshPortalIdentity`, which today return a pair and cannot answer
 early. `establishSession` also refreshes, for a sign-in hand-off, and must keep its behaviour.
+
+`cli/nagare-access/src/Nagare/Access/Proxy.hs` implements `proxyForwarder` and `portalForwarder`, wired
+into `AccessServices` by `cli/nagare-access/app/Main.hs`. An ordinary response can receive cookies
+through `addResponseHeaders`; a WebSocket upgrade instead returns `ResponseRaw`, a callback that
+writes the HTTP handshake and subsequent tunnel bytes itself. `webSocketProxyResponse` constructs
+that callback and `runWebSocketTunnel` serializes its headers with `renderRawResponse`. The existing
+socket helpers and test named "tunnels websocket upgrade bytes after upstream 101" in
+`cli/nagare-access/test/Spec.hs` are the starting point for testing cookie delivery on that path.
 
 `cli/nagare-access/src/Nagare/Access/RefreshCoalescer.hs` makes one Shōmei call per refresh token.
 `coalesceRefresh` classifies each caller as `Lead` (runs the refresh), `Join` (waits for a running
@@ -237,6 +287,27 @@ Change `authenticatePortal` and `refreshPortalIdentity` to return `Either Respon
 [Header])` the same way, and have `handlePortal` answer a `Left` before calling `forwardPortal`.
 Portal branches other than a verified success keep today's forwarding.
 
+Also repair AC-3's raw response path. Add a `[Header]` argument immediately before `Request` to
+`forwardAuthorized` and `forwardPortal` in `cli/nagare-access/src/Nagare/Access/Auth.hs` and to
+`proxyForwarder` and `portalForwarder` in `cli/nagare-access/src/Nagare/Access/Proxy.hs`. Call this
+argument `rawResponseHeaders`: it contains trusted response headers from the enforcer, never
+request headers to send upstream. In `handleProtected`, pass the authentication headers into the
+forwarder after authorization succeeds; in `handlePortal`, pass `authenticationHeaders` after the
+early-redirect check. Retain the existing ordinary-response `addResponseHeaders` calls, including
+the protected denial/unavailable branches and portal handoff/clear behavior.
+
+Ordinary forwarding ignores `rawResponseHeaders`, because `App.hs` decorates those responses.
+For a real WebSocket upgrade, thread them through `webSocketProxyResponse` to `runWebSocketTunnel`.
+Prepend them exactly once to the final upstream handshake headers passed to `renderRawResponse`,
+whether its status is 101 or an upstream refusal. Include them in a locally generated raw 502
+before a handshake has been sent, and in the ordinary fallback supplied to `responseRaw`. Preserve
+the upgrade headers and bidirectional byte relay. Failures returned as ordinary responses before
+the raw callback is constructed continue to get their cookies from `App.hs`. Do not try to fix
+this by applying `mapResponseHeaders` to `ResponseRaw` or by forwarding the new cookies upstream.
+Update `defaultAccessServices`, all fake service lambdas and direct proxy calls for the added
+argument; direct tests without authentication headers pass `[]`. `Main.hs`'s partially applied
+forwarder assignments still fit the updated fields.
+
 Migrate existing tests by having fakes return `RefreshResult RefreshShared ...`, so they keep testing
 forwarding with cookies. Fakes for hand-off tests are unaffected in behaviour. In
 `RefreshCoalescerSpec.hs`, compare whole results: the first call is `RefreshLed`, a reuse or waiter is
@@ -251,12 +322,24 @@ Add `cli/nagare-access/test/RotatedCookieRedirectSpec.hs`, registered in `other-
   portal backends. The status is 307, `Location` is `/x?y=1`, both `Set-Cookie` headers and
   `Cache-Control: no-store` are present, and the upstream and authorizer counts are zero.
 - AC-2: repeat with the returned cookies. The status is 200, one refresh, one upstream call.
-- AC-3: POST with a body, and a GET with `Upgrade: websocket`, reach the upstream with cookies on its
-  response. A GET with `Origin` behaves the same, and so do `//evil.example/x` and `/\evil.example`.
+- AC-3: POST with a body reaches the upstream with cookies on its response. A GET with `Origin`
+  behaves the same, and so do `//evil.example/x` and `/\evil.example`. An upgrade request is not
+  redirected; the socket tests below prove cookie delivery through the real forwarding path.
 - AC-4: repeat with the original cookies. First 307, then 200 with cookies, and one refresh.
 - AC-5: start eight requests with one token while the refresh is held on an `MVar`, then release it.
   One refresh, one 307, and seven upstream calls.
 - A pair that does not verify still clears cookies and challenges, with no 307.
+
+For AC-3, extend the socket tests in `cli/nagare-access/test/Spec.hs` to run `appWithRuntime` over
+Warp with the real `proxyForwarder` or `portalForwarder`, a counting fake refresh and a verifier
+accepting the refreshed access token. Send the old cookies with both `Connection: Upgrade` and
+`Upgrade: websocket`. For each backend kind, read through the response-header terminator and assert
+101, no rotation redirect, exactly one `nagare_session` and one `nagare_refresh` Set-Cookie header
+with the expected replacement values, one refresh, and working tunnel bytes. Repeat with an
+upstream that refuses the upgrade with 403 and a connection failure before the handshake that
+produces 502; the replacement cookies must still appear exactly once. Assert the upstream request
+does not contain either enforcer cookie. Keep these tests distinct from the counting ordinary
+response fakes: removing raw-header injection must fail the socket regression.
 
 ### M2: the browser suite
 
@@ -282,16 +365,24 @@ release image's build, unlike an executable. It adds `hasql` to the dependencies
 starts:
 
 - a real Shōmei;
-- a plain upstream on 18783: `/held` sleeps 5 seconds before answering, `/sse` sends one event and stays
-  open, every other path returns 200 text with CORS headers echoing `Origin`, and it counts requests per
-  path;
+- a plain upstream on 18783: `/held?case=<id>` records arrival and waits on that case's release
+  barrier before sending any response headers; `/sse?case=<id>` sends one event, stays open until
+  that case is released, then ends its stream;
+  every other path returns 200 text with CORS headers echoing `Origin`. Requests carrying a case ID
+  increment counters keyed by `(case ID, path)`; untagged login and navigation traffic cannot change
+  those counters. Use a 120-second upstream timeout for the held backend, longer than the
+  browser suite's 30-second test deadline;
 - the enforcer on 18780, with real verification, login and `coalesceRefresh` over real refresh, a 2-second
   coalescer window, an allow-all `authorizeUser`, the real `proxyForwarder`, cookie domain `.example.test`,
   and backends `app.example.test` and `other.example.test`;
 - a control enforcer on 18782, identical but with `refreshUserSession` forcing `#role` to `RefreshShared`,
   which reproduces today's behaviour without any production switch, with backend `legacy.example.test`;
 - a control server on 18781: `GET /healthz`, `POST /users` (signs up a new person, returns the login, the
-  password and the user ID), `GET /counts?path=` and `GET /reuse-alarms?user=`, the last running
+  password and the user ID), `POST /cases` (allocates a fresh ID, zero counters and an unreleased
+  barrier), `GET /counts?case=<id>&path=<path>` (returns the count and, for `/held`, its arrival and
+  release state), `POST /release?case=<id>` (idempotently opens the barrier), `DELETE /cases/<id>`
+  (releases outstanding work and removes the case after its handlers finish), and
+  `GET /reuse-alarms?user=`, the last running
   `SELECT count(*) FROM shomei.shomei_auth_events WHERE event_type = 'refresh_token_reuse_detected' AND
   user_id = $1`. Check the column types in migration 0007 of `mori://shinzui/shomei`, project path
   `shomei-migrations/migrations/shomei/0007-shomei-auth-events.sql`.
@@ -303,21 +394,38 @@ database, on an interrupt and not on SIGTERM. Run without arguments by another t
 serve forever, so `BrowserHarness.hs` exits 0 with a message unless `NAGARE_ACCESS_BROWSER_HARNESS=1`,
 which the config sets.
 
-`session-rotation.spec.ts` signs in through the real `/_nagare/login` form as a new person per test. It
-simulates token expiry with `context.clearCookies({ name: 'nagare_session' })`, which gives the enforcer
-exactly what it sees for an expired cookie. Its tests are:
+`session-rotation.spec.ts` signs in through the real `/_nagare/login` form as a new person per test.
+A test-scoped fixture calls `POST /cases` for each attempt, including a retry or another engine,
+and adds `case=<id>` to every measured upstream request. Never reset or reuse another case's state;
+queries for an unknown case fail rather than reporting zero. The fixture's `finally` cleanup aborts
+pending browser work, closes EventSource connections and the browser context, releases the barrier,
+and deletes the case. Bound polling by the test deadline and give cleanup its own 10-second budget;
+a timeout is a test failure. Release lets both held responses and SSE handlers terminate, and
+handler bookkeeping must settle in `finally` even when the peer has disconnected.
+The harness must also release all barriers during shutdown. This isolation applies even with
+`workers: 1`, because the web server persists across tests and browser projects.
 
-- AC-6, on `app.example.test`: expire, start `fetch('/held', { signal })` in the page, wait until
-  `/counts?path=/held` is 1 (the 307 arrived and the retry reached the site), abort, and assert the
-  refresh cookie changed. Wait 3 seconds, past the window. Expire again, navigate to `/`, and assert a 200
-  at the same URL, a refresh cookie changed again, and zero reuse alarms.
-- Control, the same on `legacy.example.test`: the navigation lands on `/_nagare/login` and the user has one
-  reuse alarm. This is the labs sign-out reproduced.
-- `redirect: "error"` on `/plain`: the fetch throws, the cookie changed, the upstream count is 0, and the
-  next navigation is a 200 with no reuse alarm.
-- Cross-origin: from `app.example.test`, a credentialed fetch to `other.example.test/plain` succeeds with
-  the cookie rotated, because the `Origin` rule forwards it.
-- Same-origin `EventSource` on `/sse` receives its event across the rotation.
+The tests simulate token expiry with `context.clearCookies({ name: 'nagare_session' })`, which gives
+the enforcer exactly what it sees for an expired cookie. Their scenarios are:
+
+- AC-6, on `app.example.test`: save the refresh cookie, expire the access cookie, and start
+  `fetch('/held?case=<id>', { signal })` in the page. Poll that case's `/held` count until it is one
+  and its barrier is still unreleased. Verify that the refresh cookie already changed while the
+  upstream is withholding headers, abort, and await `AbortError`. Keep the barrier closed, wait
+  3 seconds past the coalescer window, expire again, and navigate to `/`. Assert a 200 at the same
+  URL, a second refresh-cookie change, and zero reuse alarms. Release the held request only in
+  cleanup, after closing the browser context, so its late response cannot alter the result.
+- Control, with a fresh case and user on `legacy.example.test`: perform the same arrival check and
+  abort while the barrier is closed, but assert the refresh cookie is unchanged. After the window,
+  expire again and navigate to `/`: it must land on `/_nagare/login` with exactly one reuse alarm.
+  This is the labs sign-out reproduced; it does not inherit AC-6's changed-cookie assertion.
+- `redirect: "error"` on `/plain?case=<id>`: the fetch throws, the cookie changed, that case's
+  upstream count for `/plain` is zero, and the next navigation is a 200 with no reuse alarm.
+- Cross-origin: from `app.example.test`, a credentialed fetch to
+  `other.example.test/plain?case=<id>` succeeds with the cookie rotated and that case's `/plain`
+  count equal to one, because the `Origin` rule forwards it.
+- Same-origin `EventSource` on `/sse?case=<id>` receives its event across the rotation and is closed
+  explicitly during cleanup.
 
 Add the `access-browser-test` recipe from Concrete Steps to `justfile` and register it in the `"local"`
 line of `RECIPES` in `scripts/audit-managed-commands.py`, or `architecture-and-command-audit` fails. Add
@@ -333,7 +441,9 @@ fetch needs nothing unless it uses `redirect: "error"` or `"manual"` or checks `
 script using a cookie jar without following redirects will see the 307. Add the remaining risk, a request
 dropped during the one round trip. In `docs/user/auth-portal.md`, after the "Keep me signed in" paragraphs,
 say the portal gets the same 307 and that its fetches must allow it. Amend ADR 15's Consequences with a
-paragraph naming this plan and the leader rule, and update the module comment in `RefreshCoalescer.hs`.
+paragraph naming this plan, the leader rule and the requirement to deliver rotated cookies through
+the raw WebSocket handshake. Explain that upgrades remain exposed until that handshake arrives.
+Update the module comment in `RefreshCoalescer.hs`.
 
 ### M4: the labs portal
 
@@ -400,18 +510,29 @@ just user-documentation-validate
 
 ## Validation and Acceptance
 
-M1 is accepted when `cabal test nagare-access-test` passes with the tests listed for AC-1 to AC-5, and when
-removing the `rotationRedirect` call makes the AC-1 test fail. M2 is accepted when `just access-browser-test`
-exits 0 in all three engines, with the AC-6 test showing zero reuse alarms and the control showing exactly
-one. The control is what proves AC-6 detects the defect, so a control that stops failing the session is a
-failure of the suite. M3 is accepted when the documented table matches the semantics spec. M4 is accepted
-when the labs portal's analytics fetches keep working across a renewal in that repository's tests and after
-its deployment. M5 is accepted with the labs observations described above recorded in Progress.
+M1 is accepted when `cabal test nagare-access-test` passes with the tests listed for AC-1 to AC-5,
+including socket-level cookie assertions for both backend kinds on a 101, an upstream refusal and
+a local pre-handshake failure. Removing the `rotationRedirect` call must fail AC-1, and removing
+raw handshake cookie injection must fail the WebSocket regression. Ordinary forwarding and raw
+handshakes must each emit the replacement cookies exactly once.
+
+M2 is accepted when `just access-browser-test` exits 0 in all three engines, with the AC-6 test
+showing zero reuse alarms and the control showing exactly one. Both must prove their own upstream
+request arrived and remained held through the abort and renewal assertions. Counters and barriers
+must belong to the current test attempt; an earlier test's traffic cannot satisfy these checks.
+Exercise the harness isolation with two cases using the same path: incrementing or releasing one
+must leave the other's count and barrier unchanged, and deleting a held case must release its
+handler without affecting the other. The control is what proves AC-6 detects the defect, so a
+control that stops failing the session is a failure of the suite. M3 is accepted when the
+documented table matches the semantics spec. M4 is accepted when the labs portal's analytics
+fetches keep working across a renewal in that repository's tests and after its deployment.
+M5 is accepted with the labs observations described above recorded in Progress.
 
 IR-41's AC-1 is met for every GET or HEAD except the requests the Decision Log keeps forwarded. AC-3 is met
 with that longer list. AC-7 is met by the semantics spec and the guide. The remaining risk, a request dropped
 during the one round trip, and today's exposure for forwarded requests, are accepted by IR-41 and stated in
-the guide; they are not acceptance failures.
+the guide; they are not acceptance failures. A completed WebSocket handshake that omits the rotated
+cookies is an AC-3 failure, not part of the accepted risk of losing a response before it arrives.
 
 
 ## Idempotence and Recovery
@@ -419,6 +540,13 @@ the guide; they are not acceptance failures.
 Every test and recipe can be rerun. The harness uses a temporary database, fixed loopback ports and throwaway
 certificates, and `npx playwright install` does nothing when the browsers are present. If a harness run is
 killed and a port stays busy, find the process with `lsof -i :18780` and stop it by its exact PID.
+
+Every browser test attempt gets a fresh harness case and user. Release is idempotent, and case
+deletion is safe to retry. Cleanup closes the browser context before releasing held responses,
+then waits for handlers to settle before discarding their state; it never resets shared counters.
+On a failed assertion or timeout, run that same cleanup. Harness shutdown releases all barriers
+before closing servers and the temporary database. A retry cannot consume an earlier attempt's
+arrival signal or leave its held request blocking the next test.
 
 The enforcer change stores nothing and changes no cookie or token format, so rolling back is a code revert and
 a new enforcer image. Sessions continue across it in either direction. A browser mid-redirect during an
@@ -452,6 +580,25 @@ data RefreshResult = RefreshResult
 refresh, so `refreshWithShomei` is unchanged. `status307` comes from `Network.HTTP.Types`; `rawPathInfo` is
 added to the `Network.Wai` imports in `App.hs`.
 
+The forwarding fields in `AccessServices` gain the raw-response header argument described in M1:
+
+```haskell
+forwardAuthorized :: AuthenticatedUser -> Text -> BackendTarget -> [Header] -> Request -> IO Response
+forwardPortal :: Portal -> PortalIdentity -> [Header] -> Request -> IO PortalUpstreamResult
+```
+
+The corresponding `proxyForwarder` and `portalForwarder` functions retain their leading manager
+argument. The new `[Header]` is for responses emitted by a raw callback only. Ordinary responses
+are still decorated by `App.hs`; it cannot decorate the bytes a raw callback writes. Thread the
+same list through `webSocketProxyResponse`, `runWebSocketTunnel` and raw error response construction.
+These are internal Haskell signature changes, with no change to an upstream request or cookie format.
+
 New test dependencies are `@playwright/test` 1.64.1, the current release on npm on 2026-11-01, and `hasql` in
 the harness stanza only. No production dependency is added. No Shōmei, En, Dhall or Kubernetes change is
 needed.
+
+
+Revision note (2026-11-09): Applied the review findings by making AC-3 require explicit cookie
+delivery through real WebSocket handshakes and socket regressions, and by replacing M2's shared
+counters and timed response hold with per-attempt cases, explicit barriers and bounded cleanup.
+Updated the milestones, interfaces and acceptance criteria to match; implementation remains pending.
