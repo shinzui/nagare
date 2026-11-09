@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-09
+* **Added**: IR-42 requests a native ARM64 configuration SDK and explicit reviewed worker readiness, web probes, lifecycle/token and hosting delivery contracts for mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application.
+
 ## 2026-11-02
 * **Update**: IR-39 is implemented in v0.15.0 and running on the intranet; acceptance evidence recorded, with AC-1's clean rebuild from the tag deferred as F134.
 
