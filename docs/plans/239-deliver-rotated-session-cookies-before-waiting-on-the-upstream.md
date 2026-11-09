@@ -15,12 +15,22 @@ provenance:
       at: 2026-11-09T04:27:51Z
       verdict: "changes-requested"
       note: "M1 AC-3 assumes rotated cookies reach raw WebSocket responses, but mapResponseHeaders ignores ResponseRaw; M2 needs isolated request counters and deterministic held-response synchronization."
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-09T23:31:30Z
+      verdict: "comments"
+      note: "Mechanism and code claims verified against App.hs, RefreshCoalescer.hs, Proxy.hs and the labs analytics fetches; Main.hs forwarder lambdas need the new argument, the 18ms exposure excludes the Shomei call, and no browser proof that a 101 Set-Cookie is stored."
   revisions:
     - model: "gpt-6-astra"
       harness: "codex-cli"
       at: 2026-11-09T04:36:22Z
       mode: "update"
       note: "Apply review findings: require real WebSocket handshake cookie delivery and socket regressions, isolate browser counters per attempt, and replace timed upstream holds with explicit release barriers."
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-09T23:31:30Z
+      mode: "update"
+      note: "Correct the Main.hs forwarder claim, restate the exposure window and measure it in M5, and add a WebSocket handshake cookie row to the browser semantics spec."
 ---
 
 # Deliver rotated session cookies before waiting on the upstream
@@ -46,9 +56,11 @@ service, correctly ends the session. This happened twice in about a day on the l
 
 After this change, an ordinary GET or HEAD that renews a session gets an immediate empty redirect to
 the same URL carrying the new cookies, before any site is contacted. The browser stores the cookies
-and retries, and the retry is served normally. The token is at risk only for one round trip to the
-gateway (about 18ms on labs) rather than for the site's response time (1.4s to 2.1s in the two
-sign-outs). Shōmei does not change.
+and retries, and the retry is served normally. The token is at risk only from the moment Shōmei
+spends it until the 307 reaches the browser, rather than for the site's response time (1.4s to 2.1s
+in the two sign-outs). That is the end of the Shōmei refresh call plus the answer's trip back. The
+18ms measured on labs is a full gateway round trip without a Shōmei call, so it is not an upper
+bound; M5 reads the real duration of a 307 from the gateway log. Shōmei does not change.
 
 To see it working, run `just access-browser-test`. In Chromium, Firefox and WebKit, against the real
 gateway and a real Shōmei, a page's request is abandoned while the site is holding the response. The
@@ -305,8 +317,10 @@ the upgrade headers and bidirectional byte relay. Failures returned as ordinary 
 the raw callback is constructed continue to get their cookies from `App.hs`. Do not try to fix
 this by applying `mapResponseHeaders` to `ResponseRaw` or by forwarding the new cookies upstream.
 Update `defaultAccessServices`, all fake service lambdas and direct proxy calls for the added
-argument; direct tests without authentication headers pass `[]`. `Main.hs`'s partially applied
-forwarder assignments still fit the updated fields.
+argument; direct tests without authentication headers pass `[]`. `Main.hs` must change for this
+part: its `forwardAuthorized` and `forwardPortal` assignments are explicit lambdas
+(`\user host target req -> ...` and `\portal identity req -> ...`), so add the new argument to
+each and pass it to `proxyForwarder` and `portalForwarder`.
 
 Migrate existing tests by having fakes return `RefreshResult RefreshShared ...`, so they keep testing
 forwarding with cookies. Fakes for hand-off tests are unaffected in behaviour. In
@@ -356,7 +370,10 @@ blocks `**/favicon.ico` with `page.route`.
 
 `browser-semantics.spec.ts` (AC-7) ports the probe in Surprises & Discoveries. Its own Node HTTPS server
 on the same proxy answers an old cookie with a 307, and it asserts the table's rows in each engine. This
-pins the browser facts the design rests on.
+pins the browser facts the design rests on. Add one row the probe did not cover: the same server
+answers a `new WebSocket(...)` handshake with a hand-written 101 carrying `Set-Cookie`, and the spec
+asserts each engine stores the cookie. M1's raw-handshake work is only useful if this holds, and the
+socket tests in M1 prove the bytes are sent, not that a browser keeps them.
 
 The harness is a new cabal `test-suite nagare-access-browser-harness` with `main-is: BrowserHarness.hs` in
 `cli/nagare-access/test`, sharing `RealShomei` through `other-modules`. A test-suite does not enter the
@@ -459,7 +476,8 @@ This ships in the next Nagare release through the `nagare-release` skill, and up
 that release's own third proof. Upgrading the intranet is a cloud mutation that needs the operator's
 go-ahead under the repository's host and cloud mutation rules. Confirm on labs with its gateway logs, using
 the method in IR-41's Evidence section: a rotation by a GET now appears as a 307 with no upstream contact,
-followed by the retry. Then read Shōmei's records until the next 50 rotations have passed, and trace any
+followed by the retry. Record that 307's duration from the gateway log in Progress: it is the real
+exposure. Then read Shōmei's records until the next 50 rotations have passed, and trace any
 `refresh_token_reuse_detected`: a drop during an upstream's wait after a GET leader means this plan failed,
 and a drop within the one round trip or on a request kept forwarded is the accepted remaining risk.
 
