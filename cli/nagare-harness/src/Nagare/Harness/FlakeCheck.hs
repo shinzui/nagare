@@ -30,9 +30,9 @@ import Nagare.Harness.Prelude
 import Nagare.Harness.Step (Step (..))
 import System.IO (IOMode (ReadMode), SeekMode (AbsoluteSeek), hFileSize, hSeek, withBinaryFile)
 
--- | One @nix flake check@ per release system (EP-253). @--all-systems@ would also
--- evaluate a tooling-only system, whose import-from-derivation needs a native
--- builder the landing gate does not have.
+-- | Validate outputs and build every check, for release systems only (EP-253).
+-- @--all-systems@ would also evaluate a tooling-only system, whose
+-- import-from-derivation needs a native builder the landing gate does not have.
 flakeCheckStep :: Step
 flakeCheckStep = Step "nix-flake-check" "." "scripts/flake-check-release-systems.sh" []
 
