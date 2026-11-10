@@ -88,6 +88,17 @@ reuse revocation. Only Shomei's explicit 4xx rejection ends a session: when Shom
 keys are unavailable the enforcer answers 503 and keeps the cookies
 ([ExecPlan 211](../plans/211-keep-protected-site-sessions-across-concurrent-refreshes-and-shomei-outages.md)).
 
+A refresh spends the old token before the replacement reaches the browser, so a request dropped
+while its site responded used to lose the session. A GET or HEAD that leads a refresh is now
+answered at once with an empty 307 to itself carrying the rotated cookies, after the new access
+token verifies and before authorization or any upstream contact. Only the coalescer's leader may
+answer this way, which gives a burst one redirect and a client that stores no cookies at most
+one. Other methods, requests with `Origin`, unsafe paths and upgrades are still forwarded with
+the cookies on the response. WAI cannot decorate a raw response, so the forwarders must write
+rotated cookies into the WebSocket handshake themselves; an upgrade stays exposed until that
+handshake arrives
+([ExecPlan 239](../plans/239-deliver-rotated-session-cookies-before-waiting-on-the-upstream.md)).
+
 A sign-in may ask to stay signed in. The portal forwards the person's choice to Shomei as
 `remember` on password sign-in, MFA completion and passkey completion; Shomei records it on
 the session, gives a remembered session its longer `rememberedSessionTTL`, and reports

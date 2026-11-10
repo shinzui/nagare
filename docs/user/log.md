@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-11-09
+
+* **Change**: `nagare-access` answers a GET or HEAD that renews a session with an immediate 307 carrying the new cookies, and delivers renewed cookies on WebSocket handshakes. Add a session renewal section with the measured browser behaviour, and tell portal authors what their fetches must allow.
+
 ## 2026-11-03
 
 * **Add**: Guide for serving a new context through a Cloudflare Tunnel, with no inbound web ports.

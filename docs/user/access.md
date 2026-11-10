@@ -461,3 +461,57 @@ handoff refresh token before setting browser cookies and owns the cookie-signing
 
 The future ingress direction is Envoy Gateway `ext_authz`. The DSL field and en
 authorization model should stay the same; only the routing mechanism changes.
+
+## Session renewal
+
+`nagare_session` is short-lived and `nagare_refresh` renews it. Shomei replaces the refresh
+token every time it is used, and it treats a second use of a replaced token as theft and ends
+the session. So the browser must receive the new cookies, even when it then abandons the request
+that caused the renewal.
+
+When a GET or HEAD carrying an expired session and a valid refresh cookie runs the renewal, the
+enforcer answers at once with an empty `307` to the same path and query. The response carries
+the new cookies and `Cache-Control: no-store`, and no site is contacted. The browser stores the
+cookies and repeats the request, which is then served normally.
+
+These requests are forwarded as before, with the new cookies on the site's response, and the
+session depends on that response arriving:
+
+- methods other than GET and HEAD, because a streamed body cannot be replayed;
+- a GET or HEAD with an `Origin` header, because browsers send it only on cross-origin CORS
+  requests, and a plain 307 fails those;
+- WebSocket upgrades, which receive the cookies on the handshake response;
+- a path a browser would resolve to another host, or a query containing control characters;
+- a request that joined a renewal already running, or one finished in the last 30 seconds. A
+  client that stores no cookies is therefore redirected at most once.
+
+Measured with Playwright 1.64.1 in Chromium 156, Firefox 157 and WebKit 27.2. All three engines
+behave the same, and every row stores the new cookie, including the rows where the request fails:
+
+| Request | Result of a 307 with `Set-Cookie` |
+|---|---|
+| Document navigation | 200 at the same URL |
+| Same-origin fetch, `redirect: "follow"` | 200, `redirected` is true |
+| Same-origin fetch, `mode: "same-origin"` | 200, `redirected` is true |
+| Same-origin fetch, `redirect: "error"` | `TypeError` |
+| Same-origin fetch, `redirect: "manual"` | `opaqueredirect`, status 0 |
+| Same-origin `EventSource` | Message received |
+| Cross-origin credentialed fetch, plain 307 | `TypeError` |
+| Cross-origin credentialed fetch, 307 with CORS headers | 200, `redirected` is true |
+| Cross-origin `EventSource`, plain 307 | Closed, `readyState` 2 |
+| Cross-origin `EventSource`, 307 with CORS headers | Message received |
+| Fetch aborted while the repeated request is held upstream | `AbortError` |
+| `WebSocket` handshake carrying `Set-Cookie` on its 101 | Open |
+
+`just access-browser-test` reruns these measurements and the session scenarios in all three
+engines. It is not part of a gate, so run it after changing the redirect or the refresh coalescer.
+
+A site needs no change unless it makes a same-origin fetch with `redirect: "error"` or
+`"manual"`, or checks `response.redirected`. Such a fetch loses that one request when it happens
+to run a renewal, but not the session. Allow the redirect, or retry the request. A script with a
+cookie jar that does not follow redirects sees the 307 and must store its cookies and repeat the
+request.
+
+The remaining risk is a request dropped in the moment between Shomei replacing the token and the
+307 reaching the browser, and a forwarded request dropped while its site responds. A dropped
+response means the browser keeps a spent token, and its next renewal ends the session.

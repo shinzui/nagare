@@ -347,6 +347,12 @@ that end when the browser closes. Either way, a browser that does not use a prot
 30 days signs in again, because the refresh token expires. A sign-in without `remember`,
 including the built-in `/_nagare/login`, is not remembered.
 
+The portal gets the same renewal as a protected site: a GET or HEAD that renews the session is
+answered with an empty `307` to itself carrying the new cookies, before the portal is contacted
+(see [Session renewal](access.md#session-renewal)). Portal code must allow it. A same-origin
+fetch needs no change unless it uses `redirect: "error"` or `"manual"` or rejects
+`response.redirected`.
+
 A portal may send `Nagare-Session-Clear` to ask the enforcer to clear and revoke the
 current session. The normal sign-out link is `/_nagare/logout`, which does the same and
 then returns the user to `/login?logged_out=1`.

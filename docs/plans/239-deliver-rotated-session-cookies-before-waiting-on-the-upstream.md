@@ -81,12 +81,14 @@ turned off reproduces the labs sign-out, so the test demonstrably detects the de
   WebSocket handshake responses. Evidence (2026-11-09): 221 tests pass. Disabling
   `rotationRedirect` fails 8 of them; removing raw handshake injection fails all 6 socket
   regressions.
-- [ ] M2: `just access-browser-test` passes in Chromium, Firefox and WebKit, covering AC-6 and the
+- [x] M2: `just access-browser-test` passes in Chromium, Firefox and WebKit, covering AC-6 and the
   behaviour matrix of AC-7, and the control scenario without the redirect ends the session with one
   `refresh_token_reuse_detected`. Each test attempt has isolated counters and explicitly controls
-  release of its held upstream response.
-- [ ] M3: `docs/user/access.md`, `docs/user/auth-portal.md` and ADR 15 state the new behaviour and the
-  measured matrix (AC-7), and `just user-documentation-validate` passes.
+  release of its held upstream response. Evidence (2026-11-09): 54 passed in about a minute,
+  including all 12 matrix rows per engine and a browser keeping `Set-Cookie` from a 101.
+- [x] M3: `docs/user/access.md`, `docs/user/auth-portal.md` and ADR 15 state the new behaviour and the
+  measured matrix (AC-7), and `just user-documentation-validate` passes. Evidence (2026-11-09):
+  validation exits 0 and the table's rows are the rows of `browser-semantics.spec.ts`.
 - [ ] M4: the labs portal's analytics fetches follow the redirect, committed and deployed in
   `mori://tan/tan-ng-labs` before the intranet upgrades.
 - [ ] M5: a Nagare release carrying this runs on the labs intranet. A live renewal is seen as a 307 in
@@ -141,6 +143,14 @@ turned off reproduces the labs sign-out, so the test demonstrably detects the de
   request, and later tests cannot reliably assert zero or one. A five-second sleep also does not
   prove that the upstream is still withholding headers when the browser aborts. M2 now allocates
   state per test attempt and uses an explicit release barrier.
+
+- Shomei records `refresh_token_reuse_detected` with a NULL `user_id` and only a `session_id`
+  (`Shomei.Audit.Event.Codec`), so the planned query filtering on `user_id` would always count zero
+  and AC-6 would pass vacuously. The harness joins through `shomei_sessions`; the control scenario's
+  count of exactly one proves the query sees the alarm.
+
+- The architecture check limits `cli/nagare-access/test/Spec.hs`, so the WebSocket tests moved to
+  `WebSocketTunnelSpec.hs` instead of extending it.
 
 
 ## Decision Log
@@ -351,7 +361,7 @@ Add `cli/nagare-access/test/RotatedCookieRedirectSpec.hs`, registered in `other-
   One refresh, one 307, and seven upstream calls.
 - A pair that does not verify still clears cookies and challenges, with no 307.
 
-For AC-3, extend the socket tests in `cli/nagare-access/test/Spec.hs` to run `appWithRuntime` over
+For AC-3, add socket tests in `cli/nagare-access/test/WebSocketTunnelSpec.hs` that run `appWithRuntime` over
 Warp with the real `proxyForwarder` or `portalForwarder`, a counting fake refresh and a verifier
 accepting the refreshed access token. Send the old cookies with both `Connection: Upgrade` and
 `Upgrade: websocket`. For each backend kind, read through the response-header terminator and assert
@@ -375,8 +385,8 @@ runs a small HTTP CONNECT proxy, which all three engines support. It terminates 
 and connects by hostname: `legacy.example.test` to port 18782, every other host to port 18780. Each test
 blocks `**/favicon.ico` with `page.route`.
 
-`browser-semantics.spec.ts` (AC-7) ports the probe in Surprises & Discoveries. Its own Node HTTPS server
-on the same proxy answers an old cookie with a 307, and it asserts the table's rows in each engine. This
+`browser-semantics.spec.ts` (AC-7) ports the probe in Surprises & Discoveries. A small Node server behind
+the same proxy answers an old cookie with a 307, and the spec asserts the table's rows in each engine. This
 pins the browser facts the design rests on. Add one row the probe did not cover: the same server
 answers a `new WebSocket(...)` handshake with a hand-written 101 carrying `Set-Cookie`, and the spec
 asserts each engine stores the cookie. M1's raw-handshake work is only useful if this holds, and the
@@ -406,10 +416,9 @@ starts:
   barrier), `GET /counts?case=<id>&path=<path>` (returns the count and, for `/held`, its arrival and
   release state), `POST /release?case=<id>` (idempotently opens the barrier), `DELETE /cases/<id>`
   (releases outstanding work and removes the case after its handlers finish), and
-  `GET /reuse-alarms?user=`, the last running
-  `SELECT count(*) FROM shomei.shomei_auth_events WHERE event_type = 'refresh_token_reuse_detected' AND
-  user_id = $1`. Check the column types in migration 0007 of `mori://shinzui/shomei`, project path
-  `shomei-migrations/migrations/shomei/0007-shomei-auth-events.sql`.
+  `GET /reuse-alarms?user=`, the last counting `refresh_token_reuse_detected` rows of
+  `shomei.shomei_auth_events` joined to `shomei.shomei_sessions` on `session_id`, filtered on the
+  session's `user_id`. The event's own `user_id` is NULL.
 
 Playwright starts it through `webServer`: `command: 'cabal run -v0 test:nagare-access-browser-harness'`,
 `cwd: '..'`, `url: 'http://127.0.0.1:18781/healthz'`, and `gracefulShutdown: { signal: 'SIGINT', timeout:
