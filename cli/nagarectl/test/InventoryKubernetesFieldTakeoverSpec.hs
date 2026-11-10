@@ -210,6 +210,15 @@ kubernetesFieldTakeoverTests =
         (updated, bodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [created, own, status]) [Nothing]
         updated @?= AdapterEffectIdentified K.physical AdapterEffectCompleted
         length bodies @?= 1
+    , testCase "Nagare's create-time ownership is handed to its apply entry, and nothing else moves (EP-256)" $ do
+        let liveObject entries = stampedLive "5" stampBefore entries
+        inventoryFieldHandoverPatch K.physical "5" (liveObject [own, status]) @?= Right Nothing
+        case inventoryFieldHandoverPatch K.physical "5" (liveObject [created, own, status]) of
+          Right (Just patch) -> do
+            assertBool "tests the uid" ("/metadata/uid" `T.isInfixOf` patch)
+            assertBool "tests the resourceVersion" ("/metadata/resourceVersion" `T.isInfixOf` patch)
+            assertBool "no Update entry of Nagare's remains" (not ("\"operation\":\"Update\"" `T.isInfixOf` patchWithoutStatus patch))
+          other -> assertFailure ("expected a handover patch, got: " <> show other)
     , testCase "a corrective update of an unready object reaches the API server (F63, M1)" $ do
         -- The fresh precondition of a correction is the unready object itself.
         mutation <- (\update -> update {mutationBefore = KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "unready")}) <$> stampedUpdate
@@ -217,6 +226,10 @@ kubernetesFieldTakeoverTests =
         corrected @?= AdapterEffectIdentified K.physical AdapterEffectCompleted
         map bodyRevision bodies @?= [Just "5"]
     ]
+
+-- | The patch without the status manager's own entry, which keeps its operation.
+patchWithoutStatus :: Text -> Text
+patchWithoutStatus patch = T.replace (TE.decodeUtf8 (BL.toStrict (encode status))) "" patch
 
 -- | The live object as kubectl returns it with managed fields.
 live :: Text -> Text -> [Value] -> Value
@@ -347,6 +360,7 @@ scriptedTransport mutation object' answers = do
   bodies <- newIORef []
   let handle request = case request ^. #arguments of
         "get" : _ -> pure (Right (ExitSuccess, T.unpack (TE.decodeUtf8 (BL.toStrict (encode object'))), ""))
+        "patch" : _ -> pure (Right (ExitSuccess, T.unpack (TE.decodeUtf8 (BL.toStrict (encode object'))), ""))
         "apply" : _ -> do
           modifyIORef' bodies (<> [T.pack (request ^. #input)])
           next <- atomicModifyIORef' remaining (\case [] -> ([], Nothing); answer : rest -> (rest, answer))

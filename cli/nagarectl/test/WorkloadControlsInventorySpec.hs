@@ -4,9 +4,10 @@
 module WorkloadControlsInventorySpec (workloadControlsInventoryTests) where
 
 import Control.Monad (forM_)
-import Data.Aeson (Value (String))
+import Data.Aeson (Value (String), encode)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -26,7 +27,7 @@ import Nagare.Dsl.Worker
   , webWorker
   )
 import Nagare.Dsl.Worker.Render (renderWorkerDeployment)
-import Nagare.Inventory.Adapter (AdapterRegistry, OperationAction (CreateResource), PlannedOperation (..), ResourceObservation (ConfirmedAbsent), mkAdapterRegistry, observationSet)
+import Nagare.Inventory.Adapter (AdapterRegistry, OperationAction (CreateResource), PlannedOperation (..), ResourceObservation (ConfirmedAbsent), mkAdapterRegistry, observationSet, observeWithRegistry)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (TransactionId)
@@ -40,7 +41,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures (appScope, bindMember, extraId, historyId, historyValue, ok, workerId)
 import Nagare.Test.World.Adversary (Adversary, newAdversary)
-import Nagare.Test.World.ApiServer (settleControllers)
+import Nagare.Test.World.ApiServer (ObjectKey (..), get, settleControllers)
 import Nagare.Test.World.Kubernetes (KubeWorld, effectiveWrites, newKubeWorld, worldKubernetesAdapter)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -52,6 +53,7 @@ workloadControlsInventoryTests =
     [ testCase "changing one control changes only that workload's reviewed bytes and input digest" controlChangesReview
     , testCase "a Deployment that landed while its readiness probe fails is not converged and stays resumable" landedUnreadyStaysResumable
     , testCase "after a successful hook and a failed readiness wait, resume does not run the hook again" resumeKeepsCompletedHook
+    , testCase "a reviewed update that drops a field removes it from the live object" updateRemovesDroppedField
     ]
 
 -- | The reviewed worker, with readiness, shutdown and no account.
@@ -212,6 +214,44 @@ resumeKeepsCompletedHook = do
     other -> assertFailure ("the transaction did not resume to convergence: " <> show other)
   jobWritesAfterResume <- Map.restrictKeys . effectiveWrites <$> readIORef (world prepared) <*> pure (Set.fromList jobCreate)
   jobWritesAfterResume @?= jobWrites
+
+-- | Live on nagare-local (EP-256 M2): naming an account drops
+-- @automountServiceAccountToken@ from the reviewed bytes, but the field stays
+-- on the object created earlier, so the Pod mounts no token.
+updateRemovesDroppedField :: Assertion
+updateRemovesDroppedField = do
+  created <- prepare (Map.singleton workerId (workerMember baseWorker [])) [] Set.empty
+  applyConverges created (registry created) (bundle created)
+  let named = workerMember (baseWorker & #serviceAccount .~ Just (ok (mkServiceAccountName "controlled-reader"))) []
+      scope = ok (mkScopeDeclaration appScope [ResourceBundle [Managed (fst named)] [] [] [] [] []])
+  history <- loadInventoryHistory (store created) >>= expectRight
+  let base = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
+      candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding base Map.empty)) (ReplaceScope scope :| []))
+  planning <- loadInventoryPlanningHistory (store created) candidate >>= expectRight
+  adversary <- newAdversary []
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (Map.singleton workerId named) (world created) adversary
+  let registry' = ok (mkAdapterRegistry [adapter])
+  observations <- observeWithRegistry registry' (requirementsByExecutor (observationRequirements candidate planning)) >>= expectRight
+  before <- readStoreSnapshot (store created) >>= expectRight
+  update <- prepareReview registry' before (ok (planChanges candidate noLifecycleDecisions planning observations)) >>= expectRight
+  applyConverges created registry' update
+  server <- (^. #server) <$> readIORef (world created)
+  live <-
+    case [key | key@(ObjectKey _ "deployment" _ _) <- Map.keys (server ^. #objects)] of
+      [key] -> maybe (assertFailure "the worker is absent" >> error "unreachable") pure (get False key server)
+      keys -> assertFailure ("expected one Deployment: " <> show keys) >> error "unreachable"
+  let bytes = LBS.toStrict (encode live)
+  assertBool "the account is on the live object" (BS.isInfixOf "controlled-reader" bytes)
+  assertBool "the dropped token setting is gone from the live object" (not (BS.isInfixOf "automountServiceAccountToken" bytes))
+  where
+    applyConverges prepared registry' review = do
+      _ <- publishReview (store prepared) review >>= expectRight
+      snapshot <- readStoreSnapshot (store prepared) >>= expectRight
+      reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot review)
+      result <- applyReviewed (store prepared) registry' reviewed >>= expectRight
+      case result of
+        Converged _ -> pure ()
+        other -> assertFailure ("the review did not converge: " <> show other)
 
 expectRight :: (Show e) => Either e a -> IO a
 expectRight = either (\err -> assertFailure (show err) >> error "unreachable") pure

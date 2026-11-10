@@ -77,7 +77,7 @@ import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal, resourceVersio
 import Nagare.Inventory.Adapters.KubernetesReadiness
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.KubernetesConfiguration (confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, liveStamp)
+import Nagare.Inventory.KubernetesConfiguration (confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, inventoryFieldHandoverPatch, liveStamp)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
 import Nagare.Ops.CertificateChain (withCertificateDiagnosis)
@@ -185,8 +185,11 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
                 Right True -> pure (Left "generated credential updates require a dedicated data-preserving operation")
                 Right False -> do
                   ownership <- verifyLiveOwnership config (mutationAddress mutation) uid (mutationBeforeStamp mutation) (mutationTakeover mutation)
+                  handed <- case ownership of
+                    Left reason -> pure (Left reason)
+                    Right (observed, revision) -> fmap (observed,) <$> handOverInventoryFields config (mutationAddress mutation) uid revision observed
                   pure $ do
-                    (observed, fresh) <- ownership
+                    (observed, fresh) <- handed
                     native <- resolved
                     case mutationAddress mutation of
                       Kubernetes _ "" kind namespace name | nameText kind == "service" ->
@@ -203,6 +206,8 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
                       _ -> applyRequest uid fresh native
             _ -> pure (Left "Kubernetes transport received an unsupported action or precondition")
           case request of
+            -- The handover read a live resourceVersion; a controller may have moved it.
+            Left reason | mutationAction mutation == UpdateResource, attempt < 3, handoverFailure `T.isPrefixOf` reason -> mutate (attempt + 1) mutation
             Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
             Right (arguments, body) -> do
               -- ADR 27: a write returns the object it wrote; its UID is the
@@ -223,6 +228,32 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
                 Right (ExitFailure _, _, errors) | mutationAction mutation == UpdateResource, attempt < 3, resourceVersionConflict (T.pack errors) -> mutate (attempt + 1) mutation
                 Right (ExitFailure _, _, errors) | Just refusal <- kubectlRefusal (T.pack errors) -> pure (AdapterEffectFailed (KnownNoEffect refusal))
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
+
+handoverFailure :: Text
+handoverFailure = "Kubernetes managed-field handover failed"
+
+-- | Give Nagare's create-time field ownership to its server-side apply before
+-- an update, returning the resourceVersion the apply must name. It changes
+-- ownership only, so landing it without the update is harmless (EP-256).
+handOverInventoryFields :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> Value -> IO (Either Text Text)
+handOverInventoryFields config address uid revision observed = case (inventoryFieldHandoverPatch uid revision observed, address) of
+  (Left reason, _) -> pure (Left reason)
+  (Right Nothing, _) -> pure (Right revision)
+  (Right (Just patch), Kubernetes _ group kind namespace name) -> do
+    result <-
+      invoke
+        config
+        ( ["patch", kindToken group kind, T.unpack (nameText name)]
+            <> namespaceArgs namespace
+            <> ["--type=json", "--field-manager=nagare-inventory", "-p", T.unpack patch, "-o", "json"]
+        )
+        ""
+    pure $ case result of
+      Right (ExitSuccess, output, _) -> do
+        value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)) :: Either String Value)
+        metadataOf value >>= fieldText "resourceVersion"
+      _ -> Left handoverFailure
+  _ -> pure (Left "Kubernetes managed-field handover needs a Kubernetes address")
 
 -- | Attach the UID of the object a write returned. Output that names no UID
 -- leaves the effect unidentified, so the member stays unrecorded.

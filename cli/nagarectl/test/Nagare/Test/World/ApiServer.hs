@@ -276,6 +276,37 @@ patchJson managerName key operations server = do
       unless (leafAt (pointer path) rendered == fromMaybe Null (field "value" operation')) $
         Left (invalid "the server rejected our request due to an error in our request")
     _ -> Right ()
+  case [value | operation' <- operations, textAt ["op"] operation' == Just "replace", textAt ["path"] operation' == Just "/metadata/managedFields", Just value <- [field "value" operation']] of
+    value : _ -> replaceManaged key stored value server
+    [] -> patchJsonContent managerName key operations stored server
+
+-- | A JSON Patch that rewrites @metadata.managedFields@ changes ownership only:
+-- no field and no generation move, and the resourceVersion does.
+replaceManaged :: ObjectKey -> Stored -> Value -> ApiServer -> Either ApiRefusal (ApiServer, Value)
+replaceManaged key stored value server = do
+  entries <- case value of
+    Array items -> traverse parseEntry (V.toList items)
+    _ -> Left (invalid "metadata.managedFields must be a list")
+  let server' = bumped key (stored & #managed .~ normalizeEntries entries) server
+  Right (server', maybe Null (render False) (Map.lookup key (objects server')))
+  where
+    parseEntry entry = do
+      managerName <- maybe (Left (invalid "a managed-field entry has no manager")) Right (textAt ["manager"] entry)
+      operation' <- case textAt ["operation"] entry of
+        Just "Apply" -> Right Apply
+        Just "Update" -> Right Update
+        _ -> Left (invalid "a managed-field entry has no operation")
+      Right (FieldsEntry managerName operation' (textAt ["subresource"] entry) (Set.fromList (treePaths (leafAt ["fieldsV1"] entry))))
+    treePaths (Object fields)
+      | KM.null fields = [[]]
+      | otherwise = [segment key' <> rest | (key', sub) <- KM.toList fields, rest <- treePaths sub]
+    treePaths _ = [[]]
+    segment key' = case Key.toText key' of
+      "." -> ["."]
+      other -> [fromMaybe other (T.stripPrefix "f:" other)]
+
+patchJsonContent :: Text -> ObjectKey -> [Value] -> Stored -> ApiServer -> Either ApiRefusal (ApiServer, Value)
+patchJsonContent managerName key operations stored server = do
   let writes' = [(pointer path, fromMaybe Null (field "value" operation')) | operation' <- operations, Just verb <- [textAt ["op"] operation'], verb `elem` ["add", "replace"], Just path <- [textAt ["path"] operation']]
       content' = canonicalize (foldl' (\value (path, new) -> setLeaf path new value) (stored ^. #content) writes')
   for_ (immutableViolation (key ^. #kind) (stored ^. #content) content') (Left . invalid)

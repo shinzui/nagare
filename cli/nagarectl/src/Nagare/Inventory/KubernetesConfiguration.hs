@@ -5,6 +5,7 @@ module Nagare.Inventory.KubernetesConfiguration
   , stampOf
   , confirmUpdateTarget
   , confirmInventoryFieldOwnership
+  , inventoryFieldHandoverPatch
   , confirmInventoryFieldOwnershipFor
   , confirmReviewedFieldTakeover
   , confirmTakeoverSettled
@@ -13,6 +14,7 @@ module Nagare.Inventory.KubernetesConfiguration
   )
 where
 
+import Control.Monad (foldM)
 import Data.Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
@@ -20,7 +22,7 @@ import Data.Foldable (toList)
 import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -68,6 +70,44 @@ confirmInventoryFieldOwnership = confirmInventoryFieldOwnershipFor Nothing
 
 confirmInventoryFieldOwnershipFor :: Maybe ProviderAddress -> PhysicalIdentity -> Text -> Value -> Either Text ()
 confirmInventoryFieldOwnershipFor target = confirmReviewedFieldTakeover target []
+
+-- | The JSON Patch that hands Nagare's @Update@ managed-field entries to its
+-- @Apply@ entry, or 'Nothing' when it has none. A create is recorded as an
+-- @Update@ entry, and server-side apply removes only fields its own @Apply@
+-- entry owns, so without this a reviewed update could never remove a field the
+-- create set. The patch tests UID and resourceVersion and changes no field
+-- (EP-256).
+inventoryFieldHandoverPatch :: PhysicalIdentity -> Text -> Value -> Either Text (Maybe Text)
+inventoryFieldHandoverPatch uid revision observed = do
+  entries <- managedFieldEntries observed
+  let own operation entry = case entry of
+        Object fields -> managerOf entry == Just "nagare-inventory" && KM.lookup "operation" fields == Just (String operation) && not (KM.member "subresource" fields)
+        _ -> False
+      updates = filter (own "Update") entries
+      applies = filter (own "Apply") entries
+      rest = filter (\entry -> not (own "Update" entry || own "Apply" entry)) entries
+  case applies <> updates of
+    base : _ | not (null updates) -> do
+      merged <- foldM unionEntry base (drop 1 (applies <> updates))
+      handed <- case merged of
+        Object fields -> Right (Object (KM.insert "operation" (String "Apply") fields))
+        _ -> Left "Kubernetes managed-field entry is malformed"
+      Just . TE.decodeUtf8
+        <$> canonicalValue
+          ( toJSON
+              [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= physicalIdentityText uid]
+              , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= revision]
+              , object ["op" .= ("replace" :: Text), "path" .= ("/metadata/managedFields" :: Text), "value" .= (rest <> [handed])]
+              ]
+          )
+    _ -> Right Nothing
+  where
+    unionEntry (Object left) (Object right) = case (KM.lookup "fieldsV1" left, KM.lookup "fieldsV1" right) of
+      (Just a, Just b) -> Right (Object (KM.insert "fieldsV1" (unionFields a b) left))
+      _ -> Left "Kubernetes managed-field entry is malformed"
+    unionEntry _ _ = Left "Kubernetes managed-field entry is malformed"
+    unionFields (Object a) (Object b) = Object (KM.unionWith unionFields a b)
+    unionFields a _ = a
 
 -- | A reviewed field takeover (F37) names the exact foreign managed-field
 -- entries observed at planning, without their timestamps. A live foreign
