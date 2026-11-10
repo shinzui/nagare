@@ -89,10 +89,11 @@ turned off reproduces the labs sign-out, so the test demonstrably detects the de
 - [x] M3: `docs/user/access.md`, `docs/user/auth-portal.md` and ADR 15 state the new behaviour and the
   measured matrix (AC-7), and `just user-documentation-validate` passes. Evidence (2026-11-09):
   validation exits 0 and the table's rows are the rows of `browser-semantics.spec.ts`.
-- [ ] M4: the labs portal's analytics fetches follow the redirect, committed and deployed in
-  `mori://tan/tan-ng-labs` before the intranet upgrades.
-  Partial (2026-11-09): committed there as `a2e7cc43cf2c0ef6eef474fc4eca39ee9325076f` with its
-  analytics tests and typecheck passing. Not yet deployed; deployment needs the operator's go-ahead.
+- [x] M4: the labs portal's analytics fetches follow the redirect, committed and deployed in
+  `mori://tan/tan-ng-labs` before the intranet upgrades. Evidence (2026-11-10): commits
+  `a2e7cc43cf2c0ef6eef474fc4eca39ee9325076f` and `1f63ebc065e2c2484bfd455641e0990f33b541b8` pushed,
+  its analytics tests and typecheck pass, and Knative service `portal` is Ready on
+  `git-a2e7cc43cf2c`.
 - [ ] M5: a Nagare release carrying this runs on the labs intranet. A live renewal is seen as a 307 in
   the gateway log, and no sign-out is traced to a request dropped during the upstream's wait.
 

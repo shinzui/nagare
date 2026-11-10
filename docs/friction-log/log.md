@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-10
+* **Addition**: FRIC-6 records blocked environment friction with mori://shinzui/nagare: A broken IPv6 path stops every intranet command from the workstation
 * **Addition**: FRIC-5 records slowdown tooling friction with mori://shinzui/nagare: The fast gate checks the last commit and ignores uncommitted work
 
 ## 2026-10-31
