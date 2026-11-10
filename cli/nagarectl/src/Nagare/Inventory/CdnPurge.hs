@@ -150,7 +150,7 @@ withCdnPurge bindings ops base =
           Right
           (Map.lookup (plannedInputDigest operation) bindings)
       unless
-        (NE.toList (plannedResources operation) == [resource] && plannedRecovery operation == OperatorRecovery)
+        (namesOnly operation resource && plannedRecovery operation == OperatorRecovery)
         (Left "purge operation differs from its typed declaration")
       pure selected
     verify operation native = case binding operation of

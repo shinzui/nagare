@@ -234,7 +234,7 @@ withVmPower bindings ops base =
           Right
           (Map.lookup (plannedInputDigest op) bindings)
       unless
-        (NE.toList (plannedResources op) == [target] && plannedRecovery op == OperatorRecovery)
+        (namesOnly op target && plannedRecovery op == OperatorRecovery)
         (Left "VM power operation differs from its declaration")
       pure value
     prepare op = do

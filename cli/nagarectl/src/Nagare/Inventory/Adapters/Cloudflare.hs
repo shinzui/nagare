@@ -19,7 +19,6 @@ import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -313,9 +312,7 @@ planFor ::
   PlannedOperation ->
   Either Text CloudflareMutationPlan
 planFor accepted specs operation = do
-  resource <- case NE.toList (plannedResources operation) of
-    [single] -> Right single
-    _ -> Left "Cloudflare operation must affect exactly one resource"
+  resource <- soleResource operation
   binding <- maybe (Left "Cloudflare declaration is absent") Right (Map.lookup resource specs)
   let desiredResource = cloudflareDeclaration binding
   (zone, target) <- targetFor desiredResource

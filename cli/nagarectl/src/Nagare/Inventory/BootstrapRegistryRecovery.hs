@@ -9,8 +9,8 @@ where
 import Data.Aeson
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
+import Data.Either (isRight)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
@@ -227,7 +227,7 @@ mkBootstrapRegistryRecovery store bundle registryHost inspectHost units recoverD
         ( "nagare-bootstrap:" `T.isPrefixOf` reviewPayloadIdentity document
             && plannedExecutor operation == KubernetesExecutor
             && plannedAction operation == CreateResource
-            && length (NE.toList (plannedResources operation)) == 1
+            && isRight (soleResource operation)
         )
         (Left "registry recovery only supports an original bootstrap Deployment create")
       mutation <- first T.pack (eitherDecodeStrict' (preparedNativeBytes native))
@@ -236,7 +236,7 @@ mkBootstrapRegistryRecovery store bundle registryHost inspectHost units recoverD
             && mutationOperation mutation == plannedOperationId operation
             && mutationInputDigest mutation == plannedInputDigest operation
             && mutationAction mutation == CreateResource
-            && [mutationResource mutation] == NE.toList (plannedResources operation)
+            && namesOnly operation (mutationResource mutation)
         )
         (Left "registry recovery Kubernetes native binding differs")
       scopes <- traverse (first showText . decodeScope) (Map.elems (reviewBundleScopes bundle))

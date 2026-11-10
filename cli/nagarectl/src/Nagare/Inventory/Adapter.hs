@@ -14,6 +14,10 @@ module Nagare.Inventory.Adapter
   , OperationAction (..)
   , MigrationStage (..)
   , PlannedOperation (..)
+  , OperationResources (..)
+  , operationResources
+  , soleResource
+  , namesOnly
   , PreparedNative (..)
   , ReviewBarrier (..)
   , PrepareError (..)
@@ -48,7 +52,7 @@ where
 import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson
 import Data.ByteString (ByteString)
-import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -172,6 +176,38 @@ data PlannedOperation = PlannedOperation
   , plannedRecovery :: !RecoveryClass
   }
   deriving stock (Eq, Show, Generic)
+
+-- | What an operation's 'plannedResources' mean. The stored list keeps its
+-- wire form, because operation IDs and saved reviews derive from it; this is
+-- the one way to read it.
+data OperationResources
+  = -- | One object.
+    SingleResource !ResourceId
+  | -- | A 'RunDeclaredOperation': what it runs (a Kubernetes Job, say) and
+    -- the data it affects, in declared order.
+    DeclaredRun !(NonEmpty ResourceId)
+  | -- | Several members acted on as one, such as a Pulumi group's create.
+    GroupedResources !(NonEmpty ResourceId)
+  deriving stock (Eq, Show)
+
+operationResources :: PlannedOperation -> OperationResources
+operationResources operation = case (plannedAction operation, plannedResources operation) of
+  (RunDeclaredOperation, resources) -> DeclaredRun resources
+  (_, resource :| []) -> SingleResource resource
+  (_, resources) -> GroupedResources resources
+
+-- | The one resource of an operation that names exactly one, whatever its
+-- action: an adapter that acts on one object admits only that shape.
+soleResource :: PlannedOperation -> Either Text ResourceId
+soleResource operation = case operationResources operation of
+  SingleResource resource -> Right resource
+  DeclaredRun (resource :| []) -> Right resource
+  DeclaredRun _ -> Left "operation must name exactly one resource"
+  GroupedResources _ -> Left "operation must name exactly one resource"
+
+-- | Whether an operation names exactly this resource.
+namesOnly :: PlannedOperation -> ResourceId -> Bool
+namesOnly operation resource = soleResource operation == Right resource
 
 data PreparedNative = PreparedNative
   { preparedNativeBytes :: !ByteString

@@ -14,7 +14,6 @@ where
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -199,9 +198,7 @@ mkTopicAdapter accepted specs ops =
 
 planFor :: Map ResourceId ManagedResource -> Map ResourceId TopicBinding -> PlannedOperation -> Either Text TopicMutationPlan
 planFor accepted specs operation = do
-  resource <- case NE.toList (plannedResources operation) of
-    [single] -> Right single
-    _ -> Left "topic operation must affect exactly one topic"
+  resource <- soleResource operation
   binding <- maybe (Left "topic declaration is absent") Right (Map.lookup resource specs)
   (broker, name, partitions, replicas, retention) <- case (topicDeclaration binding ^. #address, topicDeclaration binding ^. #spec) of
     (BrokerTopic target topicName, LogicalBrokerTopic p r ms) -> Right (target, topicName, p, r, ms)

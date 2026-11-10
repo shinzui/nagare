@@ -17,6 +17,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   , mkKubernetesAdapterWithObservations
   , settleMutation
   , unstampNative
+  , kubernetesOperationResource
   )
 where
 
@@ -503,28 +504,25 @@ singleSpec specs operation = do
                ]
     )
     (Left "Kubernetes adapter does not support this action")
-  resource <- case (plannedAction operation, NE.toList (plannedResources operation)) of
-    (RunDeclaredOperation, affected) -> case [ resourceId
-                                             | resourceId <- affected
-                                             , Just (bound, _) <- [Map.lookup resourceId specs]
-                                             , case bound ^. #address of
-                                                 Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
-                                                 _ -> False
-                                             ] of
-      [job] -> Right job
-      _ -> Left "Kubernetes declared operation must name exactly one bound Job"
-    (_, [single]) -> Right single
-    _ -> Left "Kubernetes object operation must name exactly one resource"
+  resource <- kubernetesOperationResource (\resourceId -> (^. #address) . fst <$> Map.lookup resourceId specs) operation
   (declaration, native) <- maybe (Left "Kubernetes resource has no bound native object") Right (Map.lookup resource specs)
   unless (declaration ^. #identity == resource && declaration ^. #executor == KubernetesExecutor) (Left "bound declaration identity or executor differs")
   when
     (plannedAction operation == RetireResource && not (supportsRetainedCollection declaration))
     (Left "reviewed collection supports only proved stateless namespaced kinds with deletion policy")
   when (plannedAction operation == ReplaceStuckPod && not (isStatefulSet (declaration ^. #address))) (Left "a stuck pod is replaced only for an apps/StatefulSet")
-  when (plannedAction operation == RunDeclaredOperation) $ case declaration ^. #address of
-    Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
-    _ -> Left "Kubernetes declared operation must verify a bound Job"
   pure (resource, declaration, native)
+
+-- | The one Kubernetes object an operation acts on. A declared operation
+-- names its Job and the data it affects, so its object is the one named
+-- resource whose address is a batch Job; the operation's bound members supply
+-- those addresses.
+kubernetesOperationResource :: (ResourceId -> Maybe ProviderAddress) -> PlannedOperation -> Either Text ResourceId
+kubernetesOperationResource addressOf operation = case operationResources operation of
+  DeclaredRun named -> case [resource | resource <- NE.toList named, Just (Kubernetes _ "batch" kind _ _) <- [addressOf resource], nameText kind == "job"] of
+    [job] -> Right job
+    _ -> Left "Kubernetes declared operation must name exactly one bound Job"
+  _ -> soleResource operation
 
 validateBefore :: PlannedOperation -> ResourceId -> ProviderAddress -> ContentDigest -> KubernetesState -> Either PrepareError ()
 validateBefore operation resource target desiredDigest state =

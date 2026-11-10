@@ -73,5 +73,5 @@ saveReviewedCloudTeardown selected output = do
         (Left "cloud teardown policy and retirement cannot repair or mutate native resources")
     collectOnly resource operation =
       unless
-        (plannedAction operation == VerifyResource || (plannedAction operation == RetireResource && NE.toList (plannedResources operation) == [resource]))
+        (plannedAction operation == VerifyResource || (plannedAction operation == RetireResource && namesOnly operation resource))
         (Left "cloud collection cannot mutate beyond its exact selected retained member")

@@ -14,7 +14,6 @@ import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -156,9 +155,7 @@ mkHelmAdapter specs ops =
             && plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource]
         )
         (Left "Helm adapter supports only reviewed create, update and verification")
-      resource <- case NE.toList (plannedResources operation) of
-        [single] -> Right single
-        _ -> Left "Helm operation must name one release"
+      resource <- soleResource operation
       (declaration, contract) <- maybe (Left "Helm release has no bound native contract") Right (Map.lookup resource specs)
       unless
         (declaration ^. #identity == resource && declaration ^. #executor == HelmExecutor)

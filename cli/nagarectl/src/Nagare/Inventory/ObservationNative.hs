@@ -16,7 +16,6 @@ import Data.Aeson (Value (..), eitherDecodeStrict')
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -73,7 +72,7 @@ observationBytesFromMutation context identity version operation bytes
       unless
         ( helmMutationVersion mutation == 1
             && helmMutationOperation mutation == plannedOperationId operation
-            && [helmMutationResource mutation] == NE.toList (plannedResources operation)
+            && namesOnly operation (helmMutationResource mutation)
             && helmMutationAction mutation == plannedAction operation
             && helmMutationInputDigest mutation == plannedInputDigest operation
             && helmMutationContractDigest mutation == contentDigest contract
@@ -101,7 +100,7 @@ observationBytesFromMutation context identity version operation bytes
       reviewedOperation <- text "operation"
       reviewedInput <- text "inputDigest"
       unless
-        ( [resource] == NE.toList (plannedResources operation)
+        ( namesOnly operation resource
             && reviewedOperation == operationIdText (plannedOperationId operation)
             && reviewedInput == digestText (plannedInputDigest operation)
         )
@@ -116,7 +115,7 @@ observationBytesFromMutation context identity version operation bytes
         ( replacement ^. #version == 1
             && replacement ^. #operation == plannedOperationId operation
             && replacement ^. #inputDigest == plannedInputDigest operation
-            && [replacement ^. #member] == NE.toList (plannedResources operation)
+            && namesOnly operation (replacement ^. #member)
         )
         (Left "observation pod replacement differs from reviewed operation")
       pure Nothing
@@ -128,7 +127,7 @@ observationBytesFromMutation context identity version operation bytes
               || (mutationVersion mutation == 3 && mutationAction mutation == UpdateResource && isJust (mutationTakeover mutation))
           )
             && mutationOperation mutation == plannedOperationId operation
-            && namesReviewedResource (mutationResource mutation)
+            && namesReviewedResource mutation
             && mutationAction mutation == plannedAction operation
             && mutationInputDigest mutation == plannedInputDigest operation
         )
@@ -139,11 +138,13 @@ observationBytesFromMutation context identity version operation bytes
           (mutationResource mutation)
           (mutationNativeDigest mutation)
           (mutationNativeJson mutation)
-    -- A declared operation's resources are its Job and the data it affects; its
-    -- envelope names the one Job. Every other mutation has a single resource.
-    namesReviewedResource resource
-      | plannedAction operation == RunDeclaredOperation = resource `elem` plannedResources operation
-      | otherwise = [resource] == NE.toList (plannedResources operation)
+    -- The envelope supplies its own member's address, so it names the resource
+    -- the adapter acts on exactly as 'kubernetesOperationResource' selects it.
+    namesReviewedResource mutation =
+      kubernetesOperationResource
+        (\resource -> if resource == mutationResource mutation then Just (mutationAddress mutation) else Nothing)
+        operation
+        == Right (mutationResource mutation)
 
 -- | Only supplied declarations are read. No listing, review scan, head read,
 -- provider call, or packaged source lookup occurs here, including on a miss.

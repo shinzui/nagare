@@ -70,9 +70,7 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
                 Right
                 (selected operation)
             unless
-              ( NE.toList (plannedResources operation)
-                  == [maintenanceSourceStateful proof]
-              )
+              (namesOnly operation (maintenanceSourceStateful proof))
               (Left "maintenance operation targets another database")
             pure proof
           pinFor proof =

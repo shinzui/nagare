@@ -28,7 +28,6 @@ import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (maybeToList)
@@ -500,9 +499,7 @@ mkAccessAdapter accepted bindings ops =
   where
     wanted binding = case accessResource binding ^. #spec of AccessGrantSpec _ granted -> granted; _ -> False
     selected operation = do
-      resource <- case NE.toList (plannedResources operation) of
-        [single] -> Right single
-        _ -> Left "access operation must select exactly one tuple"
+      resource <- soleResource operation
       unless
         ( plannedExecutor operation == AccessExecutor
             && plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource]

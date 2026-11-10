@@ -12,7 +12,6 @@ where
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -156,9 +155,7 @@ toResourceObservation target state = case state of
 
 makePlan :: Map ResourceId FoundationTarget -> PlannedOperation -> Either PrepareError FoundationNativePlan
 makePlan targets operation = do
-  resource <- case NE.toList (plannedResources operation) of
-    [single] -> Right single
-    _ -> refusal "foundation operation must name exactly one resource"
+  resource <- first (PrepareRefused (plannedOperationId operation)) (soleResource operation)
   target <- maybe (refusal "foundation resource has no execution target") Right (Map.lookup resource targets)
   unless
     (plannedExecutor operation == CloudFoundationExecutor)

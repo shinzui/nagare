@@ -67,7 +67,7 @@ convergedIncarnations locked registry transaction events document = do
         , let planned = reviewPlannedOperation reviewOperation
         , plannedExecutor planned == KubernetesExecutor
         , plannedAction planned `elem` [CreateResource, AdoptResource, UpdateResource] || migrates (plannedAction planned)
-        , [resource] <- [NE.toList (plannedResources planned)]
+        , Right resource <- [soleResource planned]
         , Just physical <- [Map.lookup (plannedOperationId planned) returned]
         ]
 

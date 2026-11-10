@@ -4,7 +4,6 @@ module Nagare.Inventory.HelmReview (helmSpecsFromReview) where
 import Data.Aeson (eitherDecodeStrict')
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -45,9 +44,7 @@ helmSpecsFromReview bundle = do
     agree [] = Left "review has an empty Helm native contract group"
     reconstruct declarationsById reviewOperation = do
       let operation = reviewPlannedOperation reviewOperation
-      resource <- case NE.toList (plannedResources operation) of
-        [single] -> Right single
-        _ -> Left "reviewed Helm operation does not name one release"
+      resource <- soleResource operation
       declaration <-
         maybe
           (Left "reviewed Helm release is absent from desired scopes")

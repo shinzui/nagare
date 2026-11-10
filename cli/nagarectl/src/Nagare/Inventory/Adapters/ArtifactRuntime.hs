@@ -14,7 +14,6 @@ where
 import Control.Exception (IOException, try)
 import Data.Aeson
 import Data.ByteString qualified as BS
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -94,9 +93,7 @@ observeResources config resources = do
 
 prepareMutation :: ArtifactRuntimeConfig -> PlannedOperation -> IO (Either Text ArtifactMutationPlan)
 prepareMutation config operation = pure $ do
-  resource <- case NE.toList (plannedResources operation) of
-    [single] -> Right single
-    _ -> Left "artifact operations must name exactly one managed publication"
+  resource <- soleResource operation
   spec <- maybe (Left ("artifact operation names an unknown resource: " <> resourceIdText resource)) Right (Map.lookup resource (runtimeArtifactSpecs config))
   unless
     (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation])

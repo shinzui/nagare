@@ -4,7 +4,6 @@ module Nagare.Inventory.ImagePruneAdapter (withImagePrune) where
 import Data.Aeson
 import Data.Foldable (for_)
 import Data.List (find)
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
@@ -41,7 +40,7 @@ withImagePrune bindings ops base =
     binding operation = do
       value@(ImagePruneBinding resource _ _) <- maybe (Left "image prune binding missing") Right (Map.lookup (plannedInputDigest operation) bindings)
       unless
-        (plannedResources operation == resource NE.:| [] && plannedRecovery operation == OperatorRecovery)
+        (namesOnly operation resource && plannedRecovery operation == OperatorRecovery)
         (Left "image prune operation differs from accepted VM authority")
       pure value
     decode operation native = do

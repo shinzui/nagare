@@ -13,7 +13,6 @@ where
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -133,9 +132,7 @@ mkCacheAdapter specs ops =
 
 planFor :: Map ResourceId ManagedResource -> PlannedOperation -> Either Text CacheMutationPlan
 planFor specs operation = do
-  resource <- case NE.toList (plannedResources operation) of
-    [single] -> Right single
-    _ -> Left "cache operation must affect exactly one logical cache"
+  resource <- soleResource operation
   declaration <- maybe (Left "cache resource is absent from the declaration bundle") Right (Map.lookup resource specs)
   (cluster, name, digest) <- case (declaration ^. #address, declaration ^. #spec) of
     (AtticCache cluster name, LogicalCache digest) -> Right (cluster, name, digest)

@@ -13,7 +13,7 @@ import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (OperationAction (..), PlannedOperation (..), withPreparationGuard)
+import Nagare.Inventory.Adapter (OperationAction (..), PlannedOperation (..), namesOnly, withPreparationGuard)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.KubernetesTransport
@@ -98,6 +98,6 @@ saveReviewedPreviewCleanup selected options output = do
     collectOnly resource operation =
       unless
         ( plannedAction operation == VerifyResource
-            || (plannedAction operation == RetireResource && NE.toList (plannedResources operation) == [resource])
+            || (plannedAction operation == RetireResource && namesOnly operation resource)
         )
         (Left "preview collection cannot mutate beyond its exact selected retained member")

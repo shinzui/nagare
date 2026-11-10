@@ -17,7 +17,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (OperationAction (CreateResource), PlannedOperation (..))
+import Nagare.Inventory.Adapter (OperationAction (CreateResource), PlannedOperation (..), namesOnly)
 import Nagare.Inventory.Journal (JournalEvent (..), OperationId, OperationState (Completed), TransactionId, decodeJournalEvent)
 import Nagare.Inventory.Lineage (RebuildProof)
 import Nagare.Inventory.Plan (ReviewDocument (..), ReviewOperation (..), loadPublishedReview, reviewBundleDocument)
@@ -54,7 +54,7 @@ memberLineage store headValue member = case Map.lookup member (headIncarnations 
                         let planned = reviewPlannedOperation entry
                          in plannedOperationId planned == operation
                               && plannedAction planned == CreateResource
-                              && plannedResources planned == member :| []
+                              && namesOnly planned member
                     )
                     (reviewOperations document)
             Right

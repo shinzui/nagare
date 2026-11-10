@@ -20,7 +20,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (Adapter (..), OperationAction (CreateResource, UpdateResource), PlannedOperation (..))
+import Nagare.Inventory.Adapter (Adapter (..), OperationAction (CreateResource, UpdateResource), OperationResources (SingleResource), PlannedOperation (..), operationResources)
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (runtimePodOps)
@@ -122,8 +122,8 @@ kubernetesExecutionAdapter takeover config cacheKey specs validations = do
 -- controllers, Jobs, StatefulSets, replacements, retirements and every
 -- durable member stay exclusive.
 kubernetesOverlapAddress :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Maybe Text
-kubernetesOverlapAddress specs operation = case plannedResources operation of
-  resource NE.:| []
+kubernetesOverlapAddress specs operation = case operationResources operation of
+  SingleResource resource
     | plannedAction operation `elem` [CreateResource, UpdateResource]
     , Just (declaration, _) <- Map.lookup resource specs
     , declaration ^. #dataPolicy == Stateless

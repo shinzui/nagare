@@ -11,7 +11,6 @@ import Control.Monad (unless)
 import Data.Aeson (toJSON)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -80,9 +79,7 @@ registerLiveRestoreFence
                   Right
                   (selected operation)
               unless
-                ( NE.toList (plannedResources operation)
-                    == [liveRestoreProofStateful proof]
-                )
+                (namesOnly operation (liveRestoreProofStateful proof))
                 (Left "live restore operation targets another database")
               unless
                 ( all

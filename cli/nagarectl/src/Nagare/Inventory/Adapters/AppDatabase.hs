@@ -290,9 +290,7 @@ mkAppDatabaseAdapter accepted members ops =
   where
     memberOf resource' = maybe (Left "app-database member is absent from the reviewed declarations") Right (Map.lookup resource' members)
     planFor operation' = do
-      resource' <- case NE.toList (plannedResources operation') of
-        [single] -> Right single
-        _ -> Left "app-database operation must affect exactly one member"
+      resource' <- soleResource operation'
       member <- memberOf resource'
       actionText <- case plannedAction operation' of
         CreateResource -> Right "create"

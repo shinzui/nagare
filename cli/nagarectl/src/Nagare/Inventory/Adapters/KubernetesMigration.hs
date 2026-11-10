@@ -113,8 +113,8 @@ kubernetesMigrationAdapter config planning base =
           pure (first (PrepareRefused (plannedOperationId planned)) prepared)
       _ -> adapterPrepare base planned
 
-    prepareStage context planned selected = case NE.toList (plannedResources planned) of
-      [resourceId]
+    prepareStage context planned selected = case operationResources planned of
+      SingleResource resourceId
         | plannedExecutor planned == KubernetesExecutor
         , Just (revision, source, _) <- Map.lookup resourceId (context ^. #sources)
         , Just (destination, native) <- Map.lookup resourceId (context ^. #destinations) -> do
@@ -670,7 +670,7 @@ decodeBundle planned prepared = do
     ( bundle ^. #operation == plannedOperationId planned
         && bundle ^. #inputDigest == plannedInputDigest planned
         && plannedAction planned == MigrateResource (bundle ^. #stage)
-        && NE.toList (plannedResources planned) == [bundle ^. #resource]
+        && namesOnly planned (bundle ^. #resource)
     )
     (Left "migration bundle belongs to another reviewed operation")
   pure bundle
