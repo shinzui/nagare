@@ -90,7 +90,7 @@ Journal changes are not assumed necessary. Reuse current events and retained evi
 ## Progress
 
 
-EP-253 and EP-254 are Complete and EP-256 M1 is Complete, leaving IR-42 AC-5 open with named residuals. EP-255 is Cancelled. EP-256 M2 is next; no live qualification or release is claimed.
+EP-253 and EP-254 are Complete and EP-256 M1 is Complete, leaving IR-42 AC-5 open with named residuals. EP-255 is Cancelled. EP-256 M2's live run confirmed worker readiness, web readiness during a database outage, shutdown allowances, tokenless Pods, a first-created named account, and resume without re-running a migration. It is blocked on the defect below, and no release is claimed.
 
 ## Surprises & Discoveries
 
@@ -106,6 +106,8 @@ The EP-256 M1 audit found no supported way to deliver private regular files or i
 EP-253 found that `nix flake check --all-systems` cannot leave out a system, and the landing gate has no ARM64 Linux builder. The tooling-system list became a relative-path flake input that the full gate overrides ([FRIC-7](../friction-log/7-nix-flake-check-all-systems-cannot-leave-out-one-system.md)). The ARM64 consumer check is not wired into the candidate flow, so EP-256 runs it by hand from EP-253's Concrete Steps.
 
 EP-256's first live attempt found that an Application hook declared with `--hook-affects` could not publish its review: `ObservationNative.hs` required a mutation's one resource to equal the whole operation resource list, which for a hook is the Job plus the data it affects. The same defect would have stopped any such deploy. EP-254's hook test used a one-element list, so it now declares an affected resource, and the check accepts the Job the adapter selects. This is a change to review publication, outside the journal, `Inventory/Execute/` and the adapters.
+
+EP-256 M2 found a defect in the Kubernetes adapter (evidence in EP-256 Progress): a reviewed update cannot remove a field the first write set. The first write is `kubectl create --field-manager=nagare-inventory`, recorded as an `Update` managed-fields entry, and later server-side `Apply` writes only drop fields their own `Apply` entry owns. A web or worker updated from tokenless to a named account keeps `automountServiceAccountToken: false` and mounts no token, while the transaction converges with the reviewed digest stamped. The same applies to any field a later review removes (inferred). Fixing it changes the adapters this plan held fixed, so it needs a scope decision before implementation. The failing interpreter test is the EP-256 worktree's `repro-update-retains-dropped-field.diff`.
 
 ## Decision Log
 
