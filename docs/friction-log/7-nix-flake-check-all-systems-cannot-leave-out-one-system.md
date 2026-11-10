@@ -6,7 +6,7 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-10T05:53:14Z"
 frictionId: FRIC-7
-status: logged
+status: "resolved"
 impact: detour
 kind: tooling
 origin: "mori://shinzui/nagare"
@@ -17,6 +17,11 @@ workaround: "Make the tooling-systems list a flake input and have the gate overr
 tags:
   - "nix"
   - "gate"
+resolution: "The gate evaluates and builds only release.json systems, so no flake input or override is needed (545182fe, 22ab49b5)."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-10T18:34:30Z"
+    change: "Status set to resolved."
 ---
 # nix flake check --all-systems cannot leave out one system
 

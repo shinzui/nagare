@@ -2,6 +2,9 @@
 
 ## 2026-11-10
 
+* **Update**: FRIC-7 resolved: Status set to resolved.
+
+
 * **Addition**: FRIC-7 records detour tooling friction with https://nix.dev/manual/nix/stable/command-ref/new-cli/nix3-flake-check: nix flake check --all-systems cannot leave out one system
 
 * **Addition**: FRIC-6 records blocked environment friction with mori://shinzui/nagare: A broken IPv6 path stops every intranet command from the workstation

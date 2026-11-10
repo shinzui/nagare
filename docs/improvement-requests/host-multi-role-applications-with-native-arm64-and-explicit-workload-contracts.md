@@ -2,7 +2,7 @@
 type: Improvement Request
 title: Host multi-role applications with a native ARM64 SDK and explicit workload contracts
 description: Provide a qualified ARM64 Linux configuration SDK and reviewed readiness, independent web probes, shutdown and token controls so Kotei can run as an ordinary Nagare application without patching inventory-owned workloads.
-timestamp: "2026-11-10T05:12:50Z"
+timestamp: "2026-11-10T18:40:00Z"
 generated:
   by: process:codex
   at: "2026-11-09T15:52:00Z"
@@ -163,3 +163,18 @@ Residual requests, each separate from EP-256 and MasterPlan 34:
 - **AC5-R1 (private files):** Deliver private regular files to one named Application role from that role's credentials, through an upstream facility or a documented and tested consumer-owned materializer. Proof is a live Pod in which Kotei's runner accepts its kubeconfig as a regular, non-symlink file byte-equal to the selected credential, with no credential bytes in the public review or journal.
 - **AC5-R2 (retained content):** Give one Application's writer and reader roles identical retained bytes through one reviewed owner, using an upstream facility or a documented and tested consumer-owned contract that states backup and restore ownership. Per-workload PVCs, duplicate PVC names and untracked patches do not satisfy it.
 - **AC5-R3 (role scoping):** Give each Application role a supported Secret identity, and make delivery of a credential to any other role a review-time refusal, covering Application-level references, managed-channel `envFrom` and image-inheriting hooks.
+
+## Acceptance map (v0.18.0, 2026-11-10)
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| AC-1 | Met | `packages.aarch64-linux.nagarectl` and `nagare-config-sdk` build natively; the isolated consumer check passed offline at `536573ea` (EP-253). |
+| AC-2 | Met | Worker readiness held the Deployment unready until the marker existed and withdrew it on removal, with no restart (EP-256 M2). |
+| AC-3 | Met | Independent web probes: readiness withdrew during a database outage while liveness answered 200; Knative admitted all three. |
+| AC-4 | Met | 60-second worker drain observed (40.9 s); web Pods have a 300-second allowance; Pods are tokenless unless they name an account, which then mounts only that account's token. |
+| AC-5 | Open | Residuals AC5-R1 (private files), AC5-R2 (retained content), AC5-R3 (role scoping) in the delivery audit above. |
+| AC-6 | Met | Controls survived load, saved review, native render, an interrupted apply and resume without re-running the migration, with no hand patch. |
+| AC-7 | Met | v0.18.0 at https://github.com/shinzui/nagare/releases/tag/v0.18.0; `docs/releases/v0.18.0.md` names the SDK path, the new types and the `Config.hs` changes. |
+
+The request is not complete while AC-5 is open.
+

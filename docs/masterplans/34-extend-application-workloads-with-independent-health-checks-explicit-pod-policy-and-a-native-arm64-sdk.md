@@ -26,6 +26,11 @@ provenance:
       at: 2026-11-10T06:12:20Z
       mode: "implement"
       note: "EP-254 and EP-256 M1 complete; recorded Knative findings and audit defects."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-10T18:34:31Z
+      mode: "implement"
+      note: "Release v0.18.0 published and running on the intranet; plan closed."
   reviews:
     - model: "claude-fable-5-2"
       harness: "claude-code"
@@ -65,7 +70,7 @@ The governing decisions are [ADR 22](../adr/0022-compose-independent-resource-sc
 | EP-253 | Native ARM64 Linux SDK and CLI | [253](../plans/253-package-a-native-arm64-linux-configuration-sdk-and-cli.md) | None | None | Complete |
 | EP-254 | Workload controls: independent health checks, worker shutdown and token policy | [254](../plans/254-add-independent-application-worker-and-web-health-checks.md) | None | EP-256 M1 findings | Complete |
 | EP-255 | Shutdown and service-account token policy | [255](../plans/255-declare-application-workload-shutdown-and-service-account-token-policy.md) | — | — | Cancelled: merged into EP-254 |
-| EP-256 | Delivery audit, native confirmation and release | [256](../plans/256-qualify-application-workload-controls-through-the-inventory-journal-and-recovery.md) | M1: none; M2: EP-253 and EP-254 Complete | None | In Progress (M1 Complete) |
+| EP-256 | Delivery audit, native confirmation and release | [256](../plans/256-qualify-application-workload-controls-through-the-inventory-journal-and-recovery.md) | M1: none; M2: EP-253 and EP-254 Complete | None | Complete |
 
 ## Dependency Graph
 
@@ -90,7 +95,7 @@ Journal changes are not assumed necessary. Reuse current events and retained evi
 ## Progress
 
 
-EP-253 and EP-254 are Complete and EP-256 M1 is Complete, leaving IR-42 AC-5 open with named residuals. EP-255 is Cancelled. EP-256 M2's live run confirmed worker readiness, web readiness during a database outage, shutdown allowances, tokenless Pods, a first-created named account, and resume without re-running a migration. It is blocked on the defect below, and no release is claimed.
+All children are Complete; EP-255 is Cancelled. v0.18.0 is published and the intranet runs it. IR-42 AC-5 stays open with residuals AC5-R1 to AC5-R3.
 
 ## Surprises & Discoveries
 
@@ -125,4 +130,4 @@ EP-256 M2 found a defect in the Kubernetes adapter (evidence in EP-256 Progress)
 ## Outcomes & Retrospective
 
 
-Implementation pending. Completion requires EP-253, EP-254 and EP-256 and the published release in use on the intranet. Report any remaining IR-42 AC-5 gap separately; do not mark the whole request implemented while it remains unresolved.
+Applications now declare independent web and worker health checks, a worker shutdown allowance and their Kubernetes API access, Pods are tokenless by default, and the configuration SDK builds natively on ARM64 Linux, all released in v0.18.0 and running on the intranet. Live confirmation found three defects the interpreter tests missed, two in how hook operations are read and one in field ownership on update, all fixed with tests; the follow-up that removes their cause (one typed reading of an operation's resources, and tests applying reviews through the CLI's own binding) is on a branch to land after the release. The release itself was slowed by a gate script that went wrong twice, lost local rehearsal images, a temp-path bug in the image fetch, and a candidate that cannot finish once the intranet already runs it; the rehearsal moves to the amd64 profile with the release images. AC-5 remains open. [ADR 36](../adr/0036-application-pods-hold-no-kubernetes-api-token-unless-they-name-an-account.md) records the durable decisions; FRIC-7 is resolved by the gate's per-system check.

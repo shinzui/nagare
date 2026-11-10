@@ -32,6 +32,11 @@ provenance:
       at: 2026-11-10T07:08:52Z
       mode: "implement"
       note: "Added the M2 fixture (smoke green); the live run stopped before any cluster mutation because gate verify refused the red b1fccafa record."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-10T18:34:31Z
+      mode: "implement"
+      note: "Release v0.18.0 published and running on the intranet; plan closed."
 ---
 
 # Qualify Application workload controls through the inventory journal and recovery
@@ -48,7 +53,7 @@ Confirm once, on a live cluster and from a native ARM64 Linux consumer, that the
 
 
 - [x] M1 (2026-11-09): The delivery audit is recorded in [IR-42](../improvement-requests/host-multi-role-applications-with-native-arm64-and-explicit-workload-contracts.md). AC-5 stays open with residuals AC5-R1 (private files), AC5-R2 (retained content) and AC5-R3 (role scoping).
-- [ ] M2: One native run confirms the controls on live Pods through a saved review, apply and resume; the release is published with upgrade instructions and an IR-42 acceptance map.
+- [x] M2 (2026-11-10): One native run confirms the controls on live Pods through a saved review, apply and resume (live half below). v0.18.0 is published at candidate `a42f8c72c2c98e25e924236730860ac6a2b3fa45` (https://github.com/shinzui/nagare/releases/tag/v0.18.0) with upgrade instructions in `docs/releases/v0.18.0.md`. The intranet runs it with exact status and the protected URL answering 302 to login (run `20261110T160411Z`, tan-ng-labs `396873f` and the tag pin `c52c86c`). The IR-42 acceptance map is in IR-42.
   - [x] M2 live half (2026-11-10), run from the Mac with the CLI packaged from `22ab49b578a48a10c9b1de28d34f4eed2a72780b` on the disposable `transition` context; every value is observed unless marked. Checks 1, 2, 3 and 5 pass at that revision. Check 4's named-account half failed on an update there (see Surprises) and passes after the managed-field handover at `377fc06c15eaea985af546a4cc6f28c3fedb1fe9` (last sub-item).
     - Image: tags `v1`, `v2` and `sa1` at registry digest `sha256:4bf182ab62a64dd56614ff35add2819c5684289a39357a5a6a258947fcd8baf3`, published by `tx-7c44e1f0a0e43e0f9868e9a21cb95b8cdc2b4b6be4989d29431a5cd4ce30344b`, `tx-e0c43dbe21ae243f4e5b9f28c4d96686a1c6328951f7b00b51f565c89c64bd4b` and `tx-1e340a502b9a0d5c21ca6eb9eef6f0be87b3063909265c51f1b86b7f0dc69c1c`.
     - Transactions: `v1` create `tx-5edff994a94d857f1d665d9331cd5fa2e084a20d0e1a154fbcd1e1dd90153310` (10 operations); `v2` update `tx-f1ef39d46d7e661848d79bb1d067c89a1d7af7314cc01ca2efa04ef9b267999b` (interrupted and resumed); first-created named instance `tx-c247318c0851072949c65b715a53bf3aa87ba7b9e8caa750cbe24717b378ed9e`. Operations, input digests and completion digests are in the run's `operations.txt`, listed by operation ID in the report.
@@ -86,7 +91,7 @@ Confirm once, on a live cluster and from a native ARM64 Linux consumer, that the
 ## Outcomes & Retrospective
 
 
-Implementation has not started. Before completion, retain acceptance evidence and distill durable compatibility decisions into the relevant ADR.
+The controls are confirmed on live Pods and released in v0.18.0, and the intranet runs it. The live runs found three defects the interpreter tests had missed: a hook declaring what it affects could neither publish nor apply its review, and a reviewed update could not remove a field the create had set. All three are fixed, each with an interpreter test. AC-5 remains open with residuals AC5-R1 to AC5-R3. Not proven: deploying from an ARM64 consumer (only `app check` and compilation run there), and moving a named account back to tokenless. The deep tier did not complete on the field handover; the operator stopped it as outside the release.
 
 ## Context and Orientation
 
