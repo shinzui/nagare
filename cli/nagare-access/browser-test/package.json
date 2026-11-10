@@ -1,0 +1,8 @@
+{
+  "name": "nagare-access-browser-test",
+  "private": true,
+  "description": "The enforcer's session rotation in Chromium, Firefox and WebKit (EP-239).",
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

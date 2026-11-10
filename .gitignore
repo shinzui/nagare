@@ -46,3 +46,9 @@ keys.txt
 
 .mina/
 .codex/
+
+# The enforcer's browser suite (EP-239).
+cli/nagare-access/browser-test/node_modules/
+cli/nagare-access/browser-test/test-results/
+cli/nagare-access/browser-test/playwright-report/
+cli/nagare-access/browser-test/.certs/

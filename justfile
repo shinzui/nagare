@@ -283,6 +283,19 @@ test-inventory-effects:
     python3 scripts/knative-collection-fixture.py --check
     cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p effectful' --test-show-details=direct
 
+# The enforcer's session rotation in real browsers, against a real Shomei (EP-239).
+# Run the enforcer's browser tests in Chromium, Firefox and WebKit.
+[group('test')]
+access-browser-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd cli/nagare-access
+    cabal build test:nagare-access-browser-harness
+    cd browser-test
+    npm ci --no-audit --no-fund
+    npx playwright install chromium firefox webkit
+    npx playwright test
+
 # EP-119: enforce the production Haskell source contract and pinned formatting.
 # Check Haskell structure, Fourmolu formatting, and Cabal manifest formatting.
 [group('test')]

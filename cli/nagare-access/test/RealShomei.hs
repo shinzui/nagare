@@ -1,7 +1,7 @@
 -- | A real Shomei server over a migrated test database, for the cases that
 -- must see Shomei's own answers: its token signatures, its rotation and its
 -- reuse detection.
-module RealShomei (withRealShomeiServer) where
+module RealShomei (withRealShomeiServer, withRealShomeiServerAndPool) where
 
 import Control.Exception (bracket)
 import Data.ByteString qualified as BS
@@ -27,7 +27,11 @@ import Shomei.SigningKey.Domain (SigningAlgorithm (ES256))
 import Shomei.SigningKey.Protection.Jwt (KeyEncryptionKey, keyEncryptionKeyFromBase64)
 
 withRealShomeiServer :: (Int -> IO a) -> IO a
-withRealShomeiServer action =
+withRealShomeiServer action = withRealShomeiServerAndPool (const action)
+
+-- | The same server, with the pool for tests that read Shomei's own tables.
+withRealShomeiServerAndPool :: (HasqlPool.Pool -> Int -> IO a) -> IO a
+withRealShomeiServerAndPool action =
   withShomeiMigratedDatabase $ \connStr ->
     bracket (acquirePool 4 10 defaultDbStatementTimeoutMs connStr) HasqlPool.release $ \pool -> do
       keys <- newIORef =<< bootstrapKeys testKek ES256 pool
@@ -48,7 +52,7 @@ withRealShomeiServer action =
               , ShomeiServer.envArgon2Params = testArgon2Params
               , ShomeiServer.envHashingLimiter = limiter
               }
-      testWithApplication (pure (ShomeiBoot.application env (pure Healthy) (pure Healthy))) action
+      testWithApplication (pure (ShomeiBoot.application env (pure Healthy) (pure Healthy))) (action pool)
 
 testKek :: KeyEncryptionKey
 testKek = either (error . show) id (keyEncryptionKeyFromBase64 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")

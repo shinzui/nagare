@@ -146,3 +146,40 @@ test-suite nagare-access-test
     wai,
     wai-extra,
     warp,
+
+-- The server behind `just access-browser-test` (EP-239). A test-suite so it
+-- stays out of the release image's build; run without its environment variable
+-- it exits at once rather than serving forever.
+test-suite nagare-access-browser-harness
+  import: common
+  type: exitcode-stdio-1.0
+  main-is: BrowserHarness.hs
+  hs-source-dirs: test
+  other-modules:
+    RealShomei
+
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    generic-lens ^>=2.3,
+    hasql,
+    hasql-pool,
+    http-client,
+    http-types,
+    lens ^>=5.3,
+    nagare-access,
+    servant-health,
+    shomei-client,
+    shomei-core,
+    shomei-jwt,
+    shomei-migrations:test-support,
+    shomei-postgres,
+    shomei-servant,
+    shomei-server,
+    stm,
+    text,
+    uuid,
+    wai,
+    warp,

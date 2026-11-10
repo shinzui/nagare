@@ -29,7 +29,7 @@ authority.
 | `DomainsCommand` | 3 | none |
 | `CdnCommand` | 4 | none |
 | `TunnelCommand` | 4 | none |
-| `justfile` | 54 |  |
+| `justfile` | 55 |  |
 | `Inventory.Command` production calls | 39 | none |
 <!-- managed-command-registry:end -->
 
