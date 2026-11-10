@@ -53,7 +53,7 @@ Each item passes only with a recorded observation.
 - [x] P4: Knative's domain template gives one-label default names served by the free certificate. Observed: with
   `domain-template: {{.Name}}-{{.Namespace}}.{{.Domain}}`, `ksvc.status.url` was `http://probe-personal.topagentnetworklabs.com` and it answered 200
   over HTTPS. A two-label name fails the TLS handshake (`a.b.<base>`, alert handshake failure), so flattening is required on the free certificate.
-- [ ] P5: Not observed, by decision (see Decision Log). Advanced Certificate Manager was not bought.
+- [-] P5: Not observed, by decision (see Decision Log). Advanced Certificate Manager was not bought. {disposition=declined}
 - [x] P6: Observed on one fresh cache key per case, signed in twice and then anonymous, on both `.pdf` and `.js`:
   neither control, signed-in `MISS` then `HIT`, anonymous `200 HIT` with the file's bytes (the leak);
   header only (`Cache-Control: private, no-store`), `BYPASS`, anonymous `302` to `/_nagare/login`;

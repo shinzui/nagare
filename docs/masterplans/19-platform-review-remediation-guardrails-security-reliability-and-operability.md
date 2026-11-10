@@ -139,7 +139,7 @@ release's checksum-breaking migration correction. It remains grouped into Phase 
 | 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Complete |
 | 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Complete |
 | 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | Complete |
-| 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | In Progress |
+| 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | Complete |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Complete |
 | 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | Complete |
@@ -224,10 +224,11 @@ complete; the child plans hold the granular checklists.
   caps, and passed independent 21-sample ten-minute Ready/zero-restart gates.
   Metrics returned 14 live `up` series and a final two-minute logs query returned
   127 records; node reservations stayed at 2360m CPU/3674Mi memory.
-- [ ] EP-4 longer-term sizing: retain seven full days of representative memory,
+- [-] EP-4 longer-term sizing: retain seven full days of representative memory,
   CPU, cache-miss, and I/O evidence before adjusting requests or limits. The
   observation window began on 2026-09-16, so it cannot close before
-  2026-09-23/24 UTC.
+  2026-09-23/24 UTC. Closed 2026-11-10 (operator): the review was never run, and long-term sizing
+  now belongs to IR-40. {disposition=superseded-by, by=docs/improvement-requests/size-observability-per-context-and-cut-metric-churn.md}
 - [x] EP-4 M3 local acceptance (2026-09-16): both installer runs recreated and
   completed both Jobs; En verifies 2 applied migrations and Shomei 36, with zero
   pending/unknown. The rerun logs report `already_applied`. Immutable-tag renders

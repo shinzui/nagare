@@ -78,12 +78,14 @@ This section must always reflect the actual current state of the work.
       shows **13 resources to create** with the flag `true` (the full `nagare:cdn:NagareCdn`
       component + the firewall) and, with the flag `false`, **only** the ungated
       `nagare-network-fw-lb-health` firewall. Transcript captured in Surprises & Discoveries.
-- [ ] Milestone 2 (DEFERRED — billable + VM-off, operator-gated) — `pulumi up` creates a billable
-      global external Application Load Balancer; the default flag is off and the operator has not
-      opted in, so apply is left to the operator. The `gcloud` resource verification and the
-      `stack output` reads run after that apply.
-- [ ] Milestone 2 (DEFERRED, VM-off) — once `nagare-01` is powered on, run the
+- [-] Milestone 2 — `pulumi up` creates a billable global external Application Load Balancer.
+      Closed by audit, 2026-11-10: the reviewed Google CDN cloud members created it on fresh cloud
+      contexts, and `scenario-cdn`'s record pointed at its address
+      ([v0.5.0 evidence](../release-evidence/41df1ba4825fdf912eaed66279d0e3f3c590339b/cloud/checks/google-cdn/result.json)).
+      {disposition=delivered-elsewhere, by=docs/plans/158-complete-reviewed-access-and-cdn-operations.md}
+- [-] Milestone 2 (never run) — once `nagare-01` is powered on, run the
       `curl`-through-the-load-balancer acceptance and record the result.
+      Declined 2026-11-10; see MasterPlan 11's Decision Log. {disposition=declined}
 
 ## Surprises & Discoveries
 

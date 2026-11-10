@@ -48,10 +48,10 @@ not to the safety obligations or the amount of evidence retained.
 ## Progress
 
 
-- [ ] M1: A single-writer batch append protocol commits only validated contiguous journal prefixes
+- [-] M1: A single-writer batch append protocol commits only validated contiguous journal prefixes
   and survives partial uploads, lost replies, orphan suffixes and competing claims.
   Cancelled, 2026-10-29: see the Decision Log. No verification of an unchanged member is
-  journaled any more, so there is no per-resource head advance left to batch.
+  journaled any more, so there is no per-resource head advance left to batch. {disposition=declined}
 - [x] M2: Read-only verification uses fresh grouped evidence and batched proof publication, with
   per-resource outcomes, bounded memory and no adapter execute calls.
   Pass also: after an unchanged-release transition, the next reviewed command on another

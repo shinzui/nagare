@@ -102,8 +102,14 @@ This plan **owns** two MasterPlan Integration Points:
       `nagare.dev/retention` annotation (Retain ⇒ keep PVC + warn; Delete ⇒ remove it), behind a
       `--yes` guard; deletes StatefulSet → Service → Secret → ConfigMap (→ PVC if Delete) explicitly
       with `--ignore-not-found`. All 186 `nagarectl-test` + 214 `nagare-dsl-test` pass.
-- [ ] Live verification on `nagare-01` (deferred-with-instructions; the live create/list/get/shell/
-      restart/delete transcripts belong to EP-48, which deploys real databases on the cluster).
+- [x] Live verification (audited 2026-11-10). `db create`, `list` and `get` ran on `nagare-01` on
+      2026-06-10 for all three engines (EP-45 entry in
+      [MasterPlan 9's Progress](../masterplans/9-managed-databases-for-nagare.md)). `db restart` ran
+      in the [EP-199 drill](../audits/ep199-clickhouse-26.8/README.md). `db delete` now saves a
+      reviewed retirement, and a retired database was collected in the
+      [v0.5.0 cloud evidence](../release-evidence/41df1ba4825fdf912eaed66279d0e3f3c590339b/cloud/checks/retained-data/collection.json).
+      `db shell` has no live run: new interactive sessions are deferred, as
+      `docs/user/managed-databases.md` states.
 
 ## Surprises & Discoveries
 

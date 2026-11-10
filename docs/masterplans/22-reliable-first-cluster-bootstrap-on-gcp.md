@@ -136,7 +136,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Complete |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Complete |
 | EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Complete |
-| EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | In Progress |
+| EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -153,8 +153,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
   sops activation, and Tailscale recovery in one unchanged boot.
 - [x] (2026-09-14T17:49:14Z) EP-5: confine public wildcards to app namespaces, preserve self-signed
   internal roles, and ship the latest archived controller with a payload-owned source patch.
-- [ ] EP-6: boot-disk guidance, IR-11, hermetic rehearsal, and repository gates pass; the explicitly
-  authorized disposable-project rehearsal remains outstanding.
+- [x] EP-6: boot-disk guidance, IR-11, hermetic rehearsal, and repository gates pass. The explicitly
+  authorized disposable-project rehearsal was never run; it is superseded by EP-244 D6 (operator, 2026-11-10).
 - [x] (2026-09-14T18:55:31Z) External: ExecPlans 132 and 133 are complete and reconciled for EP-6.
 
 ## Surprises & Discoveries

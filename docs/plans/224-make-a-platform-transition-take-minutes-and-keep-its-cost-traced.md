@@ -109,6 +109,8 @@ New tooling is Haskell in the existing cabal workspace. The previously proposed
   after 56.6 s artifact preparation, 37.6 s, 22.2 s) but activation is 325.5 s of 300: stage 1's
   first host preflight (GCE describe and SSH reads over IAP, unchanged code) took 86.1 s against
   10.1 s in v0.12.0, and the host transport keeps no stderr to say why.
+  Gate changed, 2026-11-10 (Decision Log): one traced sample from the next intranet upgrade within
+  budget replaces the five intranet samples. Still open: that sample.
 
 2026-10-29 handoff: the original plan was authored by `claude-opus-5-5` and had no recorded reviews.
 This architecture review corrects source claims and distributes its former M2–M5 across four new
@@ -168,6 +170,9 @@ record at the glob the old plan specified.
   "artifact-ready" target says, and activation's 300 s includes it. Executors and Helm releases
   observe concurrently, and a command opens each remote store once. One intranet sample per
   release counts toward the five.
+- 2026-11-10 (operator): M3 needs one traced sample from the next intranet upgrade, not five. The
+  budgets are unchanged: 60 s per plan excluding artifact preparation, 300 s activation. Releases
+  no longer re-run a per-release evidence chain, so five samples would never accumulate.
 
 
 ## Outcomes & Retrospective
@@ -341,8 +346,8 @@ this planning task does not run one. Do not search or read `/nix/store` to inspe
 M1 passes when counts come from the production path, interpreter timing catches missing/overlapping
 spans, exceptions leave an honest record, and private bytes never appear. M2 passes when real
 command records round-trip, history rejects incompatible profiles, structural growth budgets
-fail deliberately regressed fixtures, and missing evidence cannot yield green. M3 requires all
-five warm samples for each native workload, a cold report, bounded failure recovery, the final
+fail deliberately regressed fixtures, and missing evidence cannot yield green. M3 requires five
+warm local samples, one traced sample from the next intranet upgrade, a cold report, bounded failure recovery, the final
 candidate's release gates and Python-free execution. Preserve source output used to establish
 each assertion and document any environment-specific limitation without weakening the gate.
 

@@ -312,6 +312,13 @@ Implementation waves:
   `docs/masterplans/3-static-hosting-for-nagare.md` (Decision Log, 2026-06-10).
   Date: 2026-06-10
 
+- Decision (operator, 2026-11-10): Close this plan by declining its remaining live legs: EP-54 M1–M3,
+  EP-56's request through the load balancer, and EP-58's live legs.
+  Rationale: the Google CDN's reviewed DNS lifecycle is proven natively (EP-158), and Cloudflare went
+  live through the tunnel work (MasterPlan 32). What stays unproven: no request through the Google
+  load balancer or cache HIT was recorded, and the proxied Cloudflare CDN path was tested only offline.
+  Date: 2026-11-10
+
 ## Outcomes & Retrospective
 
 **All six child plans Complete (2026-06-10).** First-class CDN support is delivered end to end,

@@ -79,9 +79,11 @@ This section must always reflect the actual current state of the work.
   `nix-gcp-builder` ProxyCommand still timed out during SSH banner exchange, so validation used a
   direct local-port IAP tunnel and pinned the scanned ED25519 host key in the temporary Nix builder
   URI. Both builds completed and the tunnel was stopped afterward.
-- [ ] Record live registration, read, denial, rotation, failure-preservation, journal, and reboot
+- [-] Record live registration, read, denial, rotation, failure-preservation, journal, and reboot
   evidence in the first operator context that opts in; this evidence is context-owned rather than a
   prerequisite that forces every Nagare maintainer or user to provision GitHub state.
+  Closed 2026-11-10 (operator): no context has opted in, and that context's operator owns this
+  evidence when one does. {disposition=out-of-scope}
 
 ## Surprises & Discoveries
 

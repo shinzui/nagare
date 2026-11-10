@@ -63,7 +63,7 @@ Nagare.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Rotating GitHub App installation-token credentials for runtime pods | `docs/plans/94-rotating-github-app-installation-token-credentials-for-runtime-pods.md` | None | None | In Progress |
+| EP-1 | Rotating GitHub App installation-token credentials for runtime pods | `docs/plans/94-rotating-github-app-installation-token-credentials-for-runtime-pods.md` | None | None | Complete |
 | EP-2 | A one-shot job workload kind in nagare-dsl | `docs/plans/95-a-one-shot-job-workload-kind-in-nagare-dsl.md` | None | EP-3 for the live cache mount test | Complete |
 | EP-3 | An in-cluster Nix binary cache (Attic) as a cluster bootstrap component | `docs/plans/96-an-in-cluster-nix-binary-cache-attic-as-a-cluster-bootstrap-component.md` | None | EP-2 for the rendered Job integration test | Not Started |
 | EP-4 | Push signed Nix closures to the context cache with one nagarectl command | `docs/plans/230-push-signed-nix-closures-to-the-context-cache-with-one-nagarectl-command.md` | EP-3 provisioning and bootstrap | None | Not Started |
@@ -76,9 +76,9 @@ Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-1: configure least-privilege read and write GitHub Apps through sops-nix.
+- [-] EP-1: configure least-privilege read and write GitHub Apps through sops-nix. Closed 2026-11-10 (operator): no context has opted in, and that context's operator owns it. {disposition=out-of-scope}
 - [x] EP-1: mint installation tokens on a host timer and atomically publish role-named Secrets. (2026-10-17: `d5d5e612`, opt-in `5fe28650`; fixture-tested, the live run is the next line.)
-- [ ] EP-1: prove rotation, read access, and denial of unauthorized write access.
+- [-] EP-1: prove rotation, read access, and denial of unauthorized write access. Closed 2026-11-10 (operator): no context has opted in, and that context's operator owns it. {disposition=out-of-scope}
 - [x] EP-2: add, serialize, load, and deterministically render the first-class `Job` type.
 - [x] EP-2: add hardening, terminating-Pod quota, and default-deny network policy resources.
 - [x] EP-2: prove golden output, validation failures, quota backpressure, and steady-state network isolation.

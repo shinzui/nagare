@@ -108,16 +108,17 @@ This section must always reflect the actual current state of the work.
 - [x] M0 live origin reachability: the labs stack output reports public IP `8.235.22.170`, and
   `curl -H 'Host: hello.personal.labs.topagentnetwork.net' http://8.235.22.170/` returned
   `HTTP/1.1 200 OK` with body `Hello Nagare!` through Kourier. (2026-09-15)
-- [ ] M1 (deferred — needs VM up): stand up the throwaway Google Cloud CDN load balancer
+- [-] M1 (never run): stand up the throwaway Google Cloud CDN load balancer
   (instance group, health check, CDN backend service, URL map, target proxy, forwarding
   rule, global IP, managed cert); capture the routed-response and cache-HIT `curl`
-  transcripts; tear down.
-- [ ] M2 (deferred — needs VM up + a real domain + a CF API token): add a proxied
+  transcripts; tear down. Declined 2026-11-10; see MasterPlan 11's Decision Log. {disposition=declined}
+- [-] M2 (never run): add a proxied
   (orange-cloud) Cloudflare DNS record and a cache rule via the API; capture the
   `CF-Cache-Status: HIT` transcript; determine the working origin-TLS mode; tear down.
-- [ ] M3 (partially done — proposals recorded, confirmation deferred): finalize the
+  Declined 2026-11-10; see MasterPlan 11's Decision Log. {disposition=declined}
+- [-] M3 (proposals recorded, never confirmed live): finalize the
   Substrate Decisions subsection from the M1/M2 evidence; confirm or amend the typed `Cdn`
-  contract back to EP-55.
+  contract back to EP-55. Declined 2026-11-10; see MasterPlan 11's Decision Log. {disposition=declined}
 - [x] Commit the plan and the `cluster/examples/cdn-spike/` artifacts with the mandated
   trailers (committed directly to the current branch; spike touches no Haskell/TypeScript
   production code).

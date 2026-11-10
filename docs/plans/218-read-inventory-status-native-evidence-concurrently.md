@@ -69,6 +69,13 @@ legacy review reader) from an invalid one (refuse).
 including its EP-213 prerequisite and EP-221 consumer. No acceptance or implementation changed.
 
 
+## Outcomes & Retrospective
+
+`inventory status` now reads its native evidence in bounded concurrent waves, which cut the
+intranet's cold read from 45.8 s to 11.75 s (M2). Nothing remains in this plan, and nothing moves
+to an ADR.
+
+
 ## Context and Orientation
 
 `cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs` `loadObservationNativeChecked` now

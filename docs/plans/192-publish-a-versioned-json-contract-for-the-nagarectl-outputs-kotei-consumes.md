@@ -294,6 +294,13 @@ only: preparation still reports a directory without a manifest as a mismatch.
 plan is complete. The Kotei relay waits for a `kotei` session to exist, and the message is
 recorded in M5.
 
+## Outcomes & Retrospective
+
+The `nagare-contract` package and the generated `docs/api/openapi.json` publish one versioned
+document contract, and the apply, resume, image-plan, deploy, status and publication commands emit
+it under `--contract 1` (landed through `0305ef3d`). The only item left when the plan closed was
+the relay to Kotei recorded in M5, which sits outside this repository. Nothing moves to an ADR.
+
 ## Context and Orientation
 
 All paths are relative to the repository root unless they start with `src/`, `app/` or `test/`,

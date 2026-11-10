@@ -217,9 +217,11 @@ opt-in.
   `f0b89311-ea63-446b-9c46-25b733271955`, and passed 21 Ready/zero-restart samples
   over 622 seconds with 9–15Mi observed memory. Metrics remained clean throughout;
   a final two-minute LogsQL aggregate returned 127 newly ingested records.
-- [ ] Retain seven full days of representative sizing data before adjusting
+- [-] Retain seven full days of representative sizing data before adjusting
   requests or declaring long-term sizing complete. History began at 19:00/19:25
   UTC on 2026-09-16, so this gate cannot pass before 2026-09-23/24 UTC.
+  Closed 2026-11-10 (operator): the seven-day review was never run, and long-term sizing now
+  belongs to IR-40. {disposition=superseded-by, by=docs/improvement-requests/size-observability-per-context-and-cut-metric-churn.md}
 - [x] Publish private Grafana ciphertext (2026-09-16): operator explicitly approved
   commit `85826b1`; rechecked the clean private repository, exact two-file change
   and unchanged remote, pushed without force, and verified remote master equals

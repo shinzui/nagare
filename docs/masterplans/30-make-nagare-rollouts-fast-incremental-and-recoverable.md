@@ -250,7 +250,7 @@ readiness, a recoverable pin protocol, impact summaries and a no-progress stop; 
 release (five warm local samples, the candidate run on the intranet).
 Final
 acceptance includes unchanged and changed rollouts, recovery, growth limits, Python-free release
-tooling and five warm intranet measurements.
+tooling and one traced measurement from the next intranet upgrade (operator, 2026-11-10; was five).
 
 
 ## Surprises & Discoveries
@@ -317,6 +317,8 @@ evidence; this review did not execute the transition or establish a new latency 
 - 2026-10-29: The versioned trace codec lives in `nagare-contract`, not the nagarectl library, so
   the harness's standalone build stays fast; the trace carries operation counts by action and
   executor so the cost collector never decodes review JSON.
+- 2026-11-10 (operator): EP-224 M3 needs one traced sample from the next intranet upgrade, not
+  five, with the budgets unchanged. Releases no longer re-run a per-release evidence chain.
 
 
 ## Outcomes & Retrospective

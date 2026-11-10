@@ -70,7 +70,7 @@ This section must always reflect the actual current state of the work.
 - [x] Milestone 2 — Create `cli/nagarectl/src/Nagare/Cdn/Status.hs` (the `CdnRow`/`CdnDnsTarget` types, `formatCdnList`/`formatCdnStatus`, and `queryCdnRows` which degrades gracefully to `[]`); registered in `nagarectl.cabal`.
 - [x] Milestone 2 — Add the `cdn` command group to `app/Main.hs`: the `CdnCmd CdnCommand` constructor, the four opts records/parsers, the `command "cdn" cdnCmd` entry, and handlers `runCdn`/`runCdnList`/`runCdnStatus`/`runCdnPurge`/`runCdnDisable`.
 - [x] Milestone 2 — Unit tests for the `cdn` formatters; `cabal test` green (246 total, +9 EP-58); `nagarectl cdn --help` shows exactly `list`/`status`/`purge`/`disable`.
-- [ ] Live legs (real Cloudflare token, real Google LB, real DNS) — DEFERRED/environment-gated (VM off, no token in CI); the exact manual validation steps are in Validation & Acceptance. The end-to-end `site deploy --dry-run` transcript against a loadable CDN example is captured in EP-59 (its example dirs are real loadable projects); the dry-run *text* is already proven exact by the `renderCdnPlan` goldens.
+- [-] Live legs (real Cloudflare token, real Google LB, real DNS); the exact manual validation steps are in Validation & Acceptance. The end-to-end `site deploy --dry-run` transcript against a loadable CDN example is captured in EP-59 (its example dirs are real loadable projects); the dry-run *text* is already proven exact by the `renderCdnPlan` goldens. Declined 2026-11-10; see MasterPlan 11's Decision Log. {disposition=declined}
 
 ## Surprises & Discoveries
 

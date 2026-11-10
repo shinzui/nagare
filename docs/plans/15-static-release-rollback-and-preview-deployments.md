@@ -35,7 +35,7 @@ rollback <release-id>` points the production Knative Service back to an earlier 
 - [x] Add `nagarectl site releases` and `nagarectl site rollback`. (2026-06-09: `runSiteReleases` prints a table; `runSiteRollback` re-applies the prior image tag and marks it current.)
 - [x] Add preview naming, preview deploy, preview list, and preview delete commands. (2026-06-09: `Nagare.Static.Preview` + `site preview deploy|list|delete`.)
 - [x] Add tests for release metadata parsing, preview name validation, and rollback manifest generation. (2026-06-09: 14 new `nagarectl-test` cases — JSON round-trip, dedupe, history cap, ConfigMap extract, preview normalization/naming.)
-- [ ] Validate the release and preview flow against the static example. (2026-06-09: dry-run paths validated locally; the kubectl-backed `releases`/`rollback`/`preview list|delete` flow needs a live cluster — documented as manual validation.)
+- [x] Validate the release and preview flow against the static example. (2026-06-09: dry-run paths validated locally. Verified live on `nagare-01` on 2026-06-10: `site releases`, `site rollback` and `site preview deploy|list|delete`, recorded under EP-15 in [MasterPlan 3's Progress](../masterplans/3-static-hosting-for-nagare.md).)
 
 ## Surprises & Discoveries
 

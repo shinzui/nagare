@@ -86,7 +86,9 @@ This section must always reflect the actual current state of the work.
   harness with focused refusal cases and a native flake check.
 - [x] (2026-09-14T19:15:20Z) Consolidate onboarding/help, including truthful boot-disk replacement
   guidance and immutable reviewed-release placeholders.
-- [ ] Run an explicitly authorized empty-project GCP rehearsal and verify cleanup/evidence.
+- [-] Run an explicitly authorized empty-project GCP rehearsal and verify cleanup/evidence.
+  Closed 2026-11-10 (operator): never run; EP-244 D6 now proves onboarding on a fresh disposable
+  project through the current path. {disposition=superseded-by, by=docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md}
 - [x] (2026-09-14T19:20:00Z) Close IR-11, reconcile all cross-plan docs/ADRs, and run the final
   repository gate.
 
