@@ -19,6 +19,10 @@
   inputs.attic = {
     url = "github:zhaofengli/attic/12cbeca141f46e1ade76728bce8adc447f2166c6";
   };
+  inputs.tooling-systems = {
+    url = "path:./nix/tooling-systems";
+    flake = false;
+  };
 
   nixConfig = {
     extra-substituters = [ "https://shinzui.cachix.org" ];
@@ -29,13 +33,19 @@
     let
       releaseMetadata = builtins.fromJSON (builtins.readFile ./release.json);
       releaseVersion = releaseMetadata.platformVersion;
+      # The systems the platform release is gated on; every platform output is
+      # limited to these.
+      releaseSystems = releaseMetadata.supportedSystems;
+      # Systems that receive only the packaged CLI, its configuration SDK and
+      # the SDK consumer check; see nix/tooling-systems/default.nix.
+      toolingSystems = import inputs.tooling-systems;
       sourceRevision =
         if self ? rev then self.rev
         else if self ? dirtyRev then self.dirtyRev
         else null;
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = releaseMetadata.supportedSystems;
+      systems = releaseSystems ++ toolingSystems;
       imports = [
         ./nix/nagare-packages.nix
         ./nix/packages.nix
@@ -45,11 +55,12 @@
         ./nix/dev-shells.nix
         ./nix/test-runs.nix
       ];
-      _module.args = { inherit releaseVersion sourceRevision; };
+      _module.args = { inherit releaseSystems releaseVersion sourceRevision; };
       flake.lib.release = {
         version = releaseVersion;
         inherit sourceRevision;
-        supportedSystems = releaseMetadata.supportedSystems;
+        supportedSystems = releaseSystems;
+        inherit toolingSystems;
       };
     };
 }

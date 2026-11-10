@@ -1,4 +1,4 @@
-{ pkgs, cradleSrc, gogolSrc, platformPackage, atticClient, releaseVersion, sourceRevision ? null }:
+{ pkgs, cradleSrc, gogolSrc, platformPackage ? null, atticClient, releaseVersion, sourceRevision ? null }:
 
 let
   inherit (pkgs) lib;
@@ -171,8 +171,9 @@ let
               });
         in
         # EP-200 M4: on aarch64-darwin the fast gate already ran this suite on
-        # the same tree, so only x86_64-linux tests in the derivation.
-        nagarePackage ((if pkgs.stdenv.hostPlatform.isDarwin then hl.dontCheck else hl.doCheck) (
+        # the same tree, so only x86_64-linux tests in the derivation. EP-253:
+        # aarch64-linux is tooling-only and has its own consumer check.
+        nagarePackage ((if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then hl.doCheck else hl.dontCheck) (
           hl.overrideCabal revisionPackage (_old: {
             postPatch = (_old.postPatch or "") + ''
               substituteInPlace src/Nagare/Version.hs \
@@ -250,7 +251,7 @@ let
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
         --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils pkgs.kubernetes-helm ]} \
-        --set-default NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare \
+        ${lib.optionalString (platformPackage != null) "--set-default NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare"} \
         ${lib.optionalString (sourceRevision != null) "--set NAGARE_SOURCE_REVISION ${sourceRevision}"}
     '';
     meta.mainProgram = "nagarectl";

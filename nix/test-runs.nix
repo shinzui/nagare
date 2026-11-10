@@ -9,7 +9,7 @@
 # failing or slow shard still leaves its log, and `status` holds each shard's
 # exit code and seconds.
 {
-  perSystem = { pkgs, nagarePackages, ... }:
+  perSystem = { pkgs, nagarePackages, isReleaseSystem, ... }:
     let
       inherit (pkgs) lib;
       hl = pkgs.haskell.lib;
@@ -233,6 +233,6 @@
         '';
     in
     {
-      legacyPackages = { inherit dslTestBinary mutationSweep testBinary testRun; };
+      legacyPackages = lib.optionalAttrs isReleaseSystem { inherit dslTestBinary mutationSweep testBinary testRun; };
     };
 }

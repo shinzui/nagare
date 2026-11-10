@@ -187,9 +187,15 @@ if [[ "$skip_build" == false ]]; then
     revision="$(nix eval --raw "$source_root#lib.release.sourceRevision")"
   fi
 
+  # EP-253: tooling-only systems are published outside release.json.
+  tooling_systems="$(nix eval --json "$source_root#lib.release.toolingSystems")"
   evaluated_systems="$(nix eval --json "$source_root#packages" --apply builtins.attrNames)"
-  [[ "$(jq -c 'sort' <<<"$evaluated_systems")" == "$(jq -c 'sort' <<<"$mapfile_supported_systems")" ]] \
+  [[ "$(jq -c --argjson tooling "$tooling_systems" '. - $tooling | sort' <<<"$evaluated_systems")" == "$(jq -c 'sort' <<<"$mapfile_supported_systems")" ]] \
     || die "flake package systems do not match release.json supportedSystems"
+  while IFS= read -r system; do
+    [[ "$(nix eval --json "$source_root#packages.$system" --apply builtins.attrNames)" == '["nagare-config-sdk","nagarectl"]' ]] \
+      || die "tooling-only system $system publishes more than the CLI and SDK"
+  done < <(jq -r '.[]' <<<"$tooling_systems")
 
   while IFS= read -r system; do
     system_outputs="$(nix eval --json "$source_root#packages.$system" --apply builtins.attrNames)"

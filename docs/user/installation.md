@@ -24,7 +24,13 @@ release and supplies its manifest, native Nix output identities, notes, and `SHA
 | --- | --- | --- |
 | Deploy or inspect apps on an existing platform | `nagarectl` | CLI plus the typed-config GHC runtime |
 | Provision or operate the platform | `nagare` | `nagarectl`, the immutable payload, the `nagare` recipe launcher, Pulumi, and Pulumi's Node.js language plugin |
+| Compile typed configuration without the CLI | `nagare-config-sdk` | The same GHC and `nagare-dsl` that `nagarectl` loads configuration with |
 | Build or change Nagare itself | source checkout | `nix develop`, tests, and maintainer tools |
+
+On `aarch64-linux`, Nagare publishes `nagarectl` and `nagare-config-sdk` only. That is native
+tooling for loading and compiling an application's typed configuration from a Linux ARM64 runner: it
+has no platform payload, so platform commands refuse there, and it is not a production-host target.
+Hosts and platform images remain `x86_64-linux`.
 
 The examples use version 0.9.0, the current release. Read a release's notes before selecting it.
 

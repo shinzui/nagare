@@ -51,3 +51,26 @@ The application closure includes GHC and the DSL dependencies, making it larger 
 bare executable. That cost is intentional: typed config is executable Haskell, so the
 compiler runtime is part of the CLI's functional distribution contract. Platform-owned
 Pulumi, NixOS, manifest, and script assets remain a separate payload boundary.
+
+## Amendment: published configuration SDK and tooling-only systems
+
+Date: 2026-11-09. Implemented by
+[ExecPlan 253](../plans/253-package-a-native-arm64-linux-configuration-sdk-and-cli.md).
+
+The runtime the wrapper puts on `PATH` is also a named flake output,
+`packages.<system>.nagare-config-sdk`: the same `ghcWithPackages` runtime with `nagare-dsl`, the
+same locked compiler and library versions, with no separate pins. Consumers that compile typed
+configuration use this attribute and `packages.<system>.nagarectl`; they do not find a compiler by
+inspecting the CLI wrapper.
+
+A release system (`x86_64-linux`, `aarch64-darwin`, from `release.json` `supportedSystems`) has
+every platform output. `flake.nix` lists `aarch64-linux` as a **tooling-only** system, read from the
+`tooling-systems` flake input: it gets `nagarectl`, `nagare-config-sdk` and the
+`nagare-config-sdk-consumer` check. It has no platform payload, so its `nagarectl` wrapper sets no
+`NAGARE_PLATFORM_ROOT` and platform commands refuse there, and no host, image, release-image,
+development-shell or Hydra output. A native Linux SDK is not production-host support, and
+`release.json` is not changed by it.
+
+The check needs a native `aarch64-linux` builder, which the landing gate does not have, so it runs
+per release candidate in a native Apple container. The full gate's `nix flake check --all-systems`
+overrides `tooling-systems` to the empty list; a release candidate builds the check by name.

@@ -292,7 +292,8 @@
         "nixpkgs": [
           "haskell-nix-dev",
           "nixpkgs"
-        ]
+        ],
+        "tooling-systems": "tooling-systems"
       }
     },
     "systems": {
@@ -309,6 +310,18 @@
         "repo": "default",
         "type": "github"
       }
+    },
+    "tooling-systems": {
+      "flake": false,
+      "locked": {
+        "path": "./nix/tooling-systems",
+        "type": "path"
+      },
+      "original": {
+        "path": "./nix/tooling-systems",
+        "type": "path"
+      },
+      "parent": []
     },
     "treefmt-nix": {
       "inputs": {

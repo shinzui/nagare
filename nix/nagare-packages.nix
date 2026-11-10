@@ -1,9 +1,13 @@
-{ inputs, releaseVersion, sourceRevision, ... }:
+{ inputs, lib, releaseSystems, releaseVersion, sourceRevision, ... }:
 
 {
   perSystem = { system, ... }:
     let
       pkgs = import inputs.nixpkgs { inherit system; };
+      # A release system receives every platform output. A tooling-only system
+      # (ADR 3) receives the packaged CLI, its configuration SDK and the SDK
+      # consumer check, and no platform payload.
+      isReleaseSystem = lib.elem system releaseSystems;
       nagareSource = import ./source.nix {
         inherit (inputs.nixpkgs) lib;
         root = ../.;
@@ -23,7 +27,8 @@
         sourceRoot = ../.;
       };
       haskellPackages = import ./haskell-packages.nix {
-        inherit pkgs platformPackage releaseVersion sourceRevision;
+        inherit pkgs releaseVersion sourceRevision;
+        platformPackage = if isReleaseSystem then platformPackage else null;
         atticClient = attic.client;
         cradleSrc = inputs.cradle;
         gogolSrc = inputs.gogol;
@@ -45,6 +50,6 @@
       };
     in
     {
-      _module.args = { inherit pkgs nagarePackages nagareSource; };
+      _module.args = { inherit isReleaseSystem pkgs nagarePackages nagareSource; };
     };
 }

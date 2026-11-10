@@ -1,7 +1,7 @@
-{ config, lib, withSystem, ... }:
+{ lib, releaseSystems, withSystem, ... }:
 
 {
-  flake.hydraJobs = lib.genAttrs config.systems (system:
+  flake.hydraJobs = lib.genAttrs releaseSystems (system:
     withSystem system ({ pkgs, nagareSource, ... }:
       let
         ghc = pkgs.haskell.compiler.ghc9124;

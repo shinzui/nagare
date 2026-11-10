@@ -1,9 +1,14 @@
 { ... }:
 
 {
-  perSystem = { pkgs, lib, system, nagarePackages, ... }: {
+  perSystem = { pkgs, lib, system, nagarePackages, isReleaseSystem, ... }: {
     packages = {
       inherit (nagarePackages) nagarectl;
+      # The compiler and DSL a typed Config.hs builds with: the runtime the
+      # nagarectl wrapper puts on PATH, published so consumers need not read
+      # the wrapper (ADR 3).
+      nagare-config-sdk = nagarePackages.typedConfigRuntime;
+    } // lib.optionalAttrs isReleaseSystem {
       attic-client = nagarePackages.atticClient;
       attic-server-image = nagarePackages.atticServerImage;
       nagare-platform = nagarePackages.nagarePlatform;

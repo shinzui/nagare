@@ -1,7 +1,7 @@
 { inputs, ... }:
 
 {
-  perSystem = { pkgs, system, nagarePackages, ... }:
+  perSystem = { pkgs, lib, system, nagarePackages, isReleaseSystem, ... }:
     let
       mkDevShell = inputs.haskell-nix-dev.lib.${system}.mkDevShell;
       haskellTools = [
@@ -14,7 +14,7 @@
       ];
     in
     {
-      devShells = {
+      devShells = lib.optionalAttrs isReleaseSystem {
         default = mkDevShell {
           ghc = "ghc9124";
           withHls = true;

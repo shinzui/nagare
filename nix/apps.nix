@@ -1,7 +1,7 @@
 { ... }:
 
 {
-  perSystem = { nagarePackages, ... }:
+  perSystem = { lib, nagarePackages, isReleaseSystem, ... }:
     let
       app = {
         type = "app";
@@ -9,7 +9,7 @@
       };
     in
     {
-      apps = {
+      apps = lib.optionalAttrs isReleaseSystem {
         nagarectl = app;
         nagare = {
           type = "app";
