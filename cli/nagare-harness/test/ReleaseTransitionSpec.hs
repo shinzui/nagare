@@ -405,6 +405,7 @@ intranetOrder =
        , "nix flake update nagare"
        , nagare ["version", "--json"]
        , nagare ["inventory", "store", "status", "--json"]
+       , nagare ["platform", "status", "--json"]
        , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-1", "--summary", "$T/run/intranet/stage-1.summary.json"]
        , nagare ["inventory", "apply", "$T/run/intranet/stage-1", "--yes", "--contract", "1"]
        , nagare ["inventory", "resume", "tx-ab12", "--yes", "--contract", "1"]

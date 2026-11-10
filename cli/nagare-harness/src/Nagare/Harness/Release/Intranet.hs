@@ -232,8 +232,12 @@ moveIntranet runtime s index = do
   case decodeDocument @StoreStatus "inventory store status --json" store of
     Right found | isNothing (found ^. #activeTransaction) -> pure ()
     _ -> refuse activeStore
-  -- 2. plan and apply until a plan has no operations, then commit
-  converge runtime s index reviews Nothing 1
+  -- 2. plan and apply until a plan has no operations, then commit. A rerun
+  -- after the context already moved to this candidate has nothing to plan.
+  moved <- alreadyExact runtime s version' revision'
+  if moved
+    then step runtime ("the " <> context' <> " already runs " <> version' <> " at " <> revision')
+    else converge runtime s index reviews Nothing 1
   status <- platformStatus runtime s
   status' <-
     if status ^. _2 . #identities . #context . #version == Just version'
@@ -349,6 +353,15 @@ describeOutcome = \case
   AppliedConverged -> "converged"
   AppliedAmbiguous transaction -> "ambiguous " <> transaction
   AppliedStopped reason -> reason
+
+-- | Whether platform status already reads exact on this candidate. A status
+-- that cannot be read counts as not moved.
+alreadyExact :: Runtime -> Setup -> Text -> Text -> IO Bool
+alreadyExact runtime s version' revision' = do
+  result <- invoke runtime (nagarectl s ["platform", "status", "--json"] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
+  pure $
+    result ^. #exit == 0
+      && either (const False) (exactOn version' revision') (decodeDocument @PlatformStatus "platform status --json" (result ^. #output))
 
 platformStatus :: Runtime -> Setup -> IO (Value, PlatformStatus)
 platformStatus runtime s = do

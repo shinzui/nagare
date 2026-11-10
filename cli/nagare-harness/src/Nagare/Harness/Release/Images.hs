@@ -148,6 +148,9 @@ pinReleaseImages runtime version manifest = do
   either refuse pure (validateReleaseImages manifest)
   forM_ (Map.toList (manifest ^. #images)) $ \(key, image) -> do
     let name = "nagare-v" <> version <> "-" <> releaseImageKeyText key
+    -- cachix pins only a path the local store holds; the image may have been built on the builder.
+    require runtime ("fetching " <> name <> " from the binary cache failed") $
+      invocation "nix" ["build", "--no-link", "--option", "extra-substituters", snd binaryCache, image ^. #storePath & T.unpack]
     require runtime ("pinning " <> name <> " in the binary cache failed") $
       invocation "cachix" ["pin", fst binaryCache, T.unpack name, T.unpack (image ^. #storePath), "--keep-forever"]
     (runtime ^. #say) ("release images: pinned " <> name)

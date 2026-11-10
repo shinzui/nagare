@@ -188,13 +188,16 @@ releaseImagesTests =
         case readReleaseImages "{\"releaseImages\":{\"schemaVersion\":2,\"images\":{}}}" of
           Left reason -> assertMentions "releaseImages" reason
           Right _ -> assertFailure "a malformed member decoded"
-    , testCase "publication pins every image forever, by a name that carries the version" $ do
+    , testCase "publication fetches each image locally, then pins it forever by a name that carries the version" $ do
         (runtime, world, _) <- pushWith "/unused" withToken calm
         pinReleaseImages runtime "9.8.7" releaseImagesOf
         recorded world
           >>= ( @?=
-                  [ ("cachix", ["pin", "shinzui", "nagare-v9.8.7-" <> T.unpack key, storePathFor package, "--keep-forever"])
-                  | (key, package) <- imageKeys
-                  ]
+                  concat
+                    [ [ ("nix", ["build", "--no-link", "--option", "extra-substituters", "https://shinzui.cachix.org", storePathFor package])
+                      , ("cachix", ["pin", "shinzui", "nagare-v9.8.7-" <> T.unpack key, storePathFor package, "--keep-forever"])
+                      ]
+                    | (key, package) <- imageKeys
+                    ]
               )
     ]

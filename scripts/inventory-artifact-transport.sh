@@ -386,7 +386,8 @@ publish_oci_layout() (
       *) echo "release image destination differs from the selected project" >&2; return 3 ;;
     esac
   fi
-  private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-release-image.XXXXXX")"
+  # Nix refuses a store under a symlink, and macOS's TMPDIR and /tmp are both under one.
+  private_dir="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/nagare-release-image.XXXXXX")" && pwd -P)"
   chmod 700 "${private_dir}"
   trap 'chmod -R u+w "${private_dir}" 2>/dev/null; rm -rf "${private_dir}"' EXIT
   policy="${private_dir}/policy.json"
