@@ -31,6 +31,11 @@ provenance:
       at: 2026-11-09T23:31:30Z
       mode: "update"
       note: "Correct the Main.hs forwarder claim, restate the exposure window and measure it in M5, and add a WebSocket handshake cookie row to the browser semantics spec."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-09T23:40:50Z
+      mode: "implement"
+      note: "Implement the rotation redirect, raw WebSocket handshake cookies and the browser suite"
 ---
 
 # Deliver rotated session cookies before waiting on the upstream
@@ -70,10 +75,12 @@ turned off reproduces the labs sign-out, so the test demonstrably detects the de
 
 ## Progress
 
-- [ ] M1: the enforcer answers a refresh-leading GET or HEAD with a 307. `cabal test
+- [x] M1: the enforcer answers a refresh-leading GET or HEAD with a 307. `cabal test
   nagare-access-test` passes with new tests for AC-1 to AC-5 on protected and portal backends,
   including the refusal of unsafe paths and cross-origin requests, and rotated cookies on real
-  WebSocket handshake responses.
+  WebSocket handshake responses. Evidence (2026-11-09): 221 tests pass. Disabling
+  `rotationRedirect` fails 8 of them; removing raw handshake injection fails all 6 socket
+  regressions.
 - [ ] M2: `just access-browser-test` passes in Chromium, Firefox and WebKit, covering AC-6 and the
   behaviour matrix of AC-7, and the control scenario without the redirect ends the session with one
   `refresh_token_reuse_detected`. Each test attempt has isolated counters and explicitly controls

@@ -104,10 +104,12 @@ test-suite nagare-access-test
     RealShomei
     RefreshCoalescerSpec
     RememberedSessionSpec
+    RotatedCookieRedirectSpec
     SessionRefreshSpec
     SiteAccessIntegrationSpec
     TeamAccessSpec
     TestServices
+    WebSocketTunnelSpec
 
   build-depends:
     aeson,

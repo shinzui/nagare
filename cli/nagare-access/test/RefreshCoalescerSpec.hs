@@ -37,33 +37,34 @@ refreshCoalescerTests =
               pure (succeeded (token <> ".rotated." <> tshow n))
         results <- concurrentlyN 8 (coalesceRefresh coalescer refresh "refresh.old") (putMVar gate ())
         readIORef calls >>= (@?= 1)
-        nub results @?= [succeeded "refresh.old.rotated.1"]
+        nub (map (^. #outcome) results) @?= [succeeded "refresh.old.rotated.1"]
+        length (filter ((== RefreshLed) . (^. #role)) results) @?= 1
     , testCase "a late request within the window gets the same pair without a call" $ do
         clock <- newIORef 100
         calls <- newIORef (0 :: Int)
         coalescer <- newRefreshCoalescer 30 (readIORef clock)
         let refresh token = modifyIORef' calls (+ 1) >> (succeeded . (token <>) . tshow <$> readIORef calls)
-        coalesceRefresh coalescer refresh "r" >>= (@?= succeeded "r1")
+        coalesceRefresh coalescer refresh "r" >>= (@?= led (succeeded "r1"))
         modifyIORef' clock (+ 29)
-        coalesceRefresh coalescer refresh "r" >>= (@?= succeeded "r1")
+        coalesceRefresh coalescer refresh "r" >>= (@?= shared (succeeded "r1"))
         readIORef calls >>= (@?= 1)
         modifyIORef' clock (+ 1)
-        coalesceRefresh coalescer refresh "r" >>= (@?= succeeded "r2")
-        coalesceRefresh coalescer refresh "other" >>= (@?= succeeded "other3")
+        coalesceRefresh coalescer refresh "r" >>= (@?= led (succeeded "r2"))
+        coalesceRefresh coalescer refresh "other" >>= (@?= led (succeeded "other3"))
     , testCase "an unavailable or rejected refresh is not kept" $ do
         answers <- newIORef [LoginUnavailable "down", LoginFailed "no", succeeded "new"]
         coalescer <- newRefreshCoalescer 30 (pure 100)
         let refresh _ = atomicModifyIORef' answers (\as -> (drop 1 as, fromMaybe (LoginFailed "exhausted") (listToMaybe as)))
-        coalesceRefresh coalescer refresh "r" >>= (@?= LoginUnavailable "down")
-        coalesceRefresh coalescer refresh "r" >>= (@?= LoginFailed "no")
-        coalesceRefresh coalescer refresh "r" >>= (@?= succeeded "new")
+        coalesceRefresh coalescer refresh "r" >>= (@?= led (LoginUnavailable "down"))
+        coalesceRefresh coalescer refresh "r" >>= (@?= led (LoginFailed "no"))
+        coalesceRefresh coalescer refresh "r" >>= (@?= led (succeeded "new"))
     , testCase "an exception in the leader reaches its waiters as unavailable and clears the entry" $ do
         entered <- newEmptyMVar
         gate <- newEmptyMVar
         coalescer <- newRefreshCoalescer 30 (pure 100)
         let refresh _ = putMVar entered () >> readMVar gate >> throwIO (ErrorCall "boom")
         leaderDone <- newEmptyMVar
-        _ <- forkIO ((try (coalesceRefresh coalescer refresh "r") :: IO (Either SomeException LoginOutcome)) >>= putMVar leaderDone)
+        _ <- forkIO ((try (coalesceRefresh coalescer refresh "r") :: IO (Either SomeException RefreshResult)) >>= putMVar leaderDone)
         takeMVar entered
         waiterDone <- newEmptyMVar
         _ <- forkIO (coalesceRefresh coalescer (\_ -> pure (succeeded "late")) "r" >>= putMVar waiterDone)
@@ -71,7 +72,7 @@ refreshCoalescerTests =
         putMVar gate ()
         leader <- takeMVar leaderDone
         assertBool "the leader sees its own exception" (either (const True) (const False) leader)
-        takeMVar waiterDone >>= (@?= LoginUnavailable "refresh raised")
+        takeMVar waiterDone >>= (@?= shared (LoginUnavailable "refresh raised"))
         coalescerSize coalescer >>= (@?= 0)
     , testCase "settled entries past their window are dropped at the bound" $ do
         clock <- newIORef 100
@@ -97,8 +98,8 @@ refreshCoalescerTests =
           -- With it every request gets the one rotated pair, and the session lives on.
           coalescer <- newRefreshCoalescer 30 (pure 100)
           token <- signIn env
-          shared <- concurrentlyN 8 (coalesceRefresh coalescer (refreshWithShomei env) token) (pure ())
-          case nub shared of
+          coalesced <- concurrentlyN 8 (coalesceRefresh coalescer (refreshWithShomei env) token) (pure ())
+          case nub (map (^. #outcome) coalesced) of
             [LoginSucceeded tokens] ->
               refreshWithShomei env (rotated tokens) >>= \outcome ->
                 assertBool ("the session must survive: " <> show outcome) (isSucceeded outcome)
@@ -144,6 +145,12 @@ rotated tokens = fromMaybe "" (tokens ^. #refreshToken)
 
 alicePassword :: Text
 alicePassword = "A-long-random-password-42"
+
+led :: LoginOutcome -> RefreshResult
+led = RefreshResult RefreshLed
+
+shared :: LoginOutcome -> RefreshResult
+shared = RefreshResult RefreshShared
 
 succeeded :: Text -> LoginOutcome
 succeeded token = LoginSucceeded SessionTokens {accessToken = "access." <> token, refreshToken = Just token, expiresIn = 900, remembered = True}

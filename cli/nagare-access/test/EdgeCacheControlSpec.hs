@@ -30,7 +30,7 @@ edgeCacheControlTests =
           let user = AuthenticatedUser {subject = "user:alice"}
               target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend Nothing Nothing
               proxyApp header req respond =
-                proxyForwarder manager user "tools.example.com" target req >>= respond . withProxiedCacheControl header
+                proxyForwarder manager user "tools.example.com" target [] req >>= respond . withProxiedCacheControl header
           edge <- runSession (request (setPath defaultRequest "/report.pdf")) (proxyApp (Just "private, no-store, no-transform"))
           simpleStatus edge @?= status200
           simpleBody edge @?= "pdf"

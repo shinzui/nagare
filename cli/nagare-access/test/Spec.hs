@@ -76,7 +76,6 @@ import Nagare.Contract.Problem (ProblemDetails)
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (HeaderName, Status, hAccept, hAuthorization, hHost, hLocation, status200, status204, status302, status303, status400, status401, status403, status404, status502, status503)
 import Network.Socket qualified as Socket
-import Network.Socket.ByteString qualified as SocketBS
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
@@ -84,6 +83,7 @@ import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request,
 import RealShomei (withRealShomeiServer)
 import RefreshCoalescerSpec (refreshCoalescerTests)
 import RememberedSessionSpec (rememberedSessionTests)
+import RotatedCookieRedirectSpec (rotatedCookieRedirectTests)
 import Servant.Client (ClientError (..))
 import SessionRefreshSpec (sessionRefreshTests)
 import Shomei.Account.Dto qualified as ShomeiAccountDTO
@@ -99,7 +99,8 @@ import System.Timeout (timeout)
 import TeamAccessSpec (teamAccessTests)
 import Test.Tasty
 import Test.Tasty.HUnit
-import TestServices (testServices, withHeader)
+import TestServices (sharedRefresh, testServices, withHeader)
+import WebSocketTunnelSpec (webSocketTunnelTests)
 
 main :: IO ()
 main =
@@ -124,6 +125,8 @@ main =
       , appTests
       , refreshCoalescerTests
       , sessionRefreshTests
+      , rotatedCookieRedirectTests
+      , webSocketTunnelTests
       , rememberedSessionTests
       ]
 
@@ -517,7 +520,7 @@ proxyTests =
           let user = AuthenticatedUser {subject = "user:alice"}
               target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend Nothing Nothing
               proxyApp req respond =
-                proxyForwarder manager user "tools.example.com" target req >>= respond
+                proxyForwarder manager user "tools.example.com" target [] req >>= respond
           res <- runSession (request (setPath defaultRequest "/events")) proxyApp
           simpleStatus res @?= status200
           simpleBody res @?= "event: one\n\nevent: two\n\n"
@@ -528,22 +531,11 @@ proxyTests =
           manager <- HC.newManager HC.defaultManagerSettings
           let user = AuthenticatedUser {subject = "user:alice"}
               target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend Nothing Nothing
-              proxyApp req respond = proxyForwarder manager user "app.example.test" target req >>= respond
+              proxyApp req respond = proxyForwarder manager user "app.example.test" target [] req >>= respond
           res <- runSession (request (setPath defaultRequest "/")) proxyApp
           simpleStatus res @?= status200
           lookup "Nagare-Session-Establish" (simpleHeaders res) @?= Nothing
           lookup "Nagare-Session-Clear" (simpleHeaders res) @?= Nothing
-    , testCase "tunnels websocket upgrade bytes after upstream 101" $
-        testWithApplication (pure websocketUpstreamApp) $ \upstreamPort ->
-          testWithApplication (pure (websocketProxyApp upstreamPort)) $ \proxyPort ->
-            withTcpConnection proxyPort $ \socket -> do
-              SocketBS.sendAll socket websocketUpgradeRequest
-              response <- readUntil socket "\r\n\r\n"
-              assertBool "expected 101 response" ("HTTP/1.1 101 Switching Protocols" `BS.isPrefixOf` response)
-              assertBool "expected websocket accept header" ("Sec-WebSocket-Accept: test-accept" `BS.isInfixOf` response)
-              SocketBS.sendAll socket "hello"
-              echoed <- assertSocketRead socket
-              echoed @?= "upstream:hello"
     ]
 
 portalTests :: TestTree
@@ -579,7 +571,7 @@ portalTests =
                     withHeader "Cookie" "theme=dark; nagare_session=secret" $
                       withHeader hHost "auth.example.test" (setPath defaultRequest "/headers")
               proxyApp request' respond = do
-                result <- portalForwarder manager portal PortalAnonymous request'
+                result <- portalForwarder manager portal PortalAnonymous [] request'
                 case result of
                   PortalPassThrough response -> respond response
                   _ -> respond (textResponse status502 "unexpected interception")
@@ -590,7 +582,7 @@ portalTests =
         testWithApplication (pure portalEstablishUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           portal <- portalForPort port
-          result <- portalForwarder manager portal PortalAnonymous (setPath defaultRequest "/login")
+          result <- portalForwarder manager portal PortalAnonymous [] (setPath defaultRequest "/login")
           case result of
             PortalSessionEstablish handoff ->
               handoff ^. #refreshToken @?= RefreshToken "portal-refresh"
@@ -601,7 +593,7 @@ portalTests =
           portal <- portalForPort port
           let identity = PortalAuthenticated AuthenticatedUser {subject = "user:alice"} (AccessToken "access-token")
               proxyApp request' respond = do
-                result <- portalForwarder manager portal identity request'
+                result <- portalForwarder manager portal identity [] request'
                 case result of
                   PortalPassThrough response -> respond response
                   _ -> respond (textResponse status502 "unexpected interception")
@@ -619,20 +611,21 @@ portalTests =
                            else Left InvalidCredential
                    )
                 & #refreshUserSession
-                .~ ( \token -> do
-                       modifyIORef' refreshedWith (token :)
-                       pure
-                         ( LoginSucceeded
-                             SessionTokens
-                               { accessToken = "refreshed-access"
-                               , refreshToken = Just "refreshed-refresh"
-                               , expiresIn = 900
-                               , remembered = True
-                               }
-                         )
-                   )
+                .~ sharedRefresh
+                  ( \token -> do
+                      modifyIORef' refreshedWith (token :)
+                      pure
+                        ( LoginSucceeded
+                            SessionTokens
+                              { accessToken = "refreshed-access"
+                              , refreshToken = Just "refreshed-refresh"
+                              , expiresIn = 900
+                              , remembered = True
+                              }
+                        )
+                  )
                 & #forwardPortal
-                .~ ( \_ _ _ ->
+                .~ ( \_ _ _ _ ->
                        pure
                          ( PortalSessionEstablish
                              SessionHandoff
@@ -676,7 +669,7 @@ portalTests =
                 & #revokeSession
                 .~ (\(AccessToken token) -> modifyIORef' revoked (token :))
                 & #forwardPortal
-                .~ ( \_ _ _ ->
+                .~ ( \_ _ _ _ ->
                        pure
                          ( PortalSessionClear
                              CapturedResponse
@@ -1011,10 +1004,11 @@ appTests =
                          _ -> pure (Left InvalidCredential)
                    )
                 & #refreshUserSession
-                .~ ( \token -> do
-                       token @?= "refresh.old"
-                       pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered = True})
-                   )
+                .~ sharedRefresh
+                  ( \token -> do
+                      token @?= "refresh.old"
+                      pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered = True})
+                  )
         res <-
           runSession
             (request (withHeader "Cookie" ("nagare_refresh=" <> refreshCookie) (withHeader hHost "tools.example.com" (setPath defaultRequest "/"))))
@@ -1034,7 +1028,7 @@ appTests =
                 & #verifyCredential
                 .~ (\_ -> pure (Left ExpiredCredential))
                 & #refreshUserSession
-                .~ (\_ -> pure (LoginFailed "refresh failed"))
+                .~ sharedRefresh (\_ -> pure (LoginFailed "refresh failed"))
         res <-
           runSession
             ( request
@@ -1073,7 +1067,7 @@ appTests =
         res <-
           runSession
             (request (withHeader hHost "demo.example.com" (withHeader "Cookie" "nagare_session=valid" (setPath defaultRequest "/"))))
-            (appWithRuntime backends (testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationDecision AccessDenied)) & #forwardAuthorized .~ (\_ _ _ _ -> writeIORef reached True >> pure (textResponse status200 "proxied"))))
+            (appWithRuntime backends (testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationDecision AccessDenied)) & #forwardAuthorized .~ (\_ _ _ _ _ -> writeIORef reached True >> pure (textResponse status200 "proxied"))))
         simpleStatus res @?= status403
         simpleBody res @?= "Forbidden"
         readIORef reached >>= (@?= False)
@@ -1208,7 +1202,7 @@ appTests =
                       , forwardAuthorized = proxyForwarder manager
                       , loginUser = loginWithShomei shomeiLoginEnv
                       , completeMfa = completeMfaWithShomei shomeiLoginEnv
-                      , refreshUserSession = refreshWithShomei shomeiLoginEnv
+                      , refreshUserSession = sharedRefresh (refreshWithShomei shomeiLoginEnv)
                       , revokeSession = logoutWithShomei shomeiLoginEnv
                       , forwardPortal = portalForwarder manager
                       , fetchPortalPage = \_ _ -> pure Nothing
@@ -1486,75 +1480,6 @@ identityUpstreamApp req respond =
           Nothing -> "upstream saw no user"
       )
 
-websocketProxyApp :: Int -> Wai.Application
-websocketProxyApp upstreamPort req respond = do
-  manager <- HC.newManager HC.defaultManagerSettings
-  let user = AuthenticatedUser {subject = "user:alice"}
-      target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show upstreamPort)) ProtectedBackend Nothing Nothing
-  proxyForwarder manager user "tools.example.com" target req >>= respond
-
-websocketUpstreamApp :: Wai.Application
-websocketUpstreamApp _req respond =
-  respond $
-    Wai.responseRaw
-      ( \src sink -> do
-          sink $
-            BS.concat
-              [ "HTTP/1.1 101 Switching Protocols\r\n"
-              , "Upgrade: websocket\r\n"
-              , "Connection: Upgrade\r\n"
-              , "Sec-WebSocket-Accept: test-accept\r\n"
-              , "\r\n"
-              ]
-          chunk <- src
-          sink ("upstream:" <> chunk)
-      )
-      (Wai.responseLBS status400 [] "raw unsupported")
-
-websocketUpgradeRequest :: ByteString
-websocketUpgradeRequest =
-  BS.concat
-    [ "GET /socket HTTP/1.1\r\n"
-    , "Host: tools.example.com\r\n"
-    , "Connection: Upgrade\r\n"
-    , "Upgrade: websocket\r\n"
-    , "Sec-WebSocket-Key: test-key\r\n"
-    , "Sec-WebSocket-Version: 13\r\n"
-    , "\r\n"
-    ]
-
-withTcpConnection :: Int -> (Socket.Socket -> IO a) -> IO a
-withTcpConnection port =
-  bracket open Socket.close
-  where
-    open = do
-      let hints =
-            Socket.defaultHints
-              { Socket.addrSocketType = Socket.Stream
-              }
-      addr : _ <- Socket.getAddrInfo (Just hints) (Just "127.0.0.1") (Just (show port))
-      socket <- Socket.socket (Socket.addrFamily addr) (Socket.addrSocketType addr) (Socket.addrProtocol addr)
-      Socket.connect socket (Socket.addrAddress addr)
-      pure socket
-
-readUntil :: Socket.Socket -> ByteString -> IO ByteString
-readUntil socket needle =
-  go BS.empty
-  where
-    go acc
-      | needle `BS.isInfixOf` acc = pure acc
-      | otherwise = do
-          chunk <- assertSocketRead socket
-          go (acc <> chunk)
-
-assertSocketRead :: Socket.Socket -> IO ByteString
-assertSocketRead socket = do
-  result <- timeout 1000000 (SocketBS.recv socket 4096)
-  case result of
-    Just chunk | not (BS.null chunk) -> pure chunk
-    Just _ -> assertFailure "socket closed before expected bytes"
-    Nothing -> assertFailure "timed out waiting for socket bytes"
-
 portalBackends :: BackendMap
 portalBackends =
   either (error . Text.unpack) id $
@@ -1649,19 +1574,20 @@ successfulHandoffServices returnTo =
                else Left InvalidCredential
        )
     & #refreshUserSession
-    .~ ( \_ ->
-           pure
-             ( LoginSucceeded
-                 SessionTokens
-                   { accessToken = "refreshed-access"
-                   , refreshToken = Just "refreshed-refresh"
-                   , expiresIn = 900
-                   , remembered = True
-                   }
-             )
-       )
+    .~ sharedRefresh
+      ( \_ ->
+          pure
+            ( LoginSucceeded
+                SessionTokens
+                  { accessToken = "refreshed-access"
+                  , refreshToken = Just "refreshed-refresh"
+                  , expiresIn = 900
+                  , remembered = True
+                  }
+            )
+      )
     & #forwardPortal
-    .~ ( \_ _ _ ->
+    .~ ( \_ _ _ _ ->
            pure
              ( PortalSessionEstablish
                  SessionHandoff

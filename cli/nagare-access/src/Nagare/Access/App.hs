@@ -47,6 +47,7 @@ import Network.HTTP.Types
   , status200
   , status302
   , status303
+  , status307
   , status400
   , status401
   , status403
@@ -60,6 +61,7 @@ import Network.Wai
   , Response
   , mapResponseHeaders
   , pathInfo
+  , rawPathInfo
   , rawQueryString
   , requestHeaders
   , requestMethod
@@ -124,7 +126,7 @@ handleProtected services loginPage host req target = do
           (boundedAuthorization ((services ^. #authorizeUser) user hostText))
       case outcome of
         AuthorizationDecision AccessAllowed ->
-          addResponseHeaders responseHeaders <$> (services ^. #forwardAuthorized) user hostText target req
+          addResponseHeaders responseHeaders <$> (services ^. #forwardAuthorized) user hostText target responseHeaders req
         -- AccessDenied and AccessConditional are both a refusal: 403.
         AuthorizationDecision _ -> do
           denied <- portalDecisionResponse services loginPage ForbiddenPage status403 host requestShape user (forbiddenResponse requestShape)
@@ -244,14 +246,14 @@ refreshOrChallenge services req challenge =
     Nothing ->
       pure (Left (challengeResponse challenge))
     Just refreshToken -> do
-      outcome <- (services ^. #refreshUserSession) refreshToken
-      case outcome of
+      refreshed <- (services ^. #refreshUserSession) refreshToken
+      case refreshed ^. #outcome of
         LoginSucceeded tokens -> do
           let rotated = either (const []) id (sessionHeaders services tokens)
           verified <- (services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken))
           case verified of
             Right user ->
-              pure (Right (user, rotated))
+              pure (maybe (Right (user, rotated)) Left (rotationRedirect req (refreshed ^. #role) rotated))
             -- The old refresh token is spent: keep the rotated pair.
             Left (VerificationUnavailable reason) -> do
               putStrLn ("session verification unavailable: " <> Text.unpack reason)
@@ -266,64 +268,87 @@ refreshOrChallenge services req challenge =
           putStrLn ("session refresh unavailable: " <> Text.unpack reason)
           pure (Left (authenticationUnavailableResponse challenge))
 
+-- | The immediate answer to a request that led a refresh: an empty redirect to
+-- itself carrying the rotated cookies, so the browser has them before any
+-- upstream wait. Nothing when the request cannot safely repeat that way.
+rotationRedirect :: Request -> RefreshRole -> [Header] -> Maybe Response
+rotationRedirect req role rotated
+  | role /= RefreshLed || null rotated = Nothing
+  | requestMethod req `notElem` ["GET", "HEAD"] = Nothing
+  | any ((`elem` ["Upgrade", "Origin"]) . fst) (requestHeaders req) = Nothing
+  | BS.any (\byte -> byte < 32 || byte == 127) query = Nothing
+  | otherwise = do
+      path <- decodeUtf8Maybe (rawPathInfo req)
+      _ <- safeReturnDestination path
+      pure (responseLBS status307 ([(hLocation, rawPathInfo req <> query), ("Cache-Control", "no-store")] <> rotated) "")
+  where
+    query = rawQueryString req
+
 handlePortal :: BackendMap -> AccessServices -> Portal -> Request -> IO Response
 handlePortal backends services portal req = do
-  (identity, authenticationHeaders) <- authenticatePortal services req
-  upstream <- (services ^. #forwardPortal) portal identity req
-  case upstream of
-    PortalPassThrough response ->
-      pure (addResponseHeaders authenticationHeaders response)
-    PortalSessionEstablish handoff -> do
-      established <- runExceptT (establishSession services backends portal handoff)
-      case established of
-        Left failure -> do
-          putStrLn ("auth portal session hand-off failed: " <> show failure)
+  authenticated <- authenticatePortal services req
+  case authenticated of
+    Left redirect -> pure redirect
+    Right (identity, authenticationHeaders) -> do
+      upstream <- (services ^. #forwardPortal) portal identity authenticationHeaders req
+      case upstream of
+        PortalPassThrough response ->
+          pure (addResponseHeaders authenticationHeaders response)
+        PortalSessionEstablish handoff -> do
+          established <- runExceptT (establishSession services backends portal handoff)
+          case established of
+            Left failure -> do
+              putStrLn ("auth portal session hand-off failed: " <> show failure)
+              pure (handoffFailureResponse portal)
+            Right (target, headers) ->
+              pure (handoffSuccessResponse req target headers)
+        PortalHandoffMalformed reason -> do
+          putStrLn ("auth portal session hand-off failed: " <> show (HandoffMalformed reason))
           pure (handoffFailureResponse portal)
-        Right (target, headers) ->
-          pure (handoffSuccessResponse req target headers)
-    PortalHandoffMalformed reason -> do
-      putStrLn ("auth portal session hand-off failed: " <> show (HandoffMalformed reason))
-      pure (handoffFailureResponse portal)
-    PortalSessionClear captured -> do
-      case identity of
-        PortalAuthenticated _ token -> (services ^. #revokeSession) token
-        PortalAnonymous -> pure ()
-      pure
-        ( responseLBS
-            (captured ^. #status)
-            (clearAuthCookieHeaders services <> captured ^. #headers)
-            (captured ^. #body)
-        )
+        PortalSessionClear captured -> do
+          case identity of
+            PortalAuthenticated _ token -> (services ^. #revokeSession) token
+            PortalAnonymous -> pure ()
+          pure
+            ( responseLBS
+                (captured ^. #status)
+                (clearAuthCookieHeaders services <> captured ^. #headers)
+                (captured ^. #body)
+            )
 
-authenticatePortal :: AccessServices -> Request -> IO (PortalIdentity, [Header])
+authenticatePortal :: AccessServices -> Request -> IO (Either Response (PortalIdentity, [Header]))
 authenticatePortal services req =
   case extractCredential (requestHeaders req) of
     Nothing -> refreshPortalIdentity services req
     Just credential -> do
       verified <- (services ^. #verifyCredential) credential
       case verified of
-        Right user -> pure (PortalAuthenticated user (AccessToken (credentialToken credential)), [])
-        Left (VerificationUnavailable _) -> pure (PortalAnonymous, [])
+        Right user -> pure (Right (PortalAuthenticated user (AccessToken (credentialToken credential)), []))
+        Left (VerificationUnavailable _) -> pure (Right (PortalAnonymous, []))
         Left _ -> refreshPortalIdentity services req
 
-refreshPortalIdentity :: AccessServices -> Request -> IO (PortalIdentity, [Header])
+refreshPortalIdentity :: AccessServices -> Request -> IO (Either Response (PortalIdentity, [Header]))
 refreshPortalIdentity services req =
   case refreshTokenFromRequest services req of
-    Nothing -> pure (PortalAnonymous, [])
+    Nothing -> pure (Right (PortalAnonymous, []))
     Just refresh -> do
-      outcome <- (services ^. #refreshUserSession) refresh
-      case outcome of
+      refreshed <- (services ^. #refreshUserSession) refresh
+      case refreshed ^. #outcome of
         LoginSucceeded tokens -> do
           let rotated = either (const []) id (sessionHeaders services tokens)
           verified <- (services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken))
           case verified of
             Right user ->
-              pure (PortalAuthenticated user (AccessToken (tokens ^. #accessToken)), rotated)
-            Left (VerificationUnavailable _) -> pure (PortalAnonymous, rotated)
-            Left _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
-        LoginMfaRequired _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
-        LoginFailed _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
-        LoginUnavailable _ -> pure (PortalAnonymous, [])
+              pure $
+                maybe
+                  (Right (PortalAuthenticated user (AccessToken (tokens ^. #accessToken)), rotated))
+                  Left
+                  (rotationRedirect req (refreshed ^. #role) rotated)
+            Left (VerificationUnavailable _) -> pure (Right (PortalAnonymous, rotated))
+            Left _ -> pure (Right (PortalAnonymous, clearAuthCookieHeaders services))
+        LoginMfaRequired _ -> pure (Right (PortalAnonymous, clearAuthCookieHeaders services))
+        LoginFailed _ -> pure (Right (PortalAnonymous, clearAuthCookieHeaders services))
+        LoginUnavailable _ -> pure (Right (PortalAnonymous, []))
 
 data HandoffFailure
   = HandoffMalformed !Text
@@ -342,7 +367,7 @@ establishSession services backends portal handoff = do
     Left _ -> throwE HandoffAccessTokenRejected
     Right _ -> pure ()
   refreshed <- lift ((services ^. #refreshUserSession) initialRefresh)
-  tokens <- case refreshed of
+  tokens <- case refreshed ^. #outcome of
     LoginSucceeded sessionTokens | sessionTokens ^. #refreshToken /= Nothing -> pure sessionTokens
     _ -> throwE HandoffRefreshFailed
   refreshedVerified <- lift ((services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken)))
@@ -384,12 +409,12 @@ defaultAccessServices =
   AccessServices
     { verifyCredential = \_ -> pure (Left InvalidCredential)
     , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessDenied)
-    , forwardAuthorized = \_ _ _ _ -> pure (textResponse status404 "not found")
+    , forwardAuthorized = \_ _ _ _ _ -> pure (textResponse status404 "not found")
     , loginUser = \_ -> pure (LoginFailed "login is not configured")
     , completeMfa = \_ -> pure (LoginFailed "mfa is not configured")
-    , refreshUserSession = \_ -> pure (LoginFailed "refresh is not configured")
+    , refreshUserSession = \_ -> pure (RefreshResult RefreshShared (LoginFailed "refresh is not configured"))
     , revokeSession = \_ -> pure ()
-    , forwardPortal = \_ _ _ -> pure (PortalPassThrough (textResponse status404 "not found"))
+    , forwardPortal = \_ _ _ _ -> pure (PortalPassThrough (textResponse status404 "not found"))
     , fetchPortalPage = \_ _ -> pure Nothing
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache

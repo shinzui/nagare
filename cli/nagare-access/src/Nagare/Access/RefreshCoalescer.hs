@@ -14,6 +14,10 @@
 -- session. Only successes outlive their call: an unavailable or rejected
 -- refresh is retried by the next request. Keys are the SHA-256 of the token,
 -- and the map is bounded.
+--
+-- The result names the caller that ran the refresh. Only that request may
+-- answer with the rotation redirect (EP-239), so a burst gets one redirect and
+-- a client that stores no cookies gets at most one.
 module Nagare.Access.RefreshCoalescer
   ( RefreshCoalescer
   , coalesceRefresh
@@ -35,7 +39,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
-import Nagare.Access.Auth (LoginOutcome (..), SessionTokens)
+import Nagare.Access.Auth (LoginOutcome (..), RefreshResult (..), RefreshRole (..), SessionTokens)
 import Nagare.Access.Prelude
 
 data RefreshCoalescer = RefreshCoalescer
@@ -73,14 +77,14 @@ newBoundedRefreshCoalescer reuse bound now =
 -- within the reuse window after a success get that success. An exception in
 -- the leader reaches it alone: its waiters see 'LoginUnavailable', and the
 -- entry is cleared so the next request tries again.
-coalesceRefresh :: RefreshCoalescer -> (Text -> IO LoginOutcome) -> Text -> IO LoginOutcome
+coalesceRefresh :: RefreshCoalescer -> (Text -> IO LoginOutcome) -> Text -> IO RefreshResult
 coalesceRefresh coalescer refresh token = do
   now <- coalescer ^. #nowSeconds
   fresh <- newEmptyMVar
   claim <- atomicModifyIORef' (coalescer ^. #entriesRef) (claimEntry coalescer now key fresh)
   case claim of
-    Reuse tokens -> pure (LoginSucceeded tokens)
-    Join pending -> readMVar pending
+    Reuse tokens -> pure (RefreshResult RefreshShared (LoginSucceeded tokens))
+    Join pending -> RefreshResult RefreshShared <$> readMVar pending
     Lead pending -> do
       outcome <-
         refresh token `onException` do
@@ -94,7 +98,7 @@ coalesceRefresh coalescer refresh token = do
         , ()
         )
       putMVar pending outcome
-      pure outcome
+      pure (RefreshResult RefreshLed outcome)
   where
     key = convert (hash (TE.encodeUtf8 token) :: Digest SHA256)
 

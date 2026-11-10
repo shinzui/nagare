@@ -10,6 +10,8 @@ module Nagare.Access.Auth
   , PortalIdentity (..)
   , PortalPageRequest (..)
   , PortalUpstreamResult (..)
+  , RefreshResult (..)
+  , RefreshRole (..)
   , SessionTokens (..)
   )
 where
@@ -22,6 +24,7 @@ import Nagare.Access.Credential (Credential)
 import Nagare.Access.DecisionCache (AuthorizationResult, DecisionCache)
 import Nagare.Access.Portal (AccessToken, CapturedResponse, PortalPage, PortalPageKind, ReturnTarget, SessionHandoff)
 import Nagare.Access.Prelude
+import Network.HTTP.Types (Header)
 import Network.Wai (Request, Response)
 
 newtype AuthenticatedUser = AuthenticatedUser
@@ -76,6 +79,20 @@ data LoginOutcome
   | LoginUnavailable !Text
   deriving stock (Generic, Eq, Show)
 
+-- | Whether this request ran the refresh or shared one already running or
+-- recently settled. Only a leader may answer with the rotation redirect, so a
+-- client that keeps no cookies is redirected at most once.
+data RefreshRole
+  = RefreshLed
+  | RefreshShared
+  deriving stock (Generic, Eq, Show)
+
+data RefreshResult = RefreshResult
+  { role :: !RefreshRole
+  , outcome :: !LoginOutcome
+  }
+  deriving stock (Generic, Eq, Show)
+
 data PortalIdentity
   = PortalAnonymous
   | PortalAuthenticated !AuthenticatedUser !AccessToken
@@ -100,12 +117,14 @@ data AccessServices = AccessServices
   , authorizeUser :: !(AuthenticatedUser -> Text -> IO AuthorizationResult)
   -- ^ Ask the authorizer about this user and host. The result distinguishes
   -- "the authorizer said no" from "the authorizer could not be reached".
-  , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> Request -> IO Response)
+  , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> [Header] -> Request -> IO Response)
+  -- ^ The headers are for a response the forwarder writes itself, a raw
+  -- WebSocket handshake, which the caller cannot decorate afterwards.
   , loginUser :: !(LoginCredentials -> IO LoginOutcome)
   , completeMfa :: !(MfaCompletion -> IO LoginOutcome)
-  , refreshUserSession :: !(Text -> IO LoginOutcome)
+  , refreshUserSession :: !(Text -> IO RefreshResult)
   , revokeSession :: !(AccessToken -> IO ())
-  , forwardPortal :: !(Portal -> PortalIdentity -> Request -> IO PortalUpstreamResult)
+  , forwardPortal :: !(Portal -> PortalIdentity -> [Header] -> Request -> IO PortalUpstreamResult)
   , fetchPortalPage :: !(Portal -> PortalPageRequest -> IO (Maybe PortalPage))
   , newCsrfToken :: !(IO Text)
   , decisionCache :: !DecisionCache

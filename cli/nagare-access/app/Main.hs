@@ -96,13 +96,13 @@ buildAccessServices runtime cfg = do
     AccessServices
       { verifyCredential = verifyShomeiCredentialCached jwksCache cfg
       , authorizeUser = authorizeWithEn enEnv
-      , forwardAuthorized = \user host target req -> withProxiedCacheControl edgeCacheControl <$> proxyForwarder manager user host target req
+      , forwardAuthorized = \user host target rawHeaders req -> withProxiedCacheControl edgeCacheControl <$> proxyForwarder manager user host target rawHeaders req
       , loginUser = loginWithShomei shomeiLoginEnv
       , completeMfa = completeMfaWithShomei shomeiLoginEnv
       , refreshUserSession = coalesceRefresh refreshCoalescer (refreshWithShomei shomeiLoginEnv)
       , revokeSession = logoutWithShomei shomeiLoginEnv
-      , forwardPortal = \portal identity req ->
-          portalForwarder manager portal identity req <&> \case
+      , forwardPortal = \portal identity rawHeaders req ->
+          portalForwarder manager portal identity rawHeaders req <&> \case
             PortalPassThrough response -> PortalPassThrough (withProxiedCacheControl edgeCacheControl response)
             other -> other
       , fetchPortalPage = portalPageFetcher manager

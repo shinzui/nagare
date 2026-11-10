@@ -177,7 +177,7 @@ withWorld ttl grants body = do
                   & #decisionCache
                   .~ current
                   & #forwardAuthorized
-                  .~ (\_ host _ _ -> modifyIORef' reached (<> [host]) >> pure (textResponse status200 "proxied"))
+                  .~ (\_ host _ _ _ -> modifyIORef' reached (<> [host]) >> pure (textResponse status200 "proxied"))
           appWithRuntime backends services req respond
     body World {tuples, clock, cacheRef, outage, conditional, reached, gateway}
 

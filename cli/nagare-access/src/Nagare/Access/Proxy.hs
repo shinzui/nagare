@@ -24,6 +24,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Char (toLower)
 import Data.Generics.Labels ()
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
@@ -41,8 +42,11 @@ import Network.Wai qualified as Wai
 newProxyManager :: IO HC.Manager
 newProxyManager = newTlsManager
 
-proxyForwarder :: HC.Manager -> AuthenticatedUser -> Text -> BackendTarget -> Wai.Request -> IO Wai.Response
-proxyForwarder manager user publicHost target waiReq = do
+-- | @rawResponseHeaders@ go only on a response this module writes to the socket
+-- itself, the WebSocket handshake. Every other response is decorated by the
+-- caller, which cannot reach the bytes of a raw one.
+proxyForwarder :: HC.Manager -> AuthenticatedUser -> Text -> BackendTarget -> [Header] -> Wai.Request -> IO Wai.Response
+proxyForwarder manager user publicHost target rawResponseHeaders waiReq = do
   let upgrade = isWebSocketUpgrade waiReq
   built <-
     if upgrade
@@ -54,7 +58,7 @@ proxyForwarder manager user publicHost target waiReq = do
       pure (upstreamFailureResponse shape UpstreamUnreachable)
     Right proxyReq
       | upgrade ->
-          pure (webSocketProxyResponse manager proxyReq)
+          pure (webSocketProxyResponse manager rawResponseHeaders proxyReq)
       | otherwise -> do
           upstream <- try (HC.responseOpen proxyReq manager)
           case upstream of
@@ -68,8 +72,8 @@ proxyForwarder manager user publicHost target waiReq = do
 
 -- | Forward a request to the configured portal, intercepting its two trusted
 -- session-control response headers before they can reach the browser.
-portalForwarder :: HC.Manager -> Portal -> PortalIdentity -> Wai.Request -> IO PortalUpstreamResult
-portalForwarder manager portal identity waiReq = do
+portalForwarder :: HC.Manager -> Portal -> PortalIdentity -> [Header] -> Wai.Request -> IO PortalUpstreamResult
+portalForwarder manager portal identity rawResponseHeaders waiReq = do
   let upgrade = isWebSocketUpgrade waiReq
   built <-
     if upgrade
@@ -80,7 +84,7 @@ portalForwarder manager portal identity waiReq = do
       putStrLn ("the portal upstream is unusable: " <> Text.unpack err)
       pure (PortalPassThrough (upstreamFailureResponse shape UpstreamUnreachable))
     Right proxyReq
-      | upgrade -> pure (PortalPassThrough (webSocketProxyResponse manager proxyReq))
+      | upgrade -> pure (PortalPassThrough (webSocketProxyResponse manager rawResponseHeaders proxyReq))
       | otherwise -> do
           opened <- try (HC.responseOpen proxyReq manager)
           case opened of
@@ -304,26 +308,31 @@ streamResponseBody reader write flush = do
     flush
     streamResponseBody reader write flush
 
-webSocketProxyResponse :: HC.Manager -> HC.Request -> Wai.Response
-webSocketProxyResponse manager proxyReq =
+webSocketProxyResponse :: HC.Manager -> [Header] -> HC.Request -> Wai.Response
+webSocketProxyResponse manager rawResponseHeaders proxyReq =
   Wai.responseRaw
-    (runWebSocketTunnel manager proxyReq)
-    (badGatewayResponse "raw upgrade responses are not supported by this WAI handler")
+    (runWebSocketTunnel manager rawResponseHeaders proxyReq)
+    (badGatewayResponse rawResponseHeaders "raw upgrade responses are not supported by this WAI handler")
 
-runWebSocketTunnel :: HC.Manager -> HC.Request -> IO BS.ByteString -> (BS.ByteString -> IO ()) -> IO ()
-runWebSocketTunnel manager proxyReq clientRead clientWrite =
-  HC.withConnection proxyReq manager (runWithConnection clientRead clientWrite)
-    `catch` \(err :: SomeException) ->
-      clientWrite (rawBadGateway ("websocket upstream failed: " <> B8.pack (show err)))
-  where
-    runWithConnection clientRead' clientWrite' conn = do
-      sendLater <- HCI.requestBuilder proxyReq conn
-      maybe (pure ()) id sendLater
-      HCI.StatusHeaders status version earlyHeaders responseHeaders <-
-        HCI.parseStatusHeaders Nothing Nothing conn Nothing (\_ -> pure ()) Nothing
-      clientWrite' (renderRawResponse version status (earlyHeaders <> responseHeaders))
-      when (statusCode status == 101) $
-        relayBidirectional conn clientRead' clientWrite'
+-- | Once the handshake has gone out the connection is a tunnel, so a later
+-- failure must not write an HTTP response (or the cookies again) into it.
+runWebSocketTunnel :: HC.Manager -> [Header] -> HC.Request -> IO BS.ByteString -> (BS.ByteString -> IO ()) -> IO ()
+runWebSocketTunnel manager rawResponseHeaders proxyReq clientRead clientWrite = do
+  handshakeStarted <- newIORef False
+  let runWithConnection conn = do
+        sendLater <- HCI.requestBuilder proxyReq conn
+        maybe (pure ()) id sendLater
+        HCI.StatusHeaders status version earlyHeaders responseHeaders <-
+          HCI.parseStatusHeaders Nothing Nothing conn Nothing (\_ -> pure ()) Nothing
+        writeIORef handshakeStarted True
+        clientWrite (renderRawResponse version status (rawResponseHeaders <> earlyHeaders <> responseHeaders))
+        when (statusCode status == 101) $
+          relayBidirectional conn clientRead clientWrite
+  HC.withConnection proxyReq manager runWithConnection
+    `catch` \(err :: SomeException) -> do
+      started <- readIORef handshakeStarted
+      unless started $
+        clientWrite (rawBadGateway rawResponseHeaders ("websocket upstream failed: " <> B8.pack (show err)))
 
 relayBidirectional :: HCI.Connection -> IO BS.ByteString -> (BS.ByteString -> IO ()) -> IO ()
 relayBidirectional conn clientRead clientWrite = do
@@ -355,16 +364,17 @@ renderRawResponse (HttpVersion major minor) status headers =
     renderHeader (name, value) =
       CI.original name <> ": " <> value <> "\r\n"
 
-rawBadGateway :: BS.ByteString -> BS.ByteString
-rawBadGateway msg =
-  BS.concat
-    [ "HTTP/1.1 502 Bad Gateway\r\n"
-    , "Content-Type: text/plain; charset=utf-8\r\n"
-    , "Content-Length: "
-    , B8.pack (show (BS.length msg))
-    , "\r\n\r\n"
-    , msg
-    ]
+rawBadGateway :: [Header] -> BS.ByteString -> BS.ByteString
+rawBadGateway rawResponseHeaders msg =
+  renderRawResponse
+    (HttpVersion 1 1)
+    status502
+    ( rawResponseHeaders
+        <> [ ("Content-Type", "text/plain; charset=utf-8")
+           , ("Content-Length", B8.pack (show (BS.length msg)))
+           ]
+    )
+    <> msg
 
 hardenRequestHeaders :: Text -> AuthenticatedUser -> [Header] -> [Header]
 hardenRequestHeaders publicHost user headers =
@@ -524,9 +534,9 @@ appendPaths base incoming
       | otherwise = "/" <> incoming
     slash = 47
 
-badGatewayResponse :: Text -> Wai.Response
-badGatewayResponse msg =
+badGatewayResponse :: [Header] -> Text -> Wai.Response
+badGatewayResponse rawResponseHeaders msg =
   Wai.responseLBS
     status502
-    [("Content-Type", "text/plain; charset=utf-8")]
+    (rawResponseHeaders <> [("Content-Type", "text/plain; charset=utf-8")])
     (LBS.fromStrict (TE.encodeUtf8 msg))

@@ -26,7 +26,7 @@ import RealShomei (withRealShomeiServer)
 import Shomei.Client qualified as ShomeiClient
 import Test.Tasty
 import Test.Tasty.HUnit
-import TestServices (testServices, withHeader)
+import TestServices (sharedRefresh, testServices, withHeader)
 
 sessionRefreshTests :: TestTree
 sessionRefreshTests =
@@ -39,7 +39,7 @@ sessionRefreshTests =
                 & #verifyCredential
                 .~ (\_ -> pure (Left ExpiredCredential))
                 & #refreshUserSession
-                .~ (\_ -> modifyIORef' refreshed (+ 1) >> pure (LoginUnavailable "shomei did not answer"))
+                .~ sharedRefresh (\_ -> modifyIORef' refreshed (+ 1) >> pure (LoginUnavailable "shomei did not answer"))
         document <- protectedRequest services (withHeader hAccept "text/html")
         simpleStatus document @?= status503
         simpleBody document @?= "authentication service unavailable\n"
@@ -57,7 +57,7 @@ sessionRefreshTests =
                 & #verifyCredential
                 .~ (\_ -> pure (Left (VerificationUnavailable "jwks down")))
                 & #refreshUserSession
-                .~ (\_ -> modifyIORef' refreshed (+ 1) >> pure (LoginFailed "should not run"))
+                .~ sharedRefresh (\_ -> modifyIORef' refreshed (+ 1) >> pure (LoginFailed "should not run"))
         res <- protectedRequest services (withHeader hAccept "text/html")
         simpleStatus res @?= status503
         setCookies res @?= []
@@ -71,7 +71,7 @@ sessionRefreshTests =
                        _ -> Left ExpiredCredential
                    )
                 & #refreshUserSession
-                .~ (\_ -> pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered = True}))
+                .~ sharedRefresh (\_ -> pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered = True}))
         res <- protectedRequest services (withHeader hAccept "text/html")
         simpleStatus res @?= status503
         lookup "nagare_session" (map (BS.break (== 61)) (setCookies res)) @?= Just "=access.new; Domain=.example.test; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax"
@@ -84,7 +84,7 @@ sessionRefreshTests =
                 & #verifyCredential
                 .~ (\_ -> pure (Left ExpiredCredential))
                 & #refreshUserSession
-                .~ (\_ -> pure (LoginUnavailable "shomei did not answer"))
+                .~ sharedRefresh (\_ -> pure (LoginUnavailable "shomei did not answer"))
             req =
               withHeader "Cookie" ("nagare_session=access.old; nagare_refresh=" <> refreshCookie) $
                 withHeader hHost "auth.example.test" (setPath defaultRequest "/")

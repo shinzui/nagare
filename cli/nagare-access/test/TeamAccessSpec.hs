@@ -77,7 +77,7 @@ teamAccessTests =
                   & #authorizeUser
                   .~ authorizeWithEn clientEnv
                   & #forwardAuthorized
-                  .~ (\_ host _ _ -> modifyIORef' reached (<> [host]) >> pure (textResponse status200 "proxied"))
+                  .~ (\_ host _ _ _ -> modifyIORef' reached (<> [host]) >> pure (textResponse status200 "proxied"))
               ask token host = runSession (request (withHeader hHost (TE.encodeUtf8 host) (withHeader "Authorization" ("Bearer " <> TE.encodeUtf8 token) (setPath defaultRequest "/")))) (appWithRuntime backends services)
           expectations <- forM [(token, host) | token <- map fst tokens, host <- ["a.example.test", "b.example.test"]] $ \(token, host) -> do
             response <- ask token host

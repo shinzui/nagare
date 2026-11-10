@@ -111,7 +111,7 @@ apiPathTests =
                 & #authorizeUser
                 .~ (\_ _ -> pure (AuthorizationDecision AccessDenied))
                 & #forwardAuthorized
-                .~ (\_ _ _ _ -> writeIORef reached True >> pure (textResponse status200 "proxied"))
+                .~ (\_ _ _ _ _ -> writeIORef reached True >> pure (textResponse status200 "proxied"))
             )
             (bearer (adminRequest "/v1/sites"))
         problem <- assertProblem res status403 "forbidden"
@@ -136,7 +136,7 @@ apiPathTests =
         res <-
           ask
             backends
-            (testServices & #forwardAuthorized .~ (\_ _ target _ -> writeIORef seen (Just target) >> pure (textResponse status200 "proxied")))
+            (testServices & #forwardAuthorized .~ (\_ _ target _ _ -> writeIORef seen (Just target) >> pure (textResponse status200 "proxied")))
             (bearer (adminRequest "/v1/sites"))
         simpleStatus res @?= status200
         readIORef seen >>= (@?= Just (BackendTarget "http://nagare-admin-api.nagare-system.svc.cluster.local" ProtectedBackend (Just "/v1") (Just 15)))
@@ -215,7 +215,7 @@ proxied :: BackendTarget -> Request -> IO SResponse
 proxied target req = do
   manager <- HC.newManager HC.defaultManagerSettings
   let user = AuthenticatedUser {subject = "user:alice"}
-  runSession (request req) (\waiReq respond -> proxyForwarder manager user "admin.example.test" target waiReq >>= respond)
+  runSession (request req) (\waiReq respond -> proxyForwarder manager user "admin.example.test" target [] waiReq >>= respond)
 
 -- | A loopback port nothing listens on: bound, then released.
 closedPort :: IO Int

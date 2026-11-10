@@ -22,7 +22,7 @@ import Network.HTTP.Types (HeaderName, hHost, status200, status303)
 import Network.Wai.Test (SResponse (..), defaultRequest, request, runSession, setPath)
 import Test.Tasty
 import Test.Tasty.HUnit
-import TestServices (testServices, withHeader)
+import TestServices (sharedRefresh, testServices, withHeader)
 
 rememberedSessionTests :: TestTree
 rememberedSessionTests =
@@ -40,7 +40,7 @@ rememberedSessionTests =
           let services =
                 rotatingTo remembered
                   & #forwardPortal
-                  .~ ( \_ _ _ ->
+                  .~ ( \_ _ _ _ ->
                          pure
                            ( PortalSessionEstablish
                                SessionHandoff
@@ -83,7 +83,7 @@ rotatingTo remembered =
                else Left InvalidCredential
        )
     & #refreshUserSession
-    .~ (\_ -> pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered}))
+    .~ sharedRefresh (\_ -> pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900, remembered}))
 
 assertCookies :: (HasCallStack) => Bool -> SResponse -> IO ()
 assertCookies remembered res = do
