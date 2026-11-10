@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-10
+
+* **Addition**: FRIC-7 records detour tooling friction with https://nix.dev/manual/nix/stable/command-ref/new-cli/nix3-flake-check: nix flake check --all-systems cannot leave out one system
+
 * **Addition**: FRIC-6 records blocked environment friction with mori://shinzui/nagare: A broken IPv6 path stops every intranet command from the workstation
 * **Addition**: FRIC-5 records slowdown tooling friction with mori://shinzui/nagare: The fast gate checks the last commit and ignores uncommitted work
 

@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-09T23:20:14Z
       mode: "update"
       note: "Renumbered from EP-247-250 and aligned with the MasterPlan 34 review findings."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-10T06:04:38Z
+      mode: "implement"
+      note: "Implement the tooling-only ARM64 Linux SDK and CLI with a native consumer check and gate override."
 ---
 
 # Package a native ARM64 Linux configuration SDK and CLI
@@ -37,24 +42,28 @@ An ARM64 Linux application runner can use a packaged Nagare CLI and configuratio
 ## Progress
 
 
-- [ ] M1: `packages.aarch64-linux.nagarectl` and `nagare-config-sdk` build natively, with `release.json` unchanged.
-- [ ] M2: An isolated ARM64 Linux consumer executes the packaged CLI and compiles the representative Application, with revision-bound evidence.
+- [x] M1: `packages.aarch64-linux.nagarectl` and `nagare-config-sdk` build natively, with `release.json` unchanged. Evidence, revision `5011a9b69df8c7e08bfa92957858b8ed66733984`, native arm64 Apple container (`uname`: Linux aarch64, Nix 2.35.2): `nix build` exit 0 for `/nix/store/01xfmz6mv5d1r3i3vawr74bc96a33kq4-nagarectl-0.17.0` (`nagarectl version --json` reports that revision, version 0.17.0) and `/nix/store/bpdi2nf48pn0qbgdkah6vqnxyn6iikfb-ghc-9.12.4-with-packages` (GHC 9.12.4, target `aarch64-unknown-linux`). GHC came from cache.nixos.org; the Haskell dependency closure, including nagare-dsl and nagarectl, built from source. `nagare-config-sdk` also builds on aarch64-darwin (`/nix/store/z73jpdwlx6m46r6hc9pi9xbv98vmr3av-ghc-9.12.4-with-packages`) and is listed on x86_64-linux. `aarch64-linux` outputs are exactly packages `nagare-config-sdk`, `nagarectl` and check `nagare-config-sdk-consumer`, with empty apps, devShells and legacyPackages and no hydraJobs; `release.json` is unchanged.
+- [x] M2: An isolated ARM64 Linux consumer executes the packaged CLI and compiles the representative Application, with revision-bound evidence. Evidence, revision `5011a9b69df8c7e08bfa92957858b8ed66733984`: check derivation `/nix/store/j998bx72bfhwxkchjagchd0lf99csxaq-nagare-config-sdk-consumer.drv` built exit 0 on an `--internal`, `--no-dns` network (1.1.1.1:53 unreachable). `evidence.json`: system Linux-aarch64, compiler 9.12.4, DSL `nagare-dsl-0.0.0-Ld8ssASo2cMKBrgnYd02zd`, CLI and SDK store paths as in M1, `nagarectl app check` reports a service, 1 worker and 1 task, the SDK's GHC compiled and ran the same file, and the invalid config exited 1. The same check exits 1 on a networked container, by its network guard.
 
 ## Surprises & Discoveries
 
 
-None during implementation yet.
+- `nix flake check --all-systems` has no way to leave a system out, and evaluating `packages.aarch64-linux` needs import-from-derivation on an `aarch64-linux` builder that the landing gate does not have. A plain tooling list in `flake.nix` would have broken the full gate, so the list became a flake input that the gate overrides to empty, and `scripts/check-release.sh` no longer assumes the flake's systems equal `release.json`.
+- Apple's container kernel does not support the namespaces Nix's sandbox needs (`this system does not support the kernel namespaces`, with `--cap-add ALL` too), so the sandbox cannot provide the no-network proof there. The consumer check runs in a second container on an `--internal` network with no DNS, and the script fails if the network is reachable.
 
 ## Decision Log
 
 
 - Decision: Publish an explicit SDK export and distinguish tooling support from host support, because adding a system to every existing release matrix would overstate the requested capability. Date: 2026-11-09.
 - Decision: Leave `release.json` `supportedSystems` unchanged and list tooling systems in `flake.nix`. Rationale: that field is read by the gate, the verify step, release evidence and a candidate check requiring exactly the two current systems; extending it would need a schema change and migration tests to say something a flake output already says (operator, 2026-11-09). Date: 2026-11-09.
+- Decision: `aarch64-linux` gets no platform payload, so its `nagarectl` wrapper sets no `NAGARE_PLATFORM_ROOT`. Rationale: the payload embeds an x86_64 controller image that would need a cross toolchain on ARM64, and platform commands are outside a tooling-only promise. Date: 2026-11-09.
+- Decision: `nagarectl`'s test suite stays out of the `aarch64-linux` package derivation, as on `aarch64-darwin`. Rationale: `x86_64-linux` remains the tested derivation; the consumer check is the ARM64 evidence. Date: 2026-11-09.
+- Decision: The tooling list is the `tooling-systems` flake input (`nix/tooling-systems`), and the full gate passes `--override-input tooling-systems path:./nix/tooling-systems/none`. Rationale: a pure flake has no other channel for the gate to narrow `--all-systems`, and the override leaves release-system derivations unchanged (compared `drvPath` for `checks.x86_64-linux.nagarectl-external-config`, `checks.aarch64-darwin.nagare-api-server-build-test` and `packages.x86_64-linux.nagare-platform`: identical). Date: 2026-11-09.
 
 ## Outcomes & Retrospective
 
 
-Implementation has not started. Before completion, retain acceptance evidence and distill durable compatibility decisions into the relevant ADR.
+The tooling-only SDK and CLI build natively on ARM64 Linux and pass the isolated consumer check from the candidate source; ADR 3 records the public exports and the support boundary. A release candidate still has to run the check by hand in a native Apple container, since the harness candidate flow is unchanged; EP-256 M2 consumes it.
 
 ## Context and Orientation
 
@@ -89,6 +98,26 @@ nagarectl app check -f nagare/Config.hs
 ```
 
 Expect native aarch64 execution and a successful config check. Expose the fixture as an `aarch64-linux` flake check that runs per release candidate in the native Apple container. Keep it out of `just gate-fast` and the per-landing full gate, whose Linux builder is x86_64. Run `just gate-fast` for the candidate. EP-256 records immutable tag qualification later.
+
+Evaluating these attributes needs import-from-derivation on an `aarch64-linux` builder, so a Mac without one cannot produce the drvPaths; evaluate and build inside the container. The native run:
+
+```bash
+container volume create nagare-ep253-nix
+container run -d --name nagare-ep253-arm64 --arch arm64 --cpus 8 --memory 20G \
+  -v nagare-ep253-nix:/nix docker.io/nixos/nix:2.35.2 sleep infinity
+# Seed the volume from the image's /nix on first use, enable flakes, then:
+nix build --no-link --no-write-lock-file \
+  "git+file:///work/nagare?rev=$REV#packages.aarch64-linux.nagare-config-sdk" \
+  "git+file:///work/nagare?rev=$REV#packages.aarch64-linux.nagarectl"
+# Then stop that container and rerun on an isolated network for the check:
+container network create --internal nagare-ep253-isolated
+container run -d --name nagare-ep253-offline --arch arm64 --cpus 8 --memory 20G --no-dns \
+  --network nagare-ep253-isolated -v nagare-ep253-nix:/nix docker.io/nixos/nix:2.35.2 sleep infinity
+# Flake fetches need the network, so evaluate on the first container and build the .drv here:
+nix build --offline --option substitute false --print-build-logs "$CHECK_DRV^out"
+```
+
+The check's `evidence.json` output records architecture, compiler, package identity and exit statuses. The Mac's full gate omits `aarch64-linux`, so this run is the only proof of the check.
 
 ## Validation and Acceptance
 
