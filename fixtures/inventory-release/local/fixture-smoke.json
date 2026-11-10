@@ -17,6 +17,13 @@
       "bindings": [ { "env": "REDIS_URL", "service": "redis" } ]
     },
     {
+      "name": "workload-controls",
+      "directory": "apps/workload-controls",
+      "port": 8080,
+      "probe": { "path": "/ready", "status": 200 },
+      "bindings": [ { "env": "DATABASE_URL", "service": "postgres" } ]
+    },
+    {
       "name": "scenario-collision",
       "directory": "apps/scenario-collision",
       "skip": "Never deployed: composition must refuse it before any review is published. It names the scenario-b image with no Redis binding, so it would crash-loop if it were ever applied."

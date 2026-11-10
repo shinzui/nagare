@@ -27,6 +27,11 @@ provenance:
       at: 2026-11-10T05:51:00Z
       mode: "implement"
       note: "Recorded the M1 delivery audit; AC-5 remains open with named residuals."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-10T07:08:52Z
+      mode: "implement"
+      note: "Added the M2 fixture (smoke green); the live run stopped before any cluster mutation because gate verify refused the red b1fccafa record."
 ---
 
 # Qualify Application workload controls through the inventory journal and recovery
