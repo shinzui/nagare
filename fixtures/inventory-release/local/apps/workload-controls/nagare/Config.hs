@@ -12,7 +12,7 @@
 -- applied because Knative refuses the Service at admission otherwise.
 module Main (main) where
 
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Data.Bifunctor (first)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
@@ -96,8 +96,11 @@ applicationConfig registry accountName = do
   shutdownAllowance <- mkShutdownSeconds 60
   workerCommand <- mkCommand ["python", "/app/worker.py"]
   workerBase <- first Text.pack (webWorker "workload-controls-worker" sharedImage)
+  -- 'webWorker' defaults to a prebuilt @latest@; the worker shares the web
+  -- Service's build so both resolve to the one reviewed --tag.
   let worker =
         workerBase
+          & #build .~ (serviceBase ^. #build)
           & #command .~ Just workerCommand
           & #databases .~ [dbName]
           & #readiness .~ Just workerReady

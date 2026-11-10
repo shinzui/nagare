@@ -49,17 +49,24 @@ Confirm once, on a live cluster and from a native ARM64 Linux consumer, that the
 
 - [x] M1 (2026-11-09): The delivery audit is recorded in [IR-42](../improvement-requests/host-multi-role-applications-with-native-arm64-and-explicit-workload-contracts.md). AC-5 stays open with residuals AC5-R1 (private files), AC5-R2 (retained content) and AC5-R3 (role scoping).
 - [ ] M2: One native run confirms the controls on live Pods through a saved review, apply and resume; the release is published with upgrade instructions and an IR-42 acceptance map.
+  - [ ] M2 live half: not run. Stopped at review publication (see Surprises); no application object reached the cluster. Observed so far on the disposable `transition` context with the CLI packaged from `545182fe`: gate verify green, fixture smoke green, image `k3d-registry.localhost:5000/workload-controls:v1` published by `tx-7c44e1f0a0e43e0f9868e9a21cb95b8cdc2b4b6be4989d29431a5cd4ce30344b`.
 
 ## Surprises & Discoveries
 
 
-None during implementation yet.
+- Every `--hook-affects` hook refuses at review publication. `app deploy --hook-affects workload-controls-migrate=database:workload-controls-db --save-plan` stops with `StoreInvalidObject "reviews/ffe0ef7a…json" "observation Kubernetes envelope differs from reviewed operation"` (observed). The hook's completion operation lists the Job and the database StatefulSet (observed in `--dry-run --json`). `observationBytesFromMutation` requires `[mutationResource] == plannedResources` for `RunDeclaredOperation`, and the adapter's prepare selects only the Job from that list (inferred from `ObservationNative.hs` and `Adapters/Kubernetes.hs`). `WorkloadControlsInventorySpec.hs` proves its hook with one resource, so no test reaches this. `--hook-no-data-effects` would pass and is ruled out by this plan.
+- `webWorker` defaults to `PrebuiltImage latest`, so an Application whose Service uses a Dockerfile build refuses `app deploy --tag` with "application workloads resolve to different prepublished image tags" (observed). The fixture's worker now shares the Service's build. `cluster/examples/workload-controls` and `multi-workload-app` have the same shape (inferred, not deployed).
 
 ## Decision Log
 
 
 - Decision: Treat journal/recovery evidence as required acceptance and delivery claims as a bounded audit, because the user asked for native Nagare integration rather than a second deployment mechanism. Date: 2026-11-09.
 - Decision: Remove the integrated fault matrix and fold native confirmation and release into one milestone. Rationale: the three interpreter tests in EP-254 M2 cover what the new fields change; the remaining cases are properties of unchanged journal and recovery code with existing suites. One native run replaces three (operator, 2026-11-09). Date: 2026-11-09.
+- Decision: Deploy from the Mac rather than an ARM64 Apple container; a deviation from the plan's native ARM64 consumer. Rationale: the inventory store is a local file path on the Mac and the kubeconfig server is `0.0.0.0:59724`, so a container could reach them only through hand rewrites. EP-253 already proved ARM64 Linux `app check` and compilation. Date: 2026-11-09.
+- Decision: The fixture's migration task names the database's owned Secret for `DATABASE_URL`. Rationale: an Application hook receives the app and task environment only; workload database bindings are per workload (`Compile.hs`, `Tasks.hs`). Date: 2026-11-09.
+- Decision: The fixture fixes web scale at one replica and shortens readiness to a 5-second period, 3-second timeout and 3 failures. Rationale: a scaled-to-zero Pod cannot be observed, and a withdrawal must be seen within the check's window. Date: 2026-11-09.
+- Decision: The fixture worker drains for 40 seconds. Rationale: longer than the Kubernetes default of 30, so a clean exit proves the 60-second allowance took effect. Date: 2026-11-09.
+- Decision: The database outage is a hand-applied NetworkPolicy, outside the inventory, removed after the check. Rationale: it makes the database unreachable without patching the inventory-owned StatefulSet, which AC-6 forbids. Date: 2026-11-09.
 
 ## Outcomes & Retrospective
 
