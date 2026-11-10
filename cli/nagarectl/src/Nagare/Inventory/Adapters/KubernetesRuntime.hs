@@ -229,6 +229,15 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
                 Right (ExitFailure _, _, errors) | Just refusal <- kubectlRefusal (T.pack errors) -> pure (AdapterEffectFailed (KnownNoEffect refusal))
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
 
+-- | Attach the UID of the object a write returned. Output that names no UID
+-- leaves the effect unidentified, so the member stays unrecorded.
+identified :: String -> AdapterExecution -> AdapterExecution
+identified output outcome = maybe outcome (`AdapterEffectIdentified` outcome) returned
+  where
+    returned = either (const Nothing) Just $ do
+      value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)) :: Either String Value)
+      metadataOf value >>= fieldText "uid" >>= mkPhysicalIdentity
+
 handoverFailure :: Text
 handoverFailure = "Kubernetes managed-field handover failed"
 
@@ -254,15 +263,6 @@ handOverInventoryFields config address uid revision observed = case (inventoryFi
         metadataOf value >>= fieldText "resourceVersion"
       _ -> Left handoverFailure
   _ -> pure (Left "Kubernetes managed-field handover needs a Kubernetes address")
-
--- | Attach the UID of the object a write returned. Output that names no UID
--- leaves the effect unidentified, so the member stays unrecorded.
-identified :: String -> AdapterExecution -> AdapterExecution
-identified output outcome = maybe outcome (`AdapterEffectIdentified` outcome) returned
-  where
-    returned = either (const Nothing) Just $ do
-      value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)) :: Either String Value)
-      metadataOf value >>= fieldText "uid" >>= mkPhysicalIdentity
 
 -- | A review observes one explicit Kubernetes context. Validate the ambient
 -- context and server node before and after the read-only scan; discard every
