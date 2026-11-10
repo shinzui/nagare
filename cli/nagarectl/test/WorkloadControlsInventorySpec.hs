@@ -38,7 +38,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-import Nagare.Test.Model.Fixtures (appScope, bindMember, extraId, ok, workerId)
+import Nagare.Test.Model.Fixtures (appScope, bindMember, extraId, historyId, historyValue, ok, workerId)
 import Nagare.Test.World.Adversary (newAdversary)
 import Nagare.Test.World.ApiServer (settleControllers)
 import Nagare.Test.World.Kubernetes (KubeWorld, effectiveWrites, newKubeWorld, worldKubernetesAdapter)
@@ -154,8 +154,11 @@ controlChangesReview = do
 applyStopped :: IO (Prepared, TransactionId)
 applyStopped = do
   let worker = workerMember baseWorker [hookProofId]
-      proof = DeclaredOperation hookProofId (extraId :| []) [ContentInput (contentDigest (snd hookMember))] VerifyBeforeRetry PreDeployHook
-      members = Map.fromList [(workerId, worker), (extraId, hookMember)]
+      -- As the hook compiler declares it: the Job and the data the hook affects.
+      proof = DeclaredOperation hookProofId (extraId :| [historyId]) [ContentInput (contentDigest (snd hookMember))] VerifyBeforeRetry PreDeployHook
+      affected = bindMember historyId (historyValue "v1")
+      job = first (\member -> member {dependencies = [OrderedAfter historyId]}) hookMember
+      members = Map.fromList [(workerId, worker), (extraId, job), (historyId, affected)]
   prepared <- prepare members [proof] (Set.singleton (contentDigest (snd worker)))
   _ <- publishReview (store prepared) (bundle prepared) >>= expectRight
   snapshot <- readStoreSnapshot (store prepared) >>= expectRight

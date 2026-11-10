@@ -105,6 +105,8 @@ The EP-256 M1 audit found no supported way to deliver private regular files or i
 
 EP-253 found that `nix flake check --all-systems` cannot leave out a system, and the landing gate has no ARM64 Linux builder. The tooling-system list became a relative-path flake input that the full gate overrides ([FRIC-7](../friction-log/7-nix-flake-check-all-systems-cannot-leave-out-one-system.md)). The ARM64 consumer check is not wired into the candidate flow, so EP-256 runs it by hand from EP-253's Concrete Steps.
 
+EP-256's first live attempt found that an Application hook declared with `--hook-affects` could not publish its review: `ObservationNative.hs` required a mutation's one resource to equal the whole operation resource list, which for a hook is the Job plus the data it affects. The same defect would have stopped any such deploy. EP-254's hook test used a one-element list, so it now declares an affected resource, and the check accepts the Job the adapter selects. This is a change to review publication, outside the journal, `Inventory/Execute/` and the adapters.
+
 ## Decision Log
 
 

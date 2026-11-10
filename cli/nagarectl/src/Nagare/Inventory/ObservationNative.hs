@@ -128,7 +128,7 @@ observationBytesFromMutation context identity version operation bytes
               || (mutationVersion mutation == 3 && mutationAction mutation == UpdateResource && isJust (mutationTakeover mutation))
           )
             && mutationOperation mutation == plannedOperationId operation
-            && [mutationResource mutation] == NE.toList (plannedResources operation)
+            && namesReviewedResource (mutationResource mutation)
             && mutationAction mutation == plannedAction operation
             && mutationInputDigest mutation == plannedInputDigest operation
         )
@@ -139,6 +139,11 @@ observationBytesFromMutation context identity version operation bytes
           (mutationResource mutation)
           (mutationNativeDigest mutation)
           (mutationNativeJson mutation)
+    -- A declared operation's resources are its Job and the data it affects; its
+    -- envelope names the one Job. Every other mutation has a single resource.
+    namesReviewedResource resource
+      | plannedAction operation == RunDeclaredOperation = resource `elem` plannedResources operation
+      | otherwise = [resource] == NE.toList (plannedResources operation)
 
 -- | Only supplied declarations are read. No listing, review scan, head read,
 -- provider call, or packaged source lookup occurs here, including on a miss.
