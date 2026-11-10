@@ -62,7 +62,7 @@ The governing decisions are [ADR 22](../adr/0022-compose-independent-resource-sc
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|---|---|---|---|---|
-| EP-253 | Native ARM64 Linux SDK and CLI | [253](../plans/253-package-a-native-arm64-linux-configuration-sdk-and-cli.md) | None | None | In Progress |
+| EP-253 | Native ARM64 Linux SDK and CLI | [253](../plans/253-package-a-native-arm64-linux-configuration-sdk-and-cli.md) | None | None | Complete |
 | EP-254 | Workload controls: independent health checks, worker shutdown and token policy | [254](../plans/254-add-independent-application-worker-and-web-health-checks.md) | None | EP-256 M1 findings | Complete |
 | EP-255 | Shutdown and service-account token policy | [255](../plans/255-declare-application-workload-shutdown-and-service-account-token-policy.md) | — | — | Cancelled: merged into EP-254 |
 | EP-256 | Delivery audit, native confirmation and release | [256](../plans/256-qualify-application-workload-controls-through-the-inventory-journal-and-recovery.md) | M1: none; M2: EP-253 and EP-254 Complete | None | In Progress (M1 Complete) |
@@ -90,7 +90,7 @@ Journal changes are not assumed necessary. Reuse current events and retained evi
 ## Progress
 
 
-EP-254 is Complete and EP-256 M1 is Complete, leaving IR-42 AC-5 open with named residuals. EP-253 is In Progress. EP-255 is Cancelled. EP-256 M2 waits for EP-253; no live qualification or release is claimed.
+EP-253 and EP-254 are Complete and EP-256 M1 is Complete, leaving IR-42 AC-5 open with named residuals. EP-255 is Cancelled. EP-256 M2 is next; no live qualification or release is claimed.
 
 ## Surprises & Discoveries
 
@@ -102,6 +102,8 @@ Review on 2026-11-09 found three facts that changed the plan. The loaders ignore
 EP-254 read the Knative v1.22.0 source and changed the shape of two controls. Knative admits `automountServiceAccountToken` only when `false`, so a named account renders `serviceAccountName` alone. It also rewrites a single-container revision's probe port to the serving port without error, so the loader refuses any other port. The default revision timeout is 300 seconds, so a web Pod needs no typed request timeout. [ADR 36](../adr/0036-application-pods-hold-no-kubernetes-api-token-unless-they-name-an-account.md) records these.
 
 The EP-256 M1 audit found no supported way to deliver private regular files or identical retained bytes to Application roles. It also found three defects outside this initiative: `appDatabaseReaders` on Application workloads are silently dropped (`Compile.hs` refuses only `appDatabases`); `docs/user/workers.md` claims `nagarectl env` and `secret` work for a worker although `resolveAppOrDie` accepts no Worker config; and no test asserts Secret absence from journal detail, which EP-256's acceptance claims. The Kotei plan's assumption that the web role selects its binary by command does not hold, because a `Deployment` has no `command` field.
+
+EP-253 found that `nix flake check --all-systems` cannot leave out a system, and the landing gate has no ARM64 Linux builder. The tooling-system list became a relative-path flake input that the full gate overrides ([FRIC-7](../friction-log/7-nix-flake-check-all-systems-cannot-leave-out-one-system.md)). The ARM64 consumer check is not wired into the candidate flow, so EP-256 runs it by hand from EP-253's Concrete Steps.
 
 ## Decision Log
 
