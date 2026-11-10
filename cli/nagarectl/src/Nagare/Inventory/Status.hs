@@ -24,6 +24,7 @@ module Nagare.Inventory.Status
   , loadRebindNative
   , loadAbsenceNative
   , acceptedKubernetesNative
+  , kubernetesMembersForReview
   , loadRetainedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
@@ -49,7 +50,7 @@ import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical)
 import Nagare.Inventory.Journal
-import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
+import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview, replacementMembers)
 import Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.ObservationNative
 import Nagare.Inventory.Plan
@@ -508,6 +509,26 @@ acceptedKubernetesNative purpose members store
                 selected <- Map.restrictKeys . fst <$> native <*> pure wanted
                 unless (Map.keysSet selected == wanted) (Left (purpose <> " lacks its members' accepted native evidence"))
                 pure selected
+
+-- | The members the Kubernetes adapter of one saved review binds: the review's
+-- own, those the command loaded for its retirements and data sources, and the
+-- accepted members admission rereads (a rebind, F80; an absence, F83; the
+-- unchanged member a stuck-pod replacement touches, F86). `inventory apply`
+-- binds through this, and the tests that apply a review call it too, so a
+-- review the command cannot bind cannot pass a test.
+kubernetesMembersForReview ::
+  InventoryStore ->
+  ReviewBundle ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
+kubernetesMembersForReview store bundle loaded = case kubernetesSpecsFromReview bundle of
+  Left reason -> pure (Left reason)
+  Right reviewed -> do
+    let document = reviewBundleDocument bundle
+    rebound <- loadRebindNative store document
+    absent <- loadAbsenceNative store document
+    replaced <- acceptedKubernetesNative "a reviewed pod replacement" (replacementMembers document) store
+    pure (Map.unions . ([reviewed, loaded] <>) <$> sequence [rebound, absent, replaced])
 
 -- | The accepted inventory a history records.
 acceptedInventoryOf :: InventoryHistory -> Either Text ValidatedInventory

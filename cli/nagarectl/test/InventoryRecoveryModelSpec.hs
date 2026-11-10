@@ -705,36 +705,31 @@ reviewAndApplyWith identity decide run volume image historyImage = do
 -- | Retire the application scope, retaining its members, as `inventory
 -- retire` plans it.
 retireAndApply :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
-retireAndApply run volume image historyImage = do
-  planned <- asOperator run (planRetirement run volume image historyImage)
-  case planned of
-    Left err -> pure (Left err)
-    Right (registry, reviewed) -> do
-      cli <- startTransaction run >> retirementRegistryFor run reviewed
-      applied <- applyAsOperator run cli reviewed
-      Right . (cli,reviewed,) <$> classify run applied
+retireAndApply run volume image historyImage =
+  asOperator run (planRetirement run volume image historyImage) >>= applyPlanned run
 
 -- | Retire one scope, retaining its members, as `inventory retire` plans it.
 scopeRetireAndApply :: Run -> ScopeId -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
-scopeRetireAndApply run scope volume image historyImage = do
-  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith "operator-cli" store registry (RetireScope scope RetainResources) decideRetirement)
-  case planned of
-    Left err -> pure (Left err)
-    Right (registry, reviewed) -> do
-      cli <- startTransaction run >> retirementRegistryFor run reviewed
-      applied <- applyAsOperator run cli reviewed
-      Right . (cli,reviewed,) <$> classify run applied
+scopeRetireAndApply run scope volume image historyImage =
+  asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith run "operator-cli" store registry (RetireScope scope RetainResources) decideRetirement) >>= applyPlanned run
+
+applyPlanned :: Run -> Either Text (AdapterRegistry, ReviewedPlan) -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+applyPlanned _ (Left err) = pure (Left err)
+applyPlanned run (Right (registry, reviewed)) = do
+  startTransaction run
+  applied <- applyAsOperator run registry reviewed
+  Right . (registry,reviewed,) <$> classify run applied
 
 planRetirement :: Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
 planRetirement run volume image historyImage store =
-  registryFor run volume image historyImage >>= \registry -> planWith "operator-cli" store registry (RetireScope appScope RetainResources) decideRetirement
+  registryFor run volume image historyImage >>= \registry -> planWith run "operator-cli" store registry (RetireScope appScope RetainResources) decideRetirement
 
 -- | Review and apply the standalone database scope at one compiled revision.
 databaseAndApply :: Run -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString)) -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
 databaseAndApply run decide (scope, native) volume image historyImage = do
   -- As production builds it: the reviewed revision's native specs.
   writeIORef (runDatabase run) native
-  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith "operator-cli" store registry (ReplaceScope scope) decide)
+  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith run "operator-cli" store registry (ReplaceScope scope) decide)
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
@@ -838,16 +833,17 @@ headIdle run = maybe True (isNothing . headActiveTransaction) <$> (inspectHead r
 
 planReview :: Text -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
 planReview identity decide run volume image historyImage store =
-  registryFor run volume image historyImage >>= \registry -> planWith identity store registry (ReplaceScope (scopeFor volume image historyImage)) decide
+  registryFor run volume image historyImage >>= \registry -> planWith run identity store registry (ReplaceScope (scopeFor volume image historyImage)) decide
 
 planWith ::
+  Run ->
   Text ->
   InventoryStore ->
   AdapterRegistry ->
   ScopeChange ->
   (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
   IO (Either Text (AdapterRegistry, ReviewedPlan))
-planWith identity store registry change decide = do
+planWith run identity store registry change decide = do
   loaded <- loadInventoryHistory store >>= orTrouble "load history"
   let accepted = historyAccepted loaded
       snapshot = ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) accepted) (historyReservations loaded))
@@ -871,7 +867,8 @@ planWith identity store registry change decide = do
             Right bundle -> do
               _ <- publishReview store bundle >>= orTrouble "publish review"
               published <- readStoreSnapshot store >>= orTrouble "read snapshot"
-              pure (first (T.pack . show . NE.toList) ((registry,) <$> verifyReview published bundle))
+              -- The registry that applies a review binds that review, as the CLI does.
+              traverse (\reviewed -> (,reviewed) <$> reviewRegistryFor run bundle) (first (T.pack . show . NE.toList) (verifyReview published bundle))
 
 classify :: (Show e) => Run -> Either Interrupted (Either e TransactionResult) -> IO Applied
 classify run applied = case applied of

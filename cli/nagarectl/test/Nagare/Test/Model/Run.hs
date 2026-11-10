@@ -29,7 +29,7 @@ module Nagare.Test.Model.Run
   , inspectIncarnations
   , orFail
   , registryFor
-  , retirementRegistryFor
+  , reviewRegistryFor
   )
 where
 
@@ -43,7 +43,7 @@ import Data.Text qualified as T
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry)
-import Nagare.Inventory.Plan (InventoryHistory, ReviewedPlan, loadInventoryHistory, reviewAbsences, reviewRetentions, reviewedDocument)
+import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle, loadInventoryHistory, reviewBundleDocument, reviewCollections, reviewRetentions)
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps (ObjectOps (..))
@@ -226,23 +226,22 @@ inspectIncarnations run headValue = let InspectStore store = runInspect run in S
 orFail :: (Show e) => String -> Either e a -> IO a
 orFail context = either (\err -> assertFailure (context <> ": " <> show err) >> pure (error "unreachable")) pure
 
--- | As production builds it for one review: the reviewed members' specs.
+-- | For planning and observing, which no saved review binds yet.
 registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
   adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)
   pure (ok (mkAdapterRegistry [adapter]))
 
--- | As `inventory apply` builds it for a retirement (F83). A retirement has
--- no operations, so the members bound are those admission rereads: each
--- retained, rebound or absent member, from its accepted native bytes. The
--- model never binds more than the command does.
-retirementRegistryFor :: Run -> ReviewedPlan -> IO AdapterRegistry
-retirementRegistryFor run reviewed = do
+-- | As `inventory apply` builds it for one saved review, through the
+-- function the command calls. The command loads a retiring member's accepted
+-- native bytes before binding, so the model does too; it never binds more
+-- than the command does.
+reviewRegistryFor :: Run -> ReviewBundle -> IO AdapterRegistry
+reviewRegistryFor run bundle = do
   let InspectStore store = runInspect run
-      document = reviewedDocument reviewed
-  retained <- Status.acceptedKubernetesNative "a reviewed retention" (Map.keysSet (reviewRetentions document)) store >>= orFail "retained native"
-  rebound <- Status.loadRebindNative store document >>= orFail "rebound native"
-  absent <- Status.loadAbsenceNative store document >>= orFail "absent native"
-  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (Map.unions [retained, rebound, absent]) (runWorld run) (runAdversary run)
+      document = reviewBundleDocument bundle
+  retiring <- Status.acceptedKubernetesNative "a reviewed retirement" (Map.keysSet (reviewRetentions document) <> Map.keysSet (reviewCollections document)) store >>= orFail "retiring native"
+  members <- Status.kubernetesMembersForReview store bundle retiring >>= orFail "review members"
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) members (runWorld run) (runAdversary run)
   pure (ok (mkAdapterRegistry [adapter]))

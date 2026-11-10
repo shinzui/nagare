@@ -129,7 +129,6 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesReview
   ( kubernetesSpecsFromReview
-  , replacementMembers
   )
 import Nagare.Inventory.LiveRestoreAdapter (liveRestoreRuntime)
 import Nagare.Inventory.LiveRestoreFence
@@ -518,26 +517,10 @@ inventoryExecutionRegistryWith binding session mctx inventory bundle = do
           (Set.union (Map.keysSet selectedKubernetes) (Map.keysSet selectedHelm) == retiredIds)
           (dieT "retirement review lacks accepted immutable native evidence")
         pure (selectedKubernetes, selectedHelm)
-  -- A rebind writes nothing; admission reverifies its members through their
-  -- accepted native bytes (ADR 27 §3; F80).
-  rebindSpecs <- InventoryStatus.loadRebindNative store document >>= either dieT pure
-  -- F83: and rereads each member a review proved absent.
-  absenceSpecs <- InventoryStatus.loadAbsenceNative store document >>= either dieT pure
-  -- F86: and the unchanged member whose stuck pod a review replaces.
-  replacementSpecs <- InventoryStatus.acceptedKubernetesNative "a reviewed pod replacement" (replacementMembers document) store >>= either dieT pure
-  let kubernetesSpecs =
-        Map.restrictKeys
-          (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative, rebindSpecs, absenceSpecs, replacementSpecs])
-          ( Set.unions
-              [ selected ResourceInventory.KubernetesExecutor
-              , Map.keysSet sourceNative
-              , Map.keysSet retiringKubernetesSpecs
-              , Map.keysSet rebindSpecs
-              , Map.keysSet absenceSpecs
-              , Map.keysSet replacementSpecs
-              ]
-          )
-      allHelmSpecs =
+  kubernetesSpecs <-
+    InventoryStatus.kubernetesMembersForReview store bundle (Map.union retiringKubernetesSpecs sourceNative)
+      >>= either dieT pure
+  let allHelmSpecs =
         Map.restrictKeys
           (Map.union helmSpecs retiringHelmSpecs)
           (selected ResourceInventory.HelmExecutor `Set.union` Map.keysSet retiringHelmSpecs)

@@ -33,6 +33,7 @@ import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTr
 import Nagare.Inventory.Journal (TransactionId)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status (kubernetesMembersForReview)
 import Nagare.Inventory.Store
 import Nagare.Inventory.TaskRun (jobFromCronJob)
 import Nagare.Resource.Inventory
@@ -166,10 +167,7 @@ applyStopped = do
   _ <- publishReview (store prepared) (bundle prepared) >>= expectRight
   snapshot <- readStoreSnapshot (store prepared) >>= expectRight
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot (bundle prepared))
-  -- Execution binds the adapter to the review's own native members, as the CLI does.
-  retained <- expectRight (kubernetesSpecsFromReview (bundle prepared))
-  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) retained (world prepared) (adversaryOf prepared)
-  let reviewedRegistry = ok (mkAdapterRegistry [adapter])
+  reviewedRegistry <- registryForReview prepared (bundle prepared)
   result <- applyReviewed (store prepared) reviewedRegistry reviewed >>= expectRight
   transaction <- case result of
     Converged _ -> assertFailure "a Deployment that never became ready converged"
@@ -177,6 +175,13 @@ applyStopped = do
     StoppedAmbiguous tx _ _ -> pure tx
     other -> assertFailure ("unexpected stop: " <> show other)
   pure (prepared {registry = reviewedRegistry}, transaction)
+
+-- | Execution binds the adapter to the review's members, as the CLI does.
+registryForReview :: Prepared -> ReviewBundle -> IO AdapterRegistry
+registryForReview prepared review = do
+  members <- kubernetesMembersForReview (store prepared) review Map.empty >>= expectRight
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) members (world prepared) (adversaryOf prepared)
+  pure (ok (mkAdapterRegistry [adapter]))
 
 -- | Let the worker's readiness probe pass, as a fixed dependency would.
 readinessRecovers :: Prepared -> IO ()
@@ -221,7 +226,7 @@ resumeKeepsCompletedHook = do
 updateRemovesDroppedField :: Assertion
 updateRemovesDroppedField = do
   created <- prepare (Map.singleton workerId (workerMember baseWorker [])) [] Set.empty
-  applyConverges created (registry created) (bundle created)
+  applyConverges created (bundle created)
   let named = workerMember (baseWorker & #serviceAccount .~ Just (ok (mkServiceAccountName "controlled-reader"))) []
       scope = ok (mkScopeDeclaration appScope [ResourceBundle [Managed (fst named)] [] [] [] [] []])
   history <- loadInventoryHistory (store created) >>= expectRight
@@ -234,7 +239,7 @@ updateRemovesDroppedField = do
   observations <- observeWithRegistry registry' (requirementsByExecutor (observationRequirements candidate planning)) >>= expectRight
   before <- readStoreSnapshot (store created) >>= expectRight
   update <- prepareReview registry' before (ok (planChanges candidate noLifecycleDecisions planning observations)) >>= expectRight
-  applyConverges created registry' update
+  applyConverges created update
   server <- (^. #server) <$> readIORef (world created)
   live <-
     case [key | key@(ObjectKey _ "deployment" _ _) <- Map.keys (server ^. #objects)] of
@@ -244,10 +249,11 @@ updateRemovesDroppedField = do
   assertBool "the account is on the live object" (BS.isInfixOf "controlled-reader" bytes)
   assertBool "the dropped token setting is gone from the live object" (not (BS.isInfixOf "automountServiceAccountToken" bytes))
   where
-    applyConverges prepared registry' review = do
+    applyConverges prepared review = do
       _ <- publishReview (store prepared) review >>= expectRight
       snapshot <- readStoreSnapshot (store prepared) >>= expectRight
       reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot review)
+      registry' <- registryForReview prepared review
       result <- applyReviewed (store prepared) registry' reviewed >>= expectRight
       case result of
         Converged _ -> pure ()
