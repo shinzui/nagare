@@ -67,6 +67,9 @@ scenario-b image, which needs `REDIS_URL`, with a PostgreSQL binding.
 - Before any native step: `just gate-verify <rev>` must print `green`. It refuses a missing, red or
   dirty-tree record, a record for a different tree, a failed probe, and any `release.json` system
   without every check realised.
+- A native run on a disposable local cluster (`mode=local`, thrown away afterwards) needs only a green
+  `just gate-fast` record at the exact revision (operator decision, 2026-11-10). `just gate-verify` is
+  still required for cp3, any cloud context, the intranet and every release.
 - A green result from an earlier revision is not a green result for this one.
 
 ## 4. Scripts and the evidence pipeline are rehearsed
