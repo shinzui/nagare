@@ -39,7 +39,7 @@ import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures (appScope, bindMember, extraId, historyId, historyValue, ok, workerId)
-import Nagare.Test.World.Adversary (newAdversary)
+import Nagare.Test.World.Adversary (Adversary, newAdversary)
 import Nagare.Test.World.ApiServer (settleControllers)
 import Nagare.Test.World.Kubernetes (KubeWorld, effectiveWrites, newKubeWorld, worldKubernetesAdapter)
 import Test.Tasty
@@ -92,6 +92,7 @@ data Prepared = Prepared
   , proposal :: !ChangeProposal
   , bundle :: !ReviewBundle
   , world :: !(IORef KubeWorld)
+  , adversaryOf :: !(IORef Adversary)
   , native :: !(Map.Map ResourceId (ManagedResource, ByteString))
   }
 
@@ -113,7 +114,7 @@ prepare members operations unready = do
       proposal' = ok (planChanges candidate noLifecycleDecisions history observations)
   before <- readStoreSnapshot store' >>= expectRight
   bundle' <- prepareReview registry' before proposal' >>= expectRight
-  pure (Prepared store' registry' proposal' bundle' world' members)
+  pure (Prepared store' registry' proposal' bundle' world' adversary members)
 
 -- | The input digest of each resource's single operation of this action.
 inputDigests :: OperationAction -> ChangeProposal -> Map.Map ResourceId ContentDigest
@@ -163,13 +164,17 @@ applyStopped = do
   _ <- publishReview (store prepared) (bundle prepared) >>= expectRight
   snapshot <- readStoreSnapshot (store prepared) >>= expectRight
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot (bundle prepared))
-  result <- applyReviewed (store prepared) (registry prepared) reviewed >>= expectRight
+  -- Execution binds the adapter to the review's own native members, as the CLI does.
+  retained <- expectRight (kubernetesSpecsFromReview (bundle prepared))
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) retained (world prepared) (adversaryOf prepared)
+  let reviewedRegistry = ok (mkAdapterRegistry [adapter])
+  result <- applyReviewed (store prepared) reviewedRegistry reviewed >>= expectRight
   transaction <- case result of
     Converged _ -> assertFailure "a Deployment that never became ready converged"
     StoppedFailed tx _ _ -> pure tx
     StoppedAmbiguous tx _ _ -> pure tx
     other -> assertFailure ("unexpected stop: " <> show other)
-  pure (prepared, transaction)
+  pure (prepared {registry = reviewedRegistry}, transaction)
 
 -- | Let the worker's readiness probe pass, as a fixed dependency would.
 readinessRecovers :: Prepared -> IO ()

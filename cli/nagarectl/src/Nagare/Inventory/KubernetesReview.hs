@@ -63,8 +63,12 @@ kubernetesSpecsFromReview bundle = do
     agree [] = Left "review has an empty Kubernetes native member group"
     reconstruct context declarationsById reviewOperation = do
       let operation = reviewPlannedOperation reviewOperation
-      resource <- case NE.toList (plannedResources operation) of
-        [single] -> Right single
+      resource <- case (plannedAction operation, NE.toList (plannedResources operation)) of
+        -- A declared operation's resources are its Job and the data it affects.
+        (RunDeclaredOperation, affected) -> case filter (isBoundJob declarationsById) affected of
+          [job] -> Right job
+          _ -> Left "reviewed Kubernetes declared operation does not name exactly one Job"
+        (_, [single]) -> Right single
         _ -> Left "reviewed Kubernetes operation does not name exactly one resource"
       declaration <-
         maybe
@@ -157,6 +161,11 @@ kubernetesSpecsFromReview bundle = do
             )
         )
       pure (resource, (declaration, native))
+
+isBoundJob :: Map ResourceId ManagedResource -> ResourceId -> Bool
+isBoundJob declarations resource = case (^. #address) <$> Map.lookup resource declarations of
+  Just (Kubernetes _ "batch" kind _ _) -> nameText kind == "job"
+  _ -> False
 
 -- | The members whose stuck pod a review replaces.
 replacementMembers :: ReviewDocument -> Set.Set ResourceId
