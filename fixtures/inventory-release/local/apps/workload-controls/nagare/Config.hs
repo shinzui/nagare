@@ -9,7 +9,8 @@
 -- With no account named, each Pod runs tokenless. Set
 -- @WORKLOAD_CONTROLS_SERVICE_ACCOUNT@ when loading this file to run web, worker
 -- and task under that existing account; it must exist before the review is
--- applied because Knative refuses the Service at admission otherwise.
+-- applied because Knative refuses the Service at admission otherwise. Set
+-- @WORKLOAD_CONTROLS_NAME@ to deploy a separate instance under another name.
 module Main (main) where
 
 import Control.Lens ((&), (.~), (^.))
@@ -47,15 +48,15 @@ import Nagare.Dsl.Types
 import Nagare.Dsl.Worker (execProbe, mkCommand, mkShutdownSeconds, webWorker)
 import System.Environment (lookupEnv)
 
-applicationConfig :: Text -> Maybe Text -> Either Text Application
-applicationConfig registry accountName = do
-  appName <- mkServiceName "workload-controls"
+applicationConfig :: Text -> Maybe Text -> Text -> Either Text Application
+applicationConfig registry accountName baseName = do
+  appName <- mkServiceName baseName
   ns <- mkNamespace "personal"
   let sharedImage = registry <> "/workload-controls"
   img <- mkImageRef sharedImage
   account <- traverse mkServiceAccountName accountName
 
-  dbName <- DB.mkDatabaseName "workload-controls-db"
+  dbName <- DB.mkDatabaseName (baseName <> "-db")
   ver <- DB.mkEngineVersion DB.Postgres "18"
   dbSize <- mkQuantity "1Gi"
   let db =
@@ -75,7 +76,7 @@ applicationConfig registry accountName = do
   alive <- httpCheck "/healthz"
   started <- httpCheck "/started"
   scale <- mkScale 1 1
-  serviceBase <- webService "workload-controls-web" sharedImage
+  serviceBase <- webService (baseName <> "-web") sharedImage
   let service =
         serviceBase
           & #databases .~ [dbName]
@@ -95,7 +96,7 @@ applicationConfig registry accountName = do
   workerAlive <- execProbe ["test", "-f", "/tmp/alive"]
   shutdownAllowance <- mkShutdownSeconds 60
   workerCommand <- mkCommand ["python", "/app/worker.py"]
-  workerBase <- first Text.pack (webWorker "workload-controls-worker" sharedImage)
+  workerBase <- first Text.pack (webWorker (baseName <> "-worker") sharedImage)
   -- 'webWorker' defaults to a prebuilt @latest@; the worker shares the web
   -- Service's build so both resolve to the one reviewed --tag.
   let worker =
@@ -112,7 +113,7 @@ applicationConfig registry accountName = do
   -- Secret directly to reach the same database.
   databaseUrl <- mkEnvName "DATABASE_URL"
   credential <- mkSecretName (DB.dbSecretName (DB.databaseNameText dbName))
-  migrateName <- mkServiceName "workload-controls-migrate"
+  migrateName <- mkServiceName (baseName <> "-migrate")
   sched <- mkSchedule "0 0 * * *"
   migrate <-
     mkTask
@@ -156,4 +157,5 @@ main :: IO ()
 main = do
   registry <- maybe "k3d-registry.localhost:5000" Text.pack <$> lookupEnv "NAGARE_REGISTRY_HOST"
   account <- fmap Text.pack <$> lookupEnv "WORKLOAD_CONTROLS_SERVICE_ACCOUNT"
-  either (ioError . userError . Text.unpack) emitApplication (applicationConfig registry account)
+  baseName <- maybe "workload-controls" Text.pack <$> lookupEnv "WORKLOAD_CONTROLS_NAME"
+  either (ioError . userError . Text.unpack) emitApplication (applicationConfig registry account baseName)
