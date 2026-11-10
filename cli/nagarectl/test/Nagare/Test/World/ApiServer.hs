@@ -78,6 +78,7 @@ import Data.Text.Read qualified as TR
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Test.World.Kinds
+import Nagare.Test.World.ManagedFields
 import Nagare.Test.World.Quantity (canonicalize)
 import Nagare.Test.World.Validation (immutableViolation, missingRequired)
 
@@ -98,18 +99,6 @@ data Outcome
   | -- | Fails terminally (a Job).
     Failed
   deriving stock (Eq, Show)
-
-data Operation = Apply | Update
-  deriving stock (Eq, Ord, Show)
-
--- | One @managedFields@ entry: who owns which leaf paths.
-data FieldsEntry = FieldsEntry
-  { manager :: !Text
-  , operation :: !Operation
-  , subresource :: !(Maybe Text)
-  , fields :: !(Set.Set [Text])
-  }
-  deriving stock (Eq, Show, Generic)
 
 -- | A StatefulSet's pod, which the StatefulSet controller owns.
 data Pod = Pod
@@ -284,26 +273,9 @@ patchJson managerName key operations server = do
 -- no field and no generation move, and the resourceVersion does.
 replaceManaged :: ObjectKey -> Stored -> Value -> ApiServer -> Either ApiRefusal (ApiServer, Value)
 replaceManaged key stored value server = do
-  entries <- case value of
-    Array items -> traverse parseEntry (V.toList items)
-    _ -> Left (invalid "metadata.managedFields must be a list")
+  entries <- first invalid (parseManagedFields value)
   let server' = bumped key (stored & #managed .~ normalizeEntries entries) server
   Right (server', maybe Null (render False) (Map.lookup key (objects server')))
-  where
-    parseEntry entry = do
-      managerName <- maybe (Left (invalid "a managed-field entry has no manager")) Right (textAt ["manager"] entry)
-      operation' <- case textAt ["operation"] entry of
-        Just "Apply" -> Right Apply
-        Just "Update" -> Right Update
-        _ -> Left (invalid "a managed-field entry has no operation")
-      Right (FieldsEntry managerName operation' (textAt ["subresource"] entry) (Set.fromList (treePaths (leafAt ["fieldsV1"] entry))))
-    treePaths (Object fields)
-      | KM.null fields = [[]]
-      | otherwise = [segment key' <> rest | (key', sub) <- KM.toList fields, rest <- treePaths sub]
-    treePaths _ = [[]]
-    segment key' = case Key.toText key' of
-      "." -> ["."]
-      other -> [fromMaybe other (T.stripPrefix "f:" other)]
 
 patchJsonContent :: Text -> ObjectKey -> [Value] -> Stored -> ApiServer -> Either ApiRefusal (ApiServer, Value)
 patchJsonContent managerName key operations stored server = do
@@ -491,27 +463,6 @@ render withManagedFields stored =
       metadata' = foldr (\(k, v) -> KM.insert (Key.fromText k) v) metadata serverMetadata
       withStatus = if stored ^. #status == Null then id else KM.insert "status" (stored ^. #status)
    in Object (withStatus (KM.insert "metadata" (Object metadata') base))
-
-renderEntry :: FieldsEntry -> Value
-renderEntry entry =
-  object
-    ( [ "manager" .= (entry ^. #manager)
-      , "operation" .= tshow (entry ^. #operation)
-      , "apiVersion" .= ("v1" :: Text)
-      , "time" .= ("2026-10-06T00:00:00Z" :: Text)
-      , "fieldsType" .= ("FieldsV1" :: Text)
-      , "fieldsV1" .= fieldsTree (Set.toList (entry ^. #fields))
-      ]
-        <> ["subresource" .= s | Just s <- [entry ^. #subresource]]
-    )
-  where
-    fieldsTree paths =
-      Object
-        ( KM.fromList
-            [ (Key.fromText (if head' == "." then "." else "f:" <> head'), fieldsTree [rest | (h : rest) <- paths, h == head', not (null rest)])
-            | head' <- nubOrd [h | h : _ <- paths]
-            ]
-        )
 
 -- * Controllers
 

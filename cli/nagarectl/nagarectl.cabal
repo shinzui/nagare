@@ -764,6 +764,7 @@ test-suite nagarectl-test
     Nagare.Test.World.Kinds
     Nagare.Test.World.Kubectl
     Nagare.Test.World.Kubernetes
+    Nagare.Test.World.ManagedFields
     Nagare.Test.World.ObjectStore
     Nagare.Test.World.Quantity
     Nagare.Test.World.Store
