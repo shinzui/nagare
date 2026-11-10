@@ -45,6 +45,7 @@ import Nagare.Dsl.Types
   , mkNamespace
   , mkPort
   , mkQuantity
+  , mkServiceAccountName
   , mkServiceName
   )
 import Nagare.Dsl.Worker
@@ -56,6 +57,7 @@ import Nagare.Dsl.Worker
   , mkHttpProbe
   , mkProbeTiming
   , mkReplicas
+  , mkShutdownSeconds
   , mkTcpProbe
   )
 import Nagare.Resource.Types (mkLogicalKey)
@@ -87,6 +89,9 @@ data JsonWorker = JsonWorker
   , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
   , liveness :: !(Maybe JsonWorkerProbe)
+  , readiness :: !(Maybe JsonWorkerProbe)
+  , shutdownSeconds :: !(Maybe Int)
+  , serviceAccount :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -111,6 +116,9 @@ instance FromJSON JsonWorker where
       <*> o .:? "appDatabaseReaders" .!= []
       <*> o .:? "brokers" .!= []
       <*> o .:? "liveness"
+      <*> o .:? "readiness"
+      <*> o .:? "shutdownSeconds"
+      <*> o .:? "serviceAccount"
 
 -- | The intermediate decode shape for a 'WorkerProbe' (mirrors
 -- 'Nagare.Dsl.Config'\'s @workerProbeJSON@). The @kind@ selects the mechanism;
@@ -146,31 +154,32 @@ instance FromJSON JsonWorkerProbe where
       <*> o .:? "failureThreshold" .!= 3
       <*> o .:? "asStartup" .!= False
 
--- | Re-validate a decoded liveness probe, dispatching on the @kind@ and re-running
--- the relevant smart constructor (and 'mkProbeTiming' / 'mkPort'). A missing
--- per-kind field or unknown kind/scheme is a precise 'MarshalError "liveness*"'.
-toWorkerProbe :: JsonWorkerProbe -> Either LoadError WorkerProbe
-toWorkerProbe j =
+-- | Re-validate a decoded probe, dispatching on the @kind@ and re-running the
+-- relevant smart constructor (and 'mkProbeTiming' / 'mkPort'). The first argument
+-- names the probe, so a missing per-kind field or unknown kind/scheme is a
+-- precise 'MarshalError' under that name.
+toWorkerProbe :: Text -> JsonWorkerProbe -> Either LoadError WorkerProbe
+toWorkerProbe field j =
   case j ^. #kind of
     "Exec" -> do
       argv <-
-        maybe (Left (MarshalError "liveness" "Exec probe missing 'command' field")) Right (j ^. #command)
-      first (MarshalError "liveness") (mkExecProbe argv timing)
+        maybe (Left (MarshalError field "Exec probe missing 'command' field")) Right (j ^. #command)
+      first (MarshalError field) (mkExecProbe argv timing)
     "Tcp" -> do
-      p <- maybe (Left (MarshalError "liveness" "Tcp probe missing 'port' field")) Right (j ^. #port)
-      port <- first (MarshalError "liveness.port") (mkPort p)
-      t <- first (MarshalError "liveness") (mkProbeTiming timing)
+      p <- maybe (Left (MarshalError field "Tcp probe missing 'port' field")) Right (j ^. #port)
+      port <- first (MarshalError (field <> ".port")) (mkPort p)
+      t <- first (MarshalError field) (mkProbeTiming timing)
       Right (mkTcpProbe port t)
     "Http" -> do
       path <-
-        maybe (Left (MarshalError "liveness" "Http probe missing 'path' field")) Right (j ^. #path)
-      mport <- traverse (first (MarshalError "liveness.checkPort") . mkPort) (j ^. #checkPort)
+        maybe (Left (MarshalError field "Http probe missing 'path' field")) Right (j ^. #path)
+      mport <- traverse (first (MarshalError (field <> ".checkPort")) . mkPort) (j ^. #checkPort)
       scheme <- case fromMaybe "HTTP" (j ^. #scheme) of
         "HTTP" -> Right HTTP
         "HTTPS" -> Right HTTPS
-        other -> Left (MarshalError "liveness.scheme" ("unknown scheme: " <> other))
-      first (MarshalError "liveness") (mkHttpProbe path mport scheme timing)
-    other -> Left (MarshalError "liveness.kind" ("unknown probe kind: " <> other))
+        other -> Left (MarshalError (field <> ".scheme") ("unknown scheme: " <> other))
+      first (MarshalError field) (mkHttpProbe path mport scheme timing)
+    other -> Left (MarshalError (field <> ".kind") ("unknown probe kind: " <> other))
   where
     timing =
       ProbeTiming
@@ -180,6 +189,13 @@ toWorkerProbe j =
         , failureThreshold = j ^. #failureThreshold
         , asStartup = j ^. #asStartup
         }
+
+-- | A readiness probe has no startup form: 'asStartup' repeats a liveness check.
+toReadinessProbe :: JsonWorkerProbe -> Either LoadError WorkerProbe
+toReadinessProbe j
+  | j ^. #asStartup =
+      Left (MarshalError "readiness.asStartup" "asStartup applies only to a liveness probe")
+  | otherwise = toWorkerProbe "readiness" j
 
 -- | Re-validate a decoded worker: re-run every smart constructor
 -- ('mkServiceName', 'mkNamespace', 'mkImageRef', 'mkReplicas', 'mkCommand', the
@@ -204,7 +220,10 @@ toWorker j = do
   appDbRefs' <- traverse (first (MarshalError "appDatabases") . mkAppDatabaseName) (j ^. #appDatabases)
   readerRefs' <- traverse toAppDatabaseReaderRef (j ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
-  liveness' <- traverse toWorkerProbe (j ^. #liveness)
+  liveness' <- traverse (toWorkerProbe "liveness") (j ^. #liveness)
+  readiness' <- traverse toReadinessProbe (j ^. #readiness)
+  shutdown' <- traverse (first (MarshalError "shutdownSeconds") . mkShutdownSeconds) (j ^. #shutdownSeconds)
+  serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (j ^. #serviceAccount)
   Right
     Worker
       { name = name'
@@ -222,6 +241,9 @@ toWorker j = do
       , appDatabaseReaders = readerRefs'
       , brokers = brokerRefs'
       , liveness = liveness'
+      , readiness = readiness'
+      , shutdown = shutdown'
+      , serviceAccount = serviceAccount'
       }
 
 toWorkerResources :: JsonWorker -> Either LoadError (Maybe Resources)

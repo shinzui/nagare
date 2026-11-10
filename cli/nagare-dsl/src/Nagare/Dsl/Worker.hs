@@ -34,6 +34,11 @@ module Nagare.Dsl.Worker
   , execProbe
   , probeTiming
 
+    -- * Shutdown allowance
+  , ShutdownSeconds
+  , mkShutdownSeconds
+  , shutdownSecondsInt
+
     -- * Worker
   , Worker (..)
 
@@ -61,6 +66,7 @@ import Nagare.Dsl.Types
   , Port
   , Resources
   , ScopedEnvVar
+  , ServiceAccountName
   , ServiceName
   , Volume
   , defaultNamespace
@@ -96,7 +102,7 @@ replicasInt (Replicas n) = n
 
 -- | Probe timing, shared across every 'WorkerProbe' branch. All durations are in
 -- seconds. Construct via 'mkProbeTiming' (validates the ranges) or
--- 'defaultProbeTiming'. The range rules mirror 'Nagare.Dsl.Types.mkHealthCheck'.
+-- 'defaultProbeTiming'. The range rules mirror 'Nagare.Dsl.Types.mkHttpCheck'.
 data ProbeTiming = ProbeTiming
   { initialDelay :: !Int
   -- ^ seconds before the first probe; @>= 0@.
@@ -125,7 +131,7 @@ mkProbeTiming t
 
 -- | The default probe timing: first probe immediately, every 10s, 1s timeout, 3
 -- consecutive failures to restart, no startup probe. Mirrors
--- 'Nagare.Dsl.Types.httpHealthCheck''s defaults.
+-- 'Nagare.Dsl.Types.httpCheck''s defaults.
 defaultProbeTiming :: ProbeTiming
 defaultProbeTiming =
   ProbeTiming
@@ -187,6 +193,20 @@ probeTiming (ExecProbe _ t) = t
 probeTiming (TcpProbe _ t) = t
 probeTiming (HttpProbe _ _ _ t) = t
 
+-- | How long Kubernetes waits after asking a worker to stop before killing it.
+-- The constructor is hidden; use 'mkShutdownSeconds'.
+newtype ShutdownSeconds = ShutdownSeconds Int
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | Validate a shutdown allowance: at least one second.
+mkShutdownSeconds :: Int -> Either Text ShutdownSeconds
+mkShutdownSeconds n
+  | n < 1 = Left ("shutdown allowance must be >= 1 second, got: " <> tshow n)
+  | otherwise = Right (ShutdownSeconds n)
+
+shutdownSecondsInt :: ShutdownSeconds -> Int
+shutdownSecondsInt (ShutdownSeconds n) = n
+
 -- | A long-running background worker. There is no hidden constructor for
 -- 'Worker' — the safety guarantee comes from the field types (mirrors
 -- 'Nagare.Dsl.Database.Database' and 'Nagare.Dsl.Types.Deployment'). It reuses,
@@ -194,7 +214,7 @@ probeTiming (HttpProbe _ _ _ t) = t
 -- already has (build, env, resources, volumes, databases) and reuses
 -- 'ServiceName' for its name (a DNS-1123 label is exactly what a Kubernetes
 -- object name needs); it carries no Knative-only fields (@domains@, @port@,
--- @scale@, @healthCheck@, @cdn@) because a worker is not request-driven.
+-- @scale@, @probes@, @cdn@) because a worker is not request-driven.
 data Worker = Worker
   { name :: !ServiceName
   , logicalKey :: !(Maybe LogicalKey)
@@ -216,6 +236,14 @@ data Worker = Worker
   , liveness :: !(Maybe WorkerProbe)
   -- ^ optional liveness/health probe (EP-74). 'Nothing' (the default) emits no
   -- probe — byte-identical to a worker without one.
+  , readiness :: !(Maybe WorkerProbe)
+  -- ^ optional readiness probe, independent of 'liveness': while it fails the
+  -- Deployment is not ready and the container keeps running. Its timing must
+  -- leave 'asStartup' unset.
+  , shutdown :: !(Maybe ShutdownSeconds)
+  -- ^ optional termination allowance; 'Nothing' keeps the Kubernetes default.
+  , serviceAccount :: !(Maybe ServiceAccountName)
+  -- ^ the account the Pod runs as; 'Nothing' runs it with no Kubernetes API token.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -248,6 +276,9 @@ webWorker nameText imageText = do
       , appDatabaseReaders = []
       , brokers = []
       , liveness = Nothing
+      , readiness = Nothing
+      , shutdown = Nothing
+      , serviceAccount = Nothing
       }
   where
     toStr = either (Left . Text.unpack) Right

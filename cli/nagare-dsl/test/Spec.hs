@@ -266,28 +266,23 @@ unitTests =
           assertLeftContains "label too long" (mkDomain (Text.replicate 64 "a" <> ".example"))
       ]
   , testGroup
-      "mkHealthCheck / httpHealthCheck"
-      [ testCase "httpHealthCheck accepts a slash path with defaults" $
-          case httpHealthCheck "/healthz" of
+      "mkHttpCheck / httpCheck"
+      [ testCase "httpCheck accepts a slash path with defaults" $
+          case httpCheck "/healthz" of
             Right hc -> do
-              path hc @?= "/healthz"
-              period hc @?= 10
-              timeout hc @?= 1
-              failureThreshold hc @?= 3
-              expectedStatus hc @?= 200
-              asLiveness hc @?= False
-              asStartup hc @?= False
+              hc ^. #path @?= "/healthz"
+              hc ^. #period @?= 10
+              hc ^. #timeout @?= 1
+              hc ^. #failureThreshold @?= 3
             Left e -> assertFailure ("expected Right, got Left: " <> Text.unpack e)
       , testCase "rejects path without leading slash" $
-          assertLeftContains "/" (httpHealthCheck "healthz")
+          assertLeftContains "/" (httpCheck "healthz")
       , testCase "rejects empty path" $
-          assertLeftContains "empty" (httpHealthCheck "")
+          assertLeftContains "empty" (httpCheck "")
       , testCase "rejects period of 0" $
-          assertLeftContains "period" (mkHealthCheck (unsafe (httpHealthCheck "/h") & #period .~ 0))
+          assertLeftContains "period" (mkHttpCheck (unsafe (httpCheck "/h") & #period .~ 0))
       , testCase "rejects timeout of 0" $
-          assertLeftContains "timeout" (mkHealthCheck (unsafe (httpHealthCheck "/h") & #timeout .~ 0))
-      , testCase "rejects out-of-range expectedStatus" $
-          assertLeftContains "expectedStatus" (mkHealthCheck (unsafe (httpHealthCheck "/h") & #expectedStatus .~ 99))
+          assertLeftContains "timeout" (mkHttpCheck (unsafe (httpCheck "/h") & #timeout .~ 0))
       ]
   , testGroup
       "mkDomains / canonicalDomain"
@@ -389,7 +384,8 @@ helloDep =
     , env = Map.fromList [(unsafe (mkEnvName "TARGET"), runtimeScoped (EnvLiteral "Nagare"))]
     , resources = Just Resources {cpu = Just (unsafe (mkQuantity "250m")), memory = Just (unsafe (mkQuantity "128Mi")), cpuLimit = Nothing, memoryLimit = Nothing}
     , scale = Just (unsafe (mkScale 0 3))
-    , healthCheck = Nothing
+    , probes = Nothing
+    , serviceAccount = Nothing
     , volumes = []
     , databases = []
     , appDatabases = []
@@ -908,12 +904,13 @@ richDep =
           , cpuLimit = Just (unsafe (mkQuantity "500m"))
           , memoryLimit = Just (unsafe (mkQuantity "512Mi"))
           }
-    & #healthCheck
+    & #probes
       .~ Just
-        ( unsafe (httpHealthCheck "/healthz")
-            & #asLiveness .~ True
-            & #asStartup .~ True
-        )
+        WebProbes
+          { readiness = unsafe (httpCheck "/ready")
+          , liveness = Just (unsafe (httpCheck "/healthz") & #period .~ 20)
+          , startup = Just (unsafe (httpCheck "/started") & #failureThreshold .~ 30)
+          }
 
 extendedModelTests :: [TestTree]
 extendedModelTests =
@@ -1109,6 +1106,7 @@ standaloneTask =
         , successfulJobsHistoryLimit = 3
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
+        , serviceAccount = Nothing
         }
 
 -- | A task associated with the @notes@ app: it inherits @notes@'s image
@@ -1136,6 +1134,7 @@ appTask =
         , successfulJobsHistoryLimit = 3
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
+        , serviceAccount = Nothing
         }
 
 taskTests :: [TestTree]

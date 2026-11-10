@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-09T23:20:14Z
       mode: "update"
       note: "Renumbered from EP-247-250 and aligned with the MasterPlan 34 review findings."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-10T05:51:00Z
+      mode: "implement"
+      note: "Implemented M1 and M2: web probes, worker readiness and shutdown, tokenless Pods, three interpreter tests."
 ---
 
 # Add independent Application worker and web health checks
@@ -39,13 +44,15 @@ This plan also carries the shutdown and token policy work that was planned as [E
 ## Progress
 
 
-- [ ] M1: Typed probes, worker shutdown duration and token policy load, validate and render; one real `Config.hs` is carried from load to native render and admitted by the local context's Knative in a server-side dry run.
-- [ ] M2: The saved review carries the controls, and production-interpreter tests prove them through the existing journal and readiness observation.
+- [x] M1 (2026-11-09): Typed probes, worker shutdown duration and token policy load, validate and render. `cluster/examples/workload-controls/nagare/Config.hs` rendered web, worker and task, each tokenless and each naming an account, and all were admitted by `kubectl apply --dry-run=server` on the `nagare-local` k3d cluster (Knative Serving 1.22). The web Service naming an account was admitted in a namespace holding that account and refused where it does not exist.
+- [x] M2 (2026-11-09): The saved review carries the controls. `WorkloadControlsInventorySpec.hs` proves all three required tests through the production adapter and kubectl interpreter over the fake API server, and `Inventory/Journal.hs`, `Inventory/Execute/` and the Kubernetes adapters are unchanged. Consumer source changes are in `docs/user/config-reference.md` and `docs/user/workers.md`.
 
 ## Surprises & Discoveries
 
 
-None during implementation yet.
+- Knative Serving 1.22 admits `automountServiceAccountToken` only when `false` (`pkg/apis/serving/fieldmask.go` at tag knative-v1.22.0), so rendering `true` for a named account would be refused. A named account renders `serviceAccountName` alone.
+- Knative rewrites a single-container revision's probe port to the serving port without error unless `multi-container-probing` is on (`pkg/reconciler/revision/resources/deploy.go`; off in the vendored config). A web check on another port would silently probe something else.
+- Knative's revision timeout default is 300 seconds (`DefaultRevisionTimeoutSeconds`, `pkg/apis/config/defaults.go`), and it sets the Pod's grace period (`deploy.go`). It is above 60 seconds, so no typed request timeout was added.
 
 ## Decision Log
 
@@ -55,11 +62,15 @@ None during implementation yet.
 - Decision: Web, worker and task Pods are tokenless by default; API access requires naming a service account. Rationale: no workload should hold a credential it did not ask for; the cost is that every existing workload's rendered bytes change on its next deploy, visible in the saved review (operator, 2026-11-09). Date: 2026-11-09.
 - Decision: Absorb EP-255 and drop this plan's own native run. Rationale: the two plans edited the same files in a forced sequence, and under ADR 25 a native run only confirms, so EP-256 M2 confirms all controls once (operator, 2026-11-09). Date: 2026-11-09.
 - Decision: Add three interpreter tests, not a fault matrix. Rationale: the new fields only change desired bytes; crash points, lost responses, replaced objects and stale generations are properties of the journal, settlement and readiness code this plan does not change, covered by `InventorySettleSpec.hs`, `InventoryKubernetesReadinessSpec.hs`, `InventoryRecoveryModelSpec.hs` and `AppDeployPhaseSpec.hs`. Date: 2026-11-09.
+- Decision: A named service account renders `serviceAccountName` without `automountServiceAccountToken`, on web, worker and task alike. Rationale: Knative refuses `true`, and one rule is simpler than a per-kind exception. The token follows the account's own setting. Date: 2026-11-09.
+- Decision: Refuse a web `checkPort` that is not the serving port at load. Rationale: Knative rewrites it silently, and a silent rewrite makes the check's promise false. This narrows the plan's "own port" to the serving port. Date: 2026-11-09.
+- Decision: Drop `expectedStatus` with `HealthCheck`. Rationale: it was never rendered, because Knative's `httpGet` probe does not assert a status. Date: 2026-11-09.
+- Decision: Refuse the `default` account by name. Rationale: naming it would be the boolean this plan rejects, under another name. Date: 2026-11-09.
 
 ## Outcomes & Retrospective
 
 
-Implementation has not started. Before completion, retain acceptance evidence and distill durable compatibility decisions into the relevant ADR.
+Applications can declare independent worker and web probes, a validated worker shutdown allowance, and a service account, and Pods are tokenless otherwise. All of it flows through unchanged review, journal and recovery code. The durable token and probe decisions are in [ADR 36](../adr/0036-application-pods-hold-no-kubernetes-api-token-unless-they-name-an-account.md). Live confirmation on running Pods remains in EP-256 M2.
 
 ## Context and Orientation
 

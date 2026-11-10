@@ -70,3 +70,4 @@ spec:
       - name: scratch
         persistentVolumeClaim:
           claimName: nagare-vol-queue-consumer-scratch
+      automountServiceAccountToken: false

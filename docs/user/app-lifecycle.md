@@ -240,6 +240,6 @@ explain the behavior:
   until a separate exact collection review removes it.
 
 For the platform identifiers and registry path these commands assume, see
-[Reference](reference.md). For the config fields (`healthCheck`, resource limits,
+[Reference](reference.md). For the config fields (`probes`, resource limits,
 multiple `domains`) the demo app uses, see
 [Config reference](config-reference.md).

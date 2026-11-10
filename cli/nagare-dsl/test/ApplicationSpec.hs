@@ -23,7 +23,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
-import Nagare.Dsl.Worker (Worker (..), webWorker)
+import Nagare.Dsl.Worker (Worker (..), mkShutdownSeconds, webWorker)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Types (mkLogicalKey)
 import Nagare.Resource.Types qualified as Resource
@@ -95,6 +95,7 @@ migrateTask =
         , successfulJobsHistoryLimit = 3
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
+        , serviceAccount = Nothing
         }
 
 -- | The raw (unvalidated) record for the valid multi-workload app. 'mkApplication'
@@ -221,6 +222,14 @@ roundTripTests =
   , testCase "application access policy round-trips" $
       let protectedApp = unsafe (mkApplication (multiAppRec & #access .~ Just requireLogin))
        in decodeApplication (toStrict (encodeApplication protectedApp)) @?= Right protectedApp
+  , testCase "workload controls round-trip through the application" $
+      let account = unsafe (mkServiceAccountName "app-reader")
+          controlled =
+            multiAppRec
+              & #service .~ Just (kizashiServe & #serviceAccount .~ Just account)
+              & #workers .~ map (\w -> w & #serviceAccount .~ Just account & #shutdown .~ Just (unsafe (mkShutdownSeconds 60))) (multiAppRec ^. #workers)
+              & #tasks .~ [migrateTask & #serviceAccount .~ Just account]
+       in decodeApplication (toStrict (encodeApplication (unsafe (mkApplication controlled)))) @?= Right (unsafe (mkApplication controlled))
   , testCase "service-less application round-trips" $
       decodeApplication (toStrict (encodeApplication serviceLessApp)) @?= Right serviceLessApp
   , testCase "decoding an Application as a Deployment is UnexpectedKind" $
@@ -283,6 +292,11 @@ loadApplicationTests =
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right a -> a @?= multiApp
+  , testCase "workload-controls example loads with its controls" $ do
+      result <- loadApplication "../../cluster/examples/workload-controls/nagare/Config.hs"
+      case result of
+        Left err -> assertFailure ("loadApplication example returned Left: " <> show err)
+        Right a -> decodeApplication (toStrict (encodeApplication a)) @?= Right a
   , testCase "multi-workload-app example loads" $ do
       result <- loadApplication "../../cluster/examples/multi-workload-app/nagare/Config.hs"
       case result of

@@ -60,11 +60,18 @@ module Nagare.Dsl.Types
     -- * Resources
   , Resources (..)
 
-    -- * HealthCheck
-  , HealthCheck (..)
+    -- * Web probes
   , HealthScheme (..)
-  , mkHealthCheck
-  , httpHealthCheck
+  , HttpCheck (..)
+  , mkHttpCheck
+  , httpCheck
+  , WebProbes (..)
+  , readinessOnly
+
+    -- * ServiceAccountName
+  , ServiceAccountName
+  , mkServiceAccountName
+  , serviceAccountNameText
 
     -- * Scale
   , Scale (..)
@@ -360,22 +367,15 @@ data Resources = Resources
 data HealthScheme = HTTP | HTTPS
   deriving stock (Generic, Eq, Show, Enum, Bounded)
 
--- | An HTTP health check applied to the container. Rendered as a Knative
--- @readinessProbe@ always, and additionally as @livenessProbe@/@startupProbe@
--- when 'asLiveness'/'asStartup' are set. All timings are in seconds.
---
--- Note: Knative's @httpGet@ probe does not assert a response status — any 2xx/3xx
--- is considered healthy. 'expectedStatus' is retained in the model for
--- documentation and future use and is deliberately /not/ rendered.
-data HealthCheck = HealthCheck
+-- | One HTTP check against the web container. All timings are in seconds.
+-- Construct through 'mkHttpCheck' or 'httpCheck'.
+data HttpCheck = HttpCheck
   { path :: !Text
   -- ^ HTTP path, e.g. @"/healthz"@. Must be non-empty and start with @"/"@.
   , checkPort :: !(Maybe Port)
   -- ^ Port to probe; 'Nothing' means the container port.
   , scheme :: !HealthScheme
   -- ^ HTTP or HTTPS.
-  , expectedStatus :: !Int
-  -- ^ Expected HTTP status, default 200. Not rendered (see note above).
   , initialDelay :: !Int
   -- ^ Seconds before the first probe. Must be @>= 0@.
   , period :: !Int
@@ -384,52 +384,78 @@ data HealthCheck = HealthCheck
   -- ^ Per-probe timeout seconds. Must be @>= 1@.
   , failureThreshold :: !Int
   -- ^ Consecutive failures before unhealthy. Must be @>= 1@.
-  , asLiveness :: !Bool
-  -- ^ Also emit a @livenessProbe@.
-  , asStartup :: !Bool
-  -- ^ Also emit a @startupProbe@.
   }
   deriving stock (Generic, Eq, Show)
 
--- | Validate an assembled 'HealthCheck': 'path' non-empty and starting with
--- @"/"@; 'expectedStatus' in 100–599; 'initialDelay' @>= 0@; 'period',
--- 'timeout', 'failureThreshold' all @>= 1@.
-mkHealthCheck :: HealthCheck -> Either Text HealthCheck
-mkHealthCheck hc
-  | Text.null (hc ^. #path) = Left "health check path must not be empty"
+-- | Validate an assembled 'HttpCheck': 'path' non-empty and starting with
+-- @"/"@; 'initialDelay' @>= 0@; 'period', 'timeout', 'failureThreshold' all
+-- @>= 1@.
+mkHttpCheck :: HttpCheck -> Either Text HttpCheck
+mkHttpCheck hc
+  | Text.null (hc ^. #path) = Left "http check path must not be empty"
   | not (Text.isPrefixOf "/" (hc ^. #path)) =
-      Left ("health check path must start with '/': " <> hc ^. #path)
-  | hc ^. #expectedStatus < 100 || hc ^. #expectedStatus > 599 =
-      Left ("health check expectedStatus must be in 100-599, got: " <> tshow (hc ^. #expectedStatus))
+      Left ("http check path must start with '/': " <> hc ^. #path)
   | hc ^. #initialDelay < 0 =
-      Left ("health check initialDelay must be >= 0, got: " <> tshow (hc ^. #initialDelay))
+      Left ("http check initialDelay must be >= 0, got: " <> tshow (hc ^. #initialDelay))
   | hc ^. #period < 1 =
-      Left ("health check period must be >= 1, got: " <> tshow (hc ^. #period))
+      Left ("http check period must be >= 1, got: " <> tshow (hc ^. #period))
   | hc ^. #timeout < 1 =
-      Left ("health check timeout must be >= 1, got: " <> tshow (hc ^. #timeout))
+      Left ("http check timeout must be >= 1, got: " <> tshow (hc ^. #timeout))
   | hc ^. #failureThreshold < 1 =
-      Left ("health check failureThreshold must be >= 1, got: " <> tshow (hc ^. #failureThreshold))
+      Left ("http check failureThreshold must be >= 1, got: " <> tshow (hc ^. #failureThreshold))
   | otherwise = Right hc
 
--- | Build a 'HealthCheck' from just a path, filling sensible defaults:
--- @scheme = HTTP@, @expectedStatus = 200@, @initialDelay = 0@, @period = 10@,
--- @timeout = 1@, @failureThreshold = 3@, @asLiveness = False@,
--- @asStartup = False@, @checkPort = Nothing@. Validates via 'mkHealthCheck'.
-httpHealthCheck :: Text -> Either Text HealthCheck
-httpHealthCheck p =
-  mkHealthCheck
-    HealthCheck
+-- | Build an 'HttpCheck' from just a path, filling sensible defaults:
+-- @scheme = HTTP@, @initialDelay = 0@, @period = 10@, @timeout = 1@,
+-- @failureThreshold = 3@, @checkPort = Nothing@. Validates via 'mkHttpCheck'.
+httpCheck :: Text -> Either Text HttpCheck
+httpCheck p =
+  mkHttpCheck
+    HttpCheck
       { path = p
       , checkPort = Nothing
       , scheme = HTTP
-      , expectedStatus = 200
       , initialDelay = 0
       , period = 10
       , timeout = 1
       , failureThreshold = 3
-      , asLiveness = False
-      , asStartup = False
       }
+
+-- | The web container's probes. Each is its own check: readiness withdraws the
+-- Pod from routing, liveness restarts the container, and startup holds liveness
+-- back until the process has started once. A probe that is absent is not
+-- rendered, so readiness can fail without any restart.
+data WebProbes = WebProbes
+  { readiness :: !HttpCheck
+  , liveness :: !(Maybe HttpCheck)
+  , startup :: !(Maybe HttpCheck)
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Probes with only a readiness check.
+readinessOnly :: HttpCheck -> WebProbes
+readinessOnly check = WebProbes {readiness = check, liveness = Nothing, startup = Nothing}
+
+-- | A Kubernetes ServiceAccount a workload runs as (a DNS-1123 label). Nagare
+-- does not create the account or its RBAC. Constructor hidden; use
+-- 'mkServiceAccountName'.
+newtype ServiceAccountName = ServiceAccountName Text
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | Validate and construct a 'ServiceAccountName': the 'mkServiceName' rules,
+-- and never @default@. A workload with no account runs without a Kubernetes API
+-- token, and naming the namespace's default account would hand that credential
+-- back to every Pod that asks for it by accident.
+mkServiceAccountName :: Text -> Either Text ServiceAccountName
+mkServiceAccountName t
+  | t == "default" =
+      Left "service account must be a dedicated account, not the namespace's 'default' account"
+  | otherwise = case mkServiceName t of
+      Left err -> Left ("invalid service account: " <> err)
+      Right _ -> Right (ServiceAccountName t)
+
+serviceAccountNameText :: ServiceAccountName -> Text
+serviceAccountNameText (ServiceAccountName t) = t
 
 -- | Knative autoscaling bounds: 'minScale' (minimum pods; 0 means
 -- scale-to-zero) and 'maxScale' (maximum pods). Use 'mkScale' to construct;
@@ -729,9 +755,11 @@ data Deployment = Deployment
   -- to @{Runtime}@ via 'runtimeScoped'.
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
-  , healthCheck :: !(Maybe HealthCheck)
-  -- ^ An optional HTTP health check, rendered as Knative readiness/liveness/
-  -- startup probes (see 'HealthCheck').
+  , probes :: !(Maybe WebProbes)
+  -- ^ Optional independent readiness, liveness and startup checks.
+  , serviceAccount :: !(Maybe ServiceAccountName)
+  -- ^ The account the Pod runs as. 'Nothing' runs the Pod with no Kubernetes
+  -- API token.
   , volumes :: ![Volume]
   -- ^ Durable disks attached to the app. Empty (the backward-compatible
   -- default) means a stateless app. Each 'Volume' renders to a

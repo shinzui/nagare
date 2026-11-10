@@ -30,3 +30,4 @@ spec:
           requests:
             cpu: 250m
             memory: 128Mi
+      automountServiceAccountToken: false

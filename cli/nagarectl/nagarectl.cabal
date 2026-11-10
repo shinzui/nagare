@@ -780,6 +780,7 @@ test-suite nagarectl-test
     ReleaseImageSelectionSpec
     ShomeiUserSpec
     TransitionCostSpec
+    WorkloadControlsInventorySpec
 
   build-depends:
     aeson,

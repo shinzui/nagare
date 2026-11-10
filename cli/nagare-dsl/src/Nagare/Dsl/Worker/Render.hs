@@ -33,6 +33,7 @@ import Nagare.Dsl.Render
   , envFromField
   , initialDelayPair
   , renderPersistentVolumeClaims
+  , serviceAccountPairs
   , volumeMountsField
   , volumesField
   )
@@ -118,6 +119,8 @@ deploymentValue w tag =
                     .= object
                       ( ["containers" .= toJSON [containerValue w tag]]
                           <> volumesField (nameText w) (w ^. #volumes)
+                          <> serviceAccountPairs (w ^. #serviceAccount)
+                          <> shutdownPairs (w ^. #shutdown)
                       )
                 ]
           ]
@@ -133,27 +136,30 @@ containerValue w tag =
         <> envField (w ^. #env)
         <> envFromField (nameText w)
         <> resourcesPairs (w ^. #resources)
-        <> probesField (w ^. #liveness)
+        <> probesField (w ^. #readiness) (w ^. #liveness)
         <> volumeMountsField (w ^. #volumes)
     )
   where
     imageStr = imageRefText (w ^. #image) <> ":" <> resolveImageTag (w ^. #build) tag
 
--- | The liveness/startup probe block for a worker container (EP-74). Mirrors the
--- app renderer's @probesField@ ("Nagare.Dsl.Render") but emits NO @readinessProbe@
--- (a headless worker routes no traffic) and swaps @httpGet@ for the probe's
--- mechanism: @exec@ (the primary case), @tcpSocket@, or @httpGet@. A
--- @startupProbe@ with the same check is added when 'asStartup' is set. A worker
--- with no probe ('Nothing') emits nothing, so its rendered Deployment is
--- byte-identical to one rendered before this field existed.
-probesField :: Maybe WorkerProbe -> [Pair]
-probesField Nothing = []
-probesField (Just p) =
-  ["livenessProbe" .= probe]
-    <> (if t ^. #asStartup then ["startupProbe" .= probe] else [])
+-- | The Pod's termination allowance, omitted when the worker declares none.
+shutdownPairs :: Maybe ShutdownSeconds -> [Pair]
+shutdownPairs = maybe [] (\s -> ["terminationGracePeriodSeconds" .= shutdownSecondsInt s])
+
+-- | The probe block for a worker container. Readiness and liveness are rendered
+-- independently, each from its own check, so a failing readiness check holds
+-- the rollout without restarting the process. A @startupProbe@ repeating the
+-- liveness check is added when its timing sets 'asStartup'. A worker with no
+-- probes emits nothing.
+probesField :: Maybe WorkerProbe -> Maybe WorkerProbe -> [Pair]
+probesField readiness liveness =
+  maybe [] (\p -> ["readinessProbe" .= probe p]) readiness
+    <> maybe [] livenessPairs liveness
   where
-    t = probeTiming p
-    probe = object (checkPair p <> timingPairs t)
+    probe p = object (checkPair p <> timingPairs (probeTiming p))
+    livenessPairs p =
+      ["livenessProbe" .= probe p]
+        <> (if probeTiming p ^. #asStartup then ["startupProbe" .= probe p] else [])
 
 -- | The Kubernetes probe-mechanism sub-object for a 'WorkerProbe' branch.
 checkPair :: WorkerProbe -> [Pair]
@@ -237,16 +243,20 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , -- pod spec
         ("containers", 0)
       , ("volumes", 1)
+      , ("serviceAccountName", 2)
+      , ("automountServiceAccountToken", 3)
+      , ("terminationGracePeriodSeconds", 4)
       , -- container (name(0) < image < command < env < envFrom < resources <
-        -- livenessProbe < startupProbe < volumeMounts)
+        -- readinessProbe < livenessProbe < startupProbe < volumeMounts)
         ("image", 1)
       , ("command", 2)
       , ("env", 3)
       , ("envFrom", 4)
       , ("resources", 5)
-      , ("livenessProbe", 6)
-      , ("startupProbe", 7)
-      , ("volumeMounts", 8)
+      , ("readinessProbe", 6)
+      , ("livenessProbe", 7)
+      , ("startupProbe", 8)
+      , ("volumeMounts", 9)
       , -- probe sub-object: the check mechanism first, then timings in doc order
         ("exec", 0)
       , ("tcpSocket", 0)

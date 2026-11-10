@@ -7,6 +7,9 @@
 module WorkerSpec (workerTests) where
 
 import Control.Lens ((&), (.~))
+import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Generics.Labels ()
@@ -16,12 +19,14 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
-import Nagare.Dsl.Config (encodeDeployment, encodeWorker)
-import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeWorker, loadWorker)
+import Nagare.Dsl.Config (encodeDeployment, encodeTask, encodeWorker)
+import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeTask, decodeWorker, loadWorker)
 import Nagare.Dsl.Path (mkFilePathText)
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Render (renderService)
+import Nagare.Dsl.Task (scheduledTask)
+import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker
 import Nagare.Dsl.Worker.Render (renderWorker, renderWorkerDeployment)
@@ -43,6 +48,7 @@ workerTests =
     , testGroup "JSON round-trip and kind discrimination" roundTripTests
     , testGroup "loadWorker (config-as-program)" loadTests
     , testGroup "probe initialDelaySeconds (EP-183)" initialDelayTests
+    , testGroup "workload controls (EP-254)" workloadControlTests
     ]
 
 replicasTests :: [TestTree]
@@ -212,7 +218,7 @@ httpProbeWorker =
     & #liveness .~ Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP defaultProbeTiming))
 
 -- | Default timing with @asStartup = True@, built as a full literal so the field
--- update is not ambiguous between 'ProbeTiming' and the app 'HealthCheck'.
+-- update is not ambiguous between 'ProbeTiming' and the app 'HttpCheck'.
 startupTiming :: ProbeTiming
 startupTiming =
   ProbeTiming {initialDelay = 0, period = 10, timeout = 1, failureThreshold = 3, asStartup = True}
@@ -236,7 +242,7 @@ initialDelayTests =
     serviceWithDelay delay =
       renderService
         ( unsafe (webService "hello" "gcr.io/knative-samples/helloworld-go")
-            & #healthCheck .~ Just (unsafe (httpHealthCheck "/healthz") & #initialDelay .~ delay)
+            & #probes .~ Just (readinessOnly (unsafe (httpCheck "/healthz") & #initialDelay .~ delay))
         )
         "20260602-120000"
     workerWithDelay delay =
@@ -336,7 +342,112 @@ brokerExampleWorker =
             }
         ]
     , liveness = Nothing
+    , readiness = Nothing
+    , shutdown = Nothing
+    , serviceAccount = Nothing
     }
+
+-- | Readiness, shutdown and token policy, from the typed value to rendered bytes
+-- and back through the loader.
+workloadControlTests :: [TestTree]
+workloadControlTests =
+  [ testCase "a worker renders readiness distinct from liveness" $ do
+      let rendered = renderWorkerDeployment controlledWorker "t1"
+      assertBool "readinessProbe" (BS.isInfixOf "readinessProbe:" rendered)
+      assertBool "readiness marker" (BS.isInfixOf "/tmp/ready" rendered)
+      assertBool "livenessProbe" (BS.isInfixOf "livenessProbe:" rendered)
+      assertBool "liveness check" (BS.isInfixOf "/tmp/alive" rendered)
+      assertBool "no startup probe" (not (BS.isInfixOf "startupProbe:" rendered))
+  , testCase "a 60-second shutdown renders that grace period" $
+      assertBool
+        "terminationGracePeriodSeconds: 60"
+        (BS.isInfixOf "terminationGracePeriodSeconds: 60" (renderWorkerDeployment controlledWorker "t1"))
+  , testCase "a worker with no account mounts no token and renders no account" $ do
+      let rendered = renderWorkerDeployment minimalWorker "t1"
+      assertBool "automount off" (BS.isInfixOf "automountServiceAccountToken: false" rendered)
+      assertBool "no account" (not (BS.isInfixOf "serviceAccountName" rendered))
+      assertBool "no readiness" (not (BS.isInfixOf "readinessProbe:" rendered))
+      assertBool "no grace period" (not (BS.isInfixOf "terminationGracePeriodSeconds" rendered))
+  , testCase "a named account renders the account and leaves its token to the account" $ do
+      let rendered = renderWorkerDeployment controlledWorker "t1"
+      assertBool "account" (BS.isInfixOf "serviceAccountName: worker-reader" rendered)
+      assertBool "no automount key" (not (BS.isInfixOf "automountServiceAccountToken" rendered))
+  , testCase "a web service renders three independent probes and no token by default" $ do
+      let rendered = renderService probedService "t1"
+      assertBool "readiness path" (BS.isInfixOf "path: /ready" rendered)
+      assertBool "liveness path" (BS.isInfixOf "path: /healthz" rendered)
+      assertBool "startup path" (BS.isInfixOf "path: /started" rendered)
+      assertBool "automount off" (BS.isInfixOf "automountServiceAccountToken: false" rendered)
+  , testCase "a web service naming an account omits the automount key Knative refuses" $ do
+      let rendered = renderService (probedService & #serviceAccount .~ Just reader) "t1"
+      assertBool "account" (BS.isInfixOf "serviceAccountName: worker-reader" rendered)
+      assertBool "no automount key" (not (BS.isInfixOf "automountServiceAccountToken" rendered))
+  , testCase "readiness, shutdown and account round-trip" $
+      decodeWorker (toStrict (encodeWorker controlledWorker)) @?= Right controlledWorker
+  , testCase "web probes and account round-trip" $ do
+      let service = probedService & #serviceAccount .~ Just reader
+      decodeDeployment (toStrict (encodeDeployment service)) @?= Right service
+  , testCase "absent controls decode to the defaults" $
+      decodeWorker (toStrict (encodeWorker minimalWorker)) @?= Right minimalWorker
+  , testCase "a readiness probe cannot also be a startup probe" $
+      case decodeWorker (toStrict (encodeWorker (controlledWorker & #readiness .~ Just startupReadiness))) of
+        Left (MarshalError field _) -> field @?= "readiness.asStartup"
+        other -> assertFailure ("expected a readiness.asStartup refusal, got: " <> show other)
+  , testCase "a malformed readiness probe is named as readiness" $
+      assertMarshal "readiness" (withWorkerField "readiness" (object ["kind" .= ("Exec" :: Text)]))
+  , testCase "a zero shutdown is refused at load" $
+      assertMarshal "shutdownSeconds" (withWorkerField "shutdownSeconds" (Number 0))
+  , testCase "the default service account is refused at load" $
+      assertMarshal "serviceAccount" (withWorkerField "serviceAccount" (String "default"))
+  , testCase "a web probe on another port is refused at load" $ do
+      let elsewhere = unsafe (httpCheck "/ready") & #checkPort .~ Just (unsafe (mkPort 9090))
+      case decodeDeployment (toStrict (encodeDeployment (helloDep & #probes .~ Just (readinessOnly elsewhere)))) of
+        Left (MarshalError field _) -> field @?= "probes.readiness.checkPort"
+        other -> assertFailure ("expected a port refusal, got: " <> show other)
+  , testCase "a web probe naming the serving port is accepted" $ do
+      let same = unsafe (httpCheck "/ready") & #checkPort .~ Just (unsafe (mkPort 8080))
+          service = helloDep & #probes .~ Just (readinessOnly same)
+      decodeDeployment (toStrict (encodeDeployment service)) @?= Right service
+  , testCase "mkShutdownSeconds accepts 60 and refuses 0" $ do
+      fmap shutdownSecondsInt (mkShutdownSeconds 60) @?= Right 60
+      assertBool "Left on 0" (isLeft (mkShutdownSeconds 0))
+  , testCase "a task with no account mounts no token" $
+      assertBool "automount off" (BS.isInfixOf "automountServiceAccountToken: false" (renderTask plainTask))
+  , testCase "a task naming an account renders it and no automount key" $ do
+      let rendered = renderTask (plainTask & #serviceAccount .~ Just reader)
+      assertBool "account" (BS.isInfixOf "serviceAccountName: worker-reader" rendered)
+      assertBool "no automount key" (not (BS.isInfixOf "automountServiceAccountToken" rendered))
+  , testCase "a task's account round-trips" $ do
+      let named = plainTask & #serviceAccount .~ Just reader
+      decodeTask (toStrict (encodeTask named)) @?= Right named
+  , testCase "mkServiceAccountName refuses default and an invalid label" $ do
+      assertBool "default" (isLeft (mkServiceAccountName "default"))
+      assertBool "uppercase" (isLeft (mkServiceAccountName "Reader"))
+  ]
+  where
+    reader = unsafe (mkServiceAccountName "worker-reader")
+    plainTask = unsafe (scheduledTask "cleanup" "0 2 * * *" "example.test/demo" "cleanup")
+    probedService = helloDep & #probes .~ Just webChecks
+    webChecks =
+      WebProbes
+        { readiness = unsafe (httpCheck "/ready")
+        , liveness = Just (unsafe (httpCheck "/healthz") & #period .~ 20)
+        , startup = Just (unsafe (httpCheck "/started") & #failureThreshold .~ 30)
+        }
+    controlledWorker =
+      minimalWorker
+        & #readiness .~ Just (unsafe (execProbe ["test", "-f", "/tmp/ready"]))
+        & #liveness .~ Just (unsafe (execProbe ["test", "-f", "/tmp/alive"]))
+        & #shutdown .~ Just (unsafe (mkShutdownSeconds 60))
+        & #serviceAccount .~ Just reader
+    startupReadiness = unsafe (mkExecProbe ["true"] startupTiming)
+    withWorkerField key value =
+      case Aeson.decode (encodeWorker minimalWorker) of
+        Just (Object o) -> toStrict (Aeson.encode (Object (KeyMap.insert key value o)))
+        _ -> error "encodeWorker did not produce an object"
+    assertMarshal expected bytes = case decodeWorker bytes of
+      Left (MarshalError field _) -> field @?= expected
+      other -> assertFailure ("expected a MarshalError for " <> Text.unpack expected <> ", got: " <> show other)
 
 loadTests :: [TestTree]
 loadTests =
@@ -368,7 +479,8 @@ helloDep =
     , env = Map.empty
     , resources = Nothing
     , scale = Nothing
-    , healthCheck = Nothing
+    , probes = Nothing
+    , serviceAccount = Nothing
     , volumes = []
     , databases = []
     , appDatabases = []

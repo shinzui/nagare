@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-09T23:20:14Z
       mode: "update"
       note: "Renumbered from EP-247-250 and aligned with the MasterPlan 34 review findings."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-10T05:51:00Z
+      mode: "implement"
+      note: "Recorded the M1 delivery audit; AC-5 remains open with named residuals."
 ---
 
 # Qualify Application workload controls through the inventory journal and recovery
@@ -37,7 +42,7 @@ Confirm once, on a live cluster and from a native ARM64 Linux consumer, that the
 ## Progress
 
 
-- [ ] M1: A source-backed delivery audit states what existing mechanisms support and records an explicit IR-42 AC-5 disposition.
+- [x] M1 (2026-11-09): The delivery audit is recorded in [IR-42](../improvement-requests/host-multi-role-applications-with-native-arm64-and-explicit-workload-contracts.md). AC-5 stays open with residuals AC5-R1 (private files), AC5-R2 (retained content) and AC5-R3 (role scoping).
 - [ ] M2: One native run confirms the controls on live Pods through a saved review, apply and resume; the release is published with upgrade instructions and an IR-42 acceptance map.
 
 ## Surprises & Discoveries

@@ -6,6 +6,7 @@ module Nagare.Dsl.Load.Deployment
   )
 where
 
+import Control.Monad (when)
 import Data.Aeson
   ( FromJSON (..)
   , eitherDecodeStrict
@@ -15,6 +16,7 @@ import Data.Aeson
   , (.:?)
   )
 import Data.ByteString (ByteString)
+import Data.Foldable (for_, traverse_)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
@@ -32,9 +34,9 @@ import Nagare.Dsl.Load.Fields
   , JsonBuildSpec (..)
   , JsonDomainEntry (..)
   , JsonEnvEntry (..)
-  , JsonHealthCheck (..)
   , JsonKindEnvelope (..)
   , JsonVolume (..)
+  , JsonWebProbes
   , checkTaskApp
   , firstDuplicate
   , toAccessPolicy
@@ -42,21 +44,25 @@ import Nagare.Dsl.Load.Fields
   , toBuildSpec
   , toDomainSpecs
   , toEnvEntry
-  , toHealthCheck
   , toVolumes
+  , toWebProbes
   )
 import Nagare.Dsl.Load.Task (JsonTask (..), toTask)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( Deployment (..)
+  , Port
   , Resources (..)
+  , WebProbes (..)
   , mkAppDatabaseName
   , mkImageRef
   , mkNamespace
   , mkPort
   , mkQuantity
   , mkScale
+  , mkServiceAccountName
   , mkServiceName
+  , portInt
   , serviceNameText
   )
 import Nagare.Resource.Types (mkLogicalKey)
@@ -76,7 +82,8 @@ data JsonDeployment = JsonDeployment
   , memoryLimit :: !(Maybe Text)
   , scaleMin :: !(Maybe Int)
   , scaleMax :: !(Maybe Int)
-  , healthCheck :: !(Maybe JsonHealthCheck)
+  , probes :: !(Maybe JsonWebProbes)
+  , serviceAccount :: !(Maybe Text)
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
   , appDatabases :: ![Text]
@@ -105,7 +112,8 @@ instance FromJSON JsonDeployment where
       <*> o .:? "memoryLimit"
       <*> o .:? "scaleMin"
       <*> o .:? "scaleMax"
-      <*> o .:? "healthCheck"
+      <*> o .:? "probes"
+      <*> o .:? "serviceAccount"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "appDatabases" .!= []
@@ -131,7 +139,9 @@ toDeployment jd = do
   port' <- first (MarshalError "port") $ mkPort (jd ^. #port)
   env' <- mapM toEnvEntry (jd ^. #env)
   res' <- toResources jd
-  hc' <- toHealthCheck (jd ^. #healthCheck)
+  probes' <- traverse toWebProbes (jd ^. #probes)
+  traverse_ (checkProbePorts port') probes'
+  serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (jd ^. #serviceAccount)
   vols' <- toVolumes (jd ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jd ^. #databases)
   appDbRefs' <- traverse (first (MarshalError "appDatabases") . mkAppDatabaseName) (jd ^. #appDatabases)
@@ -171,7 +181,8 @@ toDeployment jd = do
       , env = Map.fromList env'
       , resources = res'
       , scale = scale'
-      , healthCheck = hc'
+      , probes = probes'
+      , serviceAccount = serviceAccount'
       , volumes = vols'
       , databases = dbRefs'
       , appDatabases = appDbRefs'
@@ -181,6 +192,25 @@ toDeployment jd = do
       , tasks = tasks'
       , cdn = cdn'
       }
+
+-- | Knative Serving 1.22 rewrites a single-container revision's probe to the
+-- serving port without saying so, so a check naming another port would silently
+-- probe something else. Refuse it here instead.
+checkProbePorts :: Port -> WebProbes -> Either LoadError ()
+checkProbePorts servingPort probes =
+  for_ checks $ \(field, check) ->
+    for_ (check ^. #checkPort) $ \named ->
+      when (named /= servingPort) $
+        Left
+          ( MarshalError
+              (field <> ".checkPort")
+              ("a web probe must use the container port " <> Text.pack (show (portInt servingPort)))
+          )
+  where
+    checks =
+      ("probes.readiness", probes ^. #readiness)
+        : [("probes.liveness", check) | Just check <- [probes ^. #liveness]]
+          <> [("probes.startup", check) | Just check <- [probes ^. #startup]]
 
 toResources :: JsonDeployment -> Either LoadError (Maybe Resources)
 toResources jd =

@@ -37,6 +37,7 @@ import Nagare.Dsl.Types
   , mkImageRef
   , mkNamespace
   , mkQuantity
+  , mkServiceAccountName
   , mkServiceName
   )
 import Nagare.Resource.Types (mkLogicalKey)
@@ -68,6 +69,7 @@ data JsonTask = JsonTask
   , successfulJobsHistoryLimit :: !(Maybe Int)
   , failedJobsHistoryLimit :: !(Maybe Int)
   , startingDeadlineSeconds :: !(Maybe Int)
+  , serviceAccount :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -94,6 +96,7 @@ instance FromJSON JsonTask where
       <*> o .:? "successfulJobsHistoryLimit"
       <*> o .:? "failedJobsHistoryLimit"
       <*> o .:? "startingDeadlineSeconds"
+      <*> o .:? "serviceAccount"
 
 -- | Re-validate a decoded task: re-run every smart constructor, decode the
 -- enum tokens, default the numeric fields, and finally re-check the assembled
@@ -126,6 +129,7 @@ toTask j = do
             "restartPolicy"
             ("unknown restart policy: " <> fromMaybe "" (j ^. #restartPolicy))
         )
+  serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (j ^. #serviceAccount)
   first (MarshalError "task") $
     mkTask
       Task
@@ -146,6 +150,7 @@ toTask j = do
         , successfulJobsHistoryLimit = fromMaybe 3 (j ^. #successfulJobsHistoryLimit)
         , failedJobsHistoryLimit = fromMaybe 1 (j ^. #failedJobsHistoryLimit)
         , startingDeadlineSeconds = j ^. #startingDeadlineSeconds
+        , serviceAccount = serviceAccount'
         }
 
 toTaskResources :: JsonTask -> Either LoadError (Maybe Resources)

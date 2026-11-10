@@ -96,6 +96,7 @@ application = do
         , successfulJobsHistoryLimit = 3
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
+        , serviceAccount = Nothing
         }
 
   mkApplication

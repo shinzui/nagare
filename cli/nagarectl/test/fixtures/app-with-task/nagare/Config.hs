@@ -55,6 +55,7 @@ dep = first show $ do
         , successfulJobsHistoryLimit = 3
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
+        , serviceAccount = Nothing
         }
   pure
     Deployment
@@ -68,7 +69,8 @@ dep = first show $ do
       , env = Map.empty
       , resources = Nothing
       , scale = Nothing
-      , healthCheck = Nothing
+      , probes = Nothing
+      , serviceAccount = Nothing
       , volumes = []
       , databases = []
       , appDatabases = []

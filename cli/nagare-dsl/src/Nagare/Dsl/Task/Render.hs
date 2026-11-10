@@ -33,6 +33,7 @@ import Nagare.Dsl.Batch.Render
   , runtimeEnvPairs
   )
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Dsl.Render (serviceAccountPairs)
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
   ( imageRefText
@@ -103,9 +104,11 @@ taskJobSpecValue t =
                  [ "metadata" .= object ["labels" .= taskLabels t]
                  , "spec"
                      .= object
-                       [ "restartPolicy" .= restartPolicyToken (t ^. #restartPolicy)
-                       , "containers" .= toJSON [containerValue t]
-                       ]
+                       ( [ "restartPolicy" .= restartPolicyToken (t ^. #restartPolicy)
+                         , "containers" .= toJSON [containerValue t]
+                         ]
+                           <> serviceAccountPairs (t ^. #serviceAccount)
+                       )
                  ]
            ]
     )
@@ -224,6 +227,8 @@ taskKeyRanks =
   , -- pod spec
     ("restartPolicy", 0)
   , ("containers", 1)
+  , ("serviceAccountName", 2)
+  , ("automountServiceAccountToken", 3)
   , -- container
     ("image", 1)
   , ("command", 2)

@@ -367,7 +367,8 @@ deployment = do
       , env = Map.singleton target (runtimeScoped (EnvLiteral "Nagare"))
       , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
       , scale = Just sc
-      , healthCheck = Nothing
+      , probes = Nothing
+      , serviceAccount = Nothing
       }
 
 main :: IO ()
@@ -393,7 +394,7 @@ The shape never changes:
 - **`domains` is a list with one canonical entry.** `mkDomains [(host, isCanon)]`
   builds it; the canonical hostname drives the printed URL and each entry becomes
   a `DomainMapping`. Use `[]` for no custom domain.
-- **`healthCheck` is an optional HTTP probe**, and `resources` now carries
+- **`probes` holds optional HTTP checks**, and `resources` now carries
   optional `cpuLimit`/`memoryLimit` alongside the requests. Both default to
   "absent" here; see [Config reference](config-reference.md) and
   [App lifecycle](app-lifecycle.md) for an app that uses them.
@@ -611,7 +612,7 @@ Two rendering details worth knowing: every app Service carries the
 list`](app-lifecycle.md) finds Nagare apps), and an `envFrom` block always
 references the app's managed env/secret stores as `optional` — so
 [`nagarectl env`/`secret`](env-and-secrets.md) edits take effect without
-re-rendering. A `healthCheck` would add `readinessProbe`/`livenessProbe`/
+re-rendering. `probes` would add `readinessProbe`/`livenessProbe`/
 `startupProbe` blocks, and `cpuLimit`/`memoryLimit` would add a
 `resources.limits` block (see [App lifecycle](app-lifecycle.md) for an example
 showing both).

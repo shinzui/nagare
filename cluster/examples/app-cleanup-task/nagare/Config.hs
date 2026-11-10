@@ -64,6 +64,7 @@ deployment = first show $ do
         , successfulJobsHistoryLimit = 3
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
+        , serviceAccount = Nothing
         }
   pure (dep & #databases .~ [db] & #tasks .~ [cleanup])
 

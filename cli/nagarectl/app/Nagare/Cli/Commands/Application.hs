@@ -646,8 +646,8 @@ enrichFromConfig file ghc = do
         let doms = dep ^. #domains
         unless (null doms) $
           TIO.putStrLn ("Domains:  " <> T.intercalate ", " (map domainLabel doms))
-        forM_ (dep ^. #healthCheck) $ \hc ->
-          TIO.putStrLn ("Health:   " <> (hc ^. #path) <> " (" <> T.pack (show (hc ^. #scheme)) <> ")")
+        forM_ (dep ^. #probes) $ \probes ->
+          TIO.putStrLn ("Health:   " <> (probes ^. #readiness . #path) <> " (" <> T.pack (show (probes ^. #readiness . #scheme)) <> ")")
         forM_ (dep ^. #resources) $ \res ->
           let lims =
                 catMaybes

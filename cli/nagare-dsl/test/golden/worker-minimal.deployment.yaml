@@ -26,3 +26,4 @@ spec:
         - secretRef:
             name: nagare-secret-queue-consumer-runtime
             optional: true
+      automountServiceAccountToken: false

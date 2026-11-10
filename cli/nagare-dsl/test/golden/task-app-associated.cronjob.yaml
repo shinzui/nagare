@@ -36,3 +36,4 @@ spec:
             - secretRef:
                 name: nagare-secret-notes-runtime
                 optional: true
+          automountServiceAccountToken: false

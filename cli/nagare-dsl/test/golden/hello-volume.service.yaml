@@ -39,3 +39,4 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: nagare-vol-hello-data
+      automountServiceAccountToken: false

@@ -160,6 +160,9 @@ in the inventory journal.
 | `volumes`    | Durable `local-path` PVCs (same `Volume` model as an app).               |
 | `databases`  | Names of managed databases this worker connects to.                      |
 | `liveness`   | Optional liveness probe — `exec` (run a command), `tcp` (open a port), or `http`. Absent = no probe. Restarts a hung worker that never crashes. |
+| `readiness`  | Optional readiness probe, independent of `liveness`. Absent = no probe.  |
+| `shutdown`   | Optional termination allowance in seconds. Absent = the Kubernetes default. |
+| `serviceAccount` | Optional account the Pod runs as. Absent = no Kubernetes API token.  |
 
 A worker reuses the app's env/secret store, so `nagarectl env` and
 `nagarectl secret` work for a worker exactly as for an app — values flow in
@@ -199,6 +202,31 @@ timeout, restart after 3 consecutive failures). For custom timing or a TCP/HTTP
 check, build a `ProbeTiming` and use `mkExecProbe` / `mkTcpProbe` / `mkHttpProbe`.
 With `asStartup = True`, a matching `startupProbe` is also emitted so a
 slow-starting worker is not killed before its first successful check.
+
+## Readiness, shutdown and API access
+
+`readiness` is a probe independent of `liveness`. While it fails, the Deployment
+is not ready and a reviewed deploy does not converge, and the process keeps
+running. Its timing must leave `asStartup` unset, because `asStartup` repeats the
+liveness check.
+
+`shutdown` is how long Kubernetes waits after asking the worker to stop before
+killing it. It is rendered as `terminationGracePeriodSeconds`, and leaving it out
+keeps the Kubernetes default of 30 seconds.
+
+```haskell
+import Nagare.Dsl.Worker (Worker (..), execProbe, mkShutdownSeconds, webWorker)
+
+worker :: Either String Worker
+worker = do
+  base <- webWorker "reactor" "myrepo/reactor"
+  ready <- first show (execProbe ["test", "-f", "/tmp/ready"])
+  allowance <- first show (mkShutdownSeconds 60)
+  Right base {readiness = Just ready, shutdown = Just allowance}
+```
+
+A worker runs with no Kubernetes API token unless it names a `serviceAccount`; see
+[`ServiceAccountName`](config-reference.md#serviceaccountname--kubernetes-api-access).
 
 ## The `nagarectl worker deploy` command
 

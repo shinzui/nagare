@@ -48,7 +48,8 @@ mkDeployment baseDomain = do
             , env = Map.singleton target (runtimeScoped (EnvLiteral "Nagare"))
             , resources = Just Resources{cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
             , scale = Just sc
-            , healthCheck = Nothing
+            , probes = Nothing
+            , serviceAccount = Nothing
             , volumes = []
             , databases = []
             , appDatabases = []

@@ -4,7 +4,7 @@ module Nagare.Dsl.Load.Fields
   , JsonBuildSpec (..)
   , JsonDomainEntry (..)
   , JsonEnvEntry (..)
-  , JsonHealthCheck (..)
+  , JsonWebProbes (..)
   , JsonKindEnvelope (..)
   , JsonVolume (..)
   , JsonAppDatabaseReaderRef (..)
@@ -15,7 +15,7 @@ module Nagare.Dsl.Load.Fields
   , toBuildSpec
   , toDomainSpecs
   , toEnvEntry
-  , toHealthCheck
+  , toWebProbes
   , toVolumes
   )
 where
@@ -48,15 +48,16 @@ import Nagare.Dsl.Types
   , EnvName
   , EnvScope (..)
   , EnvVar (EnvLiteral, EnvSecretRef)
-  , HealthCheck (..)
   , HealthScheme (HTTP, HTTPS)
+  , HttpCheck (..)
   , RetentionPolicy (Delete, Retain)
   , ScopedEnvVar
   , Volume (..)
+  , WebProbes (..)
   , mkAppDatabaseName
   , mkDomains
   , mkEnvName
-  , mkHealthCheck
+  , mkHttpCheck
   , mkMountPath
   , mkPort
   , mkQuantity
@@ -221,37 +222,44 @@ toDomainSpecs field entries
         Just (JsonDomainTls unknownMode _) ->
           Left (MarshalError field ("unknown domain TLS mode: " <> unknownMode))
 
--- | The @healthCheck@ sub-object (see 'Nagare.Dsl.Config'). Every field is
--- optional so a partial object is reported as a precise 'MarshalError' by
--- 'mkHealthCheck' rather than an aeson parse error; the defaults mirror
--- 'httpHealthCheck'.
-data JsonHealthCheck = JsonHealthCheck
+-- | One web check (see 'Nagare.Dsl.Config'). Its optional fields carry the
+-- 'httpCheck' defaults, and 'mkHttpCheck' reports an out-of-range one precisely.
+data JsonHttpCheck = JsonHttpCheck
   { path :: !Text
   , checkPort :: !(Maybe Int)
   , scheme :: !Text
-  , expectedStatus :: !Int
   , initialDelay :: !Int
   , period :: !Int
   , timeout :: !Int
   , failureThreshold :: !Int
-  , asLiveness :: !Bool
-  , asStartup :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
-instance FromJSON JsonHealthCheck where
-  parseJSON = withObject "HealthCheck" $ \o ->
-    JsonHealthCheck
+instance FromJSON JsonHttpCheck where
+  parseJSON = withObject "HttpCheck" $ \o ->
+    JsonHttpCheck
       <$> o .: "path"
       <*> o .:? "checkPort"
       <*> o .:? "scheme" .!= "HTTP"
-      <*> o .:? "expectedStatus" .!= 200
       <*> o .:? "initialDelay" .!= 0
       <*> o .:? "period" .!= 10
       <*> o .:? "timeout" .!= 1
       <*> o .:? "failureThreshold" .!= 3
-      <*> o .:? "asLiveness" .!= False
-      <*> o .:? "asStartup" .!= False
+
+-- | The @probes@ sub-object: readiness is required, the others optional.
+data JsonWebProbes = JsonWebProbes
+  { readiness :: !JsonHttpCheck
+  , liveness :: !(Maybe JsonHttpCheck)
+  , startup :: !(Maybe JsonHttpCheck)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonWebProbes where
+  parseJSON = withObject "WebProbes" $ \o ->
+    JsonWebProbes
+      <$> o .: "readiness"
+      <*> o .:? "liveness"
+      <*> o .:? "startup"
 
 data JsonAccessPolicy = JsonAccessPolicy
   { audience :: !(Maybe Text)
@@ -335,31 +343,32 @@ toEnvEntry e = do
   sev <- first (MarshalError ("env." <> e ^. #varName <> ".scopes")) (scopedEnv finalScopes v)
   Right (n, sev)
 
--- | Re-validate a decoded @healthCheck@ sub-object back into a 'HealthCheck'.
--- The scheme string and probe port go through their constructors; the assembled
--- record is then re-checked by 'mkHealthCheck'. Any failure is a precise
--- 'MarshalError "healthCheck"'.
-toHealthCheck :: Maybe JsonHealthCheck -> Either LoadError (Maybe HealthCheck)
-toHealthCheck Nothing = Right Nothing
-toHealthCheck (Just jhc) = do
-  scheme' <- case jhc ^. #scheme of
+-- | Re-validate a decoded @probes@ sub-object, reporting a failure under the
+-- probe it belongs to.
+toWebProbes :: JsonWebProbes -> Either LoadError WebProbes
+toWebProbes j = do
+  readiness' <- toHttpCheck "probes.readiness" (j ^. #readiness)
+  liveness' <- traverse (toHttpCheck "probes.liveness") (j ^. #liveness)
+  startup' <- traverse (toHttpCheck "probes.startup") (j ^. #startup)
+  Right WebProbes {readiness = readiness', liveness = liveness', startup = startup'}
+
+toHttpCheck :: Text -> JsonHttpCheck -> Either LoadError HttpCheck
+toHttpCheck field j = do
+  scheme' <- case j ^. #scheme of
     "HTTP" -> Right HTTP
     "HTTPS" -> Right HTTPS
-    other -> Left (MarshalError "healthCheck.scheme" ("unknown scheme: " <> other))
-  checkPort' <- traverse (first (MarshalError "healthCheck.checkPort") . mkPort) (jhc ^. #checkPort)
-  fmap Just . first (MarshalError "healthCheck") $
-    mkHealthCheck
-      HealthCheck
-        { path = jhc ^. #path
+    other -> Left (MarshalError (field <> ".scheme") ("unknown scheme: " <> other))
+  checkPort' <- traverse (first (MarshalError (field <> ".checkPort")) . mkPort) (j ^. #checkPort)
+  first (MarshalError field) $
+    mkHttpCheck
+      HttpCheck
+        { path = j ^. #path
         , checkPort = checkPort'
         , scheme = scheme'
-        , expectedStatus = jhc ^. #expectedStatus
-        , initialDelay = jhc ^. #initialDelay
-        , period = jhc ^. #period
-        , timeout = jhc ^. #timeout
-        , failureThreshold = jhc ^. #failureThreshold
-        , asLiveness = jhc ^. #asLiveness
-        , asStartup = jhc ^. #asStartup
+        , initialDelay = j ^. #initialDelay
+        , period = j ^. #period
+        , timeout = j ^. #timeout
+        , failureThreshold = j ^. #failureThreshold
         }
 
 -- | The first element that appears more than once in the list, in order, or

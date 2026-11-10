@@ -23,7 +23,7 @@ mkDeployment baseDomain = do
   domains' <- first show (mkDomains [("auth." <> baseDomain, True)])
   port' <- first show (mkPort 8080)
   scale' <- first show (mkScale 0 3)
-  health' <- first show (httpHealthCheck "/healthz")
+  health' <- first show (httpCheck "/healthz")
   Right
     Deployment
       { name = name'
@@ -38,7 +38,8 @@ mkDeployment baseDomain = do
       , env = Map.empty
       , resources = Nothing
       , scale = Just scale'
-      , healthCheck = Just health'
+      , probes = Just (readinessOnly health')
+      , serviceAccount = Nothing
       , volumes = []
       , databases = []
       , appDatabases = []

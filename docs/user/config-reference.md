@@ -54,7 +54,8 @@ data Deployment = Deployment
   , env         :: Map EnvName ScopedEnvVar -- environment variables (Map.empty for none)
   , resources   :: Maybe Resources          -- CPU/memory requests and limits (Nothing = omit)
   , scale       :: Maybe Scale              -- autoscaling bounds (Nothing = omit)
-  , healthCheck :: Maybe HealthCheck         -- optional HTTP probe (Nothing = omit)
+  , probes      :: Maybe WebProbes           -- readiness, liveness and startup checks (Nothing = omit)
+  , serviceAccount :: Maybe ServiceAccountName -- Nothing = no Kubernetes API token
   , volumes     :: [Volume]                  -- durable disks ([] = stateless); see Volumes
   , databases   :: [DatabaseName]            -- managed databases this app uses ([] = none); see below
   }
@@ -63,7 +64,8 @@ data Deployment = Deployment
 > `webService` populates `build` with a default Dockerfile build, so preset-based
 > configs need not mention it. A hand-written record literal must set `build` —
 > see [Build modes](#build-modes) and the [migration note](build-modes.md). It
-> must also set `domains` (use `[]` for none) and `healthCheck` (use `Nothing`).
+> must also set `domains` (use `[]` for none), `probes` and `serviceAccount` (use
+> `Nothing`).
 
 > **`env` values carry scopes.** Each env value is a `ScopedEnvVar` — an `EnvVar`
 > (literal or secret reference) plus the set of scopes it applies to. A bare
@@ -230,48 +232,68 @@ res = Resources
   { cpu = Just c250m, memory = Just m128, cpuLimit = Just c500m, memoryLimit = Just m512 }
 ```
 
-### `HealthCheck` — an HTTP probe
+### `WebProbes` — independent HTTP checks
 
 ```haskell
 data HealthScheme = HTTP | HTTPS
 
-data HealthCheck = HealthCheck
+data HttpCheck = HttpCheck
   { path             :: Text        -- non-empty, must start with "/"
   , checkPort        :: Maybe Port  -- Nothing = the container port
   , scheme           :: HealthScheme
-  , expectedStatus   :: Int         -- documentation-only (see note); default 200
   , initialDelay     :: Int         -- seconds before the first probe (>= 0)
   , period           :: Int         -- seconds between probes (>= 1)
   , timeout          :: Int         -- per-probe timeout seconds (>= 1)
   , failureThreshold :: Int         -- consecutive failures before unhealthy (>= 1)
-  , asLiveness       :: Bool        -- also emit a livenessProbe
-  , asStartup        :: Bool        -- also emit a startupProbe
   }
 
-mkHealthCheck   :: HealthCheck -> Either Text HealthCheck   -- validates an assembled value
-httpHealthCheck :: Text -> Either Text HealthCheck          -- a path + sensible defaults
+data WebProbes = WebProbes
+  { readiness :: HttpCheck        -- required: failing removes the Pod from routing
+  , liveness  :: Maybe HttpCheck  -- failing restarts the container
+  , startup   :: Maybe HttpCheck  -- holds liveness back until the process has started
+  }
+
+mkHttpCheck   :: HttpCheck -> Either Text HttpCheck   -- validates an assembled value
+httpCheck     :: Text -> Either Text HttpCheck        -- a path + sensible defaults
+readinessOnly :: HttpCheck -> WebProbes
 ```
 
-A `HealthCheck` is always rendered as a Knative `readinessProbe`, and
-additionally as a `livenessProbe`/`startupProbe` when `asLiveness`/`asStartup`
-are set. The quick path is `httpHealthCheck "/healthz"`, which fills `scheme =
-HTTP`, `expectedStatus = 200`, `initialDelay = 0`, `period = 10`, `timeout = 1`,
-`failureThreshold = 3`, and both `asLiveness`/`asStartup` `False`. Promote it to
-all three probes by overwriting the two flags:
+Each probe is its own check, with its own path and timings, and only a declared
+probe is rendered. Readiness can fail without a restart when no liveness check
+depends on the same condition, so point `readiness` at what must be up to serve
+(a database, for example) and `liveness` at the process alone.
+
+`httpCheck "/healthz"` fills `scheme = HTTP`, `initialDelay = 0`, `period = 10`,
+`timeout = 1` and `failureThreshold = 3`.
 
 ```haskell
-do base <- httpHealthCheck "/healthz"
-   pure base {asLiveness = True, asStartup = True}
+do ready <- httpCheck "/ready"
+   alive <- httpCheck "/healthz"
+   pure WebProbes {readiness = ready, liveness = Just alive, startup = Nothing}
 ```
 
-For full control, assemble the record yourself and validate with `mkHealthCheck`
-(it rejects an empty/relative path, an `expectedStatus` outside 100–599, a
-negative `initialDelay`, or a `period`/`timeout`/`failureThreshold` below 1).
+`checkPort` must be the container port when it is set: Knative Serving probes a
+single-container revision only on its serving port and silently rewrites any
+other, so the loader refuses one.
 
-> **`expectedStatus` is documentation-only.** Knative's `httpGet` probe treats any
-> 2xx/3xx as healthy and does not assert a specific status code, so this field is
-> retained in the model for clarity and future use but is deliberately *not*
-> rendered into the manifest.
+### `ServiceAccountName` — Kubernetes API access
+
+Web, worker and task Pods run with no Kubernetes API token. To give a workload
+API access, create a ServiceAccount and its RBAC yourself in the workload's
+namespace and set `serviceAccount = Just account`; Nagare does not create either.
+
+```haskell
+mkServiceAccountName :: Text -> Either Text ServiceAccountName
+```
+
+A named account renders as `serviceAccountName`, and the token follows that
+account's own `automountServiceAccountToken` setting. The namespace's `default`
+account is refused. A Knative Service naming an account that does not exist is
+refused at admission; a worker or task Pod stays unscheduled until it exists.
+
+A web Pod's shutdown allowance is the Knative revision timeout, which is 300
+seconds by default on Knative Serving 1.22. A worker's is its `shutdown` field,
+described in [Workers](workers.md).
 
 ### `Scale` — autoscaling bounds
 

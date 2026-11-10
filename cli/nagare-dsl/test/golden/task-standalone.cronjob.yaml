@@ -32,3 +32,4 @@ spec:
             env:
             - name: DRY_RUN
               value: 'false'
+          automountServiceAccountToken: false

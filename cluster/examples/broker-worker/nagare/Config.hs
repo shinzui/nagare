@@ -51,6 +51,9 @@ worker = do
       , appDatabaseReaders = []
       , brokers = [BrokerBinding {name = broker, topics = [topic]}]
       , liveness = Nothing
+      , readiness = Nothing
+      , shutdown = Nothing
+      , serviceAccount = Nothing
       }
 
 main :: IO ()

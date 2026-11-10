@@ -40,6 +40,9 @@ module Nagare.Dsl.Render
 
     -- * Probe timing (reused by "Nagare.Dsl.Worker.Render")
   , initialDelayPair
+
+    -- * Pod API token policy (reused by the worker and task renderers)
+  , serviceAccountPairs
   )
 where
 
@@ -248,6 +251,8 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("startupProbe", 7)
       , ("volumeMounts", 8)
       , ("volumes", 1)
+      , ("serviceAccountName", 2)
+      , ("automountServiceAccountToken", 3)
       , ("cpu", 0)
       , ("memory", 1)
       , ("optional", 4)
@@ -328,7 +333,16 @@ specValue dep tag =
   object
     ( ["containers" .= toJSON [containerValue dep tag]]
         <> volumesField (serviceNameText (dep ^. #name)) (dep ^. #volumes)
+        <> serviceAccountPairs (dep ^. #serviceAccount)
     )
+
+-- | The Pod's Kubernetes API token policy. With no account the Pod mounts no
+-- token. A named account is rendered alone, leaving its token to the account's
+-- own setting: Knative Serving 1.22 admits @automountServiceAccountToken@ only
+-- when it is @false@, so one rule holds for web, worker and task Pods.
+serviceAccountPairs :: Maybe ServiceAccountName -> [Pair]
+serviceAccountPairs Nothing = ["automountServiceAccountToken" .= False]
+serviceAccountPairs (Just account) = ["serviceAccountName" .= serviceAccountNameText account]
 
 containerValue :: Deployment -> Text -> Value
 containerValue dep tag =
@@ -344,7 +358,7 @@ containerValue dep tag =
       envField (dep ^. #env)
         <> envFromField (serviceNameText (dep ^. #name))
         <> resourcesField (dep ^. #resources)
-        <> probesField (dep ^. #healthCheck) (dep ^. #port)
+        <> probesField (dep ^. #probes) (dep ^. #port)
         <> volumeMountsField (dep ^. #volumes)
 
 -- | The inline @env:@ block, restricted to entries whose scope set contains
@@ -410,38 +424,35 @@ resourcesField (Just res)
       maybe [] (\q -> ["cpu" .= quantityText q]) mc
         <> maybe [] (\q -> ["memory" .= quantityText q]) mm
 
--- | The probe keys for the container object. A 'HealthCheck' always emits a
--- @readinessProbe@, plus a @livenessProbe@ when 'asLiveness' and a
--- @startupProbe@ when 'asStartup'. The container 'Port' is the default probe
--- port when the check does not pin its own 'checkPort'. Knative's @httpGet@
--- probe does not assert a status, so 'expectedStatus' is intentionally not
--- rendered.
-probesField :: Maybe HealthCheck -> Port -> [Pair]
+-- | The probe keys for the container object: always a @readinessProbe@, and a
+-- @livenessProbe@ or @startupProbe@ only when declared, each from its own check.
+-- The container 'Port' is the probe port when a check does not name one.
+probesField :: Maybe WebProbes -> Port -> [Pair]
 probesField Nothing _ = []
-probesField (Just hc) containerPort =
-  ["readinessProbe" .= probe]
-    <> (if hc ^. #asLiveness then ["livenessProbe" .= probe] else [])
-    <> (if hc ^. #asStartup then ["startupProbe" .= probe] else [])
+probesField (Just probes) containerPort =
+  ["readinessProbe" .= probe (probes ^. #readiness)]
+    <> maybe [] (\check -> ["livenessProbe" .= probe check]) (probes ^. #liveness)
+    <> maybe [] (\check -> ["startupProbe" .= probe check]) (probes ^. #startup)
   where
-    probePort = maybe (portInt containerPort) portInt (hc ^. #checkPort)
-    schemeStr = case hc ^. #scheme of
-      HTTP -> "HTTP" :: Text
-      HTTPS -> "HTTPS"
-    probe =
+    probe :: HttpCheck -> Value
+    probe check =
       object
         ( [ "httpGet"
               .= object
-                [ "path" .= (hc ^. #path)
-                , "port" .= probePort
-                , "scheme" .= schemeStr
+                [ "path" .= (check ^. #path)
+                , "port" .= maybe (portInt containerPort) portInt (check ^. #checkPort)
+                , "scheme" .= schemeStr (check ^. #scheme)
                 ]
           ]
-            <> initialDelayPair (hc ^. #initialDelay)
-            <> [ "periodSeconds" .= (hc ^. #period)
-               , "timeoutSeconds" .= (hc ^. #timeout)
-               , "failureThreshold" .= (hc ^. #failureThreshold)
+            <> initialDelayPair (check ^. #initialDelay)
+            <> [ "periodSeconds" .= (check ^. #period)
+               , "timeoutSeconds" .= (check ^. #timeout)
+               , "failureThreshold" .= (check ^. #failureThreshold)
                ]
         )
+    schemeStr :: HealthScheme -> Text
+    schemeStr HTTP = "HTTP"
+    schemeStr HTTPS = "HTTPS"
 
 -- | A probe's @initialDelaySeconds@, omitted when zero. Zero is the Kubernetes
 -- default, and the API server and Knative's webhook drop a zero value from the

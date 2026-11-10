@@ -50,7 +50,7 @@ import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
-import Nagare.Dsl.Worker (Worker, WorkerProbe (..), commandArgvList, probeTiming, replicasInt)
+import Nagare.Dsl.Worker (Worker, WorkerProbe (..), commandArgvList, probeTiming, replicasInt, shutdownSecondsInt)
 import Nagare.Resource.Types (logicalKeyText)
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
@@ -234,6 +234,7 @@ taskJSON t =
     , "successfulJobsHistoryLimit" .= (t ^. #successfulJobsHistoryLimit)
     , "failedJobsHistoryLimit" .= (t ^. #failedJobsHistoryLimit)
     , "startingDeadlineSeconds" .= (t ^. #startingDeadlineSeconds)
+    , "serviceAccount" .= fmap serviceAccountNameText (t ^. #serviceAccount)
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (t ^. #logicalKey)
   where
@@ -386,6 +387,9 @@ workerJSON w =
     , "databases" .= map databaseNameText (w ^. #databases)
     , "brokers" .= map brokerBindingJSON (w ^. #brokers)
     , "liveness" .= fmap workerProbeJSON (w ^. #liveness)
+    , "readiness" .= fmap workerProbeJSON (w ^. #readiness)
+    , "shutdownSeconds" .= fmap shutdownSecondsInt (w ^. #shutdown)
+    , "serviceAccount" .= fmap serviceAccountNameText (w ^. #serviceAccount)
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (w ^. #logicalKey)
       <> appDatabasesJSON (w ^. #appDatabases)
@@ -393,12 +397,10 @@ workerJSON w =
   where
     res = w ^. #resources
 
--- | The JSON shape of a worker liveness probe (EP-74). A @"kind"@ discriminator
+-- | The JSON shape of a worker probe (EP-74). A @"kind"@ discriminator
 -- (@"Exec"|"Tcp"|"Http"@) selects the per-mechanism fields; the shared timing is
 -- emitted flat alongside. The loader reads it back in
--- 'Nagare.Dsl.Load.toWorkerProbe'. A @Nothing@ probe is encoded as JSON @null@
--- (the @"liveness"@ key above), matching how @deploymentJSON@ emits an absent
--- @healthCheck@, so a no-probe worker stays byte-identical today.
+-- 'Nagare.Dsl.Load.toWorkerProbe'. A @Nothing@ probe is encoded as JSON @null@.
 workerProbeJSON :: WorkerProbe -> Value
 workerProbeJSON p = object (kindPairs <> timingPairs)
   where
@@ -486,7 +488,8 @@ deploymentJSON dep =
     , "memoryLimit" .= fmap quantityText (resources >>= (^. #memoryLimit))
     , "scaleMin" .= fmap (^. #minScale) scale
     , "scaleMax" .= fmap (^. #maxScale) scale
-    , "healthCheck" .= fmap healthCheckJSON (dep ^. #healthCheck)
+    , "probes" .= fmap webProbesJSON (dep ^. #probes)
+    , "serviceAccount" .= fmap serviceAccountNameText (dep ^. #serviceAccount)
     , "volumes" .= map volumeJSON (dep ^. #volumes)
     , "databases" .= map databaseNameText (dep ^. #databases)
     , "brokers" .= map brokerBindingJSON (dep ^. #brokers)
@@ -501,18 +504,23 @@ deploymentJSON dep =
     resources = dep ^. #resources
     scale = dep ^. #scale
 
-    healthCheckJSON hc =
+    webProbesJSON probes =
+      object
+        [ "readiness" .= httpCheckJSON (probes ^. #readiness)
+        , "liveness" .= fmap httpCheckJSON (probes ^. #liveness)
+        , "startup" .= fmap httpCheckJSON (probes ^. #startup)
+        ]
+
+    httpCheckJSON :: HttpCheck -> Value
+    httpCheckJSON hc =
       object
         [ "path" .= (hc ^. #path)
         , "checkPort" .= fmap portInt (hc ^. #checkPort)
         , "scheme" .= schemeText (hc ^. #scheme)
-        , "expectedStatus" .= (hc ^. #expectedStatus)
         , "initialDelay" .= (hc ^. #initialDelay)
         , "period" .= (hc ^. #period)
         , "timeout" .= (hc ^. #timeout)
         , "failureThreshold" .= (hc ^. #failureThreshold)
-        , "asLiveness" .= (hc ^. #asLiveness)
-        , "asStartup" .= (hc ^. #asStartup)
         ]
 
     schemeText :: HealthScheme -> Text

@@ -50,6 +50,7 @@ import Nagare.Dsl.Types
   , Namespace
   , Resources
   , ScopedEnvVar
+  , ServiceAccountName
   , ServiceName
   , defaultNamespace
   , mkImageRef
@@ -256,6 +257,8 @@ data Task = Task
   -- ^ Default 1.
   , startingDeadlineSeconds :: !(Maybe Int)
   -- ^ Optional; @> 0@ when present; renders as @spec.startingDeadlineSeconds@.
+  , serviceAccount :: !(Maybe ServiceAccountName)
+  -- ^ The account the Pod runs as; 'Nothing' runs it with no Kubernetes API token.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -315,6 +318,7 @@ scheduledTask nameT scheduleT imageT commandT = do
       , successfulJobsHistoryLimit = 3
       , failedJobsHistoryLimit = 1
       , startingDeadlineSeconds = Nothing
+      , serviceAccount = Nothing
       }
 
 -- ---------------------------------------------------------------------------

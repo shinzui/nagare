@@ -27,12 +27,14 @@ import Nagare.Test.World.Cluster qualified as Cluster
 import System.Exit (ExitCode (..))
 import Test.Tasty
 import Test.Tasty.HUnit
+import WorkloadControlsInventorySpec (workloadControlsInventoryTests)
 
 inventoryKubernetesReadinessTests :: TestTree
 inventoryKubernetesReadinessTests =
   testGroup
     "Kubernetes readiness (RES-4)"
-    [ testCase "Knative's own Certificate is awaited, because readiness holds it to Ready and its controller answers a moment later" $ do
+    [ workloadControlsInventoryTests
+    , testCase "Knative's own Certificate is awaited, because readiness holds it to Ready and its controller answers a moment later" $ do
         asked <- newIORef []
         let answer request = (Right (ExitSuccess, "", "")) <$ modifyIORef' asked (<> [request ^. #arguments])
             config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (ok (mkContextId "context-1")) "readiness" (pure (Right ())))

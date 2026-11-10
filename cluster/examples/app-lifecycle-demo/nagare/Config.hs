@@ -33,9 +33,8 @@ deployment = do
   -- Two public domains; exactly one is canonical and drives the reported URL.
   doms <- first show (mkDomains [("demo.example.com", True), ("www.demo.example.com", False)])
 
-  -- A /healthz probe with defaults, promoted to also emit liveness + startup.
-  baseHc <- first show (httpHealthCheck "/healthz")
-  let hc = baseHc & #asLiveness .~ True & #asStartup .~ True
+  -- A /healthz check with defaults, used for readiness, liveness and startup.
+  check <- first show (httpCheck "/healthz")
 
   -- The webService preset sets requests (250m / 128Mi); add matching limits.
   cpuReq <- first show (mkQuantity "250m")
@@ -54,7 +53,7 @@ deployment = do
     base
       { domains = doms
       , resources = Just res
-      , healthCheck = Just hc
+      , probes = Just WebProbes {readiness = check, liveness = Just check, startup = Just check}
       }
 
 main :: IO ()
