@@ -30,18 +30,11 @@ import Nagare.Harness.Prelude
 import Nagare.Harness.Step (Step (..))
 import System.IO (IOMode (ReadMode), SeekMode (AbsoluteSeek), hFileSize, hSeek, withBinaryFile)
 
--- | @--all-systems@ evaluates every system's checks, and a tooling-only
--- system's import-from-derivation needs a native builder the landing gate does
--- not have (EP-253), so the gate's view of the flake has the release systems
--- alone: the override empties the flake's tooling systems. Its release-system
--- derivations are unchanged.
+-- | One @nix flake check@ per release system (EP-253). @--all-systems@ would also
+-- evaluate a tooling-only system, whose import-from-derivation needs a native
+-- builder the landing gate does not have.
 flakeCheckStep :: Step
-flakeCheckStep =
-  Step
-    "nix-flake-check"
-    "."
-    "nix"
-    ["flake", "check", "--all-systems", "--override-input", "tooling-systems", "path:./nix/tooling-systems/none", "--keep-going", "--print-build-logs"]
+flakeCheckStep = Step "nix-flake-check" "." "scripts/flake-check-release-systems.sh" []
 
 -- | One failure a flake check's output names. The end-of-run summary names
 -- each failed check attribute; while the run goes on, only the derivation

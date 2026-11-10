@@ -28,9 +28,9 @@ flakeCheckTests :: TestTree
 flakeCheckTests =
   testGroup
     "full gate checks (EP-184 M2)"
-    [ testCase "the flake check keeps going and runs on every system" $
-        (fullCheckPlan "nagare-harness" ^. #flake . #arguments)
-          @?= ["flake", "check", "--all-systems", "--override-input", "tooling-systems", "path:./nix/tooling-systems/none", "--keep-going", "--print-build-logs"]
+    [ testCase "the flake check covers the release systems through its script" $
+        let step = fullCheckPlan "nagare-harness" ^. #flake
+         in (step ^. #program, step ^. #arguments) @?= ("scripts/flake-check-release-systems.sh", [])
     , testCase "a flake log names each failed derivation once, and the summary names each failed check" $ do
         let running =
               "broken-one> make: *** [all] Error 1\n\

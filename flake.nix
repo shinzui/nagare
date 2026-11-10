@@ -19,10 +19,6 @@
   inputs.attic = {
     url = "github:zhaofengli/attic/12cbeca141f46e1ade76728bce8adc447f2166c6";
   };
-  inputs.tooling-systems = {
-    url = "path:./nix/tooling-systems";
-    flake = false;
-  };
 
   nixConfig = {
     extra-substituters = [ "https://shinzui.cachix.org" ];
@@ -37,8 +33,10 @@
       # limited to these.
       releaseSystems = releaseMetadata.supportedSystems;
       # Systems that receive only the packaged CLI, its configuration SDK and
-      # the SDK consumer check; see nix/tooling-systems/default.nix.
-      toolingSystems = import inputs.tooling-systems;
+      # the SDK consumer check: tooling support, not host support (ADR 3). The
+      # full gate checks release systems alone, because these need a native
+      # builder it does not have.
+      toolingSystems = [ "aarch64-linux" ];
       sourceRevision =
         if self ? rev then self.rev
         else if self ? dirtyRev then self.dirtyRev

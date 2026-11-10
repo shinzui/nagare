@@ -72,5 +72,5 @@ development-shell or Hydra output. A native Linux SDK is not production-host sup
 `release.json` is not changed by it.
 
 The check needs a native `aarch64-linux` builder, which the landing gate does not have, so it runs
-per release candidate in a native Apple container. The full gate's `nix flake check --all-systems`
-overrides `tooling-systems` to the empty list; a release candidate builds the check by name.
+per release candidate in a native Apple container. The full gate runs `nix flake check` once per
+`release.json` system instead of `--all-systems`, and a release candidate builds the check by name.

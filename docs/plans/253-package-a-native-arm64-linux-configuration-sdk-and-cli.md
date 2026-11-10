@@ -50,7 +50,7 @@ The evidence above predates EP-254. After merging onto master, the same run at r
 ## Surprises & Discoveries
 
 
-- `nix flake check --all-systems` has no way to leave a system out, and evaluating `packages.aarch64-linux` needs import-from-derivation on an `aarch64-linux` builder that the landing gate does not have. A plain tooling list in `flake.nix` would have broken the full gate, so the list became a flake input that the gate overrides to empty, and `scripts/check-release.sh` no longer assumes the flake's systems equal `release.json`.
+- `nix flake check --all-systems` has no way to leave a system out, and evaluating `packages.aarch64-linux` needs import-from-derivation on an `aarch64-linux` builder that the landing gate does not have. The first design made the tooling list a flake input the gate overrode to empty. That override made Nix drop `self.rev`, so 8 of the 39 `aarch64-darwin` checks were built with a null source revision, and the gate's realisation proof went red on `b1fccafa`. The gate now runs `nix flake check --system` per release system, and the tooling list is a plain value in `flake.nix`.
 - Apple's container kernel does not support the namespaces Nix's sandbox needs (`this system does not support the kernel namespaces`, with `--cap-add ALL` too), so the sandbox cannot provide the no-network proof there. The consumer check runs in a second container on an `--internal` network with no DNS, and the script fails if the network is reachable.
 
 ## Decision Log
@@ -60,7 +60,7 @@ The evidence above predates EP-254. After merging onto master, the same run at r
 - Decision: Leave `release.json` `supportedSystems` unchanged and list tooling systems in `flake.nix`. Rationale: that field is read by the gate, the verify step, release evidence and a candidate check requiring exactly the two current systems; extending it would need a schema change and migration tests to say something a flake output already says (operator, 2026-11-09). Date: 2026-11-09.
 - Decision: `aarch64-linux` gets no platform payload, so its `nagarectl` wrapper sets no `NAGARE_PLATFORM_ROOT`. Rationale: the payload embeds an x86_64 controller image that would need a cross toolchain on ARM64, and platform commands are outside a tooling-only promise. Date: 2026-11-09.
 - Decision: `nagarectl`'s test suite stays out of the `aarch64-linux` package derivation, as on `aarch64-darwin`. Rationale: `x86_64-linux` remains the tested derivation; the consumer check is the ARM64 evidence. Date: 2026-11-09.
-- Decision: The tooling list is the `tooling-systems` flake input (`nix/tooling-systems`), and the full gate passes `--override-input tooling-systems path:./nix/tooling-systems/none`. Rationale: a pure flake has no other channel for the gate to narrow `--all-systems`, and the override leaves release-system derivations unchanged (compared `drvPath` for `checks.x86_64-linux.nagarectl-external-config`, `checks.aarch64-darwin.nagare-api-server-build-test` and `packages.x86_64-linux.nagare-platform`: identical). Date: 2026-11-09.
+- Decision: The tooling list is a plain value in `flake.nix`, and the full gate runs one `nix flake check --system` per `release.json` system (`scripts/flake-check-release-systems.sh`), replacing an earlier `--override-input`. Rationale: the override changed what was gated by removing the source revision, and per-system checks gate the same derivations a release builds. Date: 2026-11-10.
 
 ## Outcomes & Retrospective
 
