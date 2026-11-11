@@ -50,6 +50,18 @@ delegationCmd =
                     (progDesc "Save a review revoking a delegation; its namespaces and what runs in them are kept")
                 )
               <> command
+                "credentials"
+                ( info
+                    ( DelegationCredentials
+                        <$> nameArg
+                        <*> strOption (long "out" <> metavar "DIRECTORY" <> help "A new or empty private directory outside any repository; the deployer's home")
+                        <*> optional (strOption (long "duration" <> metavar "DURATION" <> help "Token lifetime, such as 720h (the default)"))
+                        <*> contractOpt
+                          <**> helper
+                    )
+                    (progDesc "Issue a delegated deployer's credential bundle and retire every earlier one")
+                )
+              <> command
                 "show"
                 ( info
                     (DelegationShow <$> nameArg <*> contractOpt <**> helper)

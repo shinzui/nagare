@@ -24,6 +24,8 @@ supportedUpdateKinds =
   , ("serving.knative.dev", "service")
   , ("batch", "cronjob")
   , ("networking.k8s.io", "networkpolicy")
+  , -- EP-248: revoking a delegation empties its deployer's Roles in place.
+    ("rbac.authorization.k8s.io", "role")
   ]
 
 -- | The (API group, kind) pairs whose stuck pod the adapter replaces through

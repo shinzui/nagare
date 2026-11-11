@@ -5,6 +5,7 @@ module Nagare.Cli.Commands.Delegation
   )
 where
 
+import Control.Exception (IOException, try)
 import Control.Monad (forM_)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
@@ -19,15 +20,22 @@ import Nagare.Contract.Delegation (ActorSummary (..), SourceSummary (..), Transa
 import Nagare.Contract.Schema (fromNullable)
 import Nagare.Contract.Sink (contractSinkSet, emitDocument, withReadContract)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.ClusterSession (kubectlConnectionArguments)
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Components.LocalObjectStore (readLocalRegistryDigest, selectLocalMinioImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DeployerCredentials (CredentialOps (..), CredentialRequest (..), issueCredentials, kubectlStoreKeyOps, randomHexIO)
 import Nagare.Inventory.DeployerDelegation
+import Nagare.Inventory.DeployerStoreAccess (StoreAccess (..))
 import Nagare.Inventory.Store (readHead)
+import Nagare.Inventory.Store.S3 (parseS3Endpoint)
 import Nagare.Inventory.TransactionHistory (delegationDocument, readTransactionHistory)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types (generationNumber)
-import Nagare.Target (ActiveTarget)
+import Nagare.Target (ActiveTarget, InventoryStoreKind (InventoryStoreObject), Mode (Local), contextFilePath, contextNameText, effectiveInventoryStore)
 import Nagare.Target.Kinds (hostShapeFor)
+import System.Environment (lookupEnv)
+import System.Process (readProcessWithExitCode)
 
 runDelegation :: Maybe String -> DelegationCommand -> IO ()
 runDelegation mctx = \case
@@ -86,6 +94,52 @@ runDelegation mctx = \case
               , "build namespace: " <> fromMaybe "none" (accepted ^. #buildNamespace)
               ]
           )
+  DelegationCredentials deployer out duration contract -> withReadContract contract $ do
+    active <- activeTarget mctx
+    snapshot <- Inventory.loadTargetSnapshotReadOnly active
+    accepted <- maybe (dieT ("no accepted delegation names deployer " <> T.pack deployer)) pure (Map.lookup (T.pack deployer) (acceptedOf snapshot))
+    when (accepted ^. #state /= DelegationActive) (dieT ("delegation " <> T.pack deployer <> " is revoked and issues no credentials"))
+    when (active ^. #profile . #mode /= Local) (dieT "deployer credentials on a cloud context need the delegation's cloud principal, which this release does not issue yet")
+    store <- delegationStoreAccess active
+    when (isNothing store) (dieT "a local deployer reaches the inventory in the in-cluster object store; move it there first with nagarectl inventory store migrate --to object")
+    let contextText = contextNameText (active ^. #contextName)
+        run arguments input = do
+          connection <- kubectlConnectionArguments contextText
+          case connection of
+            Left reason -> pure (Left reason)
+            Right selected -> first (\(_ :: IOException) -> "could not invoke kubectl") <$> try (readProcessWithExitCode "kubectl" (selected <> arguments) input)
+    operatorContext <- contextFilePath (active ^. #contextName) >>= TIO.readFile
+    issue <- randomHexIO 4
+    issued <-
+      issueCredentials
+        CredentialOps
+          { kubectl = run
+          , storeKeys = (\access -> kubectlStoreKeyOps run (T.pack deployer) access issue) <$> store
+          , randomHex = randomHexIO
+          }
+        CredentialRequest
+          { deployer = T.pack deployer
+          , context = contextText
+          , out = out
+          , duration = maybe "720h" T.pack duration
+          , operatorContext = operatorContext
+          , buildNamespace = accepted ^. #buildNamespace
+          , issue = issue
+          }
+    document <- either dieT pure issued
+    contractMode <- contractSinkSet
+    if contractMode
+      then emitDocument document
+      else
+        TIO.putStr
+          ( T.unlines
+              ( [ "issued deployer " <> document ^. #deployer <> " credentials in " <> document ^. #home
+                , "run it with HOME=" <> document ^. #home <> " and XDG_CONFIG_HOME=" <> document ^. #home <> "/.config"
+                , "token expires " <> document ^. #tokenExpiresAt
+                ]
+                  <> ["retired " <> handle | handle <- document ^. #retired]
+              )
+          )
   where
     acceptedOf snapshot = acceptedDelegations (fmap snd (ResourceInventory.snapshotScopes snapshot))
 
@@ -106,12 +160,28 @@ planDelegation mctx active creating delegation output = do
       when (isRight' (acceptedFoundationNamespace snapshot ns)) (dieT ("namespace " <> ns <> " belongs to the platform foundation"))
       forM_ (Map.elems others) $ \other ->
         when (ns `elem` (NE.toList (other ^. #namespaces) <> maybe [] pure (other ^. #buildNamespace))) (dieT ("namespace " <> ns <> " belongs to delegation " <> other ^. #name))
-  (scope, native) <- either dieT pure (compileDelegationScope cluster systemNamespace delegation)
+  store <- delegationStoreAccess active
+  (scope, native) <- either dieT pure (compileDelegationScope cluster systemNamespace store delegation)
   candidate <- either (dieT . T.pack . show) pure (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   _ <- pure mctx
   Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native) active candidate output
   where
     isRight' = either (const False) (const True)
+
+-- | EP-248 D10: on a local context whose inventory is in the in-cluster
+-- object store, the deployer's store identity is administered by the store's
+-- own client image, selected as bootstrap selects it.
+delegationStoreAccess :: ActiveTarget -> IO (Maybe StoreAccess)
+delegationStoreAccess active = do
+  let profile = active ^. #profile
+  if profile ^. #mode /= Local || effectiveInventoryStore profile /= InventoryStoreObject
+    then pure Nothing
+    else do
+      endpoint <- either dieT pure (parseS3Endpoint (profile ^. #inventoryStoreUrl))
+      serverImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
+      clientImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MC_IMAGE"
+      images <- selectLocalMinioImages readLocalRegistryDigest (profile ^. #targetPlatform) serverImage clientImage >>= either dieT pure
+      pure (Just (StoreAccess (endpoint ^. #base) (endpoint ^. #bucket) (endpoint ^. #prefix) (images ^. #client)))
 
 -- | @inventory history@: transactions newest first with actor and source.
 runInventoryHistory :: Maybe String -> Maybe Int -> Maybe Int -> IO ()

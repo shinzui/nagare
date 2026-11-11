@@ -398,6 +398,87 @@
         ],
         "type": "object"
       },
+      "DeployerCredentials": {
+        "description": "A delegated deployer's credential bundle: its files relative to the bundle home (run with HOME and XDG_CONFIG_HOME there), token expiries, key ids and the earlier credentials it retired. It names no secret.",
+        "properties": {
+          "builderKubeconfig": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "builderTokenExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "type": "string"
+          },
+          "contextFile": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "deployer": {
+            "type": "string"
+          },
+          "document": {
+            "enum": [
+              "deployer-credentials"
+            ],
+            "type": "string"
+          },
+          "home": {
+            "type": "string"
+          },
+          "kubeconfig": {
+            "type": "string"
+          },
+          "retired": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "storeCredentials": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storeKeyId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenExpiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "deployer",
+          "context",
+          "home",
+          "contextFile",
+          "kubeconfig",
+          "tokenExpiresAt",
+          "builderKubeconfig",
+          "builderTokenExpiresAt",
+          "storeCredentials",
+          "storeKeyId",
+          "retired"
+        ],
+        "type": "object"
+      },
       "ExecutorClaimSummary": {
         "properties": {
           "claimedAt": {

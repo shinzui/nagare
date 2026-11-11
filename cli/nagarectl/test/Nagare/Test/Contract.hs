@@ -191,6 +191,7 @@ samples =
   , Sample "platform-versions.json" platformVersionsSample
   , Sample "delegation.json" delegationSample
   , Sample "transaction-history.json" transactionHistorySample
+  , Sample "deployer-credentials.json" deployerCredentialsSample
   , Sample "rendered-application.json" (renderedSample Load.RenderedApplication "{\"kind\":\"Application\",\"name\":\"notes\"}\n")
   , Sample "rendered-worker.json" (renderedSample Load.RenderedWorker "{\"kind\":\"Worker\",\"name\":\"mailer\"}\n")
   , Sample "rendered-site.json" (renderedSample Load.RenderedStaticSite "{\"kind\":\"StaticSite\",\"name\":\"docs\"}\n")
@@ -219,6 +220,25 @@ delegationSample =
     , baseDomain = "example.com"
     , hostShape = "nested"
     , acceptedRevision = 2
+    }
+
+-- | EP-248 D4: a rotated bundle on a local object-store context.
+deployerCredentialsSample :: DeployerCredentials
+deployerCredentialsSample =
+  DeployerCredentials
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , deployer = "kotei"
+    , context = "labs"
+    , home = "/home/operator/deployers/kotei"
+    , contextFile = ".config/nagare/contexts/labs.env"
+    , kubeconfig = ".config/nagare/kubeconfigs/labs.yaml"
+    , tokenExpiresAt = "2026-12-11T09:30:00Z"
+    , builderKubeconfig = Nullable (Just "builder/kubeconfig.yaml")
+    , builderTokenExpiresAt = Nullable (Just "2026-12-11T09:30:00Z")
+    , storeCredentials = Nullable (Just ".config/nagare/credentials/labs-s3.json")
+    , storeKeyId = Nullable (Just "NGR0123456789ABCDEF")
+    , retired = ["nagare-system/nagare-deployer-kotei-1f2e3d4c", "store-key/NGRFEDCBA9876543210", "team-a-build/nagare-builder-kotei-1f2e3d4c"]
     }
 
 -- | EP-247 D6: a deployer's transaction with its source, then an operator's.

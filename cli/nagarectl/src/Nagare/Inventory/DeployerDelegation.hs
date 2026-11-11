@@ -37,6 +37,7 @@ module Nagare.Inventory.DeployerDelegation
   , admittedDelegationViolations
   , expectedProtectedMappingDigest
   , hostWithinDelegation
+  , allowedKubernetesKinds
   )
 where
 
@@ -70,6 +71,9 @@ import Nagare.Access.Resolve (backendConfigMapNamespace, renderAccessDomainMappi
 import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Actor (validActorName)
+import Nagare.Inventory.DelegatedKind (DelegatedKind (..), delegatedKindText, parseDelegatedKind)
+import Nagare.Inventory.DeployerAccess (IdentityObject (..), identityObjects)
+import Nagare.Inventory.DeployerStoreAccess (StoreAccess, storeObjects)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ProtectedRoute (enforcerTarget)
@@ -83,10 +87,6 @@ import Nagare.Resource.Wire (canonicalValue)
 
 data DelegationState = DelegationActive | DelegationRevoked
   deriving stock (Eq, Ord, Show, Generic)
-
--- | The scope kinds a deployer may admit. Nothing else is delegable.
-data DelegatedKind = DelegatedWebApp | DelegatedWorker | DelegatedTask | DelegatedStaticSite | DelegatedServerSite
-  deriving stock (Eq, Ord, Show, Generic, Enum, Bounded)
 
 -- | One ResourceQuota per namespace. Pods without requests get the
 -- LimitRange defaults, so the quota never refuses an unannotated workload.
@@ -122,19 +122,6 @@ hostShapeText :: HostShape -> Text
 hostShapeText = \case
   NestedHosts -> "nested"
   FlatHosts -> "flat"
-
-delegatedKindText :: DelegatedKind -> Text
-delegatedKindText = \case
-  DelegatedWebApp -> "web-app"
-  DelegatedWorker -> "worker"
-  DelegatedTask -> "task"
-  DelegatedStaticSite -> "static-site"
-  DelegatedServerSite -> "server-site"
-
-parseDelegatedKind :: Text -> Either Text DelegatedKind
-parseDelegatedKind raw = case [kind | kind <- [minBound .. maxBound], delegatedKindText kind == raw] of
-  [kind] -> Right kind
-  _ -> Left ("unknown delegated kind " <> raw <> "; expected one of web-app, worker, task, static-site, server-site")
 
 delegationStateText :: DelegationState -> Text
 delegationStateText = \case
@@ -193,12 +180,6 @@ instance FromJSON DelegationQuota where
   parseJSON = withObject "DelegationQuota" $ \o -> do
     unless (all (`elem` ["cpu", "memory", "pods"]) (KM.keys o)) (fail "quota has an unknown field")
     DelegationQuota <$> o .: "cpu" <*> o .: "memory" <*> o .: "pods"
-
-instance ToJSON DelegatedKind where
-  toJSON = toJSON . delegatedKindText
-
-instance FromJSON DelegatedKind where
-  parseJSON = withText "DelegatedKind" (either (fail . T.unpack) pure . parseDelegatedKind)
 
 instance ToJSON DelegationState where
   toJSON = toJSON . delegationStateText
@@ -270,9 +251,10 @@ decodeDelegation bytes = do
 compileDelegationScope ::
   ResourceId ->
   ResourceId ->
+  Maybe StoreAccess ->
   DeployerDelegation ->
   Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileDelegationScope cluster systemNamespace candidate = do
+compileDelegationScope cluster systemNamespace store candidate = do
   delegation <- validateDelegation candidate
   owner <- delegationScopeId (delegation ^. #name)
   key <- mkLogicalKey "delegation"
@@ -305,7 +287,22 @@ compileDelegationScope cluster systemNamespace candidate = do
           ]
       )
       [OrderedAfter systemNamespace]
-  let members = namespaceMembers <> [recordMember]
+  -- EP-248 D2, D3: the deployer's and builder's identities. A revoked
+  -- delegation keeps them with empty rules.
+  -- D10: on an object-store context, the deployer's store identity too.
+  let active = delegation ^. #state == DelegationActive
+  storeMembers <- maybe (Right []) (storeObjects deployer active) store
+  let identities = identityObjects deployer active (delegation ^. #kinds) (delegation ^. #namespaces) build <> storeMembers
+  identityIds <- Map.fromList <$> traverse' identities (\o -> (o ^. #role,) <$> roleId (o ^. #role))
+  identityMembers <- traverse' identities $ \o -> do
+    memberId <- maybe (Left "identity member id is missing") Right (Map.lookup (o ^. #role) identityIds)
+    namespaceOrder <- case o ^. #namespace of
+      Just ns
+        | ns == backendConfigMapNamespace -> Right [OrderedAfter systemNamespace]
+        | otherwise -> (\i -> [OrderedAfter i]) <$> roleId ("namespace-" <> ns)
+      Nothing -> Right []
+    bind owner memberId (o ^. #value) (namespaceOrder <> [OrderedAfter i | r <- o ^. #after, Just i <- [Map.lookup r identityIds]])
+  let members = namespaceMembers <> [recordMember] <> identityMembers
   scope <-
     first
       (T.pack . show)

@@ -242,9 +242,13 @@ library
     Nagare.Inventory.DataService
     Nagare.Inventory.Database
     Nagare.Inventory.DatabaseEngine
+    Nagare.Inventory.DelegatedKind
     Nagare.Inventory.DelegatedPlanning
+    Nagare.Inventory.DeployerAccess
     Nagare.Inventory.DeployerCommands
+    Nagare.Inventory.DeployerCredentials
     Nagare.Inventory.DeployerDelegation
+    Nagare.Inventory.DeployerStoreAccess
     Nagare.Inventory.Digest
     Nagare.Inventory.Environment
     Nagare.Inventory.Execute
@@ -428,6 +432,7 @@ library
     temporary,
     text,
     time,
+    transformers,
     unix,
     vector,
     yaml,
@@ -724,6 +729,8 @@ test-suite nagarectl-test
     Nagare.Test.DataFixtures
     Nagare.Test.Database
     Nagare.Test.Delegation
+    Nagare.Test.DeployerAccess
+    Nagare.Test.DeployerCredentials
     Nagare.Test.Domains
     Nagare.Test.Effectful.CollectionFixture
     Nagare.Test.Effectful.CollectionModel

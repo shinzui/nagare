@@ -97,28 +97,28 @@ teamDelegation =
 scopeTests :: [TestTree]
 scopeTests =
   [ testCase "compiles each namespace with a quota and limits, the build namespace, and the record, all Retain" $ do
-      (scope, native) <- expectRight (compileDelegationScope fixtureCluster systemNamespace teamDelegation)
+      (scope, native) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing teamDelegation)
       scopeIdText (scopeId scope) @?= "platform:delegation-kotei"
       let members = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
           kinds' = [(nameText kind, maybe "" nameText ns, nameText n) | resource <- members, Kubernetes _ _ kind ns n <- [resource ^. #address]]
-      length members @?= 10
+      length members @?= 22
       all ((== Retain) . (^. #lifecycle)) members @? "every member is Retain"
       [n | ("namespace", _, n) <- kinds'] @?= ["team-a", "team-b", "team-build"]
       length [() | ("resourcequota", _, _) <- kinds'] @?= 3
       length [() | ("limitrange", _, _) <- kinds'] @?= 3
       [(ns, n) | ("configmap", ns, n) <- kinds'] @?= [("nagare-system", "nagare-delegation-kotei")]
-      Map.size native @?= 10
+      Map.size native @?= 22
       let labels name' = [labelsOf bytes | (resource, bytes) <- Map.elems native, Kubernetes _ _ kind Nothing n <- [resource ^. #address], nameText kind == "namespace", nameText n == name']
       labels "team-a" @?= [Map.fromList [("app.kubernetes.io/part-of", "nagare"), ("nagare.dev/app-namespace", "true"), ("nagare.dev/delegation", "kotei")]]
       labels "team-build" @?= [Map.fromList [("app.kubernetes.io/part-of", "nagare"), ("nagare.dev/build-namespace", "true"), ("nagare.dev/delegation", "kotei")]]
   , testCase "the accepted head alone answers the teamDelegation, through the scope's overrides" $ do
-      (scope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace teamDelegation)
+      (scope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing teamDelegation)
       Map.lookup "kotei" (acceptedDelegations (Map.singleton (scopeId scope) scope)) @?= Just teamDelegation
       decoded <- expectRight (encodeDelegation teamDelegation >>= decodeDelegation)
       decoded @?= teamDelegation
   , testCase "app commands accept an active delegation's namespace and no other" $ do
-      (scope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace teamDelegation)
-      (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace (teamDelegation & #state .~ DelegationRevoked))
+      (scope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing teamDelegation)
+      (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing (teamDelegation & #state .~ DelegationRevoked))
       let snapshotOf delegationScope = ok (mkScopeSnapshot binding' (Map.fromList [(scopeId s', (generationOne, s')) | s' <- [foundationScope, delegationScope]]) Map.empty)
       acceptedAppNamespace (snapshotOf scope) "team-a" @?= Right (fixtureCluster, delegatedNamespaceId)
       assertBool "a namespace no accepted scope owns" (isLeft (acceptedAppNamespace (snapshotOf scope) "team-z"))
@@ -192,7 +192,7 @@ boundsTests =
       site <- stamped . protectedSite <$> protectedSiteFixture
       checkWith siteDelegation Map.empty [site] @?= Right ()
   , testCase "(a) a platform scope is refused" $ do
-      (scope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace teamDelegation)
+      (scope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing teamDelegation)
       assertBool "scope-kind" ("scope-kind" `elem` bounds' (checkWith siteDelegation Map.empty [stamped scope]))
   , testCase "(b) members outside the delegated namespaces are refused" $ do
       site <- stamped . protectedSite <$> protectedSiteFixture
@@ -261,7 +261,7 @@ admissionAndHistory :: Assertion
 admissionAndHistory = do
   store <- newMemoryStore
   _ <- initializeStore store binding' "delegation" >>= expectRight
-  (delegationScope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace teamDelegation)
+  (delegationScope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing teamDelegation)
   accept store anonymousOperator Nothing [ReplaceScope foundationScope, ReplaceScope delegationScope]
   accept store (DeployerActor "kotei") (Just (ReviewSource (Just "https://forge.example.test/team/site") (Just "abc123") (Just "https://ci.example.test/runs/7"))) [ReplaceScope (stampDeployerScope "kotei" (appScope "v1"))]
   -- D4 through the preparation path: the deployer's candidate is stamped,
@@ -277,7 +277,7 @@ admissionAndHistory = do
   objectsAfter <- readStoreSnapshot store >>= expectRight
   assertBool "a refused proposal writes nothing" (storeSnapshotReviewDigests objectsBefore == storeSnapshotReviewDigests objectsAfter && storeSnapshotHead objectsBefore == storeSnapshotHead objectsAfter)
   saved <- prepared store (DeployerActor "kotei") Nothing [ReplaceScope (stampDeployerScope "kotei" (appScope "v2"))]
-  (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace (teamDelegation & #state .~ DelegationRevoked))
+  (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing (teamDelegation & #state .~ DelegationRevoked))
   accept store (OperatorActor (Just "alice")) Nothing [ReplaceScope revoked]
   before <- readHead store >>= expectRight
   refused <- applyReviewed store registry saved

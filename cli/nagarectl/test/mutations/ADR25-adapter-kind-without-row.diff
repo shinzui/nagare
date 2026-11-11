@@ -1,11 +1,11 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs
-index 04ece6a7..a064f697 100644
+index 8f276366..3069c1e8 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs
-@@ -24,6 +24,7 @@ supportedUpdateKinds =
-   , ("serving.knative.dev", "service")
-   , ("batch", "cronjob")
+@@ -26,6 +26,7 @@ supportedUpdateKinds =
    , ("networking.k8s.io", "networkpolicy")
+   , -- EP-248: revoking a delegation empties its deployer's Roles in place.
+     ("rbac.authorization.k8s.io", "role")
 +  , ("", "limitrange")
    ]
  

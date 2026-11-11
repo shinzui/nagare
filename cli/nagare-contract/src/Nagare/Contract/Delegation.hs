@@ -7,6 +7,7 @@ module Nagare.Contract.Delegation
   , SourceSummary (..)
   , TransactionSummary (..)
   , TransactionHistory (..)
+  , DeployerCredentials (..)
   )
 where
 
@@ -76,6 +77,37 @@ data TransactionHistory = TransactionHistory
   , transactions :: ![TransactionSummary]
   }
   deriving stock (Eq, Show, Generic)
+
+-- | What @deployer credentials@ issued (EP-248 D4): the bundle's files,
+-- relative to its home, when the tokens expire and which key ids it holds,
+-- and the earlier handles it retired. Never a secret.
+data DeployerCredentials = DeployerCredentials
+  { contractVersion :: !ContractVersion
+  , document :: !(DocumentName "deployer-credentials")
+  , deployer :: !Text
+  , context :: !Text
+  , home :: !Text
+  , contextFile :: !Text
+  , kubeconfig :: !Text
+  , tokenExpiresAt :: !Text
+  , builderKubeconfig :: !(Nullable Text)
+  , builderTokenExpiresAt :: !(Nullable Text)
+  , storeCredentials :: !(Nullable Text)
+  , storeKeyId :: !(Nullable Text)
+  , retired :: ![Text]
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance ToJSON DeployerCredentials where toJSON = genericToJSON recordOptions
+
+instance FromJSON DeployerCredentials where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema DeployerCredentials where
+  declareNamedSchema proxy =
+    recordSchema proxy
+      <&> schema
+      . description
+      ?~ "A delegated deployer's credential bundle: its files relative to the bundle home (run with HOME and XDG_CONFIG_HOME there), token expiries, key ids and the earlier credentials it retired. It names no secret."
 
 instance ToJSON DelegationQuotaSummary where toJSON = genericToJSON recordOptions
 

@@ -14,6 +14,9 @@ data DelegationCommand
     DelegationShow String (Maybe Int)
   | -- | @inventory history@: the limit and the contract version (EP-247 D6).
     DelegationHistory (Maybe Int) (Maybe Int)
+  | -- | EP-248: the deployer, the bundle directory, the token lifetime and
+    -- the contract version. Running it again rotates.
+    DelegationCredentials String FilePath (Maybe String) (Maybe Int)
   deriving stock (Generic, Show)
 
 data DelegationCreateOpts = DelegationCreateOpts

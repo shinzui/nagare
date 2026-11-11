@@ -55,7 +55,8 @@ ROUTES = {
     # EP-230: session-bound token minting, a fixed-port forward, and Attic pushes.
     "NixCacheCommand": {"bounded": "NixCacheToken NixCacheForward NixCachePush"},
     # EP-247: a delegation is one reviewed platform scope; show and history read the store.
-    "DelegationCommand": {"read": "DelegationShow DelegationHistory", "reviewed": "DelegationCreate DelegationRevoke"},
+    # EP-248: credentials mints bound tokens and store keys for the reviewed identities.
+    "DelegationCommand": {"read": "DelegationShow DelegationHistory", "reviewed": "DelegationCreate DelegationRevoke", "bounded": "DelegationCredentials"},
     "ContextCommand": {
         "read": "ContextList ContextCurrent ContextShow ContextGuard ContextEnv",
         "local": "ContextUse",

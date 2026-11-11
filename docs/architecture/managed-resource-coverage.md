@@ -13,7 +13,7 @@ authority.
 | `KubeconfigCommand` | 3 | none |
 | `ClusterCommand` | 2 | none |
 | `NixCacheCommand` | 3 | none |
-| `DelegationCommand` | 4 | none |
+| `DelegationCommand` | 5 | none |
 | `ContextCommand` | 10 | none |
 | `InfraCommand` | 5 | none |
 | `EnvCommand` | 4 | none |

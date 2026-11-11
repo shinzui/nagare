@@ -110,6 +110,8 @@ import Nagare.Test.Context
 import Nagare.Test.Contract (contractTests)
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
 import Nagare.Test.Delegation (delegationTests)
+import Nagare.Test.DeployerAccess (deployerAccessTests)
+import Nagare.Test.DeployerCredentials (deployerCredentialsTests)
 import Nagare.Test.Domains (certificateChainTests, domainsTests)
 import Nagare.Test.Environment
   ( buildArgsTests
@@ -176,6 +178,8 @@ main = do
           testGroup "nagarectl" $
             [ inventoryAccessTests
             , delegationTests
+            , deployerAccessTests
+            , deployerCredentialsTests
             , staticImageTests
             , hostTests
             , inventoryArtifactTests

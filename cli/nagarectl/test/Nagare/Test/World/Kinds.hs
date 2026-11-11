@@ -165,7 +165,7 @@ kindTable =
   , inLine ("", "namespace") updatable NoReadiness
   , inLine ("", "resourcequota") updatable NoReadiness
   , inLine ("networking.k8s.io", "networkpolicy") updatable NoReadiness
-  , inLine ("rbac.authorization.k8s.io", "role") fixed NoReadiness
+  , inLine ("rbac.authorization.k8s.io", "role") updatable NoReadiness
   , inLine ("rbac.authorization.k8s.io", "rolebinding") fixed NoReadiness
   , -- Platform bootstrap kinds are not in release line (b).
     platform ("apiextensions.k8s.io", "customresourcedefinition") CanBeUnready
