@@ -4,6 +4,7 @@
 module Nagare.Inventory.Execute.Admission
   ( admit
   , admitWithHistory
+  , delegationAdmission
   )
 where
 

@@ -21,13 +21,13 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Contract.Delegation (ActorSummary (..), TransactionHistory (..), TransactionSummary (..))
-import Nagare.Contract.Problem (admissionRefused, problemCatalog, reviewStale)
+import Nagare.Contract.Problem (admissionRefused, problemCatalog, reviewChanged, reviewStale)
 import Nagare.Contract.Schema (fromNullable)
 import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Actor
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Command (admissionProblem)
+import Nagare.Inventory.Command (admissionProblem, unverifiedReviewProblem)
 import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.DelegatedPlanning (attributeReview, delegatedCandidate)
 import Nagare.Inventory.DeployerCommands (commandWords, contextArgument, guardDeployerCommand)
@@ -66,6 +66,13 @@ delegationTests =
         admissionProblem (refusal "stale-head" :| [refusal "stale-base"]) @?= reviewStale
         forM_ ["delegation-revoked", "delegation-bounds", "active-transaction", "context-binding"] $ \code -> admissionProblem (refusal code :| []) @?= admissionRefused
         admissionProblem (refusal "stale-head" :| [refusal "delegation-revoked"]) @?= admissionRefused
+    , testCase "a review saved before another change landed is review_stale at apply, unless its delegation refuses it" $ do
+        let stale code = ReviewError code "stale"
+            revoked = AdmissionError "delegation-revoked" "revoked" :| []
+        unverifiedReviewProblem (stale "stale-head" :| [stale "stale-base"]) Nothing @?= reviewStale
+        unverifiedReviewProblem (stale "stale-head" :| [stale "stale-base"]) (Just revoked) @?= admissionRefused
+        unverifiedReviewProblem (stale "stale-head" :| [stale "scope-member"]) Nothing @?= reviewChanged
+        unverifiedReviewProblem (stale "unpublished-review" :| []) Nothing @?= reviewChanged
     ]
 
 -- ---------------------------------------------------------------------------

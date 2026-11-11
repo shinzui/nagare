@@ -1,5 +1,6 @@
 module Nagare.Inventory.Command
   ( admissionProblem
+  , unverifiedReviewProblem
   , compileInput
   , compileInventory
   , loadCandidate
@@ -86,6 +87,7 @@ import Nagare.Inventory.Command.Open
 import Nagare.Inventory.DelegatedPlanning (attributeReview, delegatedCandidate, profileActor)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
+import Nagare.Inventory.Execute.Admission (delegationAdmission)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Lifecycle
 import Nagare.Inventory.Lineage (renderRebuild)
@@ -644,7 +646,13 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
   pinned <- either (const Nothing) Just <$> tracePhase "history load" (loadInventoryHistoryAt store headValue)
   registry <- tracePhase "runtime setup" (registryFor (ReviewInventory store pinned) bundle)
   snapshot <- readReviewSnapshotAt store headValue (reviewDigest bundle) >>= either (dieCoded storeUnavailable . showText) pure
-  reviewed <- either (dieCoded reviewChanged . showText . NE.toList) pure (verifyReview snapshot bundle)
+  reviewed <- case verifyReview snapshot bundle of
+    Right verified -> pure verified
+    Left errors -> do
+      -- A stale review is bounded by the delegation too, as admission bounds it,
+      -- so a deployer never re-plans into a revocation (EP-247 D5, D11).
+      delegation <- delegationAdmission store (loadInventoryHistoryAt store headValue) headValue (reviewBundleDocument bundle)
+      dieCoded (unverifiedReviewProblem errors (either Just (const Nothing) delegation)) (showText (NE.toList errors) <> either ((" " <>) . showText . NE.toList) (const "") delegation)
   result <- tracePhase "transaction" (applyReviewedWithHistory store registry reviewed pinned) >>= either refuseAdmission pure
   reportTransaction (renderTransactionResult result) result
 
@@ -657,6 +665,16 @@ admissionProblem :: NonEmpty AdmissionError -> ProblemSpec
 admissionProblem errors
   | all ((`elem` ["stale-head", "stale-base", "head-condition"]) . admissionErrorCode) errors = reviewStale
   | otherwise = admissionRefused
+
+-- | EP-247 D11: a review refused only because another change landed first
+-- (@stale-head@, @stale-base@) is @review_stale@, which a client answers by
+-- planning again, unless its delegation also refuses it; any other
+-- verification failure means the review itself is not the one published.
+unverifiedReviewProblem :: NonEmpty ReviewError -> Maybe (NonEmpty AdmissionError) -> ProblemSpec
+unverifiedReviewProblem errors delegation
+  | not (all ((`elem` ["stale-head", "stale-base"]) . reviewErrorCode) errors) = reviewChanged
+  | Just _ <- delegation = admissionRefused
+  | otherwise = reviewStale
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
 resumeInventory = resumeInventoryWith executionBlockedRegistry
