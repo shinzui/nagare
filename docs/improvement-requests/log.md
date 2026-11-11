@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-11
+* **Created**: Add IR-43 from mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application, at the operator's direction that an app owns its database: an opt-in owner credential with CREATEROLE manages the app's roles, logins, ownership and grants with the app's own SQL, Nagare enforces only isolation between apps, backups carry app-created roles, and tasks and pre-deploy hooks can bind the owner credential under a chosen variable name.
+
 ## 2026-11-10
 * **Update**: IR-42: v0.18.0 meets AC-1 to AC-4, AC-6 and AC-7; AC-5 stays open with residuals AC5-R1 to AC5-R3.
 
