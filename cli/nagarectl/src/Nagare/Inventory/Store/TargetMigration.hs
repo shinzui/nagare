@@ -10,6 +10,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Migrate (migrateStore)
+import Nagare.Inventory.Store.ObjectTarget (objectInventoryStoreUrl)
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
 import Nagare.Inventory.Store.Target (objectInventoryUrl, openObjectTargetStore, openRemoteStore, remoteInventoryUrl)
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)

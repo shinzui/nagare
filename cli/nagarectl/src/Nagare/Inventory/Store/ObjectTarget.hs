@@ -5,6 +5,7 @@
 -- port-forward this process opens, reopens and closes itself.
 module Nagare.Inventory.Store.ObjectTarget
   ( objectStoreEndpoint
+  , objectInventoryStoreUrl
   , Reach (..)
   , reachFor
   , CredentialSources (..)
@@ -54,6 +55,22 @@ objectStoreEndpoint profile = do
   endpoint <- parseS3Endpoint (profile ^. #inventoryStoreUrl)
   _ <- reachFor False endpoint
   pure endpoint
+
+-- | EP-251: a local context's object inventory URL. The stored
+-- @NAGARE_INVENTORY_STORE_URL@ wins; without one, the context's prefix in a
+-- @nagare-inventory@ bucket on its local object store
+-- (@NAGARE_LOCAL_OBJECT_STORE@), so a bootstrapped context can migrate without
+-- a profile edit its accepted history forbids.
+objectInventoryStoreUrl :: Text -> TargetProfile -> Maybe Text
+objectInventoryStoreUrl ctx tp
+  | not (T.null (tp ^. #inventoryStoreUrl)) = Just (tp ^. #inventoryStoreUrl)
+  | otherwise = case T.breakOn "://" (tp ^. #localObjectStore) of
+      (scheme, rest)
+        | scheme `elem` ["http", "https"]
+        , authority <- T.takeWhile (/= '/') (T.drop 3 rest)
+        , not (T.null authority) ->
+            Just (scheme <> "://" <> authority <> "/nagare-inventory/" <> ctx)
+      _ -> Nothing
 
 -- | How a client reaches the endpoint: directly, or through a forward to a
 -- Service from the workstation.

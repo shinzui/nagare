@@ -25,7 +25,7 @@ import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Inventory.Store.ObjectTarget
 import Nagare.Inventory.Store.S3
-import Nagare.Target (InventoryStoreKind (..), Mode (..), effectiveInventoryStore, objectInventoryStoreUrl)
+import Nagare.Target (InventoryStoreKind (..), Mode (..), effectiveInventoryStore)
 import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Test.World.ObjectStore (fakeObjectOps, fakeObjectState)
 import Network.HTTP.Types (methodGet, methodPut)
