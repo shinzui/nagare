@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-11
+* **Created**: Add IR-44 from mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application after a live local apply: every web service and task inherits the app's whole managed Runtime Secret through envFrom (a worker one named after itself that the CLI cannot write), so per-key references cannot keep a migration credential from serving workloads; request a per-workload opt-out that keeps explicit references, with Kotei's hosted application as the acceptance case. Soft-depends on IR-43.
 * **Created**: Add IR-43 from mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application, at the operator's direction that an app owns its database: an opt-in owner credential with CREATEROLE manages the app's roles, logins, ownership and grants with the app's own SQL, Nagare enforces only isolation between apps, backups carry app-created roles, and tasks and pre-deploy hooks can bind the owner credential under a chosen variable name.
 
 ## 2026-11-10
