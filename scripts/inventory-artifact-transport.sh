@@ -45,9 +45,18 @@ source "${script_dir}/lib/target.sh"
 # shellcheck source=lib/local-registry.sh
 source "${script_dir}/lib/local-registry.sh"
 
+# SHA-256 of a file, or of standard input with no argument, as 64 hex
+# characters. GNU coreutils' sha256sum where it exists (a Linux deployer image
+# has no shasum and no awk, EP-248), otherwise shasum.
+sha256_of() {
+  local sum
+  if command -v sha256sum >/dev/null 2>&1; then sum="$(sha256sum "$@")"; else sum="$(shasum -a 256 "$@")"; fi
+  printf '%s\n' "${sum%% *}"
+}
+
 absence_digest() {
   local value
-  value="$(printf 'artifact-absence:%s:%s' "${kind}" "${destination}" | shasum -a 256 | awk '{print $1}')"
+  value="$(printf 'artifact-absence:%s:%s' "${kind}" "${destination}" | sha256_of)"
   printf '%s' "${value}"
 }
 
@@ -160,7 +169,7 @@ observe_kubeconfig() {
   if [ ! -e "${destination}" ]; then emit_missing; return; fi
   [ -f "${destination}" ] || { echo "kubeconfig destination is not a regular file" >&2; return 2; }
   local actual
-  actual="$(shasum -a 256 "${destination}" | awk '{print $1}')"
+  actual="$(sha256_of "${destination}")"
   emit_present "kubeconfig://${destination}" "${actual}"
 }
 
@@ -173,7 +182,7 @@ publish_kubeconfig() (
   }
   [ ! -L "${destination}" ] || { echo "refusing symlink kubeconfig destination" >&2; return 2; }
   local actual parent temporary
-  actual="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+  actual="$(sha256_of "${archive}")"
   [ "${actual}" = "${expected}" ] && [ "${source_digest}" = "${expected}" ] || {
     echo "prepared kubeconfig differs from the reviewed digest" >&2; return 2;
   }
@@ -184,7 +193,7 @@ publish_kubeconfig() (
   trap 'rm -f "${temporary}"' EXIT
   cp "${archive}" "${temporary}"
   chmod 0600 "${temporary}"
-  actual="$(shasum -a 256 "${temporary}" | awk '{print $1}')"
+  actual="$(sha256_of "${temporary}")"
   [ "${actual}" = "${expected}" ] || { echo "staged kubeconfig digest changed" >&2; return 2; }
   mv "${temporary}" "${destination}"
 )
@@ -212,7 +221,7 @@ load_local_substrate() {
     echo "reviewed local substrate specification is missing" >&2; return 2;
   }
   local actual
-  actual="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+  actual="$(sha256_of "${archive}")"
   [ "${actual}" = "${source_digest}" ] && [ "${actual}" = "${expected}" ] || {
     echo "local substrate specification differs from the reviewed digest" >&2; return 2;
   }
@@ -327,7 +336,7 @@ publish_oci_archive() (
       *) echo "OCI destination differs from the selected project" >&2; return 2 ;;
     esac
   fi
-  actual_source="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+  actual_source="$(sha256_of "${archive}")"
   [ "${actual_source}" = "${source_digest}" ] || {
     echo "OCI archive differs from the reviewed source digest" >&2
     return 2
