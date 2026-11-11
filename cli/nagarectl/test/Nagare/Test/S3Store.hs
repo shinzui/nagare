@@ -20,12 +20,13 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import InventoryTransactionSpec (exerciseStore, fixtureBinding)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Command (objectMigrationTarget)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Inventory.Store.ObjectTarget
 import Nagare.Inventory.Store.S3
-import Nagare.Target (InventoryStoreKind (..), Mode (..), effectiveInventoryStore)
+import Nagare.Target (ActiveTarget (..), InventoryStoreKind (..), Mode (..), effectiveInventoryStore, mkContextName)
 import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Test.World.ObjectStore (fakeObjectOps, fakeObjectState)
 import Network.HTTP.Types (methodGet, methodPut)
@@ -120,12 +121,27 @@ s3StoreTests =
         reachFor False endpoint @?= Right (ForwardTo "nagare-system" "minio" "9000")
         fmap (`reachFor` endpoint) [] @?= []
         reachFor False (endpoint & #host .~ "127.0.0.1:19000") @?= Right Direct
+    , testCase "a bucket that does not exist yet reads as absent and lists empty; other 404s stay unknown" $ do
+        let answer code = \_ _ _ _ _ -> pure (Right (S3Response 404 [] ("<Error><Code>" <> code <> "</Code></Error>")))
+            endpoint = S3Endpoint "http://fake" "fake" "inventory" "ctx"
+            missingBucket = s3ObjectOpsWith (answer "NoSuchBucket") endpoint
+            otherAnswer = s3ObjectOpsWith (answer "NoSuchUpload") endpoint
+        getObject missingBucket (ObjectName "head.json") >>= (@?= ObjectAbsent)
+        listObjects missingBucket (ObjectName "reviews/") >>= (@?= Right [])
+        getObject otherAnswer (ObjectName "head.json") >>= \case
+          GetUnknown _ -> pure ()
+          other -> assertFailure (show other)
+        listObjects otherAnswer (ObjectName "reviews/") >>= assertBool "an unknown 404 listing is an error" . isLeft
     , testCase "a bootstrapped context without a stored URL migrates to its object store's inventory bucket" $ do
         let bootstrapped = initProfile & #mode .~ Local & #localObjectStore .~ "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups"
         objectInventoryStoreUrl "mp33" bootstrapped @?= Just "http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33"
         objectInventoryStoreUrl "mp33" (bootstrapped & #inventoryStoreUrl .~ "http://127.0.0.1:19000/b/p") @?= Just "http://127.0.0.1:19000/b/p"
         objectInventoryStoreUrl "mp33" (bootstrapped & #localObjectStore .~ "") @?= Nothing
-        fmap (^. #prefix) (objectStoreEndpoint (bootstrapped & #inventoryStoreUrl .~ fromMaybe "" (objectInventoryStoreUrl "mp33" bootstrapped))) @?= Right "mp33"
+        context <- either (assertFailure . T.unpack) pure (mkContextName "mp33")
+        let migrating = objectMigrationTarget (ActiveTarget context bootstrapped)
+        migrating ^. #profile . #inventoryStoreUrl @?= "http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33"
+        effectiveInventoryStore (migrating ^. #profile) @?= InventoryStoreObject
+        fmap (^. #prefix) (objectStoreEndpoint (migrating ^. #profile)) @?= Right "mp33"
     , testCase "credentials come from exactly one private source; a deployer never uses the administrator Secret" $ do
         let none = CredentialSources Nothing Nothing Nothing False
         chooseCredentials none @?= Right FromAdministratorSecret

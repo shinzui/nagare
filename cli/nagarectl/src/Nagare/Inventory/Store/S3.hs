@@ -185,12 +185,15 @@ s3ObjectOpsWith request endpoint =
   where
     objectPath (ObjectName name) = "/" <> endpoint ^. #bucket <> "/" <> endpoint ^. #prefix <> "/" <> name
     etagOf headers = ObjectEtag . TE.decodeUtf8 <$> lookup "etag" headers
+    -- The store's answer that nothing is there: the key, or the whole bucket,
+    -- does not exist. Any other 404 is not an answer about the object.
+    absentAnswer body = any (`BS.isInfixOf` body) ["<Code>NoSuchKey</Code>", "<Code>NoSuchBucket</Code>"]
     get name = do
       response <- request methodGet (objectPath name) [] [] ""
       pure $ case response of
         Left reason -> GetUnknown reason
         Right (S3Response 200 headers body) -> maybe (GetUnknown "object store answered without an ETag") (`ObjectFound` body) (etagOf headers)
-        Right (S3Response 404 _ body) | "<Code>NoSuchKey</Code>" `BS.isInfixOf` body -> ObjectAbsent
+        Right (S3Response 404 _ body) | absentAnswer body -> ObjectAbsent
         Right (S3Response status _ _) -> GetUnknown ("object store read answered " <> T.pack (show status))
     put condition name bytes = case condition of
       IfGenerationMatches (Generation _) -> pure (PutNoEffect "an S3 object has no integer generation")
@@ -225,6 +228,8 @@ s3ObjectOpsWith request endpoint =
               Right (keys, next) -> do
                 let names = [ObjectName relative | key <- keys, Just relative <- [T.stripPrefix (endpoint ^. #prefix <> "/") key]]
                 maybe (pure (Right (acc <> names))) (\t -> go (Just t) (acc <> names)) next
+            -- A bucket that does not exist yet holds nothing (a migration's dry run).
+            Right (S3Response 404 _ body) | "<Code>NoSuchBucket</Code>" `BS.isInfixOf` body -> pure (Right acc)
             Right (S3Response status _ _) -> pure (Left ("object store listing answered " <> T.pack (show status)))
     getPrefix requested@(ObjectName directory) = do
       listed <- list requested

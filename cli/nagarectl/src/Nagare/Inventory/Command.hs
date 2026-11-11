@@ -13,6 +13,7 @@ module Nagare.Inventory.Command
   , openProfileReviewStoreReadOnly
   , selectFoundationStore
   , migrateTargetStore
+  , objectMigrationTarget
   , planInventory
   , planInventoryWith
   , planInventoryWithRetirements
@@ -96,7 +97,7 @@ import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.Remote qualified as Remote
 import Nagare.Inventory.Store.Target (openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
-import Nagare.Inventory.Store.TargetMigration (migrateTargetStore)
+import Nagare.Inventory.Store.TargetMigration (migrateTargetStore, objectMigrationTarget)
 import Nagare.Platform.Paths (renderPlatformPathError, resolvePlatformPaths)
 import Nagare.Platform.Transition (transitionCloseRefusal, transitionContinueRefusal)
 import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)

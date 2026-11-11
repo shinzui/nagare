@@ -1,6 +1,6 @@
 -- | Move a context's inventory history between its local store and GCS, or,
 -- for a local context, its in-cluster object store (EP-251).
-module Nagare.Inventory.Store.TargetMigration (migrateTargetStore) where
+module Nagare.Inventory.Store.TargetMigration (migrateTargetStore, objectMigrationTarget) where
 
 import Data.Aeson (toJSON)
 import Data.Generics.Labels ()
@@ -19,24 +19,30 @@ import Nagare.Target
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
+-- | The context as its object store sees it: the stored URL, or the default
+-- one a bootstrapped context migrates to. Both the store and the URL written
+-- into the context come from it.
+objectMigrationTarget :: ActiveTarget -> ActiveTarget
+objectMigrationTarget target =
+  target
+    & #profile
+    . #inventoryStore
+    .~ InventoryStoreObject
+    & #profile
+    . #inventoryStoreUrl
+    .~ fromMaybe "" (objectInventoryStoreUrl (contextNameText (target ^. #contextName)) (target ^. #profile))
+
 migrateTargetStore :: ActiveTarget -> InventoryStoreKind -> Bool -> IO (Either StoreError T.Text)
 migrateTargetStore target destinationKind dryRun = do
   stateRoot <- nagareStateDir
   let contextText = contextNameText (target ^. #contextName)
       path = stateRoot </> T.unpack contextText </> "inventory"
       sourceKind = effectiveInventoryStore (target ^. #profile)
-      objectTarget =
-        target
-          & #profile
-          . #inventoryStore
-          .~ InventoryStoreObject
-          & #profile
-          . #inventoryStoreUrl
-          .~ fromMaybe "" (objectInventoryStoreUrl contextText (target ^. #profile))
+      objectTarget = objectMigrationTarget target
       label = \case
         InventoryStoreLocal -> "local"
         InventoryStoreGcs -> remoteInventoryUrl target
-        InventoryStoreObject -> objectInventoryUrl target
+        InventoryStoreObject -> objectInventoryUrl objectTarget
       sourceLabel = label sourceKind
       destinationLabel = label destinationKind
       destinationMatches sourceHead destinationHead =
