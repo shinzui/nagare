@@ -259,9 +259,21 @@ territory, not here.
 
 ## Progress
 
-EP-247 and EP-251 are In Progress: their interpreter evidence passes (EP-247 landed in `8cf692e7`) and each waits
-only for its local confirmation, batched into one disposable local run with EP-249's (Decision Log, 2026-11-10).
-EP-248 D10 is the required local credential/route integration gate. Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
+EP-247, EP-249, EP-251 and EP-252 are In Progress with their interpreter evidence passing and landed; each waits
+only for its local confirmation, batched into one disposable local run (Decision Log, 2026-11-10):
+
+- EP-247 D9 (and D1's local apply): delegation applied, deployer publishes and deploys a protected site, an
+  out-of-suffix host refused, `inventory history` shows `deployer:NAME` and the source, revocation refuses.
+- EP-251 D7: the context's inventory in its object store, a second change applied from a Pod, the operator's saved
+  review refused stale and re-planned.
+- EP-249 D6 (and D1's empty-environment render): render in a shell with no context, deploy `--rendered` from the
+  deployer context, `-f` refused there.
+- EP-252 D5: a Pod with no Docker socket, a read-only root and a non-root user packages with
+  `--builder layered --base-archive`; the archive is published, deployed and serves.
+
+The Pod steps need a linux nagarectl image in the local registry. EP-248 and EP-250 start when EP-247 is Complete.
+EP-248 D10 is the required local credential/route integration gate.
+Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
 
 - [ ] UC-4 end to end on a local context: an operator applies one delegation and issues the bundle; a fixture repository
   pushed to its release branch is built by Kotei in a credential-free Job and deployed with `--rendered`; the site is
