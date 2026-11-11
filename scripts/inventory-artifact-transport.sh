@@ -95,7 +95,10 @@ observe_oci_image() (
   local tls_args=()
   local auth_args=()
   if [ "${NAGARE_MODE:-cloud}" = local ]; then
-    if [ "${NAGARE_REGISTRY_HOST:-}" = k3d-registry.localhost:5000 ]; then
+    # Inside the cluster (a hosted deployer, EP-248) the registry is reached
+    # directly; the docker exec read is only for a workstation whose port
+    # 5000 macOS AirPlay may own.
+    if [ "${NAGARE_REGISTRY_HOST:-}" = k3d-registry.localhost:5000 ] && [ -z "${KUBERNETES_SERVICE_HOST:-}" ]; then
       if output="$(nagare_local_registry_digest "$destination")"; then
         emit_present "oci://${destination}" "$output"
         return
