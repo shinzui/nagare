@@ -6,18 +6,21 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-11T06:02:33Z"
 frictionId: FRIC-8
-status: "accepted"
+status: "resolved"
 impact: detour
 kind: process
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare"
 plan: "docs/plans/247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md"
 workaround: "Hooked groups into InventoryAccessSpec, InventoryStoreOnceSpec and Static; collapsed one import list in Dispatch"
-resolution: "The caps are the deliberate size ratchet (as FRIC-1 decided); moving the code to a cohesive module was the intended response."
+resolution: "The operator raised the Nagare.Test.Suite cap to 400 and the Dispatch cap to 300 on 2026-11-11; the Delegation and S3 store groups moved back to Suite."
 amended:
   - by: "claude-code/claude-opus-5-5"
     at: "2026-11-11T14:45:26Z"
     change: "Accepted at MasterPlan 33's completion triage; the recurrence with FRIC-1 is recorded in the MasterPlan for the operator."
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-11T15:05:57Z"
+    change: "Operator decision 2026-11-11: registration lists grow by design, so their caps were raised and the misplaced groups returned."
 ---
 # Fixed line caps on the test suite assembler and CLI dispatch push new groups into unrelated modules
 

@@ -25,7 +25,7 @@ def check(app: Path, cabal: Path) -> list[str]:
             errors.append(f"{name}: module-wide re-exports hide dependencies")
         imports = set(re.findall(r"(?m)^import\s+(?:qualified\s+)?([A-Z][\w.]*)", source))
         modules[name] = path, source, imports
-        limit = 30 if name == "Main" else 200 if name.endswith(".Dispatch") else 1000
+        limit = 30 if name == "Main" else 300 if name.endswith(".Dispatch") else 1000
         if len(source.splitlines()) > limit:
             errors.append(f"{name}: exceeds {limit} lines; separate its responsibilities")
         if name == "Main":

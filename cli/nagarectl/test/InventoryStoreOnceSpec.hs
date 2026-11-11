@@ -22,7 +22,6 @@ import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Counters
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types (digestText)
-import Nagare.Test.S3Store (s3StoreTests)
 import Nagare.Test.World.ObjectStore (fakeObjectOps, fakeObjectState)
 import System.FilePath (takeFileName, (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -34,8 +33,7 @@ inventoryStoreOnceTests :: TestTree
 inventoryStoreOnceTests =
   testGroup
     "inventory store opened once (EP-212)"
-    [ s3StoreTests
-    , testCase "a store counts its open, head reads, cached and remote gets and puts" $
+    [ testCase "a store counts its open, head reads, cached and remote gets and puts" $
         withSystemTempDirectory "inventory-counters" $ \cache -> do
           base <- fakeObjectOps
           writer <- newObjectStore base fixtureBinding "client-a" (Just cache) >>= either (assertFailure . show) pure

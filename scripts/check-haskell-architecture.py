@@ -77,7 +77,7 @@ def check(root: Path, limits: dict[str, int]) -> list[str]:
         count = len(source.splitlines())
         limit = limits.get(relative, 1000)
         if relative == 'cli/nagarectl/test/Spec.hs': limit = 30
-        if name == 'Nagare.Test.Suite': limit = 300
+        if name == 'Nagare.Test.Suite': limit = 400
         if count > limit:
             errors.append(f'{relative}: {count} lines exceeds {limit}; separate responsibilities')
         if relative in limits and count <= 1000:

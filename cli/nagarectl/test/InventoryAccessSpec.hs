@@ -38,7 +38,6 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
-import Nagare.Test.Delegation (delegationTests)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -50,8 +49,7 @@ inventoryAccessTests :: TestTree
 inventoryAccessTests =
   testGroup
     "reviewed access"
-    [ delegationTests
-    , testCase "compiler selects one tuple without altering accepted auth and neighboring apps" $ do
+    [ testCase "compiler selects one tuple without altering accepted auth and neighboring apps" $ do
         let scope = ok (compileAccessScope snapshot "ONE.EXAMPLE.TEST." alice True)
             candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
             originals = Map.map snd (snapshotScopes snapshot)

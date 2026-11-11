@@ -109,6 +109,7 @@ import Nagare.Test.Context
   )
 import Nagare.Test.Contract (contractTests)
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
+import Nagare.Test.Delegation (delegationTests)
 import Nagare.Test.Domains (certificateChainTests, domainsTests)
 import Nagare.Test.Environment
   ( buildArgsTests
@@ -126,6 +127,7 @@ import Nagare.Test.Infrastructure (infraPlanTests)
 import Nagare.Test.Init (initTests)
 import Nagare.Test.Operations (cleanupTests, doctorTests, opsTests)
 import Nagare.Test.Pulumi (pulumiBackendBootstrapTests)
+import Nagare.Test.S3Store (s3StoreTests)
 import Nagare.Test.Server (serverBuildTests)
 import Nagare.Test.Shards (runSharded)
 import Nagare.Test.SiteInventory (staticInventoryTests)
@@ -173,6 +175,7 @@ main = do
         localOption (NumThreads 1) $
           testGroup "nagarectl" $
             [ inventoryAccessTests
+            , delegationTests
             , staticImageTests
             , hostTests
             , inventoryArtifactTests
@@ -208,7 +211,7 @@ main = do
             , testGroup "inventory command cost" [inventoryGcloudAuthTests, transitionCostTests]
             , inventoryGogolTests
             , inventoryServiceStoreTests
-            , testGroup "inventory object store" [inventoryObjectOpsTests, inventoryStoreOnceTests, inventoryImmutableReadTests]
+            , testGroup "inventory object store" [inventoryObjectOpsTests, inventoryStoreOnceTests, s3StoreTests, inventoryImmutableReadTests]
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests

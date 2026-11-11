@@ -2,6 +2,9 @@
 
 ## 2026-11-11
 
+* **Update**: FRIC-8 resolved: Operator decision 2026-11-11: registration lists grow by design, so their caps were raised and the misplaced groups returned.
+
+
 * **Update**: FRIC-9 accepted: Accepted at MasterPlan 33's completion triage; the recurrence with FRIC-1 is recorded in the MasterPlan for the operator.
 
 

@@ -297,8 +297,9 @@ Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/pl
   unscoped `inventory status` needs operator-prepared state, while `--scope` and `inventory history` work; and
   nagarectl reads the ambient `KUBECONFIG`, so the bundle's environment must point it at the bundle's kubeconfig.
 - 2026-11-11, friction across children. The architecture check's line caps cost a rework under EP-247 (FRIC-8) and
-  under EP-251 (FRIC-9), as under EP-236 before (FRIC-1). All three are accepted as the deliberate size ratchet. The
-  recurrence is the operator's call to revisit.
+  under EP-251 (FRIC-9), as under EP-236 before (FRIC-1). The operator
+  raised the `Nagare.Test.Suite` cap to 400 and the `Dispatch` cap to 300 (2026-11-11), and the Delegation and S3
+  store test groups moved back to the suite (FRIC-8 resolved); the 1000-line default stays (FRIC-1, FRIC-9 accepted).
 
 
 ## Decision Log
