@@ -25,7 +25,7 @@ import Nagare.Static.Build
   , prepareStaticOutput
   )
 import Nagare.Static.ContentDigest (digestContextTree)
-import Nagare.Static.Image (staticDockerfile)
+import Nagare.Static.Image (basePinFor, staticDockerfile)
 import Nagare.Static.Package
   ( PackageError (..)
   , PackageResult (..)
@@ -83,10 +83,14 @@ dockerfileTests :: [TestTree]
 dockerfileTests =
   [ testCase "staticDockerfile uses the nginx base and 8080 layout" $ do
       let df = staticDockerfile
-      assertInfix "FROM nginx:1.27-alpine" df
+      assertInfix "FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10" df
       assertInfix "COPY nginx.conf /etc/nginx/conf.d/default.conf" df
       assertInfix "COPY site/ /usr/share/nginx/html/" df
       assertInfix "EXPOSE 8080" df
+  , testCase "each supported platform has a pinned base manifest and config; another platform is refused" $ do
+      fmap (^. #manifestDigest) (basePinFor "linux/amd64") @?= Right "sha256:62223d644fa234c3a1cc785ee14242ec47a77364226f1c811d2f669f96dc2ac8"
+      fmap (^. #configDigest) (basePinFor "linux/arm64") @?= Right "sha256:96868d9fa38f469a86d2f25787e43ee9ad330339d30be260aa9f5a338bb03751"
+      assertBool "an unknown platform" (either (const True) (const False) (basePinFor "linux/s390x"))
   ]
 
 -- ---------------------------------------------------------------------------

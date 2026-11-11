@@ -43,10 +43,11 @@ and static sites are the commonest thing engineers deploy.
 Interpreter and unit evidence first; a local-context run only confirms
 ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 
-- [ ] D1, a pinned base: the static image's base is named by digest per supported platform (`linux/amd64`,
+- [x] D1, a pinned base: the static image's base is named by digest per supported platform (`linux/amd64`,
   `linux/arm64`) instead of the mutable `nginx:1.27-alpine` tag in `staticDockerfile`
   (`cli/nagarectl/src/Nagare/Static/Image.hs`), and both builders use the same pin. Evidence: a test that the
   generated `Dockerfile` names the digest for the requested platform, and that an unknown platform is refused.
+  Done 2026-11-10: `staticDockerfile` names `nginx:1.27-alpine@sha256:65645c7b…` (the multi-platform index); `basePinFor` gives each platform's manifest and config digest and refuses others (`Static` tests).
 - [ ] D2, the layered builder: `site package --archive FILE --builder layered` writes a Docker archive (the format
   `skopeo` reads as `docker-archive:`, which `scripts/inventory-artifact-transport.sh` already uses) from the base image
   plus one layer. The layer is a tar of `etc/nginx/conf.d/default.conf` and `usr/share/nginx/html/...` with sorted
@@ -79,6 +80,12 @@ Interpreter and unit evidence first; a local-context run only confirms
 
 
 ## Decision Log
+
+- Decision: The Dockerfile names the multi-platform index digest; the per-platform manifest and config digests
+  serve the layered builder.
+  Rationale: the build context is the release identity (ADR 32), so it must not vary by platform. Pinning changes
+  every site's context once: the next publish of an unchanged site makes one new release, from the same Nginx.
+  Date: 2026-11-10
 
 - Decision: Append one layer to a digest-pinned base in Nagare itself, rather than requiring a daemonless builder
   such as BuildKit rootless, Kaniko or Buildah in the build Pod.
