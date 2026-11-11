@@ -273,6 +273,10 @@ admissionAndHistory = do
       expectRight (verifyReview published review)
     accept store actor source changes = do
       reviewed <- prepared store actor source changes
+      -- D8: only a deployer or a named operator writes an actor, so an
+      -- unnamed operator's review keeps the bytes an older reader accepts.
+      let written = "\"actor\"" `T.isInfixOf` TE.decodeUtf8 (encodeReviewDocument (reviewedDocument reviewed))
+      written @?= (actor /= anonymousOperator)
       _ <- applyReviewed store registry reviewed >>= expectRight
       pure ()
 

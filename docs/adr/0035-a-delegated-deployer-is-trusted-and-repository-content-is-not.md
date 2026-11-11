@@ -14,7 +14,8 @@ related:
 ## Status
 
 Accepted design for [MasterPlan 33](../masterplans/33-delegate-a-bounded-part-of-a-context-to-a-ci-deployer-so-engineers-deploy-by-pushing.md).
-Implementation and acceptance remain pending in EP-247 through EP-252.
+EP-247 implements the delegation, the actor and the bounds (see Implementation evidence); EP-248 through
+EP-252 remain pending.
 
 ## Context
 
@@ -56,3 +57,23 @@ per-delegation one. Kubernetes does not enforce every hostname constraint; the c
 test must exercise the real shared-namespace path. Separate builder and deployer identities keep their credentials
 apart, while repository execution stays in the build environment. Multi-operator approval and cryptographic actor
 authentication remain outside this initiative.
+
+## Implementation evidence (EP-247)
+
+- The delegation is `platform:delegation-NAME`; its record is the scope's `delegation.record` override
+  and the ConfigMap `nagare-delegation-NAME` (`cli/nagarectl/src/Nagare/Inventory/DeployerDelegation.hs`).
+- The bounds are `checkDelegatedProposal`, run by the one review-preparation path for a deployer context
+  (`delegatedCandidate` in `cli/nagarectl/src/Nagare/Inventory/DelegatedPlanning.hs`) and again in
+  `admitWithHistory` against the admitted head, with the other static refusals, so a review a revocation
+  made stale is refused as `delegation-revoked`. The generated protected route is accepted only when its
+  digest equals the route the site compiler renders for an owned, in-bound host targeting the enforcer.
+- The actor is asserted from `NAGARE_DEPLOYER` or `NAGARE_OPERATOR` and written to the review only when
+  it is not the unnamed operator, so operator reviews keep their earlier bytes and digests. A deployer
+  context runs only its delegated commands, refused from the command words before any store read.
+- Evidence: the `Delegation` tests in `cli/nagarectl/test/Nagare/Test/Delegation.hs` (one passing
+  protected site from the production compiler and one refusal per bound; a store-backed revocation that
+  refuses a saved review with no journal event; history naming a deployer, an unnamed and a named
+  operator).
+- The limit stands: the actor is asserted, not proved. Enforcing approval against another holder of
+  the store needs signed reviews or a server-side check, which this initiative does not build and does
+  not preclude.

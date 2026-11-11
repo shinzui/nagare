@@ -1988,3 +1988,18 @@ accepted members' native objects, never from the running binary's pins; provider
 enters it. A database server is an accepted StatefulSet labelled `nagare.dev/engine` in any scope
 (platform, standalone or application), and its instances are the pods it controls, never a backup
 Job's pods that carry its labels.
+
+## Amendment — 2026-11-10: delegation-owned namespaces (EP-247)
+
+A reviewed delegation is its own platform scope, `platform:delegation-NAME`, that declares the
+namespaces it delegates (with a quota and limits each), an optional build namespace, and its record
+ConfigMap in `nagare-system`, all `Retain`. Application, standalone and publication scopes depend on a
+delegated Namespace member exactly as they depend on a foundation namespace; no application scope
+receives a `NamespaceGrant`, whose grant names one contributing scope and no namespace bound. The
+record is also held in the delegation scope's overrides, so the accepted head alone answers which
+namespaces, hostnames, kinds and image repository a deployer may use; the bounds are pure functions of
+that record and a proposal, checked when a review is prepared and again at admission. A deployer's
+scopes carry a `delegation.deployer` override naming it; an operator rewrite drops it. Reviews gain an
+optional asserted actor and source; the journal is unchanged because each transaction id binds its
+review. The store remains one context-wide trust boundary
+([ADR 35](0035-a-delegated-deployer-is-trusted-and-repository-content-is-not.md)).

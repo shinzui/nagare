@@ -178,6 +178,8 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_PULUMI_BACKEND` | `local` | Pulumi state backend: `local` (per-context `file://`) or `gcs` (opt-in remote, cloud-only). |
 | `NAGARE_PULUMI_BACKEND_URL` | — (derived) | explicit `gs://bucket/path`; empty + `gcs` derives `gs://<project>-nagare-pulumi-state/nagare/<context>`. |
 | `NAGARE_PLATFORM_VERSION` | current payload for new contexts | explicit per-context release intent; absent means legacy/unadopted. |
+| `NAGARE_DEPLOYER` | — (none) | names a delegated deployer; the context reviews as `deployer:NAME` and runs only its delegated commands. See [Delegating deployments](delegating-deployments.md). |
+| `NAGARE_OPERATOR` | — (none) | an optional name for the operator actor recorded in each review (`operator:NAME`); never set together with `NAGARE_DEPLOYER`. |
 | `NAGARE_BACKUP_RECOVERY_POINT` | `hourly` | scheduled database backup objective: `hourly` (15-minute schedule; warning at 30 minutes, breach at one hour) or `daily` (daily schedule; warning at 25 hours, breach at 26 hours). Written into each reviewed backup CronJob's signed metadata; an unrecognized value is an error. Applies to local contexts too. |
 
 See [Getting started](getting-started.md), [Target contexts](contexts.md), and
@@ -476,6 +478,18 @@ port-forward and refuse `--en-url`; they need private `NAGARE_EN_API_KEY` for
 planning, apply, recovery and status, and an En service supporting atomic
 relationship preconditions. Direct forms refuse after
 inventory initialization. See [Identity-aware access](access.md).
+
+## `nagarectl delegation`
+
+| Command | Does |
+| --- | --- |
+| `nagarectl delegation create NAME --namespace NS... --kinds KIND... --image-repository PATH --team TEAM [--host-suffix LABEL...] [--build-namespace NS] [--quota-cpu C --quota-memory M --quota-pods N] --save-plan DIR` | Review scope `platform:delegation-NAME`: the delegated namespaces with a quota and limits each, the optional build namespace, and the record in `nagare-system`. |
+| `nagarectl delegation revoke NAME --save-plan DIR` | Review revoking the delegation; namespaces and their workloads are kept. |
+| `nagarectl delegation show NAME [--contract 1]` | Show the accepted delegation from the store alone. |
+| `nagarectl inventory history [--limit N] [--contract 1]` | List transactions newest first with state, scopes, actor and source. |
+
+Deploys accept `--source-repository URL`, `--source-run URL` and, where they have no `--source`,
+`--source-revision REF`. See [Delegating deployments](delegating-deployments.md).
 
 ## `nagarectl site` commands (static & full-stack hosting)
 

@@ -45,6 +45,7 @@ okf_version: "0.2"
 
 - [Operator-owned authentication portal](auth-portal.md) - Deploy, customize, operate, and remove an authentication portal for protected Nagare sites.
 - [Identity-aware access](access.md) - Configure, verify, operate, and revoke identity-aware access to protected Nagare services.
+- [Delegating deployments](delegating-deployments.md) - Let a CI deployer deploy inside a reviewed, bounded part of a context, and see who applied each change.
 - [Backups and disaster recovery](backups-and-disaster-recovery.md) - Back up Nagare state, recover platform and workload data, and drill the documented failure procedures safely.
 - [Cluster bootstrap](cluster-bootstrap.md) - Install, configure, smoke-test, and verify the Nagare Kubernetes platform components.
 - [Day-2 host changes](day-2-host-changes.md) - Apply, verify, and recover from routine Nagare host configuration changes after initial provisioning.
