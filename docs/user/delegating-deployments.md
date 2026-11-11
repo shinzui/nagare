@@ -33,6 +33,52 @@ or another delegation owns, `nagare-system`, `personal`, `default` and `kube-*` 
 App, worker, task, site, storage and env commands accept a delegated namespace exactly as they accept
 `personal`, for the operator and the deployer alike.
 
+The same scope holds the deployer's identities. ServiceAccount `nagare-deployer-kotei` in `nagare-system`
+gets a Role in each delegated namespace with exactly what the delegated kinds' compilers write: Knative
+Services, ConfigMaps, Deployments, CronJobs and Jobs, as the kinds need. Its Role in `nagare-system` covers
+the access backend map `nagare-access-backends` (get, update, patch) and protected DomainMappings. A
+read-only ClusterRole covers nodes, DomainMappings and ClusterDomainClaims, which the cluster guard and the
+hostname preflight read. It grants no Secret, no RBAC, no Namespace and nothing in `personal`. With
+`--build-namespace`, ServiceAccount `nagare-builder-kotei` in that namespace may create, watch and delete
+ServiceAccounts, NetworkPolicies and Jobs there and read Pods and their logs: exactly what a
+[one-shot Job](one-shot-jobs.md) renders and what watching it needs. It holds no deploy rights, and the
+deployer holds no build rights. Kubernetes cannot bound a route's hostname or the hosts written into the
+backend map; the delegation's bounds below do.
+
+On a local context whose inventory is in the in-cluster object store, the scope also reviews MinIO user
+`nagare-deployer-kotei`. Its policy can read, conditionally write and delete objects beneath the context's
+inventory prefix and list only that prefix, so it reaches no backups, no other prefix and no bucket
+administration. A Job using the store's own client image writes the user and the policy. A context whose
+store is a directory on the operator's machine has nothing a hosted deployer can reach; move it first with
+`nagarectl inventory store migrate --to object`.
+
+## Issue the deployer's credentials
+
+```bash
+nagarectl delegation credentials kotei --out ~/deployers/kotei [--duration 720h]
+```
+
+writes a private directory (mode 0700, files 0600) that is the deployer's whole configuration:
+
+| File | Holds |
+| --- | --- |
+| `.config/nagare/contexts/CONTEXT.env` | the operator's context with `NAGARE_DEPLOYER=kotei`; nothing secret |
+| `.config/nagare/kubeconfigs/CONTEXT.yaml` | an in-cluster kubeconfig (`https://kubernetes.default.svc`) whose one user is a bound token for `nagare-deployer-kotei` |
+| `.config/nagare/credentials/CONTEXT-s3.json` | on an object-store context, the deployer's store key, `{"accessKeyId", "secretAccessKey"}` |
+| `builder/kubeconfig.yaml` | with a build namespace, a bound token for `nagare-builder-kotei` |
+
+Run the deployer with `HOME` and `XDG_CONFIG_HOME` at the directory and its `.config`. A deployer context
+uses the bundle's kubeconfig and store key unless `KUBECONFIG` or a store credential variable says
+otherwise. The directory must be new or empty, not a symbolic link, and outside any Git repository: it is
+operator material ([ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md)).
+`--contract 1` prints a `deployer-credentials` document naming the files, the token expiry and the key id,
+never a secret.
+
+Each token is bound to a handle Secret created for that run, and each key is a new key of the deployer's
+store user. **Running the command again rotates.** It proves the new key, writes the new directory, and only
+then deletes every earlier handle (so every earlier token is refused) and every earlier key. If a run fails,
+the previous directory keeps working; run it again.
+
 ## What a deployer may do
 
 A context whose file sets `NAGARE_DEPLOYER=kotei` is a deployer context. It reviews as `deployer:kotei`
@@ -64,7 +110,10 @@ nagarectl inventory apply /tmp/revoke-kotei --yes
 ```
 
 Every later deployer review is refused with `delegation-revoked`, including one saved before the
-revocation. The namespaces and everything deployed in them stay; the operator can still change them.
+revocation. The same review empties every deployer and builder Role, so every issued token is refused by
+Kubernetes as soon as the change applies, and on an object-store context a Job removes the store user
+with every key it holds. The namespaces and everything deployed in them stay; the operator can still
+change them.
 
 ## Who applied each change
 

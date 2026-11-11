@@ -159,6 +159,66 @@ Interpreter and fake-adapter evidence comes first; native runs only confirm
 
 ## Decision Log
 
+- Decision: Credentials are one command, `nagarectl delegation credentials NAME --out DIR`. Running it again rotates,
+  and revocation is EP-247's `delegation revoke`. There is no `deployer` command group and no `--issue-deployer` switch.
+  An active delegation scope always carries its identities.
+  Rationale: one issuing path and one reviewed revocation are fewer steps than three commands and a flag. The
+  identities are reviewed members, while issued material (tokens, keys) is never reviewed, so rotation needs no review.
+  Date: 2026-11-11
+
+- Decision: Each issue creates a handle Secret `nagare-deployer-NAME-ISSUE` (and `nagare-builder-NAME-ISSUE` in the
+  build namespace), and its token is a TokenRequest bound to that handle. Rotation deletes every earlier handle, which
+  refuses every earlier token at once, and removes every earlier store key. That happens only after the new bundle is
+  written, so a failed run leaves the previous bundle working and a rerun completes it.
+  Rationale: a bound token can only be withdrawn early through its bound object. Handles give per-issue rotation
+  without long-lived token Secrets.
+  Date: 2026-11-11
+
+- Decision: Revocation updates every deployer and builder Role in place to `rules: []`. That needed Role updates in the
+  Kubernetes adapter (`supportedUpdateKinds`, kind table, mutation record regenerated). The read-only ClusterRole
+  (nodes, DomainMappings, ClusterDomainClaims) and every binding stay unchanged.
+  Rationale: collection takes a second review after retirement, so deleting bindings would leave a window in which a
+  revoked token still deploys. Emptying Roles takes effect in the one reviewed change. The ClusterRole grants no write
+  and no Secret, and a ClusterRole update would need new recorded API traces (`InventoryKindSemanticsSpec`).
+  Date: 2026-11-11
+
+- Decision: The rules are derived from production-compiled scopes. The nagare-system Role grants `get, update, patch`
+  on `nagare-access-backends` and the DomainMapping lifecycle, nothing else. The `get` on the delegation record and on
+  `nagare-shomei-settings` (D2's draft) and any Secret access were dropped: no delegated scope reads them. Runtime
+  Secret references are dependencies, not observed members.
+  Rationale: D1's property test fails on any grant no fixture uses, so the grants stay least privilege. The local run
+  confirms the planner needs nothing more.
+  Date: 2026-11-11
+
+- Decision: On a local object-store context, the deployer's MinIO user and its prefix policy are reviewed members of
+  the delegation scope. A grant Job and, on revocation, a revoke Job write them, using the store's own client image.
+  Keys are MinIO service accounts of that user, added and retired in one-shot Pods with the key on standard input.
+  Filesystem-store contexts are refused and pointed to `inventory store migrate --to object`, and
+  `NAGARE_INVENTORY_STORE_ROOT` is not added.
+  Rationale: the MinIO admin API encrypts its bodies, so `mc` in the cluster is the narrowest reliable administrator.
+  Removing the user removes every key with it. The in-cluster deployer is the use case, and a workstation deployer
+  would be a second path to prove.
+  Date: 2026-11-11
+
+- Decision: The bundle is for in-cluster use: its kubeconfig server is `https://kubernetes.default.svc` and its store
+  endpoint is the in-cluster Service. A deployer context defaults `KUBECONFIG` and
+  `NAGARE_INVENTORY_STORE_CREDENTIALS_FILE` to the bundle's own files when they are unset (finding 3 of the 2026-11-11
+  confirmation).
+  Rationale: then `HOME` and `XDG_CONFIG_HOME` at the bundle are the whole configuration, as D5 requires. Kotei's
+  explicit `KUBECONFIG` still wins.
+  Date: 2026-11-11
+
+- Decision: `packages.aarch64-linux.nagarectl` carries a deploy payload: the platform payload without the two x86_64
+  bootstrap image archives (finding 1). This reverses EP-253's no-payload decision for that system.
+  Rationale: every deploy prepares the platform workspace, and Kotei's runner must deploy natively on ARM64 (Kotei
+  plan 148 D6 runs the UC-4 gate on Apple silicon). Kotei pins one immutable output per architecture and needs no
+  overlay. Only platform bootstrap reads the archives, and a deployer never bootstraps.
+  Date: 2026-11-11
+
+- Decision: D5's acceptance reads `inventory history` and `inventory status --scope KIND:NAME`, not unscoped
+  `inventory status` (finding 2). An unscoped status reports the platform's own scopes, which only operators prepare.
+  Date: 2026-11-11
+
 - Decision: Own local S3 policy and credential lifecycle here; require EP-251 before completion.
   Rationale: a transport alone cannot supply a usable hosted deployer. The same reviewed revoke must remove Kubernetes authority and local object-store access.
   Date: 2026-11-08

@@ -486,7 +486,8 @@ inventory initialization. See [Identity-aware access](access.md).
 | Command | Does |
 | --- | --- |
 | `nagarectl delegation create NAME --namespace NS... --kinds KIND... --image-repository PATH --team TEAM [--host-suffix LABEL...] [--build-namespace NS] [--quota-cpu C --quota-memory M --quota-pods N] --save-plan DIR` | Review scope `platform:delegation-NAME`: the delegated namespaces with a quota and limits each, the optional build namespace, and the record in `nagare-system`. |
-| `nagarectl delegation revoke NAME --save-plan DIR` | Review revoking the delegation; namespaces and their workloads are kept. |
+| `nagarectl delegation revoke NAME --save-plan DIR` | Review revoking the delegation and its deployer's authority; namespaces and their workloads are kept. |
+| `nagarectl delegation credentials NAME --out DIR [--duration D] [--contract 1]` | Issue the deployer's private credential directory: its context, an in-cluster kubeconfig with a bound token, the builder's kubeconfig and the store key. Running it again rotates: earlier tokens and keys are retired once the new directory is written. |
 | `nagarectl delegation show NAME [--contract 1]` | Show the accepted delegation from the store alone. |
 | `nagarectl inventory history [--limit N] [--contract 1]` | List transactions newest first with state, scopes, actor and source. |
 
