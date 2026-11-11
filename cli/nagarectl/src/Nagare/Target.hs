@@ -65,6 +65,7 @@ module Nagare.Target
   , parseBackupRecoveryPoint
   , effectiveInventoryStore
   , defaultGcsInventoryStoreUrl
+  , objectInventoryStoreUrl
   , resolveActiveContext
   , resolveActiveTarget
   , resolveTargetProfile
@@ -505,6 +506,22 @@ effectiveInventoryStore tp = case (tp ^. #mode, tp ^. #inventoryStore) of
 defaultGcsInventoryStoreUrl :: Text -> TargetProfile -> Text
 defaultGcsInventoryStoreUrl ctx tp =
   defaultGcsPulumiBackendUrl ctx tp <> "/inventory"
+
+-- | EP-251: a local context's object inventory URL. The stored
+-- @NAGARE_INVENTORY_STORE_URL@ wins; without one, the context's prefix in a
+-- @nagare-inventory@ bucket on its local object store
+-- (@NAGARE_LOCAL_OBJECT_STORE@), so a bootstrapped context can migrate without
+-- a profile edit its accepted history forbids.
+objectInventoryStoreUrl :: Text -> TargetProfile -> Maybe Text
+objectInventoryStoreUrl ctx tp
+  | not (T.null (tp ^. #inventoryStoreUrl)) = Just (tp ^. #inventoryStoreUrl)
+  | otherwise = case T.breakOn "://" (tp ^. #localObjectStore) of
+      (scheme, rest)
+        | scheme `elem` ["http", "https"]
+        , authority <- T.takeWhile (/= '/') (T.drop 3 rest)
+        , not (T.null authority) ->
+            Just (scheme <> "://" <> authority <> "/nagare-inventory/" <> ctx)
+      _ -> Nothing
 
 -- | The default GCS Pulumi backend URL for a context when @NAGARE_PULUMI_BACKEND=gcs@
 -- is set without an explicit URL: @gs://\<project>-nagare-pulumi-state/nagare/\<context>@.

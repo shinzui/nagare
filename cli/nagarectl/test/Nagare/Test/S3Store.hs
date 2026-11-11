@@ -25,7 +25,7 @@ import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Inventory.Store.ObjectTarget
 import Nagare.Inventory.Store.S3
-import Nagare.Target (InventoryStoreKind (..), Mode (..), effectiveInventoryStore)
+import Nagare.Target (InventoryStoreKind (..), Mode (..), effectiveInventoryStore, objectInventoryStoreUrl)
 import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Test.World.ObjectStore (fakeObjectOps, fakeObjectState)
 import Network.HTTP.Types (methodGet, methodPut)
@@ -120,6 +120,12 @@ s3StoreTests =
         reachFor False endpoint @?= Right (ForwardTo "nagare-system" "minio" "9000")
         fmap (`reachFor` endpoint) [] @?= []
         reachFor False (endpoint & #host .~ "127.0.0.1:19000") @?= Right Direct
+    , testCase "a bootstrapped context without a stored URL migrates to its object store's inventory bucket" $ do
+        let bootstrapped = initProfile & #mode .~ Local & #localObjectStore .~ "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups"
+        objectInventoryStoreUrl "mp33" bootstrapped @?= Just "http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33"
+        objectInventoryStoreUrl "mp33" (bootstrapped & #inventoryStoreUrl .~ "http://127.0.0.1:19000/b/p") @?= Just "http://127.0.0.1:19000/b/p"
+        objectInventoryStoreUrl "mp33" (bootstrapped & #localObjectStore .~ "") @?= Nothing
+        fmap (^. #prefix) (objectStoreEndpoint (bootstrapped & #inventoryStoreUrl .~ fromMaybe "" (objectInventoryStoreUrl "mp33" bootstrapped))) @?= Right "mp33"
     , testCase "credentials come from exactly one private source; a deployer never uses the administrator Secret" $ do
         let none = CredentialSources Nothing Nothing Nothing False
         chooseCredentials none @?= Right FromAdministratorSecret

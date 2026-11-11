@@ -245,16 +245,18 @@ conditional writes as a cloud context's GCS store: `If-None-Match: *` to create 
 to replace, proved on the packaged MinIO release
 ([audit](../audits/ep251-s3-conditional-writes.md)).
 
-Bootstrap the platform first (the object store is part of it), then name the store and move the
-history there:
+Bootstrap the platform first (the object store is part of it), then move the history there:
 
 ```bash
-nagarectl context create local --force \
-  --inventory-store-url http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/local
 nagarectl inventory store migrate --to object --dry-run
 nagarectl inventory store migrate --to object --yes
 nagarectl inventory store status
 ```
+
+The history goes to the context's prefix in a `nagare-inventory` bucket on the local object store,
+`http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/CONTEXT`, and the migration writes
+that URL into the context. To use another URL, pass `--inventory-store-url` when you create the
+context, before it has any history; an existing context's store moves only through `migrate`.
 
 `NAGARE_INVENTORY_STORE_URL` is `http://HOST:PORT/BUCKET/PREFIX`: a loopback address or an
 in-cluster Service. From the workstation, `nagarectl` reaches an in-cluster Service through a

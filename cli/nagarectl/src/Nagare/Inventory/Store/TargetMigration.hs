@@ -24,7 +24,14 @@ migrateTargetStore target destinationKind dryRun = do
   let contextText = contextNameText (target ^. #contextName)
       path = stateRoot </> T.unpack contextText </> "inventory"
       sourceKind = effectiveInventoryStore (target ^. #profile)
-      objectTarget = target & #profile . #inventoryStore .~ InventoryStoreObject
+      objectTarget =
+        target
+          & #profile
+          . #inventoryStore
+          .~ InventoryStoreObject
+          & #profile
+          . #inventoryStoreUrl
+          .~ fromMaybe "" (objectInventoryStoreUrl contextText (target ^. #profile))
       label = \case
         InventoryStoreLocal -> "local"
         InventoryStoreGcs -> remoteInventoryUrl target

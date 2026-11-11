@@ -205,7 +205,7 @@ inventoryCmd =
                             "migrate"
                             ( info
                                 ( InventoryStoreMigrate
-                                    <$> strOption (long "to" <> metavar "gcs|local")
+                                    <$> strOption (long "to" <> metavar "gcs|local|object")
                                     <*> switch (long "dry-run")
                                     <*> switch (long "yes") <**> helper
                                 )
