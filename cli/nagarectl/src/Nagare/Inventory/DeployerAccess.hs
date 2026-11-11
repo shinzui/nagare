@@ -169,13 +169,17 @@ identityObjects deployer active kinds namespaces build =
         , "metadata" .= metadata name (Just ns)
         , "automountServiceAccountToken" .= False
         ]
+    -- A revoked Role omits its rules: server-side apply then removes the
+    -- field this manager owned, and the API server stores no rules as null,
+    -- which an empty list in the reviewed object would never match.
     roleObject name ns rules =
       object
-        [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
-        , "kind" .= ("Role" :: Text)
-        , "metadata" .= metadata name (Just ns)
-        , "rules" .= map ruleValue rules
-        ]
+        ( [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+          , "kind" .= ("Role" :: Text)
+          , "metadata" .= metadata name (Just ns)
+          ]
+            <> ["rules" .= map ruleValue rules | not (null rules)]
+        )
     bindingObject name ns subject subjectNamespace =
       object
         [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)

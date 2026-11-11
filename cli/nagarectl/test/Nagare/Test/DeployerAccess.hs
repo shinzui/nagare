@@ -12,6 +12,7 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List (nub, sort)
@@ -108,6 +109,8 @@ deployerAccessTests =
             identities scope = sort [resourceIdText (resource ^. #identity) | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
         identities revoked @?= identities active
         [rules | ("role", _, _, rules) <- objects] @?= replicate 4 []
+        -- No rules key at all: the API server stores an empty list as null.
+        [() | (resource, bytes) <- Map.elems native, Kubernetes _ _ kind _ _ <- [resource ^. #address], nameText kind == "role", "\"rules\"" `BS.isInfixOf` bytes] @?= []
         [rules | ("clusterrole", _, _, rules) <- objects] @?= [map ruleJson clusterReadRules]
     , testCase "D3: the builder can create every object a one-shot Job renders, and nothing more" $ do
         job <- either fail pure (oneShotJob "build" "registry.example.test/team/build")
