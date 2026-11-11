@@ -9,7 +9,9 @@ module Nagare.Inventory.Components.ControllerImage
 where
 
 import Control.Exception (IOException, try)
+import Crypto.Hash (Digest, SHA256, hashlazy)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -97,20 +99,19 @@ inspectArchive archive = do
     inspect source temporary = do
       let policy = temporary </> "policy.json"
       BS.writeFile policy "{\"default\":[{\"type\":\"insecureAcceptAnything\"}]}"
-      (hashCode, hashOutput, _) <- readProcessWithExitCode "shasum" ["-a", "256", source] ""
+      -- Hashed in process: shasum is not on a Linux host, and a hosted
+      -- deployer publishes from one (EP-248).
+      archiveHash <- hashlazy <$> LBS.readFile source :: IO (Digest SHA256)
       (imageCode, imageOutput, imageError) <-
         readProcessWithExitCode
           "skopeo"
           ["--policy", policy, "inspect", "--format", "{{.Digest}}", "docker-archive:" <> source]
           ""
       pure $ do
-        unless (hashCode == ExitSuccess) (Left "archive SHA-256 could not be read")
         unless
           (imageCode == ExitSuccess)
           (Left ("archive OCI manifest could not be inspected: " <> T.pack imageError))
-        archiveDigest <- case words hashOutput of
-          firstWord : _ -> mkContentDigest (T.pack firstWord)
-          _ -> Left "archive SHA-256 command returned no digest"
+        archiveDigest <- mkContentDigest (T.pack (show archiveHash))
         manifestDigest <- case T.stripPrefix "sha256:" (T.strip (T.pack imageOutput)) of
           Just hexadecimal -> mkContentDigest hexadecimal
           Nothing -> Left "archive OCI manifest is not SHA-256"
