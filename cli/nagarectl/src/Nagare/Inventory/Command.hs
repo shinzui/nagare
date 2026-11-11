@@ -1,5 +1,6 @@
 module Nagare.Inventory.Command
-  ( compileInput
+  ( admissionProblem
+  , compileInput
   , compileInventory
   , loadCandidate
   , loadTargetSnapshot
@@ -649,10 +650,12 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
 -- | EP-247 D11: a refusal caused only by another change landing first is
 -- @review_stale@, which a client answers by planning again.
 refuseAdmission :: NonEmpty AdmissionError -> IO a
-refuseAdmission errors =
-  dieCoded
-    (if all ((`elem` ["stale-head", "stale-base", "head-condition"]) . admissionErrorCode) errors then reviewStale else admissionRefused)
-    (showText (NE.toList errors))
+refuseAdmission errors = dieCoded (admissionProblem errors) (showText (NE.toList errors))
+
+admissionProblem :: NonEmpty AdmissionError -> ProblemSpec
+admissionProblem errors
+  | all ((`elem` ["stale-head", "stale-base", "head-condition"]) . admissionErrorCode) errors = reviewStale
+  | otherwise = admissionRefused
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
 resumeInventory = resumeInventoryWith executionBlockedRegistry

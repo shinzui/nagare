@@ -21,13 +21,15 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Contract.Delegation (ActorSummary (..), TransactionHistory (..), TransactionSummary (..))
-import Nagare.Contract.Problem (problemCatalog, reviewStale)
+import Nagare.Contract.Problem (admissionRefused, problemCatalog, reviewStale)
 import Nagare.Contract.Schema (fromNullable)
 import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Actor
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.DelegatedPlanning (attributeReview)
+import Nagare.Inventory.Command (admissionProblem)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
+import Nagare.Inventory.DelegatedPlanning (attributeReview, delegatedCandidate)
 import Nagare.Inventory.DeployerCommands (commandWords, contextArgument, guardDeployerCommand)
 import Nagare.Inventory.DeployerDelegation
 import Nagare.Inventory.Digest
@@ -56,9 +58,14 @@ delegationTests =
     , testCase "a revoked delegation refuses a saved deployer review at admission; an operator review is still admitted; history names each actor" admissionAndHistory
     , testGroup "commands" commandTests
     , testGroup "actor wire" actorTests
-    , testCase "review_stale is a retryable 409 in the problem catalog" $ do
+    , testCase "review_stale is a retryable 409 for refusals caused only by another change landing first" $ do
         assertBool "catalogued" (reviewStale `elem` problemCatalog)
         (reviewStale ^. #status, reviewStale ^. #retryable) @?= (409, True)
+        let refusal code = AdmissionError code "refused"
+        forM_ ["stale-head", "stale-base", "head-condition"] $ \code -> admissionProblem (refusal code :| []) @?= reviewStale
+        admissionProblem (refusal "stale-head" :| [refusal "stale-base"]) @?= reviewStale
+        forM_ ["delegation-revoked", "delegation-bounds", "active-transaction", "context-binding"] $ \code -> admissionProblem (refusal code :| []) @?= admissionRefused
+        admissionProblem (refusal "stale-head" :| [refusal "delegation-revoked"]) @?= admissionRefused
     ]
 
 -- ---------------------------------------------------------------------------
@@ -102,6 +109,14 @@ scopeTests =
       Map.lookup "kotei" (acceptedDelegations (Map.singleton (scopeId scope) scope)) @?= Just teamDelegation
       decoded <- expectRight (encodeDelegation teamDelegation >>= decodeDelegation)
       decoded @?= teamDelegation
+  , testCase "app commands accept an active delegation's namespace and no other" $ do
+      (scope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace teamDelegation)
+      (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace (teamDelegation & #state .~ DelegationRevoked))
+      let snapshotOf delegationScope = ok (mkScopeSnapshot binding' (Map.fromList [(scopeId s', (generationOne, s')) | s' <- [foundationScope, delegationScope]]) Map.empty)
+      acceptedAppNamespace (snapshotOf scope) "team-a" @?= Right (fixtureCluster, delegatedNamespaceId)
+      assertBool "a namespace no accepted scope owns" (isLeft (acceptedAppNamespace (snapshotOf scope) "team-z"))
+      assertBool "the build namespace runs no apps" (isLeft (acceptedAppNamespace (snapshotOf scope) "team-build"))
+      assertBool "a revoked delegation's namespace" (isLeft (acceptedAppNamespace (snapshotOf revoked) "team-a"))
   , testCase "refuses reserved, duplicate and malformed namespaces and names"
       $ forM_
         [ teamDelegation & #namespaces .~ ("nagare-system" :| [])
@@ -234,6 +249,18 @@ admissionAndHistory = do
   (delegationScope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace teamDelegation)
   accept store anonymousOperator Nothing [ReplaceScope foundationScope, ReplaceScope delegationScope]
   accept store (DeployerActor "kotei") (Just (ReviewSource (Just "https://forge.example.test/team/site") (Just "abc123") (Just "https://ci.example.test/runs/7"))) [ReplaceScope (stampDeployerScope "kotei" (appScope "v1"))]
+  -- D4 through the preparation path: the deployer's candidate is stamped,
+  -- and an out-of-bounds one is refused before anything is published.
+  history <- loadInventoryHistory store >>= expectRight
+  let candidateOf scope = ok (composeInventory (ok (mkScopeSnapshot binding' (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history)) (historyReservations history))) (ReplaceScope scope :| []))
+  stampedCandidate <- expectRight (delegatedCandidate (DeployerActor "kotei") history (candidateOf (appScope "v2")))
+  fmap (Map.lookup deployerOverrideKey . scopeOverrides) (Map.lookup (ok (mkScopeId Application "web")) (inventoryScopes (candidateInventory stampedCandidate))) @?= Just (Just "kotei")
+  objectsBefore <- readStoreSnapshot store >>= expectRight
+  case delegatedCandidate (DeployerActor "kotei") history (candidateOf (appScopeIn "team-z" "v2")) of
+    Left reason -> assertBool (T.unpack reason) ("delegation-bounds" `T.isInfixOf` reason)
+    Right _ -> assertFailure "a member outside the delegation was planned"
+  objectsAfter <- readStoreSnapshot store >>= expectRight
+  assertBool "a refused proposal writes nothing" (storeSnapshotReviewDigests objectsBefore == storeSnapshotReviewDigests objectsAfter && storeSnapshotHead objectsBefore == storeSnapshotHead objectsAfter)
   saved <- prepared store (DeployerActor "kotei") Nothing [ReplaceScope (stampDeployerScope "kotei" (appScope "v2"))]
   (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace (teamDelegation & #state .~ DelegationRevoked))
   accept store (OperatorActor (Just "alice")) Nothing [ReplaceScope revoked]
@@ -282,9 +309,12 @@ admissionAndHistory = do
 
 -- A web app's configuration in the delegated namespace.
 appScope :: Text -> ScopeDeclaration
-appScope version =
+appScope = appScopeIn "team-a"
+
+appScopeIn :: Text -> Text -> ScopeDeclaration
+appScopeIn ns version =
   let owner = ok (mkScopeId Application "web")
-      member = kubernetesMemberWith owner "v1" "ConfigMap" (Just "team-a") "web-config" (object ["data" .= object ["version" .= version]])
+      member = kubernetesMemberWith owner "v1" "ConfigMap" (Just ns) "web-config" (object ["data" .= object ["version" .= version]])
    in ok (mkScopeDeclaration owner [ResourceBundle [Managed (member & #dependencies .~ [OrderedAfter delegatedNamespaceId])] [] [] [] [] []])
 
 delegatedNamespaceId :: ResourceId
@@ -411,6 +441,9 @@ actorTests =
 
 -- ---------------------------------------------------------------------------
 -- Fixtures.
+
+generationOne :: ScopeGeneration
+generationOne = ok (mkScopeGeneration 1)
 
 binding' :: ContextBinding
 binding' = ContextBinding (ok (mkContextId "delegation-test")) (ok (mkName "project"))

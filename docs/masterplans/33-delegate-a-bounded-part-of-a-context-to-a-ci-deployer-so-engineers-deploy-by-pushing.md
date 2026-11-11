@@ -25,6 +25,11 @@ provenance:
       at: 2026-11-09T04:04:19Z
       mode: "update"
       note: "Apply review findings: protected-route authority, exact rendered bytes and workers, local credential ownership and prerequisite order."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T05:04:00Z
+      mode: "implement"
+      note: "EP-247 in progress: delegation, actor, bounds and history landed; local confirmation pending"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -136,7 +141,7 @@ package then two reviewed stages, which EP-249 keeps). On Kotei's side,
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 247 | Review a bounded namespace delegation for a named deployer and record who applied each change | docs/plans/247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md | None | None | Not Started |
+| 247 | Review a bounded namespace delegation for a named deployer and record who applied each change | docs/plans/247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md | None | None | In Progress |
 | 248 | Issue least-privilege credentials to a delegated deployer | docs/plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.md | EP-247; EP-251 | None | Not Started |
 | 249 | Deploy apps and static sites from a rendered configuration without running the repository's program | docs/plans/249-deploy-apps-and-static-sites-from-a-rendered-configuration-without-running-the-repository-s-program.md | EP-247 for D5 and D6 only | None | Not Started |
 | 250 | Open a delegated namespace's sites to the delegation's team without a per-site grant | docs/plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md | EP-247 | None | Not Started |
