@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-11
+
+* **Addition**: FRIC-9 records detour process friction with mori://shinzui/nagare: The 1000-line cap on Nagare.Target turned a 17-line fix red at the fast gate
+
 * **Addition**: FRIC-8 records detour process friction with mori://shinzui/nagare: Fixed line caps on the test suite assembler and CLI dispatch push new groups into unrelated modules
 
 ## 2026-11-10
