@@ -148,4 +148,17 @@ accepted enforcer, and EP-248 must provide their lifecycle permissions in that n
 ConfigMap permission. Kubernetes RBAC does not encode the hostname suffix or target; these are checks by the trusted
 client as recorded in [ADR 35](0035-a-delegated-deployer-is-trusted-and-repository-content-is-not.md).
 The bundle-backed acceptance must create, update and retire those routes and refuse unrelated system mutations.
-This records the design constraint, not completed implementation; EP-250's access-inheritance amendment remains pending.
+EP-247 and EP-248 implemented it (EP-248's local confirmation created, served and revoked such routes with the
+bundle's own credentials).
+
+## Amendment — 2026-11-11: a hostname in a delegated namespace inherits the delegation's grants (EP-250)
+
+A protected hostname is still its own authorization object, and signing in still admits nobody. A hostname
+served from a delegation's namespace is also opened by that delegation's grants: the backend map entry names
+the delegation (derived from the namespace, never from who deployed it), and the enforcer checks
+`app:HOST#access` first and `delegation:NAME#access` only when the host refuses. One reviewed relationship,
+`delegation:NAME#viewer@group:TEAM#member`, opens every such host to the team, so a deployer creates readable
+sites without holding the access-service key. There is still no bypass: the inherited grant is a reviewed
+relationship like any other, revoking it is a review, an unavailable check is an outage, and an enforcer that
+predates the entry member reads the host as an ordinary protected one (fail closed). Implemented by
+[EP-250](../plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md).

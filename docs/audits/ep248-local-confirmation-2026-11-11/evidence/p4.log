@@ -1,0 +1,92 @@
+
+## P4 EP-248 D5/D8: a deployer Pod holding only the bundle reads, is refused outside its delegation, and deploys
+59d10332: digest: sha256:42e1190a76a0803b39bb04ea34b9bca975e04d6d88aaf51a1bcda21dfae04cb3 size: 9532
+pod/ep248-deployer created
+pod/ep248-deployer condition met
+no service account token of its own
+/work/home/.config/nagare/credentials:
+total 12
+drwx--S--- 2 65532 65532 4096 Nov 11 17:23 .
+drwx--S--- 5 65532 65532 4096 Nov 11 17:23 ..
+-rw------- 1 65532 65532   98 Nov 11 17:23 ep248-s3.json
+
+/work/home/.config/nagare/kubeconfigs:
+total 12
+drwx--S--- 2 65532 65532 4096 Nov 11 17:23 .
+drwx--S--- 5 65532 65532 4096 Nov 11 17:23 ..
+-rw------- 1 65532 65532 2193 Nov 11 17:23 ep248.yaml
+
+## P4a D5: with only HOME and XDG_CONFIG_HOME, the guard passes and the store is read
+$ DN version --json
+{"contracts":[1],"platformVersion":"0.18.0","revision":"59d103322b27215e2601a701ca9620bd04e32613","version":"0.18.0"}
+$ DN inventory history --limit 3
+tx-f46e8cce883138c33d338b2f7d5a66ab561d16ad10ce6db5ca4d791c7528b2a6  converged  2026-11-11T17:23:26Z  operator  platform:delegation-ci  
+tx-1d3af52d0d856ca82807361f44dbe62616cb6f68c5a5f4857277d5a17a27db41  converged  2026-11-11T17:19:13Z  operator  platform:auth,platform:bootstrap-stamp,platform:cert-manager,platform:certificate-issuer,platform:foundation,platform:kourier,platform:local-object-store,platform:net-certmanager,platform:net-controller-image,platform:observability-extra,platform:observability-otel-collector,platform:observability-secrets,platform:observability-victoria-logs,platform:observability-victoria-logs-collector,platform:observability-victoria-traces,platform:observability-vmks,platform:release-images,platform:serving  
+tx-b4537b8b02f3f3de7db4519612e8e1f184e32a11a4324048029faef66885eefc  converged  2026-11-11T17:18:55Z  operator  platform:kubeconfig  
+$ DN inventory status --scope standalone:site-docs
+nagarectl: standalone:site-docs is not an accepted scope
+command terminated with exit code 1
+(status of a scope not yet deployed: exit 1)
+$ DN inventory publications
+SCOPE  KEY  DESTINATION  GENERATION  USED BY
+
+## P4b D8: Kubernetes refuses the bundle everything outside the delegation
+$ DK -n personal create configmap ep248-probe --from-literal=a=b --dry-run=server   # expected refusal
+error: failed to create configmap: configmaps is forbidden: User "system:serviceaccount:nagare-system:nagare-deployer-ci" cannot create resource "configmaps" in API group "" in the namespace "personal"
+command terminated with exit code 1
+exit 1
+$ DK -n nagare-system get secret nagare-minio-credentials   # expected refusal
+Error from server (Forbidden): secrets "nagare-minio-credentials" is forbidden: User "system:serviceaccount:nagare-system:nagare-deployer-ci" cannot get resource "secrets" in API group "" in the namespace "nagare-system"
+command terminated with exit code 1
+exit 1
+$ DK -n nagare-system patch configmap nagare-shomei-settings --type merge -p {"data":{"x":"y"}} --dry-run=server   # expected refusal
+Error from server (Forbidden): configmaps "nagare-shomei-settings" is forbidden: User "system:serviceaccount:nagare-system:nagare-deployer-ci" cannot get resource "configmaps" in API group "" in the namespace "nagare-system"
+command terminated with exit code 1
+exit 1
+$ DK create namespace ep248-probe --dry-run=server   # expected refusal
+Error from server (Forbidden): namespaces is forbidden: User "system:serviceaccount:nagare-system:nagare-deployer-ci" cannot create resource "namespaces" in API group "" at the cluster scope
+command terminated with exit code 1
+exit 1
+$ DK -n team-a get secrets   # expected refusal
+Error from server (Forbidden): secrets is forbidden: User "system:serviceaccount:nagare-system:nagare-deployer-ci" cannot list resource "secrets" in API group "" in the namespace "team-a"
+command terminated with exit code 1
+exit 1
+$ DK -n team-a auth can-i create services.serving.knative.dev
+yes
+$ DK -n nagare-system auth can-i update configmap/nagare-access-backends
+yes
+
+## P4c D5/D8: the deployer publishes and deploys a protected site, a protected app and a worker
+publish OciImageArtifact to k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/docs:d1 at 9492399b4bec8d3a4e29f9a9fa7d2c5143a180c9624080fd17590f923dc22486
+converged tx-93feece1e108243cfb27c31c5ad2c912d9328dd877cb95cc75c3060009f97d43
+Image resource: publication:app-image-docs-d1/docs-d1/oci-image
+publish OciImageArtifact to k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/hello:v1 at 78264f1c36edf72db0049fa7df8b64653bd8edfe95f60202bd0546e911027ec5
+converged tx-ea66cbd85ce0d5ad78fbedfd6e04874f0558caf1b137ad1c05b6e7ce62f12b38
+Image resource: publication:app-image-team-a-hello-v1/team-a-hello-v1/oci-image
+Kubernetes CreateResource standalone:site-docs/docs/service at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "serving.knative.dev" (Name "service") (Just (Name "team-a")) (Name "docs"); native digest a7ea598f6d7accd0c192c21e1462b506e90e4bac8282cf9031687ecd4984da0e
+Kubernetes UpdateResource platform:auth/auth/object-4eecf2a0a71a1cc10010dce9a74e8f6276942e0d at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "" (Name "configmap") (Just (Name "nagare-system")) (Name "nagare-access-backends"); native digest 899551a941f3025f8c4d0fdae099be64d4fe74d563fe55ef05942fd592f8adb1
+converged tx-628fcaf307a51ecc2a0563916c26994f64d44ab8d197d8b52ce023e267e799d0
+$ DN app deploy --rendered /work/in/rendered/app.json --tag v1 --image-resource publication:app-image-team-a-hello-v1/team-a-hello-v1/oci-image --source-repository https://forge.example.test/team-a/site --source-run https://ci.example.test/runs/48 --source 5ca1ab1e --save-plan /work/tmp/hello-v1
+44b9b12a83ef0c7646c485a0cb28c4b115596ffc84fb7c79ba8d999921ac1e5a
+$ DN inventory apply /work/tmp/hello-v1 --yes
+versions: refreshed at 2026-11-11T17:24:32Z (16 of 48 facts unavailable)
+converged tx-44b9b12a83ef0c7646c485a0cb28c4b115596ffc84fb7c79ba8d999921ac1e5a
+Published review bcb956f92549872f1ffadb7e094812445b9da3050df51fe252b00fb7d9bc6b20
+Kubernetes CreateResource standalone:worker-ticker/ticker/worker at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "apps" (Name "deployment") (Just (Name "team-a")) (Name "ticker"); native digest ec58a7cdcf84a073fd6675322987fbc92ae491a1e000a238e9bef412444aa9ae
+converged tx-bcb956f92549872f1ffadb7e094812445b9da3050df51fe252b00fb7d9bc6b20
+$ DN inventory status --scope standalone:site-docs
+Inventory status: 3 resources; retained: 0; collected: 0; data fence: none; unavailable providers: []
+service.serving.knative.dev/docs condition met
+service.serving.knative.dev/hello condition met
+$ K -n nagare-system get domainmapping -o custom-columns=NAME:.metadata.name,TARGET:.spec.ref.name
+NAME                              TARGET
+docs.team-a.127-0-0-1.sslip.io    nagare-access
+hello.team-a.127-0-0-1.sslip.io   nagare-access
+$ K -n nagare-system get configmap nagare-access-backends -o jsonpath={.data.backends\.json}
+{"docs.team-a.127-0-0-1.sslip.io":"http://docs.team-a.svc.cluster.local","hello.team-a.127-0-0-1.sslip.io":"http://hello.team-a.svc.cluster.local"}
+$ OP inventory history --limit 5
+tx-bcb956f92549872f1ffadb7e094812445b9da3050df51fe252b00fb7d9bc6b20  converged  2026-11-11T17:24:33Z  deployer:ci  standalone:worker-ticker  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/48
+tx-44b9b12a83ef0c7646c485a0cb28c4b115596ffc84fb7c79ba8d999921ac1e5a  converged  2026-11-11T17:24:29Z  deployer:ci  application:hello  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/48
+tx-628fcaf307a51ecc2a0563916c26994f64d44ab8d197d8b52ce023e267e799d0  converged  2026-11-11T17:24:25Z  deployer:ci  standalone:site-docs  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/48
+tx-ea66cbd85ce0d5ad78fbedfd6e04874f0558caf1b137ad1c05b6e7ce62f12b38  converged  2026-11-11T17:24:23Z  deployer:ci  publication:app-image-team-a-hello-v1  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/48
+tx-93feece1e108243cfb27c31c5ad2c912d9328dd877cb95cc75c3060009f97d43  converged  2026-11-11T17:24:21Z  deployer:ci  publication:app-image-docs-d1  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/48

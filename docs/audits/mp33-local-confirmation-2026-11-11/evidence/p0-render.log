@@ -1,0 +1,4 @@
+rendered app: {"contractVersion":1,"document":"rendered-application","kind":"Application","nagareVersion":"0.18.0","configDigest":"219ddd3e42ac102105a008fa38e9469f3127912a2cb944abb65ea6202ffa5bad"}
+rendered worker: {"contractVersion":1,"document":"rendered-worker","kind":"Worker","nagareVersion":"0.18.0","configDigest":"4866557f7ae417b40be47926bc0413401c9118948fe747905f0ac07cf77bfe17"}
+rendered docs: {"contractVersion":1,"document":"rendered-site","kind":"StaticSite","nagareVersion":"0.18.0","configDigest":"00f159171b09f024889d0ebb2f907a569acee7f27d5619cc8726725303d48c87"}
+rendered rogue: {"contractVersion":1,"document":"rendered-site","kind":"StaticSite","nagareVersion":"0.18.0","configDigest":"7e14912784061ed4e7a8787794231c4552da50528a0e676180476b7138bbaba2"}

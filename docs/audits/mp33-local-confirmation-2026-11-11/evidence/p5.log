@@ -1,0 +1,60 @@
+
+## P5a EP-252 D5: a hardened Pod with no Docker socket packages the site with the layered builder
+e748a550: digest: sha256:3b27ca7a53a9f00fdb21b0c040aefd567a6671ff88ca2173e3f06b1cdde05994 size: 9053
+pod/mp33-builder created
+pod/mp33-builder condition met
+$ K -n team-a-build get pod mp33-builder -o jsonpath={.spec.securityContext} {.spec.containers[0].securityContext} {.spec.automountServiceAccountToken} {.spec.volumes}
+{"fsGroup":65532,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}} {"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true} false [{"emptyDir":{},"name":"work"}]
+uid=65532 gid=65532 groups=65532
+no docker socket
+no docker binary
+no service account token
+root read-only
+$ X /bin/bash -c cd /work/in/fixtures/docs && nagarectl site package -f nagare/Config.hs --builder layered --base-archive /work/in/package-rehearsal/base.tar --platform linux/arm64 --tag d1 --archive /work/out/docs.tar && sha256sum /work/out/docs.tar
+site package: layered builder
+path: /work/out/docs.tar
+content-digest: sha256:3f438041404be71e13ee4a04f1c452b877663d81965a8848692897b6868b8860
+image: k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/docs:d1
+tag: d1
+platform: linux/arm64
+48dcea6d9afd229fbbfa7220a1b95fb86e7ed2c09ab40a1652dc938dfbc0fe9d  /work/out/docs.tar
+48dcea6d9afd229fbbfa7220a1b95fb86e7ed2c09ab40a1652dc938dfbc0fe9d  ~/.local/state/nagare/drills/mp33-final/docs-pod.tar
+
+## P5b EP-247 D9 / EP-249 D6 / EP-252 D5: the deployer publishes and deploys from rendered documents
+publish OciImageArtifact to k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/docs:d1 at 9492399b4bec8d3a4e29f9a9fa7d2c5143a180c9624080fd17590f923dc22486
+converged tx-5a90f6548dd6c1b04f9bc92805bc8b47416971459bc37dba073fbf83037cdbca
+Image resource: publication:app-image-docs-d1/docs-d1/oci-image
+publish OciImageArtifact to k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/hello:v1 at 78264f1c36edf72db0049fa7df8b64653bd8edfe95f60202bd0546e911027ec5
+converged tx-99ac875332758da8aa91b4531ceb7b26879b691ee60877f1a0108c247f271a50
+Image resource: publication:app-image-team-a-hello-v1/team-a-hello-v1/oci-image
+Kubernetes CreateResource standalone:site-docs/docs/service at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "serving.knative.dev" (Name "service") (Just (Name "team-a")) (Name "docs"); native digest a7ea598f6d7accd0c192c21e1462b506e90e4bac8282cf9031687ecd4984da0e
+Kubernetes UpdateResource platform:auth/auth/object-4eecf2a0a71a1cc10010dce9a74e8f6276942e0d at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "" (Name "configmap") (Just (Name "nagare-system")) (Name "nagare-access-backends"); native digest e244028819f30a627c3d096b801e5c1781ad686363532c63f3faa067ad4fe6e1
+converged tx-47405f161db9514d6f8b36dd18e8f1e051b4bc8390525d2f1b75f9f541dfc81b
+Kubernetes CreateResource application:hello/hello/service at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "serving.knative.dev" (Name "service") (Just (Name "team-a")) (Name "hello"); native digest 1c09baa7d4a9c84aa7af277da151a7b2e54236556735ed39e716c3da3cf71a44
+Kubernetes CreateResource application:hello/hello.team-a.127-0-0-1.sslip.io/domain-mapping at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "serving.knative.dev" (Name "domainmapping") (Just (Name "nagare-system")) (Name "hello.team-a.127-0-0-1.sslip.io"); native digest d4e9990d3020d82b6637a36a5e7433cdb1293f91a5280473f3a39de0e68431fa
+converged tx-45706daf48df97732f0e5fc94e1959045667230fc35351769ecf37bd96194bf0
+
+## P5c EP-247 D4/D9: a hostname outside the delegation is refused before any store write
+$ CI site deploy --rendered ~/.local/state/nagare/drills/mp33-final/rendered/rogue.json -C ~/.local/state/nagare/drills/mp33-final/fixtures/docs --skip-build --tag d1 --image-resource publication:app-image-docs-d1/docs-d1/oci-image --source-repository https://forge.example.test/team-a/site --source-run https://ci.example.test/runs/42 --source 5ca1ab1e --save-plan ~/.local/state/nagare/drills/mp33-final/reviews/rogue   # expected refusal
+delegation-bounds: delegation ci refuses standalone:site-rogue/rogue.127-0-0-1.sslip.io/domain-mapping (hostname): hostname rogue.127-0-0-1.sslip.io is outside the delegation
+delegation-bounds: delegation ci refuses rogue.127-0-0-1.sslip.io (hostname): hostname rogue.127-0-0-1.sslip.io is outside the delegation
+exit 1
+store before {"generation":545,"accepted":27} after {"generation":545,"accepted":27}
+
+## P5d the protected site and app serve
+service.serving.knative.dev/docs condition met
+service.serving.knative.dev/hello condition met
+$ K -n nagare-system get domainmapping docs.team-a.127-0-0-1.sslip.io hello.team-a.127-0-0-1.sslip.io -o custom-columns=NAME:.metadata.name,TARGET:.spec.ref.name
+NAME                              TARGET
+docs.team-a.127-0-0-1.sslip.io    nagare-access
+hello.team-a.127-0-0-1.sslip.io   nagare-access
+ok   anonymous docs.team-a (protected): 302 after 14s
+ok   anonymous hello.team-a (protected): 302 after 1s
+ok   docs origin serves its files: 200 after 1s
+ok   docs origin body: <!doctype html><title>docs</title><p>MP-33 delegated site docs</p>
+ok   hello origin serves: 200 after 1s
+ok   hello origin body: <!doctype html><title>mp33 hello</title><p>MP-33 delegated hello</p>
+$ K -n team-a get ksvc -o custom-columns=NAME:.metadata.name,URL:.status.url,VISIBILITY:.metadata.labels.networking\.knative\.dev/visibility,IMAGE:.spec.template.spec.containers[0].image
+NAME    URL                                     VISIBILITY      IMAGE
+docs    http://docs.team-a.svc.cluster.local    cluster-local   k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/docs:d1
+hello   http://hello.team-a.svc.cluster.local   cluster-local   k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/hello:v1

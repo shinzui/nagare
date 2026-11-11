@@ -1,0 +1,60 @@
+
+## P2 EP-248 D2/D3/D10: the operator applies a delegation; its scope carries the deployer's and builder's identities
+$ OP delegation create ci --namespace team-a --host-suffix -docs --kinds web-app --kinds worker --kinds static-site --image-repository k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a --team engineering --build-namespace team-a-build --save-plan ~/.local/state/nagare/drills/ep248/reviews/delegation-ci
+89e1f1e61a80ad3b776f2ab82d32c640e5c103a2b6ca66f3b47c1bcbdd043549
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+  member null
+$ OP inventory apply ~/.local/state/nagare/drills/ep248/reviews/delegation-ci --yes
+versions: refreshed at 2026-11-11T18:59:05Z (12 of 102 facts unavailable)
+converged tx-89e1f1e61a80ad3b776f2ab82d32c640e5c103a2b6ca66f3b47c1bcbdd043549
+$ K get serviceaccount -A -l nagare.dev/delegation=ci
+NAMESPACE       NAME                 SECRETS   AGE
+nagare-system   nagare-deployer-ci   0         5s
+team-a-build    nagare-builder-ci    0         9s
+$ K get role,rolebinding -A -l nagare.dev/delegation=ci
+NAMESPACE       NAME                                                CREATED AT
+nagare-system   role.rbac.authorization.k8s.io/nagare-deployer-ci   2026-11-11T18:59:02Z
+team-a-build    role.rbac.authorization.k8s.io/nagare-builder-ci    2026-11-11T18:58:57Z
+team-a          role.rbac.authorization.k8s.io/nagare-deployer-ci   2026-11-11T18:59:04Z
+
+NAMESPACE       NAME                                                       ROLE                      AGE
+nagare-system   rolebinding.rbac.authorization.k8s.io/nagare-deployer-ci   Role/nagare-deployer-ci   4s
+team-a-build    rolebinding.rbac.authorization.k8s.io/nagare-builder-ci    Role/nagare-builder-ci    3s
+team-a          rolebinding.rbac.authorization.k8s.io/nagare-deployer-ci   Role/nagare-deployer-ci   2s
+$ K get clusterrole,clusterrolebinding -l nagare.dev/delegation=ci
+NAME                                                       CREATED AT
+clusterrole.rbac.authorization.k8s.io/nagare-deployer-ci   2026-11-11T18:59:02Z
+
+NAME                                                              ROLE                             AGE
+clusterrolebinding.rbac.authorization.k8s.io/nagare-deployer-ci   ClusterRole/nagare-deployer-ci   5s
+$ K -n team-a get role nagare-deployer-ci -o jsonpath={.rules}
+[{"apiGroups":[""],"resources":["configmaps"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["batch"],"resources":["cronjobs","jobs"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["serving.knative.dev"],"resources":["services"],"verbs":["create","delete","get","list","patch","update","watch"]}]
+$ K -n nagare-system get role nagare-deployer-ci -o jsonpath={.rules}
+[{"apiGroups":[""],"resourceNames":["nagare-access-backends"],"resources":["configmaps"],"verbs":["get","patch","update"]},{"apiGroups":["serving.knative.dev"],"resources":["domainmappings"],"verbs":["create","delete","get","list","patch","update","watch"]}]
+$ K -n team-a-build get role nagare-builder-ci -o jsonpath={.rules}
+[{"apiGroups":[""],"resources":["serviceaccounts"],"verbs":["create","delete","get","list","watch"]},{"apiGroups":["networking.k8s.io"],"resources":["networkpolicies"],"verbs":["create","delete","get","list","watch"]},{"apiGroups":["batch"],"resources":["jobs"],"verbs":["create","delete","get","list","watch"]},{"apiGroups":[""],"resources":["pods","pods/log"],"verbs":["get","list","watch"]}]
+$ K -n nagare-system get job nagare-deployer-ci-store-grant -o jsonpath={.status.succeeded}
+1
+$ K -n nagare-system logs job/nagare-deployer-ci-store-grant --tail=5
+Created policy `nagare-deployer-ci` successfully.
+Added user `nagare-deployer-ci` successfully.
+granted nagare-deployer-ci
+$ K -n nagare-system get configmap nagare-deployer-ci-store -o jsonpath={.data.policy\.json}
+{"Statement":[{"Action":["s3:DeleteObject","s3:GetObject","s3:PutObject"],"Effect":"Allow","Resource":["arn:aws:s3:::nagare-inventory/ep248/*"]},{"Action":["s3:ListBucket"],"Condition":{"StringLike":{"s3:prefix":["ep248/*"]}},"Effect":"Allow","Resource":["arn:aws:s3:::nagare-inventory"]}],"Version":"2012-10-17"}

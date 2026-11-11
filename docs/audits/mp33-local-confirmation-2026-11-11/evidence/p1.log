@@ -1,0 +1,14 @@
+
+## P1 EP-251 D6/D7: move the bootstrapped context's inventory into its in-cluster object store
+$ /nix/store/v35skkykgd6ap719lxqk8mrcgs0cc8nz-nagarectl-0.18.0/bin/nagarectl version --json
+{"contracts":[1],"platformVersion":"0.18.0","revision":"e748a55031d8b799380f1d55fe774af8f7669796","version":"0.18.0"}
+$ OP inventory store status
+Inventory store local at local, generation 467, active transaction: none, data fence: none
+$ OP inventory store migrate --to object --dry-run
+Inventory migration is ready for http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33
+$ OP inventory store migrate --to object --yes
+Inventory history migrated to http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33; reload the context shell
+export NAGARE_INVENTORY_STORE='object'
+export NAGARE_INVENTORY_STORE_URL='http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33'
+$ OP inventory store status
+Inventory store object at http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33, generation 467, active transaction: none, data fence: none

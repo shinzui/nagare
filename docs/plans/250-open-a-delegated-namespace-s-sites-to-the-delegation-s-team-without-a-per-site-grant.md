@@ -16,6 +16,12 @@ provenance:
       at: 2026-11-09T03:56:33Z
       verdict: "approved"
       note: "Access inheritance has clear ownership, fail-closed behavior, explicit revocation semantics, and observable acceptance."
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T19:02:35Z
+      mode: "implement"
+      note: "D1-D7 implemented and confirmed on one local run at 88190b0b; Complete"
 ---
 
 # Open a delegated namespace's sites to the delegation's team without a per-site grant
@@ -59,11 +65,12 @@ the local-context run confirms ([ADR 25](../adr/0025-defects-are-found-by-interp
   why in the Decision Log and choose the alternative listed there before any further deliverable. Evidence: the
   prototype transcript and the two latency figures in this plan's Surprises & Discoveries; the prototype branch is
   discarded.
-- [ ] D2, the schema: `cluster/bootstrap/en/configmap.yaml` declares the `delegation` object, and the schema support check
+- [x] D2, the schema: `cluster/bootstrap/en/configmap.yaml` declares the `delegation` object, and the schema support check
   (`teamSchemaDeclarations` and `activeSchemaSupportsTeams` in `cli/nagarectl/src/Nagare/Inventory/Access.hs`) requires it
   before a delegation grant is planned, refusing with the schema as the reason. Evidence: unit tests of the check over a
   schema with and without the new object.
-- [ ] D3, the backend map names the delegation: a `RegisterBackend` contribution for a protected host whose namespace
+  Done: `InventoryAccessSpec` "the team schema the CLI requires is the reviewed bootstrap schema" now also checks `activeSchemaSupportsDelegations`, and `AccessRuntime` refuses a delegation grant until the active schema declares the object. The auth manifest pin is updated.
+- [x] D3, the backend map names the delegation: a `RegisterBackend` contribution for a protected host whose namespace
   belongs to an accepted delegation carries that delegation's name; `BackendMapSpec` entries and the
   `nagare-access-backends` ConfigMap (`renderBackendMapNative` in `cli/nagarectl/src/Nagare/Inventory/BackendMap.hs`)
   carry it as an optional `delegation` member of the entry object (an undelegated protected entry stays the bare
@@ -73,26 +80,31 @@ the local-context run confirms ([ADR 25](../adr/0025-defects-are-found-by-interp
   the namespace, not from who deploys, so an operator deploying into a delegated namespace gets the same behavior.
   Evidence: composer tests for a delegated and an undelegated host, and a test that existing backend-map native bytes
   are unchanged for an undelegated map.
-- [ ] D4, the enforcer: `nagare-access` decodes the optional member into `BackendTarget`
+  Done: `BackendEntry` and `RegisterBackend {delegation}`. Evidence: `ResourceInventorySpec` "backend contributions compose one authorized owner map" (an undelegated entry keeps the v1 three-element array, and a delegated one round-trips), and `InventoryAccessSpec` "a protected host in a delegated namespace names its delegation…" (production site compiler, `renderBackendMapNative`).
+- [x] D4, the enforcer: `nagare-access` decodes the optional member into `BackendTarget`
   (`cli/nagare-access/src/Nagare/Access/BackendMap.hs`); on a decision-cache miss it checks `app:HOST#access` first and,
   only when that is denied and the host has a delegation, `delegation:D#access`. Either allowed admits; both denied
   refuses with 403; either check unavailable is a 503, as today (`authorizationFromClientResult` in
   `cli/nagare-access/src/Nagare/Access/En.hs`). The decision cache keeps its key and TTL. Evidence: `nagare-access-test`
   cases for allowed-by-host, allowed-by-delegation, denied-by-both, unavailable-second-check and a host without a
   delegation never making the second call.
-- [ ] D5, the grant: `nagarectl access grant --delegation D --team T --save-plan DIR` and the matching `revoke` review the
+  Done: `authorizeHost` in `Nagare.Access.App`, with the delegation read into `BackendMap` beside the targets. Evidence: `nagare-access-test` "delegation access": allowed by the host, allowed by the delegation, denied by both, the second check unavailable, the first check unavailable, and no delegation.
+- [x] D5, the grant: `nagarectl access grant --delegation D --team T --save-plan DIR` and the matching `revoke` review the
   En relationship `delegation:D#viewer@group:T#member` as a new access tuple owned by the delegation scope, with the same
   preconditions and recovery as team host grants. EP-247's `delegation create --team T` includes this grant in the
   operator's creation review. `nagarectl access list --host HOST` and `access check` report access inherited through a
   delegation and name it. Evidence: review fixtures for grant and revoke, and `access check` tests for inherited access.
-- [ ] D6, the local confirmation: on a local context, with a delegation whose team has one member and a second signed-up
+  Done: `access grant|revoke --delegation NAME --team TEAM --save-plan DIR` (`DelegationAccessTuple`, `DelegationViewer`, `compileDelegationAccessScope`), and `access check` and `access list` report inherited access. `delegation create` does not include the grant (Decision Log). Evidence: `InventoryAccessSpec` "a delegation grant is a typed relationship on the delegation…" and `AccessCheckSpec` "EP-250 D5…".
+- [x] D6, the local confirmation: on a local context, with a delegation whose team has one member and a second signed-up
   user outside it, a deployer deploys a new protected site into the delegation; with no grant of its own, an anonymous
   request is redirected to sign in, the member gets 200 and the outsider gets 403; after `access revoke --delegation`,
   the member gets 403 within the decision-cache TTL; a direct `access grant --host` for the outsider admits them.
   Evidence: an audit file under `docs/audits/` with the requests and status codes.
-- [ ] D7, docs and decision: ADR 29 is amended: a hostname in a delegated namespace inherits the delegation's grants;
+  Done: [ep250-local-confirmation-2026-11-11](../audits/ep250-local-confirmation-2026-11-11.md) at `88190b0b`. Anonymous got 302, the member 200 and the outsider 403 with no grant on the host; the member got 403 26 s after the revocation; a direct grant admitted the outsider.
+- [x] D7, docs and decision: ADR 29 is amended: a hostname in a delegated namespace inherits the delegation's grants;
   there is still no bypass and signing in still admits nobody. `docs/user/access.md` gains "Delegation-wide access".
   Evidence: the linked pages.
+  Done: [ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md) amendment of 2026-11-11, and [Delegation-wide access](../user/access.md#delegation-wide-access) with its reference row.
 
 
 ## Surprises & Discoveries
@@ -109,6 +121,21 @@ the local-context run confirms ([ADR 25](../adr/0025-defects-are-found-by-interp
 
 
 ## Decision Log
+
+- Decision: A delegation-wide grant is its own access scope, like a team host grant, and `delegation create` does
+  not include it. The operator applies `access grant --delegation NAME --team TEAM` as one more review.
+  Rationale: the grant needs the access adapter and an En session, which the delegation planner does not open,
+  and the team must already have reviewed membership. One more review once per delegation is cheaper than
+  coupling the two planners.
+  Date: 2026-11-11
+
+- Decision: The enforcer keeps the delegations in a second host-to-delegation map in `BackendMap`, read when
+  the map is decoded, instead of a new `BackendTarget` field. `access grant` names its target with
+  `--host HOST` or `--delegation NAME`, exactly one, enforced by the parser.
+  Rationale: `BackendTarget` has 36 positional constructions, and the delegation matters only to the
+  authorization decision, not to proxying.
+  Date: 2026-11-11
+
 
 - Decision (subject to D1): inheritance is resolved by the enforcer from the backend map, with one En relationship per
   delegation, not by per-host En relationships.
@@ -141,7 +168,14 @@ the local-context run confirms ([ADR 25](../adr/0025-defects-are-found-by-interp
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+One reviewed grant now opens every protected site in a delegation's namespaces to its team, and the deployer
+holds no access-service key. The enforcer checks the host and then, only on a host refusal, the delegation; an
+older enforcer fails closed. The backend map names the delegation by namespace, and undelegated entries keep
+their bytes. The local run confirmed 302, 200 and 403, revocation within the cache TTL, and direct grants beside
+the inherited one. The prototype measured one extra En round trip, paid only on a cache miss by a user without
+a direct grant. What remains: the change rides the next release to reach a running context, since the schema
+and enforcer are platform state. Kotei EP-148's UC-4 gate uses it for its access check. The durable rule is ADR
+29's 2026-11-11 amendment.
 
 
 ## Context and Orientation

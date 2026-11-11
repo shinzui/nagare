@@ -1,0 +1,32 @@
+
+## P6 EP-248 D10: the store key reaches only the inventory prefix
+allowed: mc ls b/nagare-inventory/ep248/
+refused: mc ls b/nagare-inventory/
+refused: mc ls b/nagare-backups/
+allowed: mc cat b/nagare-inventory/ep248/head.json
+refused: mc pipe b/nagare-inventory/other/probe
+allowed: mc pipe b/nagare-inventory/ep248/probe-ep248
+allowed: mc rm b/nagare-inventory/ep248/probe-ep248
+
+## P6b EP-248 D7: running credentials again rotates; the old token and key stop working
+{
+  "tokenExpiresAt": "2026-12-11T17:24:43Z",
+  "storeKeyId": "NGR506D5FE83559D52B",
+  "retired": [
+    "nagare-system/nagare-deployer-ci-1d3f01c3",
+    "store-key/NGR9CAD1756FAD20127",
+    "team-a-build/nagare-builder-ci-1d3f01c3"
+  ]
+}
+$ DK -n team-a get ksvc   # expected refusal
+error: You must be logged in to the server (Unauthorized)
+command terminated with exit code 1
+exit 1
+NAME    URL                                     LATESTCREATED   LATESTREADY   READY   REASON
+docs    http://docs.team-a.svc.cluster.local    docs-00001      docs-00001    True    
+hello   http://hello.team-a.svc.cluster.local   hello-00001     hello-00001   True    
+alias-refused
+new key allowed
+$ DN inventory history --limit 2
+tx-bcb956f92549872f1ffadb7e094812445b9da3050df51fe252b00fb7d9bc6b20  converged  2026-11-11T17:24:33Z  deployer:ci  standalone:worker-ticker  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/48
+tx-44b9b12a83ef0c7646c485a0cb28c4b115596ffc84fb7c79ba8d999921ac1e5a  converged  2026-11-11T17:24:29Z  deployer:ci  application:hello  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/48

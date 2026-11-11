@@ -1,0 +1,47 @@
+
+## P8a the backend map names the delegation for both deployed hosts
+{
+  "docs.team-a.127-0-0-1.sslip.io": {
+    "delegation": "ci",
+    "role": "protected",
+    "upstream": "http://docs.team-a.svc.cluster.local"
+  },
+  "hello.team-a.127-0-0-1.sslip.io": {
+    "delegation": "ci",
+    "role": "protected",
+    "upstream": "http://hello.team-a.svc.cluster.local"
+  }
+}
+
+## P8b a member of engineering and an outsider sign up; engineering gets delegation ci
+member user_01m75zpmsfe8mse0k0sngy4s6f, outsider user_01m75zpndge269qq8vswwjjqbt
+3eabe1d93a46b11521c55296ec50c013b2b52e3ce485acbfea210f71f589461e
+converged tx-3eabe1d93a46b11521c55296ec50c013b2b52e3ce485acbfea210f71f589461e
+b1340b975c6f81845ff5b723631a81ba480962908293f65ec728d4669bbf5fad
+converged tx-b1340b975c6f81845ff5b723631a81ba480962908293f65ec728d4669bbf5fad
+
+## P8c with no grant of its own on the host: anonymous signs in, the member gets 200, the outsider 403
+ok   anonymous request: 302 after 39s
+ok   member through the delegation grant: 200 after 1s
+ok   the member sees the site
+ok   outsider: 403 after 1s
+$ OP access check --host docs.team-a.127-0-0-1.sslip.io --user user_01m75zpmsfe8mse0k0sngy4s6f --json
+{"checkedAt":"en1.a8319835-9744-43ef-8ec2-60eefc0ee71f.fnv1a64%3a3ddaa3effae4d5fc.773%3a773%3a.","decision":"allowed","grantGeneration":"gg1_2","host":"docs.team-a.127-0-0-1.sslip.io","inheritedFrom":{"delegation":"ci"},"permission":"access","subject":"user_01m75zpmsfe8mse0k0sngy4s6f"}
+$ OP access check --host docs.team-a.127-0-0-1.sslip.io --user user_01m75zpndge269qq8vswwjjqbt --json
+{"checkedAt":"en1.a8319835-9744-43ef-8ec2-60eefc0ee71f.fnv1a64%3a3ddaa3effae4d5fc.773%3a773%3a.","decision":"denied","grantGeneration":"gg1_2","host":"docs.team-a.127-0-0-1.sslip.io","permission":"access","subject":"user_01m75zpndge269qq8vswwjjqbt"}
+$ OP access list --en-url http://127.0.0.1:18090 --host docs.team-a.127-0-0-1.sslip.io
+direct users (0):
+teams (0):
+teams inherited through delegation ci (1):
+  engineering
+
+## P8d revoking the delegation grant turns the member's 200 into 403 within the decision TTL
+24f5c33533db40d0fcee2db23352cd4aa727facd8708ab5fb8e6690d92127fb0
+converged tx-24f5c33533db40d0fcee2db23352cd4aa727facd8708ab5fb8e6690d92127fb0
+ok   member after the revocation: 403 after 25s
+seconds from revoke to 403: 26
+
+## P8e a direct host grant still admits the outsider
+82aac8a10d23728d6f68c98011873d28378eaa6ff1cfe731b5cb9e739ceec4c3
+converged tx-82aac8a10d23728d6f68c98011873d28378eaa6ff1cfe731b5cb9e739ceec4c3
+ok   outsider through a direct grant: 200 after 1s

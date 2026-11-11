@@ -1,0 +1,21 @@
+
+## P3 EP-247 D1/D9: the operator applies a delegation
+$ OP delegation create ci --namespace team-a --host-suffix -docs --kinds web-app --kinds worker --kinds static-site --image-repository k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a --team engineering --build-namespace team-a-build --save-plan ~/.local/state/nagare/drills/mp33-final/reviews/delegation-ci
+3a6d22685e69b80197d64036a2b9ad2a72488df06ffec40df19f51c3e133008f
+$ OP inventory apply ~/.local/state/nagare/drills/mp33-final/reviews/delegation-ci --yes
+versions: refreshed at 2026-11-11T14:40:31Z (12 of 102 facts unavailable)
+converged tx-3a6d22685e69b80197d64036a2b9ad2a72488df06ffec40df19f51c3e133008f
+$ K get ns -l nagare.dev/delegation=ci --show-labels
+NAME           STATUS   AGE   LABELS
+team-a         Active   2s    app.kubernetes.io/part-of=nagare,kubernetes.io/metadata.name=team-a,nagare.dev/app-namespace=true,nagare.dev/delegation=ci
+team-a-build   Active   3s    app.kubernetes.io/part-of=nagare,kubernetes.io/metadata.name=team-a-build,nagare.dev/build-namespace=true,nagare.dev/delegation=ci
+$ K -n team-a get resourcequota,limitrange
+NAME                              REQUEST                                                 LIMIT   AGE
+resourcequota/nagare-delegation   pods: 0/50, requests.cpu: 0/4, requests.memory: 0/8Gi           2s
+
+NAME                           CREATED AT
+limitrange/nagare-delegation   2026-11-11T14:40:29Z
+$ K -n nagare-system get configmap nagare-delegation-ci -o jsonpath={.data}
+{"delegation.json":"{\"baseDomain\":\"127-0-0-1.sslip.io\",\"buildNamespace\":\"team-a-build\",\"hostShape\":\"nested\",\"hostSuffixes\":[\"-docs\"],\"imageRepository\":\"k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a\",\"kinds\":[\"web-app\",\"worker\",\"static-site\"],\"name\":\"ci\",\"namespaces\":[\"team-a\"],\"quota\":{\"cpu\":\"4\",\"memory\":\"8Gi\",\"pods\":50},\"state\":\"active\",\"team\":\"engineering\",\"version\":1}"}
+$ OP delegation show ci --contract 1
+{"acceptedRevision":1,"baseDomain":"127-0-0-1.sslip.io","buildNamespace":"team-a-build","contractVersion":1,"document":"delegation","hostShape":"nested","hostSuffixes":["-docs"],"imageRepository":"k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a","kinds":["web-app","worker","static-site"],"name":"ci","namespaces":["team-a"],"quota":{"cpu":"4","memory":"8Gi","pods":50},"state":"active","team":"engineering"}

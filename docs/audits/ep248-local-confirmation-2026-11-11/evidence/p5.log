@@ -1,0 +1,28 @@
+
+## P5 EP-248 D3/D8: the builder kubeconfig runs a one-shot Job in the build namespace and nothing else
+$ BK apply -f /work/tmp/build-job.yaml
+serviceaccount/ep248-build created
+networkpolicy.networking.k8s.io/ep248-build created
+job.batch/ep248-build created
+$ BK -n team-a-build wait job/ep248-build --for=condition=complete --timeout=180s
+job.batch/ep248-build condition met
+$ BK -n team-a-build logs job/ep248-build
+built in a credential-free Job
+$ BK -n team-a-build create deployment ep248-probe --image=k3d-registry.localhost:5000/nagare-mc@sha256:acacec4b16fa7ea9a33658abd5d710cab0cb7ab6152d4fdf2b0cf0b6e8da42e2 --dry-run=server   # expected refusal
+error: failed to create deployment: deployments.apps is forbidden: User "system:serviceaccount:team-a-build:nagare-builder-ci" cannot create resource "deployments" in API group "apps" in the namespace "team-a-build"
+command terminated with exit code 1
+exit 1
+$ BK -n team-a create configmap ep248-probe --from-literal=a=b --dry-run=server   # expected refusal
+error: failed to create configmap: configmaps is forbidden: User "system:serviceaccount:team-a-build:nagare-builder-ci" cannot create resource "configmaps" in API group "" in the namespace "team-a"
+command terminated with exit code 1
+exit 1
+$ BK -n team-a-build get secrets   # expected refusal
+Error from server (Forbidden): secrets is forbidden: User "system:serviceaccount:team-a-build:nagare-builder-ci" cannot list resource "secrets" in API group "" in the namespace "team-a-build"
+command terminated with exit code 1
+exit 1
+$ BK -n team-a-build exec job/ep248-build -- true   # expected refusal
+error: cannot exec into a container in a completed pod; current phase is Succeeded
+command terminated with exit code 1
+exit 1
+$ BK -n team-a-build delete job ep248-build --wait=true
+job.batch "ep248-build" deleted from team-a-build namespace

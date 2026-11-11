@@ -1,0 +1,5 @@
+17:19:09 drill: bootstrap stage 3: 224 operations, re-accepts scopes: 17
+17:23:12 drill: bootstrap stage 4: 0 operations, re-accepts scopes: 0
+schema hash fnv1a64:40b7b82bdaeea49e origin /etc/en/schema/app.en
+17:23:16 drill: auth plane: en	k3d-registry.localhost:5000/en@sha256:a2586b0102bd8f2afee3526ff383a5d52c7d8cd8161d2887b9e15da5bcb55941 shomei	k3d-registry.localhost:5000/shomei@sha256:e7cb5590d19650e95f6da016be792383df8c6513f64ff645b502f354e34e603c nagare-access	k3d-registry.localhost:5000/nagare-access@sha256:f840067c24e1622c3828554f27c9bffe6e91302d7ddf62137d9566c4ae382212 
+17:23:16 drill: bootstrap converged; stopping as NAGARE_DRILL_BOOTSTRAP_ONLY=1 asks

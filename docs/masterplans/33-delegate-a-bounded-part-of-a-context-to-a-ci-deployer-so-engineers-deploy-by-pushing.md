@@ -35,6 +35,11 @@ provenance:
       at: 2026-11-11T14:46:00Z
       mode: "implement"
       note: "EP-247, EP-249, EP-251 and EP-252 Complete after the batched local confirmation; four defects fixed"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T19:02:35Z
+      mode: "implement"
+      note: "EP-248 and EP-250 Complete; every child plan Complete; outcomes and ADR 9, 29, 35 amendments recorded"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -149,7 +154,7 @@ package then two reviewed stages, which EP-249 keeps). On Kotei's side,
 | 247 | Review a bounded namespace delegation for a named deployer and record who applied each change | docs/plans/247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md | None | None | Complete |
 | 248 | Issue least-privilege credentials to a delegated deployer | docs/plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.md | EP-247; EP-251 | None | Complete |
 | 249 | Deploy apps and static sites from a rendered configuration without running the repository's program | docs/plans/249-deploy-apps-and-static-sites-from-a-rendered-configuration-without-running-the-repository-s-program.md | EP-247 for D5 and D6 only | None | Complete |
-| 250 | Open a delegated namespace's sites to the delegation's team without a per-site grant | docs/plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md | EP-247 | None | In Progress |
+| 250 | Open a delegated namespace's sites to the delegation's team without a per-site grant | docs/plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md | EP-247 | None | Complete |
 | 251 | Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply | docs/plans/251-keep-a-local-context-s-inventory-store-in-its-in-cluster-object-store-so-an-in-cluster-deployer-can-apply.md | None | None | Complete |
 | 252 | Package a static site image archive without a Docker daemon | docs/plans/252-package-a-static-site-image-archive-without-a-docker-daemon.md | None | None | Complete |
 
@@ -264,11 +269,13 @@ territory, not here.
 
 ## Progress
 
-EP-247, EP-248, EP-249, EP-251 and EP-252 are Complete. EP-247, EP-249, EP-251 and EP-252 were confirmed by one
+Every child plan is Complete. EP-247, EP-249, EP-251 and EP-252 were confirmed by one
 local run at `e748a550` ([audit](../audits/mp33-local-confirmation-2026-11-11.md)). EP-248 was confirmed by one at
 `59d10332` ([audit](../audits/ep248-local-confirmation-2026-11-11.md)): there, a deployer Pod on the
 `aarch64-linux` package, holding only its bundle, deployed protected sites and was refused outside its
-delegation, and rotation and revocation took effect. EP-250 is in progress; its D1 prototype passed.
+delegation, and rotation and revocation took effect. EP-250 was confirmed by one at `88190b0b`
+([audit](../audits/ep250-local-confirmation-2026-11-11.md)): a site the deployer created opened to the
+delegation's team with no grant of its own.
 
 Remaining cross-repository gate, owned by [Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
 
@@ -369,6 +376,22 @@ Remaining cross-repository gate, owned by [Kotei EP-148](mori://shinzui/kotei/pl
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Nagare's half of UC-4 is done. An operator reviews one delegation and issues one credential directory. From
+that directory alone, a deployer hosted in the cluster plans and applies apps, workers and static sites from
+rendered configurations, inside the delegation's bounds. Kubernetes, the object store and IAM refuse it outside
+them, except the access backend map and protected routes, which the bounds govern. The deployer packages sites
+without a daemon and builds with a separate credential-free identity. Every site it creates is protected and
+open to the delegation's team, and the journal names the deployer, repository, commit and run of each change.
+Rotation and revocation each take effect in one step. Three local runs confirmed it, on arm64 and with the
+packaged CLI.
+
+What remains: Kotei EP-148 owns the end-to-end UC-4 gate. The operator still has to run the native cloud IAM
+refusal check (EP-248 D6), and a release has to carry the schema and enforcer change (EP-250) to running
+contexts.
+
+Recurring friction: the fast gate's command audit failed silently for a new CLI route under EP-236 and EP-248
+(FRIC-2, FRIC-10). The deploy path's workstation-only tools surfaced one Linux image build at a time (FRIC-11).
+Durable context moved to ADR 35 (the trust model, now with its enforced layer and limits), ADR 29
+(delegation-wide access) and ADR 9 (deployer credentials stay on the active project).
 
 Revision (2026-11-08): applied the review findings across EP-247, EP-248, EP-249 and EP-251; clarified prerequisites, shared authority and credential ownership, and exact rendered bytes. No implementation status changed.

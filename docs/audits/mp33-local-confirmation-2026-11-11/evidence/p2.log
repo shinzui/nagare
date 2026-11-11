@@ -1,0 +1,11 @@
+
+## P2 EP-251 D7: the operator deploys a fixture app from the workstation
+publish OciImageArtifact to k3d-registry.localhost:5000/tan-nb-exp/nagare/op-hello:v1 at 78264f1c36edf72db0049fa7df8b64653bd8edfe95f60202bd0546e911027ec5
+publish OciImageArtifact to k3d-registry.localhost:5000/tan-nb-exp/nagare/op-hello:v1 at 78264f1c36edf72db0049fa7df8b64653bd8edfe95f60202bd0546e911027ec5
+converged tx-5e9947c0faf6c3b9d159027d8f753fcc84be21fae7b2d14583a4477527964fc4
+Image resource: publication:app-image-op-hello-v1/op-hello-v1/oci-image
+Kubernetes CreateResource application:op-hello/op-hello.personal.127-0-0-1.sslip.io/domain-mapping at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "serving.knative.dev" (Name "domainmapping") (Just (Name "nagare-system")) (Name "op-hello.personal.127-0-0-1.sslip.io"); native digest 47b0eed044e7562c15f645a78cdc75fdbe6944679a36440d43f0624e9377acad
+Kubernetes CreateResource application:op-hello/op-hello/release-history at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "" (Name "configmap") (Just (Name "personal")) (Name "nagare-app-deployments-op-hello"); native digest 81ad41f5e02c116e919dc674bb31aff32260a3f684285bdf4ea5bc9c5b7c18cd
+Kubernetes UpdateResource platform:auth/auth/object-4eecf2a0a71a1cc10010dce9a74e8f6276942e0d at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "" (Name "configmap") (Just (Name "nagare-system")) (Name "nagare-access-backends"); native digest 9db1400251c27c4a4039f200f0bbbcc61cffb734c5e3eba8302902d120328958
+converged tx-76c307b5339b63a44536d3f80b0edeb1070aad249f0b86855a6e6f55d61b9653
+service.serving.knative.dev/op-hello condition met

@@ -1,0 +1,36 @@
+e748a550: digest: sha256:185dc572e69f575d4e0727b42125e68a0f7e056295c16f49bfd3c3e9aa3765f3 size: 857
+
+## P6a EP-251 D7: the operator publishes v2 and saves a review it does not yet apply
+converged tx-674cb8f23f04f368f708f257d79fc78b5f8702c189282e846a04a40074fcbddb
+Image resource: publication:app-image-op-hello-v2/op-hello-v2/oci-image
+$ OP app deploy -f nagare/Config.hs --tag v2 --image-resource publication:app-image-op-hello-v2/op-hello-v2/oci-image --save-plan ~/.local/state/nagare/drills/mp33-final/reviews/op-hello-v2
+58e4d6cc28a51dd8d3d737cf83c0403435cd8b91d303755bb38eab17c243aa10
+{"generation":553}
+
+## P6b EP-251 D7 / EP-247 D9: a deployer Pod in the cluster applies a second change through the object store
+pod/mp33-deployer created
+pod: uid=65532 gid=65532 groups=65532 on aarch64, KUBERNETES_SERVICE_HOST=10.43.0.1
+{"contracts":[1],"platformVersion":"0.18.0","revision":"e748a55031d8b799380f1d55fe774af8f7669796","version":"0.18.0"}
+tx-674cb8f23f04f368f708f257d79fc78b5f8702c189282e846a04a40074fcbddb  converged  2026-11-11T14:41:54Z  operator  publication:app-image-op-hello-v2  
+tx-45706daf48df97732f0e5fc94e1959045667230fc35351769ecf37bd96194bf0  converged  2026-11-11T14:41:30Z  deployer:ci  application:hello  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/42
+Published review c061fad1cae3a9f53a2b8cb9a296d6e6d0317704d1409dbd0fef324e8f70874e
+Kubernetes CreateResource standalone:worker-ticker/ticker/worker at Kubernetes (ResourceId "platform:cluster/cluster/cluster") "apps" (Name "deployment") (Just (Name "team-a")) (Name "ticker"); native digest ec58a7cdcf84a073fd6675322987fbc92ae491a1e000a238e9bef412444aa9ae
+converged tx-c061fad1cae3a9f53a2b8cb9a296d6e6d0317704d1409dbd0fef324e8f70874e
+tx-c061fad1cae3a9f53a2b8cb9a296d6e6d0317704d1409dbd0fef324e8f70874e  converged  2026-11-11T14:42:04Z  deployer:ci  standalone:worker-ticker  https://forge.example.test/team-a/ticker feedface https://ci.example.test/runs/43
+tx-674cb8f23f04f368f708f257d79fc78b5f8702c189282e846a04a40074fcbddb  converged  2026-11-11T14:41:54Z  operator  publication:app-image-op-hello-v2  
+tx-45706daf48df97732f0e5fc94e1959045667230fc35351769ecf37bd96194bf0  converged  2026-11-11T14:41:30Z  deployer:ci  application:hello  https://forge.example.test/team-a/site 5ca1ab1e https://ci.example.test/runs/42
+deployment "ticker" successfully rolled out
+$ K -n team-a logs deploy/ticker --tail=2
+tick
+
+## P6c EP-251 D7 / EP-247 D11: the operator's saved review is refused as stale, then re-planned and applied
+{"generation":559}
+$ OP inventory apply ~/.local/state/nagare/drills/mp33-final/reviews/op-hello-v2 --yes --contract 1   # expected refusal
+{"barriers":[],"contractVersion":1,"detail":null,"document":"transaction-outcome","failureClass":null,"operation":null,"outcome":"refused","problem":{"code":"review_stale","detail":"[ReviewError {reviewErrorCode = \"stale-head\", reviewErrorMessage = \"review was issued against a different head generation or journal sequence\"},ReviewError {reviewErrorCode = \"stale-base\", reviewErrorMessage = \"review base revisions differ from accepted desired state\"}]","retryable":true,"status":409,"title":"Conflict","type":"about:blank"},"transaction":null}
+exit 2
+$ OP app deploy -f nagare/Config.hs --tag v2 --image-resource publication:app-image-op-hello-v2/op-hello-v2/oci-image --save-plan ~/.local/state/nagare/drills/mp33-final/reviews/op-hello-v2b
+02fd7f2c10d440a1a184d84981b524a182b9ad4de8fa794b318a65980617cfde
+versions: skipped (no platform or standalone scope changed)
+converged tx-02fd7f2c10d440a1a184d84981b524a182b9ad4de8fa794b318a65980617cfde
+$ K -n personal get ksvc op-hello -o jsonpath={.spec.template.spec.containers[0].image}
+k3d-registry.localhost:5000/tan-nb-exp/nagare/op-hello:v2

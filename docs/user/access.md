@@ -384,6 +384,35 @@ images and workload names. Apply that saved review through `inventory apply`. Di
 without `--save-plan` remain available only before inventory initialization;
 read-only `access list` and `access portal show` remain available afterward.
 
+### Delegation-wide access
+
+A [delegation](delegating-deployments.md) can open every protected site in its namespaces to one team at once,
+so sites a deployer creates are readable as soon as they are served, with no per-site grant and no
+access-service key held by the deployer:
+
+```bash
+nagarectl access team add-member --team engineering --user alice@example.com --save-plan /tmp/member
+nagarectl inventory apply /tmp/member --yes
+nagarectl access grant --delegation kotei --team engineering --save-plan /tmp/kotei-engineering
+nagarectl inventory apply /tmp/kotei-engineering --yes
+```
+
+The grant is one reviewed relationship, `delegation:kotei#viewer@group:engineering#member`. It is refused until
+the active En schema declares the `delegation` object, which the platform's schema does from this release on.
+Every protected host served from one of the delegation's namespaces carries the delegation's name in its
+backend entry, whoever deployed it. The enforcer asks about the host first. Only when the host refuses and the
+host names a delegation does it ask about the delegation. Either one allowing admits the request; either one
+being unavailable is a 503, never a refusal. Signing in still admits nobody: a signed-in user outside the team
+gets 403, an anonymous visitor is sent to sign in, and direct per-host grants keep working beside the
+inherited one.
+
+`access check --host HOST --user USER` reports `inherited from: delegation kotei` (`inheritedFrom` in
+`--json`) when the delegation's grant is what allowed it, and `access list --host HOST` lists the teams the host
+inherits. `access revoke --delegation kotei --team engineering --save-plan DIR` removes the grant; the
+enforcer's cached decisions expire within `NAGARE_ACCESS_DECISION_TTL` (30 seconds by default). Revoking the
+delegation itself stops its deployer, not its readers: its sites stay open to the team until this grant is
+revoked.
+
 ## Request behavior
 
 For a protected host:

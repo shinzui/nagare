@@ -1,0 +1,32 @@
+
+## P7 EP-248 D7/D8/D10: revoking the delegation empties the deployer's Roles and removes its store user in one review
+$ OP delegation revoke ci --save-plan ~/.local/state/nagare/drills/ep248/reviews/revoke-ci
+9a0bcf154141d017cd7f1192e6485f389c84be8044f1dacd36c6631ec9d958f5
+$ OP inventory apply ~/.local/state/nagare/drills/ep248/reviews/revoke-ci --yes
+versions: refreshed at 2026-11-11T17:25:07Z (12 of 102 facts unavailable)
+converged tx-9a0bcf154141d017cd7f1192e6485f389c84be8044f1dacd36c6631ec9d958f5
+$ K -n team-a get role nagare-deployer-ci -o jsonpath={.rules}
+null
+$ K -n nagare-system logs job/nagare-deployer-ci-store-revoke --tail=3
+Removed user `nagare-deployer-ci` successfully.
+Removed policy `nagare-deployer-ci` successfully.
+revoked nagare-deployer-ci
+$ DK -n team-a get ksvc   # expected refusal
+Error from server (Forbidden): services.serving.knative.dev is forbidden: User "system:serviceaccount:nagare-system:nagare-deployer-ci" cannot list resource "services" in API group "serving.knative.dev" in the namespace "team-a"
+command terminated with exit code 1
+exit 1
+$ DK -n nagare-system get configmap nagare-access-backends   # expected refusal
+Error from server (Forbidden): configmaps "nagare-access-backends" is forbidden: User "system:serviceaccount:nagare-system:nagare-deployer-ci" cannot get resource "configmaps" in API group "" in the namespace "nagare-system"
+command terminated with exit code 1
+exit 1
+alias-refused
+$ DN worker deploy --rendered /work/in/rendered/worker.json --tag v1 --image-resource publication:app-image-team-a-hello-v1/team-a-hello-v1/oci-image   # expected refusal
+StoreIoError "object store read answered 403"
+command terminated with exit code 1
+exit 1
+$ K -n team-a get ksvc,deploy -o name
+service.serving.knative.dev/docs
+service.serving.knative.dev/hello
+deployment.apps/docs-00001-deployment
+deployment.apps/hello-00001-deployment
+deployment.apps/ticker

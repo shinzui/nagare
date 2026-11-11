@@ -1,0 +1,22 @@
+
+## P4 the deployer's home (by hand; EP-248 issues it from a bundle) and its refusals
+export NAGARE_INVENTORY_STORE='object'
+export NAGARE_INVENTORY_STORE_URL='http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33'
+export NAGARE_DEPLOYER=ci
+$ CI inventory status --scope application:op-hello
+Inventory status: 3 resources; retained: 0; collected: 0; data fence: none; unavailable providers: []
+$ CI inventory history --limit 2
+tx-3a6d22685e69b80197d64036a2b9ad2a72488df06ffec40df19f51c3e133008f  converged  2026-11-11T14:40:28Z  operator  platform:delegation-ci  
+tx-76c307b5339b63a44536d3f80b0edeb1070aad249f0b86855a6e6f55d61b9653  converged  2026-11-11T14:40:22Z  operator  application:op-hello  
+$ CI delegation create rogue --namespace x --kinds web-app --image-repository k3d-registry.localhost:5000/tan-nb-exp/nagare/x --team t --save-plan ~/.local/state/nagare/drills/mp33-final/reviews/never   # expected refusal
+nagarectl delegation create is not available in deployer context ci; a delegated deployer may run app image-plan|check|deploy|delete, worker deploy, task run|delete, site deploy|rollback|preview, inventory apply|resume|status|publications|history, delegation show and version
+exit 1
+$ CI platform status   # expected refusal
+nagarectl platform status is not available in deployer context ci; a delegated deployer may run app image-plan|check|deploy|delete, worker deploy, task run|delete, site deploy|rollback|preview, inventory apply|resume|status|publications|history, delegation show and version
+exit 1
+$ CI app check -f nagare/Config.hs   # expected refusal
+nagarectl: nagare: a deployer context never runs a config program (nagare/Config.hs); render it in the build with `nagarectl app|worker|site render` and deploy with --rendered
+exit 1
+$ CI app deploy -f nagare/Config.hs --tag v1 --image-resource publication:app-image-op-hello-v1/op-hello-v1/oci-image --dry-run   # expected refusal
+nagarectl: nagare: a deployer context never runs a config program (nagare/Config.hs); render it in the build with `nagarectl app|worker|site render` and deploy with --rendered
+exit 1

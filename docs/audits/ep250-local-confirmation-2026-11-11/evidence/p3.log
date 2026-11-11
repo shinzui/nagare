@@ -1,0 +1,40 @@
+
+## P3 EP-248 D4/D10: the operator issues the bundle
+{
+  "builderKubeconfig": "builder/kubeconfig.yaml",
+  "builderTokenExpiresAt": "2026-12-11T18:59:08Z",
+  "cloudKeyId": null,
+  "context": "ep248",
+  "contextFile": ".config/nagare/contexts/ep248.env",
+  "contractVersion": 1,
+  "deployer": "ci",
+  "document": "deployer-credentials",
+  "home": "~/.local/state/nagare/drills/ep248/bundle",
+  "kubeconfig": ".config/nagare/kubeconfigs/ep248.yaml",
+  "retired": [],
+  "storeCredentials": ".config/nagare/credentials/ep248-s3.json",
+  "storeKeyId": "NGR9843AA8DFAA20FDA",
+  "tokenExpiresAt": "2026-12-11T18:59:07Z"
+}
+drwx------ .
+drwx------ ./.config
+drwx------ ./.config/nagare
+drwx------ ./.config/nagare/contexts
+-rw------- ./.config/nagare/contexts/ep248.env
+drwx------ ./.config/nagare/credentials
+-rw------- ./.config/nagare/credentials/ep248-s3.json
+drwx------ ./.config/nagare/kubeconfigs
+-rw------- ./.config/nagare/kubeconfigs/ep248.yaml
+drwx------ ./builder
+-rw------- ./builder/kubeconfig.yaml
+export NAGARE_INVENTORY_STORE='object'
+export NAGARE_INVENTORY_STORE_URL='http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/ep248'
+export NAGARE_DEPLOYER=ci
+https://kubernetes.default.svc
+nagare-deployer-ci
+ep248
+accessKeyId,secretAccessKey
+$ K -n nagare-system get secret -l nagare.dev/deployer-credential=nagare-deployer-ci -o name
+secret/nagare-deployer-ci-b2683f64
+$ K -n team-a-build get secret -l nagare.dev/deployer-credential=nagare-builder-ci -o name
+secret/nagare-builder-ci-b2683f64
