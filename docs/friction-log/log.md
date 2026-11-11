@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-11
+* **Addition**: FRIC-8 records detour process friction with mori://shinzui/nagare: Fixed line caps on the test suite assembler and CLI dispatch push new groups into unrelated modules
+
 ## 2026-11-10
 
 * **Update**: FRIC-7 resolved: Status set to resolved.
