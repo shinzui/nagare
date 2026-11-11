@@ -23,6 +23,7 @@ import Nagare.Cli.Parser.Common
   , ghcEnvOpt
   , tagOpt
   )
+import Nagare.Cli.Parser.Delegation (withReviewSource)
 import Nagare.Dsl.Prelude
 import Options.Applicative
   ( Alternative (many)
@@ -181,7 +182,7 @@ siteSubparser =
 siteDeployCmd :: ParserInfo Command
 siteDeployCmd =
   info
-    (SiteDeploy <$> siteDeployOptsParser defaultConfigFile <**> helper)
+    (withReviewSource True (SiteDeploy <$> siteDeployOptsParser defaultConfigFile) <**> helper)
     (fullDesc <> progDesc "Deploy or inspect a reviewed static or server site using an accepted image")
 
 sitePackageCmd :: ParserInfo Command
@@ -219,10 +220,13 @@ siteListCmd =
 siteRollbackCmd :: ParserInfo Command
 siteRollbackCmd =
   info
-    ( SiteRollback
-        <$> siteRollbackOptsParser defaultConfigFile
-        <*> strArgument (metavar "RELEASE_ID" <> help "Release id to roll back to")
-          <**> helper
+    ( withReviewSource
+        False
+        ( SiteRollback
+            <$> siteRollbackOptsParser defaultConfigFile
+            <*> strArgument (metavar "RELEASE_ID" <> help "Release id to roll back to")
+        )
+        <**> helper
     )
     (fullDesc <> progDesc "Roll production back to a prior release")
 
@@ -243,7 +247,7 @@ previewSubparser =
 previewDeployCmd :: ParserInfo Command
 previewDeployCmd =
   info
-    (SitePreviewDeploy <$> siteDeployOptsParser defaultConfigFile <*> previewNameOpt <**> helper)
+    (withReviewSource True (SitePreviewDeploy <$> siteDeployOptsParser defaultConfigFile <*> previewNameOpt) <**> helper)
     (fullDesc <> progDesc "Deploy a preview of the site under a derived name and domain")
 
 previewListCmd :: ParserInfo Command
@@ -255,9 +259,12 @@ previewListCmd =
 previewDeleteCmd :: ParserInfo Command
 previewDeleteCmd =
   info
-    ( SitePreviewDelete
-        <$> sitePreviewDeleteOptsParser defaultConfigFile
-        <*> strArgument (metavar "NAME" <> help "Preview name to delete")
-          <**> helper
+    ( withReviewSource
+        False
+        ( SitePreviewDelete
+            <$> sitePreviewDeleteOptsParser defaultConfigFile
+            <*> strArgument (metavar "NAME" <> help "Preview name to delete")
+        )
+        <**> helper
     )
     (fullDesc <> progDesc "Delete a preview deployment")

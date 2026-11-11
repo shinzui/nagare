@@ -29,6 +29,8 @@ review `git diff docs/api/samples`.
 | `inventory-status` | `InventoryStatusReport` | read | `nagarectl inventory status --contract 1 [--scope KIND:NAME]` |
 | `publication-list` | `PublicationList` | read | `nagarectl inventory publications --contract 1` |
 | `site-list` | `SiteList` | read | `nagarectl site list --contract 1` |
+| `delegation` | `DelegationDocument` | read | `nagarectl delegation show NAME --contract 1` |
+| `transaction-history` | `TransactionHistory` | read | `nagarectl inventory history [--limit N] --contract 1` |
 | (discovery) | `VersionInfo` | read | `nagarectl version --json` |
 | `platform-versions` | `PlatformVersions` | read | `nagarectl platform versions --contract 1` and `GET /v1/platform/versions` |
 | `transaction-outcome` | `TransactionOutcome` | operation | `nagarectl inventory apply|resume … --contract 1` |
@@ -133,7 +135,8 @@ document, a `refused` transaction outcome carries it as `problem`, and the admin
 `application/problem+json`. `type` is always `about:blank`, so `title` is the HTTP status phrase;
 branch on `code`, never on `title` or `detail`. `status` is the HTTP status the API answers with;
 the CLI keeps its exit codes and ignores it. `retryable` is true only when the unchanged request
-can succeed later. The access gateway adds the optional extension members `error` and `login`.
+can succeed later, except `review_stale`: another change landed first, so plan again and apply the
+new review. The access gateway adds the optional extension members `error` and `login`.
 
 | `code` | `status` | `retryable` |
 |---|---|---|
@@ -142,6 +145,7 @@ can succeed later. The access gateway adds the optional extension members `error
 | `wrong_context` | 409 | false |
 | `review_changed` | 409 | false |
 | `admission_refused` | 409 | false |
+| `review_stale` | 409 | true |
 | `store_unavailable` | 503 | true |
 | `reauthentication_required` | 503 | false |
 | `workspace_not_prepared` | 409 | false |

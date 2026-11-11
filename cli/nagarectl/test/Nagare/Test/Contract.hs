@@ -23,6 +23,7 @@ import Data.Map.Strict qualified as Map
 import Data.OpenApi (ToSchema)
 import Data.OpenApi.Schema.Validation (validateToJSON)
 import Data.Text qualified as Text
+import Nagare.Contract.Delegation
 import Nagare.Contract.Problem
 import Nagare.Contract.Project
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..), fromNullable)
@@ -185,7 +186,57 @@ samples =
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "problem.json" (problemFor unknownScope "application:nope is not an accepted scope")
   , Sample "platform-versions.json" platformVersionsSample
+  , Sample "delegation.json" delegationSample
+  , Sample "transaction-history.json" transactionHistorySample
   ]
+
+-- | EP-247 D7: an accepted delegation for the deployer @kotei@.
+delegationSample :: DelegationDocument
+delegationSample =
+  DelegationDocument
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , name = "kotei"
+    , state = "active"
+    , namespaces = ["team-a"]
+    , hostSuffixes = ["-docs"]
+    , kinds = ["web-app", "static-site"]
+    , imageRepository = "registry.example.test/example-project/nagare/team-a"
+    , team = "engineering"
+    , buildNamespace = Nullable (Just "team-a-build")
+    , quota = DelegationQuotaSummary {cpu = "4", memory = "8Gi", pods = 50}
+    , baseDomain = "example.com"
+    , hostShape = "nested"
+    , acceptedRevision = 2
+    }
+
+-- | EP-247 D6: a deployer's transaction with its source, then an operator's.
+transactionHistorySample :: TransactionHistory
+transactionHistorySample =
+  TransactionHistory
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , transactions =
+        [ TransactionSummary
+            { transaction = "tx-" <> Text.replicate 64 "b"
+            , review = Text.replicate 64 "b"
+            , state = "converged"
+            , admittedAt = "2026-11-10T09:30:00Z"
+            , scopes = ["standalone:site-docs"]
+            , actor = ActorSummary {kind = "deployer", name = Nullable (Just "kotei")}
+            , source = Nullable (Just (SourceSummary (Nullable (Just "https://forge.example.test/team/docs")) (Nullable (Just "0123456789abcdef")) (Nullable (Just "https://ci.example.test/runs/7"))))
+            }
+        , TransactionSummary
+            { transaction = "tx-" <> Text.replicate 64 "a"
+            , review = Text.replicate 64 "a"
+            , state = "converged"
+            , admittedAt = "2026-11-10T09:00:00Z"
+            , scopes = ["platform:delegation-kotei"]
+            , actor = ActorSummary {kind = "operator", name = Nullable Nothing}
+            , source = Nullable Nothing
+            }
+        ]
+    }
 
 -- | An admin API answer: a 0.6.3 server beside a 0.13.0 install from a
 -- legacy stamp, one NixOS node, one component mid-rollout and a PostgreSQL

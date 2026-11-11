@@ -25,6 +25,7 @@ import Nagare.Cli.Commands.Broker (runBroker)
 import Nagare.Cli.Commands.Cdn (runCdn)
 import Nagare.Cli.Commands.Context (runContext)
 import Nagare.Cli.Commands.Database (runDb)
+import Nagare.Cli.Commands.Delegation (runDelegation, runInventoryHistory)
 import Nagare.Cli.Commands.Deployment (runDeploy)
 import Nagare.Cli.Commands.Domains (runDomains)
 import Nagare.Cli.Commands.Environment (runEnv, runSecret)
@@ -98,6 +99,7 @@ import Nagare.Cli.Platform.Upgrade
   )
 import Nagare.Contract.Sink (withContract, withReadContract)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Actor (setReviewSource)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Trace (withCommandScope)
 
@@ -194,3 +196,14 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryStoreMaterializeNative after limit -> runInventoryMaterializeNative mctx after limit
   InventoryStoreStatus json -> runInventoryStoreStatus mctx json
   InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes
+  InventoryHistory limit contract -> runInventoryHistory mctx limit contract
+  Delegation command -> runDelegation mctx command
+  WithReviewSource source inner -> setReviewSource (source & #revision %~ (<|> commandRevision inner)) >> dispatch (mctx, inner)
+
+-- | The revision a deploy names with its own @--source@ (EP-247 D6).
+commandRevision :: Command -> Maybe T.Text
+commandRevision = \case
+  AppDeploy options -> T.pack <$> options ^. #source
+  SiteDeploy options -> T.pack <$> options ^. #source
+  SitePreviewDeploy options _ -> T.pack <$> options ^. #source
+  _ -> Nothing

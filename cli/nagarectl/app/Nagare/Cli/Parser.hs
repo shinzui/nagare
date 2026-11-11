@@ -15,6 +15,7 @@ import Nagare.Cli.Parser.Application
   )
 import Nagare.Cli.Parser.Context (contextCmd, initCmd)
 import Nagare.Cli.Parser.Data (brokerCmd, dbCmd, storageCmd)
+import Nagare.Cli.Parser.Delegation (delegationCmd)
 import Nagare.Cli.Parser.Environment (envCmd, secretCmd)
 import Nagare.Cli.Parser.Inventory (inventoryCmd)
 import Nagare.Cli.Parser.NixCache (nixCacheCmd)
@@ -104,4 +105,5 @@ commandParser =
         <> command "tunnel" tunnelCmd
         <> command "cleanup" cleanupCmd
         <> command "nix-cache" nixCacheCmd
+        <> command "delegation" delegationCmd
     )

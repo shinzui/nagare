@@ -141,6 +141,7 @@ library
     Nagare.Init
     Nagare.Inventory.Access
     Nagare.Inventory.AccessRuntime
+    Nagare.Inventory.Actor
     Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.AppDatabase
     Nagare.Inventory.Adapters.AppDatabaseRuntime
@@ -241,6 +242,9 @@ library
     Nagare.Inventory.DataService
     Nagare.Inventory.Database
     Nagare.Inventory.DatabaseEngine
+    Nagare.Inventory.DelegatedPlanning
+    Nagare.Inventory.DeployerCommands
+    Nagare.Inventory.DeployerDelegation
     Nagare.Inventory.Digest
     Nagare.Inventory.Environment
     Nagare.Inventory.Execute
@@ -324,6 +328,7 @@ library
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
     Nagare.Inventory.Trace
+    Nagare.Inventory.TransactionHistory
     Nagare.Inventory.TunnelRoute
     Nagare.Inventory.VmPower
     Nagare.Inventory.VolumePrune
@@ -382,6 +387,7 @@ library
     Nagare.Storage.Snapshot
     Nagare.Target
     Nagare.Target.Acme
+    Nagare.Target.ContextFile
     Nagare.Target.Kinds
     Nagare.Task.Delete
     Nagare.Task.Discover
@@ -445,6 +451,7 @@ executable nagarectl
     Nagare.Cli.Commands.Cdn
     Nagare.Cli.Commands.Context
     Nagare.Cli.Commands.Database
+    Nagare.Cli.Commands.Delegation
     Nagare.Cli.Commands.Deployment
     Nagare.Cli.Commands.Domains
     Nagare.Cli.Commands.Environment
@@ -497,6 +504,7 @@ executable nagarectl
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase
+    Nagare.Cli.Options.Delegation
     Nagare.Cli.Options.NixCache
     Nagare.Cli.Options.Site
     Nagare.Cli.Parser
@@ -506,6 +514,7 @@ executable nagarectl
     Nagare.Cli.Parser.Common
     Nagare.Cli.Parser.Context
     Nagare.Cli.Parser.Data
+    Nagare.Cli.Parser.Delegation
     Nagare.Cli.Parser.Environment
     Nagare.Cli.Parser.Inventory
     Nagare.Cli.Parser.NixCache
@@ -707,6 +716,7 @@ test-suite nagarectl-test
     Nagare.Test.ContractCommands
     Nagare.Test.DataFixtures
     Nagare.Test.Database
+    Nagare.Test.Delegation
     Nagare.Test.Domains
     Nagare.Test.Effectful.CollectionFixture
     Nagare.Test.Effectful.CollectionModel

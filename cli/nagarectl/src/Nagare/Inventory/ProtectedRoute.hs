@@ -10,6 +10,7 @@ module Nagare.Inventory.ProtectedRoute
   ( ProtectedRoute (..)
   , ProtectedRoutes (..)
   , composeProtectedRoutes
+  , enforcerTarget
   , protectedHosts
   , siteAccessPolicy
   , supportedAccessPolicy

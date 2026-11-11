@@ -1,0 +1,38 @@
+{
+  "contractVersion": 1,
+  "document": "transaction-history",
+  "transactions": [
+    {
+      "actor": {
+        "kind": "deployer",
+        "name": "kotei"
+      },
+      "admittedAt": "2026-11-10T09:30:00Z",
+      "review": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scopes": [
+        "standalone:site-docs"
+      ],
+      "source": {
+        "repository": "https://forge.example.test/team/docs",
+        "revision": "0123456789abcdef",
+        "run": "https://ci.example.test/runs/7"
+      },
+      "state": "converged",
+      "transaction": "tx-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "actor": {
+        "kind": "operator",
+        "name": null
+      },
+      "admittedAt": "2026-11-10T09:00:00Z",
+      "review": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "scopes": [
+        "platform:delegation-kotei"
+      ],
+      "source": null,
+      "state": "converged",
+      "transaction": "tx-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

@@ -59,6 +59,8 @@ initProfile =
     , acmeEmail = "ops@acme.example"
     , acmeDirectory = "production"
     , platformVersion = Just "0.1.0"
+    , deployer = Nothing
+    , operatorName = Nothing
     }
 
 -- ---------------------------------------------------------------------------
@@ -105,6 +107,8 @@ tnbProfile =
     , acmeEmail = ""
     , acmeDirectory = "production"
     , platformVersion = Nothing
+    , deployer = Nothing
+    , operatorName = Nothing
     }
 
 -- | The default scheduled backup target used by database compiler fixtures.

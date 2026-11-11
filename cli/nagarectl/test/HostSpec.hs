@@ -495,6 +495,8 @@ fixtureProfile =
     , acmeEmail = "ops@example.com"
     , acmeDirectory = "production"
     , platformVersion = Just "0.2.2"
+    , deployer = Nothing
+    , operatorName = Nothing
     }
 
 writeExecutable :: FilePath -> [String] -> IO ()

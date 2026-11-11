@@ -69,7 +69,7 @@ import Nagare.Inventory.Application
   , recordReviewedStandaloneOverrides
   )
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
@@ -169,7 +169,7 @@ runDeployPlan mctx options output = do
     either
       dieT
       pure
-      (acceptedFoundationNamespace snapshot namespaceName)
+      (acceptedAppNamespace snapshot namespaceName)
   accessBinding <-
     traverse
       ( \_ ->

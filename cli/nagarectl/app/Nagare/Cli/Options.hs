@@ -98,6 +98,7 @@ import Nagare.Cli.Options.Access
   , TeamMemberOpts (..)
   )
 import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
+import Nagare.Cli.Options.Delegation (DelegationCommand)
 import Nagare.Cli.Options.NixCache (NixCacheCommand)
 import Nagare.Cli.Options.Site
   ( SiteCommonOpts (..)
@@ -112,6 +113,7 @@ import Nagare.Dsl.Broker (BrokerProvider)
 import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
 import Nagare.Init (InitOpts)
+import Nagare.Inventory.Actor (ReviewSource)
 import Nagare.Ops.Cleanup (CleanupOpts)
 
 -- CLI options
@@ -373,6 +375,11 @@ data Command
   | Tunnel TunnelCommand
   | Cleanup CleanupOpts
   | NixCache NixCacheCommand
+  | Delegation DelegationCommand
+  | -- | The limit and contract version (EP-247 D6).
+    InventoryHistory (Maybe Int) (Maybe Int)
+  | -- | The repository and CI run a deploy came from, around its command (EP-247 D6).
+    WithReviewSource ReviewSource Command
   deriving stock (Generic, Show)
 
 data VersionOpts = VersionOpts

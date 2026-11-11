@@ -20,6 +20,7 @@ module Nagare.Contract.Problem
   , wrongContext
   , reviewChanged
   , admissionRefused
+  , reviewStale
   , storeUnavailable
   , reauthenticationRequired
   , workspaceNotPrepared
@@ -141,6 +142,7 @@ problemCatalog =
   , wrongContext
   , reviewChanged
   , admissionRefused
+  , reviewStale
   , storeUnavailable
   , reauthenticationRequired
   , workspaceNotPrepared
@@ -173,12 +175,15 @@ conflict c = ProblemSpec c 409 "Conflict"
 internal c = ProblemSpec c 500 "Internal Server Error"
 unavailable c = ProblemSpec c 503 "Service Unavailable"
 
-unknownScope, unsupportedContractVersion, wrongContext, reviewChanged, admissionRefused :: ProblemSpec
+unknownScope, unsupportedContractVersion, wrongContext, reviewChanged, admissionRefused, reviewStale :: ProblemSpec
 unknownScope = status404 "unknown_scope" False
 unsupportedContractVersion = status400 "unsupported_contract_version" False
 wrongContext = conflict "wrong_context" False
 reviewChanged = conflict "review_changed" False
 admissionRefused = conflict "admission_refused" False
+
+-- | EP-247 D11: another change landed first. Plan again and apply the new review.
+reviewStale = conflict "review_stale" True
 
 storeUnavailable, reauthenticationRequired, workspaceNotPrepared, unclassified :: ProblemSpec
 storeUnavailable = unavailable "store_unavailable" True

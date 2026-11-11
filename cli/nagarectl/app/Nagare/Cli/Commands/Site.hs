@@ -78,7 +78,7 @@ import Nagare.Inventory.Application
   , acceptedSecretBindings
   )
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Site
@@ -355,7 +355,7 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent a
         Resource.SourceLocation
           (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
           siteName
-  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
   accessBinding <- reviewedSiteAccessBinding snapshot cluster accessIntent
   either
     dieT
@@ -538,7 +538,7 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       snapshot
       cdnIntent
       (options ^. #cdnBackendResource)
-  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
   accessBinding <- reviewedSiteAccessBinding snapshot cluster accessIntent
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -713,7 +713,7 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
   accessBinding <- reviewedSiteAccessBinding snapshot cluster (site ^. #access)
   either
     dieT
@@ -830,7 +830,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
   accessBinding <- reviewedSiteAccessBinding snapshot cluster (site ^. #access)
   either
     dieT
@@ -955,7 +955,7 @@ runPreviewDelete mctx options pname = do
   pdomText <- orDie (previewDomain prodName pname bd)
   active <- activeTarget mctx
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, _) <- either dieT pure (acceptedAppNamespace snapshot ns)
   owner <-
     either
       dieT

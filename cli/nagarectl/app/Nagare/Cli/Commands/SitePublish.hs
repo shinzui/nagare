@@ -33,7 +33,7 @@ import Nagare.Dsl.Types (namespaceText)
 import Nagare.Image (qualifyImage, taggedImageRef)
 import Nagare.Inventory.Application (acceptedAccessBinding, acceptedSecretBindings)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Site (acceptedSiteReleaseLog)
 import Nagare.Inventory.Status qualified as InventoryStatus
@@ -303,7 +303,7 @@ checkPrerequisites snapshot site options nsText = do
   (cluster, _) <-
     first
       (\e -> "namespace " <> nsText <> " is not accepted: " <> e <> "; provide it with `nagarectl inventory plan` and `nagarectl inventory apply` for the platform foundation")
-      (acceptedFoundationNamespace snapshot nsText)
+      (acceptedAppNamespace snapshot nsText)
   when (isJust (site ^. #access)) $
     void (first (\e -> "site access needs the accepted auth owner: " <> e <> "; provide it with `nagarectl access` setup (see docs/user/site-access.md)") (acceptedAccessBinding snapshot cluster))
   when (isJust (site ^. #cdn) && isNothing (options ^. #cdnBackendResource)) $
@@ -316,7 +316,7 @@ checkPrerequisites snapshot site options nsText = do
 -- safe answer is to release).
 servingRelease :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Text -> Text -> IO (Maybe (Text, Text))
 servingRelease active snapshot siteText nsText =
-  case acceptedFoundationNamespace snapshot nsText of
+  case acceptedAppNamespace snapshot nsText of
     Left _ -> pure Nothing
     Right (cluster, _) -> do
       store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure

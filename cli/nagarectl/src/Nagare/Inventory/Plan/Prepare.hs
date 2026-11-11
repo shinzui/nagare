@@ -14,6 +14,7 @@ import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
+import Nagare.Inventory.Actor (anonymousOperator)
 import Nagare.Inventory.Adapter
   ( Adapter (adapterIdentity, adapterPrepare, adapterVersion)
   , AdapterFence (fenceCapability, fenceForOperation)
@@ -97,6 +98,8 @@ prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal = d
               , reviewMigrations = proposalMigrations proposal
               , reviewRebinds = proposalRebinds proposal
               , reviewRebuilds = proposalRebuilds proposal
+              , reviewActor = anonymousOperator
+              , reviewSource = Nothing
               }
       pure (Right (ReviewBundle document (proposalScopes proposal) native))
   where

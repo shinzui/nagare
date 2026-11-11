@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "ActorSummary": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      },
       "AnyValue": {
         "additionalProperties": true
       },
@@ -234,6 +252,109 @@
         "required": [
           "container",
           "image"
+        ],
+        "type": "object"
+      },
+      "DelegationDocument": {
+        "description": "One accepted delegation: the namespaces, hostnames, kinds and image repository a named deployer may use.",
+        "properties": {
+          "acceptedRevision": {
+            "type": "integer"
+          },
+          "baseDomain": {
+            "type": "string"
+          },
+          "buildNamespace": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "delegation"
+            ],
+            "type": "string"
+          },
+          "hostShape": {
+            "type": "string"
+          },
+          "hostSuffixes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "imageRepository": {
+            "type": "string"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "quota": {
+            "$ref": "#/components/schemas/DelegationQuotaSummary"
+          },
+          "state": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "name",
+          "state",
+          "namespaces",
+          "hostSuffixes",
+          "kinds",
+          "imageRepository",
+          "team",
+          "buildNamespace",
+          "quota",
+          "baseDomain",
+          "hostShape",
+          "acceptedRevision"
+        ],
+        "type": "object"
+      },
+      "DelegationQuotaSummary": {
+        "properties": {
+          "cpu": {
+            "type": "string"
+          },
+          "memory": {
+            "type": "string"
+          },
+          "pods": {
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cpu",
+          "memory",
+          "pods"
         ],
         "type": "object"
       },
@@ -1703,12 +1824,69 @@
         ],
         "type": "string"
       },
+      "SourceSummary": {
+        "properties": {
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "repository",
+          "revision",
+          "run"
+        ],
+        "type": "object"
+      },
       "SubjectKind": {
         "enum": [
           "user",
           "team"
         ],
         "type": "string"
+      },
+      "TransactionHistory": {
+        "description": "Transactions newest first, each bound to its published review, with the actor and source that review records.",
+        "properties": {
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "transaction-history"
+            ],
+            "type": "string"
+          },
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "transactions"
+        ],
+        "type": "object"
       },
       "TransactionOutcome": {
         "properties": {
@@ -1782,6 +1960,51 @@
           "barriers",
           "detail",
           "problem"
+        ],
+        "type": "object"
+      },
+      "TransactionSummary": {
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/ActorSummary"
+          },
+          "admittedAt": {
+            "type": "string"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SourceSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction",
+          "review",
+          "state",
+          "admittedAt",
+          "scopes",
+          "actor",
+          "source"
         ],
         "type": "object"
       },

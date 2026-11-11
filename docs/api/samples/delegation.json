@@ -1,0 +1,27 @@
+{
+  "acceptedRevision": 2,
+  "baseDomain": "example.com",
+  "buildNamespace": "team-a-build",
+  "contractVersion": 1,
+  "document": "delegation",
+  "hostShape": "nested",
+  "hostSuffixes": [
+    "-docs"
+  ],
+  "imageRepository": "registry.example.test/example-project/nagare/team-a",
+  "kinds": [
+    "web-app",
+    "static-site"
+  ],
+  "name": "kotei",
+  "namespaces": [
+    "team-a"
+  ],
+  "quota": {
+    "cpu": "4",
+    "memory": "8Gi",
+    "pods": 50
+  },
+  "state": "active",
+  "team": "engineering"
+}

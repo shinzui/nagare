@@ -70,6 +70,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
+import Nagare.Inventory.Actor (Actor, ReviewSource, anonymousOperator)
 import Nagare.Inventory.Adapter
   ( PlannedOperation
   , ResourceObservation
@@ -302,6 +303,11 @@ data ReviewDocument = ReviewDocument
   , reviewRebinds :: !(Map ResourceId RebindProof)
   , reviewRebuilds :: !(Map ResourceId RebuildProof)
   -- ^ EP-183 M4: the recovery lineage of each member this review recreates.
+  , reviewActor :: !Actor
+  -- ^ EP-247: who applies this review. An unnamed operator is not written,
+  -- so an operator review keeps the bytes and digest it had before.
+  , reviewSource :: !(Maybe ReviewSource)
+  -- ^ EP-247: the repository, commit and CI run the change came from.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -554,6 +560,8 @@ instance ToJSON ReviewDocument where
           <> [ "rebuilds" .= [object ["resource" .= resource, "proof" .= proof] | (resource, proof) <- Map.toAscList (reviewRebuilds document)]
              | not (Map.null (reviewRebuilds document))
              ]
+          <> ["actor" .= reviewActor document | reviewActor document /= anonymousOperator]
+          <> ["source" .= source | Just source <- [reviewSource document]]
       )
     where
       retentionEntries entries =
@@ -567,7 +575,7 @@ instance ToJSON ReviewDocument where
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "validations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds", "rebuilds"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "validations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds", "rebuilds", "actor", "source"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
@@ -577,6 +585,8 @@ instance FromJSON ReviewDocument where
     absences <- parseAbsences =<< o .:? "absences" .!= []
     rebinds <- parseRebinds =<< o .:? "rebinds" .!= []
     rebuilds <- parseRebinds =<< o .:? "rebuilds" .!= []
+    actor <- o .:? "actor" .!= anonymousOperator
+    source <- o .:? "source"
     ReviewDocument version
       <$> o .: "context"
       <*> o .: "headGeneration"
@@ -595,6 +605,8 @@ instance FromJSON ReviewDocument where
       <*> pure absences
       <*> pure rebinds
       <*> pure rebuilds
+      <*> pure actor
+      <*> pure source
     where
       parseRetentions values = do
         entries <- traverse (withObject "retention entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values

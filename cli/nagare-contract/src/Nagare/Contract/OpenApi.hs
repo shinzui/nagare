@@ -22,6 +22,7 @@ import Data.OpenApi
   , version
   )
 import Data.OpenApi.Declare (Declare, execDeclare)
+import Nagare.Contract.Delegation (DelegationDocument, TransactionHistory)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails)
 import Nagare.Contract.V1
@@ -67,6 +68,8 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @SiteSummary))
   void (declareSchemaRef (Proxy @HeadSummary))
   void (declareSchemaRef (Proxy @Grant))
+  void (declareSchemaRef (Proxy @DelegationDocument))
+  void (declareSchemaRef (Proxy @TransactionHistory))
 
 contractOpenApi :: OpenApi
 contractOpenApi =

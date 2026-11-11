@@ -164,6 +164,12 @@ inventoryCmd =
                   (progDesc "Report accepted resource ownership and observed drift without mutation")
               )
             <> command
+              "history"
+              ( info
+                  (InventoryHistory <$> optional (option auto (long "limit" <> metavar "N" <> help "List at most N transactions (default 20)")) <*> contractOpt <**> helper)
+                  (progDesc "List accepted transactions newest first with their actor and source, from the store alone")
+              )
+            <> command
               "publications"
               (info (InventoryPublications <$> contractOpt <**> helper) (progDesc "List accepted artifact publications from the inventory store without contacting providers"))
             <> command

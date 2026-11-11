@@ -74,12 +74,14 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import Nagare.Contract.Problem (ProblemSpec, admissionRefused, reviewChanged, storeUnavailable, unclassified, wrongContext)
+import Nagare.Contract.Problem (ProblemSpec, admissionRefused, reviewChanged, reviewStale, storeUnavailable, unclassified, wrongContext)
 import Nagare.Contract.Project (savedReview)
 import Nagare.Contract.Sink (contractSinkSet, emitDocument, progressLine, refuseWith, reportTransaction)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Actor (currentReviewSource)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Command.Open
+import Nagare.Inventory.DelegatedPlanning (attributeReview, delegatedCandidate, profileActor)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
@@ -527,7 +529,7 @@ convergeInventoryCandidateResult planningRegistry executionRegistry target candi
   registry <- executionRegistry (ReviewInventory store Nothing) bundle
   snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
-  (,) digest <$> (applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure)
+  (,) digest <$> (applyReviewed store registry reviewed >>= either refuseAdmission pure)
 
 prepareInventoryCandidateWithDecider ::
   (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
@@ -579,9 +581,13 @@ tryPrepareInventoryCandidateLoaded ::
   OpenedInventory ->
   CompositionCandidate ->
   IO (Either Text (InventoryStore, ReviewBundle, ContentDigest))
-tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target opened candidate = do
+tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target opened proposed = do
   rejectReentry
-  validateTarget target candidate
+  validateTarget target proposed
+  -- EP-247: a deployer's candidate is stamped and bounded before any write.
+  actor <- either dieText pure (profileActor (target ^. #profile))
+  source <- currentReviewSource
+  candidate <- either (dieCoded admissionRefused) pure (delegatedCandidate actor (opened ^. #loadedHistory) proposed)
   let store = opened ^. #inventoryStore
       pinned = opened ^. #pinnedHead
   headValue <- seedInventoryHistoryAt store pinned candidate >>= either (dieText . showText) pure
@@ -601,7 +607,7 @@ tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target ope
     Left reason -> pure (Left reason)
     Right proposal -> do
       prepared <- tracePhase "review preparation" (prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal)
-      case prepared of
+      case attributeReview actor source <$> prepared of
         Left errors -> pure (Left (showText (NE.toList errors)))
         Right bundle -> do
           digest <- tracePhase "review publication" (publishReview store bundle) >>= either (dieText . showText) pure
@@ -637,8 +643,16 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
   registry <- tracePhase "runtime setup" (registryFor (ReviewInventory store pinned) bundle)
   snapshot <- readReviewSnapshotAt store headValue (reviewDigest bundle) >>= either (dieCoded storeUnavailable . showText) pure
   reviewed <- either (dieCoded reviewChanged . showText . NE.toList) pure (verifyReview snapshot bundle)
-  result <- tracePhase "transaction" (applyReviewedWithHistory store registry reviewed pinned) >>= either (dieCoded admissionRefused . showText . NE.toList) pure
+  result <- tracePhase "transaction" (applyReviewedWithHistory store registry reviewed pinned) >>= either refuseAdmission pure
   reportTransaction (renderTransactionResult result) result
+
+-- | EP-247 D11: a refusal caused only by another change landing first is
+-- @review_stale@, which a client answers by planning again.
+refuseAdmission :: NonEmpty AdmissionError -> IO a
+refuseAdmission errors =
+  dieCoded
+    (if all ((`elem` ["stale-head", "stale-base", "head-condition"]) . admissionErrorCode) errors then reviewStale else admissionRefused)
+    (showText (NE.toList errors))
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
 resumeInventory = resumeInventoryWith executionBlockedRegistry

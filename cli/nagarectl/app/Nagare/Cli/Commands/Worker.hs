@@ -60,7 +60,7 @@ import Nagare.Inventory.Application
   , workerRetirementScope
   )
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
@@ -143,7 +143,7 @@ runWorkerPlan mctx options output = do
     either
       dieT
       pure
-      (acceptedFoundationNamespace snapshot (namespaceText (worker ^. #namespace)))
+      (acceptedAppNamespace snapshot (namespaceText (worker ^. #namespace)))
   (brokerServices, brokerTopics, _) <-
     either
       dieT

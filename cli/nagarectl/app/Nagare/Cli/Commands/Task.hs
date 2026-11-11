@@ -29,7 +29,7 @@ import Nagare.Cli.Runtime.Target
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (taskResourceName)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.TaskLifecycle
@@ -104,7 +104,7 @@ runReviewedTaskDeletePlan mctx options output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, _) <- either dieT pure (acceptedAppNamespace snapshot ns)
   cronAddress <-
     either
       dieT
@@ -246,7 +246,7 @@ runReviewedTaskRunPlan mctx options output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, _) <- either dieT pure (acceptedAppNamespace snapshot ns)
   cronAddress <-
     either
       dieT

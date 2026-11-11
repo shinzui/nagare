@@ -136,7 +136,7 @@ import Nagare.Inventory.Application
   , reviewedTaskImages
   )
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace, acceptedFoundationNamespace)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
@@ -256,8 +256,8 @@ runAppDeployPlan mctx params appOptions output = do
         foundation <- either dieT pure (Resource.mkScopeId Resource.Platform "foundation")
         namespaceName <- either dieT pure (Resource.mkName appNamespaceName)
         namespaceKey <- either dieT pure (Resource.mkLogicalKey appNamespaceName)
-        case acceptedFoundationNamespace snapshot appNamespaceName of
-          Right _ -> dieT "requested namespace is already accepted by the platform foundation"
+        case acceptedAppNamespace snapshot appNamespaceName of
+          Right _ -> dieT "requested namespace is already accepted by the platform foundation or a delegation"
           Left _ -> pure ()
         let request =
               ResourceInventory.RegisterNamespace
@@ -271,7 +271,7 @@ runAppDeployPlan mctx params appOptions output = do
           either
             dieT
             pure
-            (acceptedFoundationNamespace snapshot appNamespaceName)
+            (acceptedAppNamespace snapshot appNamespaceName)
         pure (foundationCluster, acceptedNamespace, Nothing)
   let accessPolicy = (app ^. #access) <|> (app ^. #service >>= (^. #access))
   accessBinding <-

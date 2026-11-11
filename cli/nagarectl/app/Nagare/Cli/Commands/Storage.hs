@@ -66,7 +66,7 @@ import Nagare.Inventory.Backup
   , compileVolumeSnapshotScope
   )
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Restore
@@ -240,7 +240,7 @@ runReviewedVolumeSnapshotPlan mctx dep volume backend snapshotId expiryArg outpu
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, _) <- either dieT pure (acceptedAppNamespace snapshot ns)
   pvcAddress <-
     either
       dieT
@@ -386,7 +386,7 @@ runReviewedVolumeRestorePlan mctx dep volume backupId restoreId backend output =
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, _) <- either dieT pure (acceptedAppNamespace snapshot ns)
   pvcAddress <-
     either
       dieT
@@ -638,7 +638,7 @@ runReviewedVolumePrunePlan mctx dep volume backupId backend output = do
   credential <- case backend of
     GcsBackend {} -> pure Nothing
     MinioBackend ref -> do
-      (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+      (cluster, _) <- either dieT pure (acceptedAppNamespace snapshot ns)
       address <-
         either
           dieT

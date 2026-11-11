@@ -43,6 +43,7 @@ import Nagare.Cli.Parser.Common
   , taskAppArg
   , taskNameArg
   )
+import Nagare.Cli.Parser.Delegation (withReviewSource)
 import Nagare.Dsl.Prelude
 import Options.Applicative
   ( Alternative (many)
@@ -330,7 +331,7 @@ workerSubparser =
     ( command
         "deploy"
         ( info
-            (Worker . WorkerDeploy <$> workerDeployOptsParser defaultConfigFile <**> helper)
+            (withReviewSource False (Worker . WorkerDeploy <$> workerDeployOptsParser defaultConfigFile) <**> helper)
             (progDesc "Deploy or review a long-running worker (apps/v1 Deployment) from the current directory")
         )
         <> command
@@ -389,19 +390,19 @@ appSubparser =
         <> command
           "delete"
           ( info
-              (AppDelete <$> appDeleteOptsParser <**> helper)
+              (withReviewSource False (AppDelete <$> appDeleteOptsParser) <**> helper)
               (progDesc "Delete a legacy app or review accepted web-Service retirement")
           )
         <> command
           "deploy"
           ( info
-              (AppDeploy <$> appDeployOptsParser defaultConfigFile <**> helper)
+              (withReviewSource True (AppDeploy <$> appDeployOptsParser defaultConfigFile) <**> helper)
               (progDesc "Deploy a whole multi-workload Application (service + workers + databases + hooks) in one ordered rollout")
           )
         <> command
           "image-plan"
           ( info
-              (AppImagePlan <$> appImagePlanOptsParser <**> helper)
+              (withReviewSource False (AppImagePlan <$> appImagePlanOptsParser) <**> helper)
               (progDesc "Publish an application OCI archive through review, or save the review for separate apply")
           )
     )
@@ -424,7 +425,7 @@ taskSubparser =
         <> command
           "run"
           ( info
-              (Task . TaskRun <$> taskRunOptsParser <**> helper)
+              (withReviewSource False (Task . TaskRun <$> taskRunOptsParser) <**> helper)
               (progDesc "Run an accepted task through a stable reviewed Job; --run-id is required for live execution")
           )
         <> command
@@ -436,7 +437,7 @@ taskSubparser =
         <> command
           "delete"
           ( info
-              (Task . TaskDelete <$> taskDeleteOptsParser <**> helper)
+              (withReviewSource False (Task . TaskDelete <$> taskDeleteOptsParser) <**> helper)
               (progDesc "Save staged CronJob suspension, retirement, and collection reviews with --save-plan")
           )
     )

@@ -16,6 +16,7 @@ module Nagare.Inventory.DataService
   , compileStatefulSetRestartScope
   , compileBackupPruneRemovalScope
   , acceptedFoundationNamespace
+  , acceptedAppNamespace
   )
 where
 
@@ -41,6 +42,7 @@ import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (PodBlock (..))
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget), compileDatabaseForBackend)
+import Nagare.Inventory.DeployerDelegation (acceptedDelegatedNamespace)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Broker (brokerResourceId, compileBrokerTopics)
@@ -640,3 +642,11 @@ acceptedFoundationNamespace snapshot requestedNamespace = do
     (length members == 1)
     (Left "accepted platform Namespace does not match the requested name and cluster")
   pure (cluster, namespaceId)
+
+-- | A namespace an app, worker, task, site or storage command may use: a
+-- platform foundation namespace, or one an active accepted delegation owns
+-- (EP-247 D2). Any other namespace is refused, even if the cluster has it.
+acceptedAppNamespace :: ScopeSnapshot -> T.Text -> Either T.Text (ResourceId, ResourceId)
+acceptedAppNamespace snapshot requested = case acceptedFoundationNamespace snapshot requested of
+  Right found -> Right found
+  Left foundationReason -> first (\delegationReason -> foundationReason <> "; " <> delegationReason) (acceptedDelegatedNamespace snapshot requested)

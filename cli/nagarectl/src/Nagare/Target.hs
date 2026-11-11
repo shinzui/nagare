@@ -90,11 +90,13 @@ import Nagare.Cluster.GcsJob
   , parseLocalObjectStore
   )
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.Actor (actorFromNames)
 import Nagare.Inventory.BackupFreshness
   ( RecoveryPointObjective (..)
   , recoveryPointObjectiveText
   )
 import Nagare.Target.Acme
+import Nagare.Target.ContextFile (parseContextEnv, shellQuote)
 import Nagare.Target.Kinds
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
@@ -457,6 +459,10 @@ data TargetProfile = TargetProfile
   , platformVersion :: !(Maybe Text)
   -- ^ Optional NAGARE_PLATFORM_VERSION. 'Nothing' identifies a legacy
   -- source-managed context whose release has not been explicitly adopted.
+  , deployer :: !(Maybe Text)
+  -- ^ NAGARE_DEPLOYER (EP-247): set only in a delegated deployer's context.
+  , operatorName :: !(Maybe Text)
+  -- ^ NAGARE_OPERATOR (EP-247): an optional name for the operator actor.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -574,6 +580,8 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_INVENTORY_STORE" (inventoryStoreToken (effectiveInventoryStore tp))
     , line "NAGARE_INVENTORY_STORE_URL" (tp ^. #inventoryStoreUrl)
     , line "NAGARE_BACKUP_RECOVERY_POINT" (recoveryPointObjectiveText (tp ^. #backupRecoveryPoint))
+    , line "NAGARE_DEPLOYER" (fromMaybe "" (tp ^. #deployer))
+    , line "NAGARE_OPERATOR" (fromMaybe "" (tp ^. #operatorName))
     , line "NAGARE_REGISTRY_PREFIX" (registryPrefix tp)
     , line "PULUMI_HOME" (T.pack (penv ^. #home))
     , line "PULUMI_BACKEND_URL" (penv ^. #backendUrl)
@@ -591,41 +599,12 @@ renderContextShellEnv name tp penv =
     boolToken True = "1"
     boolToken False = "0"
 
--- | Single-quote a value for POSIX shell. A literal single quote is closed,
--- escaped, and reopened — @'@ becomes @'\\''@ — which is the only quoting that is
--- correct for every byte a context file can hold.
-shellQuote :: Text -> Text
-shellQuote v = "'" <> T.replace "'" "'\\''" v <> "'"
-
 -- | The Artifact Registry image-name prefix: @"\<host>/\<project>/\<repo-id>"@. An
 -- app's short image name is appended to this to form a full image ref (EP-62 M3,
 -- MasterPlan 12 Integration Point 4).
 registryPrefix :: TargetProfile -> Text
 registryPrefix tp =
   tp ^. #registryHost <> "/" <> tp ^. #project <> "/" <> tp ^. #artifactRegistryId
-
--- | Parse a flat @export VAR=value@ context file into a variable map. Blank
--- lines and lines whose first non-space character is '#' are ignored. A leading
--- @export @ is stripped; this is a pragmatic reader for machine-generated or
--- example-derived files, not a complete shell parser.
-parseContextEnv :: Text -> Map String Text
-parseContextEnv = Map.fromList . concatMap lineKV . T.lines
-  where
-    lineKV raw =
-      let s = T.stripStart raw
-       in if T.null s || "#" `T.isPrefixOf` s
-            then []
-            else
-              let s' = fromMaybe s (T.stripPrefix "export " s)
-               in case T.breakOn "=" s' of
-                    (k, v)
-                      | T.null v -> []
-                      | otherwise -> [(T.unpack (T.strip k), unquote (T.drop 1 v))]
-    unquote v =
-      let t = T.strip v
-       in if T.length t >= 2 && (T.head t == '"' || T.head t == '\'') && T.last t == T.head t
-            then T.drop 1 (T.dropEnd 1 t)
-            else t
 
 -- | Read a context file into a variable map, or 'Nothing' if the path is absent.
 readContextMap :: FilePath -> IO (Maybe (Map String Text))
@@ -790,6 +769,8 @@ profileFromContextMap ctx =
       acmeEmail = mapOr ctx "NAGARE_ACME_EMAIL" ""
       acmeDirectory = mapOr ctx "NAGARE_ACME_DIRECTORY" "production"
       platformVersion = T.pack <$> mapRaw ctx "NAGARE_PLATFORM_VERSION"
+      deployer = T.pack <$> mapRaw ctx "NAGARE_DEPLOYER"
+      operatorName = T.pack <$> mapRaw ctx "NAGARE_OPERATOR"
    in TargetProfile
         { project = project
         , region = region
@@ -824,6 +805,8 @@ profileFromContextMap ctx =
         , acmeEmail = acmeEmail
         , acmeDirectory = acmeDirectory
         , platformVersion = platformVersion
+        , deployer = deployer
+        , operatorName = operatorName
         }
 
 resolveProfileFrom :: Map String Text -> IO TargetProfile
@@ -861,6 +844,9 @@ resolveProfileFrom ctx = do
   acmeEmail <- ctxOr ctx "NAGARE_ACME_EMAIL" ""
   acmeDirectory <- ctxOr ctx "NAGARE_ACME_DIRECTORY" "production"
   platformVersion <- fmap T.pack <$> ctxRaw ctx "NAGARE_PLATFORM_VERSION"
+  deployer <- fmap T.pack <$> ctxRaw ctx "NAGARE_DEPLOYER"
+  operatorName <- fmap T.pack <$> ctxRaw ctx "NAGARE_OPERATOR"
+  either (ioError . userError . T.unpack) (const (pure ())) (actorFromNames deployer operatorName)
   pure
     TargetProfile
       { project = project
@@ -896,6 +882,8 @@ resolveProfileFrom ctx = do
       , acmeEmail = acmeEmail
       , acmeDirectory = acmeDirectory
       , platformVersion = platformVersion
+      , deployer = deployer
+      , operatorName = operatorName
       }
 
 -- | Resolve the active context into a context name plus fully-derived

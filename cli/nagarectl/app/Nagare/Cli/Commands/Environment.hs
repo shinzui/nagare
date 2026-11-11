@@ -49,7 +49,7 @@ import Nagare.Env.Store
   , renderEnvSecretPreview
   )
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.Environment
   ( acceptedEnvChannelValues
   , acceptedSecretChannelValues
@@ -168,7 +168,7 @@ saveReviewedEnvChange mctx name ns selection dry sourceName change output = do
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
   let (compile, channelName) = case selectedScopes selection of
         [Build] -> (compileBuildEnvChannel, "build-env")
         [Preview] -> (compilePreviewEnvChannel, "preview-env")
@@ -314,7 +314,7 @@ saveReviewedSecretChange mctx name ns selection sourceName version change output
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
   let (compile, channelName) = case selectedScopes selection of
         [Build] -> (compileBuildSecretChannel, "build-secret")
         [Preview] -> (compilePreviewSecretChannel, "preview-secret")

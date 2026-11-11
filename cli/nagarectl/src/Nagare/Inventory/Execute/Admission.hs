@@ -19,6 +19,7 @@ import Data.Text qualified as T
 import Data.Time (getCurrentTime)
 import Nagare.Contract.Trace (OperationRecord (RecordExecuted))
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Actor (Actor (..))
 import Nagare.Inventory.Adapter
   ( Adapter (adapterIdentity, adapterPreflight, adapterVerify, adapterVersion)
   , AdapterRegistry
@@ -36,6 +37,7 @@ import Nagare.Inventory.Adapter
   , observeWithRegistry
   )
 import Nagare.Inventory.BackupRetention (standardRetention)
+import Nagare.Inventory.DeployerDelegation (admittedDelegationViolations, renderViolation)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute.AdapterEnv (withAdapterEnv)
 import Nagare.Inventory.Execute.Claims (observeCurrentHead)
@@ -79,6 +81,7 @@ import Nagare.Inventory.Plan
     )
   , ReviewDocument
     ( reviewAbsences
+    , reviewActor
     , reviewBaseRevisions
     , reviewCollections
     , reviewContextBinding
@@ -180,10 +183,13 @@ admitWithHistory locked registry reviewed pinned = do
                  ]
               <> validateOperationInputs registry reviewed Map.empty
               <> transitionAdmission (headTransition headValue) (reviewPayloadIdentity document)
-      case staticErrors of
+      historyAt <- lockedHistory store headValue
+      -- EP-247 D5: a deployer's bounds are judged with the other static
+      -- refusals, so a review a revocation made stale says so.
+      delegated <- delegationAdmission store historyAt headValue document
+      case staticErrors <> either NE.toList (const []) delegated of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
-          historyAt <- lockedHistory store headValue
           retention <- scheduledPruneRetention store historyAt headValue document
           case retention of
             Left err -> pure (failure "retention-policy" err)
@@ -625,3 +631,31 @@ migrationCoverage store historyAt document = do
           (contentDigest bytes == revisionDigest revision)
           (Left "migration destination scope digest mismatch")
         first showText (decodeScope bytes)
+
+-- | EP-247 D5: a deployer's review is bounded again by the delegation the
+-- admitted head records. A revoked or narrowed delegation refuses a review
+-- saved before it, before any journal event.
+delegationAdmission :: InventoryStore -> IO (Either StoreError InventoryHistory) -> HeadManifest -> ReviewDocument -> IO (Either (NonEmpty AdmissionError) ())
+delegationAdmission store historyAt headValue document = case reviewActor document of
+  OperatorActor _ -> pure (Right ())
+  DeployerActor deployer -> do
+    historical <- historyAt
+    let changed = [revision | (scope, revision) <- Map.toAscList (reviewDesiredRevisions document), Map.lookup scope (headAccepted headValue) /= Just revision]
+    loaded <- forM changed $ \revision -> do
+      member <- readObject store (scopeKey (revisionDigest revision))
+      pure $ do
+        bytes <- first showText member >>= maybe (Left "a desired scope of a deployer review is missing") Right
+        unless (contentDigest bytes == revisionDigest revision) (Left "a desired scope of a deployer review changed")
+        first showText (decodeScope bytes)
+    pure $ case (,) <$> first showText historical <*> sequence loaded of
+      Left reason -> Left (AdmissionError "delegation-bounds" reason :| [])
+      Right (history, replacedScopes) ->
+        first
+          (fmap (\violation -> AdmissionError (violation ^. #code) (renderViolation violation)))
+          ( admittedDelegationViolations
+              deployer
+              (fmap snd (historyAccepted history))
+              replacedScopes
+              [scope | scope <- Map.keys (headAccepted headValue), Map.notMember scope (reviewDesiredRevisions document)]
+              (Map.keys (reviewCollections document))
+          )
