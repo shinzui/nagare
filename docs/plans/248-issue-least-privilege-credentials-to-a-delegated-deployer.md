@@ -49,7 +49,7 @@ delegation record and the actor. It also hard-depends on
 [EP-251](251-keep-a-local-context-s-inventory-store-in-its-in-cluster-object-store-so-an-in-cluster-deployer-can-apply.md)
 for the accepted S3 transport, credential-file input and migration behavior; the local object-store bundle is required acceptance. Kotei's
 `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application` mounts the bundle and
-`mori://shinzui/kotei/plans/136-run-forge-builds-in-credential-free-kubernetes-jobs` uses the builder kubeconfig.
+`mori://shinzui/kotei/plans/150-run-forge-builds-in-credential-free-kubernetes-jobs` uses the builder kubeconfig.
 
 
 ## Progress

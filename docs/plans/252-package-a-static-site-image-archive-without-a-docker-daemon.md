@@ -45,7 +45,7 @@ the same image digest.
 
 This is needed by [UC-4](../use-cases/004-engineers-deploy-sites-by-pushing-through-a-delegated-deployer.md): Kotei
 builds engineers' repositories in Nagare's hardened one-shot Jobs
-(`mori://shinzui/kotei/plans/136-run-forge-builds-in-credential-free-kubernetes-jobs`), which cannot run a Docker daemon,
+(`mori://shinzui/kotei/plans/150-run-forge-builds-in-credential-free-kubernetes-jobs`), which cannot run a Docker daemon,
 and static sites are the commonest thing engineers deploy.
 
 

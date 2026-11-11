@@ -56,7 +56,7 @@ This initiative delivers Nagare's half of [UC-4](../use-cases/004-engineers-depl
 on a context one operator administers, any engineer on the team deploys a site or app by pushing to its repository,
 through a CI/CD deployer the operator delegated a bounded part of the context to. Kotei (`mori://shinzui/kotei`) is the
 first deployer; its half is
-`mori://shinzui/kotei/masterplans/24-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare`.
+`mori://shinzui/kotei/masterplans/26-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare`.
 
 When this initiative is complete, an operator can:
 
@@ -170,7 +170,7 @@ EP-251 and EP-252 can start independently. EP-248 hard-depends on both EP-247 an
 required local acceptance uses the scoped object-store bundle, while filesystem contexts retain the workstation-only
 `NAGARE_INVENTORY_STORE_ROOT` option. The default execution order is EP-247, EP-251, EP-249, EP-248, EP-250, EP-252.
 This schedules rendered inputs before the credential-backed proof and avoids blocking on a later registry row. Kotei's
-`mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` hard-depends
+`mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` hard-depends
 on EP-247, EP-248 and EP-249, and owns the end-to-end UC-4 acceptance on a local context. That acceptance also needs
 EP-251 (the deployer is hosted in the local cluster) and EP-252 (the fixture is a static site built in a Job). EP-250 is
 needed for its access check, not for deploying.
@@ -191,7 +191,7 @@ multi-operator streams and the design rules that work done now must follow. The 
 Every child plan here follows them. A change that would break one is recorded in both MasterPlans' Decision Logs.
 
 **Delegation record** — owned by EP-247; read by EP-248 (namespaces, image repository), EP-250 (team, namespaces) and
-[Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) (through `--contract 1` reads). EP-247 defines it as an inventory-owned resource with a stable name and
+[Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) (through `--contract 1` reads). EP-247 defines it as an inventory-owned resource with a stable name and
 these fields: deployer name; namespaces (created and owned by the delegation, accepted directly through its namespace members; application scopes receive no unrestricted `NamespaceGrant`); hostname bounds under the context's base domain; allowed scope kinds (web apps, workers, scheduled
 tasks and static sites; nothing else); `protected = true` for every host; per-namespace quota; image repository path;
 the default team; and an optional build namespace with its own quota, where the builder identity runs one-shot Jobs. Later plans read it through one accessor; they do not add fields without amending EP-247's
@@ -211,9 +211,9 @@ them. The review wire still changes, so it rides the EP-172 transition rules, co
 flight; EP-247 checks EP-231's state before choosing the version.
 
 **Stale-review refusal** — owned by EP-247 (D11). Admission refusals caused only by another change landing first map to
-a new retryable contract problem `review_stale`, distinct from `admission_refused`. [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) re-plans only on it.
+a new retryable contract problem `review_stale`, distinct from `admission_refused`. [Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) re-plans only on it.
 
-**Static archives built without a daemon** — owned by EP-252; consumed by [Kotei EP-136](mori://shinzui/kotei/plans/136-run-forge-builds-in-credential-free-kubernetes-jobs)'s build Jobs through
+**Static archives built without a daemon** — owned by EP-252; consumed by [Kotei EP-150](mori://shinzui/kotei/plans/150-run-forge-builds-in-credential-free-kubernetes-jobs)'s build Jobs through
 `nagarectl site package --archive --builder layered --base-archive FILE`.
 
 **Local object-store inventory** — EP-251 owns the S3 transport, endpoint selection, migration and private
@@ -223,13 +223,13 @@ and old-key refusal. EP-251 can complete with fixture credentials; EP-248 cannot
 The file contract is JSON with `accessKeyId` and `secretAccessKey`, named by
 `NAGARE_INVENTORY_STORE_CREDENTIALS_FILE`; neither the context nor a review carries secret bytes.
 
-**Deployer credential bundle** — owned by EP-248; consumed by [Kotei EP-135](mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application) and [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) as the runner's
+**Deployer credential bundle** — owned by EP-248; consumed by [Kotei EP-135](mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application) and [Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) as the runner's
 `KOTEI_DEPLOYMENT_HOME`. Layout follows the XDG layout nagarectl already reads, so Kotei's byte-equality check of
 `$HOME/.config/nagare/kubeconfigs/CONTEXT.yaml` holds: `.config/nagare/contexts/<context>.env`,
 `.config/nagare/kubeconfigs/<context>.yaml`, and a cloud credential file for cloud contexts. EP-248 also issues a
 builder kubeconfig for the delegation's build namespace, limited to the resources `renderJob` in
 `cli/nagare-dsl/src/Nagare/Dsl/Job` creates (a tokenless ServiceAccount, a NetworkPolicy and a Job) plus reading Pods
-and their logs there. [Kotei EP-136](mori://shinzui/kotei/plans/136-run-forge-builds-in-credential-free-kubernetes-jobs) consumes it to run credential-free builds with Nagare's hardened one-shot Job
+and their logs there. [Kotei EP-150](mori://shinzui/kotei/plans/150-run-forge-builds-in-credential-free-kubernetes-jobs) consumes it to run credential-free builds with Nagare's hardened one-shot Job
 renderer ([Bounded one-shot jobs](../user/one-shot-jobs.md)); the builder kubeconfig holds no deploy rights and the
 deploy bundle holds no build rights.
 
@@ -238,7 +238,7 @@ deploy bundle holds no build rights.
 `nagarectl app|worker|site render` and consumed by `app check|deploy`, `worker deploy` and
 `site deploy|preview deploy --rendered FILE`. Each envelope carries exact UTF-8 program stdout as a JSON string
 in `config`; its digest hashes that string's UTF-8 bytes after outer JSON decoding, never a re-serialized object. Kotei plan
-136 produces them in the build; [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) consumes them. The representative producer/consumer check is EP-249's own
+150 produces them in the build; [Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) consumes them. The representative producer/consumer check is EP-249's own
 acceptance: render a fixture app, standalone worker and site, then deploy each with `--rendered` on a local context.
 
 **ADR ownership.** [ADR 35](../adr/0035-a-delegated-deployer-is-trusted-and-repository-content-is-not.md)
@@ -256,7 +256,7 @@ resource writes are added. EP-248 D10 proves the actual protected-route create/u
 
 **Contention.** Admission is serialized per context: any accepted change makes every outstanding saved review stale
 (`cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs`). With a deployer applying on every push, the operator's
-saved reviews go stale more often and must be re-planned, and the deployer must re-plan on `stale-head`. [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer)
+saved reviews go stale more often and must be re-planned, and the deployer must re-plan on `stale-head`. [Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer)
 owns automatic re-planning; this initiative adds no lock. If contention becomes the bottleneck, it belongs to
 [MasterPlan 29](29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md)'s
 territory, not here.
@@ -269,7 +269,7 @@ EP-247, EP-249, EP-251 and EP-252 are Complete. One disposable local run at `e74
 EP-248 is next, then EP-250, in the default order. EP-248 D10 is the required local credential and route integration
 gate.
 
-Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
+Remaining cross-repository gate, owned by [Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
 
 - [ ] UC-4 end to end on a local context: an operator applies one delegation and issues the bundle; a fixture repository
   pushed to its release branch is built by Kotei in a credential-free Job and deployed with `--rendered`; the site is
@@ -281,7 +281,7 @@ Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/pl
 
 - 2026-11-07, drafting the children. A local context cannot host an in-cluster deployer: its store is a workstation
   directory (`effectiveInventoryStore`). Both MasterPlans' local gates assumed it could. Added EP-251.
-- 2026-11-07, drafting Kotei's plans. Static archives need Docker, which a hardened build Job lacks ([Kotei EP-136](mori://shinzui/kotei/plans/136-run-forge-builds-in-credential-free-kubernetes-jobs));
+- 2026-11-07, drafting Kotei's plans. Static archives need Docker, which a hardened build Job lacks ([Kotei EP-150](mori://shinzui/kotei/plans/150-run-forge-builds-in-credential-free-kubernetes-jobs));
   added EP-252. Nagare's contract mapped stale reviews to the non-retryable `admission_refused`, which would make
   Kotei's automatic re-plan guess from message text; added EP-247 D11. [Kotei EP-135](mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application) also found Nagare cannot share
   one volume across workloads, has environment-only secrets, and forbids `CREATE ROLE` in an app database; Kotei plan

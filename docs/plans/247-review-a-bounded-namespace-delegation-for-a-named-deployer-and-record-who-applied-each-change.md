@@ -150,7 +150,7 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
   `cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs`) map to a new contract problem `review_stale` (409,
   `retryable: true`) in `cli/nagare-contract/src/Nagare/Contract/Problem.hs`, instead of `admission_refused`. Every other
   admission refusal, including D5's delegation refusals, keeps `admission_refused`. A new problem code is additive under
-  `docs/api/README.md`'s rules. Kotei's runner (`mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer`)
+  `docs/api/README.md`'s rules. Kotei's runner (`mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer`)
   re-plans only on this code. Evidence: a problem-catalog test per refusal kind, the README table, and the regenerated
   `docs/api/openapi.json`.
   Done 2026-11-10: `review_stale` (409, retryable) in `cli/nagare-contract/src/Nagare/Contract/Problem.hs`; `admissionProblem` maps `stale-head`, `stale-base` and `head-condition` alone to it and any other refusal to `admission_refused` (tested); README table and OpenAPI updated.
@@ -398,7 +398,7 @@ checkDelegatedProposal :: DeployerDelegation -> Text -> [ScopeDeclaration] -> Ei
 Consumers: EP-248 reads `namespaces`, `buildNamespace` and `imageRepository` through `acceptedDelegations` and writes
 `NAGARE_DEPLOYER` into the bundle's context file. EP-249 refuses config programs when the profile's deployer is set.
 EP-250 reads `team` and `namespaces`. Kotei's
-`mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` reads the
+`mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` reads the
 `delegation` document and passes `--source-repository`, `--source` and `--source-run`. A field added later is recorded
 in this plan's Decision Log first.
 

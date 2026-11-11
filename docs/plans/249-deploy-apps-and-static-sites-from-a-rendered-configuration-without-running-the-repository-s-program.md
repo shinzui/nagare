@@ -62,8 +62,8 @@ This is a child of
 [MasterPlan 33](../masterplans/33-delegate-a-bounded-part-of-a-context-to-a-ci-deployer-so-engineers-deploy-by-pushing.md)
 and delivers UC-4's `deploy-without-running-repository-code`
 ([UC-4](../use-cases/004-engineers-deploy-sites-by-pushing-through-a-delegated-deployer.md)) with Kotei. Kotei's
-`mori://shinzui/kotei/plans/136-run-forge-builds-in-credential-free-kubernetes-jobs` produces the documents in its build
-and `mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` deploys
+`mori://shinzui/kotei/plans/150-run-forge-builds-in-credential-free-kubernetes-jobs` produces the documents in its build
+and `mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` deploys
 them. Render and `--rendered` are useful to any client and start at once; D5 and D6 hard-depend on
 [EP-247](247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md)'s actor.
 

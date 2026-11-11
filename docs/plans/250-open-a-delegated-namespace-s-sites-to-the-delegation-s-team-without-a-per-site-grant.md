@@ -42,7 +42,7 @@ and delivers UC-4's `default-access-for-delegated-sites`
 ([UC-4](../use-cases/004-engineers-deploy-sites-by-pushing-through-a-delegated-deployer.md)). It hard-depends on
 [EP-247](247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md) for the
 delegation's name, namespaces and team. Kotei's end-to-end acceptance in
-`mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` uses it for its
+`mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer` uses it for its
 access check.
 
 
