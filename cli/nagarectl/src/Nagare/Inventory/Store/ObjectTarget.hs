@@ -11,6 +11,7 @@ module Nagare.Inventory.Store.ObjectTarget
   , CredentialSources (..)
   , CredentialChoice (..)
   , chooseCredentials
+  , ensuresBucket
   , readCredentialFile
   , objectStoreOps
   , ForwardSpec (..)
@@ -122,6 +123,12 @@ instance FromJSON CredentialFile where
     unless (all (`elem` ["accessKeyId", "secretAccessKey"]) (KM.keys o)) (fail "the credential file has an unknown field")
     fmap CredentialFile (S3Credentials <$> o .: "accessKeyId" <*> o .: "secretAccessKey")
 
+-- | Whether an opening creates the bucket: only an operator's opening that
+-- may initialize. A deployer's scoped key cannot administer the bucket, and
+-- a deployer never initializes a store (EP-248).
+ensuresBucket :: Bool -> CredentialSources -> Bool
+ensuresBucket mayInitialize sources = mayInitialize && not (sources ^. #deployer)
+
 -- | A JSON file readable by its owner only. Its bytes never reach an error.
 readCredentialFile :: FilePath -> IO (Either Text S3Credentials)
 readCredentialFile path = do
@@ -189,7 +196,7 @@ objectStoreOps mayInitialize target = do
             Direct -> pure (pure (Right (endpoint ^. #base, endpoint ^. #host)))
             ForwardTo namespace service port -> forwardedReach (kubectlForward kubectlContext namespace service port)
           transport <- s3HttpTransport reachAction given
-          ensured <- if mayInitialize then ensureBucket transport endpoint else pure (Right ())
+          ensured <- if ensuresBucket mayInitialize sources then ensureBucket transport endpoint else pure (Right ())
           pure (s3ObjectOpsWith transport endpoint <$ ensured)
 
 -- | A forward's command and the parser of its first output line.

@@ -248,9 +248,11 @@ let
     paths = [ haskellPackages.nagarectl ];
     pathsToLink = [ "/bin" "/share" "/nix-support" ];
     nativeBuildInputs = [ pkgs.makeWrapper ];
+    # Publication's transport (scripts/inventory-artifact-transport.sh) needs
+    # skopeo and jq, so a hosted deployer runs from this package alone (EP-248).
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
-        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils pkgs.kubernetes-helm ]} \
+        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils pkgs.kubernetes-helm pkgs.skopeo pkgs.jq ]} \
         ${lib.optionalString (platformPackage != null) "--set-default NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare"} \
         ${lib.optionalString (sourceRevision != null) "--set NAGARE_SOURCE_REVISION ${sourceRevision}"}
     '';

@@ -142,6 +142,9 @@ s3StoreTests =
         migrating ^. #profile . #inventoryStoreUrl @?= "http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33"
         effectiveInventoryStore (migrating ^. #profile) @?= InventoryStoreObject
         fmap (^. #prefix) (objectStoreEndpoint (migrating ^. #profile)) @?= Right "mp33"
+    , testCase "only an operator's initializing opening creates the bucket; a deployer's never does (EP-248)" $ do
+        let sources = CredentialSources Nothing Nothing Nothing False
+        [ensuresBucket initialize (sources & #deployer .~ deployer') | initialize <- [True, False], deployer' <- [False, True]] @?= [True, False, False, False]
     , testCase "credentials come from exactly one private source; a deployer never uses the administrator Secret" $ do
         let none = CredentialSources Nothing Nothing Nothing False
         chooseCredentials none @?= Right FromAdministratorSecret
