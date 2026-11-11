@@ -236,6 +236,43 @@ a real browser and authenticator. The enforcer caches decisions for ~30 s and en
 caches reads for ~5 s, so **poll** after a grant/revoke rather than expecting an
 instant change.
 
+## Optional: the inventory in the cluster object store
+
+A local context keeps its inventory history in a workstation directory by default, which nothing in
+the cluster can reach. To let a program running in the cluster (a delegated CI deployer, for example)
+plan and apply against the same history, keep it in the local object store instead. It uses the same
+conditional writes as a cloud context's GCS store: `If-None-Match: *` to create and `If-Match: ETAG`
+to replace, proved on the packaged MinIO release
+([audit](../audits/ep251-s3-conditional-writes.md)).
+
+Bootstrap the platform first (the object store is part of it), then name the store and move the
+history there:
+
+```bash
+nagarectl context create local --force \
+  --inventory-store-url http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/local
+nagarectl inventory store migrate --to object --dry-run
+nagarectl inventory store migrate --to object --yes
+nagarectl inventory store status
+```
+
+`NAGARE_INVENTORY_STORE_URL` is `http://HOST:PORT/BUCKET/PREFIX`: a loopback address or an
+in-cluster Service. From the workstation, `nagarectl` reaches an in-cluster Service through a
+port-forward it opens for the command and closes when the command ends; no host port is published. A
+client running in the cluster uses the Service address directly. A cloud context refuses
+`NAGARE_INVENTORY_STORE=object`.
+
+Credentials come from exactly one private source:
+
+- `NAGARE_INVENTORY_STORE_CREDENTIALS_FILE`, a JSON file `{"accessKeyId": …, "secretAccessKey": …}`
+  readable by its owner only;
+- `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` together;
+- for an operator with neither, the object store's administrator Secret, read once through the
+  context's cluster connection.
+
+A deployer context (`NAGARE_DEPLOYER`) must bring its own scoped credentials and never falls back to
+the administrator Secret. `inventory store migrate --to local --yes` moves the history back.
+
 ## Run the local smoke test
 
 `just local-smoke` is the zero-cloud twin of the cloud `just smoke`: it runs the

@@ -145,7 +145,7 @@ package then two reviewed stages, which EP-249 keeps). On Kotei's side,
 | 248 | Issue least-privilege credentials to a delegated deployer | docs/plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.md | EP-247; EP-251 | None | Not Started |
 | 249 | Deploy apps and static sites from a rendered configuration without running the repository's program | docs/plans/249-deploy-apps-and-static-sites-from-a-rendered-configuration-without-running-the-repository-s-program.md | EP-247 for D5 and D6 only | None | Not Started |
 | 250 | Open a delegated namespace's sites to the delegation's team without a per-site grant | docs/plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md | EP-247 | None | Not Started |
-| 251 | Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply | docs/plans/251-keep-a-local-context-s-inventory-store-in-its-in-cluster-object-store-so-an-in-cluster-deployer-can-apply.md | None | None | Not Started |
+| 251 | Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply | docs/plans/251-keep-a-local-context-s-inventory-store-in-its-in-cluster-object-store-so-an-in-cluster-deployer-can-apply.md | None | None | In Progress |
 | 252 | Package a static site image archive without a Docker daemon | docs/plans/252-package-a-static-site-image-archive-without-a-docker-daemon.md | None | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -259,8 +259,9 @@ territory, not here.
 
 ## Progress
 
-No child plan has started. The review findings are incorporated; EP-248 D10 is the required local
-credential/route integration gate. Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
+EP-247 and EP-251 are In Progress: their interpreter evidence passes (EP-247 landed in `8cf692e7`) and each waits
+only for its local confirmation, batched into one disposable local run with EP-249's (Decision Log, 2026-11-10).
+EP-248 D10 is the required local credential/route integration gate. Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
 
 - [ ] UC-4 end to end on a local context: an operator applies one delegation and issues the bundle; a fixture repository
   pushed to its release branch is built by Kotei in a credential-free Job and deployed with `--rendered`; the site is
@@ -281,6 +282,13 @@ credential/route integration gate. Remaining cross-repository gate, owned by [Ko
 
 
 ## Decision Log
+
+- Decision: Confirm EP-247 D9, EP-251 D7 and EP-249's local acceptance in one disposable local context, after their
+  interpreter evidence passes, instead of three native runs.
+  Rationale: each needs the same freshly bootstrapped local platform with the auth plane; one run, after the
+  interpreters prove each path (ADR 25), costs one bootstrap. EP-247 stays In Progress until then, so EP-248 and
+  EP-250 (whole-child dependants) wait; EP-251, EP-249 and EP-252 proceed.
+  Date: 2026-11-10
 
 - Decision: Close the review gaps with a generated protected-route exception, exact-text rendered envelopes including workers, and an explicit EP-251 → EP-248 credential handoff.
   Rationale: namespace-only rules blocked protected sites, parsed JSON lost digest input bytes, and the local hosted-deployer gate lacked an owner. EP-248 owns the combined credential and route proof.

@@ -239,6 +239,11 @@ can use the context's GCS state bucket alongside Pulumi state. Consult
 to configure or migrate a store, and verify the selected backend with
 `inventory store status`.
 
+A local context can instead keep its history in its own in-cluster object store, so that a program
+running in the cluster, such as a [delegated deployer](delegating-deployments.md), applies against the
+same head as the workstation. See
+[the object inventory store](local-development.md#optional-the-inventory-in-the-cluster-object-store).
+
 There is one writer per context. Conditional writes prevent another client
 from overwriting the shared head, and an executor claim identifies the current
 transaction's operator. The claim has no lease or automatic expiry. A second

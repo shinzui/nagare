@@ -21,12 +21,13 @@ import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import InventoryTransactionSpec (exerciseStore, fixtureBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Inventory.Store.ObjectTarget
 import Nagare.Inventory.Store.S3
 import Nagare.Target (InventoryStoreKind (..), Mode (..), effectiveInventoryStore)
 import Nagare.Test.Support.Profiles (initProfile)
-import Nagare.Test.World.ObjectStore (fakeObjectState)
+import Nagare.Test.World.ObjectStore (fakeObjectOps, fakeObjectState)
 import Network.HTTP.Types (methodGet, methodPut)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -166,6 +167,25 @@ s3StoreTests =
           waitUntilGone afterClose
           alive <- processAlive firstPid
           assertBool "the command's forward is closed when it ends" (not alive)
+    , testCase "migration into the object store resumes after an interruption at every request" $ do
+        let attempt k = do
+              sourceOps <- fakeObjectOps
+              (destinationOps, _, faults) <- fakeS3 1000
+              source <- newObjectStore sourceOps fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+              destination <- newObjectStore destinationOps fixtureBinding "client-b" Nothing >>= either (assertFailure . show) pure
+              original <- initializeStore source fixtureBinding "client-a" >>= either (assertFailure . show) pure
+              _ <- publishIfAbsent source "objects/sample.json" "sample" >>= either (assertFailure . show) pure
+              writeIORef faults (replicate (k - 1) NoFault <> [LoseRequest])
+              first'' <- migrateStore source destination "local" "http://minio/inventory/ctx"
+              remaining <- length <$> readIORef faults
+              writeIORef faults []
+              resumed <- either (const (migrateStore source destination "local" "http://minio/inventory/ctx")) (pure . Right) first''
+              resumed @?= Right ()
+              readHead destination >>= (@?= Right (Just original))
+              readObject destination "objects/sample.json" >>= (@?= Right (Just "sample"))
+              pure (remaining > 0)
+            loop k = attempt k >>= \beyond -> unless beyond (loop (k + 1))
+        loop 1
     , testCase "the endpoint names a bucket and a private prefix" $ do
         parseS3Endpoint "http://127.0.0.1:19000/nagare-inventory/local"
           @?= Right (S3Endpoint "http://127.0.0.1:19000" "127.0.0.1:19000" "nagare-inventory" "local")
@@ -189,7 +209,7 @@ s3StoreTests =
         go n = processAlive pid >>= \alive -> when alive (threadDelay 50000 >> go (n - 1))
     journalName n = T.pack (replicate (20 - length (show n)) '0' <> show n) <> ".json"
 
-data Fault = LoseAcknowledgement | LoseRequest | RacingWriter !Text !ByteString | Forbid
+data Fault = NoFault | LoseAcknowledgement | LoseRequest | RacingWriter !Text !ByteString | Forbid
 
 -- | An S3 server holding @bucket/key -> (etag, bytes)@: conditional PUT,
 -- GET with ETag, and ListObjectsV2 paged at @page@ keys.
@@ -243,6 +263,7 @@ fakeS3 page = do
         fault <- atomicModifyIORef' faults (\case [] -> ([], Nothing); f : rest -> (rest, Just f))
         case fault of
           Nothing -> Right <$> handle method path query extra payload
+          Just NoFault -> Right <$> handle method path query extra payload
           Just Forbid -> pure (Right (S3Response 403 [] "<Error><Code>AccessDenied</Code></Error>"))
           Just LoseRequest -> pure (Left "connection refused")
           Just LoseAcknowledgement -> handle method path query extra payload >> pure (Left "connection reset after the request was sent")

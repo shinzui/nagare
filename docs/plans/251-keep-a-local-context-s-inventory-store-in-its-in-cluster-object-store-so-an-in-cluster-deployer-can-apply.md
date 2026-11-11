@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-09T04:04:19Z
       mode: "update"
       note: "Define private S3 credential-file input and hand scoped identity lifecycle and bundle acceptance to EP-248."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T05:33:12Z
+      mode: "implement"
+      note: "Implemented D1-D6 and D8; D7 local confirmation pending"
 ---
 
 # Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply
@@ -49,22 +54,25 @@ requires. It is opt-in: a local context that does not ask for it keeps its files
 Each deliverable passes on the evidence it names. Interpreter evidence comes first, a native local run only confirms
 ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 
-- [ ] D1, the semantics prototype: a short experiment against the pinned local object store image proves, or disproves,
+- [x] D1, the semantics prototype: a short experiment against the pinned local object store image proves, or disproves,
   that `PutObject` with `If-None-Match: *` refuses an existing key and `If-Match: <etag>` refuses a changed object, under
   two racing writers, and that a refused write leaves the object untouched. It is repeated for RustFS if
   [the RustFS request](../improvement-requests/migrate-from-minio-to-rustfs.md) has been accepted by then. Keep or
   discard: keep the S3 transport only if both conditions hold; otherwise record the failure and stop this plan.
   Evidence: the experiment script and its transcript under `docs/audits/`.
-- [ ] D2, the transport: a new `s3ObjectOps` builds an `ObjectOps` (`cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs`)
+  Done 2026-11-10: [`docs/audits/ep251-s3-conditional-writes.md`](../audits/ep251-s3-conditional-writes.md) — both conditions hold on MinIO RELEASE.2025-09-07T16-13-09Z, alone and in 25 racing rounds each; a conditional replace of a missing key answers 404 NoSuchKey. RustFS is still `proposed`, so not tested. Kept.
+- [x] D2, the transport: a new `s3ObjectOps` builds an `ObjectOps` (`cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs`)
   over the S3 API with the conditions above, classifying every response as found, absent, refused or uncertain the
   way `gcloudObjectOps` does, and never treating a failed read or list as absence. Evidence: the existing object-store
   property tests run against an in-memory S3 fake that implements ETag conditions, including lost acknowledgements and
   a racing writer.
-- [ ] D3, the generation: `Generation` stops assuming an integer. S3 ETags are opaque strings, so the store compares an
+  Done 2026-11-10: `s3ObjectOps`/`s3ObjectOpsWith` in `cli/nagarectl/src/Nagare/Inventory/Store/S3.hs`; `S3 store` tests run the store contract (`exerciseStore`) over an in-memory S3 with ETag conditions, lost acknowledgements, a racing writer, paged listings and a refused key, and check the AWS SigV4 published example; a live probe against the pinned MinIO agreed.
+- [x] D3, the generation: `Generation` stops assuming an integer. S3 ETags are opaque strings, so the store compares an
   opaque token supplied by the transport; GCS keeps rendering its integer generation. No persisted head, review or
   journal byte changes: the generation is a transport observation, never stored. Evidence: the GCS transport tests pass
   unchanged, and a test proves no stored object's bytes differ between the two transports for the same history.
-- [ ] D4, the store kind: `InventoryStoreKind` (`cli/nagarectl/src/Nagare/Target/Kinds.hs`) gains `object`, valid only for
+  Done 2026-11-10: `Generation` is `Generation Integer | ObjectEtag Text`, compared only for equality; GCS paths refuse an ETag; the GCS transport tests pass unchanged and `the same history stores the same bytes on S3 and on the generation-numbered fake` proves identical stored bytes.
+- [x] D4, the store kind: `InventoryStoreKind` (`cli/nagarectl/src/Nagare/Target/Kinds.hs`) gains `object`, valid only for
   a local context and only with `NAGARE_INVENTORY_STORE_URL` naming a loopback or in-cluster S3 endpoint and bucket
   prefix; `effectiveInventoryStore` (`cli/nagarectl/src/Nagare/Target.hs`) stops forcing every local context to the
   filesystem and honours it. A cloud context refuses `object`, so the GCP guardrail and the GCS path are untouched.
@@ -74,20 +82,24 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
   in-cluster client. Refuse simultaneous file and environment credentials. A deployer must supply explicit scoped
   credentials and never falls back to reading the administrator Secret. Evidence:
   target-resolution tests for each kind and mode, including the refusals.
-- [ ] D5, reaching it from the workstation: the operator's `nagarectl` reaches the in-cluster endpoint through a
+  Done 2026-11-10: `InventoryStoreObject` (`object`), `effectiveInventoryStore` honours it for a local context and `resolveProfileFrom` refuses it for a cloud one; `objectStoreEndpoint`, `chooseCredentials` and `readCredentialFile` in `cli/nagarectl/src/Nagare/Inventory/Store/ObjectTarget.hs`, tested for each kind, mode and source, including both-sources and deployer-without-credentials refusals and a non-private file.
+- [x] D5, reaching it from the workstation: the operator's `nagarectl` reaches the in-cluster endpoint through a
   port-forward it opens and closes itself, the way reviewed access grants reach En, so no new host port is published.
   An in-cluster client uses the Service address directly. Evidence: a fake-command test of the forward's lifecycle,
   including a forward that dies mid-transaction leaving the transaction resumable.
-- [ ] D6, moving an existing local context: `nagarectl inventory store migrate --to object` moves a quiescent filesystem store
+  Done 2026-11-10: `forwardedReach` opens the forward on first use, reopens it when its process exited and registers it; `withObjectStoreForwards` closes it when the command ends (wrapped around every dispatch). Tested with a fake forward command; a forward lost mid-transaction leaves an unknown outcome the store's existing rules keep resumable.
+- [x] D6, moving an existing local context: `nagarectl inventory store migrate --to object` moves a quiescent filesystem store
   to the object store, and `--to local` moves it back, through the existing copy, tombstone, disable and activate sequence in
   `cli/nagarectl/src/Nagare/Inventory/Store/Migrate.hs` and `TargetMigration.hs`. Evidence: the existing migration tests
   extended to the new pair, interrupted after every step and resumed.
+  Done 2026-11-10: `inventory store migrate --to object|local`; `migration into the object store resumes after an interruption at every request` interrupts each request in turn and resumes to the original head and members.
 - [ ] D7, the local confirmation: on a fresh local context with the object store, the operator deploys a fixture app
   from the workstation, then a Pod in the cluster holding the object-store credential and the fixture Kubernetes credential applies a second change to
   the same context, then the operator's next saved review is refused as stale and succeeds after re-planning. Evidence:
   an audit file under `docs/audits/` with the transcript.
-- [ ] D8, docs: `docs/user/local-development.md` and `docs/user/resource-inventory.md` describe the object store for
+- [x] D8, docs: `docs/user/local-development.md` and `docs/user/resource-inventory.md` describe the object store for
   local contexts, when to use it, and how to migrate. Evidence: the linked pages.
+  Done 2026-11-10: `docs/user/local-development.md` (Optional: the inventory in the cluster object store) and `docs/user/resource-inventory.md`.
 
 
 ## Surprises & Discoveries
@@ -96,6 +108,22 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
 
 
 ## Decision Log
+
+- Decision: A conditional replace answered `404 NoSuchKey` is a refused condition, like `412`.
+  Rationale: the pinned MinIO answers a missing key that way (D1 audit); treating it as unknown would stop a
+  migration's head write that is simply refused.
+  Date: 2026-11-10
+
+- Decision: An operator with no explicit credentials reads the object store's administrator Secret once through
+  the command's cluster connection; a deployer context never does. An opening that may initialize creates the
+  bucket if it is absent.
+  Rationale: the operator already holds cluster-admin on a local context, and EP-248 issues the deployer's scoped
+  key. Bucket creation keeps migration to a fresh prefix a single command.
+  Date: 2026-11-10
+
+- Decision: `Generation` is a two-constructor data type rather than an opaque wrapper over text.
+  Rationale: GCS keeps its integer exactly, so no GCS path changes; the S3 transport carries the ETag string.
+  Date: 2026-11-10
 
 - Decision: Keep transport and credential loading here; EP-248 owns scoped identities, policy and the bundle-only integration gate.
   Rationale: EP-251 remains independently testable with fixture credentials while EP-248 cannot complete with a workstation-only fallback.
