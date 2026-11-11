@@ -174,7 +174,9 @@ runTransportClassified config action request = do
       additions = filter ((/= fst marker) . fst) (runtimeArtifactEnvironment config)
       names = map fst (marker : additions)
       childEnvironment = marker : additions <> filter ((`notElem` names) . fst) environment
-      command = (proc (runtimeArtifactExecutable config) [action]) {env = Just childEnvironment}
+      -- Through bash on PATH, not the script's #!/usr/bin/env line: a hosted
+      -- deployer's image has no /usr/bin/env (EP-248).
+      command = (proc "bash" [runtimeArtifactExecutable config, action]) {env = Just childEnvironment}
   case canonicalValue (toJSON request) of
     Left err -> pure (Left (TransportUnknown err))
     Right bytes -> do
