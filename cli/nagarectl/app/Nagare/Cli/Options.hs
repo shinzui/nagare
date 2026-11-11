@@ -376,8 +376,6 @@ data Command
   | Cleanup CleanupOpts
   | NixCache NixCacheCommand
   | Delegation DelegationCommand
-  | -- | The limit and contract version (EP-247 D6).
-    InventoryHistory (Maybe Int) (Maybe Int)
   | -- | The repository and CI run a deploy came from, around its command (EP-247 D6).
     WithReviewSource ReviewSource Command
   deriving stock (Generic, Show)

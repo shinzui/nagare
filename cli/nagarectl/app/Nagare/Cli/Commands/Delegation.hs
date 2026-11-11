@@ -2,7 +2,6 @@
 -- Executable-private CLI boundary.
 module Nagare.Cli.Commands.Delegation
   ( runDelegation
-  , runInventoryHistory
   )
 where
 
@@ -32,6 +31,7 @@ import Nagare.Target.Kinds (hostShapeFor)
 
 runDelegation :: Maybe String -> DelegationCommand -> IO ()
 runDelegation mctx = \case
+  DelegationHistory limit contract -> runInventoryHistory mctx limit contract
   DelegationCreate options -> do
     active <- activeTarget mctx
     kinds <- either dieT pure (traverse (parseDelegatedKind . T.pack) (options ^. #kinds))

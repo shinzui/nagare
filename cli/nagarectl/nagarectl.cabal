@@ -531,6 +531,7 @@ executable nagarectl
     Nagare.Cli.Runtime.Config
     Nagare.Cli.Runtime.Context
     Nagare.Cli.Runtime.ContextReview
+    Nagare.Cli.Runtime.Deployer
     Nagare.Cli.Runtime.Error
     Nagare.Cli.Runtime.Guards
     Nagare.Cli.Runtime.HostImage

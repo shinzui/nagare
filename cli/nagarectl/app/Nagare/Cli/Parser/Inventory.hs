@@ -6,6 +6,7 @@ where
 
 import Data.List.NonEmpty qualified as NE
 import Nagare.Cli.Options (Command (..))
+import Nagare.Cli.Options.Delegation (DelegationCommand (DelegationHistory))
 import Nagare.Cli.Parser.Common (contractOpt)
 import Nagare.Cli.Parser.Data (inventoryResourceOption)
 import Nagare.Dsl.Prelude
@@ -166,7 +167,7 @@ inventoryCmd =
             <> command
               "history"
               ( info
-                  (InventoryHistory <$> optional (option auto (long "limit" <> metavar "N" <> help "List at most N transactions (default 20)")) <*> contractOpt <**> helper)
+                  (Delegation <$> (DelegationHistory <$> optional (option auto (long "limit" <> metavar "N" <> help "List at most N transactions (default 20)")) <*> contractOpt) <**> helper)
                   (progDesc "List accepted transactions newest first with their actor and source, from the store alone")
               )
             <> command

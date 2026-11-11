@@ -12,6 +12,8 @@ data DelegationCommand
   | DelegationRevoke String FilePath
   | -- | The deployer name and the contract version.
     DelegationShow String (Maybe Int)
+  | -- | @inventory history@: the limit and the contract version (EP-247 D6).
+    DelegationHistory (Maybe Int) (Maybe Int)
   deriving stock (Generic, Show)
 
 data DelegationCreateOpts = DelegationCreateOpts
