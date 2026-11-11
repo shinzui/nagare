@@ -333,6 +333,16 @@ example, which also shows team grants and `nagarectl access check`.
 
 ---
 
+## Deploying a rendered site
+
+A CI deployer deploys a site without running its config program: the build runs
+`nagarectl site render -f nagare/Config.hs --out rendered.json` and `nagarectl site package --archive`,
+and the deployer publishes the archive with `app image-plan` and deploys it with
+`nagarectl site deploy --rendered rendered.json --skip-build …`. These are the same two reviewed stages
+as `site publish` ([ADR 32](../adr/0032-static-publication-is-a-local-package-then-two-reviewed-stages.md));
+only the configuration arrives as data. `site preview deploy --rendered` works the same way. See
+[Deploying from a rendered configuration](deploying-apps.md#deploying-from-a-rendered-configuration).
+
 ## Releases and rollback
 
 Every successful production deploy records a **release** — image tag, timestamp,

@@ -25,6 +25,7 @@ import Data.OpenApi.Declare (Declare, execDeclare)
 import Nagare.Contract.Delegation (DelegationDocument, TransactionHistory)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails)
+import Nagare.Contract.Rendered (RenderedConfiguration)
 import Nagare.Contract.V1
   ( DeployPreview
   , Finding
@@ -70,6 +71,7 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @Grant))
   void (declareSchemaRef (Proxy @DelegationDocument))
   void (declareSchemaRef (Proxy @TransactionHistory))
+  void (declareSchemaRef (Proxy @RenderedConfiguration))
 
 contractOpenApi :: OpenApi
 contractOpenApi =

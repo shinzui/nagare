@@ -1,0 +1,8 @@
+{
+  "config": "{\"kind\":\"Worker\",\"name\":\"mailer\"}\n",
+  "configDigest": "29c3ebf66efc84ff2842600d5a7a7378877efdff3c6a4479f8d3a790d0c7d71b",
+  "contractVersion": 1,
+  "document": "rendered-worker",
+  "kind": "Worker",
+  "nagareVersion": "0.18.0"
+}

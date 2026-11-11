@@ -4,7 +4,7 @@
 -- and the 'webWorker' preset yields a runnable default. M2 (renderer goldens)
 -- and M3 (emit/decode round-trip + kind discrimination) are added to the groups
 -- below as those milestones land.
-module WorkerSpec (workerTests) where
+module WorkerSpec (workerTests, richWorker) where
 
 import Control.Lens ((&), (.~))
 import Data.Aeson (Value (..), object, (.=))

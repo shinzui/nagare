@@ -1350,6 +1350,41 @@
         ],
         "type": "string"
       },
+      "RenderedConfiguration": {
+        "description": "A config program's exact stdout as data. nagarectl refuses an unknown member, a digest that is not the SHA-256 of config's UTF-8 bytes, and a document from a newer Nagare minor version.",
+        "properties": {
+          "config": {
+            "type": "string"
+          },
+          "configDigest": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "nagareVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "nagareVersion",
+          "kind",
+          "configDigest",
+          "config"
+        ],
+        "type": "object"
+      },
       "ReviewLocation": {
         "properties": {
           "directory": {

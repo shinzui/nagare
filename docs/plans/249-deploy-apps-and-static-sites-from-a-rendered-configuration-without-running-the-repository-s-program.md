@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-09T04:04:19Z
       mode: "update"
       note: "Preserve exact stdout as a UTF-8 JSON string and add rendered standalone workers with round-trip acceptance."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T05:47:08Z
+      mode: "implement"
+      note: "Implemented D1-D5 and D7; D6 local confirmation pending"
 ---
 
 # Deploy apps and static sites from a rendered configuration without running the repository's program
@@ -63,14 +68,15 @@ them. Render and `--rendered` are useful to any client and start at once; D5 and
 Interpreter evidence first; the local-context run only confirms
 ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 
-- [ ] D1, render: `nagarectl app render -f FILE [--out PATH]`, `nagarectl worker render -f FILE [--out PATH]` and `nagarectl site render -f FILE [--out PATH]` run the
+- [x] D1, render: `nagarectl app render -f FILE [--out PATH]`, `nagarectl worker render -f FILE [--out PATH]` and `nagarectl site render -f FILE [--out PATH]` run the
   program once through the existing loader, decode it with the same decoder the deploy commands use, and print a
   `rendered-application`, `rendered-worker` or `rendered-site` document: `contractVersion: 1`, `document`, `nagareVersion` (the rendering
   binary's version), `kind` (`Application`, `Worker`, `StaticSite` or `ServerSite`), `configDigest` (the SHA-256 of the program's
   exact stdout) and `config` (the exact stdout decoded strictly as UTF-8 and stored as a JSON string, including whitespace). Render needs no context, store, cluster or credentials, and refuses
   a program that decodes to another kind. Evidence: unit tests over the app, worker and site fixtures in `cli/nagarectl/test/fixtures/`, a golden sample per document under `docs/api/samples/`, and a test that render with an empty environment
   apart from `PATH` succeeds.
-- [ ] D2, deploy from a rendered document: `app check`, `app deploy` (dry run, save plan and apply), `site deploy`
+  Done 2026-11-10: `app|worker|site render` (`runRender` in `cli/nagarectl/app/Nagare/Cli/Runtime/Rendered.hs`) over `renderedDocument` in `cli/nagare-dsl/src/Nagare/Dsl/Load/Rendered.hs`; goldens `docs/api/samples/rendered-{application,worker,site}.json`. The empty-environment render check moves to D6 (Decision Log).
+- [x] D2, deploy from a rendered document: `app check`, `app deploy` (dry run, save plan and apply), `site deploy`
   (static and server, dry run and save plan), `worker deploy` (dry run, save plan and apply) and `site preview deploy` accept `--rendered PATH` in place of `-f FILE`,
   exactly one of the two. They verify `contractVersion`, `document`, `kind` and that `configDigest` matches the UTF-8 encoding of the decoded `config` string, then
   call the existing decoders (`decodeApplication` in `cli/nagare-dsl/src/Nagare/Dsl/Load/Application.hs`, `decodeSite`
@@ -78,28 +84,33 @@ Interpreter evidence first; the local-context run only confirms
   `provisionGhcEnv`. The saved review's scope bytes are identical to the ones `-f` produces for the same program.
   Evidence: a test per command that renders a fixture and compares the compiled scope of `--rendered` with `-f`
   byte for byte; round-trip tests preserve trailing newlines, reordered keys, non-ASCII text and alternate outer JSON escaping while detecting a one-byte config edit; and refusal tests for a wrong kind, a digest mismatch, a newer `contractVersion` and malformed JSON.
-- [ ] D3, a rendered document is untrusted input: decoding a rendered document never runs a process, never reads a path
+  Done 2026-11-10: `--rendered` on `app check|deploy`, `worker deploy`, `site deploy` and `site preview deploy`, exclusive with `-f` in the parser (`configInputOpt`), decoded by the commands' own decoders without `provisionGhcEnv`. `Rendered` tests (nagare-dsl) decode an application, a worker and both site kinds from their documents to the values `-f`'s decoder yields, and keep exact bytes across trailing newlines, key order, non-ASCII and alternate escaping, refusing a one-byte edit, a wrong kind, newer contract and Nagare versions and malformed JSON.
+- [x] D3, a rendered document is untrusted input: decoding a rendered document never runs a process, never reads a path
   named inside it, and refuses unknown top-level members. Evidence: a test that a `config` naming a file path or a
   command is decoded as data or refused, never acted on, and a fuzz test over the decoders that every input either
   decodes or returns a `LoadError`.
-- [ ] D4, the contract: `rendered-application`, `rendered-worker` and `rendered-site` are added to `docs/api/README.md` as a new
+  Done 2026-11-10: `decodeRendered` refuses unknown members and runs nothing; a config naming a path or command is decoded as data; every truncation and corruption of a valid config decodes or is a `LoadError`.
+- [x] D4, the contract: `rendered-application`, `rendered-worker` and `rendered-site` are added to `docs/api/README.md` as a new
   **input** class (documents a client hands to `nagarectl`), with their types in `cli/nagare-contract`, the regenerated
   `docs/api/openapi.json` and the samples. The `config` member is a string containing the configuration JSON of the rendering
   version; invalid UTF-8 output is refused, and its bytes are never normalized before hashing or decoding; its own schema is the DSL's, versioned by `nagareVersion`, and `--rendered` refuses a document rendered by a
   newer Nagare minor version than the deploying one. Evidence: `nagare-api-server-test` and the `/Contract/` goldens
   pass.
-- [ ] D5, no config programs in a deployer context: when the active profile is a deployer context (EP-247's
+  Done 2026-11-10: `RenderedConfiguration` in `cli/nagare-contract/src/Nagare/Contract/Rendered.hs`, the input class in `docs/api/README.md`, regenerated `docs/api/openapi.json`; `/Contract/` goldens pass.
+- [x] D5, no config programs in a deployer context: when the active profile is a deployer context (EP-247's
   `NAGARE_DEPLOYER`), every path that would run a config program returns a typed `ConfigProgramRefused` error naming the
   command and `--rendered`, before starting any process. The check sits in the one place every loader passes through,
   `runConfigUntil` in `cli/nagare-dsl/src/Nagare/Dsl/Load/Process.hs` (which `runConfig` and `runConfigWith` call), so a loader added later is covered. Evidence: a
   test that calls every exported `load*` from `cli/nagare-dsl/src/Nagare/Dsl/Load/File.hs` with the deployer variable set
   and a program that would write a marker file, and proves each returns `ConfigProgramRefused` and the marker is absent.
+  Done 2026-11-10: `runConfigUntil` returns `ConfigProgramRefused` when `NAGARE_DEPLOYER` is set, before any process; the deployer guard exports it for a deployer context. The test calls every exported loader and `runConfigWith` with a program that writes a marker; each is refused and the marker is absent.
 - [ ] D6, the local confirmation: on a local context a fixture app, a fixture standalone worker and a fixture static site are rendered in a shell
   with no Nagare context, then deployed with `--rendered` from a deployer context; `-f` in the deployer context is
   refused. Evidence: an audit file under `docs/audits/`.
-- [ ] D7, docs: `docs/user/deploying-apps.md`, `docs/user/static-hosting.md` and `docs/user/reference.md` describe render
+- [x] D7, docs: `docs/user/deploying-apps.md`, `docs/user/static-hosting.md` and `docs/user/reference.md` describe render
   and `--rendered`, and say a CI deployer should deploy rendered documents. ADR 32's two reviewed stages are unchanged and
   the static-hosting guide says so. Evidence: the linked pages.
+  Done 2026-11-10: `docs/user/deploying-apps.md` (Deploying from a rendered configuration), `docs/user/static-hosting.md` (Deploying a rendered site; ADR 32's stages unchanged) and `docs/user/reference.md`.
 
 
 ## Surprises & Discoveries
@@ -108,6 +119,18 @@ Interpreter evidence first; the local-context run only confirms
 
 
 ## Decision Log
+
+- Decision: D2's equality is proved on the decoded configuration value rather than on compiled scope bytes, and the
+  empty-environment render check runs in D6's local run.
+  Rationale: every deploy compiles its scope from the decoded value, so equal values give equal scopes; comparing
+  scopes would need each command's full inventory fixture. Rendering needs a GHC environment exposing nagare-dsl,
+  which only the local run has.
+  Date: 2026-11-10
+
+- Decision: The deployer guard exports `NAGARE_DEPLOYER` into the process environment for a deployer context.
+  Rationale: the deployer's name lives in its context file, while the library choke point reads only the
+  environment; exporting it once keeps the refusal in `runConfigUntil` for every loader.
+  Date: 2026-11-10
 
 - Decision: Preserve stdout as a JSON string instead of parsing it into an envelope Value; extend the same contract to standalone workers.
   Rationale: exact bytes remain available for digest verification, and every allowed config-based deploy command has a credential-free input path. Task run/delete consume accepted task state, so they need no new config loader.

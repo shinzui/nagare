@@ -15,6 +15,8 @@ import Nagare.Dsl.Prelude
 -- | Options for @site deploy@ (and, with a @--name@, @site preview deploy@).
 data SiteDeployOpts = SiteDeployOpts
   { file :: !FilePath
+  , rendered :: !(Maybe FilePath)
+  -- ^ EP-249: a rendered configuration document, in place of running @file@.
   , tag :: !(Maybe String)
   , baseDomain :: !(Maybe String)
   , projectDir :: !FilePath

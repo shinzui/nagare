@@ -1,0 +1,8 @@
+{
+  "config": "{\"kind\":\"StaticSite\",\"name\":\"docs\"}\n",
+  "configDigest": "bf52a2b4aa5a99c38e0f782a4a7dc0a8e60d8d48a5836cf31ed8bc69a6e14ba2",
+  "contractVersion": 1,
+  "document": "rendered-site",
+  "kind": "StaticSite",
+  "nagareVersion": "0.18.0"
+}

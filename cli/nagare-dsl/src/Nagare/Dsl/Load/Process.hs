@@ -20,6 +20,7 @@ import Nagare.Dsl.Load.Error
   )
 import Nagare.Dsl.Prelude
 import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.IO (hClose, hGetContents')
@@ -64,18 +65,23 @@ runConfigWith budget =
 -- blocks every thread of the non-threaded one.
 runConfigUntil :: IO () -> Int -> FilePath -> IO (Either LoadError ByteString)
 runConfigUntil expiry seconds' path = do
+  -- EP-249: the one place every loader passes, so no config program runs
+  -- in a delegated deployer's process, before any process starts.
+  deployer <- lookupEnv "NAGARE_DEPLOYER"
   exists <- doesFileExist path
-  if not exists
-    then pure (Left (FileNotFound path))
-    else do
-      result <- try @IOException (runBounded expiry path)
-      pure $ case result of
-        Left ioErr -> Left (CompileError path (Text.pack (show ioErr)))
-        Right Nothing -> Left (LoadTimedOut path seconds')
-        Right (Just (ExitFailure _, _out, err)) -> Left (CompileError path (Text.pack err))
-        Right (Just (ExitSuccess, out, _err))
-          | null out -> Left (MissingBinding path)
-          | otherwise -> Right (BC.pack out)
+  case () of
+    _
+      | maybe False (not . null) deployer -> pure (Left (ConfigProgramRefused path))
+      | not exists -> pure (Left (FileNotFound path))
+      | otherwise -> do
+          result <- try @IOException (runBounded expiry path)
+          pure $ case result of
+            Left ioErr -> Left (CompileError path (Text.pack (show ioErr)))
+            Right Nothing -> Left (LoadTimedOut path seconds')
+            Right (Just (ExitFailure _, _out, err)) -> Left (CompileError path (Text.pack err))
+            Right (Just (ExitSuccess, out, _err))
+              | null out -> Left (MissingBinding path)
+              | otherwise -> Right (BC.pack out)
 
 -- | Run the config, collecting its exit code, stdout and stderr, unless the
 -- expiry returns first ('Nothing').

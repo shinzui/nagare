@@ -21,6 +21,7 @@ import Nagare.Cli.Options
   , DepListOpts (..)
   , DepLogsOpts (..)
   , DeployOpts (..)
+  , RenderTarget (..)
   , TaskCommand (..)
   , TaskDeleteOpts (..)
   , TaskListOpts (..)
@@ -33,6 +34,7 @@ import Nagare.Cli.Options
 import Nagare.Cli.Parser.Common
   ( appNameArg
   , baseDomainOpt
+  , configInputOpt
   , contractOpt
   , defaultConfigFile
   , dryRunOpt
@@ -120,8 +122,7 @@ appImagePlanOptsParser =
 
 appDeployOptsParser :: FilePath -> Parser AppDeployOpts
 appDeployOptsParser defaultFile =
-  AppDeployOpts
-    <$> fileOpt defaultFile
+  configInputOpt defaultFile (pure AppDeployOpts)
     <*> tagOpt
     <*> baseDomainOpt
     <*> optional
@@ -186,8 +187,7 @@ appDeployOptsParser defaultFile =
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =
-  WorkerDeployOpts
-    <$> fileOpt defaultFile
+  configInputOpt defaultFile (pure WorkerDeployOpts)
     <*> tagOpt
     <*> optional
       ( strOption
@@ -335,6 +335,12 @@ workerSubparser =
             (progDesc "Deploy or review a long-running worker (apps/v1 Deployment) from the current directory")
         )
         <> command
+          "render"
+          ( info
+              (Render RenderWorker <$> fileOpt defaultConfigFile <*> ghcEnvOpt <*> optional (strOption (long "out" <> metavar "PATH" <> help "Write the document here instead of stdout")) <**> helper)
+              (progDesc "Run the Worker config program once and print its rendered-worker document; needs no context or credentials")
+          )
+        <> command
           "delete"
           ( info
               (Worker . WorkerDelete <$> workerDeleteOptsParser <**> helper)
@@ -354,7 +360,7 @@ appSubparser =
     ( command
         "check"
         ( info
-            (AppCheck <$> (AppCheckOpts <$> fileOpt defaultConfigFile <*> ghcEnvOpt) <**> helper)
+            (AppCheck <$> (configInputOpt defaultConfigFile (pure AppCheckOpts) <*> ghcEnvOpt) <**> helper)
             (progDesc "Evaluate a typed Application Config.hs without contacting any context or provider")
         )
         <> command
@@ -398,6 +404,12 @@ appSubparser =
           ( info
               (withReviewSource True (AppDeploy <$> appDeployOptsParser defaultConfigFile) <**> helper)
               (progDesc "Deploy a whole multi-workload Application (service + workers + databases + hooks) in one ordered rollout")
+          )
+        <> command
+          "render"
+          ( info
+              (Render RenderApplication <$> fileOpt defaultConfigFile <*> ghcEnvOpt <*> optional (strOption (long "out" <> metavar "PATH" <> help "Write the document here instead of stdout")) <**> helper)
+              (progDesc "Run the Application config program once and print its rendered-application document; needs no context or credentials")
           )
         <> command
           "image-plan"

@@ -139,6 +139,7 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
   let deployOptions tagText sourceText image =
         SiteDeployOpts
           { file = options ^. #file
+          , rendered = Nothing
           , tag = Just (T.unpack tagText)
           , baseDomain = options ^. #baseDomain
           , projectDir = options ^. #projectDir

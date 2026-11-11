@@ -8,6 +8,7 @@ module Nagare.Cli.Parser.Common
   , defaultConfigFile
   , dryRunOpt
   , fileOpt
+  , configInputOpt
   , ghcEnvOpt
   , namespaceOpt
   , tagOpt
@@ -38,6 +39,22 @@ import Options.Applicative
 -- | @--contract VERSION@: print the versioned contract document (EP-192).
 contractOpt :: Parser (Maybe Int)
 contractOpt = optional (option auto (long "contract" <> metavar "VERSION" <> help "Print the machine-readable outcome of contract VERSION (1) and exit with its outcome code"))
+
+-- | @-f FILE@ or @--rendered PATH@, exactly one; with neither, the default
+-- config program (EP-249).
+configInputOpt :: FilePath -> Parser (FilePath -> Maybe FilePath -> a) -> Parser a
+configInputOpt defaultFile constructor =
+  (\make (file, rendered) -> make file rendered)
+    <$> constructor
+    <*> ( ((,Nothing) <$> fileOpt defaultFile)
+            <|> ( (defaultFile,) . Just
+                    <$> strOption
+                      ( long "rendered"
+                          <> metavar "PATH"
+                          <> help "A rendered configuration document (nagarectl app|worker|site render) in place of -f; runs no config program"
+                      )
+                )
+        )
 
 fileOpt :: FilePath -> Parser FilePath
 fileOpt defaultFile =

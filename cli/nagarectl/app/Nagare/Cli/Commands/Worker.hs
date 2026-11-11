@@ -41,6 +41,7 @@ import Nagare.Cli.Options
   )
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Rendered (loadWorkerInput)
 import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
@@ -110,9 +111,8 @@ runWorkerPlan mctx options output = do
       (pure . T.pack)
       (options ^. #imageResource)
   imageId <- either dieT pure (Resource.mkResourceId imageText)
-  provisionGhcEnv (options ^. #ghcEnv)
   worker <-
-    Load.loadWorker (options ^. #file)
+    loadWorkerInput (options ^. #rendered) (options ^. #ghcEnv) (options ^. #file)
       >>= either (dieT . Load.renderLoadError) pure
   key <-
     maybe

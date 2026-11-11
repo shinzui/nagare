@@ -10,10 +10,11 @@ module Nagare.Test.Contract
 where
 
 import Control.Exception (try)
-import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecode, toJSON)
+import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecode, eitherDecodeStrict, toJSON)
 import Data.Aeson.Encode.Pretty (Config (..), Indent (..), defConfig, encodePretty')
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef)
@@ -26,10 +27,12 @@ import Data.Text qualified as Text
 import Nagare.Contract.Delegation
 import Nagare.Contract.Problem
 import Nagare.Contract.Project
+import Nagare.Contract.Rendered (RenderedConfiguration)
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..), fromNullable)
 import Nagare.Contract.Sink (clearContractSink, markExecuting, refuseWith, setContractSinkTo, transactionExitCode, transactionOutcome)
 import Nagare.Contract.V1
 import Nagare.Contract.Versions
+import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (ReviewBarrier (..))
 import Nagare.Inventory.Artifact
@@ -188,7 +191,15 @@ samples =
   , Sample "platform-versions.json" platformVersionsSample
   , Sample "delegation.json" delegationSample
   , Sample "transaction-history.json" transactionHistorySample
+  , Sample "rendered-application.json" (renderedSample Load.RenderedApplication "{\"kind\":\"Application\",\"name\":\"notes\"}\n")
+  , Sample "rendered-worker.json" (renderedSample Load.RenderedWorker "{\"kind\":\"Worker\",\"name\":\"mailer\"}\n")
+  , Sample "rendered-site.json" (renderedSample Load.RenderedStaticSite "{\"kind\":\"StaticSite\",\"name\":\"docs\"}\n")
   ]
+
+-- | EP-249: a document exactly as @nagarectl app|worker|site render@ writes it.
+renderedSample :: Load.RenderedKind -> BC.ByteString -> RenderedConfiguration
+renderedSample kind stdout =
+  either (error . show) id (Load.renderedDocument "0.18.0" kind stdout >>= first (Load.RenderedRefused . Text.pack) . eitherDecodeStrict)
 
 -- | EP-247 D7: an accepted delegation for the deployer @kotei@.
 delegationSample :: DelegationDocument

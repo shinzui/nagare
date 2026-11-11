@@ -5,7 +5,7 @@
 -- reference, a duplicate workload name, a duplicate database name). M2 (JSON
 -- emit/decode round-trip + kind discrimination) and M3 (config-as-program load)
 -- are added to the groups below as those milestones land.
-module ApplicationSpec (applicationTests) where
+module ApplicationSpec (applicationTests, multiApp) where
 
 import Control.Lens ((&), (.~))
 import Data.ByteString.Lazy (toStrict)

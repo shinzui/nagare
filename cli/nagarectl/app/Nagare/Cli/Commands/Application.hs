@@ -72,6 +72,7 @@ import Nagare.Cli.Options
   )
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Rendered (loadApplicationInput)
 import Nagare.Cli.Runtime.Target
   ( activeProfile
   , activeTarget
@@ -206,7 +207,7 @@ runAppDeployPlan mctx params appOptions output = do
       (appOptions ^. #imageResource)
   imageId <- either dieT pure (Resource.mkResourceId imageText)
   app <-
-    Load.loadApplication (params ^. #configPath)
+    loadApplicationInput (appOptions ^. #rendered) (appOptions ^. #ghcEnv) (params ^. #configPath)
       >>= either (dieT . Load.renderLoadError) pure
   hookEffects <-
     either
@@ -580,8 +581,7 @@ toAppDeployParams tp o =
 -- public summary. It reads no context, inventory or provider state.
 runAppCheck :: AppCheckOpts -> IO ()
 runAppCheck o = do
-  provisionGhcEnv (o ^. #ghcEnv)
-  app <- Load.loadApplication (o ^. #file) >>= either (dieT . Load.renderLoadError) pure
+  app <- loadApplicationInput (o ^. #rendered) (o ^. #ghcEnv) (o ^. #file) >>= either (dieT . Load.renderLoadError) pure
   BC.putStrLn . BS.toStrict . Aeson.encode $
     Aeson.object
       [ "kind" Aeson..= ("application" :: Text)
@@ -825,7 +825,7 @@ runDeploymentsLogs o = do
 
 runAppDeploy :: Maybe String -> AppDeployOpts -> IO ()
 runAppDeploy mctx options = do
-  provisionGhcEnv (options ^. #ghcEnv)
+  when (isNothing (options ^. #rendered)) (provisionGhcEnv (options ^. #ghcEnv))
   profile <- activeProfile mctx
   runAppDeployPlan
     mctx

@@ -50,6 +50,7 @@ import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types (ScopeKind (..), SourceLocation (SourceLocation), mintResourceId, mkContentDigest, mkLogicalKey, mkName, mkScopeId)
 import QuantitySpec (quantityTests)
+import RenderedSpec (renderedTests)
 import ResourceInventorySpec (resourceInventoryTests)
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
@@ -81,6 +82,7 @@ main =
       , testGroup "Nagare.Dsl Deployment tasks (EP-52)" deploymentTaskTests
       , imageTests
       , loadTests
+      , renderedTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
       , serverTests

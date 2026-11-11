@@ -546,6 +546,7 @@ executable nagarectl
     Nagare.Cli.Runtime.Process
     Nagare.Cli.Runtime.ProjectGuard
     Nagare.Cli.Runtime.Pulumi
+    Nagare.Cli.Runtime.Rendered
     Nagare.Cli.Runtime.ReviewFiles
     Nagare.Cli.Runtime.Target
 

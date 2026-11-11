@@ -1,0 +1,8 @@
+{
+  "config": "{\"kind\":\"Application\",\"name\":\"notes\"}\n",
+  "configDigest": "c3ae60556000d57f57ef119c8ce1eca373984847767ad3efe1f6d8b6241e97ed",
+  "contractVersion": 1,
+  "document": "rendered-application",
+  "kind": "Application",
+  "nagareVersion": "0.18.0"
+}

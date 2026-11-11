@@ -5,7 +5,7 @@
 -- golden Nginx config, Knative Service, and DomainMapping artifacts. Negative
 -- path: invalid leaves are rejected at construction, and a config that emits the
 -- wrong @kind@ (or none) is reported as 'UnexpectedKind' rather than misread.
-module StaticSpec (staticTests) where
+module StaticSpec (staticTests, notesSite) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS

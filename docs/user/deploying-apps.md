@@ -637,6 +637,25 @@ determinism; the autoscaling annotation values are quoted strings; and any
 sub-object (`env`, `resources`, the annotations block) is omitted entirely when
 its source field is absent.
 
+## Deploying from a rendered configuration
+
+`nagare/Config.hs` is a program, and every command that reads it runs it with `runghc` in the
+command's own environment. A CI deployer holding credentials for many repositories should not run
+their programs. Render the configuration where there is nothing to steal, in the build, and deploy
+the document:
+
+```bash
+nagarectl app render -f nagare/Config.hs --out rendered.json      # in the build: no context or credentials
+nagarectl app deploy --rendered rendered.json --tag T --image-resource R --save-plan DIR
+```
+
+The document keeps the program's exact output as a JSON string with its SHA-256, so the deploy
+decodes exactly the bytes the program printed, with the same decoder `-f` uses; the reviewed scope is
+the same. `--rendered` refuses a document with an unknown member, a wrong kind, a digest mismatch or
+a newer Nagare minor version, and needs no GHC. `worker render` and `worker deploy --rendered` do the
+same for a standalone worker. A [delegated deployer's](delegating-deployments.md) context refuses
+every config program and deploys only rendered documents.
+
 ## When a config is wrong
 
 Load failures are reported as a single clear line and a non-zero exit, never an

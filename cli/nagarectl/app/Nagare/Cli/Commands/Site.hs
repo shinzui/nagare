@@ -50,6 +50,7 @@ import Nagare.Cli.Options
   )
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT, orDie)
+import Nagare.Cli.Runtime.Rendered (loadSiteInput)
 import Nagare.Cli.Runtime.Target
   ( activeProfile
   , activeTarget
@@ -141,9 +142,8 @@ runSiteDeploy mctx sopts = do
     (isNothing (sopts ^. #imageResource))
     (dieT "reviewed site deployment requires --image-resource")
   bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
-  provisionGhcEnv (sopts ^. #ghcEnv)
   tp <- activeProfile mctx
-  esite <- Load.loadSite (sopts ^. #file)
+  esite <- loadSiteInput (sopts ^. #rendered) (sopts ^. #ghcEnv) (sopts ^. #file)
   -- EP-62 M3: qualify a name-only image with the resolved registry prefix; a
   -- fully-qualified ref is left untouched. Inlined per kind because the static
   -- and server site records are distinct types.
@@ -671,8 +671,7 @@ runPreviewDeploy mctx sopts pname = do
     (dieT "site preview deploy does not support production inventory options")
   bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
   tp <- activeProfile mctx
-  provisionGhcEnv (sopts ^. #ghcEnv)
-  esite <- Load.loadSite (sopts ^. #file)
+  esite <- loadSiteInput (sopts ^. #rendered) (sopts ^. #ghcEnv) (sopts ^. #file)
   case esite of
     Left err -> dieT (Load.renderLoadError err)
     Right (Load.SiteStatic site) -> do

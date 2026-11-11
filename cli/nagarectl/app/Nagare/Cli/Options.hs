@@ -1,6 +1,7 @@
 -- | Options. Executable-private CLI boundary.
 module Nagare.Cli.Options
-  ( AccessCheckOpts (..)
+  ( RenderTarget (..)
+  , AccessCheckOpts (..)
   , SiteCommonOpts (..)
   , SiteDeployOpts (..)
   , SiteListOpts (..)
@@ -158,6 +159,8 @@ data AppImagePlanOpts = AppImagePlanOpts
 -- history, so (unlike 'DeployOpts') it carries no @--base-domain@ or @--source@.
 data WorkerDeployOpts = WorkerDeployOpts
   { file :: !FilePath
+  , rendered :: !(Maybe FilePath)
+  -- ^ EP-249: a rendered configuration document, in place of running @file@.
   , tag :: !(Maybe String)
   , contextOverride :: !(Maybe FilePath)
   , dockerfileOverride :: !(Maybe FilePath)
@@ -176,6 +179,8 @@ data WorkerDeployOpts = WorkerDeployOpts
 -- versioned deploy-preview document (EP-192).
 data AppDeployOpts = AppDeployOpts
   { file :: !FilePath
+  , rendered :: !(Maybe FilePath)
+  -- ^ EP-249: a rendered configuration document, in place of running @file@.
   , tag :: !(Maybe String)
   , baseDomain :: !(Maybe String)
   , contextOverride :: !(Maybe FilePath)
@@ -221,6 +226,8 @@ data WorkerDeleteOpts = WorkerDeleteOpts
 -- | @app check@: evaluate a typed Application config with no context access.
 data AppCheckOpts = AppCheckOpts
   { file :: !FilePath
+  , rendered :: !(Maybe FilePath)
+  -- ^ EP-249: a rendered configuration document, in place of running @file@.
   , ghcEnv :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
@@ -376,9 +383,14 @@ data Command
   | Cleanup CleanupOpts
   | NixCache NixCacheCommand
   | Delegation DelegationCommand
+  | -- | Render a config program to a document: target, file, GHC environment, output (EP-249).
+    Render RenderTarget FilePath (Maybe FilePath) (Maybe FilePath)
   | -- | The repository and CI run a deploy came from, around its command (EP-247 D6).
     WithReviewSource ReviewSource Command
   deriving stock (Generic, Show)
+
+data RenderTarget = RenderApplication | RenderWorker | RenderSite
+  deriving stock (Eq, Show, Generic)
 
 data VersionOpts = VersionOpts
   { json :: !Bool

@@ -13,12 +13,12 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Options (Command (..))
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Actor (ReviewSource, setReviewSource)
+import Nagare.Inventory.Actor (Actor (..), ReviewSource, setReviewSource)
 import Nagare.Inventory.DelegatedPlanning (profileActor)
 import Nagare.Inventory.DeployerCommands (contextArgument, guardDeployerCommand)
 import Nagare.Inventory.Store.ObjectTarget (withObjectStoreForwards)
 import Nagare.Target (ActiveTarget, resolveActiveTarget)
-import System.Environment (getArgs)
+import System.Environment (getArgs, setEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -31,7 +31,12 @@ guardDeployer = do
   resolved <- try (resolveActiveTarget (contextArgument arguments)) :: IO (Either IOException ActiveTarget)
   case resolved >>= first (userError . T.unpack) . profileActor . (^. #profile) of
     Left _ -> pure ()
-    Right actor -> either (\message -> TIO.hPutStrLn stderr message >> exitFailure) pure (guardDeployerCommand actor arguments)
+    Right actor -> do
+      either (\message -> TIO.hPutStrLn stderr message >> exitFailure) pure (guardDeployerCommand actor arguments)
+      -- EP-249: the config loader refuses every program in this process.
+      case actor of
+        DeployerActor name -> setEnv "NAGARE_DEPLOYER" (T.unpack name)
+        OperatorActor _ -> pure ()
 
 -- | D6: record the command's source for the review it prepares. The
 -- revision comes from a deploy's own @--source@ when it names one.

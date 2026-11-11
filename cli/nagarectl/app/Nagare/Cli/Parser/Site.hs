@@ -6,6 +6,7 @@ where
 
 import Nagare.Cli.Options
   ( Command (..)
+  , RenderTarget (..)
   , SiteCommonOpts (..)
   , SiteDeployOpts (..)
   , SiteListOpts (..)
@@ -16,6 +17,7 @@ import Nagare.Cli.Options
   )
 import Nagare.Cli.Parser.Common
   ( baseDomainOpt
+  , configInputOpt
   , contractOpt
   , defaultConfigFile
   , dryRunOpt
@@ -52,8 +54,7 @@ import Options.Applicative
 
 siteDeployOptsParser :: FilePath -> Parser SiteDeployOpts
 siteDeployOptsParser defaultFile =
-  SiteDeployOpts
-    <$> fileOpt defaultFile
+  configInputOpt defaultFile (pure SiteDeployOpts)
     <*> tagOpt
     <*> baseDomainOpt
     <*> strOption
@@ -172,6 +173,12 @@ siteSubparser =
   subparser
     ( command "deploy" siteDeployCmd
         <> command "package" sitePackageCmd
+        <> command
+          "render"
+          ( info
+              (Render RenderSite <$> fileOpt defaultConfigFile <*> ghcEnvOpt <*> optional (strOption (long "out" <> metavar "PATH" <> help "Write the document here instead of stdout")) <**> helper)
+              (progDesc "Run the site config program once and print its rendered-site document; needs no context or credentials")
+          )
         <> command "publish" sitePublishCmd
         <> command "releases" siteReleasesCmd
         <> command "list" siteListCmd

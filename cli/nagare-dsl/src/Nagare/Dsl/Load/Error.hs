@@ -36,6 +36,12 @@ data LoadError
     -- Haskell, so it can loop or block forever; without a bound that wedges
     -- whichever thread loaded it — for @nagared@, a webhook handler.
     LoadTimedOut !FilePath !Int
+  | -- | a delegated deployer's context never runs a config program (EP-249):
+    -- the program it was asked to run
+    ConfigProgramRefused !FilePath
+  | -- | a rendered configuration document was refused before decoding
+    -- (EP-249): why
+    RenderedRefused !Text
   deriving stock (Generic, Eq, Show)
 
 -- | Render a 'LoadError' as a single line (or short block) for the terminal.
@@ -61,6 +67,12 @@ renderLoadError = \case
       <> " timed out after "
       <> Text.pack (show seconds)
       <> "s (does it loop or block?)"
+  ConfigProgramRefused path ->
+    "nagare: a deployer context never runs a config program ("
+      <> Text.pack path
+      <> "); render it in the build with `nagarectl app|worker|site render` and deploy with --rendered"
+  RenderedRefused reason ->
+    "nagare: rendered configuration refused: " <> reason
 
 -- ---------------------------------------------------------------------------
 -- Execution budget

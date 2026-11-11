@@ -5,7 +5,7 @@
 -- assembled here, and renders to golden Dockerfile, Knative Service, and
 -- DomainMapping artifacts. Negative path: invalid leaves are rejected, and a
 -- config of the wrong @kind@ is reported as 'UnexpectedKind'.
-module ServerSpec (serverTests) where
+module ServerSpec (serverTests, notesApp) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS

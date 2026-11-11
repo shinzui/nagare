@@ -43,6 +43,7 @@ library
     Nagare.Dsl.Load.File
     Nagare.Dsl.Load.Job
     Nagare.Dsl.Load.Process
+    Nagare.Dsl.Load.Rendered
     Nagare.Dsl.Load.ServerSite
     Nagare.Dsl.Load.Site
     Nagare.Dsl.Load.StaticSite
@@ -139,6 +140,7 @@ test-suite nagare-dsl-test
     JobSpec
     LoadSpec
     QuantitySpec
+    RenderedSpec
     ResourceInventorySpec
     ServerSpec
     StaticSpec

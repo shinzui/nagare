@@ -40,6 +40,17 @@ review `git diff docs/api/samples`.
 | `nix-cache-endpoint` | `NixCacheEndpoint` | operation | `nagarectl nix-cache forward --contract 1` |
 | `nix-cache-push-result` | `NixCachePushResult` | operation | `nagarectl nix-cache push … --contract 1` |
 | `deploy-preview` | `DeployPreview` | operation | `nagarectl app deploy --dry-run --contract 1` |
+| `rendered-application` | `RenderedConfiguration` | input | `nagarectl app render`; consumed by `app check|deploy --rendered` |
+| `rendered-worker` | `RenderedConfiguration` | input | `nagarectl worker render`; consumed by `worker deploy --rendered` |
+| `rendered-site` | `RenderedConfiguration` | input | `nagarectl site render`; consumed by `site deploy|preview deploy --rendered` |
+
+**Input documents** are handed to `nagarectl` rather than printed by it (EP-249). A rendered
+configuration carries a config program's exact stdout as the JSON string `config`, so its UTF-8 bytes
+after outer decoding are exactly what the program printed; `configDigest` is the lower-case hex SHA-256
+of those bytes, never of a re-serialized value. `nagarectl` refuses an unknown member, a wrong `kind`
+or `document`, a `contractVersion` other than 1, a digest mismatch and a document whose `nagareVersion`
+is a newer minor version than its own. The `config` string's own schema is the DSL's, versioned by
+`nagareVersion`. Decoding a document runs nothing and reads no path it names.
 
 The item types `ScopeState`, `Finding` and `Publication` are shared by the CLI documents and the
 admin API's paginated responses, so an item has one shape everywhere.
