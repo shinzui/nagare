@@ -9,7 +9,8 @@
 -- handle refuses the token at once, and object store keys. New handles are
 -- proved before the bundle is written, and earlier ones are retired only
 -- after it is written, so a failed run leaves the previous bundle working
--- and a rerun completes it.
+-- and a rerun completes it. On a cloud context the bundle also holds a key
+-- of the deployer's service account (D6), retired the same way.
 module Nagare.Inventory.DeployerCredentials
   ( CredentialRequest (..)
   , CredentialOps (..)
@@ -50,6 +51,7 @@ import Nagare.Contract.Delegation (DeployerCredentials (..))
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.DeployerAccess (builderAccountName, deployerAccountName)
+import Nagare.Inventory.DeployerCloudAccess (CloudKeyOps, cloudBundleFiles, retireCloudKeysExcept)
 import Nagare.Inventory.DeployerStoreAccess (StoreAccess, addKeyScript, keyPodOverrides, retireKeysScript)
 import Nagare.Resource.Wire (canonicalValue)
 import System.Directory (createDirectory, doesDirectoryExist, doesPathExist, listDirectory, makeAbsolute, pathIsSymbolicLink, removeDirectoryRecursive, renameDirectory)
@@ -89,6 +91,8 @@ data StoreKeyOps = StoreKeyOps
 data CredentialOps = CredentialOps
   { kubectl :: !Kubectl
   , storeKeys :: !(Maybe StoreKeyOps)
+  , cloudKeys :: !(Maybe CloudKeyOps)
+  -- ^ The deployer's service account keys, on a cloud context.
   , randomHex :: !(Int -> IO Text)
   }
   deriving stock (Generic)
@@ -158,6 +162,8 @@ renderKubeconfig context user caData token =
 issueCredentials :: CredentialOps -> CredentialRequest -> IO (Either Text DeployerCredentials)
 issueCredentials ops request = runExceptT $ do
   home <- ExceptT (refuseBundleDirectory (request ^. #out))
+  -- The project assertion runs here, before any cluster or cloud request.
+  projectNumber <- forM (ops ^. #cloudKeys) (\keys -> ExceptT (keys ^. #projectNumber))
   caData <- ExceptT (rootCertificate ops)
   let system = backendConfigMapNamespace
       deployerAccount = deployerAccountName (request ^. #deployer)
@@ -170,6 +176,7 @@ issueCredentials ops request = runExceptT $ do
     secret <- liftIO ((ops ^. #randomHex) 20)
     ExceptT ((keys ^. #addKey) key secret)
     pure (key, secret)
+  cloudKey <- forM (ops ^. #cloudKeys) (\keys -> (keys,) <$> ExceptT (keys ^. #createKey))
   deployerConfig <- except (renderKubeconfig (request ^. #context) deployerAccount caData token)
   builderConfig <- forM builder $ \(builderToken, _) -> except (renderKubeconfig (request ^. #context) builderAccount caData builderToken)
   storeFile <- forM storeKey $ \(key, secret) -> except (canonicalValue (object ["accessKeyId" .= key, "secretAccessKey" .= secret]))
@@ -179,6 +186,7 @@ issueCredentials ops request = runExceptT $ do
         ]
           <> [(builderKubeconfigPathIn, bytes) | Just bytes <- [builderConfig]]
           <> [(storeCredentialsPathIn (request ^. #context), bytes) | Just bytes <- [storeFile]]
+          <> concat [cloudBundleFiles keys number key | Just (keys, key) <- [cloudKey], Just number <- [projectNumber]]
   ExceptT (writeBundle home files)
   -- Only now, with the new bundle on disk, retire what was issued before.
   retiredHandles <- ExceptT (retireHandles ops system deployerAccount (handleName deployerAccount))
@@ -188,6 +196,7 @@ issueCredentials ops request = runExceptT $ do
   retiredKeys <- case (ops ^. #storeKeys, storeKey) of
     (Just keys, Just (key, _)) -> ExceptT ((keys ^. #retireKeysExcept) key)
     _ -> pure []
+  retiredCloudKeys <- maybe (pure []) (\(keys, key) -> ExceptT (retireCloudKeysExcept keys (key ^. #keyId))) cloudKey
   pure
     DeployerCredentials
       { contractVersion = ContractVersion1
@@ -202,7 +211,8 @@ issueCredentials ops request = runExceptT $ do
       , builderTokenExpiresAt = Nullable (snd <$> builder)
       , storeCredentials = Nullable (T.pack (storeCredentialsPathIn (request ^. #context)) <$ storeKey)
       , storeKeyId = Nullable (fst <$> storeKey)
-      , retired = sort (retiredHandles <> retiredBuilders <> map ("store-key/" <>) retiredKeys)
+      , cloudKeyId = Nullable ((^. #keyId) . snd <$> cloudKey)
+      , retired = sort (retiredHandles <> retiredBuilders <> map ("store-key/" <>) retiredKeys <> map ("cloud-key/" <>) retiredCloudKeys)
       }
 
 -- | Key administration through one-shot Pods of the store's client image in

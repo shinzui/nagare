@@ -111,6 +111,7 @@ import Nagare.Test.Contract (contractTests)
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
 import Nagare.Test.Delegation (delegationTests)
 import Nagare.Test.DeployerAccess (deployerAccessTests)
+import Nagare.Test.DeployerCloudAccess (deployerCloudAccessTests)
 import Nagare.Test.DeployerCredentials (deployerCredentialsTests)
 import Nagare.Test.Domains (certificateChainTests, domainsTests)
 import Nagare.Test.Environment
@@ -179,6 +180,7 @@ main = do
             [ inventoryAccessTests
             , delegationTests
             , deployerAccessTests
+            , deployerCloudAccessTests
             , deployerCredentialsTests
             , staticImageTests
             , hostTests

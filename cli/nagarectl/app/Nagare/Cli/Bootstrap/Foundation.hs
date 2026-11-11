@@ -106,7 +106,7 @@ foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.
             (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
             (Map.elems (ResourceInventory.snapshotScopes snapshot))
         )
-    stackTarget <- foundationStackTarget active workspace imageLink
+    stackTarget <- foundationStackTarget active workspace imageLink (map snd (Map.elems (ResourceInventory.snapshotScopes snapshot)))
     let stackName = case stackTarget of
           FoundationStack _ name _ _ _ _ _ -> name
           _ -> error "foundationStackTarget did not return a stack"
@@ -282,7 +282,7 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
           (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
           (Map.elems (ResourceInventory.snapshotScopes snapshot))
       )
-  stackTarget <- foundationStackTarget active workspace imageLink
+  stackTarget <- foundationStackTarget active workspace imageLink (map snd (Map.elems (ResourceInventory.snapshotScopes snapshot)))
   bucketNames <- foundationBucketNames active
   buckets <- forM (Set.toAscList bucketNames) $ \bucketText -> do
     bucket <- either dieT pure (Resource.mkName bucketText)

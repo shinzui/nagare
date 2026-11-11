@@ -126,6 +126,7 @@ import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.CloudCollection (encodeCloudCollectionBundle)
 import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter)
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.DeployerCloudAccess (activeDelegatedDeployers)
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Store qualified as InventoryStore
@@ -575,10 +576,17 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
           foundationImageLink
             active
             (concatMap ResourceInventory.declarations (concatMap ResourceInventory.scopeBundles scopes))
-        let catalog =
-              InventoryCloud.withCloudInstanceName
-                (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
-                rawCatalog
+        catalog <-
+          either
+            dieT
+            pure
+            ( InventoryCloud.withDelegatedDeployers
+                (map (^. #name) (activeDelegatedDeployers scopes))
+                ( InventoryCloud.withCloudInstanceName
+                    (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
+                    rawCatalog
+                )
+            )
         bookkeeping <-
           either
             dieT

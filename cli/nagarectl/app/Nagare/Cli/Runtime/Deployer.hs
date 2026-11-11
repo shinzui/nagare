@@ -22,7 +22,7 @@ import Nagare.Target (ActiveTarget, contextNameText, nagareConfigDir, resolveAct
 import System.Directory (doesFileExist)
 import System.Environment (getArgs, lookupEnv, setEnv)
 import System.Exit (exitFailure)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO (stderr)
 
 -- | D3: a deployer context runs only the commands its delegation covers,
@@ -55,6 +55,14 @@ bundleDefaults target = do
     "NAGARE_INVENTORY_STORE_CREDENTIALS_FILE"
     ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
     (configRoot </> "credentials" </> T.unpack (contextNameText context) <> "-s3.json")
+  -- D6: on a cloud context, gcloud (the store's session and image
+  -- publication) uses the bundle's configuration and its key.
+  let gcloudConfig = takeDirectory configRoot </> "gcloud"
+      key = gcloudConfig </> "deployer-key.json"
+  defaultTo "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE" [] key
+  keyPresent <- doesFileExist key
+  configured <- lookupEnv "CLOUDSDK_CONFIG"
+  when (keyPresent && maybe True null configured) (setEnv "CLOUDSDK_CONFIG" gcloudConfig)
   where
     defaultTo variable alternatives path = do
       given <- traverse lookupEnv (variable : alternatives)

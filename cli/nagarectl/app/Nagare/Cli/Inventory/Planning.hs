@@ -337,6 +337,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
       workspace
       (ResourceInventory.inventoryBinding inventory)
       declarations
+      scopes
       (selected ResourceInventory.CloudFoundationExecutor)
   artifact <-
     if Map.null artifactSpecs

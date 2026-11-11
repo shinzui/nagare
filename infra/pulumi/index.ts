@@ -3,6 +3,7 @@ import * as gcp from "@pulumi/gcp";
 import { NagarePerimeter } from "./src/components/NagarePerimeter";
 import { NagareNixCache } from "./src/components/NagareNixCache";
 import { NagareAdminApiReader } from "./src/components/NagareAdminApiReader";
+import { NagareDelegatedDeployer, delegatedRepositoryId, parseDelegatedDeployers } from "./src/components/NagareDelegatedDeployer";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
@@ -38,6 +39,11 @@ const enableAdminApiReaderCfg = cfg.getBoolean("enableAdminApiReader") ?? false;
 const adminApiReaderAccountIdCfg = cfg.get("adminApiReaderAccountId") ?? "nagare-admin-api";
 const stateBucketCfg = cfg.get("stateBucket") ?? `${gcpProject}-nagare-pulumi-state`;
 const adminApiInventoryPrefixCfg = cfg.get("adminApiInventoryPrefix") ?? `nagare/${pulumi.getStack()}/inventory`;
+// EP-248 D6: one cloud principal per accepted, active delegation. nagarectl
+// derives this list from the accepted head; absent, so an existing stack
+// previews unchanged. The deployers write the same inventory the admin API
+// reader reads, so they share its bucket and prefix keys.
+const delegatedDeployersCfg = parseDelegatedDeployers(cfg.get("delegatedDeployers"));
 // A second stack in an already provisioned project must not acquire another
 // Pulumi ownership claim over the shared project API enablement resources.
 const manageProjectApisCfg = cfg.getBoolean("manageProjectApis") ?? true;
@@ -141,6 +147,24 @@ const adminApiReader = enableAdminApiReaderCfg && shouldDeclareResource("nagare:
     stateBucket: stateBucketCfg,
     inventoryPrefix: adminApiInventoryPrefixCfg,
 }, { dependsOn: apiServices }) : undefined;
+
+const delegatedRepositories = delegatedDeployersCfg.map((deployer) => delegatedRepositoryId(gcpProject, region, artifactRegistryIdCfg, deployer));
+if (new Set(delegatedRepositories).size !== delegatedRepositories.length) {
+    throw new Error("two delegated deployers name the same Artifact Registry repository");
+}
+// No stack output: nagarectl derives each account's email from its ID, and a
+// new output would change every existing stack's preview.
+for (const deployer of delegatedDeployersCfg) {
+    const name = `nagare-delegated-deployer-${deployer.name}`;
+    if (shouldDeclareResource("nagare:env:NagareDelegatedDeployer", name)) new NagareDelegatedDeployer(name, {
+        gcpProject,
+        region,
+        platformRepositoryId: artifactRegistryIdCfg,
+        inventoryBucket: stateBucketCfg,
+        inventoryPrefix: adminApiInventoryPrefixCfg,
+        deployer,
+    }, { dependsOn: apiServices });
+}
 
 // Integration Point 1 — the stable core stack-output names. The exported
 // binding name *is* the stack-output name, so do not rename any of these

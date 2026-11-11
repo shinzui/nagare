@@ -107,12 +107,21 @@ inventoryGcloudAuthTests =
         let valid = response start "selected@example.invalid" "" "private-token" []
             candidates =
               ["{}", "private-token", T.replace "project" "foreign" valid, response (addUTCTime (-3590) start) "selected@example.invalid" "" "private-token" []]
-                <> [response start "selected@example.invalid" "" "private-token" [(key, "private-path")] | key <- ["credential_file_override", "access_token_file", "access_token"]]
+                <> [response start "selected@example.invalid" "" "private-token" [(key, "private-path")] | key <- ["access_token_file", "access_token"]]
         forM_ candidates $ \value -> do
           result <- newGcloudSessionWith (pure start) (\_ _ -> pure (Right value)) [] "project"
           case result of
             Right _ -> assertFailure "invalid credential context accepted"
             Left reason -> assertBool "credential output leaked" (not ("private" `T.isInfixOf` reason))
+    , testCase "a deployer's credential file override is accepted and pinned for refreshes (EP-248 D6)" $ do
+        calls <- newIORef []
+        let keyed = response start "nagare-deployer-ci@project.iam.gserviceaccount.com" "" "token-one" [("credential_file_override", "/bundle/.config/gcloud/deployer-key.json")]
+            run variables _ = Right keyed <$ modifyIORef' calls (<> [variables])
+        session <- newGcloudSessionWith (pure start) run [] "project" >>= right
+        _ <- sessionCapture session ["storage", "buckets", "describe", "gs://bucket"]
+        pinned <- last <$> readIORef calls
+        lookup "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE" pinned @?= Just "/bundle/.config/gcloud/deployer-key.json"
+        lookup "CLOUDSDK_CORE_ACCOUNT" pinned @?= Just "nagare-deployer-ci@project.iam.gserviceaccount.com"
     , testCase "a missing or expired gcloud login is its own reason; other failures keep their first line (F107)" $ do
         let failed stderrText = "gcloud credential or ownership command failed or timed out\n" <> stderrText
             session stderrText = newGcloudSessionWith (pure start) (\_ _ -> pure (Left (failed stderrText))) [] "project"

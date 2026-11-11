@@ -139,9 +139,11 @@ parseSnapshot project now output = do
   unless (selectedProject == project) (Left "inventory gcloud credential project differs from the selected context")
   unless (valid access && valid account && valid configuration && addUTCTime 60 now < expiry) invalid
   unless (universe == "" || universe == "googleapis.com") (Left "inventory SDK requires the googleapis.com universe")
+  -- A credential file override is a delegated deployer's key (EP-248 D6); it
+  -- is pinned with the identity, so a refresh cannot switch it.
   unless
-    (all (T.null . (\key -> Map.findWithDefault "" key auth)) ["credential_file_override", "access_token_file", "access_token"])
-    (Left "inventory SDK does not yet support gcloud credential/token file overrides; set NAGARE_INVENTORY_GCS_TRANSPORT=gcloud")
+    (all (T.null . (\key -> Map.findWithDefault "" key auth)) ["access_token_file", "access_token"])
+    (Left "inventory SDK does not yet support gcloud access token overrides; set NAGARE_INVENTORY_GCS_TRANSPORT=gcloud")
   when
     (Map.findWithDefault "false" "disable_credentials" auth `notElem` ["", "false", "False"])
     (Left "inventory SDK requires authenticated gcloud credentials")

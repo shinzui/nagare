@@ -1,6 +1,7 @@
 -- | Inventory / Foundation. Executable-private CLI boundary.
 module Nagare.Cli.Inventory.Foundation
   ( foundationBucketNames
+  , foundationDeployerKeys
   , foundationImageLink
   , foundationPulumiBucket
   , foundationStackAddress
@@ -27,6 +28,7 @@ import Nagare.Inventory.Adapters.FoundationRuntime
   , realGcloudRunner
   )
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.DeployerCloudAccess (activeDelegatedDeployers, delegatedDeployerConfigKeys)
 import Nagare.Inventory.Foundation qualified as InventoryFoundation
 import Nagare.Ops.PulumiBackend
   ( gcsBucketOfUrl
@@ -52,9 +54,10 @@ inventoryFoundationAdapter ::
   PlatformWorkspace ->
   Resource.ContextBinding ->
   [ResourceInventory.Declaration] ->
+  [ResourceInventory.ScopeDeclaration] ->
   Set.Set Resource.ResourceId ->
   IO InventoryAdapter.Adapter
-inventoryFoundationAdapter active workspace binding declarations selectedResources
+inventoryFoundationAdapter active workspace binding declarations scopes selectedResources
   | Set.null selectedResources =
       pure
         (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
@@ -72,7 +75,7 @@ inventoryFoundationAdapter active workspace binding declarations selectedResourc
         (dieT "reviewed cloud foundation belongs to another target project")
       backendBucket <- foundationPulumiBucket active
       imageLink <- foundationImageLink active declarations
-      stackTarget <- foundationStackTarget active workspace imageLink
+      stackTarget <- foundationStackTarget active workspace imageLink scopes
       let stackName = case stackTarget of
             FoundationStack _ name _ _ _ _ _ -> name
             _ -> error "foundationStackTarget did not return a stack"
@@ -121,15 +124,19 @@ foundationPulumiBucket active
 foundationStackAddress :: Resource.Name -> Resource.Name -> Resource.ProviderAddress
 foundationStackAddress = Resource.CloudStack
 
-foundationStackTarget :: ActiveTarget -> PlatformWorkspace -> Maybe Text -> IO FoundationTarget
-foundationStackTarget active workspace imageLink = do
+-- | The stack's config: the profile's keys, the accepted host image and the
+-- delegated deployers' cloud principals, both derived from the composition.
+foundationStackTarget :: ActiveTarget -> PlatformWorkspace -> Maybe Text -> [ResourceInventory.ScopeDeclaration] -> IO FoundationTarget
+foundationStackTarget active workspace imageLink scopes = do
   let profile = active ^. #profile
       context = contextNameText (active ^. #contextName)
   stateRoot <- nagareStateDir
   project <- either dieT pure (Resource.mkName (profile ^. #project))
   stack <- either dieT pure (Resource.mkName context)
   bucket <- foundationPulumiBucket active
+  deployerKeys <- foundationDeployerKeys active scopes
   let environment = pulumiEnvFor stateRoot context profile
+      seeded = seedKeys profile
   pure
     ( FoundationStack
         project
@@ -138,8 +145,20 @@ foundationStackTarget active workspace imageLink = do
         (workspace ^. #pulumiDir)
         (environment ^. #home)
         bucket
-        (seedKeys profile <> maybe [] (\link -> [("nagare:nagareImageSelfLink", link)]) imageLink)
+        ( seeded
+            <> maybe [] (\link -> [("nagare:nagareImageSelfLink", link)]) imageLink
+            <> filter ((`notElem` map fst seeded) . fst) deployerKeys
+        )
     )
+
+-- | EP-248 D6: @nagare:delegatedDeployers@ from the composition's accepted,
+-- active delegations, never from the context file.
+foundationDeployerKeys :: ActiveTarget -> [ResourceInventory.ScopeDeclaration] -> IO [(Text, Text)]
+foundationDeployerKeys active scopes =
+  either
+    dieT
+    pure
+    (delegatedDeployerConfigKeys (contextNameText (active ^. #contextName)) (active ^. #profile) (activeDelegatedDeployers scopes))
 
 foundationImageLink :: ActiveTarget -> [ResourceInventory.Declaration] -> IO (Maybe Text)
 foundationImageLink active declarations = do

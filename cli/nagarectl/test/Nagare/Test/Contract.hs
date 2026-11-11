@@ -238,6 +238,7 @@ deployerCredentialsSample =
     , builderTokenExpiresAt = Nullable (Just "2026-12-11T09:30:00Z")
     , storeCredentials = Nullable (Just ".config/nagare/credentials/labs-s3.json")
     , storeKeyId = Nullable (Just "NGR0123456789ABCDEF")
+    , cloudKeyId = Nullable Nothing
     , retired = ["nagare-system/nagare-deployer-kotei-1f2e3d4c", "store-key/NGRFEDCBA9876543210", "team-a-build/nagare-builder-kotei-1f2e3d4c"]
     }
 

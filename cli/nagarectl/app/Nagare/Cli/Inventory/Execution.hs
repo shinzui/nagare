@@ -591,6 +591,7 @@ inventoryExecutionRegistryWith binding session mctx inventory bundle = do
                     root
                     binding
                     declarations
+                    scopes
                     (selected ResourceInventory.CloudFoundationExecutor)
               )
       artifact <-

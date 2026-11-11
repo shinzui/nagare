@@ -9,6 +9,7 @@ module Nagare.Inventory.Cloud
   , CloudDeclarationBundle (..)
   , CloudCatalog (..)
   , CloudCatalogEntry (..)
+  , CloudCatalogTemplateEntry (..)
   , NativeRegistration (..)
   , RegistrationClass (..)
   , RegistrationParityError (..)
@@ -22,6 +23,8 @@ module Nagare.Inventory.Cloud
   , decodeCloudCatalog
   , selectedCloudCatalog
   , withCloudInstanceName
+  , withDelegatedDeployers
+  , delegatedDeployerComponentName
   , withTunnelPerimeter
   , cloudCatalogUrn
   , cloudBookkeepingRegistrations
@@ -117,8 +120,34 @@ data CloudCatalog = CloudCatalog
   -- only with the image-enabled entries (F43).
   , catalogAdminApiReaderEnabled :: ![CloudCatalogEntry]
   -- ^ The admin API's dedicated read-only account and grants (EP-196, EP-198).
+  , catalogDelegatedDeployerTemplate :: ![CloudCatalogTemplateEntry]
+  -- ^ One delegated deployer's principal (EP-248 D6), with @{deployer}@ in
+  -- its names; 'withDelegatedDeployers' instantiates it per delegation.
+  , catalogDelegatedDeployers :: ![CloudCatalogEntry]
+  -- ^ The instantiated entries, empty until 'withDelegatedDeployers'.
   }
   deriving stock (Eq, Show, Generic)
+
+-- | A catalog entry whose key, name and parent hold the @{deployer}@
+-- placeholder, which a 'Name' cannot.
+data CloudCatalogTemplateEntry = CloudCatalogTemplateEntry
+  { templateKey :: !Text
+  , templateNativeType :: !Text
+  , templateNativeName :: !Text
+  , templateParent :: !(Maybe Text)
+  , templateLayer :: !Int
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance FromJSON CloudCatalogTemplateEntry where
+  parseJSON = withObject "cloud catalog template entry" $ \o -> do
+    name <- o .: "name"
+    CloudCatalogTemplateEntry
+      <$> o .:? "key" .!= name
+      <*> o .: "type"
+      <*> pure name
+      <*> o .: "parent"
+      <*> o .: "layer"
 
 instance FromJSON CloudCatalogEntry where
   parseJSON = withObject "cloud catalog entry" $ \o -> do
@@ -134,12 +163,13 @@ decodeCloudCatalog :: ByteString -> Either Text CloudCatalog
 decodeCloudCatalog bytes = do
   value <- first T.pack (eitherDecodeStrict bytes)
   catalog <- first T.pack (parseEither parser value)
-  let allEntries =
-        catalogFoundationManaged catalog
-          <> catalogNixCacheEnabled catalog
-          <> catalogImageEnabled catalog
-          <> catalogCdnEnabled catalog
-          <> catalogAdminApiReaderEnabled catalog
+  -- The template is checked as one instantiation, so its names are valid and
+  -- its parents resolve.
+  instantiated <- withDelegatedDeployers ["example"] catalog
+  unless
+    (all (T.isInfixOf "{deployer}" . templateNativeName) (catalogDelegatedDeployerTemplate catalog))
+    (Left "cloud catalog has a delegated deployer entry that is not per deployer")
+  let allEntries = catalogEntries instantiated
       keys = map catalogKey allEntries
       byKey = Map.fromList [(catalogKey entry, entry) | entry <- allEntries]
   unless (length keys == Map.size byKey) (Left "cloud catalog has duplicate logical keys")
@@ -164,6 +194,36 @@ decodeCloudCatalog bytes = do
         <*> o .:? "imageEnabled" .!= []
         <*> o .:? "cdnEnabled" .!= []
         <*> o .:? "adminApiReaderEnabled" .!= []
+        <*> o .:? "delegatedDeployerEnabled" .!= []
+        <*> pure []
+
+-- | Every entry the catalog holds, instantiated delegated deployers included.
+catalogEntries :: CloudCatalog -> [CloudCatalogEntry]
+catalogEntries catalog =
+  catalogFoundationManaged catalog
+    <> catalogNixCacheEnabled catalog
+    <> catalogImageEnabled catalog
+    <> catalogCdnEnabled catalog
+    <> catalogAdminApiReaderEnabled catalog
+    <> catalogDelegatedDeployers catalog
+
+-- | The Pulumi name of one delegated deployer's component, as
+-- @infra/pulumi/index.ts@ names it.
+delegatedDeployerComponentName :: Text -> Text
+delegatedDeployerComponentName deployer = "nagare-delegated-deployer-" <> deployer
+
+-- | Instantiate the delegated deployer template once per deployer, as
+-- @nagare:delegatedDeployers@ declares them (EP-248 D6).
+withDelegatedDeployers :: [Text] -> CloudCatalog -> Either Text CloudCatalog
+withDelegatedDeployers deployers catalog = do
+  entries <- forM deployers $ \deployer -> forM (catalogDelegatedDeployerTemplate catalog) $ \entry -> do
+    let fill = T.replace "{deployer}" deployer
+        named field value = first (\reason -> "delegated deployer " <> deployer <> " has an invalid catalog " <> field <> ": " <> reason) (mkName (fill value))
+    key <- named "key" (templateKey entry)
+    nativeName <- named "name" (templateNativeName entry)
+    parent <- traverse (named "parent") (templateParent entry)
+    pure (CloudCatalogEntry key (templateNativeType entry) nativeName parent (templateLayer entry))
+  pure catalog {catalogDelegatedDeployers = concat entries}
 
 selectedCloudCatalog :: Bool -> Bool -> Bool -> Bool -> CloudCatalog -> [CloudCatalogEntry]
 selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalog =
@@ -172,6 +232,7 @@ selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalo
     <> (if imageEnabled then catalogImageEnabled catalog else [])
     <> (if imageEnabled && cdnEnabled then catalogCdnEnabled catalog else [])
     <> (if adminApiEnabled then catalogAdminApiReaderEnabled catalog else [])
+    <> catalogDelegatedDeployers catalog
 
 -- | A tunnel context's perimeter (ADR 34): no internet-facing firewall rule, and no Cloud DNS zone or
 -- record, since the domain's DNS is on Cloudflare. @infra/pulumi@ omits the same members from
@@ -217,16 +278,7 @@ cloudCatalogUrn stack catalog entry = do
         <> nameText (catalogNativeName entry)
     )
   where
-    byKey =
-      Map.fromList
-        [ (catalogKey member, member)
-        | member <-
-            catalogFoundationManaged catalog
-              <> catalogNixCacheEnabled catalog
-              <> catalogImageEnabled catalog
-              <> catalogCdnEnabled catalog
-              <> catalogAdminApiReaderEnabled catalog
-        ]
+    byKey = Map.fromList [(catalogKey member, member) | member <- catalogEntries catalog]
     go seen member
       | Set.member (catalogKey member) seen = Left "cloud catalog has a parent cycle"
       | otherwise = case catalogParent member of

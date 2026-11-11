@@ -15,6 +15,7 @@ import Data.Text.IO qualified as TIO
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Options.Delegation (DelegationCommand (..), DelegationCreateOpts (..))
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Contract.Delegation (ActorSummary (..), SourceSummary (..), TransactionHistory (..), TransactionSummary (..))
 import Nagare.Contract.Schema (fromNullable)
@@ -24,15 +25,17 @@ import Nagare.Inventory.ClusterSession (kubectlConnectionArguments)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Components.LocalObjectStore (readLocalRegistryDigest, selectLocalMinioImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.DeployerCloudAccess (CloudKeyOps, delegatedRepositoryId, gcloudKeyOps)
 import Nagare.Inventory.DeployerCredentials (CredentialOps (..), CredentialRequest (..), issueCredentials, kubectlStoreKeyOps, randomHexIO)
 import Nagare.Inventory.DeployerDelegation
 import Nagare.Inventory.DeployerStoreAccess (StoreAccess (..))
 import Nagare.Inventory.Store (readHead)
 import Nagare.Inventory.Store.S3 (parseS3Endpoint)
 import Nagare.Inventory.TransactionHistory (delegationDocument, readTransactionHistory)
+import Nagare.Ops.ContextGuard (projectGuardVerdict)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types (generationNumber)
-import Nagare.Target (ActiveTarget, InventoryStoreKind (InventoryStoreObject), Mode (Local), contextFilePath, contextNameText, effectiveInventoryStore)
+import Nagare.Target (ActiveTarget, InventoryStoreKind (InventoryStoreObject), Mode (Cloud, Local), contextFilePath, contextNameText, effectiveInventoryStore)
 import Nagare.Target.Kinds (hostShapeFor)
 import System.Environment (lookupEnv)
 import System.Process (readProcessWithExitCode)
@@ -99,9 +102,10 @@ runDelegation mctx = \case
     snapshot <- Inventory.loadTargetSnapshotReadOnly active
     accepted <- maybe (dieT ("no accepted delegation names deployer " <> T.pack deployer)) pure (Map.lookup (T.pack deployer) (acceptedOf snapshot))
     when (accepted ^. #state /= DelegationActive) (dieT ("delegation " <> T.pack deployer <> " is revoked and issues no credentials"))
-    when (active ^. #profile . #mode /= Local) (dieT "deployer credentials on a cloud context need the delegation's cloud principal, which this release does not issue yet")
+    let cloud = active ^. #profile . #mode == Cloud
     store <- delegationStoreAccess active
-    when (isNothing store) (dieT "a local deployer reaches the inventory in the in-cluster object store; move it there first with nagarectl inventory store migrate --to object")
+    when (not cloud && isNothing store) (dieT "a local deployer reaches the inventory in the in-cluster object store; move it there first with nagarectl inventory store migrate --to object")
+    cloudKeys <- if cloud then Just <$> deployerCloudKeys active accepted else pure Nothing
     let contextText = contextNameText (active ^. #contextName)
         run arguments input = do
           connection <- kubectlConnectionArguments contextText
@@ -115,6 +119,7 @@ runDelegation mctx = \case
         CredentialOps
           { kubectl = run
           , storeKeys = (\access -> kubectlStoreKeyOps run (T.pack deployer) access issue) <$> store
+          , cloudKeys = cloudKeys
           , randomHex = randomHexIO
           }
         CredentialRequest
@@ -137,6 +142,7 @@ runDelegation mctx = \case
                 , "run it with HOME=" <> document ^. #home <> " and XDG_CONFIG_HOME=" <> document ^. #home <> "/.config"
                 , "token expires " <> document ^. #tokenExpiresAt
                 ]
+                  <> ["cloud key " <> key <> " in .config/gcloud" | Just key <- [fromNullable (document ^. #cloudKeyId)]]
                   <> ["retired " <> handle | handle <- document ^. #retired]
               )
           )
@@ -167,6 +173,18 @@ planDelegation mctx active creating delegation output = do
   Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native) active candidate output
   where
     isRight' = either (const False) (const True)
+
+-- | EP-248 D6: the deployer's service account keys through the operator's
+-- gcloud session, behind the same project assertion as every cloud-mutating
+-- path (ADR 9). The account is the one @infra/pulumi@ declares for the
+-- delegation, so a delegation without a cloud principal is refused here.
+deployerCloudKeys :: ActiveTarget -> DeployerDelegation -> IO CloudKeyOps
+deployerCloudKeys active delegation = do
+  _ <- either dieT pure (delegatedRepositoryId (active ^. #profile) delegation)
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  let assertion = projectGuardVerdict <$> projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
+      run arguments = first (\(_ :: IOException) -> "could not invoke gcloud") <$> try (readProcessWithExitCode "gcloud" arguments "")
+  gcloudKeyOps assertion run (active ^. #profile . #project) (delegation ^. #name)
 
 -- | EP-248 D10: on a local context whose inventory is in the in-cluster
 -- object store, the deployer's store identity is administered by the store's

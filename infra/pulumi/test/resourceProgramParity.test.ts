@@ -20,6 +20,11 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("cache")) config["nagare:enableNixCache"] = "true";
     if (variant.includes("tunnel")) config["nagare:ingress"] = "cloudflare-tunnel";
     if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
+    if (variant.includes("delegated-deployer")) {
+        config["nagare:delegatedDeployers"] = JSON.stringify([
+            { name: "example", accountId: "nagare-deployer-example", imageRepository: "us-west1-docker.pkg.dev/example-project/example-images" },
+        ]);
+    }
     if (variant.includes("cdn-legacy")) {
         config["nagare:enableCdn"] = "true";
         config["nagare:cdnCertificateMode"] = "legacy";
@@ -156,6 +161,7 @@ async function main(): Promise<void> {
     const foundationManagedCache = runVariant("foundation-managed-cache");
     const foundationManagedImage = runVariant("foundation-managed-image");
     const foundationManagedAdminApi = runVariant("foundation-managed-admin-api");
+    const foundationManagedDeployer = runVariant("foundation-managed-delegated-deployer");
     // ADR 34: a tunnel context keeps only the IAP SSH rule and declares no Cloud DNS.
     const tunnel = runVariant("foundation-managed-image-tunnel");
     const tunnelNames = names(tunnel);
@@ -191,6 +197,7 @@ async function main(): Promise<void> {
     verifyGuardedVariant("foundation-managed-cache", foundationManagedCache);
     verifyGuardedVariant("foundation-managed-image", foundationManagedImage);
     verifyGuardedVariant("foundation-managed-admin-api", foundationManagedAdminApi);
+    verifyGuardedVariant("foundation-managed-delegated-deployer", foundationManagedDeployer);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
@@ -206,6 +213,7 @@ async function main(): Promise<void> {
         imageEnabled: CatalogEntry[];
         cdnEnabled: CatalogEntry[];
         adminApiReaderEnabled: CatalogEntry[];
+        delegatedDeployerEnabled: CatalogEntry[];
     };
     assert(catalog.version === 1, "cloud resource catalog version changed");
     const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
@@ -241,7 +249,25 @@ async function main(): Promise<void> {
     const nativeCdnNames = [...names(legacyCdn)].filter((name) => !imageSet.has(name)).sort();
     assert(JSON.stringify(cdnNames) === JSON.stringify(nativeCdnNames),
         "reviewed cloud CDN catalog differs from registrations in the actual Pulumi program");
-    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled);
+    // EP-248 D6: the delegated deployer section is a template, instantiated once per
+    // delegation by nagarectl with the deployer's name for {deployer}: exactly what one
+    // nagare:delegatedDeployers entry adds. Its layers sit above every other section's
+    // for the same reason as the reader's.
+    const deployerEntries = catalog.delegatedDeployerEnabled.map((entry) => ({
+        ...entry,
+        key: (entry.key ?? entry.name).replace(/\{deployer\}/g, "example"),
+        name: entry.name.replace(/\{deployer\}/g, "example"),
+        parent: entry.parent === null ? null : entry.parent.replace(/\{deployer\}/g, "example"),
+    }));
+    assert(catalog.delegatedDeployerEnabled.every((entry) => entry.name.includes("{deployer}")), "a delegated deployer catalog entry is not per deployer");
+    const deployerNames = catalog.foundationManaged.concat(deployerEntries).map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeDeployerNames = foundationManagedDeployer.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(deployerNames) === JSON.stringify(nativeDeployerNames),
+        "reviewed cloud delegated deployer catalog differs from registrations in the actual Pulumi program");
+    const deployerFloor = Math.min(...deployerEntries.map((entry) => entry.layer));
+    assert(deployerFloor > Math.max(...otherLayers, ...catalog.adminApiReaderEnabled.map((entry) => entry.layer)),
+        "a delegated deployer layer is not above every other catalog layer");
+    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled, deployerEntries);
     const byKey = new Map(allEntries.map((entry) => [entry.key ?? entry.name, entry]));
     assert(byKey.size === allEntries.length, "cloud catalog has duplicate logical keys");
     for (const entry of allEntries) {

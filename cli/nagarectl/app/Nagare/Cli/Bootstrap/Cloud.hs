@@ -13,7 +13,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Cli.Inventory.CloudCatalog (loadCloudCatalog)
-import Nagare.Cli.Inventory.Foundation (foundationImageLink)
+import Nagare.Cli.Inventory.Foundation (foundationDeployerKeys, foundationImageLink)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Dsl.Prelude
 import Nagare.Init (seedKeys)
@@ -21,6 +21,7 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   ( decodePhysicalResources
   )
 import Nagare.Inventory.Cloud qualified as InventoryCloud
+import Nagare.Inventory.DeployerCloudAccess (activeDelegatedDeployers)
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.VmPower (retainVmPowerIntents)
 import Nagare.Platform.Workspace (PlatformWorkspace)
@@ -46,10 +47,21 @@ buildCloudStageCandidate active workspace snapshot
       (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
       let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter loadedCatalog else loadedCatalog
       let profile = active ^. #profile
-          catalog =
-            InventoryCloud.withCloudInstanceName
-              (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
-              rawCatalog
+          acceptedScopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
+      -- EP-248 D6: one principal per accepted, active delegation, as the
+      -- foundation stack's derived config declares them.
+      deployerKeys <- foundationDeployerKeys active acceptedScopes
+      catalog <-
+        either
+          dieT
+          pure
+          ( InventoryCloud.withDelegatedDeployers
+              (map (^. #name) (activeDelegatedDeployers acceptedScopes))
+              ( InventoryCloud.withCloudInstanceName
+                  (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
+                  rawCatalog
+              )
+          )
       imageLink <-
         foundationImageLink
           active
@@ -173,6 +185,10 @@ buildCloudStageCandidate active workspace snapshot
                                     <> [ ("nagare:nagareImageSelfLink", link)
                                        | entry `elem` InventoryCloud.catalogImageEnabled catalog
                                        , link <- maybe [] pure imageLink
+                                       ]
+                                    <> [ key
+                                       | entry `elem` InventoryCloud.catalogDelegatedDeployers catalog
+                                       , key <- deployerKeys
                                        ]
                                 )
                             )

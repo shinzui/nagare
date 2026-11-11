@@ -157,6 +157,7 @@ ops world storeFailure =
                 writeIORef (world ^. #keys) [keep]
                 pure (Right [key | key <- existing, key /= keep])
             }
+    , cloudKeys = Nothing
     , randomHex = \n -> do
         existing <- readIORef (world ^. #keys)
         pure (if n == 8 then "key" <> T.pack (show (length existing + 1)) else T.replicate (2 * n) "a")

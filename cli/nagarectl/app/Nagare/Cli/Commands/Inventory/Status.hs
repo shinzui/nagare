@@ -313,6 +313,7 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
                     root
                     binding
                     (ResourceInventory.inventoryDeclarations inventory)
+                    (Map.elems (ResourceInventory.inventoryScopes inventory))
                     (Set.fromList (ids ResourceInventory.CloudFoundationExecutor))
               )
       kubernetesLane = do

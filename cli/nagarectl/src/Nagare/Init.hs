@@ -23,6 +23,7 @@ module Nagare.Init
   , renderTargetEnv
   , pulumiConfigSetArgs
   , seedKeys
+  , adminApiInventoryKeys
   , nextStepsText
   , operatorRoles
   , requiredApis

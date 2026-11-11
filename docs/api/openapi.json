@@ -413,6 +413,12 @@
               "null"
             ]
           },
+          "cloudKeyId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "context": {
             "type": "string"
           },
@@ -475,6 +481,7 @@
           "builderTokenExpiresAt",
           "storeCredentials",
           "storeKeyId",
+          "cloudKeyId",
           "retired"
         ],
         "type": "object"

@@ -94,6 +94,8 @@ data DeployerCredentials = DeployerCredentials
   , builderTokenExpiresAt :: !(Nullable Text)
   , storeCredentials :: !(Nullable Text)
   , storeKeyId :: !(Nullable Text)
+  , cloudKeyId :: !(Nullable Text)
+  -- ^ The deployer's service account key, on a cloud context (EP-248 D6).
   , retired :: ![Text]
   }
   deriving stock (Eq, Show, Generic)

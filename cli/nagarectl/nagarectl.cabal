@@ -245,6 +245,7 @@ library
     Nagare.Inventory.DelegatedKind
     Nagare.Inventory.DelegatedPlanning
     Nagare.Inventory.DeployerAccess
+    Nagare.Inventory.DeployerCloudAccess
     Nagare.Inventory.DeployerCommands
     Nagare.Inventory.DeployerCredentials
     Nagare.Inventory.DeployerDelegation
@@ -730,6 +731,7 @@ test-suite nagarectl-test
     Nagare.Test.Database
     Nagare.Test.Delegation
     Nagare.Test.DeployerAccess
+    Nagare.Test.DeployerCloudAccess
     Nagare.Test.DeployerCredentials
     Nagare.Test.Domains
     Nagare.Test.Effectful.CollectionFixture
