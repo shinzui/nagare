@@ -2,6 +2,9 @@
 
 ## 2026-11-11
 
+* **Addition**: FRIC-10 records slowdown process friction with mori://shinzui/nagare/scripts/test-managed-command-audit.sh: The fast gate's audit and mutation steps failed one at a time for a new subcommand and a new update kind
+
+
 * **Update**: FRIC-8 resolved: Operator decision 2026-11-11: registration lists grow by design, so their caps were raised and the misplaced groups returned.
 
 

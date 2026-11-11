@@ -6,7 +6,9 @@
       pkgs = import inputs.nixpkgs { inherit system; };
       # A release system receives every platform output. A tooling-only system
       # (ADR 3) receives the packaged CLI, its configuration SDK and the SDK
-      # consumer check, and no platform payload.
+      # consumer check, with a deploy payload: the platform payload without the
+      # bootstrap image archives, because every deploy prepares the platform
+      # workspace and a delegated deployer runs on ARM64 too (EP-248).
       isReleaseSystem = lib.elem system releaseSystems;
       nagareSource = import ./source.nix {
         inherit (inputs.nixpkgs) lib;
@@ -25,10 +27,11 @@
         atticServerImage = attic.serverImage;
         atticPinFile = attic.pinFile;
         sourceRoot = ../.;
+        includeBootstrapImages = isReleaseSystem;
       };
       haskellPackages = import ./haskell-packages.nix {
         inherit pkgs releaseVersion sourceRevision;
-        platformPackage = if isReleaseSystem then platformPackage else null;
+        inherit platformPackage;
         atticClient = attic.client;
         cradleSrc = inputs.cradle;
         gogolSrc = inputs.gogol;

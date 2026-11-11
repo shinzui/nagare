@@ -8,6 +8,10 @@
   atticServerImage,
   atticPinFile,
   sourceRevision ? null,
+  # A tooling system (EP-248) receives a deploy payload: everything but the
+  # two x86_64 bootstrap image archives, which only platform bootstrap reads
+  # and which an ARM64 builder cannot produce without a cross toolchain.
+  includeBootstrapImages ? true,
 }:
 
 let
@@ -30,9 +34,8 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
 {
   inherit src;
   nativeBuildInputs = [ pkgs.jq ];
-  inherit netCertManagerImage;
   revision = if sourceRevision == null then "" else sourceRevision;
-} ''
+} (''
   payload="$out/share/nagare"
   mkdir -p "$payload/infra" "$payload/docs/plans" "$payload/cli"
 
@@ -54,16 +57,18 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
   cp -R "$src/cli/nagare-contract" "$payload/cli/nagare-contract"
   cp -R "$src/infra/pulumi" "$payload/infra/pulumi"
   cp -R "$src/cluster" "$payload/cluster"
-  chmod u+w "$payload/cluster/bootstrap/net-certmanager"
-  cp "$netCertManagerImage" \
-    "$payload/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz"
   test "$(tr -d '[:space:]' < "$payload/cluster/bootstrap/net-certmanager/image-reference")" = \
     '${netCertManagerImageReference}'
   mkdir -p "$payload/cluster/bootstrap/nix-cache"
   chmod u+w "$payload/cluster/bootstrap/nix-cache"
+  cp "${atticPinFile}" "$payload/cluster/bootstrap/nix-cache/attic-pin.json"
+'' + pkgs.lib.optionalString includeBootstrapImages ''
+  chmod u+w "$payload/cluster/bootstrap/net-certmanager"
+  cp "${netCertManagerImage}" \
+    "$payload/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz"
   cp "${atticServerImage}" \
     "$payload/cluster/bootstrap/nix-cache/attic-server-image.tar.gz"
-  cp "${atticPinFile}" "$payload/cluster/bootstrap/nix-cache/attic-pin.json"
+'' + ''
   cp -R "$src/scripts" "$payload/scripts"
   cp -R "$src/nixos" "$payload/nixos"
   cp -R "$src/docs/user" "$payload/docs/user"
@@ -72,4 +77,4 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
   cp "$src/docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md" "$payload/docs/plans/"
 
   chmod -R u+rwX,go+rX "$payload"
-''
+'')
