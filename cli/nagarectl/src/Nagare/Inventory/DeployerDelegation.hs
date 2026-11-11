@@ -55,6 +55,7 @@ import Data.Aeson
   )
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -172,10 +173,7 @@ validateDelegation delegation = do
     unless
       (not (T.null suffix) && T.all (\c -> c `elem` ['a' .. 'z'] || c `elem` ['0' .. '9'] || c == '-') suffix && T.length suffix <= 62)
       (Left ("host suffix " <> suffix <> " must be part of one DNS label"))
-  let repository = delegation ^. #imageRepository
-  when
-    (T.null repository || T.any (`elem` (":@ " :: String)) repository || "/" `T.isSuffixOf` repository)
-    (Left "image repository must be a registry path without a tag, digest or trailing slash")
+  unless (validImageRepository (delegation ^. #imageRepository)) (Left "image repository must be a registry path without a tag, digest or trailing slash")
   _ <- mkTeamKey (delegation ^. #team)
   let q = delegation ^. #quota
   when (T.null (q ^. #cpu) || T.null (q ^. #memory) || q ^. #pods < 1) (Left "quota needs a cpu, a memory and at least one pod")
@@ -620,6 +618,21 @@ allowedKubernetesKinds =
 
 upstreamOf :: Text -> Text -> Text
 upstreamOf ns svc = "http://" <> svc <> "." <> ns <> ".svc.cluster.local"
+
+-- | @HOST[:PORT]/PATH@: a registry host, which may carry a port (a local
+-- registry does), then a path with no tag, digest, space or trailing slash.
+validImageRepository :: Text -> Bool
+validImageRepository repository = case T.breakOn "/" repository of
+  (host, path) ->
+    not (T.null host)
+      && T.length path > 1
+      && not (T.any (`elem` ("@ " :: String)) repository)
+      && not (T.any (== ':') path)
+      && not ("/" `T.isSuffixOf` path)
+      && case T.splitOn ":" host of
+        [_] -> True
+        [name, port] -> not (T.null name) && not (T.null port) && T.all isDigit port
+        _ -> False
 
 withinRepository :: Text -> Text -> Bool
 withinRepository repository destination = case T.stripPrefix repository destination of

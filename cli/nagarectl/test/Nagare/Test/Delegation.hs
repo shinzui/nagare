@@ -126,9 +126,17 @@ scopeTests =
         , teamDelegation & #buildNamespace .~ Just "team-a"
         , teamDelegation & #name .~ "Kotei"
         , teamDelegation & #imageRepository .~ "registry.example.test/team:latest"
+        , teamDelegation & #imageRepository .~ "k3d-registry.localhost:5000/project/team@sha256"
+        , teamDelegation & #imageRepository .~ "k3d-registry.localhost:5000/project/team:v1"
+        , teamDelegation & #imageRepository .~ "k3d-registry.localhost:port/project/team"
+        , teamDelegation & #imageRepository .~ "registry.example.test/team/"
+        , teamDelegation & #imageRepository .~ "registry.example.test"
         , teamDelegation & #team .~ ""
         ]
       $ \candidate -> assertBool (show candidate) (isLeft (validateDelegation candidate))
+  , testCase "accepts a registry host with a port, as a local registry has" $
+      fmap (^. #imageRepository) (validateDelegation (teamDelegation & #imageRepository .~ "k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a"))
+        @?= Right "k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a"
   , testCase "the generated protected route's digest matches the production site compiler" $ do
       fixture <- protectedSiteFixture
       let routes = [digest | bundle <- scopeBundles (protectedSite fixture), Managed resource <- bundle ^. #declarations, Kubernetes _ _ kind (Just ns) host <- [resource ^. #address], nameText kind == "domainmapping", nameText ns == "nagare-system", NativeObject digest <- [resource ^. #spec], nameText host == "secure.example.com"]
