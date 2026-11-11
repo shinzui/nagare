@@ -47,7 +47,10 @@ import Text.Read (readMaybe)
 
 newtype ObjectName = ObjectName Text deriving stock (Eq, Ord, Show)
 
-newtype Generation = Generation Integer deriving stock (Eq, Ord, Show)
+-- | A transport's observation of one object version, compared only for
+-- equality and never stored: GCS reports an integer generation, an
+-- S3-compatible store an opaque ETag (EP-251).
+data Generation = Generation !Integer | ObjectEtag !Text deriving stock (Eq, Ord, Show)
 
 data PutCondition = IfAbsent | IfGenerationMatches !Generation
   deriving stock (Eq, Show)
@@ -106,14 +109,17 @@ putArgs source prefix name condition =
   , "cp"
   , source
   , T.unpack (objectUrl prefix name)
-  , "--if-generation-match=" <> show generation
+  , "--if-generation-match=" <> generation
   , "--print-created-message"
   , "--quiet"
   ]
   where
+    -- An ETag is never a GCS generation; the transport refuses it before
+    -- running gcloud, and this value matches no object.
     generation = case condition of
-      IfAbsent -> 0
-      IfGenerationMatches (Generation value) -> value
+      IfAbsent -> "0"
+      IfGenerationMatches (Generation value) -> show value
+      IfGenerationMatches (ObjectEtag _) -> "-1"
 
 describeArgs :: Text -> ObjectName -> [String]
 describeArgs prefix name =
@@ -239,6 +245,7 @@ gcloudObjectOps prefix = do
                       (_, Right (Just _)) | remaining > 0 -> check (remaining - 1)
                       _ -> pure (GetUnknown "object changed or could not be read during download")
                   _ -> pure (GetUnknown "object download failed")
+      put (IfGenerationMatches (ObjectEtag _)) _ _ = pure (PutNoEffect "a GCS object has no ETag generation")
       put condition name bytes = withSystemTempDirectory "nagare-inventory-put" $ \directory -> do
         let source = directory </> "object"
         BS.writeFile source bytes

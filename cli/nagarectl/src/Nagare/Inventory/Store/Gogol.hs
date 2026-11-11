@@ -357,6 +357,7 @@ conditionNumber IfAbsent = Right 0
 conditionNumber (IfGenerationMatches (Generation value))
   | value > 0 && value <= toInteger (maxBound :: Int64) = Right (fromInteger value)
   | otherwise = Left "inventory conditional generation is out of range"
+conditionNumber (IfGenerationMatches (ObjectEtag _)) = Left "a GCS object has no ETag generation"
 
 encodePart :: Text -> Text
 encodePart = TE.decodeUtf8 . urlEncode False . TE.encodeUtf8

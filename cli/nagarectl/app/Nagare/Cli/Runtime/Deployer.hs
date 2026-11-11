@@ -3,6 +3,7 @@
 module Nagare.Cli.Runtime.Deployer
   ( guardDeployer
   , withCommandSource
+  , withObjectStoreForwards
   )
 where
 
@@ -15,6 +16,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Actor (ReviewSource, setReviewSource)
 import Nagare.Inventory.DelegatedPlanning (profileActor)
 import Nagare.Inventory.DeployerCommands (contextArgument, guardDeployerCommand)
+import Nagare.Inventory.Store.ObjectTarget (withObjectStoreForwards)
 import Nagare.Target (ActiveTarget, resolveActiveTarget)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)

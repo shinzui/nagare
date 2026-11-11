@@ -497,9 +497,10 @@ effectivePulumiBackend tp = case tp ^. #mode of
   Cloud -> tp ^. #pulumiBackend
 
 effectiveInventoryStore :: TargetProfile -> InventoryStoreKind
-effectiveInventoryStore tp = case tp ^. #mode of
-  Local -> InventoryStoreLocal
-  Cloud -> tp ^. #inventoryStore
+effectiveInventoryStore tp = case (tp ^. #mode, tp ^. #inventoryStore) of
+  (Local, InventoryStoreObject) -> InventoryStoreObject
+  (Local, _) -> InventoryStoreLocal
+  (Cloud, kind) -> kind
 
 defaultGcsInventoryStoreUrl :: Text -> TargetProfile -> Text
 defaultGcsInventoryStoreUrl ctx tp =
@@ -847,6 +848,7 @@ resolveProfileFrom ctx = do
   deployer <- fmap T.pack <$> ctxRaw ctx "NAGARE_DEPLOYER"
   operatorName <- fmap T.pack <$> ctxRaw ctx "NAGARE_OPERATOR"
   either (ioError . userError . T.unpack) (const (pure ())) (actorFromNames deployer operatorName)
+  when (mode == Cloud && inventoryStore == InventoryStoreObject) (ioError (userError "NAGARE_INVENTORY_STORE=object is only for a local context"))
   pure
     TargetProfile
       { project = project

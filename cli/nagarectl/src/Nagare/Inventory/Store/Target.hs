@@ -3,6 +3,8 @@ module Nagare.Inventory.Store.Target
   ( openTargetStoreReadOnly
   , openProfileReviewStoreReadOnly
   , openRemoteStore
+  , openObjectTargetStore
+  , objectInventoryUrl
   , remoteInventoryUrl
   )
 where
@@ -22,6 +24,8 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Counters (Counter (GcloudSession), countElapsed)
 import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
+import Nagare.Inventory.Store.ObjectOps (ObjectOps)
+import Nagare.Inventory.Store.ObjectTarget (objectStoreOps)
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
 import Nagare.Resource.Types
@@ -41,6 +45,17 @@ openTargetStoreReadOnly target = do
   case effectiveInventoryStore (target ^. #profile) of
     InventoryStoreLocal -> openFilesystemStoreReadOnly path
     InventoryStoreGcs -> openRemoteStore False target stateRoot
+    InventoryStoreObject -> openObjectTargetStore False target stateRoot
+
+-- | EP-251: a local context's history in its in-cluster object store.
+openObjectTargetStore :: Bool -> ActiveTarget -> FilePath -> IO (Either StoreError InventoryStore)
+openObjectTargetStore mayInitialize target stateRoot =
+  objectStoreOps mayInitialize target >>= \case
+    Left reason -> pure (Left (StoreConditionFailed reason))
+    Right ops -> openOverObjectOps mayInitialize target stateRoot ops
+
+objectInventoryUrl :: ActiveTarget -> T.Text
+objectInventoryUrl target = target ^. #profile . #inventoryStoreUrl
 
 -- | A validated local removal review retains authority when its profile file
 -- no longer exists. This opener never initializes history/cache/client state;
@@ -101,36 +116,44 @@ openRemoteStoreWithProfile mayInitialize target stateRoot stored = do
           Left reason
             | reason == gcloudLoginRequired -> pure (Left StoreAuthRequired)
             | otherwise -> pure (invalid reason)
-          Right ops -> do
-            clientResult <- localStoreClientIdentity mayInitialize stateRoot contextText
-            case clientResult of
-              Left err -> pure (Left err)
-              Right client -> do
-                case (mkContextId contextText, mkName project) of
-                  (Right contextId, Right providerName) -> do
-                    let binding = ContextBinding contextId providerName
-                    cacheRoot <- inventoryCacheRoot contextText
-                    cacheReady <- validateInventoryCache mayInitialize cacheRoot
-                    case cacheReady of
-                      Left err -> pure (Left err)
-                      Right () ->
-                        if mayInitialize
-                          then
-                            newObjectStoreWithLock
-                              ops
-                              binding
-                              client
-                              (Just cacheRoot)
-                              (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
-                          else
-                            openObjectStoreReadOnlyWithLock
-                              ops
-                              binding
-                              client
-                              (Just cacheRoot)
-                              (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
-                  (Left err, _) -> pure (invalid err)
-                  (_, Left err) -> pure (invalid err)
+          Right ops -> openOverObjectOps mayInitialize target stateRoot ops
+
+-- | Open the store over a transport with this machine's client identity,
+-- its digest cache and its writer lock.
+openOverObjectOps :: Bool -> ActiveTarget -> FilePath -> ObjectOps -> IO (Either StoreError InventoryStore)
+openOverObjectOps mayInitialize target stateRoot ops = do
+  let contextText = contextNameText (target ^. #contextName)
+      project = target ^. #profile . #project
+      invalid reason = Left (StoreConditionFailed reason)
+  clientResult <- localStoreClientIdentity mayInitialize stateRoot contextText
+  case clientResult of
+    Left err -> pure (Left err)
+    Right client -> do
+      case (mkContextId contextText, mkName project) of
+        (Right contextId, Right providerName) -> do
+          let binding = ContextBinding contextId providerName
+          cacheRoot <- inventoryCacheRoot contextText
+          cacheReady <- validateInventoryCache mayInitialize cacheRoot
+          case cacheReady of
+            Left err -> pure (Left err)
+            Right () ->
+              if mayInitialize
+                then
+                  newObjectStoreWithLock
+                    ops
+                    binding
+                    client
+                    (Just cacheRoot)
+                    (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
+                else
+                  openObjectStoreReadOnlyWithLock
+                    ops
+                    binding
+                    client
+                    (Just cacheRoot)
+                    (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
+        (Left err, _) -> pure (invalid err)
+        (_, Left err) -> pure (invalid err)
 
 inventoryCacheRoot :: T.Text -> IO FilePath
 inventoryCacheRoot context = do

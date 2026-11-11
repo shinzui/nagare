@@ -322,8 +322,10 @@ library
     Nagare.Inventory.Store.Manifest
     Nagare.Inventory.Store.Migrate
     Nagare.Inventory.Store.ObjectOps
+    Nagare.Inventory.Store.ObjectTarget
     Nagare.Inventory.Store.ProjectNumbers
     Nagare.Inventory.Store.Remote
+    Nagare.Inventory.Store.S3
     Nagare.Inventory.Store.Service
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
@@ -402,6 +404,7 @@ library
     async,
     base >=4.17 && <5,
     bytestring,
+    case-insensitive,
     containers,
     cradle,
     crypton,
@@ -743,6 +746,7 @@ test-suite nagarectl-test
     Nagare.Test.NixCacheProducer
     Nagare.Test.Operations
     Nagare.Test.Pulumi
+    Nagare.Test.S3Store
     Nagare.Test.Server
     Nagare.Test.Shards
     Nagare.Test.SiteInventory

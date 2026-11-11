@@ -24,7 +24,7 @@ import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target
-  ( InventoryStoreKind (InventoryStoreGcs, InventoryStoreLocal)
+  ( InventoryStoreKind (InventoryStoreGcs, InventoryStoreLocal, InventoryStoreObject)
   , Mode (Local)
   , contextNameText
   , defaultGcsInventoryStoreUrl
@@ -101,6 +101,7 @@ runInventoryStoreStatus mctx json = do
           if T.null (profile ^. #inventoryStoreUrl)
             then defaultGcsInventoryStoreUrl context profile
             else profile ^. #inventoryStoreUrl
+        InventoryStoreObject -> profile ^. #inventoryStoreUrl
   if schema > 1
     then do
       let report =
@@ -171,7 +172,8 @@ runInventoryStoreMigrate mctx destination dryRun yes = do
   kind <- case destination of
     "gcs" -> pure InventoryStoreGcs
     "local" -> pure InventoryStoreLocal
-    _ -> dieT "--to must be gcs or local"
+    "object" -> pure InventoryStoreObject
+    _ -> dieT "--to must be gcs, object or local"
   unless (dryRun || yes) (dieT "inventory store migration requires --yes or --dry-run")
   active <- activeTarget mctx
   when
@@ -180,6 +182,9 @@ runInventoryStoreMigrate mctx destination dryRun yes = do
         && active ^. #profile . #mode == Local
     )
     (dieT "local-mode contexts cannot use a GCS inventory store")
+  when
+    (kind == InventoryStoreObject && active ^. #profile . #mode /= Local)
+    (dieT "only a local context can keep its inventory in its object store")
   label <- Inventory.migrateTargetStore active kind dryRun >>= either (dieT . T.pack . show) pure
   if dryRun
     then TIO.putStrLn ("Inventory migration is ready for " <> label)
@@ -187,5 +192,6 @@ runInventoryStoreMigrate mctx destination dryRun yes = do
       let url = case kind of
             InventoryStoreLocal -> ""
             InventoryStoreGcs -> label
+            InventoryStoreObject -> label
       writeContextInventoryStore (active ^. #contextName) kind url >>= either dieT pure
       TIO.putStrLn ("Inventory history migrated to " <> label <> "; reload the context shell")

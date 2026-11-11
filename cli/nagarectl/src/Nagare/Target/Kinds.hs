@@ -68,17 +68,21 @@ pulumiBackendToken :: PulumiBackendKind -> Text
 pulumiBackendToken PulumiBackendLocal = "local"
 pulumiBackendToken PulumiBackendGcs = "gcs"
 
-data InventoryStoreKind = InventoryStoreLocal | InventoryStoreGcs
+-- | Where a context keeps its inventory: a workstation directory, GCS for a
+-- cloud context, or a local context's in-cluster object store (EP-251).
+data InventoryStoreKind = InventoryStoreLocal | InventoryStoreGcs | InventoryStoreObject
   deriving stock (Eq, Show)
 
 parseInventoryStoreKind :: Maybe String -> InventoryStoreKind
 parseInventoryStoreKind raw = case fmap (map toLower) raw of
   Just "gcs" -> InventoryStoreGcs
+  Just "object" -> InventoryStoreObject
   _ -> InventoryStoreLocal
 
 inventoryStoreToken :: InventoryStoreKind -> Text
 inventoryStoreToken InventoryStoreLocal = "local"
 inventoryStoreToken InventoryStoreGcs = "gcs"
+inventoryStoreToken InventoryStoreObject = "object"
 
 -- | How web traffic reaches a context's gateway (MasterPlan 32, ADR 34). 'IngressDirect'
 -- is the VM's public address and the default; 'IngressCloudflareTunnel' is one tunnel

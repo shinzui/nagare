@@ -1,4 +1,5 @@
--- | Move a context's inventory history between its local and GCS stores.
+-- | Move a context's inventory history between its local store and GCS, or,
+-- for a local context, its in-cluster object store (EP-251).
 module Nagare.Inventory.Store.TargetMigration (migrateTargetStore) where
 
 import Data.Aeson (toJSON)
@@ -10,7 +11,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
-import Nagare.Inventory.Store.Target (openRemoteStore, remoteInventoryUrl)
+import Nagare.Inventory.Store.Target (objectInventoryUrl, openObjectTargetStore, openRemoteStore, remoteInventoryUrl)
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Target
@@ -23,12 +24,13 @@ migrateTargetStore target destinationKind dryRun = do
   let contextText = contextNameText (target ^. #contextName)
       path = stateRoot </> T.unpack contextText </> "inventory"
       sourceKind = effectiveInventoryStore (target ^. #profile)
-      sourceLabel = case sourceKind of
+      objectTarget = target & #profile . #inventoryStore .~ InventoryStoreObject
+      label = \case
         InventoryStoreLocal -> "local"
         InventoryStoreGcs -> remoteInventoryUrl target
-      destinationLabel = case destinationKind of
-        InventoryStoreLocal -> "local"
-        InventoryStoreGcs -> remoteInventoryUrl target
+        InventoryStoreObject -> objectInventoryUrl target
+      sourceLabel = label sourceKind
+      destinationLabel = label destinationKind
       destinationMatches sourceHead destinationHead =
         let canonicalDigest value = contentDigest <$> canonicalValue (toJSON value)
             sourceDigest = case headMigration sourceHead of
@@ -51,6 +53,7 @@ migrateTargetStore target destinationKind dryRun = do
       source <- case sourceKind of
         InventoryStoreLocal -> openFilesystemStoreReadOnly path
         InventoryStoreGcs -> openRemoteStore False target stateRoot
+        InventoryStoreObject -> openObjectTargetStore False objectTarget stateRoot
       case source of
         Left err -> pure (Left err)
         Right sourceStore -> do
@@ -74,6 +77,19 @@ migrateTargetStore target destinationKind dryRun = do
                           Right Nothing -> Right destinationLabel
                           Right (Just old) | destinationMatches headValue old -> Right destinationLabel
                           Right (Just _) -> Left (StoreConditionFailed "local destination history differs")
+                  InventoryStoreObject -> do
+                    existing <- openObjectTargetStore False objectTarget stateRoot
+                    case existing of
+                      Left (StoreConditionFailed reason)
+                        | reason == "inventory object prefix is not initialized" -> pure (Right destinationLabel)
+                      Left err -> pure (Left err)
+                      Right objectStore -> do
+                        previous <- readHead objectStore
+                        pure $ case previous of
+                          Left err -> Left err
+                          Right Nothing -> Right destinationLabel
+                          Right (Just old) | destinationMatches headValue old -> Right destinationLabel
+                          Right (Just _) -> Left (StoreConditionFailed "object store destination history differs")
                   InventoryStoreGcs -> do
                     let project = target ^. #profile . #project
                     ambient <- lookupEnv "CLOUDSDK_CORE_PROJECT"
@@ -103,6 +119,7 @@ migrateTargetStore target destinationKind dryRun = do
                   destination <- case destinationKind of
                     InventoryStoreLocal -> openFilesystemStore path
                     InventoryStoreGcs -> openRemoteStore True target stateRoot
+                    InventoryStoreObject -> openObjectTargetStore True objectTarget stateRoot
                   case destination of
                     Left err -> pure (Left err)
                     Right destStore -> fmap (destinationLabel <$) (migrateStore sourceStore destStore sourceLabel destinationLabel)

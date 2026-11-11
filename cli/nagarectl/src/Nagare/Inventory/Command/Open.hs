@@ -53,7 +53,7 @@ import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.Remote qualified as Remote
-import Nagare.Inventory.Store.Target (openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
+import Nagare.Inventory.Store.Target (objectInventoryUrl, openObjectTargetStore, openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
 import Nagare.Inventory.Store.TargetMigration (migrateTargetStore)
 import Nagare.Platform.Paths (renderPlatformPathError, resolvePlatformPaths)
 import Nagare.Platform.Transition (transitionContinueRefusal)
@@ -96,21 +96,26 @@ openTargetStoreObserving wantHead target = do
       case headResult >>= headMigration of
         Just marker -> dieText ("inventory history migrated to " <> migrationDestination marker <> "; reload the context shell")
         Nothing -> pure (store, Just headResult)
-    InventoryStoreGcs -> do
+    InventoryStoreGcs -> selectedOver path (remoteInventoryUrl target) (\initialize -> openRemoteStore initialize target stateRoot)
+    InventoryStoreObject -> selectedOver path (objectInventoryUrl target) (\initialize -> openObjectTargetStore initialize target stateRoot)
+  where
+    -- The local history must be migrated to the selected store, or never
+    -- have had substance, before a GCS or object store is used.
+    selectedOver path destination open = do
       local <- openFilesystemStoreReadOnly path
       migrated <- case local of
         Right localStore -> do
           localHead <- readHead localStore
           case localHead of
             Right (Just headValue) -> case headMigration headValue of
-              Just marker | migrationDestination marker == remoteInventoryUrl target -> pure True
+              Just marker | migrationDestination marker == destination -> pure True
               Nothing | not (hasSubstantiveHistory headValue) -> pure False
-              _ -> dieText "local inventory history exists; migrate it before selecting the GCS store"
+              _ -> dieText "local inventory history exists; migrate it before selecting another store"
             Left err -> dieText (showText err)
             Right Nothing -> pure False
         Left (StoreConditionFailed _) -> pure False
         Left err -> dieText (showText err)
-      remote <- openRemoteStore (not migrated) target stateRoot >>= either (dieText . showText) pure
+      remote <- open (not migrated) >>= either (dieText . showText) pure
       if migrated || wantHead
         then do
           remoteHead <- readHead remote >>= either (dieText . showText) pure
