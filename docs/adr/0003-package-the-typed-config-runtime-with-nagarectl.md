@@ -68,7 +68,9 @@ every platform output. `flake.nix` lists `aarch64-linux` as a **tooling-only** s
 `tooling-systems` flake input: it gets `nagarectl`, `nagare-config-sdk` and the
 `nagare-config-sdk-consumer` check. It has no platform payload, so its `nagarectl` wrapper sets no
 `NAGARE_PLATFORM_ROOT` and platform commands refuse there, and no host, image, release-image,
-development-shell or Hydra output. A native Linux SDK is not production-host support, and
+development-shell or Hydra output. Deploy commands refuse there too: every app, worker and site plan
+prepares the platform workspace (found by the MasterPlan 33 local confirmation, 2026-11-11). So an
+`aarch64-linux` runner can render and check configuration, but deploying from one needs the platform payload. A native Linux SDK is not production-host support, and
 `release.json` is not changed by it.
 
 The check needs a native `aarch64-linux` builder, which the landing gate does not have, so it runs

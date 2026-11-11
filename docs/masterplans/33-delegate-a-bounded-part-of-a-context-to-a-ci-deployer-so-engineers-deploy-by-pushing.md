@@ -30,6 +30,11 @@ provenance:
       at: 2026-11-11T05:04:00Z
       mode: "implement"
       note: "EP-247 in progress: delegation, actor, bounds and history landed; local confirmation pending"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T14:46:00Z
+      mode: "implement"
+      note: "EP-247, EP-249, EP-251 and EP-252 Complete after the batched local confirmation; four defects fixed"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -141,12 +146,12 @@ package then two reviewed stages, which EP-249 keeps). On Kotei's side,
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 247 | Review a bounded namespace delegation for a named deployer and record who applied each change | docs/plans/247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md | None | None | In Progress |
+| 247 | Review a bounded namespace delegation for a named deployer and record who applied each change | docs/plans/247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md | None | None | Complete |
 | 248 | Issue least-privilege credentials to a delegated deployer | docs/plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.md | EP-247; EP-251 | None | Not Started |
-| 249 | Deploy apps and static sites from a rendered configuration without running the repository's program | docs/plans/249-deploy-apps-and-static-sites-from-a-rendered-configuration-without-running-the-repository-s-program.md | EP-247 for D5 and D6 only | None | In Progress |
+| 249 | Deploy apps and static sites from a rendered configuration without running the repository's program | docs/plans/249-deploy-apps-and-static-sites-from-a-rendered-configuration-without-running-the-repository-s-program.md | EP-247 for D5 and D6 only | None | Complete |
 | 250 | Open a delegated namespace's sites to the delegation's team without a per-site grant | docs/plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md | EP-247 | None | Not Started |
-| 251 | Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply | docs/plans/251-keep-a-local-context-s-inventory-store-in-its-in-cluster-object-store-so-an-in-cluster-deployer-can-apply.md | None | None | In Progress |
-| 252 | Package a static site image archive without a Docker daemon | docs/plans/252-package-a-static-site-image-archive-without-a-docker-daemon.md | None | None | In Progress |
+| 251 | Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply | docs/plans/251-keep-a-local-context-s-inventory-store-in-its-in-cluster-object-store-so-an-in-cluster-deployer-can-apply.md | None | None | Complete |
+| 252 | Package a static site image archive without a Docker daemon | docs/plans/252-package-a-static-site-image-archive-without-a-docker-daemon.md | None | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -259,20 +264,11 @@ territory, not here.
 
 ## Progress
 
-EP-247, EP-249, EP-251 and EP-252 are In Progress with their interpreter evidence passing and landed; each waits
-only for its local confirmation, batched into one disposable local run (Decision Log, 2026-11-10):
+EP-247, EP-249, EP-251 and EP-252 are Complete. One disposable local run at `e748a550` confirmed all four
+([audit](../audits/mp33-local-confirmation-2026-11-11.md)), after fixing four defects the interpreters had missed.
+EP-248 is next, then EP-250, in the default order. EP-248 D10 is the required local credential and route integration
+gate.
 
-- EP-247 D9 (and D1's local apply): delegation applied, deployer publishes and deploys a protected site, an
-  out-of-suffix host refused, `inventory history` shows `deployer:NAME` and the source, revocation refuses.
-- EP-251 D7: the context's inventory in its object store, a second change applied from a Pod, the operator's saved
-  review refused stale and re-planned.
-- EP-249 D6 (and D1's empty-environment render): render in a shell with no context, deploy `--rendered` from the
-  deployer context, `-f` refused there.
-- EP-252 D5: a Pod with no Docker socket, a read-only root and a non-root user packages with
-  `--builder layered --base-archive`; the archive is published, deployed and serves.
-
-The Pod steps need a linux nagarectl image in the local registry. EP-248 and EP-250 start when EP-247 is Complete.
-EP-248 D10 is the required local credential/route integration gate.
 Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/plans/138-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
 
 - [ ] UC-4 end to end on a local context: an operator applies one delegation and issues the bundle; a fixture repository
@@ -291,6 +287,18 @@ Remaining cross-repository gate, owned by [Kotei EP-138](mori://shinzui/kotei/pl
   one volume across workloads, has environment-only secrets, and forbids `CREATE ROLE` in an app database; Kotei plan
   135 carries a fallback for each, so no Nagare plan is added for them.
 - 2026-11-07, drafting EP-247. The journal needs no new field, because transaction ids already bind the review digest.
+- 2026-11-11, the batched local confirmation ([audit](../audits/mp33-local-confirmation-2026-11-11.md)). It found four
+  defects that interpreter tests had missed and that were fixed with tests: EP-251's migration could not move a
+  bootstrapped context, and its dry run failed on a bucket not yet created; EP-247 refused a registry with a port as
+  an image repository, and `inventory apply` reported a stale review as non-retryable `review_changed`. Three findings
+  bear on EP-248 and Kotei's hosted deployer, [Kotei EP-135](mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application):
+  every deploy plan prepares the platform workspace, so the payload-less `aarch64-linux` package cannot deploy (the
+  run layered the packaged payload onto the Pod image; production's `x86_64-linux` package carries it); a deployer's
+  unscoped `inventory status` needs operator-prepared state, while `--scope` and `inventory history` work; and
+  nagarectl reads the ambient `KUBECONFIG`, so the bundle's environment must point it at the bundle's kubeconfig.
+- 2026-11-11, friction across children. The architecture check's line caps cost a rework under EP-247 (FRIC-8) and
+  under EP-251 (FRIC-9), as under EP-236 before (FRIC-1). All three are accepted as the deliberate size ratchet. The
+  recurrence is the operator's call to revisit.
 
 
 ## Decision Log

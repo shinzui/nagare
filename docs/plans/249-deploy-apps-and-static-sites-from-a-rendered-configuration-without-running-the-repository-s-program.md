@@ -27,6 +27,11 @@ provenance:
       at: 2026-11-11T05:47:08Z
       mode: "implement"
       note: "Implemented D1-D5 and D7; D6 local confirmation pending"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T14:46:00Z
+      mode: "implement"
+      note: "Local confirmation passed at e748a550 (audit mp33-local-confirmation-2026-11-11); plan Complete"
 ---
 
 # Deploy apps and static sites from a rendered configuration without running the repository's program
@@ -104,9 +109,10 @@ Interpreter evidence first; the local-context run only confirms
   test that calls every exported `load*` from `cli/nagare-dsl/src/Nagare/Dsl/Load/File.hs` with the deployer variable set
   and a program that would write a marker file, and proves each returns `ConfigProgramRefused` and the marker is absent.
   Done 2026-11-10: `runConfigUntil` returns `ConfigProgramRefused` when `NAGARE_DEPLOYER` is set, before any process; the deployer guard exports it for a deployer context. The test calls every exported loader and `runConfigWith` with a program that writes a marker; each is refused and the marker is absent.
-- [ ] D6, the local confirmation: on a local context a fixture app, a fixture standalone worker and a fixture static site are rendered in a shell
+- [x] D6, the local confirmation: on a local context a fixture app, a fixture standalone worker and a fixture static site are rendered in a shell
   with no Nagare context, then deployed with `--rendered` from a deployer context; `-f` in the deployer context is
   refused. Evidence: an audit file under `docs/audits/`.
+  Done 2026-11-11 at `e748a550` ([audit](../audits/mp33-local-confirmation-2026-11-11.md), P0, P4–P6): the four fixtures rendered under `env -i PATH=/usr/bin:/bin`; the deployer deployed the app and the static site from the workstation and the worker from a Pod with `--rendered`; `app check -f` and `app deploy -f` were refused before any process ran.
 - [x] D7, docs: `docs/user/deploying-apps.md`, `docs/user/static-hosting.md` and `docs/user/reference.md` describe render
   and `--rendered`, and say a CI deployer should deploy rendered documents. ADR 32's two reviewed stages are unchanged and
   the static-hosting guide says so. Evidence: the linked pages.
@@ -161,7 +167,7 @@ Interpreter evidence first; the local-context run only confirms
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Apps, standalone workers and static sites can now be rendered once in a credential-free shell into versioned documents that carry the program's exact output, and deployed with `--rendered` by a client that never runs repository code; a deployer context refuses config programs at the one loader choke point. The local run [confirmed it](../audits/mp33-local-confirmation-2026-11-11.md) with no defect in this plan's paths. Nothing remains here; Kotei's build Jobs (EP-136) produce these documents. ADR 32's two reviewed stages are unchanged, and ADR 35 records why the deployer never runs the program.
 
 
 ## Context and Orientation

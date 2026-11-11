@@ -27,6 +27,11 @@ provenance:
       at: 2026-11-11T05:33:12Z
       mode: "implement"
       note: "Implemented D1-D6 and D8; D7 local confirmation pending"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T14:46:00Z
+      mode: "implement"
+      note: "Local confirmation passed at e748a550 (audit mp33-local-confirmation-2026-11-11); plan Complete"
 ---
 
 # Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply
@@ -93,10 +98,11 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
   `cli/nagarectl/src/Nagare/Inventory/Store/Migrate.hs` and `TargetMigration.hs`. Evidence: the existing migration tests
   extended to the new pair, interrupted after every step and resumed.
   Done 2026-11-10: `inventory store migrate --to object|local`; `migration into the object store resumes after an interruption at every request` interrupts each request in turn and resumes to the original head and members.
-- [ ] D7, the local confirmation: on a fresh local context with the object store, the operator deploys a fixture app
+- [x] D7, the local confirmation: on a fresh local context with the object store, the operator deploys a fixture app
   from the workstation, then a Pod in the cluster holding the object-store credential and the fixture Kubernetes credential applies a second change to
   the same context, then the operator's next saved review is refused as stale and succeeds after re-planning. Evidence:
   an audit file under `docs/audits/` with the transcript.
+  Done 2026-11-11 at `e748a550` ([audit](../audits/mp33-local-confirmation-2026-11-11.md), P1, P2, P6): the bootstrapped history moved to `…/nagare-inventory/mp33`, the operator deployed `op-hello`, a deployer Pod reached the store at its Service address and applied a worker, and the operator's saved review was refused `review_stale` then converged after re-planning.
 - [x] D8, docs: `docs/user/local-development.md` and `docs/user/resource-inventory.md` describe the object store for
   local contexts, when to use it, and how to migrate. Evidence: the linked pages.
   Done 2026-11-10: `docs/user/local-development.md` (Optional: the inventory in the cluster object store) and `docs/user/resource-inventory.md`.
@@ -104,7 +110,12 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-11-11, the local confirmation. D6's interpreter tests set the store URL on the profile directly, but a
+  bootstrapped context cannot get one: the reviewed context update refuses to change a store URL once history exists.
+  The migration now derives `http://HOST:PORT/nagare-inventory/CONTEXT` from the local object store (`9568cc5e`,
+  `2ee5ced8`). Its dry run then stopped on MinIO's `404 NoSuchBucket` for a bucket not yet created, which is now
+  absence, and the destination label now comes from the object target (`7a879fe8`). See the
+  [audit](../audits/mp33-local-confirmation-2026-11-11.md).
 
 
 ## Decision Log
@@ -144,7 +155,7 @@ Each deliverable passes on the evidence it names. Interpreter evidence comes fir
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+A local context can keep its inventory in its in-cluster object store over an S3 transport with the same conditional-write guarantees as GCS, the operator reaches it through a self-managed port-forward, an in-cluster client reaches it directly, and a bootstrapped context moves there with one `inventory store migrate --to object`. The local run [confirmed it](../audits/mp33-local-confirmation-2026-11-11.md) after two migration defects the interpreters missed were fixed with tests. EP-248 still owns scoped object-store identities and the bundle-only in-cluster apply. FRIC-9 (the `Nagare.Target` line cap) is accepted as the deliberate size ratchet; its recurrence is recorded in the MasterPlan.
 
 
 ## Context and Orientation

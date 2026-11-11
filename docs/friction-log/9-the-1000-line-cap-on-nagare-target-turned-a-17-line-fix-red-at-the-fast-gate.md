@@ -6,7 +6,7 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-11T13:42:52Z"
 frictionId: FRIC-9
-status: logged
+status: "accepted"
 impact: detour
 kind: process
 origin: "mori://shinzui/nagare"
@@ -16,6 +16,11 @@ plan: "docs/plans/251-keep-a-local-context-s-inventory-store-in-its-in-cluster-o
 workaround: "Moved the function into Nagare.Inventory.Store.ObjectTarget (2ee5ced8) and rebuilt the darwin nagarectl and the arm64 Pod image at the new revision."
 tags:
   - "line-caps"
+resolution: "The caps are the deliberate size ratchet (as FRIC-1 decided); moving the code to a cohesive module was the intended response."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-11T14:45:27Z"
+    change: "Accepted at MasterPlan 33's completion triage; the recurrence with FRIC-1 is recorded in the MasterPlan for the operator."
 ---
 # The 1000-line cap on Nagare.Target turned a 17-line fix red at the fast gate
 

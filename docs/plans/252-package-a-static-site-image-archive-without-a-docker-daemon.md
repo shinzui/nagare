@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-11T06:00:38Z
       mode: "implement"
       note: "Implemented D1-D4 and D6; D5 local confirmation pending"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T14:46:00Z
+      mode: "implement"
+      note: "Local confirmation passed at e748a550 (audit mp33-local-confirmation-2026-11-11); plan Complete"
 ---
 
 # Package a static site image archive without a Docker daemon
@@ -73,10 +78,11 @@ Interpreter and unit evidence first; a local-context run only confirms
   that identifies a release (ADR 32) is unchanged, because it hashes the context, not the image. Evidence: tests with a
   fake daemon present and absent.
   Done 2026-11-10: `--builder docker|layered`; without it the daemon is used when `docker info` answers and the layered builder otherwise, printed on stderr; `site publish` uses the same default. Tested with a fake daemon present and absent; the release identity is still the context digest.
-- [ ] D5, the local confirmation: on a local context, a Pod with no Docker socket, a read-only root filesystem and a
+- [x] D5, the local confirmation: on a local context, a Pod with no Docker socket, a read-only root filesystem and a
   non-root user packages a fixture site with `--builder layered --base-archive`, the operator publishes the archive with
   `app image-plan`, deploys it with `site deploy --skip-build`, and the site serves its files. Evidence: an audit file
   under `docs/audits/`.
+  Done 2026-11-11 at `e748a550` ([audit](../audits/mp33-local-confirmation-2026-11-11.md), P5): Pod `mp33-builder` (uid 65532, read-only root, all capabilities dropped, no ServiceAccount token, no Docker socket or binary) packaged the site; the archive was published with `app image-plan`, deployed with `site deploy --rendered --skip-build`, and its origin served the fixture's files. The delegated deployer, not the operator, published and deployed it, which is the path UC-4 uses.
 - [x] D6, docs and decision: `docs/user/static-hosting.md` documents the builder choice and the base pin, and
   [ADR 32](../adr/0032-static-publication-is-a-local-package-then-two-reviewed-stages.md) is amended: packaging may use
   either builder, and "the archive path needs a Docker daemon" no longer holds. Evidence: the linked pages.
@@ -112,7 +118,7 @@ Interpreter and unit evidence first; a local-context run only confirms
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+A static site's image archive can be built with no Docker daemon, no root and no network, by appending one deterministic layer to an Nginx base pinned by digest, and both builders use the same pin. In the local run [the confirmation](../audits/mp33-local-confirmation-2026-11-11.md) a hardened Pod produced an archive byte-identical to a workstation build, and it published, deployed and served. Nothing remains here. ADR 32 is amended.
 
 
 ## Context and Orientation

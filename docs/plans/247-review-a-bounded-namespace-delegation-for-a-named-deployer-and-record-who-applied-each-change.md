@@ -26,6 +26,11 @@ provenance:
       at: 2026-11-11T05:04:00Z
       mode: "implement"
       note: "Implemented D2-D8, D10, D11; D1 interpreter evidence; D9 local confirmation pending"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T14:46:00Z
+      mode: "implement"
+      note: "Local confirmation passed at e748a550 (audit mp33-local-confirmation-2026-11-11); plan Complete"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -64,7 +69,7 @@ project or domain is named, and every deliverable is proved on a local context.
 Each deliverable passes on the evidence it names. Interpreter and fake-adapter evidence comes first; the local-context
 run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 
-- [ ] D1, the delegation scope: `nagarectl delegation create NAME --namespace NS... --host-suffix LABEL... --kinds KIND...
+- [x] D1, the delegation scope: `nagarectl delegation create NAME --namespace NS... --host-suffix LABEL... --kinds KIND...
   --image-repository PATH --team TEAM [--build-namespace NS] [--quota-cpu C --quota-memory M --quota-pods N]
   --save-plan DIR` saves a review of a new `platform:delegation-NAME` scope that declares each delegated Namespace (with
   `nagare.dev/app-namespace=true` and `nagare.dev/delegation=NAME`), one ResourceQuota and one LimitRange per namespace,
@@ -73,7 +78,7 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
   converges on a local context. Evidence: compiler unit tests over every flag, a refusal for a namespace that already
   belongs to the foundation or another delegation, for `nagare-system`, `kube-*` and `personal`, and a local-context
   apply whose `kubectl get ns -l nagare.dev/delegation=NAME` lists exactly the declared namespaces.
-  Interpreter evidence done 2026-11-10 (`Delegation/scope`: members, labels, Retain, codec, reserved and duplicate refusals; `delegation create` also refuses foundation- and delegation-owned namespaces); the local-context apply is confirmed with D9.
+  Interpreter evidence done 2026-11-10 (`Delegation/scope`: members, labels, Retain, codec, reserved and duplicate refusals; `delegation create` also refuses foundation- and delegation-owned namespaces). Local apply confirmed 2026-11-11 at `e748a550` ([audit](../audits/mp33-local-confirmation-2026-11-11.md), P3): `kubectl get ns -l nagare.dev/delegation=ci` lists exactly `team-a` and `team-a-build`.
 - [x] D2, accepted namespaces outside the foundation: app, worker, task, site and storage commands accept a namespace
   owned by an accepted, unrevoked delegation scope exactly as they accept a foundation namespace today, and still refuse
   any other namespace. Evidence: the existing `acceptedFoundationNamespace` callers pass with a delegation fixture, and a
@@ -129,11 +134,12 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
   ones under `cli/nagarectl/test/fixtures/`, and a check that EP-231's state was read and the version number chosen
   accordingly (Decision Log).
   Done 2026-11-10 (see Decision Log): the review stays version 1 and an unnamed operator never writes `actor`, so operator reviews keep their bytes (asserted in the store test); an older reader refuses a deployer or named-operator review through its strict unknown-field check, as v0.12.0 did for validations. EP-231 is Not Started.
-- [ ] D9, the local confirmation: on a local context the operator applies a delegation; a deployer context (made by hand
+- [x] D9, the local confirmation: on a local context the operator applies a delegation; a deployer context (made by hand
   for this plan; EP-248 makes it from a bundle) publishes a fixture image and deploys a fixture protected static site
   into the delegated namespace; a second proposal with a hostname outside the suffix is refused; `inventory history`
   shows `deployer:NAME` and the source; after `delegation revoke`, the next deployer review is refused. Evidence: an audit
   file under `docs/audits/` with the transcript.
+  Done 2026-11-11 at `e748a550` ([audit](../audits/mp33-local-confirmation-2026-11-11.md), P4–P7): the deployer published and deployed the protected site `docs` and app `hello` from rendered documents, `rogue.127-0-0-1.sslip.io` was refused `delegation-bounds` with the head unchanged, `inventory history` names `deployer:ci` with repository, revision and run, and after revocation a review saved before it is `admission_refused` (`delegation-revoked`) and a new one is refused.
 - [x] D10, docs and decision: update the accepted trust-model ADR `docs/adr/0035-a-delegated-deployer-is-trusted-and-repository-content-is-not.md`
   with implementation evidence for the trust model of MasterPlan 33 and its limit for several operators (the actor is asserted, and enforcing
   approval against another holder of the store needs a server-side check or signed reviews); ADR 22 is amended with delegation-owned namespaces; `docs/user/` gains a
@@ -169,6 +175,13 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
   DomainMappings in `nagare-system` only for owned, in-bound hostnames targeting the accepted `nagare-access`
   enforcer; arbitrary targets, foreign routes and other system objects are refused. Protected-site deployment does
   not change Shomei settings. EP-248 owns the matching RBAC and the credential-backed route proof.
+
+
+- 2026-11-11, the local confirmation. Two defects the interpreters missed: an image repository on a registry with a
+  port (`k3d-registry.localhost:5000/…`) was refused as a tag, so no local context could delegate (`e4bbf425`); and
+  `inventory apply` refused a stale saved review as `review_changed` in its pre-admission verification, so D11's
+  `review_stale` never reached a client (`e748a550`). Both are fixed with tests; a stale review whose delegation also
+  refuses it stays `admission_refused`, as this plan's Decision Log requires.
 
 
 ## Decision Log
@@ -261,7 +274,7 @@ run only confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-na
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+An operator now reviews one delegation that creates and owns bounded namespaces for a named deployer, every review records its actor and source, `inventory history` reads them back, and a deployer context is confined to its command set and its delegation at planning and again at admission. The local run [confirmed it](../audits/mp33-local-confirmation-2026-11-11.md) end to end at `e748a550` after fixing two defects the interpreters missed: the registry port refusal, and the stale-review code that never reached a client. Both now have tests. Remaining for the initiative: EP-248's scoped credentials and EP-250's default team access. FRIC-8 (line caps on the test assembler and dispatch) is accepted as the deliberate size ratchet. It recurred under EP-251 as FRIC-9, which is recorded in the MasterPlan. ADR 35 and ADR 22 already carry this plan's durable decisions.
 
 
 ## Context and Orientation

@@ -74,6 +74,13 @@ authentication remain outside this initiative.
   protected site from the production compiler and one refusal per bound; a store-backed revocation that
   refuses a saved review with no journal event; history naming a deployer, an unnamed and a named
   operator).
+- `inventory apply` verifies a saved review before admission, so the same rule holds there: a review
+  refused only as stale is `review_stale`, and one whose delegation the current head also refuses is
+  `admission_refused` (`unverifiedReviewProblem` in `cli/nagarectl/src/Nagare/Inventory/Command.hs`).
+- Confirmed on a local context on 2026-11-11, with the deployer both on the workstation and in a Pod
+  ([audit](../audits/mp33-local-confirmation-2026-11-11.md)). A hosted deployer needs the platform payload,
+  because every deploy plan prepares the platform workspace. It also needs `KUBECONFIG` pointing at its
+  own kubeconfig.
 - The limit stands: the actor is asserted, not proved. Enforcing approval against another holder of
   the store needs signed reviews or a server-side check, which this initiative does not build and does
   not preclude.
