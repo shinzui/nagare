@@ -1,0 +1,7 @@
+allowed: mc ls b/nagare-inventory/ep248/
+refused: mc ls b/nagare-inventory/
+refused: mc ls b/nagare-backups/
+allowed: mc cat b/nagare-inventory/ep248/head.json
+refused: mc pipe b/nagare-inventory/other/probe
+allowed: mc pipe b/nagare-inventory/ep248/probe-ep248
+allowed: mc rm b/nagare-inventory/ep248/probe-ep248

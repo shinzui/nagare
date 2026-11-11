@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-09T04:04:19Z
       mode: "update"
       note: "Add protected DomainMapping authority and own scoped local S3 credential lifecycle with EP-251 prerequisite and integration proof."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T17:27:16Z
+      mode: "implement"
+      note: "D1-D10 implemented and confirmed on one local run at 59d10332; Complete"
 ---
 
 # Issue least-privilege credentials to a delegated deployer
@@ -55,87 +60,56 @@ for the accepted S3 transport, credential-file input and migration behavior; the
 ## Progress
 
 Interpreter and fake-adapter evidence comes first; native runs only confirm
-([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
+([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)). The local run is
+[ep248-local-confirmation-2026-11-11](../audits/ep248-local-confirmation-2026-11-11.md), at `59d10332`.
 
-- [ ] D1, rules derived from the compiler: a pure function maps a delegation's allowed kinds to the Kubernetes rules a
-  deployer needs, derived from the provider addresses that compiled delegated scopes produce (Knative Services and
-  DomainMappings, ConfigMaps for release history, Secrets for runtime environment references, CronJobs and Jobs for
-  tasks and hooks, Deployments for workers, as the compilers actually emit). Evidence: a property test compiles one
-  fixture scope per allowed kind and fails if any generated member address, including protected routes in nagare-system, is not covered by the derived
-  rules, and fails if a rule grants a resource no fixture produces.
-- [ ] D2, the deployer identity in the delegation scope: the delegation scope (EP-247) gains, when a credential is
-  issued, a ServiceAccount `nagare-deployer-NAME` in `nagare-system`; a Role and RoleBinding in each delegated
-  namespace with D1's rules; a Role and RoleBinding in `nagare-system` granting `get, update, patch` on exactly the
-  ConfigMap `nagare-access-backends` by `resourceNames`, and `get` on
-  `nagare-delegation-NAME` and `nagare-shomei-settings`; a Role and binding in `nagare-system` for
-  `get, list, watch, create, update, patch, delete` on `domainmappings.serving.knative.dev`. The latter covers
-  generated protected routes; hostname suffixes and the enforcer target are enforced by EP-247, not RBAC.
-  This wider resource-kind authority is an explicit trusted-deployer exception, never authority over other system kinds; a ClusterRole and binding for `get, list` on nodes (the cluster session guard) and on
-  `domainmappings` and `clusterdomainclaims` (the hostname preflight, as `cluster/bootstrap/nagared/rbac.yaml` already
-  grants `nagared`). All are reviewed members, `Retain` until revoked. Evidence: compiler tests of the members and their
-  bytes, and a review fixture showing them in a `delegation create … --issue-deployer` review.
-- [ ] D3, the builder identity: when the delegation has a build namespace, the scope gains ServiceAccount
-  `nagare-builder-NAME` in that namespace and a Role and RoleBinding granting `create, get, list, watch, delete` on
-  `serviceaccounts`, `networkpolicies.networking.k8s.io` and `jobs.batch`, and `get, list, watch` on `pods` and
-  `pods/log`, which is exactly what `renderJob` in `cli/nagare-dsl/src/Nagare/Dsl/Job.hs` creates and what watching it
-  needs. It has no `secrets`, no `pods/exec` and nothing outside the build namespace. Evidence: a test that renders a
-  `oneShotJob` and proves every rendered object kind is covered, and that no other verb is granted.
-- [ ] D4, the bundle: `nagarectl deployer credentials NAME --out DIR [--duration D]`, run by the operator, refuses unless
-  the delegation and its identities are accepted and converged, then writes, mode 0600 under a 0700 `DIR`:
-  `DIR/.config/nagare/contexts/CONTEXT.env` (the operator's context with `NAGARE_DEPLOYER=NAME` added and nothing
-  secret), `DIR/.config/nagare/kubeconfigs/CONTEXT.yaml` (a kubeconfig whose only user is a bound token for
-  `nagare-deployer-NAME` from the Kubernetes TokenRequest API with the chosen duration), on a cloud context
-  `DIR/.config/gcloud/` (a gcloud configuration whose `auth/credential_file_override` names a key for the delegation's
-  cloud principal and whose `core/project` is the context's project), and `DIR/builder/kubeconfig.yaml` when a build
-  namespace exists. It prints a `deployer-credentials` contract document naming the paths, the token expiry and the
-  key id, never a secret. It refuses an existing non-empty `DIR`, a symlinked `DIR` and a `DIR` inside the repository.
-  Evidence: fake-command tests for each refusal and for the file modes; a golden sample. For local object-store contexts, write a private
-  `DIR/.config/nagare/credentials/CONTEXT-s3.json` containing only the scoped access key and secret key. Set
-  `NAGARE_INVENTORY_STORE_CREDENTIALS_FILE` to its bundle-local path and use the in-cluster Service endpoint in the
-  context. EP-251 reads that file without sourcing it as shell. Never copy the object-store administrator credential.
-- [ ] D5, the guard and the store with a scoped identity: with `HOME=DIR` and `XDG_CONFIG_HOME=DIR/.config` and nothing
-  else, `nagarectl --context CONTEXT inventory status` passes the cluster session guard
-  (`cli/nagarectl/src/Nagare/Inventory/ClusterSession.hs`) and reads the store; `app image-plan`, `app deploy
-  --save-plan` and `inventory apply` succeed for a delegated fixture site. Evidence: a local-context run (D8).
-- [ ] D6, the cloud principal (cloud contexts only, proved without a cloud run; a native IAM refusal check is the
-  operator's to run on a disposable cloud context, as EP-198 did for the reader): a Pulumi component
-  `NagareDelegatedDeployer`, built once per accepted, unrevoked delegation listed in a derived Pulumi config key
-  `nagare:delegatedDeployers`, declares a service account, an Artifact Registry Docker repository for the delegation's
-  image repository with that account as a repository-level writer (the node account keeps its project-level access, so
-  pulls are unchanged), and a custom role on the inventory store's bucket with `storage.objects.get, create, delete,
-  list` and `storage.buckets.get`, under an IAM condition limiting object access to the context's inventory prefix.
-  `deployer credentials` creates the key with the operator's session, through the same project assertion as every
-  cloud-mutating path (ADR 9). Evidence: `infra/pulumi/test/delegatedDeployerResources.test.ts` (added to the `test` script in
-  `infra/pulumi/package.json`) checks exactly those resources, the condition text and that nothing grants project-level roles; `resourceProgramParity.test.ts` gains a
-  variant with one delegation; a fake-command test of key creation and of the project assertion's refusal.
-- [ ] D7, revoke and rotate: `nagarectl deployer revoke NAME --save-plan DIR` reviews removing every RoleBinding,
-  ClusterRoleBinding and the cloud principal's bindings and keys for NAME, which makes every issued token and key stop
-  working at apply; `deployer rotate NAME` issues a new bundle, then reviews deleting the old key. EP-247's `delegation
-  revoke` includes the deployer revocation. Evidence: a test that the revocation review contains every binding D2, D3
-  and D6 created and every local S3 identity from D10, and the local-context run in D8 showing a 403 after revocation. Rotation replaces local S3 credentials too;
-  the old identity is disabled after the new bundle is verified, and resume completes a partially applied revocation.
-- [ ] D8, the local confirmation: on a local context, with only the bundle, the deployer publishes and deploys a
-  protected fixture site into its delegation; the same bundle gets `Forbidden` creating a ConfigMap in `personal`,
-  reading a Secret in `nagare-system`, patching `nagare-shomei-settings` and creating a Namespace; the builder kubeconfig
-  runs a `oneShotJob` to completion in the build namespace and gets `Forbidden` creating a Deployment there and anything
-  in a delegated namespace; after `deployer revoke`, the deploy bundle gets `Unauthorized` or `Forbidden`. Evidence: an
-  audit file under `docs/audits/`.
-- [ ] D9, docs and decisions: `docs/user/` gains the credential steps in the "Delegating deployments" guide (EP-247) and
-  reference rows; ADR 9 is amended to say a deployer bundle is a cloud-mutating path confined to the context's project
-  by the same assertion. Evidence: the linked pages.
-
-- [ ] D10, scoped local object-store identity: for an object-store context, issue a distinct deployer identity and
-  policy granting read, conditional write and delete only beneath the inventory prefix and listing only that prefix.
-  This plan owns policy creation, key issuance, rotation, revocation and private bundle delivery; EP-251 owns transport
-  and credential loading. No access to backups, other prefixes, bucket administration or root credentials is granted.
-  Policy and identity lifecycle changes use reviewed resources with adapter recovery; key material stays private.
-  Evidence: fake-adapter tests cover partial issuance, retry, rotation and revocation; on a disposable local context,
-  a Pod with only the bundle applies a protected-site change, the operator sees that same head, outside-prefix reads,
-  writes and lists fail, and old credentials fail after rotation and revocation. This gate also exercises creation,
-  update and retirement of the generated protected DomainMapping with D2's actual credentials.
-
+- [x] D1, rules derived from the compilers. `Nagare.Inventory.DeployerAccess` maps each delegated kind to the
+  resources its compilers write. Evidence: `Nagare.Test.DeployerAccess`, "D1: each delegated kind's rules are
+  exactly what its compiled scopes write and read". It compiles a web app with workers, a hook and a scheduled
+  task; a standalone worker; a task run; a protected static site; and a server site. It fails on any missing
+  or extra grant, and on any nagare-system object not granted or granted without use.
+- [x] D2, the deployer identity in the delegation scope: a ServiceAccount, a Role per delegated namespace, a
+  nagare-system Role (`nagare-access-backends` get, update and patch; the DomainMapping lifecycle), and a
+  read-only ClusterRole for nodes, DomainMappings and ClusterDomainClaims. All are Retain, and present
+  whenever the delegation is active (Decision Log). Evidence: "D2: an active delegation compiles the
+  deployer's identity…" and the audit's P2.
+- [x] D3, the builder identity. Evidence: "D3: the builder can create every object a one-shot Job renders, and
+  nothing more" (it renders `oneShotJob`), and the audit's P5.
+- [x] D4, the bundle: `nagarectl delegation credentials NAME --out DIR [--duration D] [--contract 1]`
+  (Decision Log). Evidence: `Nagare.Test.DeployerCredentials` for the files, their modes and the refusals of
+  non-empty, symbolic-link and in-repository directories; the `deployer-credentials` golden sample; and the
+  audit's P3.
+- [x] D5, the guard and the store with only the bundle. Evidence: the audit's P4, run in a Pod with `HOME` and
+  `XDG_CONFIG_HOME` at the bundle: `inventory history`, `inventory status --scope`, `app image-plan`,
+  `app deploy --save-plan` then `inventory apply`, `site deploy` and `worker deploy`.
+- [x] D6, the cloud principal: `NagareDelegatedDeployer` built from the derived `nagare:delegatedDeployers`.
+  The key is created after the ADR 9 project guard. Evidence: `infra/pulumi/test/delegatedDeployerResources.test.ts`,
+  the `foundation-managed-delegated-deployer` parity variant and `Nagare.Test.DeployerCloudAccess`. A native
+  IAM refusal check is the operator's to run on a disposable cloud context.
+- [x] D7, revoke and rotate. `delegation revoke` empties every deployer and builder Role, removes the store
+  user, and disables the cloud account. Running `delegation credentials` again rotates. Evidence: "D7:
+  revoking keeps every identity object and empties every Role…", "D7: running it again retires every earlier
+  handle and key, only after the new bundle is written", the cloud derivation test, and the audit's P6 and P7.
+- [x] D8, the local confirmation. Evidence: the audit, P4 to P7.
+- [x] D9, docs and decisions: [Delegating deployments](../user/delegating-deployments.md) and its
+  [reference rows](../user/reference.md#nagarectl-delegation). [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md)
+  is amended (2026-11-11).
+- [x] D10, the scoped local object-store identity: `Nagare.Inventory.DeployerStoreAccess`. Evidence:
+  "D10: a failed key issue writes no bundle and retires nothing…", "D10: the store policy reaches only the
+  inventory prefix…", and the audit's P2, P6 and P7. That covers an in-cluster apply, prefix isolation, old
+  keys refused after rotation and revocation, and the protected DomainMapping created by the deployer's own
+  credentials.
 
 ## Surprises & Discoveries
+
+- 2026-11-11, D1. No compiled delegated scope reads the delegation record, `nagare-shomei-settings` or any
+  Secret. Runtime Secret references are dependencies, not observed members. The draft D2 grants were
+  dropped, and P4 deployed with the derived rules alone.
+- 2026-11-11, D6. Cloud Storage checks `storage.objects.list` against the bucket, so no IAM condition limits
+  listing to a prefix. The deployer can list every object name in the inventory bucket but read, write and
+  delete only beneath its prefix.
+- 2026-11-11, the rehearsal. The deploy path assumed workstation tools (`shasum`, `awk`, `docker`,
+  `/usr/bin/env`). Each surfaced only in a Linux Pod, one 10-minute image build at a time (FRIC-11).
 
 - 2026-11-07, while writing this plan. The MasterPlan says the guard must verify the cluster "without node listing". It
   does not need to change: the guard (`serverNodes` in `ClusterSession.hs`) only lists nodes and compares the sole
@@ -256,7 +230,15 @@ Interpreter and fake-adapter evidence comes first; native runs only confirm
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+A delegated deployer now runs from one private directory. In the cluster, Kubernetes, the object store and
+(on a cloud context) IAM refuse it everything outside its delegation except the access backend map and
+protected routes, which the delegation bounds govern. One review revokes it, and running the credentials
+command again rotates it. The local run found seven defects that the interpreters could not see, all
+Linux-host assumptions in the deploy path plus the API server's `null` for empty rules
+([FRIC-11](../friction-log/11-linux-host-tool-assumptions-in-the-deploy-path-surfaced-one-per-10-minute-image-build.md)).
+The fast gate's audit steps cost three runs ([FRIC-10](../friction-log/10-the-fast-gate-s-audit-and-mutation-steps-failed-one-at-a-time-for-a-new-subcommand-and-a-new-update-kind.md)).
+What remains: the operator's native IAM check on a cloud context, and Kotei EP-148's end-to-end UC-4 gate.
+The trust model's second layer and its limits move to an ADR 35 amendment, and the cloud path to ADR 9's.
 
 
 ## Context and Orientation

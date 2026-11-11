@@ -2,6 +2,15 @@
 
 ## 2026-11-11
 
+* **Update**: FRIC-11 resolved: Status set to resolved.
+
+
+* **Update**: FRIC-10 accepted: Status set to accepted.
+
+
+* **Addition**: FRIC-11 records slowdown environment friction with mori://shinzui/nagare/scripts/inventory-artifact-transport.sh: Linux host-tool assumptions in the deploy path surfaced one per 10-minute image build
+
+
 * **Addition**: FRIC-10 records slowdown process friction with mori://shinzui/nagare/scripts/test-managed-command-audit.sh: The fast gate's audit and mutation steps failed one at a time for a new subcommand and a new update kind
 
 

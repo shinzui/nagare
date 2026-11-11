@@ -84,3 +84,18 @@ authentication remain outside this initiative.
 - The limit stands: the actor is asserted, not proved. Enforcing approval against another holder of
   the store needs signed reviews or a server-side check, which this initiative does not build and does
   not preclude.
+
+## Amendment — 2026-11-11: the enforced second layer and its limits (EP-248)
+
+The second layer exists. A delegation's reviewed scope holds its deployer's identities. Their Kubernetes
+rules are derived from what the delegated kinds' compilers write, and a property test fails the fast gate
+on any rule no compiled scope uses. The local object-store user can reach only the context's inventory
+prefix, and the cloud principal holds a repository-level Artifact Registry writer and a prefix-conditioned
+store grant. Issued material (bound tokens, store keys and cloud keys) never enters a review. Revocation
+empties the Roles, removes the store user and disables the cloud account, all in one review.
+
+What the layer cannot bound: RBAC cannot limit the hosts a deployer writes into `nagare-access-backends` or
+the hostname and target of its DomainMappings in `nagare-system`; Cloud Storage cannot limit object listing
+to a prefix, so a cloud deployer can list every object name in the inventory bucket; and the store holds one
+head per context, so a deployer that holds a write key can replace it. The delegation bounds on a rendered
+configuration remain the control for those, which is the trust model above.

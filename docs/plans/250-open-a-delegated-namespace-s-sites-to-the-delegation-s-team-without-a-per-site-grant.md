@@ -51,7 +51,7 @@ access check.
 D1 is a bounded prototype that decides the design; the rest implements the chosen design. Interpreter evidence first,
 the local-context run confirms ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 
-- [ ] D1, prototype and decision: against the En release Nagare pins, prove on a local context that a schema with a
+- [x] D1, prototype and decision: against the En release Nagare pins, prove on a local context that a schema with a
   second object type, `object delegation { relation viewer: user, group#member  permission access = viewer }`, is
   accepted beside the existing `app` and `group`, that `delegation:D#viewer@group:T#member` plus a membership makes
   `check(user, access, delegation:D)` allowed and a non-member denied, and measure a decision-cache miss that needs a
@@ -97,7 +97,15 @@ the local-context run confirms ([ADR 25](../adr/0025-defects-are-found-by-interp
 
 ## Surprises & Discoveries
 
-(None yet; D1 records its figures here.)
+- 2026-11-11, D1 ([transcript](../audits/ep250-prototype-2026-11-11/transcript.txt), script beside it). The
+  pinned En (`9577009`) loaded a schema with `object delegation { relation viewer: user, group#member
+  permission access = viewer }` beside `app` and `group`. With `group:proto-eng#member@user:proto-alice` and
+  `delegation:ci#viewer@group:proto-eng#member`, `check(user:proto-alice, access, delegation:ci)` was allowed,
+  `user:proto-bob` was denied, and alice on `app:HOST` with no direct grant stayed denied. En answered each
+  fully consistent check in 6-8 ms. Through the workstation port-forward the median was 35 ms for one check
+  and 68 ms for a miss that needs both, so the second check costs one more En round trip, only on a
+  decision-cache miss for a user without a direct grant. The enforcer-side design stands. The prototype
+  restored the schema and deleted its tuples; the cluster was thrown away.
 
 
 ## Decision Log

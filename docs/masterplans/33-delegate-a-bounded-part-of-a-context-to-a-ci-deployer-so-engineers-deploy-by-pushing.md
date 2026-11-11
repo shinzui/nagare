@@ -147,9 +147,9 @@ package then two reviewed stages, which EP-249 keeps). On Kotei's side,
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 247 | Review a bounded namespace delegation for a named deployer and record who applied each change | docs/plans/247-review-a-bounded-namespace-delegation-for-a-named-deployer-and-record-who-applied-each-change.md | None | None | Complete |
-| 248 | Issue least-privilege credentials to a delegated deployer | docs/plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.md | EP-247; EP-251 | None | Not Started |
+| 248 | Issue least-privilege credentials to a delegated deployer | docs/plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.md | EP-247; EP-251 | None | Complete |
 | 249 | Deploy apps and static sites from a rendered configuration without running the repository's program | docs/plans/249-deploy-apps-and-static-sites-from-a-rendered-configuration-without-running-the-repository-s-program.md | EP-247 for D5 and D6 only | None | Complete |
-| 250 | Open a delegated namespace's sites to the delegation's team without a per-site grant | docs/plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md | EP-247 | None | Not Started |
+| 250 | Open a delegated namespace's sites to the delegation's team without a per-site grant | docs/plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md | EP-247 | None | In Progress |
 | 251 | Keep a local context's inventory store in its in-cluster object store so an in-cluster deployer can apply | docs/plans/251-keep-a-local-context-s-inventory-store-in-its-in-cluster-object-store-so-an-in-cluster-deployer-can-apply.md | None | None | Complete |
 | 252 | Package a static site image archive without a Docker daemon | docs/plans/252-package-a-static-site-image-archive-without-a-docker-daemon.md | None | None | Complete |
 
@@ -264,10 +264,11 @@ territory, not here.
 
 ## Progress
 
-EP-247, EP-249, EP-251 and EP-252 are Complete. One disposable local run at `e748a550` confirmed all four
-([audit](../audits/mp33-local-confirmation-2026-11-11.md)), after fixing four defects the interpreters had missed.
-EP-248 is next, then EP-250, in the default order. EP-248 D10 is the required local credential and route integration
-gate.
+EP-247, EP-248, EP-249, EP-251 and EP-252 are Complete. EP-247, EP-249, EP-251 and EP-252 were confirmed by one
+local run at `e748a550` ([audit](../audits/mp33-local-confirmation-2026-11-11.md)). EP-248 was confirmed by one at
+`59d10332` ([audit](../audits/ep248-local-confirmation-2026-11-11.md)): there, a deployer Pod on the
+`aarch64-linux` package, holding only its bundle, deployed protected sites and was refused outside its
+delegation, and rotation and revocation took effect. EP-250 is in progress; its D1 prototype passed.
 
 Remaining cross-repository gate, owned by [Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer):
 
@@ -301,6 +302,16 @@ Remaining cross-repository gate, owned by [Kotei EP-148](mori://shinzui/kotei/pl
   raised the `Nagare.Test.Suite` cap to 400 and the `Dispatch` cap to 300 (2026-11-11), and the Delegation and S3
   store test groups moved back to the suite (FRIC-8 resolved); the 1000-line default stays (FRIC-1, FRIC-9 accepted).
 
+
+- 2026-11-11, EP-248. The deploy path assumed workstation tools (`shasum`, `awk`, `docker`, `/usr/bin/env`).
+  Each surfaced only when the deployer ran in a Linux Pod, and was fixed there
+  ([FRIC-11](../friction-log/11-linux-host-tool-assumptions-in-the-deploy-path-surfaced-one-per-10-minute-image-build.md)).
+  The `aarch64-linux` package now carries a deploy payload, `skopeo` and `jq`, which Kotei's runner image
+  pins ([Kotei EP-148](mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer) D7).
+- 2026-11-11, friction across children. A new CLI route turned the fast gate red at the command audit with a
+  silent log, under EP-236 (FRIC-2) and again under EP-248
+  ([FRIC-10](../friction-log/10-the-fast-gate-s-audit-and-mutation-steps-failed-one-at-a-time-for-a-new-subcommand-and-a-new-update-kind.md)).
+  Running `scripts/audit-managed-commands.py` prints the error. Per the house rule, no check is added.
 
 ## Decision Log
 

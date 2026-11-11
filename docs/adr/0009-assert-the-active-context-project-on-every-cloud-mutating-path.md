@@ -263,3 +263,18 @@ selection before constructing adapters, so a saved local review cannot silently
 follow newly appeared remote history. Existing transaction, claim and fence
 state stays visible to admission and explicit recovery. The implementation and
 bounded evidence belong to [EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).
+
+## Amendment — 2026-11-11: a delegated deployer's credentials stay on the active project
+
+`nagarectl delegation credentials NAME` is a cloud-mutating path. On a cloud context it creates a key
+for the delegation's own service account and deletes that account's earlier keys. It runs the same
+project guard as the CDN and DNS paths (`projectGuardInputsFor`, `projectGuardVerdict`) once, before
+its first gcloud call and before any cluster call, so a refusal leaves nothing behind. The account,
+its Artifact Registry repository writer and its inventory-prefix grant are reviewed Pulumi members of
+the active project, derived from the accepted delegations. Nothing grants a project-level role.
+
+The bundle's gcloud configuration names the context's project as `core/project`, and the deployer
+authenticates with the bundle's key alone. A revoked delegation keeps its principal with the account
+disabled, so revoking changes the project in place and creates nothing elsewhere. Implemented by
+[EP-248](../plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.md) D6. A native IAM
+refusal check on a disposable cloud context is still the operator's to run.

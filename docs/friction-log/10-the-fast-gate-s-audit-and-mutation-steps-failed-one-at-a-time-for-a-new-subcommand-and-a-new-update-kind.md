@@ -6,7 +6,7 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-11T16:23:01Z"
 frictionId: FRIC-10
-status: logged
+status: "accepted"
 impact: slowdown
 kind: process
 origin: "mori://shinzui/nagare"
@@ -16,6 +16,11 @@ plan: "docs/plans/248-issue-least-privilege-credentials-to-a-delegated-deployer.
 workaround: "Ran scripts/audit-managed-commands.py and --update-catalogue directly, regenerated the record and proved it with its own pattern"
 tags:
   - "recurrence"
+resolution: "Running scripts/audit-managed-commands.py (and --update-catalogue) prints each fix, and a moved mutation record names itself; the house rule is to remove steps, not add a check."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-11T17:27:14Z"
+    change: "Status set to accepted."
 ---
 # The fast gate's audit and mutation steps failed one at a time for a new subcommand and a new update kind
 
