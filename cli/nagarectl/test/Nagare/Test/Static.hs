@@ -27,7 +27,8 @@ import Nagare.Static.Build
 import Nagare.Static.ContentDigest (digestContextTree)
 import Nagare.Static.Image (basePinFor, staticDockerfile)
 import Nagare.Static.Package
-  ( PackageError (..)
+  ( ArchiveBuilder (..)
+  , PackageError (..)
   , PackageResult (..)
   , PackageTarget (..)
   , packageStaticSiteWith
@@ -48,6 +49,7 @@ import Nagare.Static.Release
   , historyCap
   , renderReleaseConfigMap
   )
+import Nagare.Test.StaticLayered (staticLayeredTests)
 import Nagare.Test.StaticPublish (publishTests)
 import Nagare.Test.Support.Assertions
   ( assertInfix
@@ -77,7 +79,7 @@ staticImageTests :: TestTree
 staticImageTests =
   testGroup
     "Nagare.Static.Image"
-    (dockerfileTests <> [testGroup "Nagare.Static.Package" packageTests, testGroup "Nagare.Static.Publish" publishTests])
+    (dockerfileTests <> [testGroup "Nagare.Static.Package" packageTests, testGroup "Nagare.Static.Publish" publishTests, staticLayeredTests])
 
 dockerfileTests :: [TestTree]
 dockerfileTests =
@@ -240,6 +242,7 @@ archiveTargetWith path t p =
     , destination = "registry.example/notes:v1"
     , tag = t
     , platform = p
+    , builder = DockerBuilder
     }
 
 packageTests :: [TestTree]

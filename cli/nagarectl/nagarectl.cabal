@@ -377,6 +377,7 @@ library
     Nagare.Static.ContentDigest
     Nagare.Static.Deploy
     Nagare.Static.Image
+    Nagare.Static.Layered
     Nagare.Static.Package
     Nagare.Static.Preview
     Nagare.Static.Publish
@@ -422,6 +423,7 @@ library
     nagare-contract,
     nagare-dsl,
     process,
+    tar,
     template-haskell,
     temporary,
     text,
@@ -757,6 +759,7 @@ test-suite nagarectl-test
     Nagare.Test.SiteInventory.Static
     Nagare.Test.SiteInventory.Tunnel
     Nagare.Test.Static
+    Nagare.Test.StaticLayered
     Nagare.Test.StaticPublish
     Nagare.Test.Storage
     Nagare.Test.Suite
@@ -819,6 +822,7 @@ test-suite nagarectl-test
     nagarectl,
     openapi-hs,
     process,
+    tar,
     tasty >=1.4,
     tasty-golden >=2.3,
     tasty-hunit >=0.10,

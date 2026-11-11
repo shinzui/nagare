@@ -47,7 +47,8 @@ import Nagare.Static.Build
   )
 import Nagare.Static.ContentDigest (contentDigestText)
 import Nagare.Static.Package
-  ( PackageResult (..)
+  ( ArchiveBuilder (..)
+  , PackageResult (..)
   , PackageTarget (..)
   , derivedTag
   , packageStaticSite
@@ -102,7 +103,12 @@ archiveTarget mctx options site out = do
     Just given -> either (dieT . renderPackageError) pure (validateTag (T.pack given))
     Nothing -> derivedTag <$> getCurrentTime
   qualified <- either (dieT . ("site package: " <>)) pure (qualifyImage profile (site ^. #image))
-  pure ArchiveOut {archive = out, destination = taggedImageRef qualified tag, tag = tag, platform = platform}
+  builder <- case options ^. #builder of
+    Nothing -> pure (AutoBuilder (options ^. #baseArchive))
+    Just "docker" -> pure DockerBuilder
+    Just "layered" -> pure (LayeredBuilder (options ^. #baseArchive))
+    Just other -> dieT ("site package: --builder must be docker or layered, not " <> T.pack other)
+  pure ArchiveOut {archive = out, destination = taggedImageRef qualified tag, tag = tag, platform = platform, builder = builder}
 
 -- ---------------------------------------------------------------------------
 -- site publish
@@ -170,7 +176,7 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
                 (loggedDocker logHandle)
                 site
                 prepared
-                ArchiveOut {archive = archive, destination = taggedImageRef qualified tagText, tag = tagText, platform = platform}
+                ArchiveOut {archive = archive, destination = taggedImageRef qualified tagText, tag = tagText, platform = platform, builder = AutoBuilder Nothing}
                 gate
           , publishImage = publishImageFor imagePlan
           , deploy = \receipt -> do
@@ -190,7 +196,7 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
       -- must still be the ones it was built from.
       seen <- newIORef Nothing
       void $
-        packageStaticSiteGated (\_ -> pure True) site prepared ArchiveOut {archive = releaseDir </> "resume-check.tar", destination = receipt ^. #destination, tag = receipt ^. #tag, platform = receipt ^. #platform} (\d -> writeIORef seen (Just d) >> pure False)
+        packageStaticSiteGated (\_ -> pure True) site prepared ArchiveOut {archive = releaseDir </> "resume-check.tar", destination = receipt ^. #destination, tag = receipt ^. #tag, platform = receipt ^. #platform, builder = DockerBuilder} (\d -> writeIORef seen (Just d) >> pure False)
       current <- readIORef seen
       when (fmap (contentSource configHash) current /= Just (receipt ^. #source)) $
         dieT ("the files or configuration changed since release " <> receipt ^. #releaseId <> " was packaged; start a new release with `nagarectl site publish` (the retained release stays in " <> T.pack releaseDir <> ")")

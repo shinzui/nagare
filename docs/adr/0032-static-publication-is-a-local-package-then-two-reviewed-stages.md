@@ -64,3 +64,13 @@ own pinned head; they cannot be one atomic change.
   has no `content=` and is treated as changed.
 - The config load (`runghc`) is the largest remaining cost of every command and is outside this
   decision.
+
+## Amendment — 2026-11-10: packaging without a Docker daemon (EP-252)
+
+"The archive path needs a Docker daemon" no longer holds. `site package --archive` may build with a
+Docker daemon or with the layered builder, which appends one layer (the generated `nginx.conf` and the
+site files, with sorted entries, fixed times, owner 0 and normalized modes) to the Nginx base pinned by
+digest, read from `--base-archive` or a digest-verified cache. Without `--builder`, the daemon is used
+when one answers and the layered builder otherwise. The base is pinned for both builders: the
+Dockerfile names its multi-platform index digest, so the context, which remains the release identity,
+is the same for every platform and every builder. The two reviewed stages are unchanged.

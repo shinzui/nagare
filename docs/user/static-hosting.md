@@ -577,6 +577,21 @@ permissions configured before deployment.
 
 ---
 
+## Building the archive without Docker
+
+`site package --archive FILE` builds the image archive with a Docker daemon when one answers, and
+otherwise with the layered builder, which needs no daemon, no root and no privileges: it appends one
+layer holding the generated `nginx.conf` and the site files to the pinned Nginx base. Choose one with
+`--builder docker|layered`; the command prints which it used. The same inputs give a byte-identical
+archive.
+
+The base is `nginx:1.27-alpine` pinned by digest for `linux/amd64` and `linux/arm64`, for both
+builders. The layered builder reads it from `--base-archive FILE` (a Docker archive of exactly the
+pinned image, refused otherwise) or fetches it once by digest with `skopeo` into
+`${XDG_CACHE_HOME:-~/.cache}/nagare/static-base/` and verifies it on every use. A build with no
+network passes `--base-archive`. The release identity is still the context digest, so changing
+builders never makes a new release.
+
 ## CLI reference
 
 ```text

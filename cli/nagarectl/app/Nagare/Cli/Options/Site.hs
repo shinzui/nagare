@@ -51,6 +51,9 @@ data SitePackageOpts = SitePackageOpts
   , archive :: !(Maybe FilePath)
   , tag :: !(Maybe String)
   , platform :: !(Maybe String)
+  , builder :: !(Maybe String)
+  -- ^ EP-252: @docker@ or @layered@; without it, Docker when a daemon answers.
+  , baseArchive :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 

@@ -112,6 +112,8 @@ sitePackageOptsParser defaultFile =
     <*> optional (strOption (long "archive" <> metavar "FILE" <> help "Build a Docker archive at this new path, for image-plan or app image publication"))
     <*> tagOpt
     <*> optional (strOption (long "platform" <> metavar "PLATFORM" <> help "Archive platform: linux/amd64 or linux/arm64 (default: the active context's platform)"))
+    <*> optional (strOption (long "builder" <> metavar "docker|layered" <> help "Build the archive with a Docker daemon or by appending one layer to the pinned base (default: docker when a daemon answers, layered otherwise)"))
+    <*> optional (strOption (long "base-archive" <> metavar "FILE" <> help "A Docker archive of the pinned base for the layered builder, instead of the cache"))
 
 sitePublishOptsParser :: FilePath -> Parser SitePublishOpts
 sitePublishOptsParser defaultFile =

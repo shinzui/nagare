@@ -20,14 +20,18 @@ module Nagare.Static.Package
   , packageStaticSite
   , packageStaticSiteWith
   , packageStaticSiteGated
+  , ArchiveBuilder (..)
   , runLogged
   )
 where
 
+import Control.Exception (IOException, try)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Char (isAlphaNum)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, defaultTimeLocale, formatTime)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Types (StaticSite)
@@ -37,13 +41,16 @@ import Nagare.Static.Build (PreparedStaticOutput)
 import Nagare.Static.ContentDigest (ContentDigest)
 import Nagare.Static.Image
   ( StaticContextError
+  , baseIndexReference
+  , basePinFor
   , renderStaticContextError
   , writeStaticContext
   )
+import Nagare.Static.Layered (acquireBase, layeredArchive, readContextFiles)
 import System.Directory (createDirectoryIfMissing, doesPathExist, makeAbsolute)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
-import System.IO (IOMode (..), withFile)
+import System.IO (IOMode (..), stderr, withBinaryFile, withFile)
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
 
@@ -56,7 +63,14 @@ data PackageTarget
       -- ^ the full tagged image reference baked into the archive
       , tag :: !Text
       , platform :: !Text
+      , builder :: !ArchiveBuilder
       }
+  deriving stock (Eq, Show)
+
+-- | How an archive is built (EP-252): with a Docker daemon, by appending one
+-- layer to the pinned base (from @--base-archive@ or the cache), or the
+-- daemon when one answers and the layered builder otherwise.
+data ArchiveBuilder = DockerBuilder | LayeredBuilder !(Maybe FilePath) | AutoBuilder !(Maybe FilePath)
   deriving stock (Eq, Show)
 
 data PackageResult = PackageResult
@@ -163,7 +177,7 @@ packageStaticSiteGated run site prepared target gate = case target of
     pure $ case written of
       Left e -> Left (PackageContext e)
       Right d -> Right (Just PackageResult {path = absolute, digest = d, image = Nothing, tag = Nothing, platform = Nothing})
-  ArchiveOut {archive = out, destination = ref, tag = t, platform = p} ->
+  ArchiveOut {archive = out, destination = ref, tag = t, platform = p, builder = chosen} ->
     case (,) <$> validateTag t <*> validatePlatform p of
       Left e -> pure (Left e)
       Right _ -> do
@@ -183,12 +197,40 @@ packageStaticSiteGated run site prepared target gate = case target of
                   if not proceed
                     then pure (Right Nothing)
                     else do
-                      built <-
-                        tracePhase "package.build" $
-                          buildDockerArchiveWith run p ref (ctx </> "Dockerfile") ctx absolute Map.empty Map.empty
+                      selected <- case chosen of
+                        AutoBuilder base -> do
+                          daemon <- run ["info", "--format", "{{.ServerVersion}}"]
+                          pure (if daemon then DockerBuilder else LayeredBuilder base)
+                        other -> pure other
+                      tracePhase "package.builder" (TIO.hPutStrLn stderr ("site package: " <> builderName selected <> " builder"))
+                      built <- case selected of
+                        LayeredBuilder base -> tracePhase "package.layered" (layeredBuild p ref ctx absolute base)
+                        _ ->
+                          tracePhase "package.build" $
+                            buildDockerArchiveWith run p ref (ctx </> "Dockerfile") ctx absolute Map.empty Map.empty
                       pure $ case built of
                         Left m
                           | "already exists" `T.isInfixOf` m -> Left (PackageArchiveExists absolute)
                           | otherwise -> Left (PackageBuildFailed m)
                         Right () ->
                           Right (Just PackageResult {path = absolute, digest = d, image = Just ref, tag = Just t, platform = Just p})
+
+builderName :: ArchiveBuilder -> Text
+builderName = \case
+  DockerBuilder -> "docker"
+  LayeredBuilder _ -> "layered"
+  AutoBuilder _ -> "automatic"
+
+-- | Append the context to the pinned base and write the archive exclusively.
+layeredBuild :: Text -> Text -> FilePath -> FilePath -> Maybe FilePath -> IO (Either Text ())
+layeredBuild platform' reference context out baseArchive =
+  case basePinFor platform' of
+    Left reason -> pure (Left reason)
+    Right pin -> do
+      base <- acquireBase pin baseIndexReference baseArchive
+      files <- readContextFiles context
+      case (,) <$> base <*> files >>= \(image, contents) -> layeredArchive reference image contents of
+        Left reason -> pure (Left reason)
+        Right bytes -> do
+          written <- try (withBinaryFile out WriteMode (`LBS.hPut` bytes)) :: IO (Either IOException ())
+          pure (first (const "the layered archive could not be written") written)

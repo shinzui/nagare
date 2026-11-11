@@ -16,6 +16,12 @@ provenance:
       at: 2026-11-09T03:56:33Z
       verdict: "approved"
       note: "Daemonless packaging is independently scoped with deterministic archive, base verification, and native serving acceptance."
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-11T06:00:38Z
+      mode: "implement"
+      note: "Implemented D1-D4 and D6; D5 local confirmation pending"
 ---
 
 # Package a static site image archive without a Docker daemon
@@ -48,29 +54,33 @@ Interpreter and unit evidence first; a local-context run only confirms
   (`cli/nagarectl/src/Nagare/Static/Image.hs`), and both builders use the same pin. Evidence: a test that the
   generated `Dockerfile` names the digest for the requested platform, and that an unknown platform is refused.
   Done 2026-11-10: `staticDockerfile` names `nginx:1.27-alpine@sha256:65645c7b…` (the multi-platform index); `basePinFor` gives each platform's manifest and config digest and refuses others (`Static` tests).
-- [ ] D2, the layered builder: `site package --archive FILE --builder layered` writes a Docker archive (the format
+- [x] D2, the layered builder: `site package --archive FILE --builder layered` writes a Docker archive (the format
   `skopeo` reads as `docker-archive:`, which `scripts/inventory-artifact-transport.sh` already uses) from the base image
   plus one layer. The layer is a tar of `etc/nginx/conf.d/default.conf` and `usr/share/nginx/html/...` with sorted
   entries, fixed modification time, owner and group 0, and the modes `writeStaticContext` already normalizes; the image
   config sets `ExposedPorts` 8080 and a fixed `created` time, and keeps the base's entrypoint and command. Evidence: a
   golden test that packages a fixture site twice and gets identical bytes, and a test that `skopeo inspect
   docker-archive:` reads it.
-- [ ] D3, getting the base without a daemon: the base is read from `--base-archive FILE` (a Docker archive of exactly
+  Done 2026-11-10: `layeredArchive` in `cli/nagarectl/src/Nagare/Static/Layered.hs` (with the `tar` library); `layered builder` tests give identical bytes for reordered inputs with fixed time, owner 0 and the 8080 port and base entrypoint kept; a fixture site packaged twice live gave identical archives (`3ac3707f…`), `skopeo inspect docker-archive:` read it as linux/arm64, and the image served its files in an Apple container.
+- [x] D3, getting the base without a daemon: the base is read from `--base-archive FILE` (a Docker archive of exactly
   the pinned digest, refused otherwise) or, when absent, fetched once by digest with `skopeo copy` into a cache under
   the user's cache directory and verified by digest on every use. A build with no network passes `--base-archive`.
   Evidence: tests for a matching archive, a mismatched archive refused before writing, and a cache entry whose bytes no
   longer match its digest refused.
-- [ ] D4, the default: without `--builder`, `site package --archive` keeps the Docker builder when a daemon answers and
+  Done 2026-11-10: `acquireBase` reads `--base-archive` or the digest-verified cache, fetching by manifest digest with `skopeo` when absent; tests refuse a mismatched archive and a corrupted cache entry before any write.
+- [x] D4, the default: without `--builder`, `site package --archive` keeps the Docker builder when a daemon answers and
   uses the layered builder otherwise, printing which one it used; `site publish` behaves the same. The content digest
   that identifies a release (ADR 32) is unchanged, because it hashes the context, not the image. Evidence: tests with a
   fake daemon present and absent.
+  Done 2026-11-10: `--builder docker|layered`; without it the daemon is used when `docker info` answers and the layered builder otherwise, printed on stderr; `site publish` uses the same default. Tested with a fake daemon present and absent; the release identity is still the context digest.
 - [ ] D5, the local confirmation: on a local context, a Pod with no Docker socket, a read-only root filesystem and a
   non-root user packages a fixture site with `--builder layered --base-archive`, the operator publishes the archive with
   `app image-plan`, deploys it with `site deploy --skip-build`, and the site serves its files. Evidence: an audit file
   under `docs/audits/`.
-- [ ] D6, docs and decision: `docs/user/static-hosting.md` documents the builder choice and the base pin, and
+- [x] D6, docs and decision: `docs/user/static-hosting.md` documents the builder choice and the base pin, and
   [ADR 32](../adr/0032-static-publication-is-a-local-package-then-two-reviewed-stages.md) is amended: packaging may use
   either builder, and "the archive path needs a Docker daemon" no longer holds. Evidence: the linked pages.
+  Done 2026-11-10: `docs/user/static-hosting.md` (Building the archive without Docker) and the ADR 32 amendment.
 
 
 ## Surprises & Discoveries
