@@ -17,7 +17,7 @@ module Nagare.Inventory.DeployerCloudAccess
   ( deployerCloudAccountId
   , deployerCloudAccountEmail
   , delegatedRepositoryId
-  , activeDelegatedDeployers
+  , cloudDelegatedDeployers
   , delegatedDeployerConfigKeys
   , CloudKey (..)
   , CloudKeyOps (..)
@@ -99,11 +99,12 @@ delegatedRepositoryId profile delegation = case T.splitOn "/" repository of
         && not ("-" `T.isSuffixOf` repo)
 
 -- | The accepted, active delegations among a composition's scopes.
-activeDelegatedDeployers :: [ScopeDeclaration] -> [DeployerDelegation]
-activeDelegatedDeployers scopes =
-  filter
-    ((== DelegationActive) . (^. #state))
-    (Map.elems (acceptedDelegations (Map.fromList [(scopeId scope, scope) | scope <- scopes])))
+-- | Every accepted delegation, revoked ones included: a revoked delegation
+-- keeps its cloud principal with the account disabled (D7), so revoking
+-- changes resources in place and retires nothing.
+cloudDelegatedDeployers :: [ScopeDeclaration] -> [DeployerDelegation]
+cloudDelegatedDeployers scopes =
+  Map.elems (acceptedDelegations (Map.fromList [(scopeId scope, scope) | scope <- scopes]))
 
 -- | The derived Pulumi config for the delegations' cloud principals: none
 -- without a delegation, so an existing stack previews unchanged; otherwise
@@ -123,7 +124,10 @@ delegatedDeployerConfigKeys context profile delegations = case sortOn (^. #name)
     entries <-
       canonicalValue
         ( toJSON
-            [ object ["name" .= (delegation ^. #name), "accountId" .= account, "imageRepository" .= (delegation ^. #imageRepository)]
+            [ object
+                ( ["name" .= (delegation ^. #name), "accountId" .= account, "imageRepository" .= (delegation ^. #imageRepository)]
+                    <> ["disabled" .= True | delegation ^. #state == DelegationRevoked]
+                )
             | (delegation, account) <- zip sorted accounts
             ]
         )

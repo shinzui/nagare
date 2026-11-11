@@ -52,10 +52,13 @@ deployerCloudAccessTests =
               ]
         assertBool "a shared repository is refused" (isLeft (delegatedDeployerConfigKeys "intranet" profile [kotei, kotei & #name .~ "other"]))
         delegatedDeployerConfigKeys "intranet" profile [] @?= Right []
-        -- The list is read from the accepted delegation scopes; a revoked one leaves it.
+        -- The list is read from the accepted delegation scopes; a revoked one
+        -- stays with its account disabled, so revoking retires nothing (D7).
         (active, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing kotei)
         (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing (long & #state .~ DelegationRevoked))
-        map (^. #name) (activeDelegatedDeployers [active, revoked]) @?= ["kotei"]
+        map (\d -> (d ^. #name, d ^. #state)) (cloudDelegatedDeployers [active, revoked]) @?= [("a-rather-long-deployer-name", DelegationRevoked), ("kotei", DelegationActive)]
+        disabled <- expectRight (delegatedDeployerConfigKeys "intranet" profile (cloudDelegatedDeployers [active, revoked]))
+        assertBool "a revoked delegation's account is disabled" (any (\(key, value) -> key == "nagare:delegatedDeployers" && "\"disabled\":true,\"imageRepository\":\"us-west1-docker.pkg.dev/acme-prod/long-images\"" `T.isInfixOf` value) disabled)
         T.take 24 longAccount @?= "nagare-deployer-a-rathe-"
         forM_ ["a-rather-long-deployer-name", "kotei", "x"] $ \deployer -> do
           let account = deployerCloudAccountId deployer

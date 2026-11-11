@@ -28,7 +28,7 @@ import Nagare.Inventory.Adapters.FoundationRuntime
   , realGcloudRunner
   )
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DeployerCloudAccess (activeDelegatedDeployers, delegatedDeployerConfigKeys)
+import Nagare.Inventory.DeployerCloudAccess (cloudDelegatedDeployers, delegatedDeployerConfigKeys)
 import Nagare.Inventory.Foundation qualified as InventoryFoundation
 import Nagare.Ops.PulumiBackend
   ( gcsBucketOfUrl
@@ -158,7 +158,7 @@ foundationDeployerKeys active scopes =
   either
     dieT
     pure
-    (delegatedDeployerConfigKeys (contextNameText (active ^. #contextName)) (active ^. #profile) (activeDelegatedDeployers scopes))
+    (delegatedDeployerConfigKeys (contextNameText (active ^. #contextName)) (active ^. #profile) (cloudDelegatedDeployers scopes))
 
 foundationImageLink :: ActiveTarget -> [ResourceInventory.Declaration] -> IO (Maybe Text)
 foundationImageLink active declarations = do

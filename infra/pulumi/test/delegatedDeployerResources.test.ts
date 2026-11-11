@@ -39,10 +39,19 @@ async function main(): Promise<void> {
         { name: "kotei", accountId: "nagare-deployer-kotei", imageRepository: "us-west1-docker.pkg.dev/example-project/kotei-images/site" },
     ]));
     const deployer = new NagareDelegatedDeployer("nagare-delegated-deployer-kotei", { ...base, deployer: entry });
+    // D7: a revoked delegation keeps the same resources with its account disabled.
+    const [revokedEntry] = parseDelegatedDeployers(JSON.stringify([
+        { name: "former", accountId: "nagare-deployer-former", imageRepository: "us-west1-docker.pkg.dev/example-project/former-images", disabled: true },
+    ]));
+    new NagareDelegatedDeployer("nagare-delegated-deployer-former", { ...base, deployer: revokedEntry });
     const email = await (deployer.email as unknown as { promise(): Promise<string> }).promise();
     await pulumi.runtime.disconnect();
 
-    const gcp = resources.filter((resource) => resource.type.startsWith("gcp:"));
+    const accounts = resources.filter((resource) => resource.type === "gcp:serviceaccount/account:Account");
+    assert(accounts.find((a) => a.inputs.accountId === "nagare-deployer-former")?.inputs.disabled === true, "a revoked deployer's account is not disabled");
+    assert(accounts.find((a) => a.inputs.accountId === "nagare-deployer-kotei")?.inputs.disabled === false, "an active deployer's account is disabled");
+    assert(resources.filter((resource) => resource.name.includes("former") && resource.type.startsWith("gcp:")).length === 5, "a revoked deployer's resources changed");
+    const gcp = resources.filter((resource) => resource.type.startsWith("gcp:") && !resource.name.includes("former"));
     const types = gcp.map((resource) => resource.type).sort();
     assert(JSON.stringify(types) === JSON.stringify([
         "gcp:artifactregistry/repository:Repository",

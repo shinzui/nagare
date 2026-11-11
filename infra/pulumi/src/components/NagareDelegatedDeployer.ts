@@ -44,6 +44,9 @@ export interface DelegatedDeployerEntry {
     name: string;              // the deployer's name (a DNS label)
     accountId: string;         // the service account ID nagarectl derived
     imageRepository: string;   // REGION-docker.pkg.dev/PROJECT/REPO[/...]
+    // EP-248 D7: a revoked delegation keeps its resources and disables its
+    // account, which refuses every key at once; nothing is retired.
+    disabled?: boolean;
 }
 
 export interface NagareDelegatedDeployerArgs {
@@ -76,6 +79,7 @@ export class NagareDelegatedDeployer extends pulumi.ComponentResource {
             project: args.gcpProject,
             accountId: deployer.accountId,
             displayName: `Nagare delegated deployer ${deployer.name}`,
+            disabled: deployer.disabled === true,
         }, { parent: this });
         const member = pulumi.interpolate`serviceAccount:${account.email}`;
 
@@ -171,10 +175,11 @@ export function parseDelegatedDeployers(raw: string | undefined): DelegatedDeplo
         const entry = value as Record<string, unknown>;
         if (entry === null || typeof entry !== "object"
             || typeof entry.name !== "string" || !/^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/.test(entry.name)
-            || typeof entry.accountId !== "string" || typeof entry.imageRepository !== "string") {
+            || typeof entry.accountId !== "string" || typeof entry.imageRepository !== "string"
+            || (entry.disabled !== undefined && typeof entry.disabled !== "boolean")) {
             throw new Error("each nagare:delegatedDeployers entry needs a DNS-label name, an accountId and an imageRepository");
         }
-        return { name: entry.name, accountId: entry.accountId, imageRepository: entry.imageRepository };
+        return { name: entry.name, accountId: entry.accountId, imageRepository: entry.imageRepository, ...(entry.disabled === true ? { disabled: true } : {}) };
     });
     for (const field of ["name", "accountId", "imageRepository"] as const) {
         const values = entries.map((entry) => entry[field]);

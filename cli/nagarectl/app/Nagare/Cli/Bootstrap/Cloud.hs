@@ -21,7 +21,7 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   ( decodePhysicalResources
   )
 import Nagare.Inventory.Cloud qualified as InventoryCloud
-import Nagare.Inventory.DeployerCloudAccess (activeDelegatedDeployers)
+import Nagare.Inventory.DeployerCloudAccess (cloudDelegatedDeployers)
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.VmPower (retainVmPowerIntents)
 import Nagare.Platform.Workspace (PlatformWorkspace)
@@ -56,7 +56,7 @@ buildCloudStageCandidate active workspace snapshot
           dieT
           pure
           ( InventoryCloud.withDelegatedDeployers
-              (map (^. #name) (activeDelegatedDeployers acceptedScopes))
+              (map (^. #name) (cloudDelegatedDeployers acceptedScopes))
               ( InventoryCloud.withCloudInstanceName
                   (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
                   rawCatalog
