@@ -45,15 +45,40 @@ accessCheckTests =
         malformed ^. #result @?= Unavailable "malformed en check response"
         assertBool "an unavailable answer succeeded the command" (not (checkDecided down))
         assertBool "a secret leaked into a diagnostic" (not (T.isInfixOf "super-secret" (renderCheckReport bare)))
+    , testCase "EP-250 D5: a host's own refusal asks its delegation, and an allowed answer names it" $ do
+        let answer objectType allow = "{\"decision\":{\"result\":\"" <> (if allow then "allowed" else "denied") <> "\"},\"checkedAt\":\"" <> objectType <> "\"}"
+            fake hostAllows delegationAllows = do
+              calls <- newIORef []
+              let call _ (CheckRequest objectType _ _) = do
+                    modifyIORef' calls (<> [objectType])
+                    pure (Right (200, if objectType == "app" then answer "app" hostAllows else answer "delegation" delegationAllows))
+
+              pure (calls, call)
+        (calls, call) <- fake False True
+        inherited <- effectiveAccessThrough call "docs.team-a.example.test" "user_01h455vb4pex5vsknk084sn02q" (Just "kotei")
+        (inherited ^. #inheritedFrom, checkDecided inherited) @?= (Just "kotei", True)
+        readIORef calls >>= (@?= ["app", "delegation"])
+        assertBool "the report does not name the delegation" (T.isInfixOf "inherited from: delegation kotei" (renderCheckReport inherited))
+        (bothCalls, bothCall) <- fake False False
+        refused <- effectiveAccessThrough bothCall "docs.team-a.example.test" "u" (Just "kotei")
+        refused ^. #inheritedFrom @?= Nothing
+        readIORef bothCalls >>= (@?= ["app", "delegation"])
+        (directCalls, directCall) <- fake True False
+        direct <- effectiveAccessThrough directCall "docs.team-a.example.test" "u" (Just "kotei")
+        direct ^. #inheritedFrom @?= Nothing
+        readIORef directCalls >>= (@?= ["app"])
+        (plainCalls, plainCall) <- fake False True
+        _ <- effectiveAccessThrough plainCall "tools.example.test" "u" Nothing
+        readIORef plainCalls >>= (@?= ["app"])
     , testCase "the JSON report names host, subject, permission, decision, snapshot, obligations and diagnostics" $ do
-        let decided = CheckReport "tools.example.com" "user_x" Decided {decision = CheckConditional [Obligation "office_hours" ["now"]], checkedAt = "tok", grantGeneration = Just "gen"}
+        let decided = CheckReport "tools.example.com" "user_x" Decided {decision = CheckConditional [Obligation "office_hours" ["now"]], checkedAt = "tok", grantGeneration = Just "gen"} Nothing
         encode decided
           @?= "{\"checkedAt\":\"tok\",\"decision\":\"conditional\",\"grantGeneration\":\"gen\",\"host\":\"tools.example.com\",\"obligations\":[{\"caveat\":\"office_hours\",\"missingContext\":[\"now\"]}],\"permission\":\"access\",\"subject\":\"user_x\"}"
-        encode (CheckReport "tools.example.com" "user_x" (Unavailable "en answered HTTP 503 without a problem detail"))
+        encode (CheckReport "tools.example.com" "user_x" (Unavailable "en answered HTTP 503 without a problem detail") Nothing)
           @?= "{\"decision\":\"unavailable\",\"diagnostic\":\"en answered HTTP 503 without a problem detail\",\"host\":\"tools.example.com\",\"permission\":\"access\",\"subject\":\"user_x\"}"
     , testCase "the plain report states the answer and the gateway cache caveat" $ do
-        let rendered = renderCheckReport (CheckReport "tools.example.com" "user_x" Decided {decision = CheckAllowed, checkedAt = "tok", grantGeneration = Nothing})
+        let rendered = renderCheckReport (CheckReport "tools.example.com" "user_x" Decided {decision = CheckAllowed, checkedAt = "tok", grantGeneration = Nothing} Nothing)
         assertBool (T.unpack rendered) (T.isInfixOf "decision: allowed" rendered && T.isInfixOf "NAGARE_ACCESS_DECISION_TTL" rendered && T.isInfixOf "subject: user:user_x" rendered)
-        let conditional = renderCheckReport (CheckReport "h" "u" Decided {decision = CheckConditional [Obligation "office_hours" ["now"]], checkedAt = "tok", grantGeneration = Nothing})
+        let conditional = renderCheckReport (CheckReport "h" "u" Decided {decision = CheckConditional [Obligation "office_hours" ["now"]], checkedAt = "tok", grantGeneration = Nothing} Nothing)
         assertBool (T.unpack conditional) (T.isInfixOf "conditional; the enforcer refuses it (office_hours needs now)" conditional)
     ]

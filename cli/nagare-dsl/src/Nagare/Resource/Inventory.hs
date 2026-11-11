@@ -19,6 +19,7 @@ module Nagare.Resource.Inventory
   , OperationKind (..)
   , OperationInput (..)
   , BackendRole (..)
+  , BackendEntry (..)
   , Contribution (..)
   , ContributionGrant (..)
   , contributionResourceId
@@ -462,7 +463,7 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
       ]
     backendRequests =
       [ (s, c, clusterId, hostName, upstreamText, backendRole)
-      | (s, c@(RegisterBackend _ clusterId hostName upstreamText backendRole _)) <- requests
+      | (s, c@(RegisterBackend _ clusterId hostName upstreamText backendRole _ _)) <- requests
       ]
     cloudflareRequests =
       [ (s, c, zoneName, intent, routeId)
@@ -636,9 +637,9 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
               []
               ( BackendMapSpec
                   ( sortOn
-                      (nameText . first3)
-                      [ (hostName, upstreamText, backendRole)
-                      | (_, _, hostName, upstreamText, backendRole) <- Map.findWithDefault [] (owner, clusterId) backendGroups
+                      (\(BackendEntry hostName _ _ _) -> nameText hostName)
+                      [ BackendEntry hostName upstreamText backendRole delegated
+                      | (_, RegisterBackend {delegation = delegated}, hostName, upstreamText, backendRole) <- Map.findWithDefault [] (owner, clusterId) backendGroups
                       ]
                   )
               )
@@ -736,7 +737,7 @@ namespaceContributionId (RegisterNamespace owner _ namespaceName _) =
     owner
     (either (error . Data.Text.unpack) id (mkLogicalKey (nameText namespaceName)))
     (known "namespace")
-namespaceContributionId (RegisterBackend owner _ _ _ _ _) = backendMapResourceId owner
+namespaceContributionId (RegisterBackend owner _ _ _ _ _ _) = backendMapResourceId owner
 namespaceContributionId (RegisterCloudflareCache owner zoneName _ _) =
   cloudflareRulesResourceId owner zoneName
 

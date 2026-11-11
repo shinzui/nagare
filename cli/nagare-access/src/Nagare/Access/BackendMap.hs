@@ -14,6 +14,7 @@ module Nagare.Access.BackendMap
   , isRoutedHost
   , lookupBackend
   , lookupBackendWithHost
+  , lookupDelegation
   , mkPublicHost
   , publicHostText
   )
@@ -61,7 +62,9 @@ data Portal = Portal
   }
   deriving stock (Generic, Eq, Show)
 
-newtype BackendMap = BackendMap (Map PublicHost BackendTarget)
+-- | The routed hosts, and for each delegated protected host the delegation
+-- whose grant also opens it (EP-250). Older maps name no delegation.
+data BackendMap = BackendMap !(Map PublicHost BackendTarget) !(Map PublicHost Text)
   deriving stock (Generic, Eq, Show)
 
 instance FromJSON BackendTarget where
@@ -83,7 +86,7 @@ instance FromJSON BackendTarget where
   parseJSON _ = fail "backend target must be a string URL or an object with upstream and role"
 
 emptyBackendMap :: BackendMap
-emptyBackendMap = BackendMap Map.empty
+emptyBackendMap = BackendMap Map.empty Map.empty
 
 backendMapFromList :: [(Text, Text)] -> Either Text BackendMap
 backendMapFromList entries =
@@ -96,7 +99,7 @@ backendMapFromTargets :: [(Text, BackendTarget)] -> Either Text BackendMap
 backendMapFromTargets entries = do
   parsed <- traverse parseEntry entries
   rejectMultiplePortals parsed
-  pure (BackendMap (Map.fromList parsed))
+  pure (BackendMap (Map.fromList parsed) Map.empty)
   where
     parseEntry (host, target) = do
       publicHost <- mkPublicHost host
@@ -110,10 +113,23 @@ decodeBackendMap bs =
     Right (Object obj) -> do
       entries <- traverse parseEntry (KeyMap.toList obj)
       rejectMultiplePortals entries
-      pure (BackendMap (Map.fromList entries))
+      delegations <- traverse parseDelegation (KeyMap.toList obj)
+      pure (BackendMap (Map.fromList entries) (Map.fromList (concat delegations)))
     Right _ ->
       Left "backend map must be a JSON object mapping host names to backend targets"
   where
+    -- EP-250: only a protected host may name a delegation, as a DNS label.
+    parseDelegation (key, value) = case value of
+      Object entry | Just named <- KeyMap.lookup "delegation" entry -> do
+        host <- mkPublicHost (Key.toText key)
+        delegation <- case named of
+          String d | validLabel d -> Right d
+          _ -> Left ("backend map value for " <> Key.toText key <> ": delegation must be a DNS label")
+        case KeyMap.lookup "role" entry of
+          Just (String "protected") -> Right [(host, delegation)]
+          _ -> Left ("backend map value for " <> Key.toText key <> ": only a protected host names a delegation")
+      _ -> Right []
+    validLabel d = not (Text.null d) && Text.length d <= 63 && Text.all (\c -> c `elem` ['a' .. 'z'] || c `elem` ['0' .. '9'] || c == '-') d
     parseEntry (key, value) = do
       let hostText = Key.toText key
       host <- mapLeft (\err -> "backend map host " <> hostText <> ": " <> err) (mkPublicHost hostText)
@@ -131,16 +147,20 @@ lookupBackendWithHost rawHost backendMap = do
   (host,) <$> lookupBackendByHost host backendMap
 
 findPortal :: BackendMap -> Maybe Portal
-findPortal (BackendMap entries) =
+findPortal (BackendMap entries _) =
   case [(host, target) | (host, target) <- Map.toList entries, target ^. #role == PortalBackend] of
     (host, target) : _ -> Just Portal {host = host, target = target}
     [] -> Nothing
 
 isRoutedHost :: PublicHost -> BackendMap -> Bool
-isRoutedHost host (BackendMap entries) = Map.member host entries
+isRoutedHost host (BackendMap entries _) = Map.member host entries
 
 lookupBackendByHost :: PublicHost -> BackendMap -> Maybe BackendTarget
-lookupBackendByHost host (BackendMap entries) = Map.lookup host entries
+lookupBackendByHost host (BackendMap entries _) = Map.lookup host entries
+
+-- | The delegation whose grant also opens a protected host, if any.
+lookupDelegation :: PublicHost -> BackendMap -> Maybe Text
+lookupDelegation host (BackendMap _ delegations) = Map.lookup host delegations
 
 mkPublicHost :: Text -> Either Text PublicHost
 mkPublicHost raw =

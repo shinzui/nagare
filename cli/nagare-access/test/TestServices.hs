@@ -17,6 +17,7 @@ testServices =
   AccessServices
     { verifyCredential = \_ -> pure (Right AuthenticatedUser {subject = "user:alice"})
     , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessAllowed)
+    , authorizeDelegation = \_ _ -> pure (AuthorizationDecision AccessDenied)
     , forwardAuthorized = \_ _ _ _ _ -> pure (textResponse status200 "proxied")
     , loginUser = \_ -> pure (LoginFailed "invalid login")
     , completeMfa = \_ -> pure (LoginFailed "mfa failed")

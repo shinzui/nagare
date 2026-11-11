@@ -70,6 +70,7 @@ inventoryAdminApiTests =
                   "http://nagare-admin-api.nagare-system.svc.cluster.local"
                   ApiBackend
                   (ok (mkLogicalKey "admin.example.test"))
+                  Nothing
               ]
     , testCase "a cloud scope binds the reader Secret privately and serves the context's GCS prefix" $ do
         auth <- authScope
@@ -124,7 +125,7 @@ inventoryAdminApiTests =
     , testCase "no other platform scope may contribute a backend" $ do
         auth <- authScope
         let other = ok (mkScopeId Platform "observability-extra")
-            route = RegisterBackend fixtureOwner fixtureCluster (ok (mkName "admin.example.test")) "http://elsewhere.nagare-system.svc.cluster.local" ApiBackend (ok (mkLogicalKey "admin.example.test"))
+            route = RegisterBackend fixtureOwner fixtureCluster (ok (mkName "admin.example.test")) "http://elsewhere.nagare-system.svc.cluster.local" ApiBackend (ok (mkLogicalKey "admin.example.test")) Nothing
             scopes = Map.fromList [(fixtureOwner, auth), (other, ok (mkScopeDeclaration other [ResourceBundle [] [] [] [route] [] []]))]
         case composedDeclarations scopes of
           Left errors -> assertBool "refused for another reason" (any ((== "unauthorized-contribution") . (^. #code)) (toList errors))

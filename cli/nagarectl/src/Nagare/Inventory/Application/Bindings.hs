@@ -67,6 +67,7 @@ import Nagare.Inventory.Application.Types
   , DatabaseBinding (..)
   , ServerBinding (..)
   )
+import Nagare.Inventory.DeployerDelegation (acceptedDelegations)
 import Nagare.Inventory.Environment (acceptedBuildChannelMember)
 import Nagare.Resource.Inventory
   ( ContributionGrant (BackendMapGrant, ShomeiSettingsGrant)
@@ -75,6 +76,7 @@ import Nagare.Resource.Inventory
   , Executor (AppDatabaseExecutor, ArtifactExecutor, BrokerExecutor)
   , ManagedResource
   , ResourceBundle (declarations)
+  , ScopeDeclaration
   , ScopeSnapshot
   , UserLogin (LoginClosed)
   , scopeBundles
@@ -84,8 +86,10 @@ import Nagare.Resource.Inventory
   )
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-  ( ProviderAddress (Artifact, BrokerTopic, DatabaseName, DatabaseUser, Kubernetes)
+  ( Name
+  , ProviderAddress (Artifact, BrokerTopic, DatabaseName, DatabaseUser, Kubernetes)
   , ResourceId
+  , ScopeId
   , ScopeKind (Platform, Publication, Standalone)
   , SourceLocation (path)
   , kubernetesAddress
@@ -380,8 +384,17 @@ acceptedAccessBinding snapshot cluster = do
     [enforcer] -> do
       zoneOwner <- mkScopeId Platform "cloudflare-zone"
       let shape = if Map.member zoneOwner (snapshotScopes snapshot) then FlatHosts else NestedHosts
-      Right (AccessBinding authOwner enforcer baseDomain shape)
+      delegations <- delegatedNamespaces (fmap snd (snapshotScopes snapshot))
+      Right (AccessBinding authOwner enforcer baseDomain shape delegations)
     _ -> Left "auth owner has no unique accepted enforcer Service"
+
+-- | EP-250: every accepted delegation's namespaces, revoked ones included:
+-- revoking a delegation stops its deployer, not its readers (EP-250 Decision
+-- Log), so its sites stay open to its team until its grant is revoked.
+delegatedNamespaces :: Map ScopeId ScopeDeclaration -> Either T.Text (Map T.Text Name)
+delegatedNamespaces scopes = do
+  pairs <- sequence [(,) ns <$> mkName (delegation ^. #name) | delegation <- Map.elems (acceptedDelegations scopes), ns <- NE.toList (delegation ^. #namespaces)]
+  pure (Map.fromList pairs)
 
 brokerEvidenceIds ::
   ResourceId ->

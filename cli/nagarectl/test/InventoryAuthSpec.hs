@@ -163,6 +163,7 @@ inventoryAuthTests =
                 "http://sample.personal.svc.cluster.local"
                 ProtectedBackend
                 (ok (mkLogicalKey "route"))
+                Nothing
             appScope =
               ok
                 ( mkScopeDeclaration
@@ -219,7 +220,7 @@ inventoryAuthTests =
             (assertFailure . T.unpack)
             pure
             ( renderBackendMapNative
-                [(ok (mkName "sample.example.test"), "https://foreign.example.test", ProtectedBackend)]
+                [BackendEntry (ok (mkName "sample.example.test")) "https://foreign.example.test" ProtectedBackend Nothing]
             )
         let badAdapter = mkKubernetesAdapter (Map.singleton resourceId (resource, changed)) ops
         rejected <- adapterPrepare badAdapter operation
@@ -241,6 +242,7 @@ inventoryAuthTests =
                 "http://shomei.nagare-system.svc.cluster.local"
                 PortalBackend
                 (ok (mkLogicalKey "route"))
+                Nothing
             appScope = ok (mkScopeDeclaration appOwner [ResourceBundle [] [] [] [portal] [] []])
             effective = ok (composedDeclarations (Map.fromList [(fixtureOwner, authScope), (appOwner, appScope)]))
         [(resourceId, (resource, native))] <- pure (Map.toList (ok (compileContributedShomeiSettings effective)))

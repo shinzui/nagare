@@ -267,6 +267,8 @@ parseClaim parts = fmap canonicalClaim $ case parts of
     (TeamMemberTuple <$> resource auth <*> teamKey team <*> pure subject) >>= check . mkProviderAddress
   ["team-access", auth, host, team, "member", "viewer"] ->
     (TeamAccessTuple <$> resource auth <*> name host <*> teamKey team) >>= check . mkProviderAddress
+  ["delegation-access", auth, delegation, team, "member", "viewer"] ->
+    (DelegationAccessTuple <$> resource auth <*> name delegation <*> teamKey team) >>= check . mkProviderAddress
   ["artifact", n, d] -> Artifact <$> name n <*> check (mkContentDigest d)
   ["hostname", n] -> Hostname <$> name n
   ["database", r, n] -> DatabaseName <$> resource r <*> name n
@@ -388,11 +390,10 @@ instance ToJSON DesiredSpec where
       genericToJSON options $ case spec of
         StatefulSet count templates digest -> StatefulSet count (sortOn nameText templates) digest
         HelmRelease objects digest -> HelmRelease (NE.sort objects) digest
-        BackendMapSpec entries -> BackendMapSpec (sortOn (nameText . first3) entries)
+        BackendMapSpec entries -> BackendMapSpec (sortOn (\(BackendEntry host _ _ _) -> nameText host) entries)
         CloudflareRulesSpec intents -> CloudflareRulesSpec (sortOn (nameText . cacheHost) intents)
         other -> other
     where
-      first3 (name, _, _) = name
       tagged tag contents = object ["tag" .= String tag, "contents" .= contents]
 
 instance FromJSON DesiredSpec where
@@ -436,6 +437,19 @@ instance FromJSON UserLogin where
     Bool False -> pure LoginClosed
     String "quiesced" -> pure LoginQuiesced
     _ -> fail "an app-database user's login is true, false or \"quiesced\""
+
+-- | An undelegated entry keeps the v1 three-element array, so existing
+-- backend maps keep their bytes and digests; a delegated one adds the name.
+instance ToJSON BackendEntry where
+  toJSON (BackendEntry host upstream role delegation) =
+    toJSON ([toJSON host, toJSON upstream, toJSON role] <> [toJSON d | Just d <- [delegation]])
+
+instance FromJSON BackendEntry where
+  parseJSON value =
+    parseJSON value >>= \case
+      [host, upstream, role] -> BackendEntry <$> parseJSON host <*> parseJSON upstream <*> parseJSON role <*> pure Nothing
+      [host, upstream, role, delegation] -> BackendEntry <$> parseJSON host <*> parseJSON upstream <*> parseJSON role <*> (Just <$> parseJSON delegation)
+      _ -> fail "a backend entry has three or four elements"
 
 instance ToJSON CloudflareCacheIntent where toJSON = genericToJSON options
 
@@ -482,16 +496,20 @@ instance ToJSON Contribution where
   toJSON (RegisterNamespace owner cluster namespace key) =
     object
       ["owner" .= owner, "cluster" .= cluster, "namespace" .= namespace, "key" .= key]
-  toJSON (RegisterBackend owner cluster host upstream role key) =
+  toJSON (RegisterBackend owner cluster host upstream role key delegation) =
     object
-      [ "tag" .= ("RegisterBackend" :: Text)
-      , "owner" .= owner
-      , "cluster" .= cluster
-      , "host" .= host
-      , "upstream" .= upstream
-      , "role" .= role
-      , "key" .= key
-      ]
+      ( [ "tag" .= ("RegisterBackend" :: Text)
+        , "owner" .= owner
+        , "cluster" .= cluster
+        , "host" .= host
+        , "upstream" .= upstream
+        , "role" .= role
+        , "key" .= key
+        ]
+          -- EP-250: written only for a delegated host, so every other
+          -- contribution keeps its bytes.
+          <> ["delegation" .= d | Just d <- [delegation]]
+      )
   toJSON (RegisterCloudflareCache owner zone intent route) =
     object
       [ "tag" .= ("RegisterCloudflareCache" :: Text)
@@ -514,7 +532,7 @@ instance FromJSON Contribution where
         <*> value .: "key"
     Just (String "RegisterBackend") -> do
       unless
-        (all (`elem` ["tag", "owner", "cluster", "host", "upstream", "role", "key"]) (KM.keys value))
+        (all (`elem` ["tag", "owner", "cluster", "host", "upstream", "role", "key", "delegation"]) (KM.keys value))
         (fail "backend contribution has unknown field")
       RegisterBackend
         <$> value .: "owner"
@@ -523,6 +541,7 @@ instance FromJSON Contribution where
         <*> value .: "upstream"
         <*> value .: "role"
         <*> value .: "key"
+        <*> value .:? "delegation"
     Just (String "RegisterCloudflareCache") -> do
       unless
         (all (`elem` ["tag", "owner", "zone", "intent", "route"]) (KM.keys value))

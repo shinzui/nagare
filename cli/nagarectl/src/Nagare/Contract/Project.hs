@@ -305,6 +305,9 @@ grants headValue accepted =
         DirectViewer viewedHost user -> [(viewedHost, SubjectUser, user, Nothing)]
         TeamViewer viewedHost team -> [(viewedHost, SubjectTeam, teamKeyText team, Just "member")]
         TeamMember _ _ -> []
+        -- A delegation grant names no host; access list and access check
+        -- report the access a host inherits through it (EP-250).
+        DelegationViewer _ _ -> []
     ]
 
 -- | A saved review: its digest and absolute directory, the scopes whose

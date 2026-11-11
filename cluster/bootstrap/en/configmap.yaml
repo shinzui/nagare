@@ -23,3 +23,8 @@ data:
       relation viewer: user, group#member
       permission access = viewer
     }
+
+    object delegation {
+      relation viewer: user, group#member
+      permission access = viewer
+    }

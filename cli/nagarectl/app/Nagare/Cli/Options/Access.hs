@@ -4,6 +4,7 @@ module Nagare.Cli.Options.Access
   ( AccessCheckOpts (..)
   , AccessCommand (..)
   , AccessGrantOpts (..)
+  , GrantTarget (..)
   , AccessListOpts (..)
   , PortalCommand (..)
   , TeamCommand (..)
@@ -52,11 +53,16 @@ data PortalCommand
   | PortalSync !(Maybe FilePath)
   deriving stock (Generic, Show)
 
+-- | What a grant opens: one protected host, or every protected host of a
+-- delegation's namespaces (EP-250, team grants only).
+data GrantTarget = GrantHost !String | GrantDelegation !String
+  deriving stock (Generic, Show)
+
 data AccessGrantOpts = AccessGrantOpts
   { savePlan :: !(Maybe FilePath)
   , enUrl :: !(Maybe String)
   , enApiKey :: !(Maybe String)
-  , host :: !String
+  , target :: !GrantTarget
   , user :: !(Maybe String)
   , team :: !(Maybe String)
   -- ^ Exactly one of @user@ and @team@; a team grant is always reviewed.

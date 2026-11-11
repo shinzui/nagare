@@ -118,7 +118,7 @@ compileServiceActionScope serviceName namespaceName action accepted native = do
       protected =
         any
           ( \case
-              RegisterBackend _ _ _ target _ _ -> target == upstream
+              RegisterBackend _ _ _ target _ _ _ -> target == upstream
               _ -> False
           )
           [request | bundle <- scopeBundles accepted, request <- contributions bundle]

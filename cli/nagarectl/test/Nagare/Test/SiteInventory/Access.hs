@@ -8,6 +8,8 @@ module Nagare.Test.SiteInventory.Access
   ( protectedSiteInventoryTests
   , SiteFixture (..)
   , protectedSiteFixture
+  , protectedSiteWith
+  , siteAccessBinding
   , publicSiteScope
   )
 where
@@ -303,6 +305,7 @@ protectedSiteInventoryTests =
                 upstream
                 ProtectedBackend
                 (unsafe (Resource.mkLogicalKey host))
+                Nothing
             ]
     enforcerRoutes scope =
       [ member
@@ -395,6 +398,29 @@ protectedSiteFixture = do
       , previewSite = previewScope
       , platform = map snd (Map.elems (snapshotScopes previewSnapshot))
       }
+
+-- | The fixture's protected site, compiled with another access binding
+-- (EP-250: one that maps its namespace to a delegation).
+protectedSiteWith :: AccessBinding -> IO ScopeDeclaration
+protectedSiteWith accessBinding =
+  either (fail . show) (pure . fst) $
+    compileStaticSiteScopeWith
+      RecordRelease
+      Nothing
+      (Just accessBinding)
+      (DeployInputs secure "v1" "example.com" "." True initProfile)
+      cluster
+      namespaceId
+      imageId
+      Map.empty
+      emptyReleaseLog
+      (releaseFor "secure" "secure.example.com")
+      source
+  where
+    secure = protectedStatic & #name .~ unsafe (mkSiteName "secure") & #domains .~ unsafe (mkDomains [("secure.example.com", True)])
+
+siteAccessBinding :: AccessBinding
+siteAccessBinding = binding
 
 -- | A public static site named @name@ at @<name>.example.com@, from the
 -- production compiler.
@@ -545,7 +571,7 @@ otherApp =
             [Managed route]
             []
             []
-            [RegisterBackend authOwner cluster host "http://other.personal.svc.cluster.local" ProtectedBackend key]
+            [RegisterBackend authOwner cluster host "http://other.personal.svc.cluster.local" ProtectedBackend key Nothing]
             []
             []
         ]

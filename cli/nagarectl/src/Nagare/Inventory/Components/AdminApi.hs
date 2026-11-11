@@ -108,7 +108,7 @@ compileAdminApi input declarations = case validated of
                     contributed =
                       bundle
                         { declarations = map aliasDeclaration (bundle ^. #declarations)
-                        , contributions = [RegisterBackend authOwner cluster hostName upstream ApiBackend hostKey]
+                        , contributions = [RegisterBackend authOwner cluster hostName upstream ApiBackend hostKey Nothing]
                         }
                 scope <- mkScopeDeclaration owner [contributed]
                 pure (scope, aliased)

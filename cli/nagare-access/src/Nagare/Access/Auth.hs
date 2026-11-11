@@ -117,6 +117,9 @@ data AccessServices = AccessServices
   , authorizeUser :: !(AuthenticatedUser -> Text -> IO AuthorizationResult)
   -- ^ Ask the authorizer about this user and host. The result distinguishes
   -- "the authorizer said no" from "the authorizer could not be reached".
+  , authorizeDelegation :: !(AuthenticatedUser -> Text -> IO AuthorizationResult)
+  -- ^ EP-250: ask about this user and a delegation, for a delegated host the
+  -- user holds no direct grant on.
   , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> [Header] -> Request -> IO Response)
   -- ^ The headers are for a response the forwarder writes itself, a raw
   -- WebSocket handshake, which the caller cannot decorate afterwards.

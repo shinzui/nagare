@@ -21,6 +21,7 @@ import Data.Aeson (Value (Object, String))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
@@ -33,7 +34,7 @@ import Nagare.Access.Resolve
 import Nagare.Deploy.Host (HostShape, defaultHostName)
 import Nagare.Dsl.Access (AccessPolicy, AccessRole (..), accessPermissionText, audienceText)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), Namespace, ServiceName, domainText, mkDomain)
+import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), Namespace, ServiceName, domainText, mkDomain, namespaceText)
 import Nagare.Inventory.Application.Types (AccessBinding (..))
 import Nagare.Resource.Inventory
   ( BackendRole (PortalBackend, ProtectedBackend)
@@ -171,7 +172,7 @@ composeProtectedRoutes binding policy cluster baseDomain ns name domains originB
           { domain = domain
           , host = host
           , mapping = renderAccessDomainMapping backendConfigMapNamespace hostText enforcerTarget
-          , contribution = RegisterBackend (accessOwner binding) cluster host (upstreamFor ns name) role key
+          , contribution = RegisterBackend (accessOwner binding) cluster host (upstreamFor ns name) role key (Map.lookup (namespaceText ns) (accessDelegations binding))
           }
 
 enforcerTarget :: RouteTarget

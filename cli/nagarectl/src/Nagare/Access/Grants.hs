@@ -10,6 +10,7 @@ module Nagare.Access.Grants
   , RelationshipPage (..)
   , accessTuple
   , teamAccessTuple
+  , delegationAccessTuple
   , teamMemberTuple
   , hostGrantsFilter
   , teamMembersFilter
@@ -25,6 +26,7 @@ module Nagare.Access.Grants
   )
 where
 
+import Control.Monad (forM, forM_)
 import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, encode, pairs, withObject, (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Encoding (pair)
@@ -60,6 +62,8 @@ data AccessListParams = AccessListParams
   , enApiKey :: !(Maybe Text)
   , host :: !Text
   , json :: !Bool
+  , delegation :: !(Maybe Text)
+  -- ^ EP-250: the delegation the host belongs to, whose team grants it inherits.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -286,8 +290,11 @@ runHostGrantsList :: AccessListParams -> IO HostGrants
 runHostGrantsList params = do
   tuples <- drain (params ^. #enUrl) (params ^. #enApiKey) (hostGrantsFilter (params ^. #host))
   let grants = hostGrantsOf (params ^. #host) tuples
+  inherited <- forM (params ^. #delegation) $ \delegation -> do
+    delegated <- drain (params ^. #enUrl) (params ^. #enApiKey) (RelationshipFilter "delegation" delegation "viewer")
+    pure (delegation, [team | tuple <- delegated, isNothing (tuple ^. #caveat), SubjectSetWire (ObjectRefWire "group" team) "member" <- [tuple ^. #subject]])
   if params ^. #json
-    then LBS.putStr (encode (Aeson.object ["host" .= canonicalHost (params ^. #host), "grants" .= grants])) >> TIO.putStrLn ""
+    then LBS.putStr (encode (Aeson.object (["host" .= canonicalHost (params ^. #host), "grants" .= grants] <> ["inherited" .= Aeson.object ["delegation" .= d, "teams" .= teams] | Just (d, teams) <- [inherited]]))) >> TIO.putStrLn ""
     else do
       TIO.putStrLn ("direct users (" <> count (grants ^. #users) <> "):")
       mapM_ (TIO.putStrLn . ("  " <>)) (grants ^. #users)
@@ -296,6 +303,9 @@ runHostGrantsList params = do
       unless (null (grants ^. #other)) $ do
         TIO.putStrLn ("other stored relationships (" <> count (grants ^. #other) <> "):")
         mapM_ (TIO.putStrLn . ("  " <>)) (grants ^. #other)
+      forM_ inherited $ \(delegation, teams) -> do
+        TIO.putStrLn ("teams inherited through delegation " <> delegation <> " (" <> count teams <> "):")
+        mapM_ (TIO.putStrLn . ("  " <>)) teams
   pure grants
   where
     count = T.pack . show . length
@@ -349,6 +359,16 @@ teamAccessTuple :: Text -> Text -> TupleWire
 teamAccessTuple host team =
   TupleWire
     { object = ObjectRefWire "app" (canonicalHost host)
+    , relation = "viewer"
+    , subject = SubjectSetWire (ObjectRefWire "group" team) "member"
+    , caveat = Nothing
+    }
+
+-- | EP-250: @delegation:<name>#viewer@group:<team>#member@.
+delegationAccessTuple :: Text -> Text -> TupleWire
+delegationAccessTuple delegation team =
+  TupleWire
+    { object = ObjectRefWire "delegation" delegation
     , relation = "viewer"
     , subject = SubjectSetWire (ObjectRefWire "group" team) "member"
     , caveat = Nothing

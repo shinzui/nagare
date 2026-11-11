@@ -10,6 +10,7 @@ import Nagare.Cli.Options
   , AccessGrantOpts (..)
   , AccessListOpts (..)
   , Command (..)
+  , GrantTarget (..)
   , PortalCommand (..)
   , TeamCommand (..)
   , TeamListOpts (..)
@@ -40,7 +41,7 @@ accessGrantOptsParser =
     <$> savePlanOpt "Save a reviewed access grant or revocation"
     <*> enUrlOpt
     <*> enApiKeyOpt
-    <*> hostOpt
+    <*> ((GrantHost <$> hostOpt) <|> (GrantDelegation <$> strOption (long "delegation" <> metavar "DEPLOYER" <> help "Every protected host in this delegation's namespaces (EP-250; with --team, always reviewed)")))
     <*> optional userOpt
     <*> optional (strOption (long "team" <> metavar "TEAM" <> help "Team whose members receive access to the host (always reviewed; exactly one of --user and --team)"))
 

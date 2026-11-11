@@ -244,7 +244,7 @@ compileAuth input = do
     packaged =
       [ ("cluster/bootstrap/shomei/migrations.yaml", "ad92056638ae97ccf2dec2921b72f1d027e3b238a3c1c70819ffc6ebc725096e")
       , ("cluster/bootstrap/en/migrations.yaml", "45cf0132d346e43cf307ed23ddb98dd6c0a74f3f4249c1373a9d54b0d8028f0b")
-      , ("cluster/bootstrap/en/configmap.yaml", "ac1c0c14fdddcd826efba1af344dbe0badcc56efc2c8d5e67a78322e73a6afec")
+      , ("cluster/bootstrap/en/configmap.yaml", "d526e9f098658215ea11245f0a855b0f375dd3de43379815b824d22889fe78ce")
       , ("cluster/bootstrap/nagare-access/configmap.yaml", "195cf7c08a5f8645207f5ba51cf4818a1ad6f9f59f4a8c7f39685a70e92344ab")
       , ("cluster/bootstrap/shomei/service.yaml", "5d5e0a1470764e4a77f717a52d5a0e74e4d61b69056629e8a5bd615b11ea8f72")
       , ("cluster/bootstrap/en/service.yaml", "9ed0b83a91c0e3855e4574f2998cbc7ed9161701f5ba173ff9b723e968714a1a")

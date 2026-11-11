@@ -1224,14 +1224,7 @@ inventoryTransactionTests =
                         []
                         []
                         []
-                        [ RegisterBackend
-                            owner
-                            cluster
-                            (ok (mkName "app.example.test"))
-                            upstream
-                            ProtectedBackend
-                            (ok (mkLogicalKey "route"))
-                        ]
+                        [RegisterBackend owner cluster (ok (mkName "app.example.test")) upstream ProtectedBackend (ok (mkLogicalKey "route")) Nothing]
                         []
                         []
                     ]

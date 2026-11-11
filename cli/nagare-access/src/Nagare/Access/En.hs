@@ -3,6 +3,7 @@
 -- | Adapter from en authorization checks to nagare-access decisions.
 module Nagare.Access.En
   ( authorizeWithEn
+  , authorizeDelegationWithEn
   , authorizeWithEnClient
   , authorizationFromClientResult
   , buildCheckRequest
@@ -54,6 +55,11 @@ authorizeWithEn =
 authorizeWithEnClient :: EnClient -> ClientEnv -> AuthenticatedUser -> Text -> IO AuthorizationResult
 authorizeWithEnClient client env user host =
   authorizationFromClientResult <$> runClientM (client.check (buildCheckRequest user host)) env
+
+-- | EP-250: @access@ on @delegation:NAME@, fully consistent, as host checks are.
+authorizeDelegationWithEn :: ClientEnv -> AuthenticatedUser -> Text -> IO AuthorizationResult
+authorizeDelegationWithEn env user delegation =
+  authorizationFromClientResult <$> runClientM (enClient.check ((buildCheckRequest user delegation) {object = ObjectRefWire {objectType = "delegation", objectId = delegation}})) env
 
 -- | Classify a servant client result without weakening fail-closed authorization.
 -- A real refusal is an 'EnOk' carrying 'DeniedWire'. Transport failures and every

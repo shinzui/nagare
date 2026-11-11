@@ -12,10 +12,15 @@ module Nagare.Inventory.Access
   , teamRelationship
   , teamSchemaDeclarations
   , activeSchemaSupportsTeams
+  , delegationSchemaDeclaration
+  , delegationRelationship
+  , activeSchemaSupportsDelegations
   , acceptedProtectedHost
+  , protectedHostDelegation
   , compileAccessScope
   , compileTeamMemberScope
   , compileTeamAccessScope
+  , compileDelegationAccessScope
   , compilePortalSyncScope
   , accessBindings
   , acceptedAccessBindings
@@ -38,6 +43,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Access.ShomeiUser (ShomeiUser, isShomeiUserId)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.DeployerDelegation (acceptedDelegations)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Resource.Access (TeamKey, teamKeyText)
@@ -145,6 +151,8 @@ data Relationship
     TeamMember !TeamKey !Text
   | -- | @app:<host>#viewer@group:<team>#member@
     TeamViewer !Name !TeamKey
+  | -- | EP-250: @delegation:<name>#viewer@group:<team>#member@
+    DelegationViewer !Name !TeamKey
   deriving stock (Eq, Show)
 
 -- | The auth en Service and the relationship a typed address names.
@@ -153,6 +161,7 @@ relationshipOf = \case
   AccessTuple auth host subject -> Just (auth, DirectViewer host subject)
   TeamMemberTuple auth team subject -> Just (auth, TeamMember team subject)
   TeamAccessTuple auth host team -> Just (auth, TeamViewer host team)
+  DelegationAccessTuple auth delegation team -> Just (auth, DelegationViewer delegation team)
   _ -> Nothing
 
 -- | Whether a binding relies on the group schema (EP-187) rather than the
@@ -162,6 +171,13 @@ teamRelationship binding = case relationshipOf (accessResource binding ^. #addre
   Just (_, DirectViewer _ _) -> False
   Just _ -> True
   Nothing -> False
+
+-- | Whether a binding is a delegation-wide grant (EP-250), which needs the
+-- delegation object in the active schema.
+delegationRelationship :: AccessBinding -> Bool
+delegationRelationship binding = case relationshipOf (accessResource binding ^. #address) of
+  Just (_, DelegationViewer _ _) -> True
+  _ -> False
 
 -- | The en schema declarations team relationships rely on, exactly as the
 -- reviewed bootstrap ConfigMap (@cluster/bootstrap/en/configmap.yaml@) states
@@ -180,6 +196,17 @@ activeSchemaSupportsTeams :: Text -> Bool
 activeSchemaSupportsTeams source = all (`T.isInfixOf` normalized) teamSchemaDeclarations
   where
     normalized = T.unwords (T.words source)
+
+-- | EP-250: the object a delegation-wide grant is written on. The enforcer
+-- checks it only for a host whose backend entry names a delegation.
+delegationSchemaDeclaration :: Text
+delegationSchemaDeclaration = "object delegation { relation viewer: user, group#member permission access = viewer }"
+
+-- | Whether an active schema source declares the team relations and the
+-- delegation object exactly, as 'activeSchemaSupportsTeams' compares them.
+activeSchemaSupportsDelegations :: Text -> Bool
+activeSchemaSupportsDelegations source =
+  activeSchemaSupportsTeams source && delegationSchemaDeclaration `T.isInfixOf` T.unwords (T.words source)
 
 -- These dependencies come from the composed owner declarations, not live lists.
 -- A team membership has no route: it depends on the auth en Service alone.
@@ -279,6 +306,44 @@ compileTeamAccessScope snapshot rawHost team present = do
     present
     ["team-access", resourceIdText (auth ^. #identity), nameText host, teamKeyText team]
 
+-- | EP-250: team @team@ may open every protected host in delegation
+-- @delegation@'s namespaces. The delegation must be accepted (revoked or not,
+-- since revoking a deployer does not lock readers out) and the team known.
+compileDelegationAccessScope :: ScopeSnapshot -> Text -> TeamKey -> Bool -> Either Text ScopeDeclaration
+compileDelegationAccessScope snapshot rawDelegation team present = do
+  delegation <- mkName rawDelegation
+  declarations <- composedDeclarationsOf snapshot
+  auth <- authService declarations
+  unless
+    (Map.member rawDelegation (acceptedDelegations (fmap snd (snapshotScopes snapshot))))
+    (Left ("no accepted delegation names deployer " <> rawDelegation))
+  unless
+    (teamKnown declarations (auth ^. #identity) team)
+    (Left ("team " <> teamKeyText team <> " has no accepted membership in this context; add a member first"))
+  compileRelationship
+    snapshot
+    auth
+    Nothing
+    "access-delegation"
+    "viewer"
+    (DelegationAccessTuple (auth ^. #identity) delegation team)
+    "viewer"
+    present
+    ["delegation-access", resourceIdText (auth ^. #identity), rawDelegation, teamKeyText team]
+
+-- | EP-250: the delegation a protected host's backend entry names, if any.
+protectedHostDelegation :: ScopeSnapshot -> Name -> Maybe Name
+protectedHostDelegation snapshot host =
+  case [ delegation
+       | Right declarations <- [composedDeclarationsOf snapshot]
+       , Managed r <- declarations
+       , BackendMapSpec entries <- [r ^. #spec]
+       , BackendEntry entryHost _ ProtectedBackend (Just delegation) <- entries
+       , entryHost == host
+       ] of
+    [delegation] -> Just delegation
+    _ -> Nothing
+
 -- | A hostname this context protects: normalized, with an accepted
 -- protected backend contribution and enforcer route. A public or foreign
 -- host has no effective-access answer worth asking en for.
@@ -374,7 +439,7 @@ protectedOwner declarations host = do
         | Managed r <- declarations
         , r ^. #owner == authOwner
         , BackendMapSpec entries <- [r ^. #spec]
-        , (h, _, role) <- entries
+        , BackendEntry h _ role _ <- entries
         , h == host
         , role /= PortalBackend
         ]
@@ -418,6 +483,9 @@ accessBindings declarations = Map.fromList <$> traverse bind resources
         DirectViewer host _ -> fmap Just <$> protectedOwner declarations host
         TeamViewer host _ -> fmap Just <$> protectedOwner declarations host
         TeamMember _ _ -> (,Nothing) <$> authService declarations
+        -- A delegation grant has no route of its own: the enforcer reads the
+        -- delegation from each host's backend entry.
+        DelegationViewer _ _ -> (,Nothing) <$> authService declarations
       unless
         ( authId == auth ^. #identity
             && Set.fromList (resource ^. #dependencies)
@@ -565,6 +633,8 @@ mkAccessAdapter accepted bindings ops =
           <> teamKeyText team
       Just (_, TeamViewer host team) ->
         verb binding <> "team " <> teamKeyText team <> " viewer on " <> nameText host
+      Just (_, DelegationViewer delegation team) ->
+        verb binding <> "team " <> teamKeyText team <> " viewer on every protected host of delegation " <> nameText delegation
       Nothing -> "invalid access tuple"
     verb binding = if wanted binding then "grant " else "revoke "
     emailNote = \case

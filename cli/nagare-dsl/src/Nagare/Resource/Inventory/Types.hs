@@ -19,6 +19,7 @@ module Nagare.Resource.Inventory.Types
   , OperationKind (..)
   , OperationInput (..)
   , BackendRole (..)
+  , BackendEntry (..)
   , Contribution (..)
   , ContributionGrant (..)
   , ResourceBundle (..)
@@ -48,7 +49,7 @@ data DesiredSpec
   | HelmRelease !(NonEmpty ProviderAddress) !ContentDigest
   | ArtifactPublication !Name !Text !ContentDigest !Bool
   | NamespaceSpec !(Maybe ContentDigest)
-  | BackendMapSpec ![(Name, Text, BackendRole)]
+  | BackendMapSpec ![BackendEntry]
   | ShomeiSettingsSpec !Name !(Maybe Name)
   | AccessGrantSpec !Text !Bool
   | LogicalCache !ContentDigest
@@ -172,6 +173,12 @@ data DeclaredOperation = DeclaredOperation
 data BackendRole = ProtectedBackend | PortalBackend | ApiBackend
   deriving stock (Eq, Ord, Show, Generic)
 
+-- | One host of the access backend map: its upstream, its role, and the
+-- delegation whose grant also opens it (EP-250). The delegation comes from
+-- the host's namespace, never from who deployed it.
+data BackendEntry = BackendEntry !Name !Text !BackendRole !(Maybe Name)
+  deriving stock (Eq, Ord, Show, Generic)
+
 data Contribution
   = RegisterNamespace
       {owner :: !ScopeId, cluster :: !ResourceId, namespace :: !Name, key :: !LogicalKey}
@@ -182,6 +189,8 @@ data Contribution
       , upstream :: !Text
       , role :: !BackendRole
       , key :: !LogicalKey
+      , delegation :: !(Maybe Name)
+      -- ^ EP-250: the delegation owning the host's namespace.
       }
   | RegisterCloudflareCache
       { owner :: !ScopeId

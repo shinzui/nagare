@@ -16,12 +16,16 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Access.Grants (accessTuple, teamAccessTuple, teamMemberTuple)
 import Nagare.Access.ShomeiUser (ShomeiUser (..))
+import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Access
 import Nagare.Inventory.AccessRuntime
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
+import Nagare.Inventory.Application qualified as Application
+import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings, renderBackendMapNative)
 import Nagare.Inventory.CollectionPolicy (retainedConsumerInert)
+import Nagare.Inventory.DelegatedKind (DelegatedKind (..))
+import Nagare.Inventory.DeployerDelegation (DelegationState (..), DeployerDelegation (..), compileDelegationScope, defaultQuota)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
@@ -38,6 +42,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
+import Nagare.Test.SiteInventory.Access (protectedSiteWith, siteAccessBinding)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -284,6 +289,37 @@ inventoryAccessTests =
         assertBool "team grant accepted a public host" (either (const True) (const False) (compileTeamAccessScope withMember "foreign.example.test" engineering True))
         assertBool "malformed team key accepted" (either (const True) (const False) (mkTeamKey "Engineering"))
         assertBool "subject that is not a Shomei id accepted" (either (const True) (const False) (compileTeamMemberScope snapshot engineering (ShomeiUser "alice" Nothing) True))
+    , testCase "a delegation grant is a typed relationship on the delegation, with no route, needing the delegation and the team (EP-250 D5)" $ do
+        let engineering = ok (mkTeamKey "engineering")
+            member = ok (compileTeamMemberScope snapshot engineering alice True)
+            -- The fixture has no nagare-system Namespace member; its cluster
+            -- stands in as the producer the delegation's members order after.
+            cluster' = ok (mkResourceId "platform:cluster/cluster/local")
+            (delegationScope, _) = ok (compileDelegationScope cluster' cluster' Nothing kotei)
+            with scopes = ok (mkScopeSnapshot context (foldr (\scope -> Map.insert (scopeId scope) (generation, scope)) (snapshotScopes snapshot) scopes) Map.empty)
+            ready = with [member, delegationScope]
+            grant = ok (compileDelegationAccessScope ready "kotei" engineering True)
+            grantResource = head [r | bundle <- scopeBundles grant, Managed r <- bundle ^. #declarations]
+        grantResource ^. #address @?= DelegationAccessTuple (ok (mkResourceId "platform:auth/en/service")) (ok (mkName "kotei")) engineering
+        assertBool "the delegation grant collides with a team host grant" (scopeId grant /= scopeId (ok (compileTeamAccessScope ready "one.example.test" engineering True)))
+        either (fail . show) (@?= grant) (decodeScope (encodeCanonicalScope grant))
+        let bound = ok (accessBindings (inventoryDeclarations (candidateInventory (ok (composeInventory ready (ReplaceScope grant :| []))))))
+            binding = bound Map.! (grantResource ^. #identity)
+        accessRoute binding @?= Nothing
+        assertBool "the query does not name the delegation object" ("\"objectType\":\"delegation\"" `BS.isInfixOf` BS.toStrict (encode (accessQuery binding)))
+        assertBool "a delegation grant needs the delegation schema" (delegationRelationship binding)
+        assertBool "a delegation nobody reviewed" (either (const True) (const False) (compileDelegationAccessScope ready "other" engineering True))
+        assertBool "a team nobody reviewed" (either (const True) (const False) (compileDelegationAccessScope (with [delegationScope]) "kotei" engineering True))
+    , testCase "a protected host in a delegated namespace names its delegation in the backend map; others keep their bytes (EP-250 D3)" $ do
+        delegated <- protectedSiteWith (siteAccessBinding {Application.accessDelegations = Map.singleton "personal" (ok (mkName "kotei"))})
+        plain <- protectedSiteWith siteAccessBinding
+        let backendOf scope = [d | bundle <- scopeBundles scope, RegisterBackend {delegation = d} <- bundle ^. #contributions]
+        backendOf delegated @?= [Just (ok (mkName "kotei"))]
+        backendOf plain @?= [Nothing]
+        let rendered entries = either (error . T.unpack) id (renderBackendMapNative entries)
+            host = ok (mkName "secure.example.com")
+        assertBool "an undelegated host is no longer a bare upstream" ("secure.example.com\\\":\\\"http://secure.personal.svc.cluster.local\\\"" `T.isInfixOf` TE.decodeUtf8 (rendered [BackendEntry host "http://secure.personal.svc.cluster.local" ProtectedBackend Nothing]))
+        assertBool "a delegated host does not name its delegation" ("\\\"delegation\\\":\\\"kotei\\\"" `T.isInfixOf` TE.decodeUtf8 (rendered [BackendEntry host "http://secure.personal.svc.cluster.local" ProtectedBackend (Just (ok (mkName "kotei")))]))
     , testCase "team wire pins the exact subject kind and relation, so a user and a userset never collide (EP-187)" $ do
         let engineering = ok (mkTeamKey "engineering")
             member = ok (compileTeamMemberScope snapshot engineering alice True)
@@ -408,6 +444,10 @@ inventoryAccessTests =
         assertBool "the old user-only schema passed as supporting teams" (not (activeSchemaSupportsTeams "object user {}\nobject app {\n  relation viewer: user\n  permission access = viewer\n}\n"))
         assertBool "a schema with the names but another permission passed" (not (activeSchemaSupportsTeams "object group { relation member: user }\nobject app { relation viewer: user, group#member\n permission access = viewer + owner }"))
         teamKeyText (ok (mkTeamKey "platform-ops_2")) @?= "platform-ops_2"
+        -- EP-250 D2: the delegation object, required before a delegation grant.
+        assertBool "bootstrap schema does not declare the delegation object" (activeSchemaSupportsDelegations source)
+        assertBool "a team-only schema passed as supporting delegations" (not (activeSchemaSupportsDelegations "object user {}\nobject group { relation member: user }\nobject app { relation viewer: user, group#member\n permission access = viewer }"))
+        assertBool "a delegation object without team viewers passed" (not (activeSchemaSupportsDelegations "object group { relation member: user }\nobject app { relation viewer: user, group#member permission access = viewer }\nobject delegation { relation viewer: user permission access = viewer }"))
     , testCase "planning names why each access observation was unavailable (IR-27)" $
         forM_ [missingKey, "en port-forward failed", "access relationship query refused"] $ \reason -> do
           store <- newMemoryStore
@@ -573,6 +613,22 @@ accessBinding granted =
       candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
    in head (Map.elems (ok (accessBindings (inventoryDeclarations (candidateInventory candidate)))))
 
+kotei :: DeployerDelegation
+kotei =
+  DeployerDelegation
+    { name = "kotei"
+    , state = DelegationActive
+    , namespaces = "team-a" :| []
+    , hostSuffixes = []
+    , kinds = DelegatedStaticSite :| []
+    , imageRepository = "registry.example.test/team-a"
+    , team = "engineering"
+    , buildNamespace = Nothing
+    , quota = defaultQuota
+    , baseDomain = "example.test"
+    , hostShape = NestedHosts
+    }
+
 snapshot :: ScopeSnapshot
 snapshot = ok (mkScopeSnapshot context (Map.fromList [(scopeId scope, (generation, scope)) | scope <- fixtures]) Map.empty)
 
@@ -687,7 +743,7 @@ fixtures = [clusterScope, authScope, bootstrapScope, app "one", app "two"]
                     [Managed route]
                     []
                     []
-                    ( [RegisterBackend authOwner cluster host ("http://" <> label <> ".svc") ProtectedBackend key]
+                    ( [RegisterBackend authOwner cluster host ("http://" <> label <> ".svc") ProtectedBackend key Nothing]
                         <> [ RegisterBackend
                                authOwner
                                cluster
@@ -695,6 +751,7 @@ fixtures = [clusterScope, authScope, bootstrapScope, app "one", app "two"]
                                "http://portal.svc"
                                PortalBackend
                                key
+                               Nothing
                            | label == "two"
                            ]
                     )

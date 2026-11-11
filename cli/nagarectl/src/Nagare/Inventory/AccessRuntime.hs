@@ -36,7 +36,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Traversable (for)
-import Nagare.Access.Grants (TupleWire, accessTuple, teamAccessTuple, teamMemberTuple)
+import Nagare.Access.Grants (TupleWire, accessTuple, delegationAccessTuple, teamAccessTuple, teamMemberTuple)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Access
 import Nagare.Inventory.Adapter
@@ -91,6 +91,7 @@ relationshipTuple binding = case relationshipOf (accessResource binding ^. #addr
   Just (_, DirectViewer host subject) -> Just (accessTuple (nameText host) subject)
   Just (_, TeamMember team subject) -> Just (teamMemberTuple (teamKeyText team) subject)
   Just (_, TeamViewer host team) -> Just (teamAccessTuple (nameText host) (teamKeyText team))
+  Just (_, DelegationViewer delegation team) -> Just (delegationAccessTuple (nameText delegation) (teamKeyText team))
   Nothing -> Nothing
 
 -- | The exact filter for one relationship: every field named, and the subject
@@ -120,6 +121,15 @@ tupleFilter binding = case relationshipOf (accessResource binding ^. #address) o
     object
       [ "objectType" .= ("app" :: Text)
       , "objectId" .= nameText host
+      , "relation" .= ("viewer" :: Text)
+      , "subjectType" .= ("group" :: Text)
+      , "subjectId" .= teamKeyText team
+      , "subjectRelation" .= object ["match" .= ("exact" :: Text), "relation" .= ("member" :: Text)]
+      ]
+  Just (_, DelegationViewer delegation team) ->
+    object
+      [ "objectType" .= ("delegation" :: Text)
+      , "objectId" .= nameText delegation
       , "relation" .= ("viewer" :: Text)
       , "subjectType" .= ("group" :: Text)
       , "subjectId" .= teamKeyText team
@@ -217,6 +227,9 @@ accessRuntimeOpsWith transport context = do
                           unless (code == 200) (Left "active en schema observation refused")
                           source <- first (const "malformed en schema response") (eitherDecodeStrict bytes >>= parseEither (withObject "schema" (.: "source")))
                           unless (activeSchemaSupportsTeams source) (Left "active en schema does not declare team membership; apply the reviewed auth schema update first")
+                          unless
+                            (not (delegationRelationship binding) || activeSchemaSupportsDelegations source)
+                            (Left "active en schema does not declare the delegation object; upgrade the platform first (EP-250)")
                       else pure (Right ())
                   case schema of
                     Left reason -> pure (Left reason)

@@ -24,7 +24,7 @@ import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types (Name, ProviderAddress (..), ResourceId, nameText)
 import Nagare.Resource.Wire (canonicalValue)
 
-renderBackendMapNative :: [(Name, Text, BackendRole)] -> Either Text ByteString
+renderBackendMapNative :: [BackendEntry] -> Either Text ByteString
 renderBackendMapNative entries = canonicalValue =<< renderBackendMapObject entries
 
 renderShomeiSettingsNative :: Name -> Maybe Name -> Either Text ByteString
@@ -153,16 +153,16 @@ compileContributedBackendMaps declarations = Map.fromList <$> traverse compileOn
         (Left "contributed backend map native binding changed its address or bytes")
       pure (resource ^. #identity, (resource, bytes))
 
-renderBackendMapObject :: [(Name, Text, BackendRole)] -> Either Text Value
+renderBackendMapObject :: [BackendEntry] -> Either Text Value
 renderBackendMapObject entries = do
-  let hosts = map (nameText . first3) entries
-      portals = [() | (_, _, PortalBackend) <- entries]
+  let hosts = [nameText host | BackendEntry host _ _ _ <- entries]
+      portals = [() | BackendEntry _ _ PortalBackend _ <- entries]
   if length hosts /= Map.size (Map.fromList [(host, ()) | host <- hosts])
     then Left "backend map repeats a public host"
     else pure ()
   if length portals > 1 then Left "backend map has more than one portal" else pure ()
   if any
-    ( \(_, upstream, _) ->
+    ( \(BackendEntry _ upstream _ _) ->
         not
           ( "http://" `T.isPrefixOf` upstream
               || "https://" `T.isPrefixOf` upstream
@@ -174,7 +174,7 @@ renderBackendMapObject entries = do
   encoded <-
     canonicalValue
       ( object
-          [Key.fromText (nameText host) .= backendEntry upstream role | (host, upstream, role) <- entries]
+          [Key.fromText (nameText host) .= backendEntry upstream role delegation | BackendEntry host upstream role delegation <- entries]
       )
   -- The full native object is canonicalized by the caller. The JSON string is
   -- itself canonical, so contributor ordering never changes the desired digest.
@@ -197,15 +197,20 @@ renderBackendMapObject entries = do
         ]
     )
   where
-    first3 (value, _, _) = value
-    backendEntry upstream ProtectedBackend = String upstream
-    backendEntry upstream PortalBackend =
+    backendEntry upstream ProtectedBackend Nothing = String upstream
+    -- EP-250: a delegated host names its delegation. An enforcer that
+    -- predates the member reads an ordinary protected host, so it fails
+    -- closed: the host opens only by a direct grant until it is upgraded.
+    backendEntry upstream ProtectedBackend (Just delegation) =
+      object
+        ["upstream" .= upstream, "role" .= ("protected" :: Text), "delegation" .= nameText delegation]
+    backendEntry upstream PortalBackend _ =
       object
         ["upstream" .= upstream, "role" .= ("portal" :: Text)]
     -- The gateway answers the API's paths with problem documents and waits
     -- longer than the server's own ten-second request deadline. A gateway
     -- that predates these fields reads the entry as an ordinary protected one.
-    backendEntry upstream ApiBackend =
+    backendEntry upstream ApiBackend _ =
       object
         [ "upstream" .= upstream
         , "role" .= ("protected" :: Text)

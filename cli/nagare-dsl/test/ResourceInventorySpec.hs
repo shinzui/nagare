@@ -1,6 +1,6 @@
 module ResourceInventorySpec (resourceInventoryTests) where
 
-import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson (Value (..), encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -528,6 +528,7 @@ resourceInventoryTests =
                 target
                 role
                 (ok (mkLogicalKey "route"))
+                Nothing
             consumer who contribution =
               ok
                 ( mkScopeDeclaration
@@ -548,8 +549,8 @@ resourceInventoryTests =
         let completeMap = managedOf (single (composed [owner, consumer a protected, consumer other portal]))
         completeMap ^. #spec
           @?= BackendMapSpec
-            [ (n "app.example.test", "http://app.personal.svc.cluster.local", ProtectedBackend)
-            , (n "login.example.test", "http://shomei.nagare-system.svc.cluster.local", PortalBackend)
+            [ BackendEntry (n "app.example.test") "http://app.personal.svc.cluster.local" ProtectedBackend Nothing
+            , BackendEntry (n "login.example.test") "http://shomei.nagare-system.svc.cluster.local" PortalBackend Nothing
             ]
         contributionDependents
           ( candidateInventory
@@ -577,7 +578,19 @@ resourceInventoryTests =
             standaloneMap = managedOf (single (composed [owner, consumer standalone standaloneRoute]))
         standaloneMap ^. #spec
           @?= BackendMapSpec
-            [(n "web.example.test", "http://web.personal.svc.cluster.local", ProtectedBackend)]
+            [BackendEntry (n "web.example.test") "http://web.personal.svc.cluster.local" ProtectedBackend Nothing]
+        -- EP-250 D3: a delegated host's entry names its delegation, and only
+        -- that entry's bytes change: the undelegated map keeps the v1 array.
+        let delegatedRoute = (route "docs.team-a.example.test" "http://docs.team-a.svc.cluster.local" ProtectedBackend) {delegation = Just (n "kotei")}
+            delegatedMap = managedOf (single (composed [owner, consumer standalone standaloneRoute, consumer other delegatedRoute]))
+        delegatedMap ^. #spec
+          @?= BackendMapSpec
+            [ BackendEntry (n "docs.team-a.example.test") "http://docs.team-a.svc.cluster.local" ProtectedBackend (Just (n "kotei"))
+            , BackendEntry (n "web.example.test") "http://web.personal.svc.cluster.local" ProtectedBackend Nothing
+            ]
+        encode (BackendEntry (n "web.example.test") "http://web.personal.svc.cluster.local" ProtectedBackend Nothing) @?= "[\"web.example.test\",\"http://web.personal.svc.cluster.local\",\"protected\"]"
+        fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope (consumer other delegatedRoute)))
+          @?= Right (encodeCanonicalScope (consumer other delegatedRoute))
     , testCase "portal contribution composes owned Shomei settings with the backend map" $ do
         let authOwner = s Platform "auth"
             grant = ShomeiSettingsGrant cluster (n "example.test")
@@ -590,6 +603,7 @@ resourceInventoryTests =
                 "http://shomei.nagare-system.svc.cluster.local"
                 PortalBackend
                 (ok (mkLogicalKey "portal"))
+                Nothing
             app = ok (mkScopeDeclaration a [bundle [] & #contributions .~ [portal]])
             composed scopes = inventoryDeclarations (candidateInventory (ok (compileScopes scopes)))
             setting resources =

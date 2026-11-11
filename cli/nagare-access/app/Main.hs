@@ -18,7 +18,7 @@ import Nagare.Access.BackendSource (BackendSource, RefreshResult (..), liveAppli
 import Nagare.Access.Config (AuthPlaneConfig (..), RuntimeConfig (..), listenPort, parseRuntimeConfig)
 import Nagare.Access.Cookie (CookieSettings, defaultCookieSettings, signedCookieSettings)
 import Nagare.Access.DecisionCache (newDecisionCache)
-import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
+import Nagare.Access.En (authorizeDelegationWithEn, authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Prelude
 import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder, withProxiedCacheControl)
@@ -96,6 +96,7 @@ buildAccessServices runtime cfg = do
     AccessServices
       { verifyCredential = verifyShomeiCredentialCached jwksCache cfg
       , authorizeUser = authorizeWithEn enEnv
+      , authorizeDelegation = authorizeDelegationWithEn enEnv
       , forwardAuthorized = \user host target rawHeaders req -> withProxiedCacheControl edgeCacheControl <$> proxyForwarder manager user host target rawHeaders req
       , loginUser = loginWithShomei shomeiLoginEnv
       , completeMfa = completeMfaWithShomei shomeiLoginEnv

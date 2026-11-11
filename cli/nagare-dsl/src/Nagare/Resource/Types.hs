@@ -181,6 +181,9 @@ data ProviderAddress
     TeamMemberTuple ResourceId TeamKey Text
   | -- | A team's viewer grant on a hostname: the auth en Service, the host, the team.
     TeamAccessTuple ResourceId Name TeamKey
+  | -- | EP-250: a team's viewer grant on a delegation, which opens every
+    -- protected host in its namespaces: the auth en Service, the delegation, the team.
+    DelegationAccessTuple ResourceId Name TeamKey
   | BrokerTopic ResourceId Name
   | Helm ResourceId Name Name
   | DnsRecord Name Name Name
@@ -204,6 +207,7 @@ accessAddress = \case
   AccessTuple {} -> True
   TeamMemberTuple {} -> True
   TeamAccessTuple {} -> True
+  DelegationAccessTuple {} -> True
   _ -> False
 
 mkProviderAddress :: ProviderAddress -> Either Text ProviderAddress
@@ -251,6 +255,7 @@ canonicalClaim =
     AccessTuple r host subject -> ["access-tuple", resourceIdText r, nameText host, subject, "viewer"]
     TeamMemberTuple r team subject -> ["team-member", resourceIdText r, teamKeyText team, subject, "member"]
     TeamAccessTuple r host team -> ["team-access", resourceIdText r, nameText host, teamKeyText team, "member", "viewer"]
+    DelegationAccessTuple r delegation team -> ["delegation-access", resourceIdText r, nameText delegation, teamKeyText team, "member", "viewer"]
     BrokerTopic r n -> ["broker-topic", resourceIdText r, nameText n]
     Helm r namespace n -> ["helm", resourceIdText r, nameText namespace, nameText n]
     DnsRecord account zone host -> ["dns-record", nameText account, nameText zone, nameText host]

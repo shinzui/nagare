@@ -21,6 +21,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
 import DecisionCacheSpec (decisionCacheTests)
+import DelegationAccessSpec (delegationAccessTests)
 import EdgeCacheControlSpec (edgeCacheControlTests)
 import Effectful (IOE, runEff)
 import Effectful.Error.Static (Error, runErrorNoCallStack)
@@ -109,6 +110,7 @@ main =
       "nagare-access"
       [ configTests
       , backendMapTests
+      , delegationAccessTests
       , backendSourceTests
       , cookieTests
       , credentialTests
@@ -1199,6 +1201,7 @@ appTests =
                     AccessServices
                       { verifyCredential = verifyShomeiCredentialCached jwksCache authCfg
                       , authorizeUser = authorizeWithEn enClientEnv
+                      , authorizeDelegation = authorizeDelegationWithEn enClientEnv
                       , forwardAuthorized = proxyForwarder manager
                       , loginUser = loginWithShomei shomeiLoginEnv
                       , completeMfa = completeMfaWithShomei shomeiLoginEnv

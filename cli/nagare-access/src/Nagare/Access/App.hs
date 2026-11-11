@@ -1,6 +1,7 @@
 -- | WAI application shell for nagare-access.
 module Nagare.Access.App
   ( app
+  , authorizeHost
   , appWithBackends
   , appWithRuntime
   , textResponse
@@ -106,14 +107,14 @@ appWithRuntime backends services req respond =
           respond (maybe (textResponse status404 "not found") missingBackendResponse (lookupHost req))
         Just (host, target) ->
           case target ^. #role of
-            ProtectedBackend -> respond =<< handleProtected services (loginPageFor backends) host req target
+            ProtectedBackend -> respond =<< handleProtected services (loginPageFor backends) host (lookupDelegation host backends) req target
             PortalBackend ->
               case findPortal backends of
                 Just portal -> respond =<< handlePortal backends services portal req
                 Nothing -> respond (textResponse status500 "portal backend is inconsistent")
 
-handleProtected :: AccessServices -> LoginPage -> PublicHost -> Request -> BackendTarget -> IO Response
-handleProtected services loginPage host req target = do
+handleProtected :: AccessServices -> LoginPage -> PublicHost -> Maybe Text -> Request -> BackendTarget -> IO Response
+handleProtected services loginPage host delegation req target = do
   authenticated <- authenticateRequest services req challenge
   case authenticated of
     Left response ->
@@ -123,7 +124,7 @@ handleProtected services loginPage host req target = do
         cacheLookupOrLoad
           (services ^. #decisionCache)
           DecisionKey {subject = user ^. #subject, host = hostText}
-          (boundedAuthorization ((services ^. #authorizeUser) user hostText))
+          (boundedAuthorization (authorizeHost services user hostText delegation))
       case outcome of
         AuthorizationDecision AccessAllowed ->
           addResponseHeaders responseHeaders <$> (services ^. #forwardAuthorized) user hostText target responseHeaders req
@@ -404,11 +405,28 @@ lookupHost :: Request -> Maybe Text
 lookupHost req =
   lookup hHost (requestHeaders req) >>= decodeUtf8Maybe
 
+-- | EP-250: a host's own grant first; only when it is refused and the host
+-- belongs to a delegation, the delegation's. Either one allowing admits; an
+-- unavailable check is an outage (503), never a refusal. The decision cache
+-- keeps one combined answer per user and host.
+authorizeHost :: AccessServices -> AuthenticatedUser -> Text -> Maybe Text -> IO AuthorizationResult
+authorizeHost services user hostText delegation = do
+  direct <- (services ^. #authorizeUser) user hostText
+  case (direct, delegation) of
+    (AuthorizationDecision AccessAllowed, _) -> pure direct
+    (AuthorizationDecision _, Just name) ->
+      (services ^. #authorizeDelegation) user name >>= \case
+        AuthorizationDecision AccessAllowed -> pure (AuthorizationDecision AccessAllowed)
+        AuthorizationDecision _ -> pure direct
+        unavailable -> pure unavailable
+    _ -> pure direct
+
 defaultAccessServices :: AccessServices
 defaultAccessServices =
   AccessServices
     { verifyCredential = \_ -> pure (Left InvalidCredential)
     , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessDenied)
+    , authorizeDelegation = \_ _ -> pure (AuthorizationDecision AccessDenied)
     , forwardAuthorized = \_ _ _ _ _ -> pure (textResponse status404 "not found")
     , loginUser = \_ -> pure (LoginFailed "login is not configured")
     , completeMfa = \_ -> pure (LoginFailed "mfa is not configured")

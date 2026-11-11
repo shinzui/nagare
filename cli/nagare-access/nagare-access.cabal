@@ -99,6 +99,7 @@ test-suite nagare-access-test
     AdminApiGatewaySpec
     BackendMapSpec
     DecisionCacheSpec
+    DelegationAccessSpec
     EdgeCacheControlSpec
     EnContractSpec
     RealShomei

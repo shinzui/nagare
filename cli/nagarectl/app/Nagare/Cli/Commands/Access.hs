@@ -27,7 +27,7 @@ import Nagare.Access.Resolve
   )
 import Nagare.Access.Reviewed qualified as ReviewedAccess
 import Nagare.Access.ShomeiUser (ShomeiUser (..), UserRef (..), lookupShomeiEmail, parseUserRef)
-import Nagare.Cli.Options (AccessCommand (..), AccessGrantOpts, PortalCommand (..), TeamCommand (..), TeamMemberOpts)
+import Nagare.Cli.Options (AccessCommand (..), AccessGrantOpts, GrantTarget (..), PortalCommand (..), TeamCommand (..), TeamMemberOpts)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext, withPreparedContextEnSession)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Ownership
@@ -50,7 +50,9 @@ runAccess :: Maybe String -> AccessCommand -> IO ()
 runAccess mctx = \case
   AccessGrant o -> grantOrRevoke True o
   AccessRevoke o -> grantOrRevoke False o
-  AccessList o ->
+  AccessList o -> do
+    active <- activeTarget mctx
+    delegation <- ReviewedAccess.hostDelegation active (T.pack (o ^. #host))
     void $
       runHostGrantsList
         AccessListParams
@@ -58,6 +60,7 @@ runAccess mctx = \case
           , enApiKey = T.pack <$> o ^. #enApiKey
           , host = T.pack (o ^. #host)
           , json = o ^. #json
+          , delegation = delegation
           }
   AccessCheck o -> do
     user <- resolveUser (o ^. #user)
@@ -107,10 +110,25 @@ runAccess mctx = \case
     -- A team grant is always reviewed; the direct legacy forms remain for a
     -- user only, before inventory initialization (F97).
     grantOrRevoke :: Bool -> AccessGrantOpts -> IO ()
-    grantOrRevoke granted o = case (o ^. #user, o ^. #team, o ^. #savePlan) of
+    grantOrRevoke granted o = case o ^. #target of
+      GrantDelegation delegation -> delegationGrant granted o delegation
+      GrantHost rawHost -> hostGrant granted o rawHost
+    -- EP-250: one reviewed team grant opens every protected host of a
+    -- delegation's namespaces; the deployer never holds the en key.
+    delegationGrant granted o delegation = case (o ^. #user, o ^. #team, o ^. #savePlan) of
+      (Just _, _, _) -> dieT "a delegation grant is for a team: pass --team TEAM, not --user"
+      (Nothing, Nothing, _) -> dieT "a delegation grant needs --team TEAM"
+      (Nothing, Just _, Nothing) -> dieT "a delegation grant is always reviewed: add --save-plan DIR, then inventory apply DIR --yes"
+      (Nothing, Just rawTeam, Just output) -> do
+        when (isJust (o ^. #enUrl)) (dieT "reviewed access reaches the context's en itself; drop --en-url")
+        team <- teamKeyOf rawTeam
+        active <- selectedContext "reviewed access"
+        withPreparedContextEnSession active $ \en ->
+          ReviewedAccess.planDelegationAccess active en (T.pack delegation) team (T.pack <$> o ^. #enApiKey) granted output
+    hostGrant granted o rawHost = case (o ^. #user, o ^. #team, o ^. #savePlan) of
       (Just _, Just _, _) -> dieT "pass exactly one of --user and --team"
       (Nothing, Nothing, _) -> dieT "pass --user EMAIL|USER_ID or --team TEAM"
-      (Just rawUser, Nothing, Just output) -> runReviewed granted o rawUser output
+      (Just rawUser, Nothing, Just output) -> runReviewed granted o rawHost rawUser output
       (Just rawUser, Nothing, Nothing) -> do
         let verb = if granted then "grant" else "revoke"
         refuseDirectLegacyOperationWhenManaged mctx ("access " <> verb) ("save the " <> (if granted then "grant" else "revocation") <> " with --save-plan DIR, then inventory apply DIR --yes")
@@ -119,7 +137,7 @@ runAccess mctx = \case
           AccessGrantParams
             { enUrl = T.pack <$> o ^. #enUrl
             , enApiKey = T.pack <$> o ^. #enApiKey
-            , host = T.pack (o ^. #host)
+            , host = T.pack rawHost
             , user = user ^. #userId
             }
       (Nothing, Just rawTeam, Just output) -> do
@@ -130,7 +148,7 @@ runAccess mctx = \case
           ReviewedAccess.planTeamAccess
             active
             en
-            (T.pack (o ^. #host))
+            (T.pack rawHost)
             team
             (T.pack <$> o ^. #enApiKey)
             granted
@@ -153,7 +171,7 @@ runAccess mctx = \case
           output
     teamKeyOf :: String -> IO TeamKey
     teamKeyOf raw = either dieT pure (mkTeamKey (T.pack raw))
-    runReviewed granted options rawUser output = do
+    runReviewed granted options rawHost rawUser output = do
       -- Reviewed grants reach the context's en through the command's one
       -- port-forward (F97, EP-214).
       when (isJust (options ^. #enUrl)) (dieT "reviewed access reaches the context's en itself; drop --en-url")
@@ -163,7 +181,7 @@ runAccess mctx = \case
         ReviewedAccess.planAccess
           active
           en
-          (T.pack (options ^. #host))
+          (T.pack rawHost)
           user
           (T.pack <$> options ^. #enApiKey)
           granted

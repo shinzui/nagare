@@ -1,7 +1,7 @@
 -- | Public access commands compile one independent scope and use the common journal.
-module Nagare.Access.Reviewed (checkEffectiveAccess, planAccess, planTeamAccess, planTeamMember, accessPlanRegistry, planPortalSync, accessAdapter) where
+module Nagare.Access.Reviewed (checkEffectiveAccess, hostDelegation, planAccess, planTeamAccess, planDelegationAccess, planTeamMember, accessPlanRegistry, planPortalSync, accessAdapter) where
 
-import Control.Exception (bracket)
+import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forM)
 import Data.Aeson (toJSON)
 import Data.Generics.Labels ()
@@ -11,7 +11,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
-import Nagare.Access.Check (CheckReport (..), CheckResult (Unavailable), effectiveAccess)
+import Nagare.Access.Check (CheckReport (..), CheckResult (Unavailable), effectiveAccessThrough)
 import Nagare.Access.ShomeiUser (ShomeiUser)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
@@ -57,6 +57,20 @@ planTeamAccess ::
   IO ()
 planTeamAccess active en host team =
   planRelationship active en (\snapshot -> compileTeamAccessScope snapshot host team)
+
+-- | EP-250: a team's viewer grant on a delegation, opening every protected
+-- host of its namespaces.
+planDelegationAccess ::
+  ActiveTarget ->
+  EnTransport ->
+  Text ->
+  TeamKey ->
+  Maybe Text ->
+  Bool ->
+  FilePath ->
+  IO ()
+planDelegationAccess active en delegation team =
+  planRelationship active en (\snapshot -> compileDelegationAccessScope snapshot delegation team)
 
 -- | One user's membership in a team (EP-187).
 planTeamMember ::
@@ -110,13 +124,22 @@ checkEffectiveAccess active en host subject configuredKey = do
   protected <- either (fail . T.unpack) pure (acceptedProtectedHost snapshot host)
   guarded <- clusterGuard en
   case guarded of
-    Left reason -> pure (CheckReport (nameText protected) subject (Unavailable ("context guard refused: " <> reason)))
+    Left reason -> pure (CheckReport (nameText protected) subject (Unavailable ("context guard refused: " <> reason)) Nothing)
     Right () -> do
       answer <-
         withEnApiKey configuredKey $
           withEn en $ \call ->
-            effectiveAccess (\path body -> call "POST" path (toJSON body)) (nameText protected) subject
-      pure (either (CheckReport (nameText protected) subject . Unavailable) id answer)
+            effectiveAccessThrough (\path body -> call "POST" path (toJSON body)) (nameText protected) subject (nameText <$> protectedHostDelegation snapshot protected)
+      pure (either (\reason -> CheckReport (nameText protected) subject (Unavailable reason) Nothing) id answer)
+
+-- | EP-250: the delegation a protected host belongs to, for @access list@.
+-- A context without accepted inventory (direct access) has none.
+hostDelegation :: ActiveTarget -> Text -> IO (Maybe Text)
+hostDelegation active host = do
+  loaded <- try (Command.loadTargetSnapshotReadOnly active) :: IO (Either SomeException ScopeSnapshot)
+  pure $ case loaded of
+    Right snapshot | Right protected <- acceptedProtectedHost snapshot host -> nameText <$> protectedHostDelegation snapshot protected
+    _ -> Nothing
 
 accessPlanRegistry ::
   ActiveTarget ->

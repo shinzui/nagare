@@ -518,7 +518,7 @@ checkDelegatedProposal check = case Map.lookup deployer (check ^. #delegations) 
           bundles = scopeBundles scope
           members = [resource | bundle <- bundles, Managed resource <- bundle ^. #declarations]
           contributions = concatMap (^. #contributions) bundles
-          protectedHosts = [(nameText host, upstream) | RegisterBackend _ _ host upstream role _ <- contributions, role /= PortalBackend]
+          protectedHosts = [(nameText host, upstream) | RegisterBackend _ _ host upstream role _ _ <- contributions, role /= PortalBackend]
           preview = "site-preview-" `T.isPrefixOf` nameText (scopeName owner)
        in ownership
             <> stamp
