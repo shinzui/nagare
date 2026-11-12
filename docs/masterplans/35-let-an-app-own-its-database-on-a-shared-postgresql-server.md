@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-11T15:28:32Z
       mode: "update"
       note: "Require PostgreSQL 18 or later and link the intention."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-12T06:53:51Z
+      mode: "implement"
+      note: "EP-257, EP-258, EP-259 complete; native smokes folded into EP-260 M1"
 ---
 
 # Let an app own its database on a shared PostgreSQL server
@@ -118,9 +123,9 @@ one-line amendment note to ADR 30 and ADR 31. No cross-repository ADR applies.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-257 | Declare an app-owned PostgreSQL app database and keep apps apart | [docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md](../plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md) | None | None | In Progress |
-| EP-258 | Carry an app's roles through backups, restores, quiesce and retirement | [docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md](../plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md) | EP-257 | None | Not Started |
-| EP-259 | Let tasks and pre-deploy hooks bind an app database under a named URL variable | [docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md](../plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md) | EP-257 M2 (for its M2 only) | None | Not Started |
+| EP-257 | Declare an app-owned PostgreSQL app database and keep apps apart | [docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md](../plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md) | None | None | Complete |
+| EP-258 | Carry an app's roles through backups, restores, quiesce and retirement | [docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md](../plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md) | EP-257 | None | Complete |
+| EP-259 | Let tasks and pre-deploy hooks bind an app database under a named URL variable | [docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md](../plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md) | EP-257 M2 (for its M2 only) | None | Complete |
 | EP-260 | Confirm an app-owned database with Kotei's unchanged privilege script and release it | [docs/plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md](../plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md) | EP-257, EP-258, EP-259 | None | Not Started |
 
 
@@ -154,9 +159,10 @@ build is for local contexts only.
 - **Who binds the owner credential.** The existing `access.owners` list on the app database.
   EP-257 allows it on an app-owned database and restricts it there to tasks; EP-259 M2 makes a
   task named in it receive `<name>-owner`. No workload field requests a credential (ADR 31).
-- **The app's roles.** One function, owned by EP-257 in
-  `cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs`, reads the set of roles an app-owned
-  database's owner administers, directly or through roles it created. EP-257's boundary checks,
+- **The app's roles.** One reading, owned by EP-257 in
+  `cli/nagarectl/src/Nagare/Database/AppDatabase/Owned.hs` (`appRoles`, from the recursive query in
+  `renderObserveOwned`; `Catalog.hs` is at the module size limit), gives the set of roles an
+  app-owned database's owner administers, directly or through roles it created. EP-257's boundary checks,
   EP-258's backup role file and EP-258's quiesce and retirement all use that one reading. No
   second definition of "the app's roles" is written.
 - **Quoting of app-chosen names.** Role names an app creates are not Nagare-validated
@@ -206,8 +212,8 @@ build is for local contexts only.
 
 ## Progress
 
-EP-257 in progress: M1 proved every PostgreSQL rule the design rests on, on PostgreSQL 18, with no
-design change. Cross-plan gate, checked in EP-260:
+EP-257, EP-258 and EP-259 are complete in the interpreter and on PostgreSQL 18 (fixture); their
+native confirmation is EP-260 M1, which is next. Cross-plan gate, checked in EP-260:
 
 - [ ] On one local context, IR-43 AC-1 to AC-5 pass together with Kotei's script unchanged, an
   app database that did not opt in re-plans with no operations, and the release is running on
@@ -252,6 +258,14 @@ design change. Cross-plan gate, checked in EP-260:
   rule that a `CREATEROLE` role administers only the roles it created exists from 16, 18 is
   Nagare's default, and no older version needs to be supported or tested (operator,
   2026-11-11). Date: 2026-11-11.
+- Decision: The native smoke runs of EP-257 and EP-258 are folded into EP-260 M1's one local run.
+  Rationale: the SQL is proven on PostgreSQL 18 by `app-owned.sh` and the adapters by the
+  interpreter world; one native run with Kotei's real script confirms all three plans (ADR 25),
+  and two more runs of the same steps would add process cost only. Date: 2026-11-11.
+- Decision: A restore applies the role file as data with one server-side block using `format`
+  and `%I`/`%L`, rather than statements rendered by nagarectl. Rationale: the file exists only in
+  the restore Job; the boundary that matters, never executing SQL read from a bucket, holds
+  (EP-258 Decision Log). Date: 2026-11-11.
 - Decision: Two apps on one server cannot both create a role of the same name; the second fails
   in its own SQL. Nagare documents this and does not rename or prefix. Rationale: roles are
   server-wide in PostgreSQL, and prefixing would mean changing the app's migrations. Date:

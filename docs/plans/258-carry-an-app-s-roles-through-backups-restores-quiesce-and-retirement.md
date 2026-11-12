@@ -17,6 +17,11 @@ provenance:
       at: 2026-11-11T15:28:32Z
       mode: "update"
       note: "Require PostgreSQL 18 or later and link the intention."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-12T06:53:51Z
+      mode: "implement"
+      note: "Implemented all milestones; native confirmation moves to EP-260 M1"
 ---
 
 # Carry an app's roles through backups, restores, quiesce and retirement
@@ -115,7 +120,12 @@ Backups and lifecycle of app databases that did not opt in are unchanged.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+An app-owned database's backup carries a role file beside its dump; scratch and rebuilt restores
+apply it, as data through one server-side block, before the data, and on PostgreSQL 18 a rebuilt
+restore returns the role file byte for byte; quiesce, resume and retirement close and reopen
+exactly the app's recorded logins. The fixture found two defects before any native run (`t`/`f`
+booleans in `GRANT ... WITH`, and `GRANTED BY` on a database privilege), which is ADR 25 working as
+intended. The native confirmation is EP-260 M1's. ADR 37 already records the backup decision.
 
 
 ## Context and Orientation

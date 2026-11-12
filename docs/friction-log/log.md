@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-11-12
+
+* **Addition**: FRIC-13 records detour tooling friction with mori://shinzui/mori: mori refuses to start on a projection catalog fingerprint mismatch
+
+* **Addition**: FRIC-12 records detour tooling friction with mori://shinzui/nagare: just gate-fast without a revision gates master's HEAD from a worktree
+
 ## 2026-11-11
 
 * **Update**: FRIC-11 resolved: Status set to resolved.

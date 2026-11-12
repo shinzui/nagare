@@ -17,6 +17,11 @@ provenance:
       at: 2026-11-11T15:28:32Z
       mode: "update"
       note: "Require PostgreSQL 18 or later and link the intention."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-12T06:53:51Z
+      mode: "implement"
+      note: "Implemented all milestones; native confirmation moves to EP-260 M1"
 ---
 
 # Let tasks and pre-deploy hooks bind an app database under a named URL variable
@@ -120,7 +125,10 @@ This is IR-43 AC-5
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Tasks and pre-deploy hooks bind app databases, any binding may name its URL variable, and a hook
+named in an app-owned database's `owners` receives only the owner credential, which no
+long-running Pod references; name-only bindings render the objects of v0.19.2 byte for byte. The
+live hook run is EP-260 M1's. Nothing moves to an ADR beyond ADR 37's binding rule.
 
 
 ## Context and Orientation

@@ -17,6 +17,11 @@ provenance:
       at: 2026-11-11T15:28:32Z
       mode: "update"
       note: "Require PostgreSQL 18 or later and link the intention."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-12T06:53:51Z
+      mode: "implement"
+      note: "Implemented all milestones; native confirmation moves to EP-260 M1"
 ---
 
 # Declare an app-owned PostgreSQL app database and keep apps apart
@@ -121,7 +126,12 @@ An app database that does not opt in is unchanged, byte for byte.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+An app database can be declared app-owned: one `CREATEROLE` owner login, an optional owning role,
+nothing judged inside, and nine boundary reaches reported as drift; planning refuses an older
+server, a change of ownership and a taken owning-role name; the schedule dumps as the
+administrator. The PostgreSQL rules, the rendered statements and the observation query are proven
+on PostgreSQL 18 by `app-owned.sh`, the adapter by the interpreter world. What remains is the
+native confirmation in EP-260 M1. ADR 37 holds the model.
 
 
 ## Context and Orientation
