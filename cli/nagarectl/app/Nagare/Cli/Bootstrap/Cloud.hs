@@ -152,7 +152,39 @@ buildCloudStageCandidate active workspace snapshot
             | urn <- catalogUrns
             , not (Set.member urn acceptedUrns && Map.member urn physical)
             ]
-      case missing of
+          intentDigest entry =
+            InventoryDigest.contentDigest
+              ( catalogBytes
+                  <> TE.encodeUtf8
+                    ( T.pack
+                        ( show
+                            ( seedKeys profile
+                                <> [ ("nagare:nagareImageSelfLink", link)
+                                   | entry `elem` InventoryCloud.catalogImageEnabled catalog
+                                   , link <- maybe [] pure imageLink
+                                   ]
+                                <> [ key
+                                   | entry `elem` InventoryCloud.catalogDelegatedDeployers catalog
+                                   , key <- deployerKeys
+                                   ]
+                            )
+                        )
+                    )
+              )
+          -- A delegated deployer's accepted members whose intent moved: a
+          -- revoked delegation disables its account in place (EP-248 D7), so
+          -- the stage is planned although nothing is missing. Other entries
+          -- hash the whole catalog into their intent, so they are left to a
+          -- missing member, as before.
+          acceptedSpecs = Map.fromList [(urn, member ^. #spec) | member <- acceptedMembers, Resource.PulumiUrn urn <- [member ^. #address]]
+          deployerDrift =
+            [ urn
+            | (entry, urn) <- zip entries catalogUrns
+            , entry `elem` InventoryCloud.catalogDelegatedDeployers catalog
+            , Just spec <- [Map.lookup urn acceptedSpecs]
+            , spec /= ResourceInventory.NativeObject (intentDigest entry)
+            ]
+      case missing <> deployerDrift of
         [] -> pure Nothing
         _ -> do
           let admitted = entries
@@ -175,25 +207,6 @@ buildCloudStageCandidate active workspace snapshot
                   stackOwner
                   (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack"))
                   stack
-              intentDigest entry =
-                InventoryDigest.contentDigest
-                  ( catalogBytes
-                      <> TE.encodeUtf8
-                        ( T.pack
-                            ( show
-                                ( seedKeys profile
-                                    <> [ ("nagare:nagareImageSelfLink", link)
-                                       | entry `elem` InventoryCloud.catalogImageEnabled catalog
-                                       , link <- maybe [] pure imageLink
-                                       ]
-                                    <> [ key
-                                       | entry `elem` InventoryCloud.catalogDelegatedDeployers catalog
-                                       , key <- deployerKeys
-                                       ]
-                                )
-                            )
-                        )
-                  )
           resources <- forM admitted $ \entry -> do
             urn <- either dieT pure (InventoryCloud.cloudCatalogUrn stack catalog entry)
             key <-
