@@ -32,8 +32,8 @@ import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl)
 import Nagare.Database.AppDatabase.Backup (appDatabaseBackupKeyPrefix)
-import Nagare.Database.AppDatabase.Sql (renderScratchRestore)
-import Nagare.Database.Backup (appDatabaseBackupExt, manualDatabaseJobName)
+import Nagare.Database.AppDatabase.Sql (RoleRestore (..), renderRestoreRoles, renderScratchRestore)
+import Nagare.Database.Backup (appDatabaseBackupExt, appOwnedBackupFormat, manualDatabaseJobName)
 import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), clickHouseBackupsDirShell, renderAppDatabaseRestoreJob)
 import Nagare.Dsl.AppDatabase (DatabasePrivileges, noDatabasePrivileges)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
@@ -112,9 +112,16 @@ compileAppDatabaseRestoreScope request native = do
     (T.length (request ^. #restoreId) <= 20 && T.all (\c -> c `elem` ['a' .. 'z'] || c `elem` ['0' .. '9']) (request ^. #restoreId) && not (T.null (request ^. #restoreId)))
     (Left (invalid "restore ID must be 1-20 lowercase letters or digits"))
   facts <- runFacts
+  -- An app-owned database (EP-258) restores as its owner and declared
+  -- database owner, with its role file before its data.
+  let owned = listToMaybe [(nameText owner', maybe (nameText owner') nameText role) | member <- appMembers, AppOwnedDatabase _ owner' role _ _ <- [member ^. #spec]]
   (engine, migration, runtime, declaredDatabases, stateful) <- case ( [(engineText, nameText user, role) | member <- appMembers, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec engineText role _ _ _ <- [member ^. #spec]]
                                                                     , [(nameText db, target) | member <- appMembers, DatabaseName target db <- [member ^. #address]]
                                                                     ) of
+    ([(engineText, owner', "owner")], dbs@((_, target) : _))
+      | Just engine <- parseEngine engineText
+      , isJust owned ->
+          Right (engine, owner', owner', sort (map fst dbs), target)
     (users@((engineText, _, _) : _), dbs@((_, target) : _))
       | Just engine <- parseEngine engineText
       , [migration] <- [user | (_, user, "migration") <- users]
@@ -172,7 +179,7 @@ compileAppDatabaseRestoreScope request native = do
   clientImage <- first invalid (containerImage statefulValue)
   let RunFacts backupId objectUrl receiptUrl checksum receiptDigest objectVersion receiptVersion _ backupScope receiptJobs = facts
   unless
-    ( objectUrl == storeObjectUrl (request ^. #backend) (appDatabaseBackupKeyPrefix ns appName <> backupId <> "." <> appDatabaseBackupExt engine)
+    ( objectUrl == storeObjectUrl (request ^. #backend) (appDatabaseBackupKeyPrefix ns appName <> backupId <> "." <> maybe (appDatabaseBackupExt engine) (const appOwnedBackupFormat) owned)
         && receiptUrl == objectUrl <> ".receipt.json"
         && all (not . T.null) [objectVersion, receiptVersion]
     )
@@ -211,9 +218,11 @@ compileAppDatabaseRestoreScope request native = do
       ( Yaml.decodeEither'
           ( renderAppDatabaseRestoreJob
               inputs
-              ( case request ^. #target of
-                  ScratchTarget -> appDatabaseRestoreShell engine declared server scratches migration runtime
-                  RebuiltTarget -> appDatabaseRebuiltShell engine server databases (request ^. #restoreId)
+              ( case (owned, request ^. #target) of
+                  (Just (owner', databaseOwner'), ScratchTarget) -> appOwnedRestoreShell server owner' databaseOwner' scratches False
+                  (Just (owner', databaseOwner'), RebuiltTarget) -> appOwnedRestoreShell server owner' databaseOwner' [(db, db) | db <- databases] True
+                  (Nothing, ScratchTarget) -> appDatabaseRestoreShell engine declared server scratches migration runtime
+                  (Nothing, RebuiltTarget) -> appDatabaseRebuiltShell engine server databases (request ^. #restoreId)
               )
           ) ::
           Either Yaml.ParseException Value
@@ -382,6 +391,43 @@ appDatabaseRebuiltShell _ server databases _ =
           <> " /dump/backup.sql; "
       | db <- databases
       ]
+
+-- | EP-258: restore an app-owned database's archive, the tar of its dump and
+-- its role file, as the administrator. The role file goes in before the data:
+-- onto a rebuilt server it creates the app's roles, memberships and settings
+-- (the re-apply made the owner and the owning role), into a scratch database
+-- beside the live one it finds them present; either way it gives the target
+-- the source's database grants and settings, then @pg_restore@ loads the
+-- dump keeping owners and ACLs. A rebuilt target that holds a relation, a
+-- leftover scratch name, or a role file that fails validation refuses before
+-- anything changes.
+appOwnedRestoreShell :: Text -> Text -> Text -> [(Text, Text)] -> Bool -> Text
+appOwnedRestoreShell server owner databaseOwner targets rebuilt =
+  "set -e; mkdir -p /dump/app; tar -C /dump/app -xf /dump/backup.sql; test -s /dump/app/roles.json; test -s /dump/app/backup.dump; "
+    <> T.concat
+      [ (if rebuilt then emptyCheck target' else "")
+          <> "psql -v ON_ERROR_STOP=1 -X -q -h "
+          <> server
+          <> " -U \"$POSTGRES_USER\" -d postgres <<'SQL'\n"
+          <> (if rebuilt then "" else "CREATE DATABASE \"" <> target' <> "\" OWNER \"" <> databaseOwner <> "\";\nREVOKE ALL ON DATABASE \"" <> target' <> "\" FROM PUBLIC;\n")
+          <> renderRestoreRoles "/dump/app/roles.json" (RoleRestore owner databaseOwner target' rebuilt)
+          <> "SQL\npg_restore --exit-on-error -h "
+          <> server
+          <> " -U \"$POSTGRES_USER\" -d "
+          <> target'
+          <> " /dump/app/backup.dump; "
+      | (_, target') <- targets
+      ]
+  where
+    emptyCheck db =
+      "relations=\"$(psql -tA -v ON_ERROR_STOP=1 -h "
+        <> server
+        <> " -U \"$POSTGRES_USER\" -d "
+        <> db
+        <> " -c \"select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname not in ('pg_catalog', 'information_schema') and n.nspname not like 'pg_toast%' and n.nspname not like 'pg_temp%'\")\"; "
+        <> "test \"$relations\" = 0 || { echo \"database "
+        <> db
+        <> " already holds $relations relations; refusing to restore over data\" >&2; exit 3; }; "
 
 -- | The restore shell, run as the administrator: PostgreSQL creates the
 -- scratch database with its declared access and loads the custom-format dump

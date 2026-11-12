@@ -229,7 +229,7 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
             , clientImage = serverFound ^. #image
             , databases = map logicalDatabaseNameText (NE.toList (db ^. #logicalDatabases))
             , declaration = digestText (contentDigest (LBS.toStrict (encodeAppDatabases [db & #access .~ noAppDatabaseAccess])))
-            , administrator = appOwned db
+            , appOwner = if appOwned db then Just (appDatabaseUser (db ^. #name) OwnerRole) else Nothing
             }
           (target ^. #backend)
           7

@@ -43,13 +43,26 @@ Backups and lifecycle of app databases that did not opt in are unchanged.
 
 ## Progress
 
-- [ ] M1: A scheduled or on-demand backup of an app-owned database writes one object holding
+- [x] M1: A scheduled or on-demand backup of an app-owned database writes one object holding
   the dump and a role file, under a new signed format token. Ingest accepts it. A backup of an
-  app database that did not opt in is byte-for-byte what it was.
-- [ ] M2: A scratch restore and a rebuilt-server restore of that backup succeed, and after the
+  app database that did not opt in is byte-for-byte what it was. Evidence: `AppOwnedDatabaseSpec`
+  "backups and restores carry the app's roles (EP-258)": the app-owned schedule runs the role
+  file query and `tar -C /dump -cf /dump/backup.tar backup.dump roles.json` under format
+  `tar.gz`, and an app-owned run ingests (`ingestedWith`); the role file query is the one
+  `app-owned.sh` ran on PostgreSQL 18 (`observed/postgres-app-owned-roles.json`); existing
+  schedule and ingest tests of Nagare-managed app databases are unchanged. The on-demand backup
+  of an app-owned database checks only that it is not retired.
+- [x] M2: A scratch restore and a rebuilt-server restore of that backup succeed, and after the
   rebuilt restore the app's roles, logins, memberships, object ownership, database grants and
   password verifiers equal the source's. A role file that fails validation is refused before
-  any statement runs.
+  any statement runs. Evidence: in `app-owned.expected` (PostgreSQL 18) the scratch restore
+  prints `restored` and the app's login reads its copy; after dropping alpha's database and
+  every role and re-applying, the rebuilt restore prints `restored`, a second run changes
+  nothing, the role file read afterwards is byte-identical to the source's
+  (`postgres-app-owned-roles-restored.json`), the owned observation classifies both members
+  complete, and the app's login reads its data; a role file with an elevated attribute or a
+  membership naming another app's role fails inside the one transaction. The compiled scratch
+  and rebuilt restore Jobs run exactly that SQL (`AppOwnedDatabaseSpec`).
 - [ ] M3: Quiesce closes the owner's choice of logins and every login the app created, resume
   reopens exactly those, and retirement closes them all. The local smoke proves each on
   PostgreSQL 18, and the user guide documents backup, restore and lifecycle for app-owned
@@ -65,8 +78,17 @@ Backups and lifecycle of app databases that did not opt in are unchanged.
 
 - Decision: The role file is JSON produced by one catalog query, not SQL from `pg_dumpall`.
   Rationale: `pg_dumpall --roles-only` cannot be limited to one app's roles, and a restore runs
-  as the server's superuser, so it must never execute statements it read from a bucket. Restore
-  validates the JSON and renders the statements with Nagare's own tested, escaping renderers.
+  as the server's superuser, so it must never execute statements it read from a bucket.
+  Date: 2026-11-11.
+- Decision: The restore Job applies the role file with one fixed `DO` block Nagare renders
+  (`renderRestoreRoles`), which reads the file as data through a psql variable, validates it,
+  and builds each statement with the server's `format` and `%I`/`%L`, in one transaction. This
+  replaces rendering the statements in nagarectl, which would have needed the backup object at
+  planning. Rationale: the file is only in the Job; the server's own quoting is the escaping, and
+  the fixture proves the block on PostgreSQL 18. Database grants are made after `SET ROLE` to
+  their grantor, since `GRANTED BY` on an object privilege must be the current user (found by
+  the fixture). Date: 2026-11-11.
+- Decision: The native smoke for this plan runs in EP-260 M1's local run. Rationale: as EP-257's.
   Date: 2026-11-11.
 - Decision: The role file holds SCRAM-SHA-256 verifiers for the logins the app created and none
   for Nagare's users. Rationale: MasterPlan 35's Decision Log (operator, 2026-11-11); Nagare's

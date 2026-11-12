@@ -48,6 +48,7 @@ module Nagare.Database.Backup
   , renderUnpinnedInventoryDbBackupCronJob
   , renderInventoryVolumeBackupCronJob
   , appDatabaseBackupExt
+  , appOwnedBackupFormat
   , renderScheduledCronJob
 
     -- * Read-only legacy preview
@@ -84,6 +85,7 @@ import Nagare.Cluster.GcsJob
   , storeRmStdin
   , storeShellPreamble
   )
+import Nagare.Database.AppDatabase.Sql (renderRoleFile)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -166,19 +168,26 @@ backupRawExt ClickHouse = "zip"
 sourceExt :: BackupSource -> Text
 sourceExt (DatabaseSource engine) = backupExt engine
 sourceExt VolumeSource = volumeBackupFormat
-sourceExt (AppDatabaseSource engine _ _) = appDatabaseBackupExt engine
+sourceExt (AppDatabaseSource _ _ (Just _)) = appOwnedBackupFormat
+sourceExt (AppDatabaseSource engine _ Nothing) = appDatabaseBackupExt engine
 
 sourceRawExt :: BackupSource -> Text
 sourceRawExt (DatabaseSource engine) = backupRawExt engine
 sourceRawExt VolumeSource = "tar"
 sourceRawExt (AppDatabaseSource ClickHouse _ _) = "zip"
-sourceRawExt (AppDatabaseSource _ _ _) = "dump"
+sourceRawExt (AppDatabaseSource _ _ (Just _)) = "tar"
+sourceRawExt (AppDatabaseSource _ _ Nothing) = "dump"
 
 -- | An app database's archive: a PostgreSQL custom-format dump that keeps
 -- owners and ACLs, or a ClickHouse archive of every logical database.
 appDatabaseBackupExt :: Engine -> Text
 appDatabaseBackupExt ClickHouse = "zip.gz"
 appDatabaseBackupExt _ = "dump.gz"
+
+-- | An app-owned database's archive (EP-258): a tar of the custom-format dump
+-- (@backup.dump@) and the app's role file (@roles.json@), gzipped.
+appOwnedBackupFormat :: Text
+appOwnedBackupFormat = "tar.gz"
 
 -- | Scheduled application-volume archives (EP-183 M3) live outside the manual
 -- snapshot space, one prefix per volume:
@@ -239,8 +248,9 @@ data BackupSource
   | VolumeSource
   | -- | An app database (EP-202): its logical databases, dumped with the
     -- app's own migration credential from the shared server, or as the
-    -- server administrator when the app owns it (EP-257).
-    AppDatabaseSource !Engine ![Text] !Bool
+    -- server administrator with the app's role file when the app owns it
+    -- (EP-257, EP-258): then its owner user is named.
+    AppDatabaseSource !Engine ![Text] !(Maybe Text)
   deriving stock (Generic, Eq, Show)
 
 -- | ClickHouse writes its archive on the server's own volume, so its Job reads
@@ -595,7 +605,7 @@ dumpShell ClickHouse svc =
 -- format with owners and ACLs (the migration user owns every object), or one
 -- consistent ClickHouse archive of all its databases, copied off the server's
 -- volume exactly as a server's archive is.
-appDatabaseDumpShell :: Engine -> [Text] -> Bool -> Text -> Text
+appDatabaseDumpShell :: Engine -> [Text] -> Maybe Text -> Text -> Text
 appDatabaseDumpShell ClickHouse databases _ svc =
   "case \"$BACKUP_RUN_ID\" in ''|*[!a-zA-Z0-9-]*) exit 1;; esac; "
     <> "ARCHIVE=\"/source-data/backups/${BACKUP_RUN_ID}.zip\"; "
@@ -609,10 +619,12 @@ appDatabaseDumpShell ClickHouse databases _ svc =
     <> "test -s \"$ARCHIVE\"; cp \"$ARCHIVE\" /dump/backup.zip; "
     <> "rm -- \"$ARCHIVE\""
 -- The administrator's Secret names the server's initial database, so an
--- app-owned database's dump names its own (EP-257).
-appDatabaseDumpShell _ databases True svc =
-  "pg_dump -Fc -h " <> svc <> " -U \"$POSTGRES_USER\" -d " <> T.intercalate "" (take 1 databases) <> " > /dump/backup.dump"
-appDatabaseDumpShell _ _ False svc =
+-- app-owned database's dump names its own (EP-257); the role file beside it
+-- is read in the same Job as the administrator (EP-258).
+appDatabaseDumpShell _ databases (Just owner) svc =
+  let db = T.concat (take 1 databases); psql = "psql -X -q -A -t -v ON_ERROR_STOP=1 -h " <> svc <> " -U \"$POSTGRES_USER\" -d postgres"
+   in "pg_dump -Fc -h " <> svc <> " -U \"$POSTGRES_USER\" -d " <> db <> " > /dump/backup.dump; " <> psql <> " > /dump/roles.json <<'SQL'\n" <> renderRoleFile owner db <> "SQL\ntest -s /dump/roles.json; tar -C /dump -cf /dump/backup.tar backup.dump roles.json"
+appDatabaseDumpShell _ _ Nothing svc =
   "pg_dump -Fc -h " <> svc <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" > /dump/backup.dump"
 
 -- | The upload shell: gzip + a backend copy to @$DEST@. Reviewed Jobs and

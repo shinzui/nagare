@@ -68,8 +68,10 @@ compileAppDatabaseOnDemandBackupScope request native = do
       invalid code message = (inventoryError code message & #scopes .~ [scopeId scope] & #sources .~ [request ^. #source]) :| []
       refuse = invalid "invalid-app-database-backup"
       migrationLogin = [login | member <- members, DatabaseUserSpec _ "migration" login _ _ <- [member ^. #spec]]
-  -- The Job dumps with the migration credential (ADR 30).
-  case migrationLogin of
+      ownerLogin = [login | member <- members, DatabaseUserSpec _ "owner" login _ _ <- [member ^. #spec]]
+  -- The Job dumps with the migration credential (ADR 30); an app-owned
+  -- database's as the server administrator, whatever its logins (EP-258).
+  case (if null ownerLogin then migrationLogin else map (\case LoginClosed -> LoginClosed; _ -> LoginOpen) ownerLogin) of
     [LoginOpen] -> pure ()
     [LoginQuiesced] -> Left (invalid "app-database-quiesced" "the migration user is quiesced, and the backup dumps with its credential; resume it or quiesce only the runtime user")
     [LoginClosed] -> Left (refuse "a retired app database is not backed up on demand")

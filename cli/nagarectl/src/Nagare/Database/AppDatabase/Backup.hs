@@ -14,7 +14,7 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Nagare.Cluster.GcsJob (StoreBackend, storePrefixUrl)
-import Nagare.Database.Backup (BackupDest (..), BackupJobInputs (..), BackupSource (..), appDatabaseBackupExt, renderScheduledCronJob)
+import Nagare.Database.Backup (BackupDest (..), BackupJobInputs (..), BackupSource (..), appDatabaseBackupExt, appOwnedBackupFormat, renderScheduledCronJob)
 import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
@@ -42,9 +42,10 @@ data AppDatabaseBackup = AppDatabaseBackup
   , clientImage :: !Text
   , databases :: ![Text]
   , declaration :: !Text
-  , administrator :: !Bool
-  -- ^ an app-owned database (EP-257) is dumped as the server administrator,
-  -- so no grant the app manages can make its backup incomplete
+  , appOwner :: !(Maybe Text)
+  -- ^ an app-owned database's owner user (EP-257): it is dumped as the server
+  -- administrator, so no grant the app manages can make its backup
+  -- incomplete, with the app's role file (EP-258)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -60,7 +61,7 @@ renderInventoryAppDatabaseBackupCronJob objective backup backend keep =
     , "declaration" .= (backup ^. #declaration)
     , "namespace" .= (backup ^. #namespace)
     , "engine" .= T.toLower (T.pack (show (backup ^. #engine)))
-    , "format" .= appDatabaseBackupExt (backup ^. #engine)
+    , "format" .= maybe (appDatabaseBackupExt (backup ^. #engine)) (const appOwnedBackupFormat) (backup ^. #appOwner)
     , "schedule" .= schedule
     , "scheduleRevision" .= revision
     , "keep" .= keep
@@ -71,11 +72,11 @@ renderInventoryAppDatabaseBackupCronJob objective backup backend keep =
       BackupJobInputs
         { namespace = backup ^. #namespace
         , jobName = schedule
-        , source = AppDatabaseSource (backup ^. #engine) (backup ^. #databases) (backup ^. #administrator)
+        , source = AppDatabaseSource (backup ^. #engine) (backup ^. #databases) (backup ^. #appOwner)
         , clientImage = backup ^. #clientImage
         , unpinnedStoreImage = False
         , serviceHost = backup ^. #server
-        , secretName = if backup ^. #administrator then "nagare-db-" <> backup ^. #server else backup ^. #appDatabase <> "-migration"
+        , secretName = if isJust (backup ^. #appOwner) then "nagare-db-" <> backup ^. #server else backup ^. #appDatabase <> "-migration"
         , name = backup ^. #server
         , destination = BackupDestStamped
         , prefix = storePrefixUrl backend (appDatabaseBackupKeyPrefix (backup ^. #namespace) (backup ^. #appDatabase))

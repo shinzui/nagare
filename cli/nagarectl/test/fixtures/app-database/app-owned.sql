@@ -307,6 +307,27 @@ WHERE n.nspname IN ('kiroku', 'kotei') AND c.relkind = 'r' ORDER BY 1;
 -- observe: app-owned-observe-alpha.sql postgres-app-owned-converged.json
 -- observe: app-owned-observe-beta.sql postgres-app-owned-beta-converged.json
 
+-- EP-258: what an app-owned backup holds, the dump and the role file.
+-- shell: pg_dump -Fc -U postgres -d alpha > /tmp/alpha.dump && echo dumped
+-- observe: app-owned-roles-alpha.sql postgres-app-owned-roles.json
+
+-- step: postgres postgres
+-- A scratch restore beside the live database: the source's owner, then the role file's grants.
+CREATE DATABASE "alpha_restore_r1" OWNER "kotei_maintenance";
+REVOKE ALL ON DATABASE "alpha_restore_r1" FROM PUBLIC;
+
+-- shell: psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/app-owned-restore-alpha-scratch.sql && pg_restore --exit-on-error -U postgres -d alpha_restore_r1 /tmp/alpha.dump && echo restored
+
+-- step: kotei_app alpha_restore_r1
+-- The app's login reads its scratch copy as it reads the live database.
+SELECT count(*) FROM kiroku.events;
+
+-- step: postgres postgres
+DROP DATABASE "alpha_restore_r1";
+
+-- A role file that fails validation changes nothing: an elevated attribute, then a role outside the app.
+-- shell: cp /tmp/postgres-app-owned-roles.json /tmp/roles.good && sed 's/"elevated" : false/"elevated" : true/' /tmp/roles.good > /tmp/postgres-app-owned-roles.json && psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/app-owned-restore-alpha-rebuilt.sql; sed 's/"member" : "kotei_app"/"member" : "beta_owner"/' /tmp/roles.good > /tmp/postgres-app-owned-roles.json && psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/app-owned-restore-alpha-rebuilt.sql; cp /tmp/roles.good /tmp/postgres-app-owned-roles.json
+
 -- step: alpha_owner alpha
 -- Reaches alpha's SQL can make, which the server allows and Nagare must report as drift
 -- (EP-257 M3): sharing its own database or role with another app.
@@ -319,3 +340,27 @@ SELECT count(*) FROM kiroku.events;
 
 -- observe: app-owned-observe-alpha.sql postgres-app-owned-drifted.json
 -- observe: app-owned-observe-beta.sql postgres-app-owned-beta-drifted.json
+
+-- EP-258: a rebuilt server. Undo the cross-app grants, drop alpha's database and every
+-- role of the app, re-apply what Nagare renders, then restore the roles before the data.
+-- step: postgres postgres
+REVOKE kotei_inspection FROM beta_owner;
+DROP DATABASE "alpha";
+DROP ROLE kotei_nested, kotei_admin, kotei_app, kotei_erasure, kotei_inspection, kotei_runtime, kotei_maintenance, alpha_owner;
+CREATE ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'SCRAM-SHA-256$4096:AAECAwQFBgcICQoLDA0ODw==$otvP+SF1k53i44Kn0/KQMygR3f38sjtSVoLKL0KWavs=:HZXwp7IhxRpKH/O1lmKvtEajTi5R4qPWfTXpnsR6bxo=';
+ALTER ROLE "alpha_owner" SET createrole_self_grant = 'set, inherit';
+DO $owning$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_maintenance') THEN CREATE ROLE "kotei_maintenance" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $owning$;
+GRANT "kotei_maintenance" TO "alpha_owner" WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;
+CREATE DATABASE "alpha" OWNER "kotei_maintenance";
+REVOKE ALL ON DATABASE "alpha" FROM PUBLIC;
+
+-- shell: psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/app-owned-restore-alpha-rebuilt.sql && pg_restore --exit-on-error -U postgres -d alpha /tmp/alpha.dump && echo restored
+-- A second run finds the roles already the app's and changes nothing.
+-- shell: psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/app-owned-restore-alpha-rebuilt.sql && echo rerun
+
+-- The restored roles, memberships, ownership, grants and verifiers equal the source's.
+-- observe: app-owned-roles-alpha.sql postgres-app-owned-roles-restored.json
+-- observe: app-owned-observe-alpha.sql postgres-app-owned-restored.json
+
+-- step: kotei_app alpha
+SELECT count(*) FROM kiroku.events;

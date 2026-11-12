@@ -8,12 +8,15 @@ module AppOwnedDatabaseSpec
   )
 where
 
-import AppDatabaseSpec (acceptedServerAt, alpha, beta, compileAgainst, known, pgServer, scopeAndNative, scopeOf, snapshot, snapshotWith)
+import AppDatabaseSpec (acceptedServerAt, alpha, beta, compileAgainst, ingestedWith, known, pgServer, scopeAndNative, scopeOf, snapshot, snapshotWith)
 import AppDatabaseWorldSpec (converge, observeAll, replan, setup, setupWith)
 import Control.Monad (forM_)
+import Data.Aeson (Value (..))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft, isRight)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty qualified as NE
@@ -22,6 +25,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Yaml qualified as Yaml
+import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.AppDatabase.Catalog (CatalogGrant (..), MemberState (..), grantDriftCode)
 import Nagare.Database.AppDatabase.Owned
 import Nagare.Database.AppDatabase.Sql
@@ -32,6 +37,9 @@ import Nagare.Dsl.Load (decodeAppDatabases)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Inventory.Adapters.AppDatabase (MemberKind (..))
+import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreRun (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Test.World.Adversary
@@ -47,6 +55,7 @@ appOwnedDatabaseTests =
     , observationTests
     , declarationTests
     , compileTests
+    , backupTests
     , worldTests
     ]
 
@@ -210,6 +219,62 @@ compileTests =
     refusedWith code = \case
       Left errors -> assertBool (show errors) (any ((== code) . (^. #code)) (NE.toList errors))
       Right _ -> assertFailure ("planned; expected " <> T.unpack code)
+
+-- EP-258 ----------------------------------------------------------------------
+
+-- | Every text leaf of a rendered object, so a shell inside it can be searched.
+leaves :: Value -> [Text]
+leaves = \case
+  String t -> [t]
+  Object o -> concatMap leaves (KM.elems o)
+  Array a -> concatMap leaves (toList a)
+  _ -> []
+
+nativeText :: BS.ByteString -> Text
+nativeText bytes = either (error . show) (T.unlines . leaves) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+
+backupTests :: TestTree
+backupTests =
+  testGroup
+    "backups and restores carry the app's roles (EP-258)"
+    [ testCase "the role file and its restore are the SQL the fixture ran" $ do
+        roles <- TE.decodeUtf8 <$> BS.readFile (fixtureDir <> "app-owned-roles-alpha.sql")
+        rebuilt <- TE.decodeUtf8 <$> BS.readFile (fixtureDir <> "app-owned-restore-alpha-rebuilt.sql")
+        scratch <- TE.decodeUtf8 <$> BS.readFile (fixtureDir <> "app-owned-restore-alpha-scratch.sql")
+        roles @?= renderRoleFile "alpha_owner" "alpha"
+        rebuilt @?= renderRestoreRoles "/tmp/postgres-app-owned-roles.json" (RoleRestore "alpha_owner" "kotei_maintenance" "alpha" True)
+        scratch @?= renderRestoreRoles "/tmp/postgres-app-owned-roles.json" (RoleRestore "alpha_owner" "kotei_maintenance" "alpha_restore_r1" False)
+    , testCase "after a rebuilt restore the role file equals the source's, verifiers included" $ do
+        source <- BS.readFile (fixtureDir <> "observed/postgres-app-owned-roles.json")
+        restored <- BS.readFile (fixtureDir <> "observed/postgres-app-owned-roles-restored.json")
+        restored @?= source
+        assertBool "the file holds a login's verifier" ("SCRAM-SHA-256$" `BS.isInfixOf` source || "\"verifier\" : null" `BS.isInfixOf` source)
+        after <- observed "postgres-app-owned-restored.json"
+        assertComplete (classifyOwner (OwnerDeclaration "alpha_owner" "alpha" True) after)
+        assertComplete (classifyOwnedDatabase (OwnedDatabaseDeclaration "alpha" "alpha_owner" (Just "kotei_maintenance") True) after)
+    , testCase "an app-owned schedule writes the dump and the role file as one tar.gz" $ do
+        let (_, native) = scopeAndNative pgServer (owned (alpha Postgres))
+        case [nativeText bytes | (member, bytes) <- Map.elems native, Kubernetes _ "batch" _ _ _ <- [member ^. #address]] of
+          [text] -> do
+            assertBool "role file" (renderRoleFile "alpha_pg_owner" "alpha" `T.isInfixOf` text)
+            assertBool "tar" ("tar -C /dump -cf /dump/backup.tar backup.dump roles.json" `T.isInfixOf` text)
+            assertBool "format" ("tar.gz" `T.isInfixOf` text)
+          _ -> assertFailure "one schedule"
+    , testCase "an app-owned run ingests and restores to scratch and onto a rebuilt server with its role file first" $ do
+        (appScope, serverScope, native, receiptScope, _, _) <- ingestedWith (owned (alpha Postgres))
+        let request target' = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope (IngestedRun receiptScope) (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") target' (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
+            shellOf target' = do
+              (_, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope (request target') native)
+              pure (T.concat [nativeText bytes | (_, bytes) <- Map.elems restoreNative])
+        scratch <- shellOf ScratchTarget
+        assertBool "scratch owned by the owning role" ("CREATE DATABASE \"alpha_restore_r1\" OWNER \"kotei_maintenance\";" `T.isInfixOf` scratch)
+        assertBool "scratch role file" (renderRestoreRoles "/dump/app/roles.json" (RoleRestore "alpha_pg_owner" "kotei_maintenance" "alpha_restore_r1" False) `T.isInfixOf` scratch)
+        assertBool "then the data" ("pg_restore --exit-on-error -h smoke-pg -U \"$POSTGRES_USER\" -d alpha_restore_r1 /dump/app/backup.dump" `T.isInfixOf` scratch)
+        rebuilt <- shellOf RebuiltTarget
+        assertBool "refuses over data" ("refusing to restore over data" `T.isInfixOf` rebuilt)
+        assertBool "rebuilt role file creates roles" (renderRestoreRoles "/dump/app/roles.json" (RoleRestore "alpha_pg_owner" "kotei_maintenance" "alpha" True) `T.isInfixOf` rebuilt)
+        assertBool "no scratch database" (not ("CREATE DATABASE" `T.isInfixOf` rebuilt))
+    ]
 
 -- World ---------------------------------------------------------------------
 

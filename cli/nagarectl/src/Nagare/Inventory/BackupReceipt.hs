@@ -34,8 +34,8 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Vector qualified as V
 import Nagare.Cluster.GcsJob (StoreBackend, storePrefixUrl)
 import Nagare.Database.AppDatabase.Backup (appDatabaseBackupKeyPrefix, appDatabaseBackupScheduleName)
-import Nagare.Database.Backup (appDatabaseBackupExt, backupExt, dbBackupKeyPrefix, volumeBackupFormat, volumeBackupKeyPrefix, volumeBackupScheduleName)
-import Nagare.Dsl.Database (parseEngine)
+import Nagare.Database.Backup (appDatabaseBackupExt, appOwnedBackupFormat, backupExt, dbBackupKeyPrefix, volumeBackupFormat, volumeBackupKeyPrefix, volumeBackupScheduleName)
+import Nagare.Dsl.Database (Engine (Postgres), parseEngine)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Inventory.BackupFreshness
@@ -138,7 +138,9 @@ scheduledAppDatabaseReceiptExpectationFromCronJob backend namespaceName appDatab
       , Right _ <- mkContentDigest declaration
       , Just (String engineName) <- KM.lookup "engine" fields
       , Just engine <- parseEngine engineName
-      , KM.lookup "format" fields == Just (String (appDatabaseBackupExt engine)) -> do
+      , Just (String format) <- KM.lookup "format" fields
+      , -- An app-owned database's archive carries its role file (EP-258).
+        format `elem` (appDatabaseBackupExt engine : [appOwnedBackupFormat | engine == Postgres]) -> do
           prefix <- plain "PREFIX"
           unless
             (prefix == storePrefixUrl backend (appDatabaseBackupKeyPrefix namespaceName appDatabase))
@@ -147,7 +149,7 @@ scheduledAppDatabaseReceiptExpectationFromCronJob backend namespaceName appDatab
           unless
             (sourceName == server)
             (Left "accepted app-database backup probes another server")
-          Right (prefix, appDatabaseBackupExt engine)
+          Right (prefix, format)
     _ -> Left "accepted app-database backup has invalid receipt metadata"
 
 -- | The databases an app-database schedule's receipts name (EP-207): a run

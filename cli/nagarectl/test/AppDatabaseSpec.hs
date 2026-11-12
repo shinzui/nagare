@@ -20,6 +20,7 @@ module AppDatabaseSpec
   , compileWorker
   , compileAgainst
   , acceptedServerAt
+  , ingestedWith
   , secretKeyRefs
   , acceptedNative
   , testCluster

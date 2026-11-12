@@ -38,6 +38,9 @@ module Nagare.Database.AppDatabase.Sql
   , renderCreateOwnedDatabase
   , renderOwnedDatabaseAccess
   , renderObserveOwned
+  , renderRoleFile
+  , RoleRestore (..)
+  , renderRestoreRoles
 
     -- * Observation
   , renderObserveServer
@@ -453,6 +456,134 @@ renderObserveOwned owner owningRole database initialDatabase =
     , "  'databases', (SELECT coalesce(json_agg(json_build_object('name', d.datname, 'oid', d.oid::text, 'owner', pg_get_userbyid(d.datdba), 'grants', " <> grants "coalesce(d.datacl, acldefault('d', d.datdba))" <> ") ORDER BY d.datname), '[]') FROM pg_database d WHERE d.datname = " <> literal database <> " OR d.datdba IN (SELECT oid FROM app) OR EXISTS (SELECT 1 FROM aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) x WHERE x.grantee IN (SELECT oid FROM app))),"
     , "  'publicSystemAccess', (SELECT count(*) > 0 FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname IN ('postgres', 'template1', " <> literal initialDatabase <> ") AND a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY'))"
     , ");"
+    ]
+
+-- | The role file an app-owned database's backup carries (EP-258), as one
+-- JSON document read as the administrator: every role of the app but the
+-- owner with its attributes, its SCRAM verifier when it may log in, and its
+-- server-wide settings; every membership among the app's roles with its
+-- grantor and options; and the database's owner, grants and settings,
+-- including the app's roles' settings in it. The owner takes its password
+-- from its Secret on re-apply, so its verifier is left out.
+renderRoleFile :: Text -> Text -> Text
+renderRoleFile owner database =
+  T.unlines
+    [ "WITH RECURSIVE app(oid) AS ("
+    , "  SELECT oid FROM pg_catalog.pg_roles WHERE rolname = " <> literal owner
+    , "  UNION"
+    , "  SELECT m.roleid FROM pg_catalog.pg_auth_members AS m JOIN app ON m.member = app.oid WHERE m.admin_option"
+    , ")"
+    , "SELECT json_build_object("
+    , "  'version', 1,"
+    , "  'owner', " <> literal owner <> ","
+    , "  'database', " <> literal database <> ","
+    , "  'roles', (SELECT coalesce(json_agg(json_build_object('name', a.rolname, 'login', a.rolcanlogin, 'createrole', a.rolcreaterole, 'inherit', a.rolinherit, 'elevated', a.rolsuper OR a.rolcreatedb OR a.rolreplication OR a.rolbypassrls, 'connectionLimit', a.rolconnlimit, 'validUntil', a.rolvaliduntil::text, 'verifier', CASE WHEN a.rolcanlogin THEN a.rolpassword END, 'settings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s WHERE s.setrole = a.oid AND s.setdatabase = 0), '[]')) ORDER BY a.rolname), '[]') FROM pg_authid a WHERE a.oid IN (SELECT oid FROM app) AND a.rolname <> " <> literal owner <> "),"
+    , "  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname, 'grantor', g.rolname, 'admin', x.admin_option, 'inherit', x.inherit_option, 'set', x.set_option) ORDER BY r.rolname, m.rolname, g.rolname), '[]') FROM pg_auth_members x JOIN pg_roles r ON r.oid = x.roleid JOIN pg_roles m ON m.oid = x.member JOIN pg_roles g ON g.oid = x.grantor WHERE x.roleid IN (SELECT oid FROM app) AND x.member IN (SELECT oid FROM app)),"
+    , "  'databaseOwner', (SELECT pg_get_userbyid(d.datdba) FROM pg_database d WHERE d.datname = " <> literal database <> "),"
+    , "  'databaseGrants', (SELECT coalesce(json_agg(json_build_object('grantee', CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, 'grantor', pg_get_userbyid(a.grantor), 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, a.privilege_type), '[]') FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = " <> literal database <> "),"
+    , "  'databaseSettings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase WHERE d.datname = " <> literal database <> " AND s.setrole = 0), '[]'),"
+    , "  'roleDatabaseSettings', (SELECT coalesce(json_agg(json_build_object('role', pg_get_userbyid(s.setrole), 'settings', array_to_json(s.setconfig)) ORDER BY pg_get_userbyid(s.setrole)), '[]') FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase WHERE d.datname = " <> literal database <> " AND s.setrole IN (SELECT oid FROM app))"
+    , ");"
+    ]
+
+-- | Where a role file is applied (EP-258): onto a rebuilt server, where the
+-- app's roles are created first, or onto a scratch database beside the live
+-- one, where they exist.
+data RoleRestore = RoleRestore
+  { owner :: !Text
+  -- ^ the owner user the file must name
+  , databaseOwner :: !Text
+  -- ^ the declared owner of the database: the owning role or the owner
+  , target :: !Text
+  -- ^ the database that receives the file's grants and settings
+  , createRoles :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Apply a role file read by psql from @file@ as the administrator. The file
+-- is data: it is validated and every statement is built by the server's own
+-- @format@ with @%I@ and @%L@, so nothing read from a bucket runs as SQL. It
+-- refuses, before any change, an unknown key or version, another app's owner
+-- or database owner, an elevated attribute, a @pg_@ name, a verifier that is
+-- not SCRAM-SHA-256, a setting name that is not one, a membership or grant
+-- naming a role outside the file, and a role that exists and is not this
+-- app's. It runs in one transaction, so a failure changes nothing.
+renderRestoreRoles :: Text -> RoleRestore -> Text
+renderRestoreRoles file restore =
+  T.unlines
+    [ "\\set roles `cat " <> file <> "`"
+    , "SELECT set_config('nagare.roles', :'roles', false);"
+    , "DO $restore$"
+    , "DECLARE"
+    , "  doc jsonb := current_setting('nagare.roles')::jsonb;"
+    , "  expected_owner text := " <> literal (restore ^. #owner) <> ";"
+    , "  database_owner text := " <> literal (restore ^. #databaseOwner) <> ";"
+    , "  target text := " <> literal (restore ^. #target) <> ";"
+    , "  create_roles boolean := " <> (if restore ^. #createRoles then "true" else "false") <> ";"
+    , "  names text[];"
+    , "  app text[];"
+    , "  r jsonb;"
+    , "  m jsonb;"
+    , "  g jsonb;"
+    , "  setting text;"
+    , "BEGIN"
+    , "  IF doc->>'version' IS DISTINCT FROM '1' THEN RAISE EXCEPTION 'the role file has an unknown version'; END IF;"
+    , "  IF EXISTS (SELECT 1 FROM jsonb_object_keys(doc) k WHERE k NOT IN ('version', 'owner', 'database', 'roles', 'memberships', 'databaseOwner', 'databaseGrants', 'databaseSettings', 'roleDatabaseSettings')) THEN RAISE EXCEPTION 'the role file has an unknown key'; END IF;"
+    , "  IF doc->>'owner' IS DISTINCT FROM expected_owner THEN RAISE EXCEPTION 'the role file names owner %, not %', doc->>'owner', expected_owner; END IF;"
+    , "  IF doc->>'databaseOwner' IS DISTINCT FROM database_owner THEN RAISE EXCEPTION 'the role file names database owner %, not %', doc->>'databaseOwner', database_owner; END IF;"
+    , "  SELECT coalesce(array_agg(x->>'name'), '{}') || expected_owner INTO names FROM jsonb_array_elements(doc->'roles') x;"
+    , "  FOR r IN SELECT x FROM jsonb_array_elements(doc->'roles') x LOOP"
+    , "    IF EXISTS (SELECT 1 FROM jsonb_object_keys(r) k WHERE k NOT IN ('name', 'login', 'createrole', 'inherit', 'elevated', 'connectionLimit', 'validUntil', 'verifier', 'settings')) THEN RAISE EXCEPTION 'role % has an unknown key', r->>'name'; END IF;"
+    , "    IF (r->>'elevated')::boolean THEN RAISE EXCEPTION 'role % holds an elevated attribute', r->>'name'; END IF;"
+    , "    IF r->>'name' LIKE 'pg\\_%' THEN RAISE EXCEPTION 'role % has a predefined role name', r->>'name'; END IF;"
+    , "    IF r->>'verifier' IS NOT NULL AND r->>'verifier' !~ '^SCRAM-SHA-256[$][0-9]+:[A-Za-z0-9+/=]+[$][A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$' THEN RAISE EXCEPTION 'role % has a verifier that is not SCRAM-SHA-256', r->>'name'; END IF;"
+    , "    IF EXISTS (SELECT 1 FROM jsonb_array_elements_text(r->'settings') e WHERE e !~ '^[A-Za-z_][A-Za-z0-9_.]*=') THEN RAISE EXCEPTION 'role % has a setting whose name is not a setting name', r->>'name'; END IF;"
+    , "  END LOOP;"
+    , "  FOR m IN SELECT x FROM jsonb_array_elements(doc->'memberships') x LOOP"
+    , "    IF NOT (m->>'role' = ANY (names) AND m->>'member' = ANY (names)) THEN RAISE EXCEPTION 'membership % > % names a role outside the app', m->>'role', m->>'member'; END IF;"
+    , "  END LOOP;"
+    , "  FOR g IN SELECT x FROM jsonb_array_elements(doc->'databaseGrants') x LOOP"
+    , "    IF g->>'grantee' <> 'PUBLIC' AND NOT (g->>'grantee' = ANY (names) AND g->>'grantor' = ANY (names) AND g->>'privilege' IN ('CONNECT', 'CREATE', 'TEMPORARY')) THEN RAISE EXCEPTION 'database grant to % names a role outside the app', g->>'grantee'; END IF;"
+    , "  END LOOP;"
+    , "  IF EXISTS (SELECT 1 FROM jsonb_array_elements_text(doc->'databaseSettings') e WHERE e !~ '^[A-Za-z_][A-Za-z0-9_.]*=') OR EXISTS (SELECT 1 FROM jsonb_array_elements(doc->'roleDatabaseSettings') x, jsonb_array_elements_text(x->'settings') e WHERE NOT (x->>'role' = ANY (names)) OR e !~ '^[A-Za-z_][A-Za-z0-9_.]*=') THEN RAISE EXCEPTION 'the role file has a setting outside the app or a name that is not a setting name'; END IF;"
+    , "  WITH RECURSIVE a(oid) AS (SELECT oid FROM pg_roles WHERE rolname = expected_owner UNION SELECT x.roleid FROM pg_auth_members x JOIN a ON x.member = a.oid WHERE x.admin_option)"
+    , "  SELECT array_agg(rolname) INTO app FROM pg_roles WHERE oid IN (SELECT oid FROM a);"
+    , "  IF app IS NULL THEN RAISE EXCEPTION 'owner % does not exist; apply the app database first', expected_owner; END IF;"
+    , "  FOR r IN SELECT x FROM jsonb_array_elements(doc->'roles') x LOOP"
+    , "    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r->>'name') THEN"
+    , "      IF NOT (r->>'name' = ANY (app)) THEN RAISE EXCEPTION 'role % exists on this server and is not this app''s', r->>'name'; END IF;"
+    , "    ELSIF NOT create_roles THEN"
+    , "      RAISE EXCEPTION 'role % is absent; restore onto a rebuilt server with --rebuilt', r->>'name';"
+    , "    ELSE"
+    , "      EXECUTE format('CREATE ROLE %I %s %s %s CONNECTION LIMIT %s', r->>'name', CASE WHEN (r->>'login')::boolean THEN 'LOGIN' ELSE 'NOLOGIN' END, CASE WHEN (r->>'createrole')::boolean THEN 'CREATEROLE' ELSE 'NOCREATEROLE' END, CASE WHEN (r->>'inherit')::boolean THEN 'INHERIT' ELSE 'NOINHERIT' END, (r->>'connectionLimit')::int);"
+    , "      IF r->>'verifier' IS NOT NULL THEN EXECUTE format('ALTER ROLE %I PASSWORD %L', r->>'name', r->>'verifier'); END IF;"
+    , "      IF r->>'validUntil' IS NOT NULL THEN EXECUTE format('ALTER ROLE %I VALID UNTIL %L', r->>'name', r->>'validUntil'); END IF;"
+    , "      FOR setting IN SELECT jsonb_array_elements_text(r->'settings') LOOP"
+    , "        EXECUTE format('ALTER ROLE %I SET %s TO %L', r->>'name', split_part(setting, '=', 1), substr(setting, strpos(setting, '=') + 1));"
+    , "      END LOOP;"
+    , "    END IF;"
+    , "  END LOOP;"
+    , "  IF create_roles THEN"
+    , "    FOR m IN SELECT x FROM jsonb_array_elements(doc->'memberships') x ORDER BY x->>'grantor' = ANY (names), x->>'role', x->>'member' LOOP"
+    , "      EXECUTE format('GRANT %I TO %I WITH ADMIN %s, INHERIT %s, SET %s GRANTED BY %I', m->>'role', m->>'member', CASE WHEN (m->>'admin')::boolean THEN 'TRUE' ELSE 'FALSE' END, CASE WHEN (m->>'inherit')::boolean THEN 'TRUE' ELSE 'FALSE' END, CASE WHEN (m->>'set')::boolean THEN 'TRUE' ELSE 'FALSE' END, CASE WHEN m->>'grantor' = ANY (names) THEN m->>'grantor' ELSE current_user END);"
+    , "    END LOOP;"
+    , "    FOR r IN SELECT x FROM jsonb_array_elements(doc->'roleDatabaseSettings') x LOOP"
+    , "      FOR setting IN SELECT jsonb_array_elements_text(r->'settings') LOOP"
+    , "        EXECUTE format('ALTER ROLE %I IN DATABASE %I SET %s TO %L', r->>'role', target, split_part(setting, '=', 1), substr(setting, strpos(setting, '=') + 1));"
+    , "      END LOOP;"
+    , "    END LOOP;"
+    , "  END IF;"
+    , "  FOR g IN SELECT x FROM jsonb_array_elements(doc->'databaseGrants') x WHERE x->>'grantee' <> 'PUBLIC' AND NOT (x->>'grantee' = database_owner AND x->>'grantor' = database_owner) LOOP"
+    , "    -- An object grant is recorded as its grantor's only when made as it."
+    , "    EXECUTE format('SET ROLE %I', g->>'grantor');"
+    , "    EXECUTE format('GRANT %s ON DATABASE %I TO %I%s', g->>'privilege', target, g->>'grantee', CASE WHEN (g->>'grantable')::boolean THEN ' WITH GRANT OPTION' ELSE '' END);"
+    , "    RESET ROLE;"
+    , "  END LOOP;"
+    , "  FOR setting IN SELECT jsonb_array_elements_text(doc->'databaseSettings') LOOP"
+    , "    EXECUTE format('ALTER DATABASE %I SET %s TO %L', target, split_part(setting, '=', 1), substr(setting, strpos(setting, '=') + 1));"
+    , "  END LOOP;"
+    , "END"
+    , "$restore$;"
     ]
 
 -- Observation ---------------------------------------------------------------

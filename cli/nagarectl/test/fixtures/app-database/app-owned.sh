@@ -48,16 +48,33 @@ run_step() {
       sed -e 's/psql:<stdin>:[0-9]*: //' || true
   } >>"$actual"
 }
+# The rendered SQL files go into the container, so a shell step can run them.
+for file in "$here"/app-owned-*.sql; do
+  "$runtime" exec -i "$name" sh -c "cat > /tmp/$(basename "$file")" <"$file"
+done
 observe() {
-  local query="$here/$1" output="$here/observed/$2"
+  local query="$here/$1" output="$here/observed/$2" answer
+  answer="$("$runtime" exec -i "$name" psql -X -q -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres <"$query")"
   if $record; then
-    "$runtime" exec -i "$name" psql -X -q -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres <"$query" >"$output"
+    printf '%s\n' "$answer" >"$output"
   else
-    "$runtime" exec -i "$name" psql -X -q -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres <"$query" | diff -u "$output" - >&2 || echo "-- observe: $2 differs" >>"$actual"
+    printf '%s\n' "$answer" | diff -u "$output" - >&2 || echo "-- observe: $2 differs" >>"$actual"
   fi
+  # A shell step reads the answer at /tmp/<name>, as a restore Job reads its role file.
+  printf '%s\n' "$answer" | "$runtime" exec -i "$name" sh -c "cat > /tmp/$2"
+}
+shell_step() {
+  {
+    printf '\n-- shell: %s\n' "$1"
+    "$runtime" exec "$name" sh -c "{ $1; } 2>&1" | sed -e 's/psql:[^:]*:[0-9]*: //' || true
+  } >>"$actual"
 }
 while IFS= read -r line || [[ -n "$line" ]]; do
-  if [[ "$line" =~ ^--\ observe:\ ([^ ]+)\ ([^ ]+)$ ]]; then
+  if [[ "$line" =~ ^--\ shell:\ (.+)$ ]]; then
+    run_step
+    step_user=""
+    shell_step "${BASH_REMATCH[1]}"
+  elif [[ "$line" =~ ^--\ observe:\ ([^ ]+)\ ([^ ]+)$ ]]; then
     run_step
     step_user=""
     observe "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
