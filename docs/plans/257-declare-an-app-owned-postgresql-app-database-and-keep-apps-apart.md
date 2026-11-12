@@ -56,11 +56,22 @@ An app database that does not opt in is unchanged, byte for byte.
 - [ ] M2: An app-owned app database plans, applies and re-plans to `no operations`, before and
   after a Kotei-shaped script creates roles, memberships, ownership changes and grants inside
   it. An app database that did not opt in renders identical declaration JSON, SQL and backup
-  schedule bytes.
-- [ ] M3: Each reach beyond the app's own database is reported as drift at planning, and each
+  schedule bytes. Evidence so far: `AppOwnedDatabaseSpec` (nagarectl-test, "app-owned database
+  (EP-257)") passes: the rendered owner, database and boundary statements and the observation
+  query equal the blocks `app-owned.sh` ran on PostgreSQL 18; the owner and database converge
+  and re-plan to no operations, before and after the app's script, under every injected fault;
+  the not-opted-in declaration emits no `ownership` key, its schedule still reads
+  `<name>-migration`, and every existing app-database golden and fixture test is unchanged.
+  Left: the refusal of a `Deployment` or `Worker` binding an app-owned database (lands with
+  EP-259 M1's binding code).
+- [x] M3: Each reach beyond the app's own database is reported as drift at planning, and each
   attempt in the AC-2 list fails on a real server. ADR 37 is written, ADR 30 and ADR 31 carry
   an amendment note, and the user guide documents the declaration and the guarantees.
-
+  Evidence: `AppOwnedDatabaseSpec` "each reach beyond the app's database is drift naming it"
+  covers all nine boundary lines, and classifying the server's own observation after the
+  fixture's cross-app grants reports drift on both apps; the AC-2 attempts fail on PostgreSQL
+  18 in `app-owned.expected`; a mutant that dropped the other-database check failed the suite;
+  ADR 37, the ADR 30/31 notes and "App-owned databases" in `docs/user/managed-databases.md`.
 
 ## Surprises & Discoveries
 
@@ -86,6 +97,23 @@ An app database that does not opt in is unchanged, byte for byte.
   owner, revokes every database privilege from `PUBLIC`, and keeps `PUBLIC` out of the system
   databases as it does today. It does not change the owner of the `public` schema or set default
   privileges. Rationale: the inside is the app's. Date: 2026-11-11.
+- Decision: An app-owned database's members are their own spec alternative,
+  `AppOwnedDatabase`, and their own observation (`observeOwned`, classified in
+  `cli/nagarectl/src/Nagare/Database/AppDatabase/Owned.hs`), not extensions of the shared
+  catalog. Rationale: every existing pattern on `LogicalDatabase` keeps meaning Nagare-managed, so
+  no path silently treats an app-owned database as one; `Catalog.hs` is at the module size limit.
+  The one reading of the app's roles is `appRoles` there. Date: 2026-11-11.
+- Decision: The refusals are pure functions of the declaration and the accepted snapshot run when
+  the review is prepared; admission refuses a review whose head or base moved (`stale-head`,
+  `stale-base`), so they hold at admission without a second run. Rationale: MasterPlan 35's rule
+  is met by the existing admission check. Date: 2026-11-11.
+- Decision: `PUBLIC` holding a privilege on the app's database is incomplete, closed by the next
+  apply, not drift. Rationale: creation and the revocation are two statements, so a lost step
+  must converge rather than wedge. Date: 2026-11-11.
+- Decision: The native smoke for this plan runs once, in EP-260 M1's local run, not separately.
+  Rationale: the SQL is proven on PostgreSQL 18 by the fixture and the World tests cover the
+  adapter; EP-260 M1 runs the same AC-1 to AC-3 steps with Kotei's real script (ADR 25: native
+  runs confirm). Date: 2026-11-11.
 - Decision: The backup schedule of an app-owned database dumps as the server administrator from
   its first review. Rationale: a dump as the owner user would miss objects the app moved out of
   its reach (MasterPlan 35 integration point; the role file is EP-258). Date: 2026-11-11.

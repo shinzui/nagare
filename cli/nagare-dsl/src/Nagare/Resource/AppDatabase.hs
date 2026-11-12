@@ -113,9 +113,12 @@ compileAppDatabase digestOf input = do
     monitoring = db ^. #access . #monitoring
     privileges = db ^. #access . #privileges
     -- The workloads that bind the migration credential live on its user
-    -- (EP-208), so the binding resolves against the accepted declaration.
+    -- (EP-208), and the tasks that bind an app-owned database's owner
+    -- credential on the owner (EP-257), so the binding resolves against the
+    -- accepted declaration.
     ownersOf = \case
       MigrationRole -> db ^. #access . #owners
+      OwnerRole -> db ^. #access . #owners
       _ -> []
     namespaceDependency = map OrderedAfter (maybe [] pure (input ^. #namespaceResource))
     memberId roleText = do
@@ -185,7 +188,48 @@ compileAppDatabase digestOf input = do
           , delegations = []
           , source = sourceAt (appDatabaseRoleToken role <> "-user")
           }
-    logicalDatabase logical = do
+    logicalDatabase logical
+      | appOwned db = ownedDatabase logical
+      | otherwise = managedDatabase logical
+    -- An app-owned database (EP-257): created owned by its owning role, and
+    -- judged only at its boundary.
+    ownedDatabase logical = do
+      let databaseText = logicalDatabaseNameText logical
+          owningRole = case db ^. #ownership of
+            AppOwned (Just role) -> Just (roleNameText role)
+            _ -> Nothing
+      resource <- memberId ("database-" <> databaseText)
+      ownerId <- roleId OwnerRole "-user"
+      databaseName <- first invalid (mkName databaseText)
+      ownerUser <- first invalid (mkName (appDatabaseUser (db ^. #name) OwnerRole))
+      owningName <- traverse (first invalid . mkName) owningRole
+      digest <-
+        first invalid $
+          digestOf
+            ( object $
+                [ "engine" .= engineToken engine
+                , "database" .= databaseText
+                , "ownership" .= ("app-owned" :: Text)
+                , "owner" .= appDatabaseUser (db ^. #name) OwnerRole
+                ]
+                  <> ["owningRole" .= role | Just role <- [owningRole]]
+            )
+      pure
+        ManagedResource
+          { identity = resource
+          , owner = input ^. #owner
+          , executor = AppDatabaseExecutor
+          , address = DatabaseName stateful databaseName
+          , aliases = []
+          , spec = AppOwnedDatabase (engineToken engine) ownerUser owningName True digest
+          , lifecycle = Retain
+          , dataPolicy = Durable (input ^. #recovery)
+          , sensitivity = Private
+          , dependencies = [OrderedAfter stateful, OrderedAfter ownerId]
+          , delegations = []
+          , source = sourceAt ("database/" <> databaseText)
+          }
+    managedDatabase logical = do
       let databaseText = logicalDatabaseNameText logical
       resource <- memberId ("database-" <> databaseText)
       runtimeId <- roleId RuntimeRole "-user"
@@ -223,7 +267,8 @@ compileAppDatabase digestOf input = do
           , delegations = []
           , source = sourceAt ("database/" <> databaseText)
           }
-    -- The schedule dumps with the migration credential, reads only the
+    -- The schedule dumps with the migration credential (an app-owned
+    -- database's as the server administrator, EP-257), reads only the
     -- server's StatefulSet and PVC, and signs its receipts with its own key.
     backupBundle databaseIds cron = do
       let schedule = "nagare-appdb-" <> appDatabaseNameText (db ^. #name)
@@ -262,14 +307,14 @@ compileAppDatabase digestOf input = do
                     , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
                     ]
               ]
-      migrationCredential <- roleId MigrationRole "-credential"
+      dumpCredential <- if appOwned db then pure [] else pure <$> roleId MigrationRole "-credential"
       accountMember <- companion "backup-account" account Stateless DeleteWhenUnreferenced Private []
       roleMember <- companion "backup-read-role" role Stateless DeleteWhenUnreferenced Private []
       bindingMember <- companion "backup-read-binding" binding Stateless DeleteWhenUnreferenced Private [fst accountMember ^. #identity, fst roleMember ^. #identity]
       signingMember <- companion "backup-signing-key" signing (Durable (input ^. #recovery)) Retain Secret []
       cronMember <-
         companion "backup" cron Stateless DeleteWhenUnreferenced Private $
-          [stateful, migrationCredential, fst bindingMember ^. #identity, fst signingMember ^. #identity] <> databaseIds
+          [stateful] <> dumpCredential <> [fst bindingMember ^. #identity, fst signingMember ^. #identity] <> databaseIds
       expected <- first invalid (mkName schedule)
       expectedNamespace <- first invalid (mkName namespaceName)
       unless

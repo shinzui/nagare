@@ -234,12 +234,13 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
           && (engine == "postgres" || null monitoring)
           && length (nub monitoring) == length monitoring
           && maybe False (\e -> isRight (validDatabasePrivileges e privileges)) (parseEngine engine)
+      (DatabaseName _ _, AppOwnedDatabase engine _ _ _ _) -> engine == "postgres"
       (DatabaseName {}, _) -> False
       (DatabaseUser _ _, DatabaseUserSpec engine role _ _ extension) ->
         engine `elem` ["postgres", "clickhouse"]
           && maybe False (\parsed -> isReader parsed == isJust (extension ^. #reader)) (parseAppDatabaseRole role)
           && maybe False (\e -> isRight (validUserAccess e (extension ^. #access))) (parseEngine engine)
-          && (null (extension ^. #owners) || role == "migration")
+          && (null (extension ^. #owners) || role `elem` ["migration", "owner"])
       (DatabaseUser {}, _) -> False
       (Helm {}, HelmRelease {}) -> True
       (Helm {}, _) -> False

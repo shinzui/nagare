@@ -19,6 +19,14 @@ module Nagare.Dsl.AppDatabase
   , AppDatabase (..)
   , validateAppDatabase
 
+    -- * Ownership (EP-257)
+  , Ownership (..)
+  , RoleName
+  , mkRoleName
+  , roleNameText
+  , appOwned
+  , appDatabaseOwningRole
+
     -- * Reviewed access beyond the fixed grant set
   , AppDatabaseAccess (..)
   , UserAccess (..)
@@ -132,8 +140,49 @@ data AppDatabase = AppDatabase
   , logicalDatabases :: !(NonEmpty LogicalDatabaseName)
   , access :: !AppDatabaseAccess
   -- ^ reviewed exceptions and limits (EP-204); 'noAppDatabaseAccess' for none
+  , ownership :: !Ownership
+  -- ^ who manages the inside of the database (EP-257); 'NagareManaged' unless
+  -- the app owns it
   }
   deriving stock (Generic, Eq, Show)
+
+-- | Who manages the inside of an app database (EP-257). 'NagareManaged' is
+-- the fixed runtime and migration model. 'AppOwned' gives the app one owner
+-- login with @CREATEROLE@ and leaves roles, memberships, ownership and
+-- grants inside the database to the app's own SQL; Nagare then checks only
+-- that nothing the app made reaches beyond it. The optional owning role is
+-- created by Nagare without login, owns the database, and is granted to the
+-- owner login with the admin option, because moving a database's ownership
+-- needs @CREATEDB@, which no app receives. Ownership is fixed at creation.
+data Ownership
+  = NagareManaged
+  | AppOwned {databaseOwner :: !(Maybe RoleName)}
+  deriving stock (Generic, Eq, Show)
+
+-- | A PostgreSQL role name an app declares, @[a-z][a-z0-9_]{0,62}@, never
+-- with the predefined roles' @pg_@ prefix. Constructor hidden; use
+-- 'mkRoleName'.
+newtype RoleName = RoleName Text
+  deriving stock (Eq, Ord, Show)
+
+mkRoleName :: Text -> Either Text RoleName
+mkRoleName t = do
+  name' <- identifier "role name" t
+  when ("pg_" `Text.isPrefixOf` name') (Left ("role name may not use the predefined roles' pg_ prefix: " <> name'))
+  pure (RoleName name')
+
+roleNameText :: RoleName -> Text
+roleNameText (RoleName t) = t
+
+appOwned :: AppDatabase -> Bool
+appOwned db = db ^. #ownership /= NagareManaged
+
+-- | The role that owns an app-owned database: the declared owning role, or
+-- the owner user itself.
+appDatabaseOwningRole :: AppDatabase -> Maybe Text
+appDatabaseOwningRole db = case db ^. #ownership of
+  NagareManaged -> Nothing
+  AppOwned owner -> Just (maybe (appDatabaseUser (db ^. #name) OwnerRole) roleNameText owner)
 
 -- | An allow-listed ClickHouse privilege beyond the fixed grant set (EP-204).
 -- The list is closed: a privilege outside it cannot be declared.
@@ -387,6 +436,7 @@ appDatabaseUserAccess :: AppDatabase -> AppDatabaseRole -> UserAccess
 appDatabaseUserAccess db RuntimeRole = db ^. #access . #runtime
 appDatabaseUserAccess db MigrationRole = db ^. #access . #migration
 appDatabaseUserAccess db (ReaderRole reader) = maybe noUserAccess (\r -> UserAccess [] (r ^. #limits)) (appDatabaseReader db reader)
+appDatabaseUserAccess _ OwnerRole = noUserAccess
 
 -- | One user's access fits its engine: ClickHouse takes exceptions and the
 -- three ceilings, PostgreSQL the connection limit and statement timeout;
@@ -601,6 +651,24 @@ instance FromJSON UserExtension where
       <*> o .:? "reader"
       <*> (fromMaybe [] <$> o .:? "owners" >>= traverse (checked mkServiceName))
 
+-- | Written only for 'AppOwned' (the declaration omits the key otherwise):
+-- @{"kind": "app-owned"}@, with @databaseOwner@ when one is declared.
+instance ToJSON Ownership where
+  toJSON = \case
+    NagareManaged -> object ["kind" .= ("nagare-managed" :: Text)]
+    AppOwned owner -> object (["kind" .= ("app-owned" :: Text)] <> maybe [] (\r -> ["databaseOwner" .= roleNameText r]) owner)
+
+instance FromJSON Ownership where
+  parseJSON = withObject "ownership" $ \o -> do
+    onlyKeys ["kind", "databaseOwner"] o
+    o .: "kind" >>= \case
+      "app-owned" -> AppOwned <$> (o .:? "databaseOwner" >>= traverse (checked mkRoleName))
+      "nagare-managed" -> do
+        owner <- o .:? "databaseOwner" :: Parser (Maybe Text)
+        unless (isNothing owner) (fail "only an app-owned database names a databaseOwner")
+        pure NagareManaged
+      other -> fail ("unknown ownership " <> show (other :: Text) <> " (allowed: app-owned, nagare-managed)")
+
 checked :: (Text -> Either Text a) -> Text -> Parser a
 checked make = either (fail . Text.unpack) pure . make
 
@@ -616,6 +684,7 @@ onlyKeys allowed o = case filter (`notElem` allowed) (map Key.toText (KeyMap.key
 validateAppDatabase :: AppDatabase -> Either Text AppDatabase
 validateAppDatabase db = do
   when (db ^. #engine == Redis) (Left "app databases are not supported on Redis")
+  validOwnership db
   validUserAccess (db ^. #engine) (db ^. #access . #runtime)
   validUserAccess (db ^. #engine) (db ^. #access . #migration)
   traverse_ (validReader db) (db ^. #access . #readers)
@@ -642,6 +711,22 @@ validateAppDatabase db = do
       Postgres -> ["postgres", "template0", "template1", serverInitialDatabase (db ^. #server)]
       _ -> ["default", "system", "information_schema"]
 
+-- | An app-owned database (EP-257) is PostgreSQL, declares no access but the
+-- tasks that bind its owner credential, and its owning role is not the owner
+-- user, a system role or a name the server reserves.
+validOwnership :: AppDatabase -> Either Text ()
+validOwnership db = case db ^. #ownership of
+  NagareManaged -> pure ()
+  AppOwned owner -> do
+    unless (db ^. #engine == Postgres) (Left "an app-owned app database is PostgreSQL")
+    unless
+      ((db ^. #access & #owners .~ []) == noAppDatabaseAccess)
+      (Left "an app-owned app database declares no access but owners; its own SQL manages roles and grants")
+    for_ owner $ \role -> do
+      let roleText = roleNameText role
+      when (roleText == appDatabaseUser (db ^. #name) OwnerRole) (Left ("the owning role " <> roleText <> " is the owner user's own name"))
+      when (roleText `elem` ["postgres", "public", serverInitialDatabase (db ^. #server)]) (Left ("the owning role name is reserved on this server: " <> roleText))
+
 -- | A reader reads only the app's own databases, through objects that fit
 -- the engine, under every ceiling its engine requires (EP-206, IR-33 AC-1).
 validReader :: AppDatabase -> AppDatabaseReader -> Either Text ()
@@ -667,27 +752,32 @@ serverInitialDatabase :: DatabaseName -> Text
 serverInitialDatabase = Text.replace "-" "_" . databaseNameText
 
 -- | An app database's users: its runtime and migration users, and each
--- declared reader (EP-206).
-data AppDatabaseRole = RuntimeRole | MigrationRole | ReaderRole !ReaderName
+-- declared reader (EP-206); an app-owned database's one owner (EP-257).
+data AppDatabaseRole = RuntimeRole | MigrationRole | ReaderRole !ReaderName | OwnerRole
   deriving stock (Eq, Ord, Show)
 
--- | @runtime@, @migration@ or @reader-\<name\>@: the role token of a user
--- spec and of a credential Secret's labels.
+-- | @runtime@, @migration@, @reader-\<name\>@ or @owner@: the role token of
+-- a user spec and of a credential Secret's labels.
 appDatabaseRoleToken :: AppDatabaseRole -> Text
 appDatabaseRoleToken RuntimeRole = "runtime"
 appDatabaseRoleToken MigrationRole = "migration"
 appDatabaseRoleToken (ReaderRole reader) = "reader-" <> readerNameText reader
+appDatabaseRoleToken OwnerRole = "owner"
 
 -- | The only parser of a role token.
 parseAppDatabaseRole :: Text -> Maybe AppDatabaseRole
 parseAppDatabaseRole = \case
   "runtime" -> Just RuntimeRole
   "migration" -> Just MigrationRole
+  "owner" -> Just OwnerRole
   token -> ReaderRole <$> (Text.stripPrefix "reader-" token >>= either (const Nothing) Just . mkReaderName)
 
--- | Every user an app database declares: runtime, migration, then its readers.
+-- | Every user an app database declares: runtime, migration, then its
+-- readers; for an app-owned database only its owner.
 appDatabaseRoles :: AppDatabase -> [AppDatabaseRole]
-appDatabaseRoles db = [RuntimeRole, MigrationRole] <> [ReaderRole (reader ^. #name) | reader <- db ^. #access . #readers]
+appDatabaseRoles db
+  | appOwned db = [OwnerRole]
+  | otherwise = [RuntimeRole, MigrationRole] <> [ReaderRole (reader ^. #name) | reader <- db ^. #access . #readers]
 
 -- | @kansoku-pg@ runtime → @kansoku_pg_runtime@; reader @dash@ →
 -- @kansoku_pg_reader_dash@.
@@ -709,6 +799,8 @@ data Grant = Grant
 
 -- | The attributes a user is created with.
 appDatabaseAttributes :: Engine -> AppDatabaseRole -> [Text]
+appDatabaseAttributes Postgres OwnerRole =
+  ["LOGIN", "NOSUPERUSER", "NOCREATEDB", "CREATEROLE", "NOREPLICATION", "NOBYPASSRLS"]
 appDatabaseAttributes Postgres _ =
   ["LOGIN", "NOSUPERUSER", "NOCREATEDB", "NOCREATEROLE", "NOREPLICATION", "NOBYPASSRLS"]
 appDatabaseAttributes _ _ = ["HOST ANY"]
@@ -771,5 +863,7 @@ appDatabaseDatabaseGrants ClickHouse RuntimeRole =
       ["SHOW TABLES", "SHOW COLUMNS", "SELECT", "INSERT", "ALTER UPDATE", "ALTER DELETE", "dictGet"]
   ]
 appDatabaseDatabaseGrants Redis _ = []
+-- The owner, or its owning role, owns the database; the inside is the app's.
+appDatabaseDatabaseGrants _ OwnerRole = [Grant "database" ["OWNER"]]
 -- A reader's grants are its declared objects, rendered per object (EP-206).
 appDatabaseDatabaseGrants _ (ReaderRole _) = []

@@ -17,6 +17,8 @@ related:
 Accepted on 2026-10-20 with [EP-208](../plans/208-let-an-app-database-declare-its-runtime-s-privileges-inside-its-own-databases.md),
 which answers [IR-35](../improvement-requests/declare-runtime-privileges-within-an-app-database.md).
 
+Amended on 2026-11-11 by [ADR 37](0037-an-app-may-own-its-database-and-nagare-keeps-apps-apart.md) for app-owned databases.
+
 ## Context
 
 [ADR 30](0030-app-databases-are-reviewed-tenants-of-a-shared-server.md) gives every app database a

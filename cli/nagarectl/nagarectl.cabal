@@ -111,6 +111,7 @@ library
     Nagare.Contract.Sink
     Nagare.Database.AppDatabase.Backup
     Nagare.Database.AppDatabase.Catalog
+    Nagare.Database.AppDatabase.Owned
     Nagare.Database.AppDatabase.Sql
     Nagare.Database.Backup
     Nagare.Database.Connection
@@ -615,6 +616,7 @@ test-suite nagarectl-test
     AppDatabaseWorldSpec
     AppDeployPhaseSpec
     AppDeploySpec
+    AppOwnedDatabaseSpec
     CertificateMigrationSpec
     ClusterSessionSpec
     ContextReviewSpec

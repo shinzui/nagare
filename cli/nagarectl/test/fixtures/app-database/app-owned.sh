@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # EP-257 M1: run app-owned.sql against a disposable postgres:18 server and compare the server's
-# output with app-owned.expected. `--record` rewrites the expected file instead.
+# output with app-owned.expected and its observations with observed/postgres-app-owned-*.json.
+# `--record` rewrites them instead.
 #
 # Uses Apple's `container` tool; set CONTAINER=docker to use Docker instead. The server is
 # removed on exit.
@@ -47,8 +48,20 @@ run_step() {
       sed -e 's/psql:<stdin>:[0-9]*: //' || true
   } >>"$actual"
 }
+observe() {
+  local query="$here/$1" output="$here/observed/$2"
+  if $record; then
+    "$runtime" exec -i "$name" psql -X -q -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres <"$query" >"$output"
+  else
+    "$runtime" exec -i "$name" psql -X -q -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres <"$query" | diff -u "$output" - >&2 || echo "-- observe: $2 differs" >>"$actual"
+  fi
+}
 while IFS= read -r line || [[ -n "$line" ]]; do
-  if [[ "$line" =~ ^--\ step:\ ([^ ]+)\ ([^ ]+)$ ]]; then
+  if [[ "$line" =~ ^--\ observe:\ ([^ ]+)\ ([^ ]+)$ ]]; then
+    run_step
+    step_user=""
+    observe "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  elif [[ "$line" =~ ^--\ step:\ ([^ ]+)\ ([^ ]+)$ ]]; then
     run_step
     step_user="${BASH_REMATCH[1]}"
     step_db="${BASH_REMATCH[2]}"

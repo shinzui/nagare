@@ -1,6 +1,8 @@
 -- EP-257 M1 reference fixture: the PostgreSQL 18 rules an app-owned app database rests on.
 --
--- Run by app-owned.sh against a disposable postgres:18 server. Each "-- step: USER DATABASE"
+-- Run by app-owned.sh against a disposable postgres:18 server. Each "-- observe: SQL JSON"
+-- line runs SQL (the rendered app-owned observation, which AppDatabaseSqlSpec pins) as the
+-- administrator and writes the server's answer to observed/JSON. Each "-- step: USER DATABASE"
 -- block is one psql session, `psql -X -a -v ON_ERROR_STOP=0 -U USER -d DATABASE`, over the
 -- pod-local socket (trusted, so no passwords are needed). The server's own output for every
 -- step is recorded in app-owned.expected; a step expected to fail shows its ERROR line there.
@@ -15,25 +17,39 @@
 -- alpha created; then the catalog query that reads each app's roles.
 
 -- step: postgres postgres
--- What Nagare renders for the three tenants, as the server administrator.
+-- What Nagare renders for the three tenants, as the server administrator. gamma
+-- stands for any Nagare-managed app database (postgres.sql pins its statements).
 CREATE ROLE "gamma_migration" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE "gamma_runtime" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE DATABASE "gamma" OWNER "gamma_migration";
 REVOKE ALL ON DATABASE "gamma" FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE "gamma" TO "gamma_runtime";
--- alpha: the owner user, its setting, the declared owning role, the database.
-CREATE ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS;
+-- Each "-- operation:" block is the exact rendering of one adapter command
+-- (AppDatabaseSqlSpec pins it). Passwords are fixed-salt verifiers of
+-- "pw-alpha_owner" and "pw-beta_owner"; the socket trusts, so no step uses them.
+-- operation: create-owner alpha_owner
+CREATE ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'SCRAM-SHA-256$4096:AAECAwQFBgcICQoLDA0ODw==$otvP+SF1k53i44Kn0/KQMygR3f38sjtSVoLKL0KWavs=:HZXwp7IhxRpKH/O1lmKvtEajTi5R4qPWfTXpnsR6bxo=';
 ALTER ROLE "alpha_owner" SET createrole_self_grant = 'set, inherit';
-CREATE ROLE "kotei_maintenance" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+-- operation: owner-access alpha_owner on
+ALTER ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1;
+ALTER ROLE "alpha_owner" SET createrole_self_grant = 'set, inherit';
+-- operation: create-owned-database alpha kotei_maintenance
+DO $owning$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_maintenance') THEN CREATE ROLE "kotei_maintenance" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $owning$;
 GRANT "kotei_maintenance" TO "alpha_owner" WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;
 CREATE DATABASE "alpha" OWNER "kotei_maintenance";
-REVOKE ALL ON DATABASE "alpha" FROM PUBLIC;
--- beta: the owner user owns its database directly.
-CREATE ROLE "beta_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS;
-ALTER ROLE "beta_owner" SET createrole_self_grant = 'set, inherit';
-CREATE DATABASE "beta" OWNER "beta_owner";
-REVOKE ALL ON DATABASE "beta" FROM PUBLIC;
+-- operation: owned-database-access alpha kotei_maintenance
 REVOKE CONNECT, TEMPORARY ON DATABASE "postgres", "template1", "smoke_pg" FROM PUBLIC;
+REVOKE ALL ON DATABASE "alpha" FROM PUBLIC;
+GRANT "kotei_maintenance" TO "alpha_owner" WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;
+-- operation: create-owner beta_owner
+CREATE ROLE "beta_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'SCRAM-SHA-256$4096:AAECAwQFBgcICQoLDA0ODw==$+DHdaEW1NECKfkT2qavev7585aEI4BZqltzuWBh05g4=:OpNg6Xdq8XvMijjEbuLNGpVw3d4Rxin9qPmnQEz8S+w=';
+ALTER ROLE "beta_owner" SET createrole_self_grant = 'set, inherit';
+-- operation: create-owned-database beta
+CREATE DATABASE "beta" OWNER "beta_owner";
+-- operation: owned-database-access beta
+REVOKE CONNECT, TEMPORARY ON DATABASE "postgres", "template1", "smoke_pg" FROM PUBLIC;
+REVOKE ALL ON DATABASE "beta" FROM PUBLIC;
+-- operation: end
 
 -- step: beta_owner beta
 -- beta's own roles and a login, made by its owner.
@@ -288,6 +304,9 @@ SELECT c.relname, pg_catalog.pg_get_userbyid(c.relowner) AS owner
 FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
 WHERE n.nspname IN ('kiroku', 'kotei') AND c.relkind = 'r' ORDER BY 1;
 
+-- observe: app-owned-observe-alpha.sql postgres-app-owned-converged.json
+-- observe: app-owned-observe-beta.sql postgres-app-owned-beta-converged.json
+
 -- step: alpha_owner alpha
 -- Reaches alpha's SQL can make, which the server allows and Nagare must report as drift
 -- (EP-257 M3): sharing its own database or role with another app.
@@ -297,3 +316,6 @@ GRANT kotei_inspection TO beta_owner;
 -- step: beta_owner alpha
 -- After that grant, beta's owner reaches alpha: the reason it is drift.
 SELECT count(*) FROM kiroku.events;
+
+-- observe: app-owned-observe-alpha.sql postgres-app-owned-drifted.json
+-- observe: app-owned-observe-beta.sql postgres-app-owned-beta-drifted.json

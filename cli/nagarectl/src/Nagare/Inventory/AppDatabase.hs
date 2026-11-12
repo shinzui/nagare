@@ -29,18 +29,20 @@ import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Database.AppDatabase.Backup (AppDatabaseBackup (..), appDatabaseBackupScheduleName, renderInventoryAppDatabaseBackupCronJob)
-import Nagare.Dsl.AppDatabase (AppDatabase (..), appDatabaseNameText, logicalDatabaseNameText, noAppDatabaseAccess)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), AppDatabaseRole (OwnerRole), Ownership (..), appDatabaseNameText, appDatabaseRoles, appDatabaseUser, appOwned, logicalDatabaseNameText, noAppDatabaseAccess, roleNameText)
 import Nagare.Dsl.Config (encodeAppDatabases)
 import Nagare.Dsl.Database (Engine, engineToken)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -57,6 +59,7 @@ import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry), RecoveryIntent
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Text.Read (readMaybe)
 
 -- | The accepted server an app database lives in.
 data AppDatabaseServer = AppDatabaseServer
@@ -208,8 +211,10 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
               & #sources
               .~ [source]
           )
+  either (Left . (:| []) . (\err -> err & #scopes .~ [owner] & #sources .~ [source])) pure (ownershipRefusal snapshot owner (serverFound ^. #image) (stateful ^. #identity) db)
   -- Every app database has its own schedule, dumped with its migration
-  -- credential; its receipts pin this declaration's digest. Reviewed access
+  -- credential (an app-owned one's as the server administrator, EP-257);
+  -- its receipts pin this declaration's digest. Reviewed access
   -- (EP-204) changes no byte a backup holds, so it is left out: declaring or
   -- changing it keeps the schedule revision, and the runs taken before it stay
   -- current for ingestion and prune.
@@ -224,6 +229,7 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
             , clientImage = serverFound ^. #image
             , databases = map logicalDatabaseNameText (NE.toList (db ^. #logicalDatabases))
             , declaration = digestText (contentDigest (LBS.toStrict (encodeAppDatabases [db & #access .~ noAppDatabaseAccess])))
+            , administrator = appOwned db
             }
           (target ^. #backend)
           7
@@ -314,6 +320,63 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
         (Left (invalid (Just owner) "app-database native object changed during binding"))
       pure (resource, (declaration, bytes))
 
+-- | EP-257: the refusals an app-owned database needs, as pure functions of
+-- the declaration and the accepted snapshot. A review is admitted only at
+-- the head it was planned against (@stale-head@), so they hold at admission.
+--
+-- An app-owned database needs PostgreSQL 18 or later, where a @CREATEROLE@
+-- role administers only the roles it created; ownership, including the
+-- owning role, is fixed when the database is created; and a role name is
+-- server-wide, so the owning role may not be a name another accepted app
+-- database on the server derives or owns, and no app database may derive a
+-- user named as another's owning role.
+ownershipRefusal :: ScopeSnapshot -> ScopeId -> Text -> ResourceId -> AppDatabase -> Either InventoryError ()
+ownershipRefusal snapshot owner image stateful db = do
+  when (appOwned db) $ case imageMajorVersion image of
+    Just major | major >= 18 -> pure ()
+    found -> Left (inventoryError "app-database-owned-server-version" ("an app-owned database needs PostgreSQL 18 or later; server " <> databaseNameText (db ^. #server) <> " runs " <> image <> maybe ", whose version cannot be read" (const "") found))
+  case accepted of
+    Just was | was /= desired -> Left (inventoryError "app-database-ownership-fixed" ("app database " <> appDatabaseNameText (db ^. #name) <> " was created " <> describe was <> " and is now declared " <> describe desired <> "; ownership is fixed at creation, so move the data to a new app database instead"))
+    _ -> pure ()
+  case [role | Just role <- [owningRole], role `elem` othersNames] of
+    role : _ -> Left (inventoryError "app-database-owning-role-taken" ("role " <> role <> " is already a user or owning role of another app database on server " <> databaseNameText (db ^. #server)))
+    [] -> pure ()
+  case [user | user <- ownUsers, user `elem` othersOwningRoles] of
+    user : _ -> Left (inventoryError "app-database-owning-role-taken" ("user " <> user <> " is another app database's owning role on server " <> databaseNameText (db ^. #server)))
+    [] -> pure ()
+  where
+    owningRole = case db ^. #ownership of
+      AppOwned (Just role) -> Just (roleNameText role)
+      _ -> Nothing
+    desired = case db ^. #ownership of
+      NagareManaged -> Nothing
+      AppOwned _ -> Just owningRole
+    describe = maybe "Nagare-managed" (maybe "app-owned" ("app-owned through " <>))
+    -- The accepted scope's ownership, read from its database member.
+    accepted = case Map.lookup owner (snapshotScopes snapshot) of
+      Just (_, scope) -> listToMaybe [ownedSpec spec | member <- scopeMembers scope, DatabaseName target _ <- [member ^. #address], target == stateful, let spec = member ^. #spec, isDatabaseSpec spec]
+      Nothing -> Nothing
+    ownedSpec = \case
+      AppOwnedDatabase _ _ role _ _ -> Just (nameText <$> role)
+      _ -> Nothing
+    isDatabaseSpec = \case
+      AppOwnedDatabase {} -> True
+      LogicalDatabase {} -> True
+      _ -> False
+    others = [member | (other, (_, scope)) <- Map.toList (snapshotScopes snapshot), other /= owner, member <- scopeMembers scope]
+    othersNames = [nameText user | member <- others, DatabaseUser target user <- [member ^. #address], target == stateful] <> othersOwningRoles
+    othersOwningRoles = [nameText role | member <- others, DatabaseName target _ <- [member ^. #address], target == stateful, AppOwnedDatabase _ _ (Just role) _ _ <- [member ^. #spec]]
+    ownUsers = [appDatabaseUser (db ^. #name) role | role <- appDatabaseRoles db]
+
+-- | The major version in an image's tag: @postgres:18@ and
+-- @postgres:18.1-bookworm\@sha256:…@ are 18.
+imageMajorVersion :: Text -> Maybe Int
+imageMajorVersion image = case T.breakOnEnd ":" (fst (T.breakOn "@" image)) of
+  ("", _) -> Nothing
+  (_, tag) -> case T.span isDigit tag of
+    ("", _) -> Nothing
+    (digits, _) -> readMaybe (T.unpack digits)
+
 -- | Whether a scope's members can be workloads binding an app database: any
 -- scope but the app databases' own, whose on-demand backups are ordered after
 -- the schedule they copy and are not bindings.
@@ -375,6 +438,7 @@ retireAppDatabaseScope snapshot native scope = do
       other -> other
     disable = \case
       LogicalDatabase engine' migration runtime _ digest monitoring privileges -> LogicalDatabase engine' migration runtime False digest monitoring privileges
+      AppOwnedDatabase engine' owner' owningRole _ digest -> AppOwnedDatabase engine' owner' owningRole False digest
       DatabaseUserSpec engine' role _ digest access -> DatabaseUserSpec engine' role LoginClosed digest access
       other -> other
 

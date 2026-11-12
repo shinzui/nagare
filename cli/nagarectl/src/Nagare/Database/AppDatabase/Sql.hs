@@ -5,7 +5,8 @@
 -- Passwords never reach the server as plaintext: PostgreSQL receives a
 -- SCRAM-SHA-256 verifier (RFC 7677) and ClickHouse a salted SHA-256 hash, both
 -- computed here. Every name is a validated identifier
--- ("Nagare.Dsl.AppDatabase"), so quoting needs no escaping.
+-- ("Nagare.Dsl.AppDatabase"), so quoting needs no escaping; a name an app
+-- created itself (EP-257) goes through 'quoteIdent' and 'quoteLiteral'.
 module Nagare.Database.AppDatabase.Sql
   ( -- * Passwords
     PasswordHash (..)
@@ -26,6 +27,17 @@ module Nagare.Database.AppDatabase.Sql
   , renderDatabaseAccess
   , clickHouseDatabaseGrants
   , renderScratchRestore
+
+    -- * App-owned databases (EP-257)
+  , quoteIdent
+  , quoteLiteral
+  , ownerAttributes
+  , ownerSetting
+  , renderCreateOwner
+  , renderOwnerAccess
+  , renderCreateOwnedDatabase
+  , renderOwnedDatabaseAccess
+  , renderObserveOwned
 
     -- * Observation
   , renderObserveServer
@@ -345,6 +357,103 @@ renderScratchRestore engine declared scratches _ migration runtime =
              ]
       | (_, scratch) <- scratches
       ]
+
+-- App-owned databases (EP-257) ---------------------------------------------
+
+-- | A PostgreSQL identifier for a name Nagare did not validate: wrapped in
+-- double quotes with every double quote doubled.
+quoteIdent :: Text -> Text
+quoteIdent name = "\"" <> T.replace "\"" "\"\"" name <> "\""
+
+-- | A PostgreSQL string literal for text Nagare did not validate: wrapped in
+-- single quotes with every single quote doubled, as the server reads it with
+-- @standard_conforming_strings@ on (its default since 9.1).
+quoteLiteral :: Text -> Text
+quoteLiteral value = "'" <> T.replace "'" "''" value <> "'"
+
+-- | The owner user's attributes: it may log in and create roles, nothing
+-- server-wide beyond that.
+ownerAttributes :: Text
+ownerAttributes = "NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS"
+
+-- | The owner holds every role it creates with the set and inherit options,
+-- so it can give its objects to them as a superuser-run migration would. As
+-- @pg_db_role_setting@ stores it.
+ownerSetting :: Text
+ownerSetting = "createrole_self_grant=set, inherit"
+
+renderCreateOwner :: Text -> PasswordHash -> Text
+renderCreateOwner user hash' =
+  T.unlines
+    [ "CREATE ROLE " <> pgIdent user <> " LOGIN " <> ownerAttributes <> " PASSWORD " <> literal (passwordText hash') <> ";"
+    , "ALTER ROLE " <> pgIdent user <> " SET createrole_self_grant = 'set, inherit';"
+    ]
+
+-- | The owner's login, attributes and setting; a closed login ends its
+-- sessions, as a retired user's does.
+renderOwnerAccess :: Text -> UserLogin -> Text
+renderOwnerAccess user login =
+  T.unlines $
+    [ "ALTER ROLE " <> pgIdent user <> (if login == LoginOpen then " LOGIN " else " NOLOGIN ") <> ownerAttributes <> " CONNECTION LIMIT -1;"
+    , "ALTER ROLE " <> pgIdent user <> " SET createrole_self_grant = 'set, inherit';"
+    ]
+      <> ["SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = " <> literal user <> ";" | login == LoginClosed]
+
+-- | The declared owning role, created without login when absent and given to
+-- the owner with the admin, inherit and set options, then the database owned
+-- by it, or by the owner when none is declared.
+renderCreateOwnedDatabase :: Text -> Text -> Maybe Text -> Text
+renderCreateOwnedDatabase database owner owningRole =
+  T.unlines $
+    concat
+      [ [ "DO $owning$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = " <> literal role <> ") THEN CREATE ROLE " <> pgIdent role <> " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $owning$;"
+        , grantOwningRole role owner
+        ]
+      | Just role <- [owningRole]
+      ]
+      <> ["CREATE DATABASE " <> pgIdent database <> " OWNER " <> pgIdent (fromMaybe owner owningRole) <> ";"]
+
+-- | The boundary Nagare keeps: PUBLIC out of the database and the system
+-- databases, and the owner holding the owning role. Nothing inside.
+renderOwnedDatabaseAccess :: Text -> Text -> Text -> Maybe Text -> Text
+renderOwnedDatabaseAccess initialDatabase database owner owningRole =
+  T.unlines $
+    [ "REVOKE CONNECT, TEMPORARY ON DATABASE \"postgres\", \"template1\", " <> pgIdent initialDatabase <> " FROM PUBLIC;"
+    , "REVOKE ALL ON DATABASE " <> pgIdent database <> " FROM PUBLIC;"
+    ]
+      <> [grantOwningRole role owner | Just role <- [owningRole]]
+
+grantOwningRole :: Text -> Text -> Text
+grantOwningRole role owner = "GRANT " <> pgIdent role <> " TO " <> pgIdent owner <> " WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;"
+
+passwordText :: PasswordHash -> Text
+passwordText = \case
+  PostgresVerifier verifier -> verifier
+  ClickHouseSha256 digest _ -> digest
+
+-- | Everything an app-owned database's members are judged on, in one read
+-- as the administrator: the app's roles (the owner and every role reachable
+-- from it through admin-option memberships, as EP-257 M1 proved), each of
+-- them and the declared owning role with its attributes and settings, every
+-- membership naming one of the app's roles with its grantor and options,
+-- every database the app's roles own or hold a privilege on, and the app's
+-- own database, and whether PUBLIC may still connect to a system database.
+renderObserveOwned :: Text -> Maybe Text -> Text -> Text -> Text
+renderObserveOwned owner owningRole database initialDatabase =
+  T.unlines
+    [ "WITH RECURSIVE app(oid) AS ("
+    , "  SELECT oid FROM pg_catalog.pg_roles WHERE rolname = " <> literal owner
+    , "  UNION"
+    , "  SELECT m.roleid FROM pg_catalog.pg_auth_members AS m JOIN app ON m.member = app.oid WHERE m.admin_option"
+    , ")"
+    , "SELECT json_build_object("
+    , "  'app', (SELECT coalesce(json_agg(r.rolname ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.oid IN (SELECT oid FROM app)),"
+    , "  'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL), 'connectionLimit', r.rolconnlimit, 'settings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s WHERE s.setrole = r.oid AND s.setdatabase = 0), '[]')) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.oid IN (SELECT oid FROM app) OR r.rolname IN (" <> literals (owner : maybe [] pure owningRole) <> ")),"
+    , "  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname, 'grantor', g.rolname, 'admin', a.admin_option, 'inherit', a.inherit_option, 'set', a.set_option) ORDER BY r.rolname, m.rolname, g.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member JOIN pg_roles g ON g.oid = a.grantor WHERE a.roleid IN (SELECT oid FROM app) OR a.member IN (SELECT oid FROM app)),"
+    , "  'databases', (SELECT coalesce(json_agg(json_build_object('name', d.datname, 'oid', d.oid::text, 'owner', pg_get_userbyid(d.datdba), 'grants', " <> grants "coalesce(d.datacl, acldefault('d', d.datdba))" <> ") ORDER BY d.datname), '[]') FROM pg_database d WHERE d.datname = " <> literal database <> " OR d.datdba IN (SELECT oid FROM app) OR EXISTS (SELECT 1 FROM aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) x WHERE x.grantee IN (SELECT oid FROM app))),"
+    , "  'publicSystemAccess', (SELECT count(*) > 0 FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname IN ('postgres', 'template1', " <> literal initialDatabase <> ") AND a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY'))"
+    , ");"
+    ]
 
 -- Observation ---------------------------------------------------------------
 

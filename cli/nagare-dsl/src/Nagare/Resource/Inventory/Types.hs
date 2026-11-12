@@ -62,6 +62,12 @@ data DesiredSpec
     -- beyond the fixed set (EP-208). Registration creates the empty database
     -- only.
     LogicalDatabase !Text !Name !Name !Bool !ContentDigest ![MonitoringRole] !DatabasePrivileges
+  | -- | An app-owned logical database (EP-257): the engine token, its owner
+    -- user, the declared owning role Nagare creates for it (or none, when
+    -- the owner user owns the database), whether its declared access is on,
+    -- and the digest of the declaration. Nagare judges nothing inside it, only
+    -- that the app's roles reach no further.
+    AppOwnedDatabase !Text !Name !(Maybe Name) !Bool !ContentDigest
   | -- | A login user inside a server: the engine token, the role token
     -- (@runtime@ or @migration@), its login state, the digest of its
     -- declared attributes and server-wide grants, and its reviewed grant

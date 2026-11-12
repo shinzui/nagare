@@ -166,13 +166,13 @@ backupRawExt ClickHouse = "zip"
 sourceExt :: BackupSource -> Text
 sourceExt (DatabaseSource engine) = backupExt engine
 sourceExt VolumeSource = volumeBackupFormat
-sourceExt (AppDatabaseSource engine _) = appDatabaseBackupExt engine
+sourceExt (AppDatabaseSource engine _ _) = appDatabaseBackupExt engine
 
 sourceRawExt :: BackupSource -> Text
 sourceRawExt (DatabaseSource engine) = backupRawExt engine
 sourceRawExt VolumeSource = "tar"
-sourceRawExt (AppDatabaseSource ClickHouse _) = "zip"
-sourceRawExt (AppDatabaseSource _ _) = "dump"
+sourceRawExt (AppDatabaseSource ClickHouse _ _) = "zip"
+sourceRawExt (AppDatabaseSource _ _ _) = "dump"
 
 -- | An app database's archive: a PostgreSQL custom-format dump that keeps
 -- owners and ACLs, or a ClickHouse archive of every logical database.
@@ -238,8 +238,9 @@ data BackupSource
   = DatabaseSource !Engine
   | VolumeSource
   | -- | An app database (EP-202): its logical databases, dumped with the
-    -- app's own migration credential from the shared server.
-    AppDatabaseSource !Engine ![Text]
+    -- app's own migration credential from the shared server, or as the
+    -- server administrator when the app owns it (EP-257).
+    AppDatabaseSource !Engine ![Text] !Bool
   deriving stock (Generic, Eq, Show)
 
 -- | ClickHouse writes its archive on the server's own volume, so its Job reads
@@ -247,7 +248,7 @@ data BackupSource
 clickHouseSource :: BackupSource -> Bool
 clickHouseSource = \case
   DatabaseSource ClickHouse -> True
-  AppDatabaseSource ClickHouse _ -> True
+  AppDatabaseSource ClickHouse _ _ -> True
   _ -> False
 
 data BackupJobInputs = BackupJobInputs
@@ -426,7 +427,7 @@ podLabelsValue i =
 dumpContainer :: BackupJobInputs -> Value
 dumpContainer i = case i ^. #source of
   DatabaseSource engine -> databaseDumpContainer engine (dumpShell engine (i ^. #serviceHost)) i
-  AppDatabaseSource engine databases -> databaseDumpContainer engine (appDatabaseDumpShell engine databases (i ^. #serviceHost)) i
+  AppDatabaseSource engine databases administrator -> databaseDumpContainer engine (appDatabaseDumpShell engine databases administrator (i ^. #serviceHost)) i
   VolumeSource ->
     object
       [ "name" .= ("dump" :: Text)
@@ -594,8 +595,8 @@ dumpShell ClickHouse svc =
 -- format with owners and ACLs (the migration user owns every object), or one
 -- consistent ClickHouse archive of all its databases, copied off the server's
 -- volume exactly as a server's archive is.
-appDatabaseDumpShell :: Engine -> [Text] -> Text -> Text
-appDatabaseDumpShell ClickHouse databases svc =
+appDatabaseDumpShell :: Engine -> [Text] -> Bool -> Text -> Text
+appDatabaseDumpShell ClickHouse databases _ svc =
   "case \"$BACKUP_RUN_ID\" in ''|*[!a-zA-Z0-9-]*) exit 1;; esac; "
     <> "ARCHIVE=\"/source-data/backups/${BACKUP_RUN_ID}.zip\"; "
     <> "test ! -e \"$ARCHIVE\"; "
@@ -607,7 +608,11 @@ appDatabaseDumpShell ClickHouse databases svc =
     <> " TO File('${BACKUP_RUN_ID}.zip')\"; "
     <> "test -s \"$ARCHIVE\"; cp \"$ARCHIVE\" /dump/backup.zip; "
     <> "rm -- \"$ARCHIVE\""
-appDatabaseDumpShell _ _ svc =
+-- The administrator's Secret names the server's initial database, so an
+-- app-owned database's dump names its own (EP-257).
+appDatabaseDumpShell _ databases True svc =
+  "pg_dump -Fc -h " <> svc <> " -U \"$POSTGRES_USER\" -d " <> T.intercalate "" (take 1 databases) <> " > /dump/backup.dump"
+appDatabaseDumpShell _ _ False svc =
   "pg_dump -Fc -h " <> svc <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" > /dump/backup.dump"
 
 -- | The upload shell: gzip + a backend copy to @$DEST@. Reviewed Jobs and

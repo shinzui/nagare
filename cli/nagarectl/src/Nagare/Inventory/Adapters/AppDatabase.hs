@@ -31,10 +31,12 @@ import Data.List (nub, sort)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Database.AppDatabase.Catalog
+import Nagare.Database.AppDatabase.Owned (OwnedCatalog, OwnedDatabaseDeclaration (..), OwnerDeclaration (..), classifyOwnedDatabase, classifyOwner)
 import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash, ReaderAccess (..), hashPassword)
 import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, MonitoringRole, ReaderObject (..), UserAccess, UserExtension, UserLimits, clickHousePrivilegeText, grantExceptionToken, logicalDatabaseNameText, monitoringRoleToken, noDatabasePrivileges, noUserExtension, noUserLimits, parseAppDatabaseRole, relationNameText, runtimeOwnsObjects, schemaNameText)
 import Nagare.Dsl.Database (Engine (..), parseEngine)
@@ -67,6 +69,9 @@ data MemberKind
   | -- | database, migration user, runtime user, the tolerated monitoring
     -- roles, and the privileges inside it (EP-208)
     DatabaseMember !Text !Text !Text ![MonitoringRole] !DatabasePrivileges
+  | -- | an app-owned database (EP-257): database, owner user, and the
+    -- declared owning role
+    OwnedDatabaseMember !Text !Text !(Maybe Text)
   deriving stock (Eq, Show)
 
 data AppDatabaseMember = AppDatabaseMember
@@ -104,6 +109,13 @@ data CatalogCommand
   | CreateDatabase !Text !Text
   | SetDatabaseAccess !DatabaseAccess
   | SetPassword !Text !PasswordHash
+  | -- | EP-257: an app-owned database's owner user, its login, and its
+    -- database with the owning role
+    CreateOwner !Text !PasswordHash
+  | SetOwnerAccess !Text !UserLogin
+  | CreateOwnedDatabase !Text !Text !(Maybe Text)
+  | -- | initial database, database, owner user, owning role
+    SetOwnedDatabaseAccess !Text !Text !Text !(Maybe Text)
   deriving stock (Eq, Show)
 
 -- | The provider boundary: the context-guarded kubectl transport, or an
@@ -111,6 +123,8 @@ data CatalogCommand
 -- may or may not have taken effect.
 data AppDatabaseOps = AppDatabaseOps
   { observeCatalog :: !(ServerRef -> [Text] -> [Text] -> IO (Either Text Catalog))
+  , observeOwned :: !(ServerRef -> Text -> Maybe Text -> Text -> IO (Either Text OwnedCatalog))
+  -- ^ EP-257: an app-owned database's owner, owning role and database
   , passwordMatches :: !(ServerRef -> Text -> Text -> IO (Either Text Bool))
   , readCredential :: !(Name -> Name -> IO (Either Text (Maybe CredentialSecret)))
   , runCommand :: !(ServerRef -> CatalogCommand -> IO (Either Text ()))
@@ -130,6 +144,10 @@ data AppDatabaseOps = AppDatabaseOps
   , pause :: !(IO ())
   -- ^ one poll interval of a drain
   }
+
+-- | What a member is judged on: the shared observation of a Nagare-managed
+-- app database's users, or an app-owned database's own (EP-257).
+data Observed = Shared !Catalog | Owned !OwnedCatalog
 
 isReaderRole :: AppDatabaseRole -> Bool
 isReaderRole = \case
@@ -155,6 +173,8 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
           pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName access, login)
         (DatabaseName target db, LogicalDatabase engineText migration runtime on _ monitoring privileges) ->
           pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime) monitoring privileges, if on then LoginOpen else LoginClosed)
+        (DatabaseName target db, AppOwnedDatabase engineText owner owningRole on _) ->
+          pure (target, engineText, OwnedDatabaseMember (nameText db) (nameText owner) (nameText <$> owningRole), if on then LoginOpen else LoginClosed)
         _ -> Left "app-database member has an invalid address or specification"
       engine' <- maybe (Left "app-database member has an unknown engine") Right (parseEngine engineText)
       unless (OrderedAfter stateful `elem` resource ^. #dependencies) (Left "app-database member is not ordered after its server")
@@ -172,11 +192,11 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
             (login == LoginQuiesced)
             ( case kind' of
                 DatabaseMember {} -> sort [nameText user | member <- scope, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec _ _ LoginQuiesced _ _ <- [member ^. #spec]]
-                UserMember {} -> []
+                _ -> []
             )
             ( case kind' of
                 DatabaseMember {} -> sort [nameText user | member <- scope, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec _ role _ _ _ <- [member ^. #spec], maybe False isReaderRole (parseAppDatabaseRole role)]
-                UserMember {} -> []
+                _ -> []
             )
         )
     serverOf engine' stateful = case Map.lookup stateful byId of
@@ -300,6 +320,7 @@ mkAppDatabaseAdapter accepted members ops =
         _ -> Left "app-database members are only created, converged and verified; retire disables them and keeps their data, and they are never adopted or collected"
       case (actionText, member ^. #kind) of
         ("rotate", DatabaseMember {}) -> Left "only an app-database user's credential is rotated"
+        ("rotate", OwnedDatabaseMember {}) -> Left "only an app-database user's credential is rotated"
         _ -> pure ()
       pure (MemberPlan 1 (plannedOperationId operation') actionText (plannedInputDigest operation') resource')
     withPlan :: PlannedOperation -> PreparedNative -> (Text -> IO a) -> (MemberPlan -> AppDatabaseMember -> IO a) -> IO a
@@ -311,11 +332,20 @@ mkAppDatabaseAdapter accepted members ops =
       expected <- planFor operation'
       unless (plan == expected) (Left "private app-database plan differs from the reviewed operation")
       pure plan
-    catalogFor member = observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
+    -- An app-owned database's members read its own observation (EP-257).
+    catalogFor member = case member ^. #kind of
+      OwnedDatabaseMember db owner owningRole -> fmap Owned <$> observeOwned ops (member ^. #server) owner owningRole db
+      UserMember OwnerRole user _ _ _ -> fmap Owned <$> observeOwned ops (member ^. #server) user Nothing (fromMaybe "" (listToMaybe (member ^. #scopeDatabases)))
+      _ -> fmap Shared <$> observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
     classify member catalog = fst (classifyWithPending member catalog)
     -- A reader's pending objects (EP-206) and a database's pending schemas
     -- (EP-208) ride beside its state.
-    classifyWithPending member catalog = case member ^. #kind of
+    classifyWithPending member (Owned catalog) = case member ^. #kind of
+      UserMember _ user _ _ _ -> (classifyOwner (OwnerDeclaration user (fromMaybe "" (listToMaybe (member ^. #scopeDatabases))) (member ^. #enabled)) catalog, [])
+      OwnedDatabaseMember db owner owningRole -> (classifyOwnedDatabase (OwnedDatabaseDeclaration db owner owningRole (member ^. #enabled)) catalog, [])
+      DatabaseMember {} -> (MemberRefused grantDriftCode "a Nagare-managed database was observed as app-owned", [])
+    classifyWithPending member (Shared catalog) = case member ^. #kind of
+      OwnedDatabaseMember {} -> (MemberRefused grantDriftCode "an app-owned database was observed as Nagare-managed", [])
       UserMember (ReaderRole _) user _ _ desired ->
         second (map (\o -> fromMaybe (o ^. #database) (o ^. #schema) <> "." <> o ^. #relation)) (classifyReader (member ^. #server . #engine) (readerDeclaration member desired) user catalog)
       UserMember role user _ _ desired ->
@@ -349,8 +379,9 @@ mkAppDatabaseAdapter accepted members ops =
     -- its password, so it is checked again once its login is back on.
     credentialMatches member observed = case member ^. #kind of
       DatabaseMember {} -> pure (Right True)
+      OwnedDatabaseMember {} -> pure (Right True)
       UserMember _ user _ _ _
-        | loginOff user observed && member ^. #server . #engine == ClickHouse -> pure (Right True)
+        | Shared catalog <- observed, loginOff user catalog && member ^. #server . #engine == ClickHouse -> pure (Right True)
       UserMember _ user secretNamespace secretName _ -> do
         secret <- readCredential ops secretNamespace secretName
         case secret of
@@ -395,7 +426,8 @@ mkAppDatabaseAdapter accepted members ops =
       | otherwise = LoginClosed
     -- A reader's grants are its resolved objects; what only the accepted
     -- declaration named is revoked (drift never reaches here).
-    accessCommand member observed role user desired = case role of
+    accessCommand member (Owned _) _ user _ = SetOwnerAccess user (loginOf member)
+    accessCommand member (Shared observed) role user desired = case role of
       ReaderRole _ ->
         let engine' = member ^. #server . #engine
             spec = fromMaybe (ReaderSpec [] noUserLimits) (readerSpec desired)
@@ -412,6 +444,9 @@ mkAppDatabaseAdapter accepted members ops =
               else SetReaderAccess (ReaderAccess user (loginOf member) (spec ^. #limits) (nub (present <> held)) [] [] (nub (databases' <> heldDatabases)) [] (nub (schemas <> heldSchemas)))
       _ -> SetUserAccess role user (loginOf member) (desired ^. #access)
     loginOff user observed = maybe False ((== LoginOff) . (^. #login)) (Map.lookup user (observed ^. #users))
+    clickHouseLoginOff user = \case
+      Shared catalog -> loginOff user catalog
+      Owned _ -> False
     identity physical = either (error . T.unpack) id (mkPhysicalIdentity physical)
     converge member = do
       catalog <- catalogFor member
@@ -429,8 +464,9 @@ mkAppDatabaseAdapter accepted members ops =
                 created <- case state of
                   MemberAbsent -> do
                     salt <- freshSalt ops
-                    run member (CreateUser user (hashPassword (member ^. #server . #engine) salt (credential ^. #password)) (credential ^. #database))
-                  _ | loginOff user observed && member ^. #server . #engine == ClickHouse -> pure Nothing
+                    let hash' = hashPassword (member ^. #server . #engine) salt (credential ^. #password)
+                    run member (if role == OwnerRole then CreateOwner user hash' else CreateUser user hash' (credential ^. #database))
+                  _ | clickHouseLoginOff user observed && member ^. #server . #engine == ClickHouse -> pure Nothing
                   _ -> do
                     matches <- passwordMatches ops (member ^. #server) user (credential ^. #password)
                     pure $ case matches of
@@ -438,17 +474,24 @@ mkAppDatabaseAdapter accepted members ops =
                       Right False -> Just (AdapterEffectFailed (KnownNoEffect "app-database user exists with a password other than its Secret's; rotate it"))
                       Left reason -> Just (AdapterEffectAmbiguous reason)
                 maybe (finish (run member (accessCommand member observed role user desired))) pure created
-          (state, DatabaseMember db migration runtime monitoring privileges) -> do
+          (state, DatabaseMember db migration runtime monitoring privileges) | Shared catalog <- observed -> do
             created <- case state of
               MemberAbsent -> run member (CreateDatabase db migration)
               _ -> pure Nothing
             -- The revocations come from the catalog just read; a database
             -- created now has nothing to revoke.
-            maybe (finish (run member (SetDatabaseAccess (databaseRevocations (accessOf member db migration runtime monitoring privileges) observed)))) pure created
+            maybe (finish (run member (SetDatabaseAccess (databaseRevocations (accessOf member db migration runtime monitoring privileges) catalog)))) pure created
+          (state, OwnedDatabaseMember db owner owningRole) -> do
+            created <- case state of
+              MemberAbsent -> run member (CreateOwnedDatabase db owner owningRole)
+              _ -> pure Nothing
+            maybe (finish (run member (SetOwnedDatabaseAccess (member ^. #server . #initialDatabase) db owner owningRole))) pure created
+          (_, DatabaseMember {}) -> pure (AdapterEffectFailed (KnownNoEffect "a Nagare-managed database was observed as app-owned"))
     -- Rotation: the Secret takes the new password first, then the user
     -- follows it, so a lost step never leaves a password nobody holds.
     rotate member = case member ^. #kind of
       DatabaseMember {} -> pure (AdapterEffectFailed (KnownNoEffect "only an app-database user's credential is rotated"))
+      OwnedDatabaseMember {} -> pure (AdapterEffectFailed (KnownNoEffect "only an app-database user's credential is rotated"))
       UserMember _ user secretNamespace secretName _ -> do
         secret <- readCredential ops secretNamespace secretName
         case secret of
@@ -480,6 +523,7 @@ mkAppDatabaseAdapter accepted members ops =
         <> case member ^. #kind of
           UserMember _ user _ _ _ -> "user " <> user
           DatabaseMember db _ _ _ _ -> "database " <> db
+          OwnedDatabaseMember db _ _ -> "database " <> db
         <> " on "
         <> nameText (member ^. #server . #name)
         <> (if member ^. #quiesced then " (quiesced: login off)" else if member ^. #enabled then "" else " (retired: access off)")
@@ -487,6 +531,8 @@ mkAppDatabaseAdapter accepted members ops =
           UserMember _ _ _ _ extension | actionText /= "rotate" -> describeReader (extension ^. #reader) <> describeAccess (extension ^. #access) <> describeOwners (extension ^. #owners)
           DatabaseMember _ _ _ monitoring privileges ->
             mconcat ["; tolerates grants to " <> T.intercalate ", " (map monitoringRoleToken monitoring) | not (null monitoring)] <> describePrivileges privileges
+          -- The saved plan says who owns an app-owned database (EP-257).
+          OwnedDatabaseMember _ owner owningRole -> "; app-owned by " <> owner <> maybe "" (" through " <>) owningRole
           _ -> ""
     -- The workloads that bind the migration credential (IR-35 AC-5).
     describeOwners owners' = mconcat ["; owners " <> T.intercalate ", " (map serviceNameText owners') | not (null owners')]

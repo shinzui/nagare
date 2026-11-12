@@ -18,6 +18,8 @@ module AppDatabaseSpec
   , kansokuChAccess
   , kansokuPgReader
   , compileWorker
+  , compileAgainst
+  , acceptedServerAt
   , secretKeyRefs
   , acceptedNative
   , testCluster
@@ -658,10 +660,10 @@ appDatabaseTests =
 -- Fixtures ------------------------------------------------------------------
 
 kansokuPg :: AppDatabase
-kansokuPg = AppDatabase (known (mkAppDatabaseName "kansoku-pg")) Nothing (dbServer "labs-postgres") Postgres personal (logical "kansoku" :| []) noAppDatabaseAccess
+kansokuPg = AppDatabase (known (mkAppDatabaseName "kansoku-pg")) Nothing (dbServer "labs-postgres") Postgres personal (logical "kansoku" :| []) noAppDatabaseAccess NagareManaged
 
 kansokuCh :: AppDatabase
-kansokuCh = AppDatabase (known (mkAppDatabaseName "kansoku-ch")) Nothing (dbServer "labs-clickhouse") ClickHouse personal (logical "analytics" :| [logical "kansoku_migration_ledger"]) noAppDatabaseAccess
+kansokuCh = AppDatabase (known (mkAppDatabaseName "kansoku-ch")) Nothing (dbServer "labs-clickhouse") ClickHouse personal (logical "analytics" :| [logical "kansoku_migration_ledger"]) noAppDatabaseAccess NagareManaged
 
 -- | Kansoku's declarations as IR-30 and IR-32 ask for them.
 kansokuPgAccess :: AppDatabase
@@ -699,12 +701,12 @@ kansokuPgReader =
     .~ [AppDatabaseReader (known (Dsl.mkReaderName "grafana")) (ReaderSchemaViews (logical "kansoku") (known (mkSchemaName "reporting")) :| [ReaderRelation (logical "kansoku") Nothing (known (mkRelationName "daily_totals"))]) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "grafana")] False]
 
 alpha :: Engine -> AppDatabase
-alpha Postgres = AppDatabase (known (mkAppDatabaseName "alpha-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "alpha" :| []) noAppDatabaseAccess
-alpha _ = AppDatabase (known (mkAppDatabaseName "alpha-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "alpha" :| [logical "alpha_ledger"]) noAppDatabaseAccess
+alpha Postgres = AppDatabase (known (mkAppDatabaseName "alpha-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "alpha" :| []) noAppDatabaseAccess NagareManaged
+alpha _ = AppDatabase (known (mkAppDatabaseName "alpha-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "alpha" :| [logical "alpha_ledger"]) noAppDatabaseAccess NagareManaged
 
 beta :: Engine -> AppDatabase
-beta Postgres = AppDatabase (known (mkAppDatabaseName "beta-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "beta" :| []) noAppDatabaseAccess
-beta _ = AppDatabase (known (mkAppDatabaseName "beta-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "beta" :| []) noAppDatabaseAccess
+beta Postgres = AppDatabase (known (mkAppDatabaseName "beta-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "beta" :| []) noAppDatabaseAccess NagareManaged
+beta _ = AppDatabase (known (mkAppDatabaseName "beta-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "beta" :| []) noAppDatabaseAccess NagareManaged
 
 logical :: Text -> LogicalDatabaseName
 logical = known . mkLogicalDatabaseName

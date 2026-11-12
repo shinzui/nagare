@@ -15,6 +15,7 @@ import AppDatabaseSpec (appDatabaseTests)
 import AppDatabaseSqlSpec (appDatabaseSqlTests)
 import AppDatabaseWorldSpec (appDatabaseWorldTests)
 import AppDeploySpec (appDeployTests)
+import AppOwnedDatabaseSpec (appOwnedDatabaseTests)
 import CertificateMigrationSpec (certificateMigrationTests)
 import Data.ByteString qualified as BS
 import DataFenceSpec (dataFenceTests)
@@ -221,7 +222,7 @@ main = do
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
-            , testGroup "AppDatabase" [appDatabaseTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests]
+            , testGroup "AppDatabase" [appDatabaseTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appOwnedDatabaseTests]
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
             , inventoryWorldFaultsTests

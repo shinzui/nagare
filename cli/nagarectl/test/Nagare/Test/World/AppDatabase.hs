@@ -13,6 +13,9 @@ module Nagare.Test.World.AppDatabase
   , restartServer
   , worldOps
   , worldCatalog
+  , worldOwned
+  , appCreatesRole
+  , appGrantsRole
   , secretKey
   , clickHouseTree
   , compressGrants
@@ -33,7 +36,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Read qualified as TR
 import Nagare.Database.AppDatabase.Catalog
-import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), ReaderAccess (..), clickHouseCeilings, clickHouseDatabaseGrants, clickhouseHashMatches, postgresTimeout, scramVerifierMatches)
+import Nagare.Database.AppDatabase.Owned (OwnedCatalog (..), OwnedDatabase (..), OwnedMembership (..), OwnedRole (..), reachableRoles)
+import Nagare.Database.AppDatabase.Sql (DatabaseAccess (..), PasswordHash (..), ReaderAccess (..), clickHouseCeilings, clickHouseDatabaseGrants, clickhouseHashMatches, ownerSetting, postgresTimeout, scramVerifierMatches)
 import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), Grant (..), appDatabaseDatabaseGrants, appDatabaseServerGrants, appDatabaseServerRevokedGrants, runtimeOwnsObjects)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
@@ -90,6 +94,9 @@ data World = World
   -- ^ the server Pod's UID and start time and the engine's identity
   , memberships :: !(Set (Text, Text, Bool))
   -- ^ PostgreSQL: (role, member, admin option) (EP-208)
+  , roleGrants :: !(Set OwnedMembership)
+  -- ^ PostgreSQL: memberships with their grantor and options, as an
+  -- app-owned database's owner and the roles it creates hold them (EP-257)
   , privilegeTree :: !PrivilegeTree
   -- ^ ClickHouse: the 26.8 tree M1 captured; database grants are held as
   -- leaves and reported as their minimal cover, as system.grants does
@@ -121,7 +128,7 @@ data WorldMutation = WorldMutation
 newWorld :: Engine -> Map Text CredentialSecret -> IO (IORef World)
 newWorld engine' secrets' = do
   tree <- if engine' == ClickHouse then clickHouseTree else pure Map.empty
-  newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0 Map.empty 0 [] (Map.fromList [("podUID", "pod-1"), ("podStarted", "2026-10-19T00:00:00Z"), ("serverUUID", "uuid-1"), ("processStarted", "2026-10-19 00:00:00")]) Set.empty tree False Set.empty)
+  newIORef (World engine' Map.empty Map.empty (engine' == Postgres) secrets' 0 Map.empty 0 [] (Map.fromList [("podUID", "pod-1"), ("podStarted", "2026-10-19T00:00:00Z"), ("serverUUID", "uuid-1"), ("processStarted", "2026-10-19 00:00:00")]) Set.empty Set.empty tree False Set.empty)
 
 -- | The server process restarts on a new Pod with the same data volume.
 -- ClickHouse reloads every user whose entity is in the legacy form and holds
@@ -216,6 +223,38 @@ worldCatalog world =
       , privilege' <- compressGrants (world ^. #privilegeTree) (Set.fromList [g ^. #privilege | g <- Set.toList grants', g ^. #grantee == who, g ^. #target == target'])
       ]
 
+-- | What the app-owned observation reports (EP-257), with the app's roles
+-- computed as the server's recursive reading computes them.
+worldOwned :: World -> Text -> Maybe Text -> Text -> OwnedCatalog
+worldOwned world owner owningRole db = OwnedCatalog app (Map.fromList roles') held databases' (world ^. #publicSystemAccess)
+  where
+    every = Set.toList (world ^. #roleGrants) <> [OwnedMembership r m "postgres" a True True | (r, m, a) <- Set.toList (world ^. #memberships)]
+    app = if Map.member owner (world ^. #users) then reachableRoles owner every else []
+    roles' = [(n, OwnedRole n (u ^. #physical) (u ^. #login) (u ^. #elevated) (u ^. #connectionLimit) (u ^. #roleSettings)) | (n, u) <- Map.toList (world ^. #users), n `elem` app || Just n == owningRole || n == owner]
+    held = [m | m <- every, m ^. #role `elem` app || m ^. #member `elem` app]
+    onDatabase d = [(g ^. #grantee, g ^. #privilege) | g <- Set.toList (d ^. #grants), g ^. #target == "database"]
+    databases' =
+      Map.fromList
+        [ (n, OwnedDatabase (d ^. #physical) (d ^. #owner) (onDatabase d))
+        | (n, d) <- Map.toList (world ^. #databases)
+        , n == db || d ^. #owner `elem` app || any ((`elem` app) . fst) (onDatabase d)
+        ]
+
+-- | The app's own SQL, run as @creator@ (EP-257 M1): the new role, its
+-- creator's admin-option grant from the bootstrap superuser, and the
+-- creator's own set-and-inherit grant from @createrole_self_grant@.
+appCreatesRole :: Text -> Text -> Bool -> World -> World
+appCreatesRole creator name canLogin world =
+  world
+    & #users
+    %~ Map.insert name (WorldUser ("user:" <> name) (PostgresVerifier "") canLogin [] [] [] [] (-1) [] [])
+    & #roleGrants
+    %~ (Set.insert (OwnedMembership name creator "postgres" True False False) . Set.insert (OwnedMembership name creator creator False True True))
+
+-- | @GRANT role TO member@ run as @grantor@.
+appGrantsRole :: Text -> Text -> Text -> Bool -> World -> World
+appGrantsRole grantor role member admin' = #roleGrants %~ Set.insert (OwnedMembership role member grantor admin' True True)
+
 worldOps :: IORef World -> IORef Adversary -> AppDatabaseOps
 worldOps ref adversary =
   AppDatabaseOps
@@ -226,6 +265,13 @@ worldOps ref adversary =
             noteActed adversary placement
             pure (Left "injected: catalog observation timed out")
           _ -> Right . worldCatalog <$> readIORef ref
+    , observeOwned = \_ owner owningRole db -> do
+        fault <- nextFaultAt adversary ObserveCall
+        case fault of
+          Just placement@(_, TransientReadFailure) -> do
+            noteActed adversary placement
+            pure (Left "injected: catalog observation timed out")
+          _ -> Right . (\world -> worldOwned world owner owningRole db) <$> readIORef ref
     , passwordMatches = \_ name password' -> do
         world <- readIORef ref
         pure . Right $ case Map.lookup name (world ^. #users) of
@@ -285,6 +331,27 @@ worldOps ref adversary =
 
 interpret :: CatalogCommand -> World -> Either Text World
 interpret command world = case command of
+  -- EP-257, as M1 proved on PostgreSQL 18.
+  CreateOwner name hash
+    | Map.member name (world ^. #users) -> Left ("role " <> name <> " already exists")
+    | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True ["CREATEROLE"] [] [] [] (-1) [ownerSetting] []))
+  SetOwnerAccess name login' ->
+    (if login' == LoginClosed then #sessions %~ Map.insert name 0 else id) <$> withUser name (\u -> u & #login .~ (login' == LoginOpen) & #elevated .~ ["CREATEROLE"] & #connectionLimit .~ (-1) & #roleSettings %~ (\held -> filter (not . ("createrole_self_grant=" `T.isPrefixOf`)) held <> [ownerSetting]))
+  CreateOwnedDatabase name owner' owningRole
+    | Map.member name (world ^. #databases) -> Left ("database " <> name <> " already exists")
+    | otherwise -> do
+        let withRole = case owningRole of
+              Nothing -> world
+              Just role ->
+                world
+                  & #users
+                  %~ Map.insertWith (\_ existing -> existing) role (WorldUser (fresh "user" role) (PostgresVerifier "") False [] [] [] [] (-1) [] [])
+                  & #roleGrants
+                  %~ grantOwning role owner'
+            dbOwner = fromMaybe owner' owningRole
+        Right (withRole & #databases %~ Map.insert name (WorldDatabase (fresh "database" name) dbOwner (Set.fromList ([CatalogGrant dbOwner "database" p | p <- ["CREATE", "TEMPORARY", "CONNECT"]] <> [CatalogGrant "PUBLIC" "database" p | p <- ["TEMPORARY", "CONNECT"]])) dbOwner [] Map.empty [] []))
+  SetOwnedDatabaseAccess _ name owner' owningRole ->
+    (#publicSystemAccess .~ False) . (#roleGrants %~ maybe id (`grantOwning` owner') owningRole) <$> withDatabase name (#grants %~ Set.filter (\g -> not (g ^. #grantee == "PUBLIC" && g ^. #target == "database")))
   CreateUser name hash _
     | Map.member name (world ^. #users) -> Left ("role " <> name <> " already exists")
     | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True [] [] [] [] (-1) [] []))
@@ -437,6 +504,8 @@ interpret command world = case command of
       Nothing -> Left ("database " <> name <> " does not exist")
       Just db -> Right (world & #databases %~ Map.insert name (f db))
     tree = world ^. #privilegeTree
+    -- A GRANT with options replaces the bootstrap superuser's earlier grant.
+    grantOwning role owner' = Set.insert (OwnedMembership role owner' "postgres" True True True) . Set.filter (\m -> not (m ^. #role == role && m ^. #member == owner' && m ^. #grantor == "postgres"))
     -- ClickHouse holds leaves: a REVOKE drops every leaf of its token, a
     -- GRANT adds every leaf of its list (M1).
     setAccess access db

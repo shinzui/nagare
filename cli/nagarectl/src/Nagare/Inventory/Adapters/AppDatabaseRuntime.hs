@@ -27,6 +27,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Database.AppDatabase.Catalog (parseClickHouseCatalog, parseDrainObservation, parsePostgresCatalog, withPostgresRelations)
+import Nagare.Database.AppDatabase.Owned (parseOwnedCatalog)
 import Nagare.Database.AppDatabase.Sql
 import Nagare.Database.Secret (b64decode, b64encode)
 import Nagare.Dsl.Database (Engine (..))
@@ -48,6 +49,7 @@ appDatabaseRuntimeOps :: AppDatabaseRuntimeConfig -> AppDatabaseOps
 appDatabaseRuntimeOps config =
   AppDatabaseOps
     { observeCatalog = observe
+    , observeOwned = \server owner owningRole db -> guarded server ((>>= parseOwnedCatalog) <$> psql server "postgres" (renderObserveOwned owner owningRole db (server ^. #initialDatabase)))
     , passwordMatches = matches
     , readCredential = credential
     , runCommand = run
@@ -152,6 +154,10 @@ appDatabaseRuntimeOps config =
       CreateDatabase db owner' -> renderCreateDatabase engine' db owner'
       SetDatabaseAccess access -> renderDatabaseAccess access
       SetPassword user hash' -> renderSetPassword user hash'
+      CreateOwner user hash' -> renderCreateOwner user hash'
+      SetOwnerAccess user login -> renderOwnerAccess user login
+      CreateOwnedDatabase db owner' owningRole -> renderCreateOwnedDatabase db owner' owningRole
+      SetOwnedDatabaseAccess initial db owner' owningRole -> renderOwnedDatabaseAccess initial db owner' owningRole
     psql server db sql =
       sqlOutput
         <$> kubectl

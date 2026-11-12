@@ -1,0 +1,12 @@
+WITH RECURSIVE app(oid) AS (
+  SELECT oid FROM pg_catalog.pg_roles WHERE rolname = 'beta_owner'
+  UNION
+  SELECT m.roleid FROM pg_catalog.pg_auth_members AS m JOIN app ON m.member = app.oid WHERE m.admin_option
+)
+SELECT json_build_object(
+  'app', (SELECT coalesce(json_agg(r.rolname ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.oid IN (SELECT oid FROM app)),
+  'roles', (SELECT coalesce(json_agg(json_build_object('name', r.rolname, 'oid', r.oid::text, 'login', r.rolcanlogin, 'elevated', array_remove(ARRAY[CASE WHEN r.rolsuper THEN 'SUPERUSER' END, CASE WHEN r.rolcreaterole THEN 'CREATEROLE' END, CASE WHEN r.rolcreatedb THEN 'CREATEDB' END, CASE WHEN r.rolreplication THEN 'REPLICATION' END, CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' END], NULL), 'connectionLimit', r.rolconnlimit, 'settings', coalesce((SELECT array_to_json(s.setconfig) FROM pg_db_role_setting s WHERE s.setrole = r.oid AND s.setdatabase = 0), '[]')) ORDER BY r.rolname), '[]') FROM pg_roles r WHERE r.oid IN (SELECT oid FROM app) OR r.rolname IN ('beta_owner')),
+  'memberships', (SELECT coalesce(json_agg(json_build_object('role', r.rolname, 'member', m.rolname, 'grantor', g.rolname, 'admin', a.admin_option, 'inherit', a.inherit_option, 'set', a.set_option) ORDER BY r.rolname, m.rolname, g.rolname), '[]') FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member JOIN pg_roles g ON g.oid = a.grantor WHERE a.roleid IN (SELECT oid FROM app) OR a.member IN (SELECT oid FROM app)),
+  'databases', (SELECT coalesce(json_agg(json_build_object('name', d.datname, 'oid', d.oid::text, 'owner', pg_get_userbyid(d.datdba), 'grants', (SELECT coalesce(json_agg(json_build_object('grantee', CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, 'privilege', a.privilege_type, 'grantable', a.is_grantable) ORDER BY 1), '[]') FROM aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a)) ORDER BY d.datname), '[]') FROM pg_database d WHERE d.datname = 'beta' OR d.datdba IN (SELECT oid FROM app) OR EXISTS (SELECT 1 FROM aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) x WHERE x.grantee IN (SELECT oid FROM app))),
+  'publicSystemAccess', (SELECT count(*) > 0 FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname IN ('postgres', 'template1', 'smoke_pg') AND a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY'))
+);

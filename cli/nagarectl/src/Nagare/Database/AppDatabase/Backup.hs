@@ -42,6 +42,9 @@ data AppDatabaseBackup = AppDatabaseBackup
   , clientImage :: !Text
   , databases :: ![Text]
   , declaration :: !Text
+  , administrator :: !Bool
+  -- ^ an app-owned database (EP-257) is dumped as the server administrator,
+  -- so no grant the app manages can make its backup incomplete
   }
   deriving stock (Generic, Eq, Show)
 
@@ -68,11 +71,11 @@ renderInventoryAppDatabaseBackupCronJob objective backup backend keep =
       BackupJobInputs
         { namespace = backup ^. #namespace
         , jobName = schedule
-        , source = AppDatabaseSource (backup ^. #engine) (backup ^. #databases)
+        , source = AppDatabaseSource (backup ^. #engine) (backup ^. #databases) (backup ^. #administrator)
         , clientImage = backup ^. #clientImage
         , unpinnedStoreImage = False
         , serviceHost = backup ^. #server
-        , secretName = backup ^. #appDatabase <> "-migration"
+        , secretName = if backup ^. #administrator then "nagare-db-" <> backup ^. #server else backup ^. #appDatabase <> "-migration"
         , name = backup ^. #server
         , destination = BackupDestStamped
         , prefix = storePrefixUrl backend (appDatabaseBackupKeyPrefix (backup ^. #namespace) (backup ^. #appDatabase))

@@ -184,6 +184,8 @@ appDatabaseJSON db =
         -- Emitted only when declared, so an app database without reviewed
         -- access keeps its pre-EP-204 bytes and schedule revision.
         <> ["access" .= (db ^. #access) | db ^. #access /= noAppDatabaseAccess]
+        -- Likewise only when the app owns it (EP-257).
+        <> ["ownership" .= (db ^. #ownership) | db ^. #ownership /= NagareManaged]
     )
 
 -- | Emitted only when present, so a workload without app databases keeps the

@@ -19,6 +19,8 @@ related:
 Accepted on 2026-10-19 with [EP-202](../plans/202-host-per-app-databases-on-shared-postgresql-and-clickhouse-servers.md),
 which answers [IR-29](../improvement-requests/shared-database-servers-with-per-app-databases.md).
 
+Amended on 2026-11-11 by [ADR 37](0037-an-app-may-own-its-database-and-nagare-keeps-apps-apart.md) for app-owned databases.
+
 ## Context
 
 Until v0.6.6 each managed database was its own server: one StatefulSet, volume, Service and one

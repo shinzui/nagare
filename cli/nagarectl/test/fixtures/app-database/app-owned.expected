@@ -1,7 +1,8 @@
 -- server major version: 18
 
 -- step: postgres postgres
--- What Nagare renders for the three tenants, as the server administrator.
+-- What Nagare renders for the three tenants, as the server administrator. gamma
+-- stands for any Nagare-managed app database (postgres.sql pins its statements).
 CREATE ROLE "gamma_migration" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE
 CREATE ROLE "gamma_runtime" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -12,30 +13,48 @@ REVOKE ALL ON DATABASE "gamma" FROM PUBLIC;
 REVOKE
 GRANT CONNECT, TEMPORARY ON DATABASE "gamma" TO "gamma_runtime";
 GRANT
--- alpha: the owner user, its setting, the declared owning role, the database.
-CREATE ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS;
+-- Each "-- operation:" block is the exact rendering of one adapter command
+-- (AppDatabaseSqlSpec pins it). Passwords are fixed-salt verifiers of
+-- "pw-alpha_owner" and "pw-beta_owner"; the socket trusts, so no step uses them.
+-- operation: create-owner alpha_owner
+CREATE ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'SCRAM-SHA-256$4096:AAECAwQFBgcICQoLDA0ODw==$otvP+SF1k53i44Kn0/KQMygR3f38sjtSVoLKL0KWavs=:HZXwp7IhxRpKH/O1lmKvtEajTi5R4qPWfTXpnsR6bxo=';
 CREATE ROLE
 ALTER ROLE "alpha_owner" SET createrole_self_grant = 'set, inherit';
 ALTER ROLE
-CREATE ROLE "kotei_maintenance" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE
+-- operation: owner-access alpha_owner on
+ALTER ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1;
+ALTER ROLE
+ALTER ROLE "alpha_owner" SET createrole_self_grant = 'set, inherit';
+ALTER ROLE
+-- operation: create-owned-database alpha kotei_maintenance
+DO $owning$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_maintenance') THEN CREATE ROLE "kotei_maintenance" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $owning$;
+DO
 GRANT "kotei_maintenance" TO "alpha_owner" WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;
 GRANT ROLE
 CREATE DATABASE "alpha" OWNER "kotei_maintenance";
 CREATE DATABASE
+-- operation: owned-database-access alpha kotei_maintenance
+REVOKE CONNECT, TEMPORARY ON DATABASE "postgres", "template1", "smoke_pg" FROM PUBLIC;
+REVOKE
 REVOKE ALL ON DATABASE "alpha" FROM PUBLIC;
 REVOKE
--- beta: the owner user owns its database directly.
-CREATE ROLE "beta_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT "kotei_maintenance" TO "alpha_owner" WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;
+NOTICE:  role "alpha_owner" has already been granted membership in role "kotei_maintenance" by role "postgres"
+GRANT ROLE
+-- operation: create-owner beta_owner
+CREATE ROLE "beta_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'SCRAM-SHA-256$4096:AAECAwQFBgcICQoLDA0ODw==$+DHdaEW1NECKfkT2qavev7585aEI4BZqltzuWBh05g4=:OpNg6Xdq8XvMijjEbuLNGpVw3d4Rxin9qPmnQEz8S+w=';
 CREATE ROLE
 ALTER ROLE "beta_owner" SET createrole_self_grant = 'set, inherit';
 ALTER ROLE
+-- operation: create-owned-database beta
 CREATE DATABASE "beta" OWNER "beta_owner";
 CREATE DATABASE
-REVOKE ALL ON DATABASE "beta" FROM PUBLIC;
-REVOKE
+-- operation: owned-database-access beta
 REVOKE CONNECT, TEMPORARY ON DATABASE "postgres", "template1", "smoke_pg" FROM PUBLIC;
 REVOKE
+REVOKE ALL ON DATABASE "beta" FROM PUBLIC;
+REVOKE
+-- operation: end
 
 -- step: beta_owner beta
 -- beta's own roles and a login, made by its owner.

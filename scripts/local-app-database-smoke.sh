@@ -120,6 +120,7 @@ app name server engine (db : dbs) access' =
     , namespace = ok (mkNamespace "personal")
     , logicalDatabases = ok (mapM mkLogicalDatabaseName (db :| dbs))
     , access = access'
+    , ownership = NagareManaged
     }
 app _ _ _ [] _ = error "an app database needs a logical database"
 

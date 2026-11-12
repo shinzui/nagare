@@ -532,7 +532,7 @@ calls `emitAppDatabases`:
 
 ```haskell
 import Data.List.NonEmpty (NonEmpty (..))
-import Nagare.Dsl.AppDatabase (AppDatabase (..), mkLogicalDatabaseName, noAppDatabaseAccess)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), Ownership (..), mkLogicalDatabaseName, noAppDatabaseAccess)
 import Nagare.Dsl.Config (emitAppDatabases)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
@@ -548,6 +548,7 @@ main =
         , namespace = ok (mkNamespace "personal")        -- the server's namespace
         , logicalDatabases = ok (mkLogicalDatabaseName "notes") :| []
         , access = noAppDatabaseAccess                   -- see "Reviewed exceptions and limits"
+        , ownership = NagareManaged                      -- see "App-owned databases"
         }
     ]
   where
@@ -1035,6 +1036,69 @@ and grants `CONNECT` only to the runtime user, so a reader can never connect to
 or read them. ClickHouse grants are not in the backup; the reader keeps its
 grants by name. Adding a reader keeps the backup schedule's revision.
 
+
+### App-owned databases
+
+An app that manages its own roles and privileges in its own migrations can own its database
+instead of using the fixed runtime and migration users. Declare it app-owned when you create it:
+
+```haskell
+    [ AppDatabase
+        { name = ok (mkAppDatabaseName "kotei-pg")
+        , logicalKey = Nothing
+        , server = ok (mkDatabaseName "shared-pg")       -- PostgreSQL 18 or later
+        , engine = Postgres
+        , namespace = ok (mkNamespace "personal")
+        , logicalDatabases = ok (mkLogicalDatabaseName "kotei") :| []
+        , access = noAppDatabaseAccess & #owners .~ [ok (mkServiceName "migrate")]
+        , ownership = AppOwned {databaseOwner = Just (ok (mkRoleName "kotei_maintenance"))}
+        }
+    ]
+```
+
+Nagare then creates one login, the **owner** (`kotei_pg_owner`, Secret `kotei-pg-owner`), with
+`CREATEROLE` and nothing else server-wide, and the database. When `databaseOwner` names a role,
+Nagare creates that role without login, makes it the database's owner and gives it to the owner
+login with the admin option; without it, the owner login owns the database. An app whose
+migrations run `ALTER DATABASE ... OWNER TO <role>` names that role here, because changing a
+database's owner needs `CREATEDB`, which no app receives; the migration then finds the ownership
+already in place.
+
+Everything inside the database is the app's own SQL, run as the owner: creating roles and logins,
+memberships among them, moving ownership of schemas and objects, grants and default privileges.
+Nagare reports none of it as drift, and a re-plan after the app's migrations prints
+`no operations`. The owner holds every role it creates (`createrole_self_grant = 'set,
+inherit'`), so `ALTER ... OWNER TO` a role it created works as it would for a superuser.
+
+What Nagare enforces between apps. The app's roles are the owner and every role it administers,
+directly or through roles it created. Planning refuses, naming the role, when:
+
+- one of the app's roles holds `SUPERUSER`, `CREATEDB`, `REPLICATION` or `BYPASSRLS`;
+- one of the app's roles is a member of a role that is not the app's (another app's role, a
+  Nagare user, a predefined `pg_*` role);
+- a role that is not the app's is a member of, or administers, one of the app's roles;
+- one of the app's roles owns, or holds a privilege on, another database;
+- a role that is not the app's holds a privilege on the app's database;
+- the database is owned by anything but the declared owner.
+
+PostgreSQL itself refuses the owner and every role it creates anything that would reach another
+app: altering, dropping or joining another app's roles or Nagare's users, connecting to another
+app's database, or obtaining a server-wide attribute or a predefined role. `PUBLIC` is kept out of
+the database and the system databases; if it is granted back, the next apply closes it again.
+
+Limits:
+
+- PostgreSQL 18 or later. Planning refuses an app-owned database on an older server.
+- Ownership is fixed when the app database is created, including the owning role. Moving between
+  the two models is a data migration to a new app database.
+- Role names are server-wide. Two apps on one server cannot both create a role of the same name;
+  the second fails in its own SQL. Nagare does not rename or prefix the app's roles, and refuses an
+  owning role that another app database on the server already uses or derives.
+- An app-owned database takes no `access` but `owners`, which names the tasks that bind the owner
+  credential. Its long-running workloads use logins the app creates, whose passwords the app and
+  its operator own; supply them as ordinary app Secrets.
+- Its scheduled backup runs as the server administrator, so nothing the app does to its own
+  grants can make a backup incomplete.
 
 ## Backups and restore
 
