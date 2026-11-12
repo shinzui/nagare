@@ -17,6 +17,11 @@ provenance:
       at: 2026-11-11T15:28:32Z
       mode: "update"
       note: "Require PostgreSQL 18 or later and link the intention."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-12T15:24:25Z
+      mode: "implement"
+      note: "M1 native run with Kotei's script, rebuild fix, M2 guide and IR-43, M3 v0.20.0 on the intranet"
 ---
 
 # Confirm an app-owned database with Kotei's unchanged privilege script and release it
@@ -95,8 +100,15 @@ owns the code, not worked around in this run.
   `restore --rebuilt`. IR-43 has a "What was delivered" section for AC-1 (declared owning role)
   and AC-4 (administrator-run backups with a role file). Its status and resolution are set at
   M3, with the release.
-- [ ] M3: The release is published and the intranet runs it and passes the deploy-and-login
-  check.
+- [x] M3: The release is published and the intranet runs it and passes the deploy-and-login
+  check. v0.20.0 at f336bf6c: full gate green, the upgrade rehearsal from 0.19.2 read its seeded
+  row back unchanged (record landed as af625f21), and the intranet runs 0.20.0 with an exact
+  platform status and the protected URL answering 302 to the login page. `tan-ng-labs` commits
+  248fdc3 (candidate) and 9670e7b (tag pin); its 0.20.0 config changes are ab1a9c9. The first
+  intranet attempt stopped on a network timeout to Artifact Registry while planning stage 3,
+  after stages 1 and 2 applied. The rerun then refused on that attempt's own uncommitted pin
+  files; with the operator's yes they were restored and the third run converged. GitHub release
+  published 2026-11-12T15:23:11Z with 10 attachments.
 
 
 ## Surprises & Discoveries
@@ -148,7 +160,16 @@ owns the code, not worked around in this run.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+IR-43 is delivered in 0.20.0, and the intranet runs it. Kotei's migrations and unchanged
+`apply.sql` ran as the owner on one local context. Every IR-43 criterion held, including a
+rebuilt-server restore that returned the app's roles, grants and passwords equal to the source.
+The run found one real defect, a rebuild of any quiesced app database refused at prepare, and it
+was fixed with an interpreter test before the run went on. What remains is Kotei's: its
+`verify.sql` must exclude the provisioning owner, and its `Config.hs` must take the 0.20.0
+bindings, both under
+`mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application`. FRIC-14
+(transport bash) stays logged. ADR 37 gains one consequence about rebuilds; nothing else moves to
+an ADR.
 
 
 ## Context and Orientation

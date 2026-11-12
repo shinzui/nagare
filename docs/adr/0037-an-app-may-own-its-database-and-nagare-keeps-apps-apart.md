@@ -81,3 +81,6 @@ proved each of these on PostgreSQL 18 (`cli/nagarectl/test/fixtures/app-database
   database or a role with another app makes both apps' next plans refuse until it is undone.
 - The passwords of the logins an app creates are the app's and its operator's; Nagare neither sets
   nor rotates them.
+- A drain or resume acts on the sessions of a server that may since be gone, so a fresh rebuild of
+  an app database's scope does not run them again, while its migrations and hooks do (2048214e,
+  found by EP-260's native run).

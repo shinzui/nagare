@@ -21,6 +21,11 @@ provenance:
       at: 2026-11-12T06:53:51Z
       mode: "implement"
       note: "EP-257, EP-258, EP-259 complete; native smokes folded into EP-260 M1"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-12T15:24:25Z
+      mode: "implement"
+      note: "EP-260 complete; MasterPlan complete, released in v0.20.0"
 ---
 
 # Let an app own its database on a shared PostgreSQL server
@@ -126,7 +131,7 @@ one-line amendment note to ADR 30 and ADR 31. No cross-repository ADR applies.
 | EP-257 | Declare an app-owned PostgreSQL app database and keep apps apart | [docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md](../plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md) | None | None | Complete |
 | EP-258 | Carry an app's roles through backups, restores, quiesce and retirement | [docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md](../plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md) | EP-257 | None | Complete |
 | EP-259 | Let tasks and pre-deploy hooks bind an app database under a named URL variable | [docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md](../plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md) | EP-257 M2 (for its M2 only) | None | Complete |
-| EP-260 | Confirm an app-owned database with Kotei's unchanged privilege script and release it | [docs/plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md](../plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md) | EP-257, EP-258, EP-259 | None | In Progress |
+| EP-260 | Confirm an app-owned database with Kotei's unchanged privilege script and release it | [docs/plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md](../plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md) | EP-257, EP-258, EP-259 | None | Complete |
 
 
 ## Dependency Graph
@@ -212,12 +217,11 @@ build is for local contexts only.
 
 ## Progress
 
-EP-257, EP-258 and EP-259 are complete in the interpreter and on PostgreSQL 18 (fixture); their
-native confirmation is EP-260 M1, which is next. Cross-plan gate, checked in EP-260:
+All four child plans are complete. The cross-plan gate passed:
 
-- [ ] On one local context, IR-43 AC-1 to AC-5 pass together with Kotei's script unchanged, an
+- [x] On one local context, IR-43 AC-1 to AC-5 pass together with Kotei's script unchanged, an
   app database that did not opt in re-plans with no operations, and the release is running on
-  the intranet.
+  the intranet (EP-260 M1 and M3; v0.20.0, intranet on it 2026-11-12).
 
 
 ## Surprises & Discoveries
@@ -274,4 +278,11 @@ native confirmation is EP-260 M1, which is next. Cross-plan gate, checked in EP-
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+An app can own its PostgreSQL app database, released in 0.20.0 and running on the intranet. EP-257
+gave it the owner login and the boundary checks, EP-258 carried its roles through backups,
+restores and maintenance, and EP-259 let tasks and hooks bind the owner credential under a named
+variable. EP-260 confirmed all of it with Kotei's unchanged script. Its native run found one defect
+the interpreters had missed: the drain and resume a quiesce leaves declared were re-run by a fresh
+rebuild. It was fixed in 2048214e and recorded in ADR 37. Kotei still has to adapt its
+`verify.sql` and `Config.hs`. Recurring friction across children: the fast gate gating `HEAD`
+rather than the working tree (FRIC-12) and a stale Mori catalog (FRIC-13), both still logged.
