@@ -1,0 +1,4 @@
+2026-11-12T00:3xZ rotation check, bundle b1 (key 875838a7) after b2 was issued (key d9a86984)
+live user-managed keys: d9a86984f418b5dd647f51a4238c5e7440f2ce3a only
+b1 with its cached access token: read own head ALLOWED (token minted before rotation; GCP keeps it valid until expiry, <=1h)
+b1 with the cached token removed: DENIED invalid_grant: Invalid JWT Signature

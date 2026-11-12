@@ -1,0 +1,27 @@
+00:40:33 deletion protection now: False
+All resources unprotected
+delete 25
+00:40:47 destroying
+Duration: 2m48s
+
+The resources in the stack have been deleted, but the history and configuration associated with the stack are 
+If you want to remove the stack completely, run `pulumi stack rm ep248`.
+00:43:34 resources left in the stack: 0
+instances: cell-alpha-broker=TERMINATED cell-alpha-driver-0=TERMINATED cell-alpha-monitoring=TERMINATED cell-alpha-postgres=TERMINATED cell-beta-driver-0=TERMINATED cell-beta-monitoring=TERMINATED cel
+ep248 names: sa=[] repo=[] buckets=[gs://tan-nb-exp-ep248-state/]
+networks: cell-alpha-net cell-beta-net default nagare-network-net-0da5cb7 nix-builder-net 
+dns: nagare-zone-e572adf=apps.example.com. 
+addresses: nagare-ip-264b7df 
+images: nagare-image-bamf7v4ym3si nagare-image-gnq7zw6pwd1a nagare-image-s04l9dg8rc01 nagare-image-v4v4r4pkp6cb nagare-image-wqbly0vs5dg8 
+disks ep248: 
+00:43:44 new images: [nagare-image-wqbly0vs5dg8]
+Deleted [https://www.googleapis.com/compute/v1/projects/tan-nb-exp/global/images/nagare-image-wqbly0
+00:43:52 images now: nagare-image-bamf7v4ym3si nagare-image-gnq7zw6pwd1a nagare-image-s04l9dg8rc01 nagare-image-v4v4r4pkp6cb 
+00:43:52 before:     nagare-image-bamf7v4ym3si nagare-image-gnq7zw6pwd1a nagare-image-s04l9dg8rc01 nagare-image-v4v4r4pkp6cb 
+record delete 200
+record delete 200
+ruleset delete 204
+connections cleanup 200
+tunnel delete 200
+00:43:55 records left: []
+00:43:56 tunnels left: []

@@ -1,0 +1,15 @@
+23:57:06 plan 14: 24 operations; changed scopes: 
+      1 CreateResource	PulumiExecutor
+     23 VerifyResource	PulumiExecutor
+  nagare:ingress: cloudflare-tunnel
+create 1, same 1
+create	gcp:storage/bucketIAMMember:BucketIAMMember	nagare-delegated-deployer-ep248ci-store
+23:57:10 threshold met
+23:57:10 apply 14
+converged tx-57d5c5e538bee347a98816f044d248a7a764289622a02f6f6d564fc7af1e887a
+00:01:22 plan 15: 1 operations; changed scopes: bootstrap-stamp
+      1 UpdateResource	KubernetesExecutor
+00:01:22 apply 15
+converged tx-95a664ec194763de757fb183ae68786459abb02e5101a95faa2365bd5a3519dd
+00:03:04 plan 16: 0 operations; changed scopes: 
+00:03:04 converged at 16: a review with no operations

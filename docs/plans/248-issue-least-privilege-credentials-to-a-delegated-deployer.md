@@ -84,8 +84,10 @@ Interpreter and fake-adapter evidence comes first; native runs only confirm
   `app deploy --save-plan` then `inventory apply`, `site deploy` and `worker deploy`.
 - [x] D6, the cloud principal: `NagareDelegatedDeployer` built from the derived `nagare:delegatedDeployers`.
   The key is created after the ADR 9 project guard. Evidence: `infra/pulumi/test/delegatedDeployerResources.test.ts`,
-  the `foundation-managed-delegated-deployer` parity variant and `Nagare.Test.DeployerCloudAccess`. A native
-  IAM refusal check is the operator's to run on a disposable cloud context.
+  the `foundation-managed-delegated-deployer` parity variant and `Nagare.Test.DeployerCloudAccess`. Native:
+  [the cloud IAM check](../audits/ep248-cloud-iam-check-2026-11-11.md) passed 22 of 22 allow and refusal checks
+  with only the bundle, plus rotation, after fixes `24cb442f`, `940395bb` and `064479d4`. Revoke's account disable
+  was not confirmed natively (the audit's finding 2).
 - [x] D7, revoke and rotate. `delegation revoke` empties every deployer and builder Role, removes the store
   user, and disables the cloud account. Running `delegation credentials` again rotates. Evidence: "D7:
   revoking keeps every identity object and empties every Role…", "D7: running it again retires every earlier
@@ -102,6 +104,13 @@ Interpreter and fake-adapter evidence comes first; native runs only confirm
 
 ## Surprises & Discoveries
 
+- 2026-11-11, D6 native. A cloud deployer could not work at all on v0.19.0. Three defects:
+  - The credentials guard read Pulumi's default backend.
+  - gcloud's config-helper crashes on a key file override.
+  - Store requests named a quota project, which needs a project-level permission.
+
+  All three are fixed (`24cb442f`, `940395bb`, `064479d4`). A revoke whose foundation is not reconverged wedges the
+  next platform transition. See [the audit](../audits/ep248-cloud-iam-check-2026-11-11.md).
 - 2026-11-11, D1. No compiled delegated scope reads the delegation record, `nagare-shomei-settings` or any
   Secret. Runtime Secret references are dependencies, not observed members. The draft D2 grants were
   dropped, and P4 deployed with the derived rules alone.

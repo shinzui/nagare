@@ -1,0 +1,62 @@
+23:08:55 apply 1
+gs://tan-nb-exp-ep248-state/inventory
+23:09:53 plan 2: 1 operations; changed scopes: cloud
+      1 CreateResource	PulumiExecutor
+create	gcp:projects/iAMMember:IAMMember	nagare-iam-ar
+create	gcp:storage/bucketIAMMember:BucketIAMMember	nagare-backups-iam
+create	gcp:compute/diskResourcePolicyAttachment:DiskResourcePolicyAttachment	nagare-data-snapshot-at
+23:09:58 threshold met
+23:09:58 apply 2
+converged tx-2878d32280f6a34efe142a816d0a4032b4ccc1a216c021846aab2b548ee30dae
+23:12:06 plan 3: 1 operations; changed scopes: host-image-build
+      1 CreateResource	ArtifactExecutor
+23:12:06 apply 3
+converged tx-6a4db55b4b8f61a65d7ab3a89cb54e530172e9af55a2ac71f31848c9a62177fa
+23:20:00 plan 4: 1 operations; changed scopes: host-image
+      1 CreateResource	ArtifactExecutor
+23:20:00 apply 4
+converged tx-31c391e153df9710da2c5e59a23edaf647027c0d82ce82a0dd4c5d91642efb42
+23:23:53 plan 5: 1 operations; changed scopes: cloud-foundation
+      1 UpdateResource	CloudFoundationExecutor
+23:23:53 apply 5
+converged tx-32e91a3181841bd115e8dc9948a5bcc6cb95994c815648dbfd22a08ef3ccd5b9
+23:24:34 plan 6: 1 operations; changed scopes: cloud
+      1 CreateResource	PulumiExecutor
+create 2, same 1
+create	nagare:compute:NagareInstance	ep248-01
+create	gcp:compute/instance:Instance	ep248-01
+23:24:38 threshold met
+23:24:38 apply 6
+converged tx-3b2e0398337dc361cf3d684c80d4bafdade6859fe3fb1b945cba32646afbaaeb
+23:27:26 plan 7: 2 operations; changed scopes: host
+      1 CreateResource	HostExecutor
+      1 RunDeclaredOperation	HostExecutor
+23:27:26 apply 7
+platform mutation allowed (legacy-unknown)
+  warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+context guard: ep248 confined to project tan-nb-exp (stack ep248)
+warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+ambiguous tx-0229fa2aad9b781e048d5eef80185adb3dd4053423d1785b508e35b0ddaeca3b at op-f09df36b6af8d3e396b7e5ac: adapter result was ambiguous: host transport exited 255: age key ready at /var/lib/sops-nix/age-key.txt (sha256 8124e6e32c95a19e9e
+ssh: connect to host 100.75.221.35 port 22: Operation timed out
+STOP: apply 7 did not converge
+23:28:27 signed exactly ep248-nagare (nodekey:42fd6764…)
+23:29:29 host stage converged after signing exactly this node
+23:29:56 plan 8: 1 operations; changed scopes: kubeconfig
+      1 CreateResource	ArtifactExecutor
+23:29:56 apply 8
+converged tx-82b8240785abf7cbe988b518b70f0c650faf24c4c48c121580f5a670869b9faf
+23:31:01 plan 9: 12 operations; changed scopes: cloudflare-zone
+     12 CreateResource	CdnExecutor
+23:31:01 apply 9
+converged tx-3bffb7fde1d4a77db587b42144480f40c957197b758a6e65c9f4c565268b2096
+23:32:12 tunnel token saved, sops-encrypted
+23:34:19 plan 10: 221 operations; changed scopes: auth,bootstrap-stamp,cert-manager,cloudflare-tunnel,foundation,kourier,net-certmanager,net-controller-image,observability-extra,observability-otel-col
+      5 CreateResource	ArtifactExecutor
+      5 CreateResource	HelmExecutor
+    204 CreateResource	KubernetesExecutor
+      5 RunDeclaredOperation	ArtifactExecutor
+      2 RunDeclaredOperation	KubernetesExecutor
+23:34:19 apply 10
+converged tx-fe33ac3f7aaf0c3ef9d8fb4c572e6b9f01c8d31c91c047d5df0ef0f9c642b390
+23:49:22 plan 11: 0 operations; changed scopes: 
+23:49:22 converged at 11: a review with no operations
