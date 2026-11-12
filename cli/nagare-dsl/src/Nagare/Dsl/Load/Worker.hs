@@ -36,6 +36,7 @@ import Nagare.Dsl.Load.Fields
   , toAppDatabaseReaderRef
   , toBuildSpec
   , toEnvEntry
+  , toManagedEnv
   , toVolumes
   )
 import Nagare.Dsl.Prelude
@@ -93,6 +94,7 @@ data JsonWorker = JsonWorker
   , readiness :: !(Maybe JsonWorkerProbe)
   , shutdownSeconds :: !(Maybe Int)
   , serviceAccount :: !(Maybe Text)
+  , managedEnv :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -120,6 +122,7 @@ instance FromJSON JsonWorker where
       <*> o .:? "readiness"
       <*> o .:? "shutdownSeconds"
       <*> o .:? "serviceAccount"
+      <*> o .:? "managedEnv"
 
 -- | The intermediate decode shape for a 'WorkerProbe' (mirrors
 -- 'Nagare.Dsl.Config'\'s @workerProbeJSON@). The @kind@ selects the mechanism;
@@ -225,6 +228,7 @@ toWorker j = do
   readiness' <- traverse toReadinessProbe (j ^. #readiness)
   shutdown' <- traverse (first (MarshalError "shutdownSeconds") . mkShutdownSeconds) (j ^. #shutdownSeconds)
   serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (j ^. #serviceAccount)
+  managedEnv' <- toManagedEnv (j ^. #managedEnv)
   Right
     Worker
       { name = name'
@@ -245,6 +249,7 @@ toWorker j = do
       , readiness = readiness'
       , shutdown = shutdown'
       , serviceAccount = serviceAccount'
+      , managedEnv = managedEnv'
       }
 
 toWorkerResources :: JsonWorker -> Either LoadError (Maybe Resources)

@@ -31,7 +31,8 @@ import Nagare.Dsl.Task
   , mkTask
   )
 import Nagare.Dsl.Types
-  ( EnvVar (..)
+  ( ManagedEnv (..)
+  , EnvVar (..)
   , RetentionPolicy (..)
   , WebProbes (..)
   , httpCheck
@@ -136,6 +137,7 @@ applicationConfig registry accountName baseName = do
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = account
+        , managedEnv = InheritManagedEnv
         }
 
   mkApplication

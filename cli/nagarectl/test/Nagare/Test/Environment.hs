@@ -39,6 +39,7 @@ import Nagare.Dsl.Types
   , EnvName
   , EnvScope (Build, Runtime)
   , EnvVar (EnvLiteral, EnvSecretRef)
+  , ManagedEnv (..)
   , ScopedEnvVar (ScopedEnvVar, value)
   , defaultPort
   , envNameText
@@ -273,6 +274,7 @@ mkDemoDep envMap =
     , scale = Nothing
     , probes = Nothing
     , serviceAccount = Nothing
+    , managedEnv = InheritManagedEnv
     , volumes = []
     , databases = []
     , appDatabases = []

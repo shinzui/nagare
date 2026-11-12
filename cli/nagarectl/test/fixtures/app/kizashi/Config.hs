@@ -31,6 +31,7 @@ import Nagare.Dsl.Task
   )
 import Nagare.Dsl.Types
   ( EnvVar (..)
+  , ManagedEnv (..)
   , RetentionPolicy (..)
   , mkEnvName
   , mkImageRef
@@ -97,6 +98,7 @@ application = do
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , managedEnv = InheritManagedEnv
         , appDatabases = []
         }
 

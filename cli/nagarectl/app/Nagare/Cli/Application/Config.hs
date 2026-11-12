@@ -45,7 +45,8 @@ appNamespace = maybe "personal" T.pack
 -- env / secret handlers (EP-25)
 
 -- | Resolve @(name, namespace)@ from a Deployment, aggregate Application,
--- StaticSite, or ServerSite. Each loader identifies its own typed config kind.
+-- standalone Worker, StaticSite, or ServerSite. Each loader identifies its own
+-- typed config kind.
 --
 -- (Distinct from 'Nagare.App.appIdentityOrDie', which is Deployment-only and is
 -- the IP2 helper the @app@/@deployments@ commands use. This site-aware resolver
@@ -60,7 +61,12 @@ configIdentityOrDie file = do
       application <- Load.loadApplication file
       case application of
         Right app -> pure (serviceNameText (app ^. #name), namespaceText (app ^. #namespace))
-        Left (Load.UnexpectedKind _ _) -> siteIdentityOrDie file
+        Left (Load.UnexpectedKind _ _) -> do
+          worker <- Load.loadWorker file
+          case worker of
+            Right w -> pure (serviceNameText (w ^. #name), namespaceText (w ^. #namespace))
+            Left (Load.UnexpectedKind _ _) -> siteIdentityOrDie file
+            Left err -> dieT (Load.renderLoadError err)
         Left err -> dieT (Load.renderLoadError err)
     Left err -> dieT (Load.renderLoadError err)
 
@@ -79,7 +85,7 @@ resolveAppOrDie copts = do
             <> name
             <> "' but the command names '"
             <> typed
-            <> "'; they must match (the config's name is what the Service references)"
+            <> "'; they must match (the config's name is the one its managed store carries)"
         )
     else pure (name, ns)
 

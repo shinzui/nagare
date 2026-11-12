@@ -23,7 +23,8 @@ import Nagare.Dsl.Task
   , mkTask
   )
 import Nagare.Dsl.Types
-  ( envNameText
+  ( ManagedEnv (..)
+  , envNameText
   , mkEnvName
   , mkImageRef
   , mkNamespace
@@ -206,6 +207,7 @@ taskResolveTests =
             , failedJobsHistoryLimit = 1
             , startingDeadlineSeconds = Nothing
             , serviceAccount = Nothing
+            , managedEnv = InheritManagedEnv
             , appDatabases = []
             }
     ownImageTask =

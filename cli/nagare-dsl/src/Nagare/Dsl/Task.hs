@@ -48,6 +48,7 @@ import Nagare.Dsl.Types
   ( AppDatabaseBinding
   , EnvName
   , ImageRef
+  , ManagedEnv (..)
   , Namespace
   , Resources
   , ScopedEnvVar
@@ -261,6 +262,9 @@ data Task = Task
   -- ^ Optional; @> 0@ when present; renders as @spec.startingDeadlineSeconds@.
   , serviceAccount :: !(Maybe ServiceAccountName)
   -- ^ The account the Pod runs as; 'Nothing' runs it with no Kubernetes API token.
+  , managedEnv :: !ManagedEnv
+  -- ^ Whether a task that names an 'app' inherits that app's managed Runtime
+  -- store. A task with no app has no store to inherit.
   , appDatabases :: ![AppDatabaseBinding]
   -- ^ App databases the task connects to (EP-259), each injecting the runtime
   -- Secret (or the migration Secret when the app database names the task in
@@ -325,6 +329,7 @@ scheduledTask nameT scheduleT imageT commandT = do
       , failedJobsHistoryLimit = 1
       , startingDeadlineSeconds = Nothing
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       , appDatabases = []
       }
 

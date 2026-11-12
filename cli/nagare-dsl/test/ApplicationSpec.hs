@@ -96,6 +96,7 @@ migrateTask =
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , managedEnv = InheritManagedEnv
         , appDatabases = []
         }
 

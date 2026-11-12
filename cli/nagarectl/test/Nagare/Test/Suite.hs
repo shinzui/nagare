@@ -87,6 +87,7 @@ import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
 import InventoryWorldConformanceSpec (inventoryWorldConformanceTests)
 import InventoryWorldFaultsSpec (inventoryWorldFaultsTests)
+import ManagedEnvScopeSpec (managedEnvScopeTests)
 import Nagare.Dsl.Prelude ()
 import Nagare.Test.Application (appTests, deploymentsTests)
 import Nagare.Test.Backend
@@ -308,4 +309,5 @@ main = do
             , testGroup "Nagare.Access" [accessGrantsTests, accessCheckTests, inventoryAccessSessionTests]
             , accessResolveTests
             , appDeployTests
+            , managedEnvScopeTests
             ]

@@ -8,7 +8,7 @@
 --
 -- The bare Job @.spec@ is exposed as 'taskJobSpecValue' so EP-51's one-off run
 -- and EP-52's env-injection reuse the exact same value. When 'app' is set,
--- the template includes an @envFrom@ block referencing the app's managed runtime
+-- the template includes (unless the task sets 'NoManagedEnv') an @envFrom@ block referencing the app's managed runtime
 -- ConfigMap/Secret (@nagare-env-\<app\>-runtime@ / @nagare-secret-\<app\>-runtime@,
 -- @optional: true@); EP-52 owns resolving the inherited image tag at deploy time.
 module Nagare.Dsl.Task.Render
@@ -36,7 +36,8 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (serviceAccountPairs)
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
-  ( imageRefText
+  ( ManagedEnv (..)
+  , imageRefText
   , namespaceText
   , serviceNameText
   )
@@ -152,14 +153,14 @@ argsPairs t
   | otherwise = ["args" .= toJSON (t ^. #args)]
 
 -- | The @envFrom@ block (IP5 shape). Present ONLY when the task references an
--- app: it pulls the app's managed runtime ConfigMap and Secret, each
+-- app and has not opted out with 'NoManagedEnv': it pulls the app's managed runtime ConfigMap and Secret, each
 -- @optional: true@ so a task can run before those resources exist. This mirrors
 -- @Nagare.Dsl.Render.envFromField@ for app containers. EP-52 owns populating the
 -- referenced resources at deploy time.
 envFromPairs :: Task -> [Pair]
-envFromPairs t = case t ^. #app of
-  Nothing -> []
-  Just app -> managedEnvFromPairs (serviceNameText app)
+envFromPairs t = case (t ^. #app, t ^. #managedEnv) of
+  (Just app, InheritManagedEnv) -> managedEnvFromPairs (serviceNameText app)
+  _ -> []
 
 -- | The inline container @env@: only 'Runtime'-scoped entries render (matching
 -- how the app renderer drops build-only vars). Sorted by name via

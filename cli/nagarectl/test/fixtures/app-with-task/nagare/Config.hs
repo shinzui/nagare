@@ -20,6 +20,7 @@ import Nagare.Dsl.Task
   )
 import Nagare.Dsl.Types
   ( Deployment (..)
+  , ManagedEnv (..)
   , mkImageRef
   , mkNamespace
   , mkPort
@@ -56,6 +57,7 @@ dep = first show $ do
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , managedEnv = InheritManagedEnv
         , appDatabases = []
         }
   pure
@@ -72,6 +74,7 @@ dep = first show $ do
       , scale = Nothing
       , probes = Nothing
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       , volumes = []
       , databases = []
       , appDatabases = []

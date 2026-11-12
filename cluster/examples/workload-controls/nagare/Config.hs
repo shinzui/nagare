@@ -29,7 +29,8 @@ import Nagare.Dsl.Task
   , mkTask
   )
 import Nagare.Dsl.Types
-  ( RetentionPolicy (..)
+  ( ManagedEnv (..)
+  , RetentionPolicy (..)
   , WebProbes (..)
   , httpCheck
   , mkImageRef
@@ -115,6 +116,7 @@ applicationConfig = do
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , managedEnv = InheritManagedEnv
         , appDatabases = []
         }
 

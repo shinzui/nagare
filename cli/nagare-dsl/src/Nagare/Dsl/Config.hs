@@ -196,6 +196,12 @@ appDatabasesJSON [] = []
 appDatabasesJSON bindings =
   ["appDatabases" .= [object (("name" .= appDatabaseNameText (b ^. #name)) : ["urlVariable" .= envNameText v | Just v <- [b ^. #urlVariable]]) | b <- bindings]]
 
+-- | Emitted only for an opt-out, so a configuration that inherits the managed
+-- store keeps the exact bytes (and config digest) it had before the field.
+managedEnvJSON :: ManagedEnv -> [(Key, Value)]
+managedEnvJSON InheritManagedEnv = []
+managedEnvJSON NoManagedEnv = ["managedEnv" .= ("None" :: Text)]
+
 -- | Emitted only when present (EP-206), like 'appDatabasesJSON'.
 appDatabaseReadersJSON :: [AppDatabaseReaderRef] -> [(Key, Value)]
 appDatabaseReadersJSON [] = []
@@ -241,6 +247,7 @@ taskJSON t =
     , "serviceAccount" .= fmap serviceAccountNameText (t ^. #serviceAccount)
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (t ^. #logicalKey)
+      <> managedEnvJSON (t ^. #managedEnv)
       <> appDatabasesJSON (t ^. #appDatabases)
   where
     res = t ^. #resources
@@ -391,6 +398,7 @@ workerJSON w =
     , "serviceAccount" .= fmap serviceAccountNameText (w ^. #serviceAccount)
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (w ^. #logicalKey)
+      <> managedEnvJSON (w ^. #managedEnv)
       <> appDatabasesJSON (w ^. #appDatabases)
       <> appDatabaseReadersJSON (w ^. #appDatabaseReaders)
   where
@@ -496,6 +504,7 @@ deploymentJSON dep =
     , "tasks" .= map taskJSON (sortOn (^. #name) (dep ^. #tasks))
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (dep ^. #logicalKey)
+      <> managedEnvJSON (dep ^. #managedEnv)
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
       <> appDatabasesJSON (dep ^. #appDatabases)
       <> appDatabaseReadersJSON (dep ^. #appDatabaseReaders)

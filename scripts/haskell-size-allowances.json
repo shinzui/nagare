@@ -1,6 +1,6 @@
 {
   "cli/nagare-access/test/Spec.hs": 1678,
-  "cli/nagare-dsl/test/Spec.hs": 1251,
+  "cli/nagare-dsl/test/Spec.hs": 1240,
   "cli/nagarectl/src/Nagare/Inventory/DataFence/KubernetesExclusion.hs": 1199,
   "cli/nagarectl/test/AppDeploySpec.hs": 4765,
   "cli/nagarectl/test/DataFenceSpec.hs": 5619,

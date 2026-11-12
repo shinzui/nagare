@@ -74,6 +74,9 @@ module Nagare.Dsl.Types
   , mkServiceAccountName
   , serviceAccountNameText
 
+    -- * ManagedEnv
+  , ManagedEnv (..)
+
     -- * Scale
   , Scale (..)
   , mkScale
@@ -473,6 +476,13 @@ mkServiceAccountName t
 serviceAccountNameText :: ServiceAccountName -> Text
 serviceAccountNameText (ServiceAccountName t) = t
 
+-- | Whether a workload inherits its app's Runtime-scoped managed ConfigMap and
+-- Secret (the store @nagarectl env@ and @nagarectl secret@ write). A workload
+-- that opts out receives only what its own configuration names: inline
+-- variables, explicit Secret references and bindings.
+data ManagedEnv = InheritManagedEnv | NoManagedEnv
+  deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
+
 -- | Knative autoscaling bounds: 'minScale' (minimum pods; 0 means
 -- scale-to-zero) and 'maxScale' (maximum pods). Use 'mkScale' to construct;
 -- direct record construction bypasses validation.
@@ -807,6 +817,8 @@ data Deployment = Deployment
   , serviceAccount :: !(Maybe ServiceAccountName)
   -- ^ The account the Pod runs as. 'Nothing' runs the Pod with no Kubernetes
   -- API token.
+  , managedEnv :: !ManagedEnv
+  -- ^ Whether the container inherits the app's managed Runtime store.
   , volumes :: ![Volume]
   -- ^ Durable disks attached to the app. Empty (the backward-compatible
   -- default) means a stateless app. Each 'Volume' renders to a

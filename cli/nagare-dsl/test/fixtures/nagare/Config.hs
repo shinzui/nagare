@@ -39,6 +39,7 @@ deployment = do
       , scale = Just sc
       , probes = Nothing
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       , volumes = []
       , databases = []
       , appDatabases = []

@@ -19,6 +19,7 @@ import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Dsl.Static.Types (StaticBuild (NoBuild), mkFilePathText, mkSiteName)
 import Nagare.Dsl.Types
   ( Deployment (..)
+  , ManagedEnv (..)
   , defaultPort
   , mkDomains
   , mkImageRef
@@ -128,6 +129,7 @@ demoService =
     , scale = Nothing
     , probes = Nothing
     , serviceAccount = Nothing
+    , managedEnv = InheritManagedEnv
     , volumes = []
     , databases = []
     , appDatabases = []

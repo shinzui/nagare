@@ -19,6 +19,7 @@
 -- Log.)
 module Nagare.Dsl.Render
   ( renderService
+  , renderServiceIn
   , renderDomainMappings
 
     -- * Managed-resource naming helpers (IP2)
@@ -37,6 +38,7 @@ module Nagare.Dsl.Render
     -- * Container env rendering (reused by "Nagare.Dsl.Worker.Render", IP3)
   , envField
   , envFromField
+  , managedEnvFromField
 
     -- * Probe timing (reused by "Nagare.Dsl.Worker.Render")
   , initialDelayPair
@@ -61,8 +63,16 @@ import Nagare.Dsl.Types
 
 -- | Render a 'Deployment' to a Knative Service YAML document. The second
 -- argument is the resolved image tag, e.g. @"20260602-120000"@.
+--
+-- A standalone web service inherits the managed store named after itself.
 renderService :: Deployment -> Text -> ByteString
-renderService dep tag = YP.encodePretty knativeConfig (serviceValue dep tag)
+renderService dep = renderServiceIn (serviceNameText (dep ^. #name)) dep
+
+-- | 'renderService' for a web service whose managed store belongs to the named
+-- app: an Application's web service inherits the Application's store, whatever
+-- the service itself is called.
+renderServiceIn :: Text -> Deployment -> Text -> ByteString
+renderServiceIn storeApp dep tag = YP.encodePretty knativeConfig (serviceValue storeApp dep tag)
 
 -- | Render one DomainMapping YAML document per configured custom domain. An app
 -- with no custom domains renders an empty list (the Knative wildcard URL is used
@@ -287,8 +297,8 @@ keyCompare a b = compare (rank a, a) (rank b, b)
 -- ---------------------------------------------------------------------------
 -- Internal builders
 
-serviceValue :: Deployment -> Text -> Value
-serviceValue dep tag =
+serviceValue :: Text -> Deployment -> Text -> Value
+serviceValue storeApp dep tag =
   object
     [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
     , "kind" .= ("Service" :: Text)
@@ -301,17 +311,17 @@ serviceValue dep tag =
             -- string is an integration contract — do not change it.
             "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
           ]
-    , "spec" .= object ["template" .= templateValue dep tag]
+    , "spec" .= object ["template" .= templateValue storeApp dep tag]
     ]
 
-templateValue :: Deployment -> Text -> Value
-templateValue dep tag =
+templateValue :: Text -> Deployment -> Text -> Value
+templateValue storeApp dep tag =
   case annotationPairs dep of
-    [] -> object ["spec" .= specValue dep tag]
+    [] -> object ["spec" .= specValue storeApp dep tag]
     pairs ->
       object
         [ "metadata" .= object ["annotations" .= object pairs]
-        , "spec" .= specValue dep tag
+        , "spec" .= specValue storeApp dep tag
         ]
 
 -- | The pod-template annotations. A storage-backed app (one or more volumes)
@@ -328,10 +338,10 @@ annotationPairs dep
         , "autoscaling.knative.dev/max-scale" .= (Text.pack (show (sc ^. #maxScale)) :: Text)
         ]
 
-specValue :: Deployment -> Text -> Value
-specValue dep tag =
+specValue :: Text -> Deployment -> Text -> Value
+specValue storeApp dep tag =
   object
-    ( ["containers" .= toJSON [containerValue dep tag]]
+    ( ["containers" .= toJSON [containerValue storeApp dep tag]]
         <> volumesField (serviceNameText (dep ^. #name)) (dep ^. #volumes)
         <> serviceAccountPairs (dep ^. #serviceAccount)
     )
@@ -344,8 +354,8 @@ serviceAccountPairs :: Maybe ServiceAccountName -> [Pair]
 serviceAccountPairs Nothing = ["automountServiceAccountToken" .= False]
 serviceAccountPairs (Just account) = ["serviceAccountName" .= serviceAccountNameText account]
 
-containerValue :: Deployment -> Text -> Value
-containerValue dep tag =
+containerValue :: Text -> Deployment -> Text -> Value
+containerValue storeApp dep tag =
   object (required <> optionals)
   where
     imageStr = imageRefText (dep ^. #image) <> ":" <> resolveImageTag (dep ^. #build) tag
@@ -356,7 +366,7 @@ containerValue dep tag =
       ]
     optionals =
       envField (dep ^. #env)
-        <> envFromField (serviceNameText (dep ^. #name))
+        <> managedEnvFromField (dep ^. #managedEnv) storeApp
         <> resourcesField (dep ^. #resources)
         <> probesField (dep ^. #probes) (dep ^. #port)
         <> volumeMountsField (dep ^. #volumes)
@@ -377,7 +387,13 @@ envField m
       ]
     envEntry (n, ev) = envEntryValue (envNameText n) ev
 
--- | The always-present @envFrom:@ block referencing the app's Runtime-scoped
+-- | 'envFromField' for a workload that inherits the managed store, and nothing
+-- for one that opted out with 'NoManagedEnv'.
+managedEnvFromField :: ManagedEnv -> Text -> [Pair]
+managedEnvFromField InheritManagedEnv app = envFromField app
+managedEnvFromField NoManagedEnv _ = []
+
+-- | The @envFrom:@ block referencing the app's Runtime-scoped
 -- managed ConfigMap and Secret with @optional: true@ (MasterPlan IP3). Kubernetes
 -- applies @envFrom@ before the inline @env:@ list, so inline DSL env (and, later,
 -- generated variables) overrides managed env of the same key. @optional: true@

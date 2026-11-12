@@ -25,6 +25,7 @@ import Nagare.Dsl.Load.Fields
   , JsonKindEnvelope (..)
   , toAppDatabaseBinding
   , toEnvEntry
+  , toManagedEnv
   )
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task
@@ -72,6 +73,7 @@ data JsonTask = JsonTask
   , failedJobsHistoryLimit :: !(Maybe Int)
   , startingDeadlineSeconds :: !(Maybe Int)
   , serviceAccount :: !(Maybe Text)
+  , managedEnv :: !(Maybe Text)
   , appDatabases :: ![JsonAppDatabaseBinding]
   }
   deriving stock (Generic, Eq, Show)
@@ -100,6 +102,7 @@ instance FromJSON JsonTask where
       <*> o .:? "failedJobsHistoryLimit"
       <*> o .:? "startingDeadlineSeconds"
       <*> o .:? "serviceAccount"
+      <*> o .:? "managedEnv"
       <*> o .:? "appDatabases" .!= []
 
 -- | Re-validate a decoded task: re-run every smart constructor, decode the
@@ -134,6 +137,7 @@ toTask j = do
             ("unknown restart policy: " <> fromMaybe "" (j ^. #restartPolicy))
         )
   serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (j ^. #serviceAccount)
+  managedEnv' <- toManagedEnv (j ^. #managedEnv)
   appDbRefs' <- traverse toAppDatabaseBinding (j ^. #appDatabases)
   first (MarshalError "task") $
     mkTask
@@ -156,6 +160,7 @@ toTask j = do
         , failedJobsHistoryLimit = fromMaybe 1 (j ^. #failedJobsHistoryLimit)
         , startingDeadlineSeconds = j ^. #startingDeadlineSeconds
         , serviceAccount = serviceAccount'
+        , managedEnv = managedEnv'
         , appDatabases = appDbRefs'
         }
 

@@ -707,6 +707,7 @@ test-suite nagarectl-test
     InventoryWorldConformanceSpec
     InventoryWorldFaultsSpec
     LostVmSpec
+    ManagedEnvScopeSpec
     Nagare.Test.Application
     Nagare.Test.Backend
     Nagare.Test.Backup.BatchIngest

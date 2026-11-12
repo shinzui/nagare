@@ -9,13 +9,14 @@
 -- (which renders a 'StatefulSet'): a Deployment has the same
 -- @spec.selector@ / @spec.template.spec.containers@ shape, plus @spec.replicas@
 -- and /no/ @spec.serviceName@. The env/managed-@envFrom@ blocks reuse the exact
--- helpers the app renderer exports ('envField', 'envFromField'), so a worker's
+-- helpers the app renderer exports ('envField', 'managedEnvFromField'), so a worker's
 -- env is byte-identical to an app's and obeys the same managed-env contract
 -- ('nagarectl env' keeps working for workers). The volume blocks and PVC
 -- manifests reuse 'volumeMountsField' / 'volumesField' /
 -- 'renderPersistentVolumeClaims' for the same reason.
 module Nagare.Dsl.Worker.Render
   ( renderWorker
+  , renderWorkerIn
   , renderWorkerDeployment
   , workerDeploymentName
   )
@@ -30,8 +31,8 @@ import Nagare.Dsl.Build (resolveImageTag)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render
   ( envField
-  , envFromField
   , initialDelayPair
+  , managedEnvFromField
   , renderPersistentVolumeClaims
   , serviceAccountPairs
   , volumeMountsField
@@ -58,14 +59,21 @@ workerDeploymentName n = n
 -- before the consuming workload — the @local-path@ StorageClass binds
 -- @WaitForFirstConsumer@), then the Deployment. For a volume-free worker this is
 -- a one-element list. The second argument is the resolved image tag.
+--
+-- A standalone worker inherits the managed store named after itself.
 renderWorker :: Worker -> Text -> [ByteString]
-renderWorker w tag =
-  renderPersistentVolumeClaims (nameText w) (nsText w) (w ^. #volumes)
-    <> [renderWorkerDeployment w tag]
+renderWorker w = renderWorkerIn (nameText w) w
 
--- | Render the single @apps/v1@ Deployment document for a worker.
+-- | 'renderWorker' for a worker whose managed store belongs to the named app:
+-- an Application's worker inherits the Application's store, not one of its own.
+renderWorkerIn :: Text -> Worker -> Text -> [ByteString]
+renderWorkerIn storeApp w tag =
+  renderPersistentVolumeClaims (nameText w) (nsText w) (w ^. #volumes)
+    <> [YP.encodePretty workerConfig (deploymentValue storeApp w tag)]
+
+-- | Render the single @apps/v1@ Deployment document for a standalone worker.
 renderWorkerDeployment :: Worker -> Text -> ByteString
-renderWorkerDeployment w tag = YP.encodePretty workerConfig (deploymentValue w tag)
+renderWorkerDeployment w tag = YP.encodePretty workerConfig (deploymentValue (nameText w) w tag)
 
 -- ---------------------------------------------------------------------------
 -- Shared helpers.
@@ -97,8 +105,8 @@ workerSelectorLabels w = object ["nagare.dev/worker" .= nameText w]
 -- ---------------------------------------------------------------------------
 -- Deployment.
 
-deploymentValue :: Worker -> Text -> Value
-deploymentValue w tag =
+deploymentValue :: Text -> Worker -> Text -> Value
+deploymentValue storeApp w tag =
   object
     [ "apiVersion" .= txt "apps/v1"
     , "kind" .= txt "Deployment"
@@ -117,7 +125,7 @@ deploymentValue w tag =
                 [ "metadata" .= object ["labels" .= workerSelectorLabels w]
                 , "spec"
                     .= object
-                      ( ["containers" .= toJSON [containerValue w tag]]
+                      ( ["containers" .= toJSON [containerValue storeApp w tag]]
                           <> volumesField (nameText w) (w ^. #volumes)
                           <> serviceAccountPairs (w ^. #serviceAccount)
                           <> shutdownPairs (w ^. #shutdown)
@@ -126,15 +134,15 @@ deploymentValue w tag =
           ]
     ]
 
-containerValue :: Worker -> Text -> Value
-containerValue w tag =
+containerValue :: Text -> Worker -> Text -> Value
+containerValue storeApp w tag =
   object
     ( [ "name" .= nameText w
       , "image" .= imageStr
       ]
         <> commandPairs (w ^. #command)
         <> envField (w ^. #env)
-        <> envFromField (nameText w)
+        <> managedEnvFromField (w ^. #managedEnv) storeApp
         <> resourcesPairs (w ^. #resources)
         <> probesField (w ^. #readiness) (w ^. #liveness)
         <> volumeMountsField (w ^. #volumes)

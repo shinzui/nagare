@@ -178,6 +178,7 @@ demoDep domains =
     , scale = Nothing
     , probes = Nothing
     , serviceAccount = Nothing
+    , managedEnv = InheritManagedEnv
     , volumes = []
     , databases = []
     , appDatabases = []

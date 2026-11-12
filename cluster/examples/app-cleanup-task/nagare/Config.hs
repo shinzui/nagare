@@ -30,7 +30,7 @@ import Nagare.Dsl.Task
   , mkSchedule
   , mkTask
   )
-import Nagare.Dsl.Types (Deployment (..), mkDatabaseName, mkNamespace, mkServiceName)
+import Nagare.Dsl.Types (Deployment (..), ManagedEnv (..), mkDatabaseName, mkNamespace, mkServiceName)
 
 deployment :: Either String Deployment
 deployment = first show $ do
@@ -65,6 +65,7 @@ deployment = first show $ do
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , managedEnv = InheritManagedEnv
         , appDatabases = []
         }
   pure (dep & #databases .~ [db] & #tasks .~ [cleanup])

@@ -62,6 +62,7 @@ import Nagare.Dsl.Types
   , EnvName
   , HealthScheme (..)
   , ImageRef
+  , ManagedEnv (..)
   , Namespace
   , Port
   , Resources
@@ -245,6 +246,9 @@ data Worker = Worker
   -- ^ optional termination allowance; 'Nothing' keeps the Kubernetes default.
   , serviceAccount :: !(Maybe ServiceAccountName)
   -- ^ the account the Pod runs as; 'Nothing' runs it with no Kubernetes API token.
+  , managedEnv :: !ManagedEnv
+  -- ^ whether the container inherits the managed Runtime store: the
+  -- Application's when the worker is part of one, else the worker's own.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -280,6 +284,7 @@ webWorker nameText imageText = do
       , readiness = Nothing
       , shutdown = Nothing
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       }
   where
     toStr = either (Left . Text.unpack) Right

@@ -11,7 +11,7 @@ import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitTask)
 import Nagare.Dsl.Task
-import Nagare.Dsl.Types (mkNamespace, mkServiceName)
+import Nagare.Dsl.Types (ManagedEnv (..), mkNamespace, mkServiceName)
 
 task :: Either String Task
 task = first show $ do
@@ -39,6 +39,7 @@ task = first show $ do
       , failedJobsHistoryLimit = 1
       , startingDeadlineSeconds = Nothing
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       , appDatabases = []
       }
 

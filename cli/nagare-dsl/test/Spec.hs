@@ -390,6 +390,7 @@ helloDep =
     , scale = Just (unsafe (mkScale 0 3))
     , probes = Nothing
     , serviceAccount = Nothing
+    , managedEnv = InheritManagedEnv
     , volumes = []
     , databases = []
     , appDatabases = []
@@ -1109,6 +1110,7 @@ standaloneTask =
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , managedEnv = InheritManagedEnv
         , appDatabases = []
         }
 
@@ -1117,29 +1119,16 @@ standaloneTask =
 -- carries the nagare.dev/app label.
 appTask :: Task
 appTask =
-  unsafe $
-    mkTask
-      Task
-        { name = unsafe (mkServiceName "sync")
-        , logicalKey = Nothing
-        , namespace = unsafe (mkNamespace "personal")
-        , schedule = unsafe (mkSchedule "*/15 * * * *")
-        , image = Nothing
-        , app = Just (unsafe (mkServiceName "notes"))
-        , command = ["python", "manage.py", "sync"]
-        , args = []
-        , env = Map.empty
-        , resources = Nothing
-        , timeoutSeconds = Nothing
-        , concurrencyPolicy = Forbid
-        , restartPolicy = Never
-        , backoffLimit = 2
-        , successfulJobsHistoryLimit = 3
-        , failedJobsHistoryLimit = 1
-        , startingDeadlineSeconds = Nothing
-        , serviceAccount = Nothing
-        , appDatabases = []
-        }
+  unsafe . mkTask $
+    standaloneTask
+      & #name .~ unsafe (mkServiceName "sync")
+      & #schedule .~ unsafe (mkSchedule "*/15 * * * *")
+      & #image .~ Nothing
+      & #app .~ Just (unsafe (mkServiceName "notes"))
+      & #command .~ ["python", "manage.py", "sync"]
+      & #env .~ Map.empty
+      & #timeoutSeconds .~ Nothing
+      & #backoffLimit .~ 2
 
 taskTests :: [TestTree]
 taskTests =

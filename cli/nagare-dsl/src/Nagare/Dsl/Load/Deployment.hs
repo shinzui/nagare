@@ -46,6 +46,7 @@ import Nagare.Dsl.Load.Fields
   , toBuildSpec
   , toDomainSpecs
   , toEnvEntry
+  , toManagedEnv
   , toVolumes
   , toWebProbes
   )
@@ -85,6 +86,7 @@ data JsonDeployment = JsonDeployment
   , scaleMax :: !(Maybe Int)
   , probes :: !(Maybe JsonWebProbes)
   , serviceAccount :: !(Maybe Text)
+  , managedEnv :: !(Maybe Text)
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
   , appDatabases :: ![JsonAppDatabaseBinding]
@@ -115,6 +117,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "scaleMax"
       <*> o .:? "probes"
       <*> o .:? "serviceAccount"
+      <*> o .:? "managedEnv"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "appDatabases" .!= []
@@ -143,6 +146,7 @@ toDeployment jd = do
   probes' <- traverse toWebProbes (jd ^. #probes)
   traverse_ (checkProbePorts port') probes'
   serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (jd ^. #serviceAccount)
+  managedEnv' <- toManagedEnv (jd ^. #managedEnv)
   vols' <- toVolumes (jd ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jd ^. #databases)
   appDbRefs' <- traverse toAppDatabaseBinding (jd ^. #appDatabases)
@@ -184,6 +188,7 @@ toDeployment jd = do
       , scale = scale'
       , probes = probes'
       , serviceAccount = serviceAccount'
+      , managedEnv = managedEnv'
       , volumes = vols'
       , databases = dbRefs'
       , appDatabases = appDbRefs'

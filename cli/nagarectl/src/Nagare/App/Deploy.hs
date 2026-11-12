@@ -50,7 +50,7 @@ import Nagare.Dsl.Build (BuildSpec, resolveImageTag)
 import Nagare.Dsl.Database (Database (..), engineVersionText)
 import Nagare.Dsl.Database.Render (databaseCredentialTemplate, renderDatabase)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
+import Nagare.Dsl.Render (renderDomainMappings, renderServiceIn, renderVolumeClaims)
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
   ( Deployment
@@ -64,7 +64,7 @@ import Nagare.Dsl.Types
   , serviceNameText
   )
 import Nagare.Dsl.Worker (Worker)
-import Nagare.Dsl.Worker.Render (renderWorker)
+import Nagare.Dsl.Worker.Render (renderWorkerIn)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Image (qualifyImage)
 import Nagare.Target (TargetProfile (..), storeBackendFor)
@@ -186,20 +186,23 @@ waitResult what (ExitFailure code) =
 -- Rendering + the shared-identity label
 
 -- | Apply the shared image + shared env to the web service, render its PVCs,
--- Knative Service, and DomainMappings, and stamp the app label on each.
+-- Knative Service, and DomainMappings, and stamp the app label on each. The
+-- service inherits the rollout app's managed store, as a worker does.
 renderServiceObjects :: RolloutEnv -> Deployment -> Either Text [(Text, ByteString)]
 renderServiceObjects env svc0 =
   traverse
     (stamp env "service")
-    (renderVolumeClaims svc <> [renderService svc (env ^. #imageTag)] <> renderDomainMappings svc)
+    (renderVolumeClaims svc <> [renderServiceIn (env ^. #appName) svc (env ^. #imageTag)] <> renderDomainMappings svc)
   where
     svc = svc0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
 
 -- | Apply the shared image + shared env to a worker, render its PVCs + Deployment,
--- and stamp the app label on each.
+-- and stamp the app label on each. The worker inherits the rollout app's managed
+-- store: the Application's for an Application's worker, and its own for a
+-- standalone worker, whose rollout app is the worker itself.
 renderWorkerObjects :: RolloutEnv -> Worker -> Either Text [(Text, ByteString)]
 renderWorkerObjects env w0 =
-  traverse (stamp env "worker") (renderWorker w (env ^. #imageTag))
+  traverse (stamp env "worker") (renderWorkerIn (env ^. #appName) w (env ^. #imageTag))
   where
     w = w0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
 

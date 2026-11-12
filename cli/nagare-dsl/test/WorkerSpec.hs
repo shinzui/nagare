@@ -17,6 +17,7 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding (encodeUtf8)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeDeployment, encodeTask, encodeWorker)
@@ -24,12 +25,12 @@ import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeTask, decodeWork
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Presets (webService)
-import Nagare.Dsl.Render (renderService)
+import Nagare.Dsl.Render (renderService, renderServiceIn)
 import Nagare.Dsl.Task (scheduledTask)
 import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker
-import Nagare.Dsl.Worker.Render (renderWorker, renderWorkerDeployment)
+import Nagare.Dsl.Worker.Render (renderWorker, renderWorkerDeployment, renderWorkerIn)
 import Nagare.Resource.Application (workerResourceId)
 import Nagare.Resource.Types (ScopeKind (Application), mkLogicalKey, mkName, mkScopeId)
 import Test.Tasty
@@ -49,6 +50,7 @@ workerTests =
     , testGroup "loadWorker (config-as-program)" loadTests
     , testGroup "probe initialDelaySeconds (EP-183)" initialDelayTests
     , testGroup "workload controls (EP-254)" workloadControlTests
+    , testGroup "managed store opt-out (EP-261)" managedEnvTests
     ]
 
 replicasTests :: [TestTree]
@@ -345,6 +347,7 @@ brokerExampleWorker =
     , readiness = Nothing
     , shutdown = Nothing
     , serviceAccount = Nothing
+    , managedEnv = InheritManagedEnv
     }
 
 -- | Readiness, shutdown and token policy, from the typed value to rendered bytes
@@ -449,6 +452,95 @@ workloadControlTests =
       Left (MarshalError field _) -> field @?= expected
       other -> assertFailure ("expected a MarshalError for " <> Text.unpack expected <> ", got: " <> show other)
 
+-- | The managed store's inheritance and its opt-out, for each of the three
+-- workload kinds: rendered bytes, the JSON key, and the loader.
+managedEnvTests :: [TestTree]
+managedEnvTests =
+  [ testCase "an opted-out web service renders its env and no envFrom" $ do
+      let rendered = renderService (withSecret helloDep & #managedEnv .~ NoManagedEnv) "t1"
+      assertOptedOut rendered
+  , testCase "an opted-out worker renders its env and no envFrom" $ do
+      let rendered = renderWorkerDeployment (withSecret minimalWorker & #managedEnv .~ NoManagedEnv) "t1"
+      assertOptedOut rendered
+  , testCase "an opted-out task renders its env and no envFrom" $ do
+      let rendered = renderTask (withSecret appTask & #managedEnv .~ NoManagedEnv)
+      assertOptedOut rendered
+  , testCase "an inheriting web service and task name the app's store" $ do
+      assertBool "web" (BS.isInfixOf "name: nagare-secret-hello-runtime" (renderService helloDep "t1"))
+      assertBool "task" (BS.isInfixOf "name: nagare-secret-hello-runtime" (renderTask appTask))
+  , testCase "a standalone worker inherits the store named after itself" $ do
+      let rendered = BS.concat (renderWorker minimalWorker "t1")
+      assertBool "secret" (BS.isInfixOf ("name: nagare-secret-" <> workerName <> "-runtime") rendered)
+      assertBool "configmap" (BS.isInfixOf ("name: nagare-env-" <> workerName <> "-runtime") rendered)
+  , testCase "renderWorkerIn names the given app's store and only that one" $ do
+      let rendered = BS.concat (renderWorkerIn "scoped" minimalWorker "t1")
+      assertBool "secret" (BS.isInfixOf "name: nagare-secret-scoped-runtime" rendered)
+      assertBool "configmap" (BS.isInfixOf "name: nagare-env-scoped-runtime" rendered)
+      assertBool "not its own" (not (BS.isInfixOf ("nagare-secret-" <> workerName <> "-runtime") rendered))
+  , testCase "renderServiceIn names the given app's store and only that one" $ do
+      let rendered = renderServiceIn "scoped" helloDep "t1"
+      assertBool "secret" (BS.isInfixOf "name: nagare-secret-scoped-runtime" rendered)
+      assertBool "not its own" (not (BS.isInfixOf "nagare-secret-hello-runtime" rendered))
+      assertBool "opt-out" (not (BS.isInfixOf "envFrom" (renderServiceIn "scoped" (helloDep & #managedEnv .~ NoManagedEnv) "t1")))
+  , testCase "renderWorkerIn honours the opt-out" $
+      assertBool
+        "no envFrom"
+        (not (BS.isInfixOf "envFrom" (BS.concat (renderWorkerIn "scoped" (minimalWorker & #managedEnv .~ NoManagedEnv) "t1"))))
+  , testCase "the default writes no managedEnv key" $ do
+      assertBool "web" (not (hasKey (encodeDeployment helloDep)))
+      assertBool "worker" (not (hasKey (encodeWorker minimalWorker)))
+      assertBool "task" (not (hasKey (encodeTask appTask)))
+  , testCase "the opt-out round-trips as None" $ do
+      let web = helloDep & #managedEnv .~ NoManagedEnv
+          worker = minimalWorker & #managedEnv .~ NoManagedEnv
+          task = appTask & #managedEnv .~ NoManagedEnv
+      keyOf (encodeDeployment web) @?= Just (String "None")
+      keyOf (encodeWorker worker) @?= Just (String "None")
+      keyOf (encodeTask task) @?= Just (String "None")
+      decodeDeployment (toStrict (encodeDeployment web)) @?= Right web
+      decodeWorker (toStrict (encodeWorker worker)) @?= Right worker
+      decodeTask (toStrict (encodeTask task)) @?= Right task
+  , testCase "an absent key and Inherit both load as the default" $ do
+      decodeDeployment (toStrict (encodeDeployment helloDep)) @?= Right helloDep
+      decodeDeployment (withKey (String "Inherit") (encodeDeployment helloDep)) @?= Right helloDep
+      decodeWorker (withKey (String "Inherit") (encodeWorker minimalWorker)) @?= Right minimalWorker
+      decodeTask (withKey (String "Inherit") (encodeTask appTask)) @?= Right appTask
+  , testCase "an unknown value is refused for each kind" $ do
+      assertMarshal (decodeDeployment (withKey (String "Some") (encodeDeployment helloDep)))
+      assertMarshal (decodeWorker (withKey (String "Some") (encodeWorker minimalWorker)))
+      assertMarshal (decodeTask (withKey (String "Some") (encodeTask appTask)))
+  ]
+  where
+    workerName = encodeUtf8 (serviceNameText (minimalWorker ^. #name))
+    appTask =
+      unsafe (scheduledTask "cleanup" "0 2 * * *" "example.test/demo" "cleanup")
+        & #app .~ Just (unsafe (mkServiceName "hello"))
+    withSecret workload =
+      workload
+        & #env
+          .~ Map.fromList
+            [ (unsafe (mkEnvName "API_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "nagare-secret-hello-runtime"))))
+            , (unsafe (mkEnvName "MODE"), runtimeScoped (EnvLiteral "scoped"))
+            ]
+    assertOptedOut rendered = do
+      assertBool "no envFrom" (not (BS.isInfixOf "envFrom" rendered))
+      assertBool "no managed ConfigMap" (not (BS.isInfixOf "nagare-env-" rendered))
+      assertBool "literal" (BS.isInfixOf "name: MODE" rendered)
+      assertBool "secretKeyRef" (BS.isInfixOf "secretKeyRef:" rendered)
+      assertBool "referenced Secret" (BS.isInfixOf "name: nagare-secret-hello-runtime" rendered)
+      assertBool "referenced key" (BS.isInfixOf "key: API_TOKEN" rendered)
+    keyOf bytes = case Aeson.decode bytes of
+      Just (Object o) -> KeyMap.lookup "managedEnv" o
+      _ -> error "encoder did not produce an object"
+    hasKey = isJust . keyOf
+    withKey value bytes = case Aeson.decode bytes of
+      Just (Object o) -> toStrict (Aeson.encode (Object (KeyMap.insert "managedEnv" value o)))
+      _ -> error "encoder did not produce an object"
+    assertMarshal :: (Show a) => Either LoadError a -> Assertion
+    assertMarshal = \case
+      Left (MarshalError field _) -> field @?= "managedEnv"
+      other -> assertFailure ("expected a managedEnv refusal, got: " <> show other)
+
 loadTests :: [TestTree]
 loadTests =
   [ testCase "loadWorker fixture returns the expected Worker" $ do
@@ -481,6 +573,7 @@ helloDep =
     , scale = Nothing
     , probes = Nothing
     , serviceAccount = Nothing
+    , managedEnv = InheritManagedEnv
     , volumes = []
     , databases = []
     , appDatabases = []

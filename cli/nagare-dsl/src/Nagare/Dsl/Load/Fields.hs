@@ -11,6 +11,7 @@ module Nagare.Dsl.Load.Fields
   , toAppDatabaseReaderRef
   , JsonAppDatabaseBinding (..)
   , toAppDatabaseBinding
+  , toManagedEnv
   , checkTaskApp
   , firstDuplicate
   , toAccessPolicy
@@ -53,6 +54,7 @@ import Nagare.Dsl.Types
   , EnvVar (EnvLiteral, EnvSecretRef)
   , HealthScheme (HTTP, HTTPS)
   , HttpCheck (..)
+  , ManagedEnv (..)
   , RetentionPolicy (Delete, Retain)
   , ScopedEnvVar
   , Volume (..)
@@ -495,6 +497,15 @@ data JsonAppDatabaseBinding = JsonAppDatabaseBinding
 
 instance FromJSON JsonAppDatabaseBinding where
   parseJSON = withObject "AppDatabaseBinding" $ \o -> JsonAppDatabaseBinding <$> o .: "name" <*> o .:? "urlVariable"
+
+-- | The optional @managedEnv@ key: absent or @"Inherit"@ inherits the managed
+-- store, @"None"@ opts out.
+toManagedEnv :: Maybe Text -> Either LoadError ManagedEnv
+toManagedEnv Nothing = Right InheritManagedEnv
+toManagedEnv (Just "Inherit") = Right InheritManagedEnv
+toManagedEnv (Just "None") = Right NoManagedEnv
+toManagedEnv (Just other) =
+  Left (MarshalError "managedEnv" ("unknown value: " <> other <> " (expected Inherit or None)"))
 
 toAppDatabaseBinding :: JsonAppDatabaseBinding -> Either LoadError AppDatabaseBinding
 toAppDatabaseBinding j =

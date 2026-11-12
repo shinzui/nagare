@@ -40,6 +40,7 @@ mkDeployment baseDomain = do
       , scale = Just scale'
       , probes = Just (readinessOnly health')
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       , volumes = []
       , databases = []
       , appDatabases = []

@@ -14,7 +14,7 @@ import qualified Data.Map as Map
 import Nagare.Dsl.Broker (BrokerBinding (..), mkBrokerName, mkTopicName)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Config (emitWorker)
-import Nagare.Dsl.Types (defaultNamespace, mkImageRef, mkServiceName)
+import Nagare.Dsl.Types (ManagedEnv (..), defaultNamespace, mkImageRef, mkServiceName)
 import Nagare.Dsl.Worker (Worker (..), mkCommand, mkReplicas)
 
 worker :: Either String Worker
@@ -54,6 +54,7 @@ worker = do
       , readiness = Nothing
       , shutdown = Nothing
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       }
 
 main :: IO ()

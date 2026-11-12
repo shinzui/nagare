@@ -19,7 +19,7 @@ import Nagare.Dsl.Task
   , mkSchedule
   , mkTask
   )
-import Nagare.Dsl.Types (mkImageRef, mkNamespace, mkServiceName)
+import Nagare.Dsl.Types (ManagedEnv (..), mkImageRef, mkNamespace, mkServiceName)
 import Nagare.Dsl.Worker (webWorker)
 
 sharedImage :: Text
@@ -55,6 +55,7 @@ applicationConfig = do
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , managedEnv = InheritManagedEnv
         , appDatabases = []
         }
   mkApplication
