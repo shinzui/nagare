@@ -58,7 +58,8 @@ This is IR-43 AC-5
   round trip on `Deployment`, `Worker` and `Task`, the bare-name form and a `SecretKeyRef` env
   entry refused at load, `mkTask` refusals, golden `test/golden/task-url-variable.cronjob.yaml`.
   The existing `AppDatabaseSpec` and `AppDatabasePrivilegeSpec` cases pass unchanged apart from
-  the binding form. The nagare-dsl suite is green (520 tests). New
+  the binding form. `just gate-fast c976957f` green (record
+  `gates/fast/c976957fd189b77da8a118fd92762b2196e0a124.json`), and `exe:nagarectl` builds. New
   cases live in their own modules because `AppDatabaseSpec.hs` and `AppDeploySpec.hs` are at
   their size limits.
 - [ ] M2: A pre-deploy hook named in an app-owned database's `owners` receives the owner
