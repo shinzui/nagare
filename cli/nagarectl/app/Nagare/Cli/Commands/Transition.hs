@@ -17,8 +17,10 @@ import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Cli.Bootstrap.Foundation (buildCloudFoundationCandidate, cloudFoundationPendingAt, foundationStageTarget)
 import Nagare.Cli.Bootstrap.Sequence (planNextStage)
 import Nagare.Cli.Bootstrap.Stage (StageMode (ReleaseTransition))
+import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
@@ -73,7 +75,24 @@ runPlatformTransitionPlan mctx output summary = do
   -- The stages are planned as if the context were already pinned to the
   -- target; the pin itself is written by the commit, last.
   let moved = active & #profile . #platformVersion .~ Just (manifest ^. #platformVersion)
-  tracePhase "stage planning" $ planNextStage ReleaseTransition moved paths workspace (transitionReviewIdentity (pair ^. #source) (manifest ^. #payloadId)) output
+      identity = transitionReviewIdentity (pair ^. #source) (manifest ^. #payloadId)
+  -- A foundation whose derived target moved since it was accepted (a
+  -- delegation created or revoked, or a context edit, with no bootstrap since)
+  -- is converged first, as bootstrap does. Otherwise the cloud stage stops on
+  -- it after earlier stages applied, and neither release's CLI can go on
+  -- (EP-248 D6 native check, finding 2).
+  stageTarget <- foundationStageTarget moved
+  foundationPending <-
+    if active ^. #profile . #mode == Cloud
+      then cloudFoundationPendingAt moved stageTarget
+      else pure False
+  tracePhase "stage planning" $
+    if foundationPending
+      then do
+        current <- Inventory.loadTargetSnapshot stageTarget
+        candidate <- buildCloudFoundationCandidate moved paths workspace current
+        Inventory.planInventoryCandidateWithPayloadIdentity (inventoryPlanRegistry moved workspace) identity stageTarget candidate output
+      else planNextStage ReleaseTransition moved paths workspace identity output
   impact <- transitionImpact output
   for_ summary (\path -> BL.writeFile path (encode impact))
   -- EP-228 M1: why the stage is selected, in its effects, re-accepted

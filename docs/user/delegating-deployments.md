@@ -116,10 +116,9 @@ with every key it holds. The namespaces and everything deployed in them stay; th
 change them.
 
 On a cloud context, then run `nagarectl platform bootstrap plan --out DIR` and apply it. That stage disables
-the deployer's service account, which refuses every key it holds. Do it before the next platform transition:
-a transition started while the foundation still holds the active account stops at the foundation stage. An
-access token minted before a key was deleted, by rotation or revocation, stays valid until it expires
-(up to an hour).
+the deployer's service account, which refuses every key it holds. A platform transition started before then
+plans that foundation stage first. An access token minted before a key was deleted, by rotation or
+revocation, stays valid until it expires (up to an hour).
 
 ## Who applied each change
 
