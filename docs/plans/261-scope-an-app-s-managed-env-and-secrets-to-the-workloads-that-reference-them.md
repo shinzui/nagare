@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-12T15:37:27Z
       mode: "update"
       note: "Refreshed against v0.20.0: EP-259 landed, executable-only CLI check, no worker goldens in nagarectl, one-shot jobs out of scope, Kotei script pins, trailers"
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-12T16:47:55Z
+      mode: "implement"
+      note: "M1 to M3 implemented; an Application's web service also inherits the Application's store"
 ---
 
 # Scope an app's managed env and secrets to the workloads that reference them
@@ -49,26 +54,62 @@ raised for `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-app
 
 ## Progress
 
-- [ ] M1: `managedEnv` exists on the web service, worker and task types. An opted-out workload
+- [x] M1: `managedEnv` exists on the web service, worker and task types. An opted-out workload
   renders with no managed `envFrom`; a workload that does not opt out renders the same bytes
-  and the same configuration JSON as before. Evidence: the new `nagare-dsl-test` cases pass and
-  no existing golden file changes.
-- [ ] M2: A reviewed Application deploy whose web service, worker and pre-deploy hook all opt
+  and the same configuration JSON as before. Done 2026-11-12 in `a314e7a9`: `nagare-dsl-test`
+  passes with the new "managed store opt-out (EP-261)" group, and no golden file changed.
+- [x] M2: A reviewed Application deploy whose web service, worker and pre-deploy hook all opt
   out compiles to manifests with no managed `envFrom`, each naming only its own keys, with one
-  runtime Secret dependency. An Application's worker that does not opt out inherits the app's
-  store. `nagarectl env` and `nagarectl secret` accept a standalone worker's configuration.
-  Evidence: the new `nagarectl-test` cases pass, the built executable resolves the worker
-  fixture, and `just gate-fast` is green.
-- [ ] M3: The user guides state, per workload kind, which store is inherited and how to opt
-  out, and an ADR records the rule.
-- [ ] M4: On a local context, the fixture Application (IR-44 AC-1 to AC-4) and Kotei's hosted
-  application (AC-5) pass with one line of evidence each, and IR-44's status records the
-  outcome.
+  runtime Secret dependency. An Application's worker and web service that do not opt out
+  inherit the app's store. `nagarectl env` and `nagarectl secret` accept a standalone worker's
+  configuration. Done 2026-11-12 in `a314e7a9`: `ManagedEnvScopeSpec` passes (3 cases), no
+  golden file changed, and `just gate-fast` is green for `a314e7a9`. The built executable, on
+  `cli/nagare-dsl/test/fixtures/worker/nagare/Config.hs`: before, `env list queue-consumer`
+  died with "config emitted a 'Worker' but 'StaticSite or ServerSite' was expected"; after, it
+  resolves the worker and reaches the store read.
+- [x] M3: The user guides state, per workload kind, which store is inherited and how to opt
+  out, and an ADR records the rule. Done 2026-11-12: the section "Which workloads receive the
+  managed store" in `docs/user/env-and-secrets.md`, the field rows in `workers.md`,
+  `scheduled-tasks.md`, `config-reference.md` and `deploying-apps.md`, and
+  [ADR 38](../adr/0038-a-workload-inherits-its-app-s-managed-store-unless-it-opts-out.md).
+- [x] M4: On a local context the fixture Applications pass, and the Kotei run is recorded as
+  not possible here. Run 2026-11-12 on the disposable `transition` context of the v0.20.0
+  rehearsal (k3d on Colima `nagare-mp23`) with the packaged `nagarectl 0.20.0 (a314e7a9)`;
+  `just local-secret-scope-smoke` printed `secret-scope smoke: PASS` on two consecutive runs.
+  - AC-1: "no container of scoped has an envFrom; each names only its declared keys".
+  - AC-2: "each workload reads its own keys of the one runtime Secret and no other; the review
+    names only application:secret-scoped-runtime/runtime-secret/secret". The hook exits
+    non-zero if it sees any key but its own, and its Job completed.
+  - AC-3: "plain, deployed by nagarectl 0.20.0 (f336bf6c), replans with no operations" (the
+    v0.20.0 review had 5 operations, this build's review of the same tag 0).
+  - AC-4: "secret set shared reaches shared-worker; shared-web and shared-worker name the
+    Application's store".
+  - AC-5: not run. Kotei's release image cannot be built here: it is an `aarch64-linux` Nix
+    build over some twenty `shinzui/*` inputs, this machine has no ARM64 Linux builder with
+    Kotei's cache, and Kotei's own build container is gone. No image was substituted. What was
+    checked instead: a scratch copy of Kotei's `nagare/Config.hs` (at `db21e4bb`) with the
+    opt-out passes `nagarectl app check` and `app render` at `a314e7a9`, all three roles carry
+    `managedEnv: None`, and only `migrate` names `KOTEI_RELEASE_MAINTENANCE_DATABASE_URL`. The
+    two-file diff is in IR-44's "What was delivered", for Kotei's plan 135 to run. IR-44 is
+    `accepted`, with AC-5 open.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- An Application's web service had the same gap as its worker. `renderService` named the store
+  after the service, so a service called otherwise than its Application (the `kizashi` fixture:
+  app `kizashi`, service `kizashi-serve`) inherited a store no command could write. IR-44 and
+  this plan had read "the web service inherits the app's store", which held only when the two
+  names were equal, as in Kotei. Evidence: `cli/nagare-dsl/src/Nagare/Dsl/Render.hs` at
+  `70ef5f63`, `envFromField (serviceNameText (dep ^. #name))`. It changed the decision below.
+- The hook Job is not ordered after the Secret directly. It is ordered after its CronJob, which
+  carries the Secret dependency, so M2's test asserts the Job's ordering through the CronJob.
+- `kubectl rollout restart` on a reviewed Deployment makes the next reviewed apply refuse
+  ("fields managed by another writer: kubectl-rollout"). The smoke replaces the Pod instead.
+  The one occurrence was cleared by the runbook's close and `--take-over-fields`, after
+  removing the smoke's own annotation.
+- Friction: [FRIC-15](../friction-log/15-mori-registry-refuses-to-start-on-a-projection-catalog-mismatch.md)
+  and [FRIC-16](../friction-log/16-the-artifact-transport-reports-success-after-failing-under-macos-bash-3-2.md).
 
 
 ## Decision Log
@@ -123,10 +164,35 @@ raised for `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-app
   one test is more change than the fix.
   Date: 2026-11-12
 
+- Decision: Inside an Application every workload inherits the Application's store: the web
+  service as well as the workers. `renderServiceIn` takes the store's app name as
+  `renderWorkerIn` does, and `renderServiceObjects` passes the rollout's app.
+  Rationale: The guide can then state one rule, and the alternative documents a store nobody
+  can write. A standalone web service is unchanged, because its rollout app is the service
+  itself. Consequence: an Application's web service whose name differs from the Application's
+  changes its `envFrom` name on the next deploy, exactly as its workers do.
+  Date: 2026-11-12
+
+- Decision: M4's fixture asserts its hook with `--hook-no-data-effects`, not `--hook-affects`,
+  and reads a web container's names without Knative's `PORT` and `K_*`.
+  Rationale: The fixture's hook changes no managed data, and Knative adds those variables to
+  every web container.
+  Date: 2026-11-12
+
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+A web service, worker or task can now refuse its app's managed store with
+`managedEnv = NoManagedEnv` and receive only the keys it names, and inside an Application every
+workload inherits the Application's store; IR-44 AC-1 to AC-4 pass on a local context
+(`just local-secret-scope-smoke`) and the rule is ADR 38. What remains is AC-5, the run of
+Kotei's own image through its release script, which belongs to Kotei's plan 135 and starts from
+the diff in IR-44; and the release notes of the next release, which must say that a
+`Deployment`, `Worker` or `Task` record literal needs `managedEnv` and that an Application's
+worker, and a web service named differently from its Application, change the store they
+inherit. Friction: FRIC-15 (mori would not start; accepted, mori's own guard) and FRIC-16 (the
+artifact transport under macOS bash 3.2; accepted, the cause was a hand-made `PATH`). Nothing
+further moves to an ADR.
 
 
 ## Context and Orientation
@@ -434,7 +500,7 @@ operator. Nothing in this plan touches a cloud context.
 New public surface, all in `cli/nagare-dsl`: `Nagare.Dsl.Types.ManagedEnv (InheritManagedEnv,
 NoManagedEnv)`; the field `managedEnv` on `Nagare.Dsl.Types.Deployment`,
 `Nagare.Dsl.Worker.Worker` and `Nagare.Dsl.Task.Task`; the optional JSON key `managedEnv` with
-values `"Inherit"` and `"None"`; and `Nagare.Dsl.Worker.Render.renderWorkerIn`. A `Config.hs`
+values `"Inherit"` and `"None"`; `Nagare.Dsl.Worker.Render.renderWorkerIn` and `Nagare.Dsl.Render.renderServiceIn`. A `Config.hs`
 that builds these records with full record syntax must add the field when it moves to this
 build, as it did for `serviceAccount`; say so in the release notes.
 

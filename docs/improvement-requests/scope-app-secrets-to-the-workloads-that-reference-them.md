@@ -7,7 +7,7 @@ generated:
   by: process:claude-code
   at: "2026-11-11T19:20:00Z"
 requestId: IR-44
-status: proposed
+status: accepted
 origin: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
 dependencies:
   - ref: mori://shinzui/nagare/okf/improvement-requests/concepts/IR-43
@@ -92,6 +92,101 @@ IR-43 AC-5 moves the owner credential to a hook binding that never reaches the l
 workloads. That fixes the maintenance URL. The serving logins IR-43 expects in "ordinary app
 Secrets" would still reach the hook through `envFrom`, and the worker would still hold the
 web service's token and webhook secret.
+
+
+## What was delivered
+
+ExecPlan 261 ([docs/plans/261-scope-an-app-s-managed-env-and-secrets-to-the-workloads-that-reference-them.md](../plans/261-scope-an-app-s-managed-env-and-secrets-to-the-workloads-that-reference-them.md),
+[ADR 38](../adr/0038-a-workload-inherits-its-app-s-managed-store-unless-it-opts-out.md)) delivers
+AC-1 to AC-4 at Nagare `a314e7a9`, not yet in a release. A web service, worker or task sets
+`managedEnv = NoManagedEnv`. They were confirmed on 2026-11-12 on a local context by
+`just local-secret-scope-smoke`. AC-5 is still open: it needs Kotei's release image, which this
+repository cannot build.
+
+- **AC-1.** "Exactly its declared keys" is read as the declared names plus Nagare's own
+  `NAGARE_*` variables on a task, and Knative's `PORT` and `K_*` on a web container.
+- **AC-3.** A web service and a pre-deploy hook that do not opt out, deployed by v0.20.0, replan
+  with no operations. An Application's worker is the exception, under AC-4.
+- **AC-4.** Inside an Application every workload now inherits the Application's store. That
+  changes the `envFrom` name of an Application's worker on its next deploy, and of a web service
+  whose name differs from its Application's (both used to name a store no command could write).
+  Such a workload then receives every key of the Application's store unless it opts out. A
+  worker deployed on its own keeps its own store, and `nagarectl env|secret` now accept its
+  configuration.
+- **AC-5.** Kotei's `nagare/Config.hs` with the opt-out loads and renders at `a314e7a9`: only
+  `migrate` names `KOTEI_RELEASE_MAINTENANCE_DATABASE_URL`, and all three roles carry
+  `managedEnv: None`. The run through `scripts/kotei-nagare-release.sh` with Kotei's image belongs
+  to `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application`, starting from
+  this diff against Kotei `db21e4bb`. The revision check names `a314e7a9` until a tag carries it.
+  Kotei's hook can also take the maintenance URL from an `appDatabases` binding (IR-43 AC-5)
+  instead of the Secret.
+
+```diff
+--- a/nagare/Config.hs
++++ b/nagare/Config.hs
+@@ -46,11 +46,9 @@
+   workerCommand <- Worker.mkCommand ["kotei-worker", "--config", "/etc/kotei/application.dhall"]
+   hookSchedule <- Task.mkSchedule "0 0 * * *"
+   -- Nagare's Secret store holds one runtime Secret per app,
+-  -- nagare-secret-kotei-runtime, and Nagare also mounts it whole into every
+-  -- workload with envFrom. The per-key references below therefore do not keep
+-  -- the maintenance URL from the serving roles: plan 135 records this as an
+-  -- open Nagare contract gap, and kotei-release-migrate refuses to run while
+-  -- the runtime URL is present.
++  -- nagare-secret-kotei-runtime. Every role sets NoManagedEnv, so none
++  -- inherits that store whole: each receives only the keys referenced below,
++  -- and the maintenance URL reaches the migration hook alone.
+   serverEnv <-
+     environment
+       ["KOTEI_DATABASE_URL", "KOTEI_GITHUB_WEBHOOK_SECRET", "KOTEI_API_TOKEN"]
+@@ -74,6 +72,7 @@
+             Dsl.scale = Just scale,
+             Dsl.probes = Just (Dsl.WebProbes readiness (Just liveness) (Just startup)),
+             Dsl.serviceAccount = Nothing,
++            Dsl.managedEnv = Dsl.NoManagedEnv,
+             Dsl.volumes = [],
+             Dsl.databases = [],
+             Dsl.appDatabases = [],
+@@ -102,7 +101,8 @@
+             Worker.liveness = Nothing,
+             Worker.readiness = Just workerReady,
+             Worker.shutdown = Just shutdown,
+-            Worker.serviceAccount = Nothing
++            Worker.serviceAccount = Nothing,
++            Worker.managedEnv = Dsl.NoManagedEnv
+           }
+   -- Aggregate tasks are pre-deploy hooks. The web service's scheduled task
+   -- list stays empty. The release review must bind migrate to the database ID.
+@@ -126,7 +126,9 @@
+           Task.successfulJobsHistoryLimit = 1,
+           Task.failedJobsHistoryLimit = 1,
+           Task.startingDeadlineSeconds = Nothing,
+-          Task.serviceAccount = Nothing
++          Task.serviceAccount = Nothing,
++          Task.managedEnv = Dsl.NoManagedEnv,
++          Task.appDatabases = []
+         }
+   App.mkApplication
+     App.Application
+--- a/scripts/kotei-nagare-release.sh
++++ b/scripts/kotei-nagare-release.sh
+@@ -61,11 +61,10 @@
+ [[ $(digest "$KUBECONFIG") == "$(cat "$evidence/kubeconfig.sha256")" ]] || fail "kubeconfig changed"
+ [[ $(digest "$evidence/Config.hs") == "$(cat "$evidence/config.sha256")" ]] || fail "application configuration changed"
+ "$nagare" version --json > "$evidence/nagare-version.json"
+-# Qualified CLIs: the v0.18.0 tag, and the untagged commit at which Nagare
+-# completed MasterPlan 33's EP-248 (rendered and delegated deployment), which
+-# plan 148's local gate needs. Replace both with the first tag carrying it.
+-jq -e '.version == "0.18.0" and (.revision == "a42f8c72c2c98e25e924236730860ac6a2b3fa45" or .revision == "3bb6c406df47def067cb51eac7b82e6c39681a61") and (.contracts | index(1) != null)' "$evidence/nagare-version.json" >/dev/null ||
+-  fail "a qualified Nagare 0.18.0 CLI (v0.18.0 or the MasterPlan 33 EP-248 commit) is required"
++# Qualified CLI: the first Nagare revision whose workloads can opt out of the
++# app's managed store (Nagare EP-261, IR-44). Replace with the first tag carrying it.
++jq -e '.version == "0.20.0" and .revision == "a314e7a9f9ca4d74b631601d26a8d6cb1675af00" and (.contracts | index(1) != null)' "$evidence/nagare-version.json" >/dev/null ||
++  fail "a qualified Nagare CLI (0.20.0 at a314e7a9, carrying the managed-store opt-out) is required"
+ 
+ review_digest() {
+   jq -er --arg directory "$evidence/$1-review" --arg document "$2" '
+```
 
 
 ## Requested change

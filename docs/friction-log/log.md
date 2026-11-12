@@ -2,6 +2,18 @@
 
 ## 2026-11-12
 
+* **Update**: FRIC-16 accepted: Status set to accepted.
+
+
+* **Update**: FRIC-15 accepted: Status set to accepted.
+
+
+* **Addition**: FRIC-16 records detour tooling friction with mori://shinzui/nagare: The artifact transport reports success after failing under macOS bash 3.2
+
+
+* **Addition**: FRIC-15 records detour tooling friction with mori://shinzui/mori: mori registry refuses to start on a projection catalog mismatch
+
+
 * **Addition**: FRIC-14 records detour tooling friction with mori://shinzui/nagare: The packaged nagarectl's artifact transport needs a bash newer than macOS /bin/bash, and reports its failure as ambiguous
 
 
