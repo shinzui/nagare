@@ -146,7 +146,10 @@ their CronJob and affected resource updates; the Service, workers, and scheduled
 tasks wait for completion. Retrying the same accepted tag verifies the completed
 Job rather than rerunning it. A later tag leaves the old hook scope in accepted
 history. Changing the hook or its effects under the same tag refuses; choose a
-new tag. One-off `task run` is a separate operational action. With hooks,
+new tag. A hook may bind an app database through its `appDatabases`; when the app database names
+the hook in `owners` it receives the migration credential, or an app-owned database's owner
+credential, and the Application's service and workers never reference it (see
+[managed databases](managed-databases.md)). One-off `task run` is a separate operational action. With hooks,
 `--dry-run --json` prints an object containing `application` and `hooks` scopes.
 
 For a single Service config, the reviewed route uses an independent Service

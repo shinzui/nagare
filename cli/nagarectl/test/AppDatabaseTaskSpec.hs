@@ -23,6 +23,7 @@ import Data.Time (UTCTime (UTCTime), fromGregorian)
 import Data.Vector qualified as V
 import Nagare.App.Deploy (RolloutEnv (..))
 import Nagare.Deploy (serviceUrl)
+import Nagare.Dsl.AppDatabase (Ownership (..), mkRoleName)
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Application qualified as DslApp
 import Nagare.Dsl.Database (Engine (..))
@@ -31,7 +32,7 @@ import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task (Task, scheduledTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (webWorker)
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAppDatabaseBindings, compileApplicationDeployment, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAppDatabaseBindings, acceptedAppDatabaseTaskBindings, compileApplicationDeployment, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
@@ -106,8 +107,32 @@ appDatabaseTaskTests =
           case compileApplicationDeployment (applicationInput refusedApp Map.empty) of
             Left errors -> assertBool (show errors) (any ((== "app-database-not-bindable-from-application") . (^. #code)) (NE.toList errors))
             Right _ -> assertFailure "an application workload bound an app database"
+    , testCase "EP-259 M2: a hook named in an app-owned database's owners receives only the owner credential; no web or worker Pod references it" $ do
+        let hook = hookTask "alpha-migrate" [named "alpha-pg" "KOTEI_RELEASE_MAINTENANCE_DATABASE_URL"]
+            service = known (webService "alpha" "registry.example.com/alpha")
+            worker = either error id (webWorker "alpha-worker" "registry.example.com/alpha")
+            app = DslApp.Application (workloadName "alpha") Nothing personal (known (Dsl.mkImageRef "registry.example.com/alpha")) Map.empty [] [] Nothing (Just service) [worker] [hook]
+        hookBindings <- expectRight (acceptedAppDatabaseTaskBindings appOwnedAccepted appOwnedNative testCluster "personal" (hook ^. #name) [db "alpha-pg"])
+        (scopes, appNative) <- expectRight (compileApplicationDeployment (applicationInput app (Map.singleton (hook ^. #name) hookBindings)))
+        let jobs = [(member, bytes) | (member, bytes) <- Map.elems appNative, Kubernetes _ "batch" kind _ _ <- [member ^. #address], nameText kind == "job"]
+        map (secretEnv . snd) jobs @?= [[("KOTEI_RELEASE_MAINTENANCE_DATABASE_URL", "alpha-pg-owner", "DATABASE_URL")]]
+        let jobDependencies = concat [member ^. #dependencies | scope <- scopes, bundle <- scopeBundles scope, Managed member <- declarations bundle, Kubernetes _ "batch" kind _ _ <- [member ^. #address], nameText kind == "job"]
+        assertBool "the hook Job is ordered after the owner Secret and the app database" (all (`elem` jobDependencies) (map OrderedAfter (secretOf appOwnedScopes "alpha-pg-owner" : membersIn appOwnedScopes "appdb-alpha")))
+        let workloads = [bytes | (member, bytes) <- Map.elems appNative, Kubernetes _ group _ _ _ <- [member ^. #address], group `elem` ["serving.knative.dev", "apps"]]
+        assertBool "a long-running Pod references the owner Secret" (not (null workloads) && not (any (BS.isInfixOf "alpha-pg-owner") workloads))
+        -- A task not in owners, and any long-running workload, is refused.
+        case acceptedAppDatabaseTaskBindings appOwnedAccepted appOwnedNative testCluster "personal" (workloadName "alpha-report") [db "alpha-pg"] of
+          Left reason -> assertBool (T.unpack reason) ("not among app database alpha-pg's owners" `T.isInfixOf` reason)
+          Right _ -> assertFailure "a task outside owners bound the owner credential"
+        case acceptedAppDatabaseBindings appOwnedAccepted appOwnedNative testCluster "personal" (workloadName "alpha-migrate") [db "alpha-pg"] of
+          Left reason -> assertBool (T.unpack reason) ("is app-owned" `T.isInfixOf` reason)
+          Right _ -> assertFailure "a long-running workload bound an app-owned database"
     ]
   where
+    appOwned' = alpha Postgres & #ownership .~ AppOwned (Just (known (mkRoleName "kotei_maintenance"))) & #access . #owners .~ [workloadName "alpha-migrate"]
+    appOwnedScopes = [fst (scopeAndNative pgServer appOwned'), fst (scopeAndNative pgServer (beta Postgres))]
+    appOwnedAccepted = snapshotWith [pgServer] appOwnedScopes
+    appOwnedNative = Map.unions (acceptedNative [pgServer] : [snd (scopeAndNative pgServer d) | d <- [appOwned', beta Postgres]])
     appScopes = [fst (scopeAndNative pgServer (alpha Postgres)), fst (scopeAndNative pgServer (beta Postgres))]
     accepted = snapshotWith [pgServer] appScopes
     native = Map.unions (acceptedNative [pgServer] : [snd (scopeAndNative pgServer d) | d <- [alpha Postgres, beta Postgres]])

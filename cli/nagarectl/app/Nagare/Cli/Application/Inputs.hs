@@ -34,6 +34,7 @@ import Nagare.Inventory.Application
   ( DatabaseBinding
   , acceptedAppDatabaseBindings
   , acceptedAppDatabaseReaderBindings
+  , acceptedAppDatabaseTaskBindings
   , acceptedDatabaseBindings
   )
 import Nagare.Inventory.Command qualified as Inventory
@@ -142,7 +143,7 @@ acceptedTaskAppDatabaseBindings ::
 acceptedTaskAppDatabaseBindings snapshot native cluster namespaceName tasks =
   Map.fromList
     <$> sequence
-      [ (task ^. #name,) <$> acceptedAppDatabaseBindings snapshot native cluster namespaceName (task ^. #name) (boundAppDatabases (task ^. #appDatabases))
+      [ (task ^. #name,) <$> acceptedAppDatabaseTaskBindings snapshot native cluster namespaceName (task ^. #name) (boundAppDatabases (task ^. #appDatabases))
       | task <- tasks
       , not (null (task ^. #appDatabases))
       ]

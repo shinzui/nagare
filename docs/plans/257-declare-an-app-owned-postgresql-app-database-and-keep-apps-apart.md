@@ -53,7 +53,7 @@ An app database that does not opt in is unchanged, byte for byte.
   fails, so the bootstrap superuser's admin-option grant stays; the recursive reading returns
   alpha's 8 roles (including `kotei_nested`, made by a role alpha made) and beta's 3, with no
   overlap. Every rule held; the design is unchanged.
-- [ ] M2: An app-owned app database plans, applies and re-plans to `no operations`, before and
+- [x] M2: An app-owned app database plans, applies and re-plans to `no operations`, before and
   after a Kotei-shaped script creates roles, memberships, ownership changes and grants inside
   it. An app database that did not opt in renders identical declaration JSON, SQL and backup
   schedule bytes. Evidence so far: `AppOwnedDatabaseSpec` (nagarectl-test, "app-owned database
@@ -62,8 +62,8 @@ An app database that does not opt in is unchanged, byte for byte.
   and re-plan to no operations, before and after the app's script, under every injected fault;
   the not-opted-in declaration emits no `ownership` key, its schedule still reads
   `<name>-migration`, and every existing app-database golden and fixture test is unchanged.
-  Left: the refusal of a `Deployment` or `Worker` binding an app-owned database (lands with
-  EP-259 M1's binding code).
+  A `Deployment` or `Worker` binding an app-owned database is refused by
+  `acceptedAppDatabaseBindings` (`AppDatabaseTaskSpec`, "EP-259 M2: ...").
 - [x] M3: Each reach beyond the app's own database is reported as drift at planning, and each
   attempt in the AC-2 list fails on a real server. ADR 37 is written, ADR 30 and ADR 31 carry
   an amendment note, and the user guide documents the declaration and the guarantees.

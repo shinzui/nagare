@@ -290,6 +290,14 @@ its own reviewed retirement before the schedule can retire. The plan-only form
 and `--dry-run` remain read-only.
 
 
+## Binding an app database
+
+A task may bind an app database on a shared server through `appDatabases`, as a `Deployment` or
+`Worker` does, optionally naming the variable that receives the connection URL (see
+[managed databases](managed-databases.md#binding)). A task named in the app database's `owners`
+receives the migration credential, or for an app-owned database the owner credential; any other
+task receives the runtime credential, and none for an app-owned database.
+
 ## Running in an app's world
 
 A task can run **in an app's world**: set `taskApp = Just "<app>"` (and leave

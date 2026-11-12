@@ -62,11 +62,18 @@ This is IR-43 AC-5
   `gates/fast/c976957fd189b77da8a118fd92762b2196e0a124.json`), and `exe:nagarectl` builds. New
   cases live in their own modules because `AppDatabaseSpec.hs` and `AppDeploySpec.hs` are at
   their size limits.
-- [ ] M2: A pre-deploy hook named in an app-owned database's `owners` receives the owner
+- [x] M2: A pre-deploy hook named in an app-owned database's `owners` receives the owner
   credential under its chosen variable, completes before promotion, and the rendered web and
   worker Pods do not reference the owner Secret. The user guides document the binding with a
-  migration-hook example.
-
+  migration-hook example. Evidence: `AppDatabaseTaskSpec` "EP-259 M2: a hook named in an
+  app-owned database's owners receives only the owner credential; no web or worker Pod
+  references it" passes: the hook's Job carries exactly
+  `KOTEI_RELEASE_MAINTENANCE_DATABASE_URL` from `alpha-pg-owner`, is ordered after that Secret
+  and the app database's members (so before the service and workers, which wait on hook proofs),
+  neither Pod template mentions `alpha-pg-owner`, a task outside `owners` and a long-running
+  workload are refused (`acceptedAppDatabaseTaskBindings`, `acceptedAppDatabaseBindings` in
+  `cli/nagarectl/src/Nagare/Inventory/Application/Bindings.hs`). Docs: "App-owned databases" in
+  `docs/user/managed-databases.md`, `docs/user/scheduled-tasks.md`, `docs/user/deploying-apps.md`.
 
 ## Surprises & Discoveries
 

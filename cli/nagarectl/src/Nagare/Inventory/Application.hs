@@ -42,6 +42,7 @@ module Nagare.Inventory.Application
   , DatabaseBinding
   , acceptedDatabaseBindings
   , acceptedAppDatabaseBindings
+  , acceptedAppDatabaseTaskBindings
   , acceptedAppDatabaseReaderBindings
   , applicationVolumeRecoveryBindings
   , standaloneWorkerVolumeRecoveryBindings
@@ -57,6 +58,7 @@ import Nagare.Inventory.Application.Bindings
   ( acceptedAccessBinding
   , acceptedAppDatabaseBindings
   , acceptedAppDatabaseReaderBindings
+  , acceptedAppDatabaseTaskBindings
   , acceptedApplicationImage
   , acceptedBrokerBindings
   , acceptedDatabaseBindings

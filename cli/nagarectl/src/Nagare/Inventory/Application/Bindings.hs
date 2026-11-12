@@ -5,6 +5,7 @@ module Nagare.Inventory.Application.Bindings
   , acceptedBrokerBindings
   , acceptedDatabaseBindings
   , acceptedAppDatabaseBindings
+  , acceptedAppDatabaseTaskBindings
   , acceptedAppDatabaseReaderBindings
   , appDatabaseReaderKey
   , acceptedImageBuildSecrets
@@ -547,7 +548,34 @@ acceptedAppDatabaseBindings ::
   Dsl.ServiceName ->
   [AppDatabaseName] ->
   Either T.Text (Map DatabaseName DatabaseBinding)
-acceptedAppDatabaseBindings snapshot native cluster namespaceName workload names = do
+acceptedAppDatabaseBindings = appDatabaseBindingsFor False
+
+-- | A task's bindings, the same as a workload's, except that a task named in
+-- an app-owned database's @owners@ receives its owner credential (EP-257,
+-- EP-259 M2), which no long-running workload ever binds (ADR 37).
+acceptedAppDatabaseTaskBindings ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  T.Text ->
+  Dsl.ServiceName ->
+  [AppDatabaseName] ->
+  Either T.Text (Map DatabaseName DatabaseBinding)
+acceptedAppDatabaseTaskBindings = appDatabaseBindingsFor True
+
+-- | The credential is decided only from the accepted app database scope: an
+-- app-owned database's owner credential goes to a task its @owners@ names
+-- and to nothing else; a long-running workload binding it is refused.
+appDatabaseBindingsFor ::
+  Bool ->
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  T.Text ->
+  Dsl.ServiceName ->
+  [AppDatabaseName] ->
+  Either T.Text (Map DatabaseName DatabaseBinding)
+appDatabaseBindingsFor isTask snapshot native cluster namespaceName workload names = do
   pairs <- traverse resolve names
   let bindings = Map.fromList pairs
   unless
@@ -562,22 +590,34 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName workload names
       let appName = appDatabaseNameText name
       key <- mkDatabaseName appName
       secretAddress <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appName <> "-runtime")
-      (runtimeCredential, scopeMembers) <-
-        case [ (credential', members scope)
-             | (owner, (_, scope)) <- scopes
-             , scopeKind owner == Standalone
-             , "appdb-" `T.isPrefixOf` nameText (scopeName owner)
-             , credential' <- members scope
-             , credential' ^. #address == secretAddress
-             ] of
-          [found] -> Right found
-          _ -> Left ("app database " <> appName <> " has no unique accepted runtime credential in namespace " <> namespaceName)
+      ownerAddress <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appName <> "-owner")
+      let found address =
+            [ (credential', members scope)
+            | (owner, (_, scope)) <- scopes
+            , scopeKind owner == Standalone
+            , "appdb-" `T.isPrefixOf` nameText (scopeName owner)
+            , credential' <- members scope
+            , credential' ^. #address == address
+            ]
+      (runtimeCredential, scopeMembers, appOwnedScope) <-
+        case (found secretAddress, found ownerAddress) of
+          ([(credential', scope)], []) -> Right (credential', scope, False)
+          ([], [(credential', scope)]) -> Right (credential', scope, True)
+          _ -> Left ("app database " <> appName <> " has no unique accepted runtime or owner credential in namespace " <> namespaceName)
       let logical = filter ((== AppDatabaseExecutor) . (^. #executor)) scopeMembers
-          -- EP-208: the accepted migration user names the owner workloads.
-          role = if or [workload `elem` extension ^. #owners | member <- logical, DatabaseUserSpec _ "migration" _ _ extension <- [member ^. #spec]] then "migration" else "runtime"
+          ownersOf roleToken = concat [extension ^. #owners | member <- logical, DatabaseUserSpec _ token _ _ extension <- [member ^. #spec], token == roleToken]
+      -- EP-257: an app-owned database's owner credential binds only to a task
+      -- its owners name; its long-running workloads use the app's own logins.
+      when (appOwnedScope && not isTask) (Left ("app database " <> appName <> " is app-owned; a long-running workload binds a login the app creates, supplied as an ordinary app Secret, and only a task named in its owners binds its owner credential"))
+      when (appOwnedScope && workload `notElem` ownersOf "owner") (Left ("task " <> Dsl.serviceNameText workload <> " is not among app database " <> appName <> "'s owners; an app-owned database has no other credential to bind"))
+      let -- EP-208: the accepted migration user names the owner workloads.
+          role
+            | appOwnedScope = "owner"
+            | workload `elem` ownersOf "migration" = "migration"
+            | otherwise = "runtime"
           secretName = appName <> "-" <> role
       credential <-
-        if role == "runtime"
+        if role `elem` ["runtime", "owner"]
           then Right runtimeCredential
           else do
             migrationAddress <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) secretName
@@ -600,7 +640,7 @@ acceptedAppDatabaseBindings snapshot native cluster namespaceName workload names
         -- A quiesced app database still binds (EP-205): its pods fail to
         -- connect until resume, as running ones do.
         -- A retired reader does not retire the app database (EP-206).
-        (and [login /= LoginClosed | member <- logical, DatabaseUserSpec _ "runtime" login _ _ <- [member ^. #spec]])
+        (and [login /= LoginClosed | member <- logical, DatabaseUserSpec _ token login _ _ <- [member ^. #spec], token `elem` ["runtime", "owner"]])
         (Left ("app database " <> appName <> " is retired"))
       stateful <- case [target | member <- logical, DatabaseUser target _ <- [member ^. #address]] of
         target : _ -> Right target

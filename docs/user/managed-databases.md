@@ -1116,6 +1116,25 @@ Limits:
 - Its scheduled backup runs as the server administrator, so nothing the app does to its own
   grants can make a backup incomplete.
 
+**Running the app's migrations as the owner.** The owner credential reaches a task named in the
+app database's `owners`, typically an Application's pre-deploy hook, and nothing else. The task
+binds the app database like any other and may name the variable that receives the URL:
+
+```haskell
+migrate =
+  scheduledTask ...                                  -- the hook, named "migrate"
+    <&> (#appDatabases .~ [ AppDatabaseBinding (ok (mkAppDatabaseName "kotei-pg"))
+                                               (Just (ok (mkEnvName "KOTEI_RELEASE_MAINTENANCE_DATABASE_URL"))) ])
+```
+
+With `owners = ["migrate"]` on `kotei-pg`, the hook's Job reads `DATABASE_URL` from Secret
+`kotei-pg-owner` into `KOTEI_RELEASE_MAINTENANCE_DATABASE_URL`, runs before promotion as every
+hook does, and no web or worker Pod of the Application references that Secret. A task not named in
+`owners` is refused, since an app-owned database has no other credential, and a `Deployment` or
+`Worker` that binds an app-owned database is refused: its long-running Pods connect with a login
+the app created, whose URL you supply as an ordinary app Secret. The hook still declares its
+effects with `--hook-affects` or `--hook-no-data-effects`.
+
 ## Backups and restore
 
 For a retained database, a newly reviewed `nagarectl db create` includes a
