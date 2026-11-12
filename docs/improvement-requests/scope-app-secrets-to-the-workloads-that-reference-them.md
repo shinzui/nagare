@@ -2,7 +2,7 @@
 type: Improvement Request
 title: Scope an app's secrets to the workloads that reference them
 description: Let a web service, worker or task, including an Application's pre-deploy hook, receive only the managed env and Secret keys it references instead of the app's whole Runtime store through envFrom, so an app can give each role its own credentials and keep a migration credential away from its serving workloads.
-timestamp: "2026-11-11T19:20:00Z"
+timestamp: "2026-11-12T23:21:15Z"
 generated:
   by: process:claude-code
   at: "2026-11-11T19:20:00Z"
@@ -44,6 +44,16 @@ reviews:
       and Task.hs; nagarectl secret set|sync), the live apply described below on a task-owned local
       context, and Kotei's nagare/Config.hs and scripts/kotei-release-migrate.sh. No independent
       verification attestation is claimed.
+  - kind: model
+    reviewer: process:codex
+    reviewed_at: "2026-11-12T23:21:15Z"
+    document_timestamp: "2026-11-12T23:21:15Z"
+    scope: content-and-metadata
+    outcome: commented
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    context: Consumer confirmation from Kotei's reviewed native ARM64 apply at a314e7a9, live Pod key isolation, readiness and signed webhook processing; no independent review is claimed.
 ---
 
 # Scope an app's secrets to the workloads that reference them
@@ -100,8 +110,7 @@ ExecPlan 261 ([docs/plans/261-scope-an-app-s-managed-env-and-secrets-to-the-work
 [ADR 38](../adr/0038-a-workload-inherits-its-app-s-managed-store-unless-it-opts-out.md)) delivers
 AC-1 to AC-4 at Nagare `a314e7a9`, not yet in a release. A web service, worker or task sets
 `managedEnv = NoManagedEnv`. They were confirmed on 2026-11-12 on a local context by
-`just local-secret-scope-smoke`. AC-5 is still open: it needs Kotei's release image, which this
-repository cannot build.
+`just local-secret-scope-smoke`. At that handoff AC-5 remained for Kotei; the consumer confirmation below now supplies its live proof.
 
 - **AC-1.** "Exactly its declared keys" is read as the declared names plus Nagare's own
   `NAGARE_*` variables on a task, and Knative's `PORT` and `K_*` on a web container.
@@ -187,6 +196,22 @@ repository cannot build.
  review_digest() {
    jq -er --arg directory "$evidence/$1-review" --arg document "$2" '
 ```
+
+
+## Kotei consumer confirmation (2026-11-12)
+
+Kotei applied the supplied opt-out using the packaged CLI at `a314e7a9f9ca4d74b631601d26a8d6cb1675af00`
+on its task-owned native ARM64 Colima/k3d context. The reviewed database, runtime Secret, image and application
+transactions converged. The migration hook exited zero before either serving Pod was created; the server and
+worker are ready as UID 65532. Their live container specs have no managed `envFrom` and reference only their intended
+Secret keys. Only the hook references the maintenance URL, and the hook has no runtime URL reference.
+The hosted server also passed authenticated reads, a signed webhook and durable worker processing with one retained
+event after redelivery. This supplies AC-5's consumer evidence; Kotei's remaining hosting and recovery milestones are
+not prerequisites for that role-isolation result.
+
+Evidence: `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application` and
+`mori://shinzui/kotei`, project-relative `docs/plans/evidence/135/ir44-live-hosting.json`
+(artifact-level URI pending). The tested Kotei release image is source-clean `401c3a33e15e493822cd2e7a6d34cf561bd928f5`.
 
 
 ## Requested change
