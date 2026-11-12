@@ -95,6 +95,31 @@ Pre-deploy hooks are where an app runs its migrations, but `Task` has no databas
 the hook, and every binding injects a fixed `DATABASE_URL`.
 
 
+## What was delivered
+
+MasterPlan 35 ([docs/masterplans/35-let-an-app-own-its-database-on-a-shared-postgresql-server.md](../masterplans/35-let-an-app-own-its-database-on-a-shared-postgresql-server.md),
+[ADR 37](../adr/0037-an-app-may-own-its-database-and-nagare-keeps-apps-apart.md)) delivers every
+criterion. It was confirmed on 2026-11-12 on a local context with Kotei 1bd9cf48's migrations and
+`privileges/apply.sql` unchanged, run as the owner (ExecPlan 260 M1). Two criteria were delivered
+differently from their text:
+
+- **AC-1.** The owner credential does not own the database itself when the app moves the
+  database's ownership. Changing a database's owner needs `CREATEDB`, which no app receives. The
+  declaration therefore names the owning role (`ownership = AppOwned {databaseOwner = Just
+  "kotei_maintenance"}`); Nagare creates that role, makes it the database's owner and gives it to
+  the owner login with the admin option. Kotei's `ALTER DATABASE … OWNER TO kotei_maintenance` then
+  finds the ownership already in place.
+- **AC-4.** Backups, restores and quiesce run as the server administrator, not as the owner. A
+  backup holds the dump and a role file with every role of the app but the owner, including
+  password verifiers. Restore applies the role file as data and refuses one that names an elevated
+  attribute or a role outside the app. Quiesce closes the logins the app created and leaves the
+  owner open for a migration window unless asked.
+
+Kotei's own `privileges/verify.sql` refuses under this model: its member check of
+`kotei_inspection` reaches the owner login, which holds every role it creates and has
+`CREATEROLE`. The check is Kotei's to change, so that it excludes the provisioning owner.
+
+
 ## Requested change
 
 - **App-owned app databases** (AC-1). The app database's owner credential owns the database

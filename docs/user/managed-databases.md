@@ -1101,6 +1101,13 @@ PostgreSQL itself refuses the owner and every role it creates anything that woul
 app: altering, dropping or joining another app's roles or Nagare's users, connecting to another
 app's database, or obtaining a server-wide attribute or a predefined role. `PUBLIC` is kept out of
 the database and the system databases; if it is granted back, the next apply closes it again.
+PostgreSQL does let an app hand one of its own roles, or `CONNECT` on its own database, to another
+app's login; planning refuses that with `app-database-grant-drift` naming the role, as it does a
+grant an administrator makes, until it is revoked.
+
+The owner is a member of every role it creates and holds it with the admin option. A check in the
+app's own SQL that no login with `CREATEROLE` belongs to its roles therefore counts the owner, and
+fails; exclude the owner from such a check.
 
 Limits:
 
@@ -1125,7 +1132,9 @@ does to its own grants affects them, and they carry the roles the app created:
   Secret.
 - `db app-database restore NAME` makes a scratch copy owned like the source with the source's
   database grants; `--rebuilt`, after a server rebuild, first recreates the app's roles and
-  logins, so they sign in with the passwords they had, then loads the data. A role file that
+  logins, so they sign in with the passwords they had, then loads the data. Before it, a reviewed
+  rebuild recreates the owner, the owning role and the empty database
+  ([App databases on a rebuilt server](../runbooks/inventory-operations.md#app-databases-on-a-rebuilt-server)). A role file that
   names an elevated attribute, a `pg_` role, a role outside the app, or a role that exists on the
   server and is not the app's, refuses before anything changes.
 - `db app-database quiesce NAME` closes every login the app created and ends its sessions; the

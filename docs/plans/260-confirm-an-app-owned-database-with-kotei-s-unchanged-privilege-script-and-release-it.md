@@ -41,17 +41,89 @@ owns the code, not worked around in this run.
 
 ## Progress
 
-- [ ] M1: On one local context, IR-43 AC-1 to AC-5 pass together with Kotei's script unchanged,
+- [x] M1: On one local context, IR-43 AC-1 to AC-5 pass together with Kotei's script unchanged,
   and an app database that did not opt in re-plans with no operations and still backs up and
-  restores.
-- [ ] M2: `docs/user/managed-databases.md` meets AC-6, and IR-43 records what was delivered.
+  restores. Run 2026-11-12 on the disposable `transition` context of the v0.19.2 rehearsal
+  (k3d on Colima `nagare-mp23`), PostgreSQL 18.6 server `ep260-pg` holding `kotei-pg`
+  (app-owned, `databaseOwner = kotei_maintenance`, `owners = [migrate]`), `other-pg` (app-owned)
+  and `plain-pg` (Nagare-managed). Packaged nagarectl 789b05dd for steps 1 to 4 up to the
+  rebuild, 2048214e (the rebuild fix below, fast gate green) from the rebuild on. Kotei at
+  1bd9cf48; `apply.sql` sha256 `1314f747…`, read from Kotei's checkout into the hook image.
+  The image is `postgres:18` with the two privilege files and a one-line HTTP responder, not
+  Kotei's: Kotei's migrations ran as `kotei_pg_owner` from the workstation with Kotei's own
+  `kotei-migrate up` (105 migrations, no extension, second pass and `verify` clean), and the hook
+  ran the privilege script. Evidence, all observed:
+  - AC-1: the hook connected as `kotei_pg_owner` and applied `apply.sql` twice. The five roles
+    exist without login or attributes, with the runner and erasure memberships, and
+    `kotei_maintenance` owns the database, the six schemas, 99 relations and 93 functions with
+    the script's grants. Re-plans print `no operations` after the migrations, after each hook
+    run and after the app created its own login.
+  - AC-5: hook Job completed 13:43:17Z, and the Knative Service, web and worker Deployments were
+    created 13:43:17Z. The hook reads only `KOTEI_RELEASE_MAINTENANCE_DATABASE_URL` from
+    `kotei-pg-owner`, and the web and worker Pods reference only their own
+    `nagare-secret-*-runtime`. Re-run under release `v2`: the catalog is byte-identical and the
+    re-plan is empty.
+  - AC-2: 47 attempts, as the owner and as `kotei_app_login` (created by the owner `IN ROLE
+    kotei_runtime`), are refused by PostgreSQL. They cover connecting to `other`, `plain`,
+    `ep260_pg` and `postgres`; altering, renaming, dropping or joining `other-pg`'s roles; a
+    Nagare user's password and the administrator; `pg_read_all_data` and
+    `pg_write_server_files`; SUPERUSER, CREATEDB, REPLICATION and BYPASSRLS on itself or a new
+    role; CREATE DATABASE, ALTER SYSTEM, `pg_reload_conf`, `pg_terminate_backend` and
+    `pg_read_file`.
+  - AC-3: an administrator's `GRANT CONNECT ON DATABASE other TO kotei_runtime` makes planning
+    refuse with `app-database-grant-drift` naming the role. So do the Kotei owner's grant of
+    `kotei_inspection` to `other_login` and of `CONNECT` on `kotei` to `other_login`, which
+    PostgreSQL allows. After each revoke the plan is empty.
+  - AC-4: on-demand backup `m1a` (`tar.gz` with `roles.json`) ingested. Quiesce ended
+    `kotei_app_login`'s running session, and its login was refused while the owner and
+    `other-pg` stayed open; resume reopened it. Then the database and all seven Kotei roles were
+    dropped, and `inventory rebuild-decisions --fresh …/database-kotei` followed by `inventory
+    rebuild` recreated the owner, `kotei_maintenance` and the empty database. `restore --rebuilt`
+    returned roles, attributes, memberships with grantors and options, database owner and ACL,
+    schema, object and function owners, effective table and function grants, every app role's
+    password verifier and the 105 ledger rows equal to the source, and `kotei_app_login` signs in
+    with its original password. A scratch restore is owned by `kotei_maintenance` and closed to
+    `other-pg`'s login.
+  - Not opted in: `plain-pg` re-plans with no operations throughout; its backup is the
+    unchanged `.dump.gz` without a role file, and its scratch restore reads back with the runtime
+    user.
+- [x] M2: `docs/user/managed-databases.md` meets AC-6, and IR-43 records what was delivered.
+  The guide's "App-owned databases" section holds the declaration, the guarantees between apps
+  and the migration-hook example. M1 added three things to it: PostgreSQL lets an app give its own
+  role or `CONNECT` to another app's login and planning refuses that; the owner counts in an
+  app's own "no CREATEROLE login in my roles" check; and a reviewed rebuild comes before
+  `restore --rebuilt`. IR-43 has a "What was delivered" section for AC-1 (declared owning role)
+  and AC-4 (administrator-run backups with a role file). Its status and resolution are set at
+  M3, with the release.
 - [ ] M3: The release is published and the intranet runs it and passes the deploy-and-login
   check.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- A reviewed rebuild of any app database that had ever been quiesced refused at prepare: "an
+  app-database drain or resume covers no user". A fresh rebuild re-ran every forward-only
+  operation of the rebuilt scope (F142), including the drain and resume a quiesce leaves
+  declared. Fixed in 2048214e: those two keep their proof, and migrations and hooks still run
+  again. Test: `InventoryRebuildSpec` "a fresh rebuild runs its scope's migration again, and not a
+  drain or resume of the lost server's sessions (EP-260)", red before the fix.
+- Kotei's `privileges/verify.sql` refuses under the owner model: "inspection role has privileged
+  or writer authority". Its recursive member check of `kotei_inspection` reaches
+  `kotei_pg_owner`, which is a LOGIN with CREATEROLE and a member of every role it creates
+  (PostgreSQL 16+ creator grant plus `createrole_self_grant`). `apply.sql` passes unchanged. The
+  fix belongs to Kotei (exclude the provisioning owner from the check), for
+  `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application`.
+- Consumers' configs stop compiling at this release, as EP-259 decided: `AppDatabase` needs
+  `ownership`, `Task` needs `appDatabases`, and a workload's `appDatabases` takes
+  `AppDatabaseBinding`. This affects Kotei's `nagare/Config.hs` and, on the intranet,
+  `apps/kansoku/nagare/Databases.hs`, `apps/isolation-probe/nagare/Databases.hs` and
+  `apps/kansoku/nagare/Config.hs` in `mori://tan/tan-ng-labs`. They change at the upgrade (M3),
+  and the release notes say how.
+- The packaged nagarectl's artifact transport ran under macOS `/bin/bash` 3.2 from a scrubbed
+  PATH. It failed on an empty array under `set -u`, then exited 0, so the publish stopped as
+  ambiguous. With a Nix bash first on PATH the transaction resumed and converged. Recorded as
+  [FRIC-14](../friction-log/14-the-packaged-nagarectl-s-artifact-transport-needs-a-bash-newer-than-macos-bin-bash-and-reports-its-failure-as-ambiguous.md);
+  no data at risk.
 
 
 ## Decision Log
@@ -63,6 +135,15 @@ owns the code, not worked around in this run.
   standing in for Kotei's separate login provisioning. Rationale: the script creates roles
   without login and says logins are provisioned separately; AC-2 and AC-4 need at least one
   app-created login. Date: 2026-11-11.
+- Decision: Kotei's migrations run as the owner from the workstation with Kotei's own
+  `kotei-migrate`, and the hook runs the privilege script. Rationale: Kotei's image needs a
+  Linux build of Kotei, and the claim under test (the owner runs both, the hook binds the owner)
+  holds either way. Date: 2026-11-12.
+- Decision: The restore comparison uses effective ACLs: a NULL ACL counts as the owner's default.
+  Rationale: pg_dump emits no GRANT for an ACL equal to the owner's default, so
+  `pgmigrate.repairs_id_seq`'s explicit `kotei_maintenance=rwU/kotei_maintenance` comes back
+  NULL with the same privileges. A reproduction of the source on a throwaway server gave the
+  source's digest both ways. Date: 2026-11-12.
 
 
 ## Outcomes & Retrospective

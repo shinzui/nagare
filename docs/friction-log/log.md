@@ -2,6 +2,9 @@
 
 ## 2026-11-12
 
+* **Addition**: FRIC-14 records detour tooling friction with mori://shinzui/nagare: The packaged nagarectl's artifact transport needs a bash newer than macOS /bin/bash, and reports its failure as ambiguous
+
+
 * **Addition**: FRIC-13 records detour tooling friction with mori://shinzui/mori: mori refuses to start on a projection catalog fingerprint mismatch
 
 * **Addition**: FRIC-12 records detour tooling friction with mori://shinzui/nagare: just gate-fast without a revision gates master's HEAD from a worktree
