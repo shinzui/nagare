@@ -2,6 +2,9 @@
 
 ## 2026-11-12
 
+* **Update**: IR-46 requests release-only migration hooks after Kotei live inspection found an active maintenance CronJob.
+
+
 * **Update**: IR-44: record Kotei consumer AC-5 confirmation on native ARM64 with the a314e7a9 candidate, separated live Secret references and migration-gated serving readiness.
 
 * **Created**: Add IR-45 from mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer: expose contract-1 DeployPreview and SavedReview for site deploy so a CI client can verify rendered static-site reviews before applying them.
