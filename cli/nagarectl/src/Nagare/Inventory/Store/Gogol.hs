@@ -16,6 +16,7 @@ module Nagare.Inventory.Store.Gogol
   , inventoryManagerSettings
   , GogolDiscoveryOps (..)
   , newGogolDiscoveryWithToken
+  , quotaProjectFor
   )
 where
 
@@ -106,6 +107,16 @@ inventoryManagerSettings =
             }
     }
 
+-- | The project a request bills its quota to (@userProject@). A user's
+-- credentials need the context's project; that costs
+-- @serviceusage.services.use@ on it. A service account of the context's own
+-- project (a delegated deployer, EP-248 D6) is billed there already and holds
+-- no project-level role, so its requests name none.
+quotaProjectFor :: Text -> Text -> Maybe Text
+quotaProjectFor project account
+  | ("@" <> project <> ".iam.gserviceaccount.com") `T.isSuffixOf` account = Nothing
+  | otherwise = Just project
+
 newGogolObjectOps :: StorageCredentials -> Text -> Text -> IO (Either Text ObjectOps)
 newGogolObjectOps credentials project url = case location project url of
   Left reason -> pure (Left reason)
@@ -121,19 +132,19 @@ newGogolObjectOps credentials project url = case location project url of
 -- The environment must use 'inventoryManagerSettings'; production construction
 -- uses 'newGogolObjectOps'. Retain this environment for the whole command.
 gogolObjectOpsWithEnv :: StorageEnv -> Text -> Text -> Either Text ObjectOps
-gogolObjectOpsWithEnv supplied = objectOpsWithEnvironment (pure supplied)
+gogolObjectOpsWithEnv supplied project = objectOpsWithEnvironment (pure supplied) project (Just project)
 
 -- | The manager and token source live for the command. Gogol's opaque auth store
 -- lacks a callback credential constructor. Load each bounded request's token via
 -- a private, immediately removed temporary file, avoiding a persistent token file
 -- or background refresh thread. Its SDK token lifetime (60s) exceeds the whole
 -- request budget (20s); the external source owns real expiry and refresh.
-newGogolObjectOpsWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> Text -> IO (Either Text ObjectOps)
-newGogolObjectOpsWithToken token configureEnv project url = case location project url of
+newGogolObjectOpsWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> Maybe Text -> Text -> IO (Either Text ObjectOps)
+newGogolObjectOpsWithToken token configureEnv project quota url = case location project url of
   Left reason -> pure (Left reason)
   Right _ -> do
     environment <- tokenEnvironment token configureEnv
-    pure (objectOpsWithEnvironment environment project url)
+    pure (objectOpsWithEnvironment environment project quota url)
 
 tokenEnvironment :: IO Text -> (StorageEnv -> StorageEnv) -> IO (IO StorageEnv)
 tokenEnvironment token configureEnv = do
@@ -145,8 +156,8 @@ tokenEnvironment token configureEnv = do
       hClose handle
       configureEnv <$> (G.newEnvWith (Auth.FromTokenFile path) (\_ _ -> pure ()) manager :: IO StorageEnv)
 
-newGogolDiscoveryWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> Text -> IO (Either Text GogolDiscoveryOps)
-newGogolDiscoveryWithToken token configureEnv project url = case location project url of
+newGogolDiscoveryWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> Maybe Text -> Text -> IO (Either Text GogolDiscoveryOps)
+newGogolDiscoveryWithToken token configureEnv project quota url = case location project url of
   Left reason -> pure (Left reason)
   Right (bucket, root) -> do
     environment <- tokenEnvironment token configureEnv
@@ -157,7 +168,7 @@ newGogolDiscoveryWithToken token configureEnv project url = case location projec
             G.runResourceT $
               G.send
                 env
-                ((S.newStorageBucketsGet bucket) {BucketGet.userProject = Just project})
+                ((S.newStorageBucketsGet bucket) {BucketGet.userProject = quota})
           pure $ case result of
             Right value
               | value.name == Just bucket
@@ -175,20 +186,20 @@ newGogolDiscoveryWithToken token configureEnv project url = case location projec
                 ( (S.newStorageObjectsList bucket)
                     { List.prefix = Just (root <> "/")
                     , List.maxResults = 1
-                    , List.userProject = Just project
+                    , List.userProject = quota
                     }
                 )
           pure $ case result of
             Right response | not (null (fromMaybe [] response.items)) -> Right False
             Right response | isNothing response.nextPageToken -> Right True
             _ -> Left "inventory prefix emptiness could not be proved in one bounded page"
-    pure (GogolDiscoveryOps probe empty <$> objectOpsWithEnvironmentPolicy True environment project url)
+    pure (GogolDiscoveryOps probe empty <$> objectOpsWithEnvironmentPolicy True environment project quota url)
 
-objectOpsWithEnvironment :: IO StorageEnv -> Text -> Text -> Either Text ObjectOps
+objectOpsWithEnvironment :: IO StorageEnv -> Text -> Maybe Text -> Text -> Either Text ObjectOps
 objectOpsWithEnvironment = objectOpsWithEnvironmentPolicy False
 
-objectOpsWithEnvironmentPolicy :: Bool -> IO StorageEnv -> Text -> Text -> Either Text ObjectOps
-objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
+objectOpsWithEnvironmentPolicy :: Bool -> IO StorageEnv -> Text -> Maybe Text -> Text -> Either Text ObjectOps
+objectOpsWithEnvironmentPolicy boundedAbsence environment project quota url = do
   (bucket, root) <- location project url
   let sdk :: (StorageEnv -> IO a) -> IO (Either Failure a)
       sdk action = attempt (environment >>= action . Env.configure (G.serviceTimeout ?~ 20))
@@ -198,7 +209,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
       wire kind (ObjectName key) size = traced kind (objectClass key) size . sdk
       request name =
         (S.newStorageObjectsGet bucket (encodePart (full name)))
-          { Get.userProject = Just project
+          { Get.userProject = quota
           }
       metadata name object = do
         unless
@@ -226,7 +237,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
                 G.runResourceT $
                   G.send
                     env
-                    ((S.newStorageObjectsList bucket) {List.prefix = Just prefix, List.pageToken = token, List.userProject = Just project})
+                    ((S.newStorageObjectsList bucket) {List.prefix = Just prefix, List.pageToken = token, List.userProject = quota})
             case result of
               Left _ -> pure (Left "inventory object listing failed")
               Right response -> case foldM (add prefix) found (fromMaybe [] response.items) of
@@ -262,7 +273,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
                         ( (S.newStorageObjectsList bucket)
                             { List.prefix = Just (full name)
                             , List.maxResults = 1
-                            , List.userProject = Just project
+                            , List.userProject = quota
                             }
                         )
                   pure $ case listed of
@@ -297,7 +308,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
                   ( (S.newStorageObjectsInsert bucket S.newObject)
                       { Insert.name = Just (full name)
                       , Insert.ifGenerationMatch = Just expected
-                      , Insert.userProject = Just project
+                      , Insert.userProject = quota
                       }
                   )
                   (G.GBody "application/octet-stream" (HTTP.RequestBodyBS bytes))

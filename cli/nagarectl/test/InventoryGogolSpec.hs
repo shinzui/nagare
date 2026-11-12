@@ -75,7 +75,7 @@ inventoryGogolTests =
         testWithApplication (pure (server f)) $ \port -> do
           let configure = Env.override (S.storageService & G.serviceHost .~ "127.0.0.1" & G.servicePort .~ port & G.serviceSecure .~ False)
           sdk <-
-            newGogolDiscoveryWithToken (pure "fixture-token") configure "fixture-project" "gs://fixture-bucket/private/inventory"
+            newGogolDiscoveryWithToken (pure "fixture-token") configure "fixture-project" (Just "fixture-project") "gs://fixture-bucket/private/inventory"
               >>= either (assertFailure . T.unpack) pure
           discoveryBucket sdk >>= assertBool "valid bucket unavailable" . either (const False) isJust
           writeIORef (mode f) BucketMissing
@@ -91,6 +91,11 @@ inventoryGogolTests =
           discoveryPrefixEmpty sdk >>= assertBool "partial page became empty" . isLeft
           readIORef (writes f) >>= (@?= 0)
     , testCase "expired credentials refresh with the originally selected identity" credentialRefreshTest
+    , testCase "a service account of the context's own project bills no other project; any other identity names the context's (EP-248 D6)" $ do
+        quotaProjectFor "acme-prod" "nagare-deployer-kotei@acme-prod.iam.gserviceaccount.com" @?= Nothing
+        quotaProjectFor "acme-prod" "operator@example.com" @?= Just "acme-prod"
+        quotaProjectFor "acme-prod" "ci@other-project.iam.gserviceaccount.com" @?= Just "acme-prod"
+        quotaProjectFor "acme-prod" "nagare-deployer-kotei@acme-prod.iam.gserviceaccount.com.evil" @?= Just "acme-prod"
     , testCase "SDK backend obeys the existing store transaction contract" $ fixture $ \_ ops -> do
         store <- newObjectStore ops fixtureBinding "sdk-client" Nothing >>= either (assertFailure . show) pure
         exerciseStore store
@@ -310,7 +315,7 @@ fixture action = do
   f <- newFixture
   testWithApplication (pure (server f)) $ \port -> do
     let configure = Env.override (S.storageService & G.serviceHost .~ "127.0.0.1" & G.servicePort .~ port & G.serviceSecure .~ False)
-    ops <- newGogolObjectOpsWithToken (pure "fixture-token") configure "fixture-project" "gs://fixture-bucket/private/inventory" >>= either (assertFailure . T.unpack) pure
+    ops <- newGogolObjectOpsWithToken (pure "fixture-token") configure "fixture-project" (Just "fixture-project") "gs://fixture-bucket/private/inventory" >>= either (assertFailure . T.unpack) pure
     action f ops
 
 server :: Fixture -> Wai.Application

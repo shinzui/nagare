@@ -7,6 +7,7 @@ module Nagare.Inventory.Store.GcloudAuth
   , sessionToken
   , sessionCapture
   , sessionStorageEndpoint
+  , sessionAccount
   , gcloudLoginRequired
   )
 where
@@ -34,6 +35,8 @@ data GcloudSession = GcloudSession
   { sessionToken :: !(IO T.Text)
   , sessionStorageEndpoint :: !T.Text
   , sessionCapture :: !([String] -> IO (Maybe T.Text))
+  , sessionAccount :: !T.Text
+  -- ^ The pinned identity's account, a user or a service account email.
   }
 
 type Runner = [(String, String)] -> [String] -> IO (Either T.Text T.Text)
@@ -127,7 +130,7 @@ newGcloudSessionWith clock run inherited project = do
                       _ -> pure (Nothing, Nothing)
             maybe (ioError (userError "inventory gcloud token refresh failed or changed identity; restart the command after checking the selected gcloud credentials")) pure result
           capture args = either (const Nothing) (Just . T.strip) <$> run frozen args
-      pure (Right (GcloudSession token endpoint capture))
+      pure (Right (GcloudSession token endpoint capture account))
 
 replace :: [(String, String)] -> [(String, String)] -> [(String, String)]
 replace previous values = values <> filter (\(key, _) -> key `notElem` map fst values) previous

@@ -57,7 +57,7 @@ remoteDiscoveryOps project url = case validateGogolLocation project url of
           number <- maybe live (pure . Just) remembered
           case number of
             Just expected -> do
-              created <- newGogolDiscoveryWithToken (sessionToken auth) configure project url
+              created <- newGogolDiscoveryWithToken (sessionToken auth) configure project (quotaProjectFor project (sessionAccount auth)) url
               case created of
                 Left reason -> pure (Left reason)
                 Right sdk -> do
@@ -134,7 +134,7 @@ openRemoteObjectOps project url = do
               owned <- ownership (tracePhase "gcloud ownership read" . sessionCapture auth)
               case owned of
                 Left reason -> pure (Left reason)
-                Right () -> tracePhase "transport setup" (newGogolObjectOpsWithToken (sessionToken auth) configureEnv project url)
+                Right () -> tracePhase "transport setup" (newGogolObjectOpsWithToken (sessionToken auth) configureEnv project (quotaProjectFor project (sessionAccount auth)) url)
     _ -> pure (Left "NAGARE_INVENTORY_GCS_TRANSPORT must be gogol or gcloud")
   where
     legacy = do
