@@ -592,6 +592,14 @@ local-smoke:
 local-app-database-smoke context:
     NAGARE_SMOKE_CONTEXT='{{context}}' scripts/local-app-database-smoke.sh
 
+# EP-261 (IR-44): on a bootstrapped local context, an Application whose workloads opt out of
+# the managed store receives only the keys each one references, and one that does not opt out
+# inherits the Application's store. Set NAGARECTL_PREVIOUS to compare with the last release.
+# Check which workloads receive an app's managed env and secrets.
+[group('test')]
+local-secret-scope-smoke context:
+    NAGARE_SMOKE_CONTEXT='{{context}}' scripts/local-secret-scope-smoke.sh
+
 # MP-26 item 11: a release is two commands (docs/runbooks/releases.md). This one
 # runs everything up to the tag, unattended: `just gate-release`, the transition
 # rehearsal from the newest release the candidate accepts, the native attachments
