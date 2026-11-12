@@ -33,6 +33,7 @@ import Nagare.Inventory.RebuildRestore (RebuildRestoreRequest (..), compileRebui
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Store
+import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -84,6 +85,13 @@ inventoryRebuildTests =
         writeIORef (live ^. #nextUid) "uid-fresh"
         _ <- convergeDeciding store live (rebuild Nothing Fresh)
         incarnations store >>= (@?= Map.singleton volumeId (uid "uid-fresh"))
+    , testCase "a fresh rebuild runs its scope's migration again, and not a drain or resume of the lost server's sessions (EP-260)" $ do
+        (store, live) <- acceptedScope sessionsScope
+        writeIORef (live ^. #current) Nothing
+        writeIORef (live ^. #nextUid) "uid-rebuilt"
+        document <- convergeDeciding store live (rebuild accepted Fresh)
+        [(plannedAction planned, plannedInputDigest planned) | entry <- reviewOperations document, let planned = reviewPlannedOperation entry, plannedAction planned == RunDeclaredOperation]
+          @?= [(RunDeclaredOperation, contentDigest (expectOk (canonicalValue (Aeson.toJSON (declaredOn SchemaMigration "migrate")))))]
     , testCase "admission refuses a rebuild whose member reappeared after review" $ do
         (store, live) <- acceptedVolume
         writeIORef (live ^. #current) Nothing
@@ -145,7 +153,7 @@ inventoryRebuildTests =
         (store, live) <- acceptedVolume
         writeIORef (live ^. #current) Nothing
         history <- loadInventoryHistory store >>= expectRight
-        let candidate = candidateFor history
+        let candidate = candidateFor volumeScope history
             absent = expectOk (observationSet [(volumeId, ConfirmedAbsent (contentDigest "absent"))])
             choose _ predecessor = Right (maybe Fresh (const (FromRecoveryPoint point)) predecessor)
         fmap (map (^. #proof)) (rebuildTargets candidate history absent choose) @?= Right [RebuildProof accepted (FromRecoveryPoint point)]
@@ -262,10 +270,14 @@ clearIncarnations store = do
 
 -- | A store whose volume converged as uid-accepted, and the adapter's live object.
 acceptedVolume :: IO (InventoryStore, Live)
-acceptedVolume = do
+acceptedVolume = acceptedScope volumeScope
+
+-- | A store whose scope converged with its volume as uid-accepted.
+acceptedScope :: ScopeDeclaration -> IO (InventoryStore, Live)
+acceptedScope scope = do
   store <- newMemoryStore
   _ <- initializeStore store fixtureBinding "rebuild-test" >>= expectRight
-  live <- Live <$> newIORef Nothing <*> newIORef "uid-accepted"
+  live <- Live <$> newIORef Nothing <*> newIORef "uid-accepted" <*> pure scope
   _ <- convergeDeciding store live (\_ _ _ -> Right noLifecycleDecisions)
   incarnations store >>= (@?= Map.singleton volumeId (uid "uid-accepted"))
   pure (store, live)
@@ -274,19 +286,20 @@ acceptedVolume = do
 data Live = Live
   { current :: !(IORef (Maybe PhysicalIdentity))
   , nextUid :: !(IORef Text)
+  , scope :: !ScopeDeclaration
   }
   deriving stock (Generic)
 
 type Decide = CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions
 
-candidateFor :: InventoryHistory -> CompositionCandidate
-candidateFor history =
-  expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding (Map.map (\(revision, scope) -> (revisionGeneration revision, scope)) (historyAccepted history)) (historyReservations history))) (ReplaceScope volumeScope :| []))
+candidateFor :: ScopeDeclaration -> InventoryHistory -> CompositionCandidate
+candidateFor scope history =
+  expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding (Map.map (\(revision, accepted') -> (revisionGeneration revision, accepted')) (historyAccepted history)) (historyReservations history))) (ReplaceScope scope :| []))
 
 reviewDeciding :: InventoryStore -> Live -> Decide -> IO ReviewedPlan
 reviewDeciding store live decide = do
   history <- loadInventoryHistory store >>= expectRight
-  let candidate = candidateFor history
+  let candidate = candidateFor (live ^. #scope) history
       registry = registryOf live
   observations <- observeWithRegistry registry (Map.singleton KubernetesExecutor (Set.toList (requiredResources (observationRequirements candidate history)))) >>= expectRight
   decisions <- either (assertFailure . show) pure (decide candidate history observations)
@@ -323,10 +336,13 @@ registryOf live =
                 pure (observationSet [(resource, maybe (ConfirmedAbsent (contentDigest "absent")) ObservedPresent observed) | resource <- resources])
             , adapterPrepare = \operation -> pure (Right (PreparedNative (BL.toStrict (Aeson.encode (operationIdText (plannedOperationId operation)))) "rebuild adapter"))
             , adapterPreflight = \_ _ -> pure (Right ())
-            , adapterExecute = \_ _ -> do
-                created <- uid <$> readIORef (live ^. #nextUid)
-                writeIORef (live ^. #current) (Just created)
-                pure (AdapterEffectIdentified created AdapterEffectCompleted)
+            , adapterExecute = \operation _ ->
+                if plannedAction operation == RunDeclaredOperation
+                  then pure AdapterEffectCompleted
+                  else do
+                    created <- uid <$> readIORef (live ^. #nextUid)
+                    writeIORef (live ^. #current) (Just created)
+                    pure (AdapterEffectIdentified created AdapterEffectCompleted)
             , adapterVerify = \operation _ -> pure (Right (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
             , adapterSettle = Nothing
             , adapterRecover = \_ _ -> pure RecoverySafeToRetry
@@ -373,6 +389,22 @@ volumeMember =
     , dependencies = []
     , delegations = []
     , source = SourceLocation "test" "data"
+    }
+
+-- | The volume's scope with a migration, and the drain and resume a quiesce and
+-- resume leave declared, all affecting the volume.
+sessionsScope :: ScopeDeclaration
+sessionsScope =
+  expectOk (mkScopeDeclaration rebuildOwner [ResourceBundle [Managed volumeMember] [] [] [] [declaredOn SchemaMigration "migrate", declaredOn DrainSessions "drain", declaredOn ResumeSessions "resume"] []])
+
+declaredOn :: OperationKind -> Text -> DeclaredOperation
+declaredOn kind' name =
+  DeclaredOperation
+    { identity = mintResourceId rebuildOwner (expectOk (mkLogicalKey "rebuild-db")) (expectOk (mkName name))
+    , affects = volumeId :| []
+    , inputs = [ContentInput (contentDigest (TE.encodeUtf8 name))]
+    , recovery = VerifyBeforeRetry
+    , operationKind = kind'
     }
 
 -- | The volume's scope with its member an app database's logical database.

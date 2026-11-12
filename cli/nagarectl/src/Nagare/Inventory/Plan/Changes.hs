@@ -552,14 +552,14 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     -- operations. Kubernetes TTL can remove migration Jobs, while host
     -- activation and artifact publication retain their verified receipts in
     -- the journal. A missing artifact still gets a focused create operation.
+    -- A fresh rebuild runs its scope's operations again (F142), but not a drain or resume of the lost server's sessions.
     provenOperations =
       Map.fromList
         [ (operation ^. #identity, operation)
-        | (scope, (revision, declaration)) <- Map.toAscList (Map.withoutKeys (historyAccepted history) (freshDataScopes decisions desiredDeclarations))
+        | (scope, (revision, declaration)) <- Map.toAscList (historyAccepted history)
         , Map.lookup scope (historyConverged history) == Just revision
-        , bundle <- scopeBundles declaration
-        , operation <- bundle ^. #operations
-        , convergedOnly operation
+        , operation <- concatMap (^. #operations) (scopeBundles declaration)
+        , convergedOnly operation && (Set.notMember scope (freshDataScopes decisions desiredDeclarations) || operation ^. #operationKind `elem` [DrainSessions, ResumeSessions])
         ]
     operationIsProven operation =
       convergedOnly operation
