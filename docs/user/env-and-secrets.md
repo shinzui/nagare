@@ -79,9 +79,11 @@ operator changes without touching Haskell or rebuilding the image:
 - a **ConfigMap** named `nagare-env-<app>-<scope>` for plain values, and
 - a **Secret** named `nagare-secret-<app>-<scope>` for sensitive values,
 
-where `<scope>` is the lowercased token `runtime`/`build`/`preview`. Every rendered
-Knative `Service` consumes the **Runtime** pair through an `envFrom:` block with
-`optional: true` (so the app still deploys if the store was never written):
+where `<scope>` is the lowercased token `runtime`/`build`/`preview`. A workload that
+inherits the store consumes the **Runtime** pair through an `envFrom:` block with
+`optional: true` (so the app still deploys if the store was never written). Which
+workloads inherit, and how one opts out, is in
+[Which workloads receive the managed store](#which-workloads-receive-the-managed-store):
 
 ```yaml
 envFrom:
@@ -110,6 +112,77 @@ converge and never reach the app. Change that value in `Config.hs`, or remove it
 to manage it with `env set`. A key shadowed some other way, such as a generated
 `NAGARE_*` name, still shows up as "my managed variable isn't taking effect" — see
 [Troubleshooting](#troubleshooting).
+
+## Which workloads receive the managed store
+
+By default a workload inherits the whole Runtime store of one app: every key written with
+`env set`, `env sync`, `secret set` and `secret sync` for that app.
+
+| Workload | Store it inherits | Written with |
+| --- | --- | --- |
+| Web service deployed on its own | its own: `nagare-env-<service>-runtime`, `nagare-secret-<service>-runtime` | `nagarectl secret set <service> -f Config.hs` |
+| Worker deployed on its own | its own: `nagare-env-<worker>-runtime`, `nagare-secret-<worker>-runtime` | `nagarectl secret set <worker> -f Config.hs` |
+| Web service, worker or pre-deploy hook of an Application | the Application's: `nagare-env-<app>-runtime`, `nagare-secret-<app>-runtime` | `nagarectl secret set <app> -f Config.hs` |
+| Scheduled task that names an app (`app = Just name`) | that app's | as for that app |
+| Scheduled task with no app | none | |
+| One-shot job | its own, named after the job; it has no opt-out | |
+
+Inside an Application every workload shares the Application's store, whatever the
+workload itself is called. `env` commands follow the same rule as the `secret` commands
+shown.
+
+A web service, a worker or a task opts out with one field:
+
+```haskell
+managedEnv = NoManagedEnv   -- the default is InheritManagedEnv
+```
+
+An opted-out workload has no `envFrom` of the managed store. Its container receives only
+what its own configuration names: its inline `env`, each Secret key it references, its
+database and broker bindings, and Nagare's generated `NAGARE_*` variables. Use this to
+keep one role's credentials away from another, for example a migration credential away
+from the serving Pods.
+
+To read a key of the app's runtime Secret from an opted-out workload, reference it by
+name. The variable's name is the key:
+
+```haskell
+(apiToken, runtimeScoped (EnvSecretRef runtimeSecret))   -- runtimeSecret = "nagare-secret-<app>-runtime"
+```
+
+A reviewed deploy refuses a Secret reference unless that Secret is an accepted resource,
+so pass the app's runtime Secret like any other, once per deploy:
+
+```bash
+nagarectl app deploy -f nagare/Config.hs ... \
+  --env-secret-resource application:secret-<app>-runtime/runtime-secret/secret
+```
+
+That resource exists once a reviewed `secret set` or `secret sync` has written the store.
+The saved review then lists the Secret as a dependency of each workload that reads it.
+
+Three roles of one Application, each reading only its own keys:
+
+```haskell
+-- web: the runtime database URL and the API token
+service = base { env = keys ["DATABASE_URL", "API_TOKEN"], managedEnv = NoManagedEnv }
+-- worker: the runtime database URL only
+worker  = baseWorker { env = keys ["DATABASE_URL"], managedEnv = NoManagedEnv }
+-- pre-deploy migration hook: the maintenance URL only
+migrate = baseTask { env = keys ["MAINTENANCE_DATABASE_URL"], managedEnv = NoManagedEnv }
+
+keys names = Map.fromList [(name, runtimeScoped (EnvSecretRef runtimeSecret)) | name <- names]
+```
+
+What the opt-out does not change:
+
+- Values written with `env set` live in a ConfigMap, and there is no per-key ConfigMap
+  reference, so an opted-out workload cannot read them. Put such a value in the
+  workload's inline `env`, or in the Secret.
+- An Application's own `env` map is shared on purpose and still reaches every workload.
+  Put per-role values on the workload.
+- A referenced key that is missing from the Secret stops the Pod at start, as a
+  reference to any Secret does.
 
 ## The CLI
 

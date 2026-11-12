@@ -234,7 +234,10 @@ When the application references an already accepted Secret, supply its resource
 ID with `--tls-secret-resource RESOURCE-ID` for a supplied-TLS domain or
 `--env-secret-resource RESOURCE-ID` for runtime environment. Repeat either
 option for distinct Secrets. Planning checks the exact cluster, namespace, and
-Secret name and refuses missing, extra, or wrong-address bindings. An
+Secret name and refuses missing, extra, or wrong-address bindings. The app's own
+runtime Secret, `nagare-secret-<app>-runtime`, is passed the same way when a
+workload references one of its keys
+([Which workloads receive the managed store](env-and-secrets.md#which-workloads-receive-the-managed-store)). An
 application-owned database credential can satisfy its runtime environment
 reference without a second Secret option.
 
@@ -372,6 +375,7 @@ deployment = do
       , scale = Just sc
       , probes = Nothing
       , serviceAccount = Nothing
+      , managedEnv = InheritManagedEnv
       }
 
 main :: IO ()
@@ -612,8 +616,9 @@ spec:
 
 Two rendering details worth knowing: every app Service carries the
 `nagare.dev/managed-by: nagarectl` label (it's how [`app
-list`](app-lifecycle.md) finds Nagare apps), and an `envFrom` block always
-references the app's managed env/secret stores as `optional` — so
+list`](app-lifecycle.md) finds Nagare apps), and unless the service sets
+`managedEnv = NoManagedEnv` an `envFrom` block references the app's managed
+env/secret stores as `optional` — so
 [`nagarectl env`/`secret`](env-and-secrets.md) edits take effect without
 re-rendering. `probes` would add `readinessProbe`/`livenessProbe`/
 `startupProbe` blocks, and `cpuLimit`/`memoryLimit` would add a

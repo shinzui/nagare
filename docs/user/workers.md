@@ -155,7 +155,7 @@ in the inventory journal.
 | `build`      | How the image is produced — reuses the app `BuildSpec` (prebuilt / Dockerfile / Nixpacks). |
 | `command`    | Optional entrypoint override, e.g. `["python","-m","worker"]`. Absent = the image's own entrypoint. |
 | `replicas`   | Fixed number of identical copies to run (default 1; `0` = paused).       |
-| `env`        | Scoped env (same model as an app); managed `envFrom` is always wired.    |
+| `env`        | Scoped env (same model as an app).                                       |
 | `resources`  | CPU/memory requests and limits (same `Resources` as an app).            |
 | `volumes`    | Durable `local-path` PVCs (same `Volume` model as an app).               |
 | `databases`  | Names of managed databases this worker connects to.                      |
@@ -163,11 +163,16 @@ in the inventory journal.
 | `readiness`  | Optional readiness probe, independent of `liveness`. Absent = no probe.  |
 | `shutdown`   | Optional termination allowance in seconds. Absent = the Kubernetes default. |
 | `serviceAccount` | Optional account the Pod runs as. Absent = no Kubernetes API token.  |
+| `managedEnv` | `InheritManagedEnv` (default) wires the managed `envFrom`; `NoManagedEnv` removes it. |
 
-A worker reuses the app's env/secret store, so `nagarectl env` and
-`nagarectl secret` work for a worker exactly as for an app — values flow in
-through the managed `nagare-env-<name>-runtime` ConfigMap and
-`nagare-secret-<name>-runtime` Secret without a redeploy.
+A worker deployed on its own inherits the store named after itself, so
+`nagarectl env set <worker> -f Config.hs` and `nagarectl secret set <worker> -f
+Config.hs` write the `nagare-env-<worker>-runtime` ConfigMap and
+`nagare-secret-<worker>-runtime` Secret it reads. A worker that is part of an
+Application inherits the Application's store instead, `nagare-env-<app>-runtime`
+and `nagare-secret-<app>-runtime`, written with the Application's name. Set
+`managedEnv = NoManagedEnv` to inherit neither; see
+[Which workloads receive the managed store](env-and-secrets.md#which-workloads-receive-the-managed-store).
 
 ## Liveness probes for hung workers
 

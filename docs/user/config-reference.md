@@ -56,6 +56,7 @@ data Deployment = Deployment
   , scale       :: Maybe Scale              -- autoscaling bounds (Nothing = omit)
   , probes      :: Maybe WebProbes           -- readiness, liveness and startup checks (Nothing = omit)
   , serviceAccount :: Maybe ServiceAccountName -- Nothing = no Kubernetes API token
+  , managedEnv  :: ManagedEnv                -- InheritManagedEnv, or NoManagedEnv to drop the managed envFrom
   , volumes     :: [Volume]                  -- durable disks ([] = stateless); see Volumes
   , databases   :: [DatabaseName]            -- managed databases this app uses ([] = none); see below
   , appDatabases :: [AppDatabaseBinding]     -- app databases on shared servers ([] = none); see below
@@ -66,7 +67,7 @@ data Deployment = Deployment
 > configs need not mention it. A hand-written record literal must set `build` —
 > see [Build modes](#build-modes) and the [migration note](build-modes.md). It
 > must also set `domains` (use `[]` for none), `probes` and `serviceAccount` (use
-> `Nothing`).
+> `Nothing`), and `managedEnv` (use `InheritManagedEnv`).
 
 > **`env` values carry scopes.** Each env value is a `ScopedEnvVar` — an `EnvVar`
 > (literal or secret reference) plus the set of scopes it applies to. A bare
@@ -295,6 +296,18 @@ refused at admission; a worker or task Pod stays unscheduled until it exists.
 A web Pod's shutdown allowance is the Knative revision timeout, which is 300
 seconds by default on Knative Serving 1.22. A worker's is its `shutdown` field,
 described in [Workers](workers.md).
+
+### `ManagedEnv` — the inherited managed store
+
+```haskell
+data ManagedEnv = InheritManagedEnv | NoManagedEnv
+```
+
+A `Deployment`, a `Worker` and a `Task` each carry `managedEnv`. `InheritManagedEnv`
+renders the `envFrom` of the managed Runtime ConfigMap and Secret; `NoManagedEnv` renders
+none, and the workload receives only what its configuration names. The serialized
+configuration writes the key only for `NoManagedEnv`. See
+[Which workloads receive the managed store](env-and-secrets.md#which-workloads-receive-the-managed-store).
 
 ### `Scale` — autoscaling bounds
 

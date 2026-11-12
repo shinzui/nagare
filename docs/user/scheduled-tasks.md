@@ -305,14 +305,16 @@ A task can run **in an app's world**: set `taskApp = Just "<app>"` (and leave
 `tasks` list. At deploy time the rendered Job template uses the app's deployed image
 tag and adds an `envFrom` block importing the app's managed runtime ConfigMap and
 Secret, so the task sees the same environment — including any injected `DATABASE_URL`
-— as the app itself. The CronJob and its pods carry the `nagare.dev/app: <app>`
+— as the app itself. A task that sets `managedEnv = NoManagedEnv` gets no such block
+and receives only its own inline env and the predefined variables
+([Which workloads receive the managed store](env-and-secrets.md#which-workloads-receive-the-managed-store)). The CronJob and its pods carry the `nagare.dev/app: <app>`
 label, so `nagarectl task list <app>` scopes to that app's tasks.
 
 The task container's environment is composed from three layers:
 
 | Layer | Source | Wins over |
 | --- | --- | --- |
-| Inherited app env | `envFrom` the app's `nagare-env-<app>-runtime` ConfigMap and `nagare-secret-<app>-runtime` Secret (each `optional: true`) | (base) |
+| Inherited app env | `envFrom` the app's `nagare-env-<app>-runtime` ConfigMap and `nagare-secret-<app>-runtime` Secret (each `optional: true`); absent with `managedEnv = NoManagedEnv` | (base) |
 | Task inline env | the task's own `taskEnv` (Runtime-scoped) | inherited app env |
 | Predefined task vars | `NAGARE_TASK_NAME`, `NAGARE_NAMESPACE`, `NAGARE_APP` (when associated), `NAGARE_RUN_ID` | set by the platform |
 
