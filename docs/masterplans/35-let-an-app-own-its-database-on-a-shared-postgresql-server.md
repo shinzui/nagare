@@ -118,7 +118,7 @@ one-line amendment note to ADR 30 and ADR 31. No cross-repository ADR applies.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-257 | Declare an app-owned PostgreSQL app database and keep apps apart | [docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md](../plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md) | None | None | Not Started |
+| EP-257 | Declare an app-owned PostgreSQL app database and keep apps apart | [docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md](../plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md) | None | None | In Progress |
 | EP-258 | Carry an app's roles through backups, restores, quiesce and retirement | [docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md](../plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md) | EP-257 | None | Not Started |
 | EP-259 | Let tasks and pre-deploy hooks bind an app database under a named URL variable | [docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md](../plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md) | EP-257 M2 (for its M2 only) | None | Not Started |
 | EP-260 | Confirm an app-owned database with Kotei's unchanged privilege script and release it | [docs/plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md](../plans/260-confirm-an-app-owned-database-with-kotei-s-unchanged-privilege-script-and-release-it.md) | EP-257, EP-258, EP-259 | None | Not Started |
@@ -206,7 +206,8 @@ build is for local contexts only.
 
 ## Progress
 
-No child plan started. Cross-plan gate, checked in EP-260:
+EP-257 in progress: M1 proved every PostgreSQL rule the design rests on, on PostgreSQL 18, with no
+design change. Cross-plan gate, checked in EP-260:
 
 - [ ] On one local context, IR-43 AC-1 to AC-5 pass together with Kotei's script unchanged, an
   app database that did not opt in re-plans with no operations, and the release is running on

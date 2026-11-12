@@ -1,0 +1,483 @@
+-- server major version: 18
+
+-- step: postgres postgres
+-- What Nagare renders for the three tenants, as the server administrator.
+CREATE ROLE "gamma_migration" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE
+CREATE ROLE "gamma_runtime" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE
+CREATE DATABASE "gamma" OWNER "gamma_migration";
+CREATE DATABASE
+REVOKE ALL ON DATABASE "gamma" FROM PUBLIC;
+REVOKE
+GRANT CONNECT, TEMPORARY ON DATABASE "gamma" TO "gamma_runtime";
+GRANT
+-- alpha: the owner user, its setting, the declared owning role, the database.
+CREATE ROLE "alpha_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE
+ALTER ROLE "alpha_owner" SET createrole_self_grant = 'set, inherit';
+ALTER ROLE
+CREATE ROLE "kotei_maintenance" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE
+GRANT "kotei_maintenance" TO "alpha_owner" WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;
+GRANT ROLE
+CREATE DATABASE "alpha" OWNER "kotei_maintenance";
+CREATE DATABASE
+REVOKE ALL ON DATABASE "alpha" FROM PUBLIC;
+REVOKE
+-- beta: the owner user owns its database directly.
+CREATE ROLE "beta_owner" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE
+ALTER ROLE "beta_owner" SET createrole_self_grant = 'set, inherit';
+ALTER ROLE
+CREATE DATABASE "beta" OWNER "beta_owner";
+CREATE DATABASE
+REVOKE ALL ON DATABASE "beta" FROM PUBLIC;
+REVOKE
+REVOKE CONNECT, TEMPORARY ON DATABASE "postgres", "template1", "smoke_pg" FROM PUBLIC;
+REVOKE
+
+-- step: beta_owner beta
+-- beta's own roles and a login, made by its owner.
+CREATE ROLE beta_reader NOLOGIN;
+CREATE ROLE
+CREATE ROLE beta_app LOGIN IN ROLE beta_reader;
+CREATE ROLE
+GRANT CONNECT ON DATABASE beta TO beta_reader;
+GRANT
+CREATE TABLE beta_secret (v text);
+CREATE TABLE
+INSERT INTO beta_secret VALUES ('beta only');
+INSERT 0 1
+
+-- step: alpha_owner alpha
+-- alpha's migrations, run as the owner: schemas, tables, a sequence and functions.
+CREATE SCHEMA kiroku;
+CREATE SCHEMA
+CREATE SCHEMA kotei;
+CREATE SCHEMA
+CREATE TABLE kiroku.events (id bigserial PRIMARY KEY, body text);
+CREATE TABLE
+CREATE TABLE kotei.erasure_window (active boolean NOT NULL DEFAULT false);
+CREATE TABLE
+CREATE FUNCTION kotei.native_observation_publishable() RETURNS boolean LANGUAGE sql AS 'SELECT true';
+CREATE FUNCTION
+CREATE FUNCTION kotei.begin_erasure_window(text) RETURNS void LANGUAGE sql AS 'SELECT';
+CREATE FUNCTION
+
+-- step: alpha_owner alpha
+-- The Kotei-shaped privilege script, first run.
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_inspection') THEN
+    CREATE ROLE kotei_inspection NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_runtime') THEN
+    CREATE ROLE kotei_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_maintenance') THEN
+    CREATE ROLE kotei_maintenance NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_erasure') THEN
+    CREATE ROLE kotei_erasure NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+END
+$roles$;
+DO
+DO $membership$
+BEGIN
+  IF NOT pg_catalog.pg_has_role('kotei_erasure', 'kotei_runtime', 'MEMBER') THEN
+    GRANT kotei_runtime TO kotei_erasure;
+  END IF;
+END
+$membership$;
+DO
+DO $database$
+BEGIN
+  IF EXISTS (SELECT 1 FROM kotei.erasure_window AS w WHERE w.active) THEN
+    RAISE EXCEPTION 'finish or withdraw the active erasure before applying privileges';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database AS d
+                 JOIN pg_catalog.pg_roles AS r ON r.oid = d.datdba
+                 WHERE d.datname = pg_catalog.current_database() AND r.rolname = 'kotei_maintenance') THEN
+    EXECUTE pg_catalog.format('ALTER DATABASE %I OWNER TO kotei_maintenance', pg_catalog.current_database());
+  END IF;
+  EXECUTE pg_catalog.format('REVOKE ALL ON DATABASE %I FROM PUBLIC', pg_catalog.current_database());
+  EXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %I TO kotei_runtime, kotei_erasure, kotei_inspection', pg_catalog.current_database());
+END
+$database$;
+DO
+REVOKE ALL ON SCHEMA kiroku, kotei FROM PUBLIC;
+REVOKE
+REVOKE ALL ON ALL TABLES IN SCHEMA kiroku, kotei FROM PUBLIC;
+REVOKE
+REVOKE ALL ON ALL TABLES IN SCHEMA kiroku, kotei FROM kotei_runtime;
+REVOKE
+GRANT USAGE ON SCHEMA kiroku, kotei TO kotei_runtime;
+GRANT
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA kiroku, kotei TO kotei_runtime;
+GRANT
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE kiroku.events FROM kotei_runtime;
+REVOKE
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA kiroku TO kotei_runtime;
+GRANT
+GRANT EXECUTE ON FUNCTION kotei.native_observation_publishable() TO kotei_runtime;
+GRANT
+GRANT USAGE, CREATE ON SCHEMA kiroku, kotei TO kotei_maintenance;
+GRANT
+GRANT ALL ON ALL TABLES IN SCHEMA kiroku, kotei TO kotei_maintenance;
+GRANT
+DO $ownership$
+DECLARE
+  object record;
+BEGIN
+  FOR object IN SELECT n.nspname FROM pg_catalog.pg_namespace AS n WHERE n.nspname IN ('kiroku', 'kotei')
+  LOOP
+    EXECUTE pg_catalog.format('ALTER SCHEMA %I OWNER TO kotei_maintenance', object.nspname);
+  END LOOP;
+  FOR object IN SELECT n.nspname, c.relname FROM pg_catalog.pg_class AS c
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+      WHERE n.nspname IN ('kiroku', 'kotei') AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  LOOP
+    EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO kotei_maintenance', object.nspname, object.relname);
+  END LOOP;
+  FOR object IN SELECT n.nspname, p.proname, pg_catalog.pg_get_function_identity_arguments(p.oid) AS arguments
+      FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+      WHERE n.nspname IN ('kiroku', 'kotei') AND p.prokind = 'f'
+  LOOP
+    EXECUTE pg_catalog.format('ALTER FUNCTION %I.%I(%s) OWNER TO kotei_maintenance', object.nspname, object.proname, object.arguments);
+  END LOOP;
+END
+$ownership$;
+DO
+GRANT EXECUTE ON FUNCTION kotei.begin_erasure_window(pg_catalog.text) TO kotei_erasure;
+GRANT
+REVOKE ALL ON SCHEMA kiroku, kotei FROM kotei_inspection;
+REVOKE
+GRANT USAGE ON SCHEMA kiroku, kotei TO kotei_inspection;
+GRANT
+GRANT SELECT ON ALL TABLES IN SCHEMA kiroku, kotei TO kotei_inspection;
+GRANT
+-- A login the app provisions, and a nested role creator: both reachable from alpha_owner.
+DO $logins$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_app') THEN
+    CREATE ROLE kotei_app LOGIN IN ROLE kotei_runtime;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_admin') THEN
+    CREATE ROLE kotei_admin NOLOGIN CREATEROLE;
+  END IF;
+END
+$logins$;
+DO
+
+-- step: alpha_owner alpha
+-- The same script, second run: every guarded statement is skipped and nothing fails.
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_inspection') THEN
+    CREATE ROLE kotei_inspection NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kotei_maintenance') THEN
+    CREATE ROLE kotei_maintenance NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+END
+$roles$;
+DO
+DO $database$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database AS d
+                 JOIN pg_catalog.pg_roles AS r ON r.oid = d.datdba
+                 WHERE d.datname = pg_catalog.current_database() AND r.rolname = 'kotei_maintenance') THEN
+    EXECUTE pg_catalog.format('ALTER DATABASE %I OWNER TO kotei_maintenance', pg_catalog.current_database());
+  END IF;
+  EXECUTE pg_catalog.format('REVOKE ALL ON DATABASE %I FROM PUBLIC', pg_catalog.current_database());
+  EXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %I TO kotei_runtime, kotei_erasure, kotei_inspection', pg_catalog.current_database());
+END
+$database$;
+DO
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA kiroku, kotei TO kotei_runtime;
+GRANT
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE kiroku.events FROM kotei_runtime;
+REVOKE
+DO $ownership$
+DECLARE
+  object record;
+BEGIN
+  FOR object IN SELECT n.nspname FROM pg_catalog.pg_namespace AS n WHERE n.nspname IN ('kiroku', 'kotei')
+  LOOP
+    EXECUTE pg_catalog.format('ALTER SCHEMA %I OWNER TO kotei_maintenance', object.nspname);
+  END LOOP;
+  FOR object IN SELECT n.nspname, c.relname FROM pg_catalog.pg_class AS c
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+      WHERE n.nspname IN ('kiroku', 'kotei') AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  LOOP
+    EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO kotei_maintenance', object.nspname, object.relname);
+  END LOOP;
+END
+$ownership$;
+DO
+-- The owner keeps full use of what kotei_maintenance now owns.
+INSERT INTO kiroku.events (body) VALUES ('owner writes after the ownership move');
+INSERT 0 1
+CREATE TABLE kotei.added_later (id int);
+CREATE TABLE
+DROP TABLE kotei.added_later;
+DROP TABLE
+
+-- step: alpha_owner alpha
+-- AC-2 as alpha_owner. Every statement below fails.
+ALTER ROLE beta_owner PASSWORD 'x';
+ERROR:  permission denied to alter role
+DETAIL:  To change another role's password, the current user must have the CREATEROLE attribute and the ADMIN option on the role.
+ALTER ROLE beta_reader NOLOGIN;
+ERROR:  permission denied to alter role
+DETAIL:  Only roles with the CREATEROLE attribute and the ADMIN option on role "beta_reader" may alter this role.
+DROP ROLE beta_reader;
+ERROR:  permission denied to drop role
+DETAIL:  Only roles with the CREATEROLE attribute and the ADMIN option on role "beta_reader" may drop this role.
+GRANT beta_reader TO alpha_owner;
+ERROR:  permission denied to grant role "beta_reader"
+DETAIL:  Only roles with the ADMIN option on role "beta_reader" may grant this role.
+GRANT beta_reader TO kotei_runtime;
+ERROR:  permission denied to grant role "beta_reader"
+DETAIL:  Only roles with the ADMIN option on role "beta_reader" may grant this role.
+ALTER ROLE gamma_runtime PASSWORD 'x';
+ERROR:  permission denied to alter role
+DETAIL:  To change another role's password, the current user must have the CREATEROLE attribute and the ADMIN option on the role.
+DROP ROLE gamma_migration;
+ERROR:  permission denied to drop role
+DETAIL:  Only roles with the CREATEROLE attribute and the ADMIN option on role "gamma_migration" may drop this role.
+GRANT gamma_migration TO kotei_runtime;
+ERROR:  permission denied to grant role "gamma_migration"
+DETAIL:  Only roles with the ADMIN option on role "gamma_migration" may grant this role.
+CREATE ROLE kotei_super SUPERUSER;
+ERROR:  permission denied to create role
+DETAIL:  Only roles with the SUPERUSER attribute may create roles with the SUPERUSER attribute.
+CREATE ROLE kotei_creator CREATEDB;
+ERROR:  permission denied to create role
+DETAIL:  Only roles with the CREATEDB attribute may create roles with the CREATEDB attribute.
+CREATE ROLE kotei_replica REPLICATION;
+ERROR:  permission denied to create role
+DETAIL:  Only roles with the REPLICATION attribute may create roles with the REPLICATION attribute.
+CREATE ROLE kotei_bypass BYPASSRLS;
+ERROR:  permission denied to create role
+DETAIL:  Only roles with the BYPASSRLS attribute may create roles with the BYPASSRLS attribute.
+ALTER ROLE kotei_runtime CREATEDB;
+ERROR:  permission denied to alter role
+DETAIL:  Only roles with the CREATEDB attribute may change the CREATEDB attribute.
+ALTER ROLE kotei_runtime BYPASSRLS;
+ERROR:  permission denied to alter role
+DETAIL:  Only roles with the BYPASSRLS attribute may change the BYPASSRLS attribute.
+ALTER ROLE alpha_owner CREATEDB;
+ERROR:  permission denied to alter role
+DETAIL:  Only roles with the CREATEROLE attribute and the ADMIN option on role "alpha_owner" may alter this role.
+GRANT pg_read_all_data TO kotei_runtime;
+ERROR:  permission denied to grant role "pg_read_all_data"
+DETAIL:  Only roles with the ADMIN option on role "pg_read_all_data" may grant this role.
+GRANT pg_signal_backend TO alpha_owner;
+ERROR:  permission denied to grant role "pg_signal_backend"
+DETAIL:  Only roles with the ADMIN option on role "pg_signal_backend" may grant this role.
+GRANT pg_monitor TO kotei_inspection;
+ERROR:  permission denied to grant role "pg_monitor"
+DETAIL:  Only roles with the ADMIN option on role "pg_monitor" may grant this role.
+ALTER DATABASE alpha OWNER TO kotei_runtime;
+ERROR:  permission denied to change owner of database
+ALTER DATABASE alpha OWNER TO alpha_owner;
+ERROR:  permission denied to change owner of database
+ALTER DATABASE beta OWNER TO kotei_runtime;
+ERROR:  must be owner of database beta
+ALTER TABLE kiroku.events OWNER TO beta_owner;
+ERROR:  must be able to SET ROLE "beta_owner"
+GRANT CONNECT ON DATABASE beta TO kotei_runtime;
+ERROR:  permission denied for database beta
+GRANT CONNECT ON DATABASE postgres TO kotei_runtime;
+ERROR:  permission denied for database postgres
+-- A role alpha_owner did not create and holds no admin option on cannot be renamed.
+ALTER ROLE beta_app RENAME TO kotei_stolen;
+ERROR:  permission denied to rename role
+DETAIL:  Only roles with the CREATEROLE attribute and the ADMIN option on role "beta_app" may rename this role.
+
+-- step: alpha_owner alpha
+-- alpha_owner cannot shed the admin option it received at creation, so no role it made
+-- leaves the set reachable from it. Revoking only removes the self-grant (set, inherit).
+REVOKE ADMIN OPTION FOR kotei_runtime FROM alpha_owner;
+REVOKE ROLE
+REVOKE ADMIN OPTION FOR kotei_runtime FROM alpha_owner GRANTED BY postgres;
+ERROR:  permission denied to revoke privileges granted by role "postgres"
+DETAIL:  Only roles with privileges of role "postgres" may revoke privileges granted by this role.
+REVOKE kotei_runtime FROM alpha_owner GRANTED BY postgres;
+ERROR:  permission denied to revoke privileges granted by role "postgres"
+DETAIL:  Only roles with privileges of role "postgres" may revoke privileges granted by this role.
+REVOKE kotei_maintenance FROM alpha_owner GRANTED BY postgres;
+ERROR:  permission denied to revoke privileges granted by role "postgres"
+DETAIL:  Only roles with privileges of role "postgres" may revoke privileges granted by this role.
+-- A role alpha made with CREATEROLE makes a role in turn; both stay reachable.
+SET ROLE kotei_admin;
+SET
+CREATE ROLE kotei_nested NOLOGIN;
+CREATE ROLE
+RESET ROLE;
+RESET
+
+-- step: alpha_owner postgres
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  permission denied for database "postgres"
+DETAIL:  User does not have CONNECT privilege.
+
+-- step: alpha_owner beta
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  permission denied for database "beta"
+DETAIL:  User does not have CONNECT privilege.
+
+-- step: kotei_app beta
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  permission denied for database "beta"
+DETAIL:  User does not have CONNECT privilege.
+
+-- step: kotei_app gamma
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  permission denied for database "gamma"
+DETAIL:  User does not have CONNECT privilege.
+
+-- step: kotei_app alpha
+-- AC-2 as a login alpha created. Every statement below fails except the read and the write.
+SELECT count(*) FROM kiroku.events;
+ count 
+-------
+     1
+(1 row)
+
+INSERT INTO kiroku.events (body) VALUES ('runtime writes');
+INSERT 0 1
+CREATE ROLE kotei_x;
+ERROR:  permission denied to create role
+DETAIL:  Only roles with the CREATEROLE attribute may create roles.
+ALTER ROLE beta_reader NOLOGIN;
+ERROR:  permission denied to alter role
+DETAIL:  Only roles with the CREATEROLE attribute and the ADMIN option on role "beta_reader" may alter this role.
+ALTER ROLE kotei_runtime NOLOGIN;
+ERROR:  permission denied to alter role
+DETAIL:  Only roles with the CREATEROLE attribute and the ADMIN option on role "kotei_runtime" may alter this role.
+GRANT beta_reader TO kotei_app;
+ERROR:  permission denied to grant role "beta_reader"
+DETAIL:  Only roles with the ADMIN option on role "beta_reader" may grant this role.
+GRANT pg_read_all_data TO kotei_app;
+ERROR:  permission denied to grant role "pg_read_all_data"
+DETAIL:  Only roles with the ADMIN option on role "pg_read_all_data" may grant this role.
+GRANT CONNECT ON DATABASE beta TO kotei_app;
+ERROR:  permission denied for database beta
+ALTER ROLE gamma_runtime PASSWORD 'x';
+ERROR:  permission denied to alter role
+DETAIL:  To change another role's password, the current user must have the CREATEROLE attribute and the ADMIN option on the role.
+SET ROLE beta_reader;
+ERROR:  permission denied to set role "beta_reader"
+SET ROLE alpha_owner;
+ERROR:  permission denied to set role "alpha_owner"
+DELETE FROM kiroku.events;
+ERROR:  permission denied for table events
+
+-- step: postgres alpha
+-- The reading of an app's roles: alpha_owner, then every role reachable through
+-- admin-option memberships. Run for each tenant; the sets do not overlap.
+WITH RECURSIVE app(oid) AS (
+  SELECT oid FROM pg_catalog.pg_roles WHERE rolname = 'alpha_owner'
+  UNION
+  SELECT m.roleid FROM pg_catalog.pg_auth_members AS m JOIN app ON m.member = app.oid
+  WHERE m.admin_option
+)
+SELECT r.rolname FROM pg_catalog.pg_roles AS r JOIN app USING (oid) ORDER BY 1;
+      rolname      
+-------------------
+ alpha_owner
+ kotei_admin
+ kotei_app
+ kotei_erasure
+ kotei_inspection
+ kotei_maintenance
+ kotei_nested
+ kotei_runtime
+(8 rows)
+
+WITH RECURSIVE app(oid) AS (
+  SELECT oid FROM pg_catalog.pg_roles WHERE rolname = 'beta_owner'
+  UNION
+  SELECT m.roleid FROM pg_catalog.pg_auth_members AS m JOIN app ON m.member = app.oid
+  WHERE m.admin_option
+)
+SELECT r.rolname FROM pg_catalog.pg_roles AS r JOIN app USING (oid) ORDER BY 1;
+   rolname   
+-------------
+ beta_app
+ beta_owner
+ beta_reader
+(3 rows)
+
+-- Memberships alpha holds, with their grantor and options.
+SELECT r.rolname AS role, m2.rolname AS member, g.rolname AS grantor,
+       a.admin_option, a.inherit_option, a.set_option
+FROM pg_catalog.pg_auth_members AS a
+JOIN pg_catalog.pg_roles AS r ON r.oid = a.roleid
+JOIN pg_catalog.pg_roles AS m2 ON m2.oid = a.member
+JOIN pg_catalog.pg_roles AS g ON g.oid = a.grantor
+WHERE r.rolname LIKE 'kotei%' OR m2.rolname LIKE 'kotei%' OR m2.rolname = 'alpha_owner'
+ORDER BY 1, 2, 3;
+       role        |    member     |   grantor   | admin_option | inherit_option | set_option 
+-------------------+---------------+-------------+--------------+----------------+------------
+ kotei_admin       | alpha_owner   | alpha_owner | f            | t              | t
+ kotei_admin       | alpha_owner   | postgres    | t            | f              | f
+ kotei_app         | alpha_owner   | alpha_owner | f            | t              | t
+ kotei_app         | alpha_owner   | postgres    | t            | f              | f
+ kotei_erasure     | alpha_owner   | alpha_owner | f            | t              | t
+ kotei_erasure     | alpha_owner   | postgres    | t            | f              | f
+ kotei_inspection  | alpha_owner   | alpha_owner | f            | t              | t
+ kotei_inspection  | alpha_owner   | postgres    | t            | f              | f
+ kotei_maintenance | alpha_owner   | postgres    | t            | t              | t
+ kotei_nested      | kotei_admin   | kotei_admin | f            | t              | t
+ kotei_nested      | kotei_admin   | postgres    | t            | f              | f
+ kotei_runtime     | alpha_owner   | alpha_owner | f            | t              | t
+ kotei_runtime     | alpha_owner   | postgres    | t            | f              | f
+ kotei_runtime     | kotei_app     | alpha_owner | f            | t              | t
+ kotei_runtime     | kotei_erasure | alpha_owner | f            | t              | t
+(15 rows)
+
+-- Ownership and the database's grants after the script.
+SELECT d.datname, pg_catalog.pg_get_userbyid(d.datdba) AS owner, d.datacl
+FROM pg_catalog.pg_database AS d WHERE d.datname IN ('alpha', 'beta', 'gamma') ORDER BY 1;
+ datname |       owner       |                                                                       datacl                                                                       
+---------+-------------------+----------------------------------------------------------------------------------------------------------------------------------------------------
+ alpha   | kotei_maintenance | {kotei_maintenance=CTc/kotei_maintenance,kotei_runtime=c/kotei_maintenance,kotei_erasure=c/kotei_maintenance,kotei_inspection=c/kotei_maintenance}
+ beta    | beta_owner        | {beta_owner=CTc/beta_owner,beta_reader=c/beta_owner}
+ gamma   | gamma_migration   | {gamma_migration=CTc/gamma_migration,gamma_runtime=Tc/gamma_migration}
+(3 rows)
+
+SELECT n.nspname, pg_catalog.pg_get_userbyid(n.nspowner) AS owner
+FROM pg_catalog.pg_namespace AS n WHERE n.nspname IN ('kiroku', 'kotei') ORDER BY 1;
+ nspname |       owner       
+---------+-------------------
+ kiroku  | kotei_maintenance
+ kotei   | kotei_maintenance
+(2 rows)
+
+SELECT c.relname, pg_catalog.pg_get_userbyid(c.relowner) AS owner
+FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE n.nspname IN ('kiroku', 'kotei') AND c.relkind = 'r' ORDER BY 1;
+    relname     |       owner       
+----------------+-------------------
+ erasure_window | kotei_maintenance
+ events         | kotei_maintenance
+(2 rows)
+
+
+-- step: alpha_owner alpha
+-- Reaches alpha's SQL can make, which the server allows and Nagare must report as drift
+-- (EP-257 M3): sharing its own database or role with another app.
+GRANT CONNECT ON DATABASE alpha TO beta_reader;
+GRANT
+GRANT kotei_inspection TO beta_owner;
+GRANT ROLE
+
+-- step: beta_owner alpha
+-- After that grant, beta's owner reaches alpha: the reason it is drift.
+SELECT count(*) FROM kiroku.events;
+ count 
+-------
+     2
+(1 row)
+

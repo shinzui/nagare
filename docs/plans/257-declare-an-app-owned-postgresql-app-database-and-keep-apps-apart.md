@@ -42,9 +42,17 @@ An app database that does not opt in is unchanged, byte for byte.
 
 ## Progress
 
-- [ ] M1: The PostgreSQL rules the design rests on are proven against real PostgreSQL 18
+- [x] M1: The PostgreSQL rules the design rests on are proven against real PostgreSQL 18
   with a checked-in fixture and its expected results. Any rule that does not hold is recorded
-  here and in the MasterPlan before M2 starts.
+  here and in the MasterPlan before M2 starts. Evidence:
+  `cli/nagarectl/test/fixtures/app-database/app-owned.sh` prints `app-owned fixture: PASS`
+  against `postgres:18` (server major version 18) on two consecutive runs. In
+  `app-owned.expected`: the Kotei-shaped script succeeds twice; every AC-2 statement, as
+  `alpha_owner` and as its login `kotei_app`, ends in the server's permission error, and both
+  are refused `CONNECT` to `beta`, `gamma` and `postgres`; `REVOKE ... GRANTED BY postgres`
+  fails, so the bootstrap superuser's admin-option grant stays; the recursive reading returns
+  alpha's 8 roles (including `kotei_nested`, made by a role alpha made) and beta's 3, with no
+  overlap. Every rule held; the design is unchanged.
 - [ ] M2: An app-owned app database plans, applies and re-plans to `no operations`, before and
   after a Kotei-shaped script creates roles, memberships, ownership changes and grants inside
   it. An app database that did not opt in renders identical declaration JSON, SQL and backup
