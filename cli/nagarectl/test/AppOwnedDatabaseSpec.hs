@@ -9,7 +9,7 @@ module AppOwnedDatabaseSpec
 where
 
 import AppDatabaseSpec (acceptedServerAt, alpha, beta, compileAgainst, ingestedWith, known, pgServer, scopeAndNative, scopeOf, snapshot, snapshotWith)
-import AppDatabaseWorldSpec (converge, observeAll, replan, setup, setupWith)
+import AppDatabaseWorldSpec (applySession, converge, convergeAgainst, observeAll, replan, replanAgainst, sessionReviewFor, setup, setupWith)
 import Control.Monad (forM_)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KM
@@ -36,7 +36,9 @@ import Nagare.Dsl.Database (Engine (..), mkEngineVersion)
 import Nagare.Dsl.Load (decodeAppDatabases)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (mkServiceName)
-import Nagare.Inventory.Adapters.AppDatabase (MemberKind (..))
+import Nagare.Inventory.Adapters.AppDatabase (MemberKind (..), appDatabaseMembersFromDeclarations)
+import Nagare.Inventory.Adapters.AppDatabaseSessions (SessionStep (..))
+import Nagare.Inventory.AppDatabase (closeOwnedLogins, quiesceAppDatabaseScope, resumeAppDatabaseScope, retireAppDatabaseScope)
 import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), RestoreRun (..), RestoreTarget (..), compileAppDatabaseRestoreScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store (ScopeRevision (..))
@@ -82,10 +84,10 @@ sqlTests =
         block "create-owner alpha_owner" @?= renderCreateOwner "alpha_owner" (verifier "pw-alpha_owner")
         block "owner-access alpha_owner on" @?= renderOwnerAccess "alpha_owner" LoginOpen
         block "create-owned-database alpha kotei_maintenance" @?= renderCreateOwnedDatabase "alpha" "alpha_owner" (Just "kotei_maintenance")
-        block "owned-database-access alpha kotei_maintenance" @?= renderOwnedDatabaseAccess "smoke_pg" "alpha" "alpha_owner" (Just "kotei_maintenance")
+        block "owned-database-access alpha kotei_maintenance" @?= renderOwnedDatabaseAccess "smoke_pg" "alpha" "alpha_owner" (Just "kotei_maintenance") [] []
         block "create-owner beta_owner" @?= renderCreateOwner "beta_owner" (verifier "pw-beta_owner")
         block "create-owned-database beta" @?= renderCreateOwnedDatabase "beta" "beta_owner" Nothing
-        block "owned-database-access beta" @?= renderOwnedDatabaseAccess "smoke_pg" "beta" "beta_owner" Nothing
+        block "owned-database-access beta" @?= renderOwnedDatabaseAccess "smoke_pg" "beta" "beta_owner" Nothing [] []
     , testCase "the observation query is the one the fixture ran" $ do
         alphaQuery <- TE.decodeUtf8 <$> BS.readFile (fixtureDir <> "app-owned-observe-alpha.sql")
         betaQuery <- TE.decodeUtf8 <$> BS.readFile (fixtureDir <> "app-owned-observe-beta.sql")
@@ -116,10 +118,10 @@ observationTests =
     , testCase "after the app's privilege script both members are complete" $ do
         converged <- observed "postgres-app-owned-converged.json"
         assertComplete (classifyOwner (OwnerDeclaration "alpha_owner" "alpha" True) converged)
-        assertComplete (classifyOwnedDatabase (OwnedDatabaseDeclaration "alpha" "alpha_owner" (Just "kotei_maintenance") True) converged)
+        assertComplete (classifyOwnedDatabase (OwnedDatabaseDeclaration "alpha" "alpha_owner" (Just "kotei_maintenance") True [] []) converged)
         beta' <- observed "postgres-app-owned-beta-converged.json"
         assertComplete (classifyOwner (OwnerDeclaration "beta_owner" "beta" True) beta')
-        assertComplete (classifyOwnedDatabase (OwnedDatabaseDeclaration "beta" "beta_owner" Nothing True) beta')
+        assertComplete (classifyOwnedDatabase (OwnedDatabaseDeclaration "beta" "beta_owner" Nothing True [] []) beta')
     , testCase "sharing a role or the database with another app is drift on both sides" $ do
         drifted <- observed "postgres-app-owned-drifted.json"
         assertDriftNaming
@@ -182,7 +184,7 @@ compileTests =
         let (scope, native) = scopeAndNative pgServer (owned (alpha Postgres))
             members = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
         [role | member <- members, DatabaseUserSpec _ role _ _ _ <- [member ^. #spec]] @?= ["owner"]
-        [(nameText owner', nameText <$> role) | member <- members, AppOwnedDatabase _ owner' role True _ <- [member ^. #spec]] @?= [("alpha_pg_owner", Just "kotei_maintenance")]
+        [(nameText owner', nameText <$> role) | member <- members, AppOwnedDatabase _ owner' role True _ [] <- [member ^. #spec]] @?= [("alpha_pg_owner", Just "kotei_maintenance")]
         [extension ^. #owners | member <- members, DatabaseUserSpec _ "owner" _ _ extension <- [member ^. #spec]] @?= [[known (mkServiceName "migrate")]]
         let schedules = [bytes | (member, bytes) <- Map.elems native, Kubernetes _ "batch" _ _ _ <- [member ^. #address]]
         case schedules of
@@ -251,7 +253,7 @@ backupTests =
         assertBool "the file holds a login's verifier" ("SCRAM-SHA-256$" `BS.isInfixOf` source || "\"verifier\" : null" `BS.isInfixOf` source)
         after <- observed "postgres-app-owned-restored.json"
         assertComplete (classifyOwner (OwnerDeclaration "alpha_owner" "alpha" True) after)
-        assertComplete (classifyOwnedDatabase (OwnedDatabaseDeclaration "alpha" "alpha_owner" (Just "kotei_maintenance") True) after)
+        assertComplete (classifyOwnedDatabase (OwnedDatabaseDeclaration "alpha" "alpha_owner" (Just "kotei_maintenance") True [] []) after)
     , testCase "an app-owned schedule writes the dump and the role file as one tar.gz" $ do
         let (_, native) = scopeAndNative pgServer (owned (alpha Postgres))
         case [nativeText bytes | (member, bytes) <- Map.elems native, Kubernetes _ "batch" _ _ _ <- [member ^. #address]] of
@@ -368,6 +370,7 @@ worldTests =
         after <- readIORef world
         (^. #login) <$> Map.lookup ownerName (after ^. #users) @?= Just False
         assertBool "database kept" (Map.member databaseName' (after ^. #databases))
+    , testGroup "quiesce, resume and retirement reach the app's logins (EP-258 M3)" lifecycleTests
     ]
   where
     expectRight = either (assertFailure . T.unpack) pure
@@ -377,3 +380,65 @@ worldTests =
       modifyIORef' world (change . appScript)
       refusals <- observeAll ops members
       assertBool (T.unpack (T.intercalate " | " refusals) <> " names " <> T.unpack expected) (any (\r -> grantDriftCode `T.isPrefixOf` r && expected `T.isInfixOf` r) refusals)
+
+lifecycleTests :: [TestTree]
+lifecycleTests =
+  [ testCase "quiesce closes and drains the app's logins and keeps the owner open; resume reopens exactly them" $ do
+      (world, ops, members, quiesced, paused, native) <- quiescedWith [] ["kotei_app"]
+      modifyIORef' world (#sessions %~ Map.insert "kotei_app" 2)
+      drain <- sessionReviewFor Postgres members quiesced DrainStep
+      applySession ops drain >>= expectRight
+      during <- readIORef world
+      loginOf during "kotei_app" @?= Just False
+      loginOf during ownerName @?= Just True
+      Map.lookup "kotei_app" (during ^. #sessions) @?= Just 0
+      (resumed, _) <- either (assertFailure . show) pure (resumeAppDatabaseScope (Map.union paused native) quiesced "t2")
+      resume <- sessionReviewFor Postgres (drain ^. #after) resumed ResumeStep
+      applySession ops resume >>= expectRight
+      after <- readIORef world
+      loginOf after "kotei_app" @?= Just True
+      -- A role that never had login stays without it.
+      loginOf after "kotei_runtime" @?= Just False
+      replanAgainst (resume ^. #after) ops (resume ^. #after) >>= (@?= [])
+  , testCase "quiesce with the owner closes it too" $ do
+      (world, ops, members, quiesced, _, _) <- quiescedWith ["owner"] ["kotei_app"]
+      drain <- sessionReviewFor Postgres members quiesced DrainStep
+      applySession ops drain >>= expectRight
+      during <- readIORef world
+      loginOf during ownerName @?= Just False
+      loginOf during "kotei_app" @?= Just False
+  , testCase "a login the app opened after the review refuses the drain, naming it" $ do
+      (_, ops, members, quiesced, _, _) <- quiescedWith ["owner"] []
+      drain <- sessionReviewFor Postgres members quiesced DrainStep
+      result <- applySession ops drain
+      assertBool (show result) (either ("kotei_app" `T.isInfixOf`) (const False) result)
+  , testCase "retirement closes the owner and every login of the app; re-planning reopens them" $ do
+      (world, ops, members) <- setup Postgres owned []
+      converge ops members >>= expectRight
+      modifyIORef' world appScript
+      let (scope, native) = scopeAndNative pgServer (owned (alpha Postgres))
+      (retired0, _) <- either (assertFailure . show) pure (retireAppDatabaseScope (snapshotWith [pgServer] [scope]) native scope)
+      retired <- either (assertFailure . show) pure (closeOwnedLogins ["kotei_app"] retired0)
+      retiredMembers <- membersWith retired
+      convergeAgainst members ops retiredMembers >>= expectRight
+      during <- readIORef world
+      (loginOf during ownerName, loginOf during "kotei_app") @?= (Just False, Just False)
+      replanAgainst retiredMembers ops retiredMembers >>= (@?= [])
+      convergeAgainst retiredMembers ops members >>= expectRight
+      after <- readIORef world
+      (loginOf after ownerName, loginOf after "kotei_app") @?= (Just True, Just True)
+  ]
+  where
+    expectRight = either (assertFailure . T.unpack) pure
+    loginOf world' name' = (^. #login) <$> Map.lookup name' (world' ^. #users)
+    quiescedWith roles logins = do
+      (world, ops, members) <- setup Postgres owned []
+      converge ops members >>= expectRight
+      modifyIORef' world appScript
+      let (scope, native) = scopeAndNative pgServer (owned (alpha Postgres))
+      (quiesced0, paused) <- either (assertFailure . show) pure (quiesceAppDatabaseScope native scope roles "t1")
+      quiesced <- either (assertFailure . show) pure (closeOwnedLogins logins quiesced0)
+      pure (world, ops, members, quiesced, paused, native)
+    membersWith scope =
+      either (assertFailure . T.unpack) pure $
+        appDatabaseMembersFromDeclarations (concat [declarations bundle | s' <- [fst pgServer, scope, scopeOf pgServer (beta Postgres)], bundle <- scopeBundles s'])

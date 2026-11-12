@@ -234,7 +234,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
           && (engine == "postgres" || null monitoring)
           && length (nub monitoring) == length monitoring
           && maybe False (\e -> isRight (validDatabasePrivileges e privileges)) (parseEngine engine)
-      (DatabaseName _ _, AppOwnedDatabase engine _ _ _ _) -> engine == "postgres"
+      (DatabaseName _ _, AppOwnedDatabase engine _ _ _ _ closed) -> engine == "postgres" && length (nub closed) == length closed
       (DatabaseName {}, _) -> False
       (DatabaseUser _ _, DatabaseUserSpec engine role _ _ extension) ->
         engine `elem` ["postgres", "clickhouse"]

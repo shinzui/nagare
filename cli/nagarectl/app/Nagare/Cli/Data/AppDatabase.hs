@@ -23,16 +23,20 @@ import Nagare.Cli.Data.SigningKeyEscrow (decryptEscrow, defaultAppDatabaseEscrow
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Options.AppDatabase
+import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ObjectStore (resolveStoreBackend)
 import Nagare.Cli.Runtime.Process (currentTimestamp)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
+import Nagare.Database.AppDatabase.Owned (appRoles)
 import Nagare.Dsl.AppDatabase (AppDatabase (..), AppDatabaseRole (..), appDatabaseNameText, appDatabaseRoleToken, appDatabaseSecretName, parseAppDatabaseRole)
 import Nagare.Dsl.Load (loadAppDatabases, renderLoadError)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (namespaceText)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Adapters.AppDatabase (AppDatabaseOps (..), appDatabaseMembersFromDeclarations)
+import Nagare.Inventory.Adapters.AppDatabaseRuntime qualified as AppDatabaseRuntime
 import Nagare.Inventory.AppDatabase
 import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope)
 import Nagare.Inventory.AppDatabaseEvidence (loadAppDatabaseEvidence, renderAppDatabaseEvidence)
@@ -60,7 +64,9 @@ runAppDatabase mctx = \case
     (active, snapshot) <- loadSnapshot mctx
     scope <- either dieT pure (namedAppDatabaseScope snapshot (T.pack (o ^. #name)) (T.pack <$> o ^. #scopeKey))
     accepted <- loadAcceptedNative active snapshot
-    (revised, native) <- either (dieT . renderErrors) pure (retireAppDatabaseScope snapshot accepted scope)
+    (retired, native) <- either (dieT . renderErrors) pure (retireAppDatabaseScope snapshot accepted scope)
+    logins <- ownedLogins active snapshot scope
+    revised <- either (dieT . renderErrors) pure (closeOwnedLogins logins retired)
     planReview active snapshot [revised] native (Just (o ^. #savePlan))
   AppDatabaseQuiesce o usersText -> do
     (active, snapshot) <- loadSnapshot mctx
@@ -68,7 +74,9 @@ runAppDatabase mctx = \case
     accepted <- loadAcceptedNative active snapshot
     stamp <- currentTimestamp
     let roles = filter (not . T.null) (map T.strip (T.splitOn "," (T.pack usersText)))
-    (revised, native) <- either (dieT . renderErrors) pure (quiesceAppDatabaseScope accepted scope roles stamp)
+    (quiesced, native) <- either (dieT . renderErrors) pure (quiesceAppDatabaseScope accepted scope roles stamp)
+    logins <- ownedLogins active snapshot scope
+    revised <- either (dieT . renderErrors) pure (closeOwnedLogins logins quiesced)
     planReview active snapshot [revised] native (Just (o ^. #savePlan))
   AppDatabaseResume o -> do
     (active, snapshot) <- loadSnapshot mctx
@@ -307,6 +315,27 @@ serverPins active snapshot appScope = do
   observed <- InventoryAdapter.adapterObserve sourceAdapter [stateful ^. #identity, pvc ^. #identity] >>= either dieT pure
   (statefulUid, pvcUid) <- either dieT pure (restoreTargetPins (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) observed (stateful ^. #identity) (pvc ^. #identity))
   pure (serverScope, stateful, pvc, statefulUid, pvcUid, history, accepted)
+
+-- | EP-258: the logins of an app-owned database's app other than its owner,
+-- observed now as the administrator, which a quiesce or retirement closes and
+-- its review lists. None for a Nagare-managed app database.
+ownedLogins :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> ResourceInventory.ScopeDeclaration -> IO [Text]
+ownedLogins active snapshot scope = case ownedAppDatabase scope of
+  Nothing -> pure []
+  Just (owner, database) -> do
+    (serverScope, _, _, _, _, history, _) <- serverPins active snapshot scope
+    members <- either dieT pure (appDatabaseMembersFromDeclarations (concatMap ResourceInventory.declarations (concatMap ResourceInventory.scopeBundles [serverScope, scope])))
+    server <- case [member ^. #server | member <- Map.elems members] of
+      found : _ -> pure found
+      [] -> dieT "the app-owned database has no members on its server"
+    let config =
+          AppDatabaseRuntime.AppDatabaseRuntimeConfig
+            { AppDatabaseRuntime.kubectlContext = contextNameText (active ^. #contextName)
+            , AppDatabaseRuntime.contextGuard = fmap (fmap (const ())) (guardKubernetesContext active)
+            , AppDatabaseRuntime.recordedIncarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
+            }
+    catalog <- observeOwned (AppDatabaseRuntime.appDatabaseRuntimeOps config) server owner Nothing database >>= either dieT pure
+    pure [role | role <- appRoles catalog, role /= owner, maybe False (^. #login) (Map.lookup role (catalog ^. #roles))]
 
 loadSnapshot :: Maybe String -> IO (ActiveTarget, ResourceInventory.ScopeSnapshot)
 loadSnapshot mctx = do

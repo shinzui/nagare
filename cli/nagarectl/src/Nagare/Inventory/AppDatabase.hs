@@ -20,6 +20,8 @@ module Nagare.Inventory.AppDatabase
   , quiesceAppDatabaseScope
   , resumeAppDatabaseScope
   , quiescedRoles
+  , ownedAppDatabase
+  , closeOwnedLogins
   , AppDatabaseRow (..)
   , appDatabaseRows
   )
@@ -357,7 +359,7 @@ ownershipRefusal snapshot owner image stateful db = do
       Just (_, scope) -> listToMaybe [ownedSpec spec | member <- scopeMembers scope, DatabaseName target _ <- [member ^. #address], target == stateful, let spec = member ^. #spec, isDatabaseSpec spec]
       Nothing -> Nothing
     ownedSpec = \case
-      AppOwnedDatabase _ _ role _ _ -> Just (nameText <$> role)
+      AppOwnedDatabase _ _ role _ _ _ -> Just (nameText <$> role)
       _ -> Nothing
     isDatabaseSpec = \case
       AppOwnedDatabase {} -> True
@@ -365,7 +367,7 @@ ownershipRefusal snapshot owner image stateful db = do
       _ -> False
     others = [member | (other, (_, scope)) <- Map.toList (snapshotScopes snapshot), other /= owner, member <- scopeMembers scope]
     othersNames = [nameText user | member <- others, DatabaseUser target user <- [member ^. #address], target == stateful] <> othersOwningRoles
-    othersOwningRoles = [nameText role | member <- others, DatabaseName target _ <- [member ^. #address], target == stateful, AppOwnedDatabase _ _ (Just role) _ _ <- [member ^. #spec]]
+    othersOwningRoles = [nameText role | member <- others, DatabaseName target _ <- [member ^. #address], target == stateful, AppOwnedDatabase _ _ (Just role) _ _ _ <- [member ^. #spec]]
     ownUsers = [appDatabaseUser (db ^. #name) role | role <- appDatabaseRoles db]
 
 -- | The major version in an image's tag: @postgres:18@ and
@@ -438,7 +440,7 @@ retireAppDatabaseScope snapshot native scope = do
       other -> other
     disable = \case
       LogicalDatabase engine' migration runtime _ digest monitoring privileges -> LogicalDatabase engine' migration runtime False digest monitoring privileges
-      AppOwnedDatabase engine' owner' owningRole _ digest -> AppOwnedDatabase engine' owner' owningRole False digest
+      AppOwnedDatabase engine' owner' owningRole _ digest closed -> AppOwnedDatabase engine' owner' owningRole False digest closed
       DatabaseUserSpec engine' role _ digest access -> DatabaseUserSpec engine' role LoginClosed digest access
       other -> other
 
@@ -466,9 +468,30 @@ withSchedules native scope code edit = Map.fromList <$> traverse rewrite [member
       pure (member ^. #identity, (updated, changedBytes))
     refusal member message = (inventoryError code message & #scopes .~ [scopeId scope] & #resources .~ [member ^. #identity]) :| []
 
--- | The roles of an accepted app database's users that are quiesced (EP-205).
+-- | The roles of an accepted app database's users that are quiesced
+-- (EP-205); for an app-owned database whose logins a quiesce closed, also
+-- @logins@ (EP-258).
 quiescedRoles :: ScopeDeclaration -> [Text]
-quiescedRoles scope = [role | member <- scopeMembers scope, DatabaseUserSpec _ role LoginQuiesced _ _ <- [member ^. #spec]]
+quiescedRoles scope =
+  [role | member <- scopeMembers scope, DatabaseUserSpec _ role LoginQuiesced _ _ <- [member ^. #spec]]
+    <> ["logins" | or [not (null closed) | member <- scopeMembers scope, AppOwnedDatabase _ _ _ True _ closed <- [member ^. #spec]]]
+
+-- | The owner user of an accepted app-owned database (EP-257), and its database.
+ownedAppDatabase :: ScopeDeclaration -> Maybe (Text, Text)
+ownedAppDatabase scope = listToMaybe [(nameText owner', nameText db) | member <- scopeMembers scope, DatabaseName _ db <- [member ^. #address], AppOwnedDatabase _ owner' _ _ _ _ <- [member ^. #spec]]
+
+-- | EP-258: record on an app-owned database the logins of the app a quiesce
+-- or retirement closes, as the plan observed them, so the review lists them
+-- and resume or a re-plan reopens exactly them. A Nagare-managed scope is
+-- unchanged.
+closeOwnedLogins :: [Text] -> ScopeDeclaration -> Either (NonEmpty InventoryError) ScopeDeclaration
+closeOwnedLogins logins scope
+  | isNothing (ownedAppDatabase scope) = Right scope
+  | otherwise = reviseScope scope (map (#declarations %~ map close) (scopeBundles scope))
+  where
+    close = \case
+      Managed member | AppOwnedDatabase engine' owner' role on digest _ <- member ^. #spec -> Managed (member & #spec .~ AppOwnedDatabase engine' owner' role on digest (Set.toList (Set.fromList logins)))
+      other -> other
 
 -- | Quiesce (EP-205) closes the chosen users' logins until resume, suspends
 -- the backup schedule, and declares the @drain@ operation, which ends what is
@@ -485,10 +508,16 @@ quiesceAppDatabaseScope ::
 quiesceAppDatabaseScope native scope roles stamp = do
   let owner = scopeId scope
       logins = [login | member <- scopeMembers scope, DatabaseUserSpec _ _ login _ _ <- [member ^. #spec]]
-  when (LoginQuiesced `elem` logins) (Left (sessionRefusal owner "app-database-quiesced" "the app database is already quiesced; resume it first"))
+      owned = isJust (ownedAppDatabase scope)
+  when (LoginQuiesced `elem` logins || not (null (quiescedRoles scope))) (Left (sessionRefusal owner "app-database-quiesced" "the app database is already quiesced; resume it first"))
   when (LoginClosed `elem` logins) (Left (sessionRefusal owner "invalid-app-database-quiesce" "a retired app database is not quiesced"))
-  unless ("runtime" `elem` roles) (Left (sessionRefusal owner "invalid-app-database-quiesce" "quiesce always includes the runtime user"))
-  unless (all (`elem` ["runtime", "migration"]) roles) (Left (sessionRefusal owner "invalid-app-database-quiesce" "quiesce takes the users runtime and migration"))
+  -- EP-258: an app-owned database always closes the app's logins, and its
+  -- owner only when asked, so the app's migrator can run in the window.
+  if owned
+    then unless (all (`elem` ["runtime", "owner"]) roles) (Left (sessionRefusal owner "invalid-app-database-quiesce" "an app-owned database's quiesce closes the app's logins and takes only the user owner"))
+    else do
+      unless ("runtime" `elem` roles) (Left (sessionRefusal owner "invalid-app-database-quiesce" "quiesce always includes the runtime user"))
+      unless (all (`elem` ["runtime", "migration"]) roles) (Left (sessionRefusal owner "invalid-app-database-quiesce" "quiesce takes the users runtime and migration"))
   suspended <- withSchedules native scope "invalid-app-database-quiesce" (KM.insert "suspend" (Bool True))
   revised <- sessionScope scope suspended (setLogin (`elem` roles) LoginQuiesced) "drain" DrainSessions stamp
   pure (revised, suspended)
@@ -506,8 +535,15 @@ resumeAppDatabaseScope native scope stamp = do
       quiesced = quiescedRoles scope
   when (null quiesced) (Left (sessionRefusal owner "invalid-app-database-resume" "the app database is not quiesced"))
   resumed <- withSchedules native scope "invalid-app-database-resume" (KM.delete "suspend")
-  revised <- sessionScope scope resumed (setLogin (`elem` quiesced) LoginOpen) "resume" ResumeSessions stamp
+  revised <- sessionScope scope resumed (reopenLogins . setLogin (`elem` quiesced) LoginOpen) "resume" ResumeSessions stamp
   pure (revised, resumed)
+
+-- | Resume clears an app-owned database's closed logins (EP-258); the adapter
+-- reopens exactly those the accepted scope listed.
+reopenLogins :: DesiredSpec -> DesiredSpec
+reopenLogins = \case
+  AppOwnedDatabase engine' owner' role True digest _ -> AppOwnedDatabase engine' owner' role True digest []
+  other -> other
 
 setLogin :: (Text -> Bool) -> UserLogin -> DesiredSpec -> DesiredSpec
 setLogin chosen login = \case
@@ -528,7 +564,9 @@ sessionScope ::
   Either (NonEmpty InventoryError) ScopeDeclaration
 sessionScope scope schedules respec step kind' stamp = do
   let owner = scopeId scope
-  runtime <- case [member | member <- scopeMembers scope, DatabaseUserSpec _ "runtime" _ _ _ <- [member ^. #spec]] of
+  -- The step affects the runtime user, or for an app-owned database the
+  -- database member, which closes the app's logins (EP-258).
+  runtime <- case [member | member <- scopeMembers scope, DatabaseUserSpec _ "runtime" _ _ _ <- [member ^. #spec]] <> [member | member <- scopeMembers scope, AppOwnedDatabase {} <- [member ^. #spec]] of
     [member] -> Right member
     _ -> Left (sessionRefusal owner "invalid-app-database-quiesce" "the app database has no runtime user")
   key <- first (sessionRefusal owner "invalid-app-database-quiesce") (mkLogicalKey (nameText (scopeName owner)))

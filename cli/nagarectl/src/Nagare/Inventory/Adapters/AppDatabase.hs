@@ -69,9 +69,9 @@ data MemberKind
   | -- | database, migration user, runtime user, the tolerated monitoring
     -- roles, and the privileges inside it (EP-208)
     DatabaseMember !Text !Text !Text ![MonitoringRole] !DatabasePrivileges
-  | -- | an app-owned database (EP-257): database, owner user, and the
-    -- declared owning role
-    OwnedDatabaseMember !Text !Text !(Maybe Text)
+  | -- | an app-owned database (EP-257): database, owner user, the declared
+    -- owning role, and the app's logins its declaration closes (EP-258)
+    OwnedDatabaseMember !Text !Text !(Maybe Text) ![Text]
   deriving stock (Eq, Show)
 
 data AppDatabaseMember = AppDatabaseMember
@@ -114,8 +114,9 @@ data CatalogCommand
     CreateOwner !Text !PasswordHash
   | SetOwnerAccess !Text !UserLogin
   | CreateOwnedDatabase !Text !Text !(Maybe Text)
-  | -- | initial database, database, owner user, owning role
-    SetOwnedDatabaseAccess !Text !Text !Text !(Maybe Text)
+  | -- | initial database, database, owner user, owning role, the app's
+    -- logins to close and to reopen
+    SetOwnedDatabaseAccess !Text !Text !Text !(Maybe Text) ![Text] ![Text]
   deriving stock (Eq, Show)
 
 -- | The provider boundary: the context-guarded kubectl transport, or an
@@ -173,8 +174,8 @@ appDatabaseMembersFromDeclarations declarations = Map.fromList <$> traverse bind
           pure (target, engineText, UserMember role' (nameText user) secretNamespace secretName access, login)
         (DatabaseName target db, LogicalDatabase engineText migration runtime on _ monitoring privileges) ->
           pure (target, engineText, DatabaseMember (nameText db) (nameText migration) (nameText runtime) monitoring privileges, if on then LoginOpen else LoginClosed)
-        (DatabaseName target db, AppOwnedDatabase engineText owner owningRole on _) ->
-          pure (target, engineText, OwnedDatabaseMember (nameText db) (nameText owner) (nameText <$> owningRole), if on then LoginOpen else LoginClosed)
+        (DatabaseName target db, AppOwnedDatabase engineText owner owningRole on _ closed) ->
+          pure (target, engineText, OwnedDatabaseMember (nameText db) (nameText owner) (nameText <$> owningRole) closed, if on then LoginOpen else LoginClosed)
         _ -> Left "app-database member has an invalid address or specification"
       engine' <- maybe (Left "app-database member has an unknown engine") Right (parseEngine engineText)
       unless (OrderedAfter stateful `elem` resource ^. #dependencies) (Left "app-database member is not ordered after its server")
@@ -334,7 +335,7 @@ mkAppDatabaseAdapter accepted members ops =
       pure plan
     -- An app-owned database's members read its own observation (EP-257).
     catalogFor member = case member ^. #kind of
-      OwnedDatabaseMember db owner owningRole -> fmap Owned <$> observeOwned ops (member ^. #server) owner owningRole db
+      OwnedDatabaseMember db owner owningRole _ -> fmap Owned <$> observeOwned ops (member ^. #server) owner owningRole db
       UserMember OwnerRole user _ _ _ -> fmap Owned <$> observeOwned ops (member ^. #server) user Nothing (fromMaybe "" (listToMaybe (member ^. #scopeDatabases)))
       _ -> fmap Shared <$> observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
     classify member catalog = fst (classifyWithPending member catalog)
@@ -342,7 +343,7 @@ mkAppDatabaseAdapter accepted members ops =
     -- (EP-208) ride beside its state.
     classifyWithPending member (Owned catalog) = case member ^. #kind of
       UserMember _ user _ _ _ -> (classifyOwner (OwnerDeclaration user (fromMaybe "" (listToMaybe (member ^. #scopeDatabases))) (member ^. #enabled)) catalog, [])
-      OwnedDatabaseMember db owner owningRole -> (classifyOwnedDatabase (OwnedDatabaseDeclaration db owner owningRole (member ^. #enabled)) catalog, [])
+      OwnedDatabaseMember db owner owningRole closed -> (classifyOwnedDatabase (OwnedDatabaseDeclaration db owner owningRole (member ^. #enabled) closed (reopenedOf member closed)) catalog, [])
       DatabaseMember {} -> (MemberRefused grantDriftCode "a Nagare-managed database was observed as app-owned", [])
     classifyWithPending member (Shared catalog) = case member ^. #kind of
       OwnedDatabaseMember {} -> (MemberRefused grantDriftCode "an app-owned database was observed as Nagare-managed", [])
@@ -359,6 +360,11 @@ mkAppDatabaseAdapter accepted members ops =
     acceptedPrivileges member = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
       Just (LogicalDatabase _ _ _ _ _ _ privileges) -> privileges
       _ -> noDatabasePrivileges
+    -- The app's logins the accepted scope closed and the declaration no
+    -- longer does: resume and a re-plan after retirement reopen exactly them.
+    reopenedOf member closed = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
+      Just (AppOwnedDatabase _ _ _ _ _ was) -> [login | login <- was, login `notElem` closed]
+      _ -> []
     readerSpec extension = (\grant -> ReaderSpec (NE.toList (grant ^. #objects)) (extension ^. #access . #limits)) <$> extension ^. #reader
     readerDeclaration member desired =
       ReaderDeclaration (member ^. #enabled) (fromMaybe (ReaderSpec [] noUserLimits) (readerSpec desired)) (readerSpec (acceptedAccess member))
@@ -481,11 +487,11 @@ mkAppDatabaseAdapter accepted members ops =
             -- The revocations come from the catalog just read; a database
             -- created now has nothing to revoke.
             maybe (finish (run member (SetDatabaseAccess (databaseRevocations (accessOf member db migration runtime monitoring privileges) catalog)))) pure created
-          (state, OwnedDatabaseMember db owner owningRole) -> do
+          (state, OwnedDatabaseMember db owner owningRole closed) -> do
             created <- case state of
               MemberAbsent -> run member (CreateOwnedDatabase db owner owningRole)
               _ -> pure Nothing
-            maybe (finish (run member (SetOwnedDatabaseAccess (member ^. #server . #initialDatabase) db owner owningRole))) pure created
+            maybe (finish (run member (SetOwnedDatabaseAccess (member ^. #server . #initialDatabase) db owner owningRole closed (reopenedOf member closed)))) pure created
           (_, DatabaseMember {}) -> pure (AdapterEffectFailed (KnownNoEffect "a Nagare-managed database was observed as app-owned"))
     -- Rotation: the Secret takes the new password first, then the user
     -- follows it, so a lost step never leaves a password nobody holds.
@@ -523,7 +529,7 @@ mkAppDatabaseAdapter accepted members ops =
         <> case member ^. #kind of
           UserMember _ user _ _ _ -> "user " <> user
           DatabaseMember db _ _ _ _ -> "database " <> db
-          OwnedDatabaseMember db _ _ -> "database " <> db
+          OwnedDatabaseMember db _ _ _ -> "database " <> db
         <> " on "
         <> nameText (member ^. #server . #name)
         <> (if member ^. #quiesced then " (quiesced: login off)" else if member ^. #enabled then "" else " (retired: access off)")
@@ -532,7 +538,7 @@ mkAppDatabaseAdapter accepted members ops =
           DatabaseMember _ _ _ monitoring privileges ->
             mconcat ["; tolerates grants to " <> T.intercalate ", " (map monitoringRoleToken monitoring) | not (null monitoring)] <> describePrivileges privileges
           -- The saved plan says who owns an app-owned database (EP-257).
-          OwnedDatabaseMember _ owner owningRole -> "; app-owned by " <> owner <> maybe "" (" through " <>) owningRole
+          OwnedDatabaseMember _ owner owningRole closed -> "; app-owned by " <> owner <> maybe "" (" through " <>) owningRole <> mconcat ["; closes the app's logins " <> T.intercalate ", " closed | not (null closed)]
           _ -> ""
     -- The workloads that bind the migration credential (IR-35 AC-5).
     describeOwners owners' = mconcat ["; owners " <> T.intercalate ", " (map serviceNameText owners') | not (null owners')]

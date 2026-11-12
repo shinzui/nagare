@@ -442,6 +442,13 @@ is back, it also writes backups of the empty database.
    deploy the app afterward. Then run `db app-database escrow-signing-key NAME` again,
    because the rebuilt schedule has a new key.
 
+An app-owned app database (ADR 37) comes back the same way: step 2 recreates its owner, its
+owning role and the empty database, and step 3's Job first recreates the roles and logins the app
+created, with their passwords, memberships and settings and the database's grants, from the role
+file in the backup, then loads the data. It refuses before any change if a role in the file already
+exists on the server and is not the app's, so restore each app-owned database onto a server where
+no other app has taken its role names.
+
 `db app-database restore NAME --rebuilt` loads a run ingested before the loss
 instead. Without `--rebuilt`, it restores into scratch names `<db>_restore_<RID>` beside
 the live databases.

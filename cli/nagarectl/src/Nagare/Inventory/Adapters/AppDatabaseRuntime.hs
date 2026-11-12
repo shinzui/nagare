@@ -157,7 +157,7 @@ appDatabaseRuntimeOps config =
       CreateOwner user hash' -> renderCreateOwner user hash'
       SetOwnerAccess user login -> renderOwnerAccess user login
       CreateOwnedDatabase db owner' owningRole -> renderCreateOwnedDatabase db owner' owningRole
-      SetOwnedDatabaseAccess initial db owner' owningRole -> renderOwnedDatabaseAccess initial db owner' owningRole
+      SetOwnedDatabaseAccess initial db owner' owningRole closed reopened -> renderOwnedDatabaseAccess initial db owner' owningRole closed reopened
     psql server db sql =
       sqlOutput
         <$> kubectl

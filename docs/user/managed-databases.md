@@ -1116,6 +1116,25 @@ Limits:
 - Its scheduled backup runs as the server administrator, so nothing the app does to its own
   grants can make a backup incomplete.
 
+**Backups, restores and maintenance.** These run as the server administrator, so nothing the app
+does to its own grants affects them, and they carry the roles the app created:
+
+- A backup is one `tar.gz` object holding the dump and a role file: every role and login of the
+  app but the owner, with its attributes, its password verifier and its settings, the memberships
+  among them, and the database's owner, grants and settings. The owner's password stays in its
+  Secret.
+- `db app-database restore NAME` makes a scratch copy owned like the source with the source's
+  database grants; `--rebuilt`, after a server rebuild, first recreates the app's roles and
+  logins, so they sign in with the passwords they had, then loads the data. A role file that
+  names an elevated attribute, a `pg_` role, a role outside the app, or a role that exists on the
+  server and is not the app's, refuses before anything changes.
+- `db app-database quiesce NAME` closes every login the app created and ends its sessions; the
+  owner stays open so a migration can run in the window, unless you pass `--users owner`. The
+  review lists the logins it closes, the drain refuses if the app has opened another one since,
+  and `resume` reopens exactly the listed logins.
+- `db app-database retire NAME` closes the owner and every login of the app and keeps the data;
+  planning the app database again reopens them.
+
 **Running the app's migrations as the owner.** The owner credential reaches a task named in the
 app database's `owners`, typically an Application's pre-deploy hook, and nothing else. The task
 binds the app database like any other and may name the variable that receives the URL:

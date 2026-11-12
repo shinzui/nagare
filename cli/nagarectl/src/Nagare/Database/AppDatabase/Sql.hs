@@ -417,14 +417,20 @@ renderCreateOwnedDatabase database owner owningRole =
       <> ["CREATE DATABASE " <> pgIdent database <> " OWNER " <> pgIdent (fromMaybe owner owningRole) <> ";"]
 
 -- | The boundary Nagare keeps: PUBLIC out of the database and the system
--- databases, and the owner holding the owning role. Nothing inside.
-renderOwnedDatabaseAccess :: Text -> Text -> Text -> Maybe Text -> Text
-renderOwnedDatabaseAccess initialDatabase database owner owningRole =
+-- databases, and the owner holding the owning role. Nothing inside, except
+-- the logins of the app a reviewed quiesce or retirement closes, whose
+-- sessions end, and those it reopens (EP-258); their names are the app's,
+-- so they are escaped.
+renderOwnedDatabaseAccess :: Text -> Text -> Text -> Maybe Text -> [Text] -> [Text] -> Text
+renderOwnedDatabaseAccess initialDatabase database owner owningRole closed reopened =
   T.unlines $
     [ "REVOKE CONNECT, TEMPORARY ON DATABASE \"postgres\", \"template1\", " <> pgIdent initialDatabase <> " FROM PUBLIC;"
     , "REVOKE ALL ON DATABASE " <> pgIdent database <> " FROM PUBLIC;"
     ]
       <> [grantOwningRole role owner | Just role <- [owningRole]]
+      <> ["ALTER ROLE " <> quoteIdent login <> " NOLOGIN;" | login <- closed]
+      <> ["SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename IN (" <> T.intercalate ", " (map quoteLiteral closed) <> ");" | not (null closed)]
+      <> ["ALTER ROLE " <> quoteIdent login <> " LOGIN;" | login <- reopened]
 
 grantOwningRole :: Text -> Text -> Text
 grantOwningRole role owner = "GRANT " <> pgIdent role <> " TO " <> pgIdent owner <> " WITH ADMIN TRUE, INHERIT TRUE, SET TRUE;"

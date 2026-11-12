@@ -28,6 +28,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Nagare.Database.AppDatabase.Catalog (DrainObservation (..), LoginState (..), comparedIdentity)
+import Nagare.Database.AppDatabase.Owned (appRoles)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.AppDatabase
@@ -125,13 +126,18 @@ sessionBindings scopes =
       DrainSessions -> Just DrainStep
       ResumeSessions -> Just ResumeStep
       _ -> Nothing
+    isSessionTarget = \case
+      DatabaseUserSpec _ "runtime" _ _ _ -> True
+      AppOwnedDatabase {} -> True
+      _ -> False
     bind scope intent step' = do
       let members = [resource' | bundle <- scopeBundles scope, Managed resource' <- bundle ^. #declarations]
       target <- case NE.toList (intent ^. #affects) of
         [single] -> Right single
         _ -> Left "an app-database drain or resume affects exactly the runtime user"
       unless
-        (or [resource' ^. #identity == target | resource' <- members, DatabaseUserSpec _ "runtime" _ _ _ <- [resource' ^. #spec]])
+        -- or an app-owned database's database member, which closes the app's logins (EP-258)
+        (or [resource' ^. #identity == target | resource' <- members, isSessionTarget (resource' ^. #spec)])
         (Left "an app-database drain or resume affects its own scope's runtime user")
       let schedules = [(ns, name) | resource' <- members, Kubernetes _ "batch" kind' (Just ns) name <- [resource' ^. #address], nameText kind' == "cronjob"]
       digest <- contentDigest <$> canonicalValue (toJSON intent)
@@ -157,8 +163,10 @@ withAppDatabaseSessions bindings members ops base =
     bindingOf planned = maybe (Left "app-database session step is not declared in the review") Right (Map.lookup (plannedInputDigest planned) bindings)
     runtimeOf binding = maybe (Left "app-database session step's runtime user is absent from the reviewed declarations") Right (Map.lookup (binding ^. #member) members)
     -- Drain covers the quiesced users; resume the users it reopened.
+    -- An app-owned database's drain also covers the app's logins its
+    -- quiesce closed (EP-258).
     usersOf binding runtime =
-      sort
+      sort $
         [ user
         | other <- Map.elems members
         , other ^. #declaration . #owner == runtime ^. #declaration . #owner
@@ -167,6 +175,17 @@ withAppDatabaseSessions bindings members ops base =
             DrainStep -> other ^. #quiesced
             ResumeStep -> other ^. #enabled
         ]
+          <> [login | binding ^. #step == DrainStep, OwnedDatabaseMember _ _ _ closed <- [runtime ^. #kind], login <- closed]
+    -- A login of the app that is open at the drain and that the review did
+    -- not list refuses, naming it.
+    unlisted runtime users' = case runtime ^. #kind of
+      OwnedDatabaseMember db owner' _ _ -> do
+        observed <- observeOwned ops (runtime ^. #server) owner' Nothing db
+        pure $
+          observed >>= \catalog -> case [name' | name' <- appRoles catalog, name' /= owner', name' `notElem` users', maybe False (^. #login) (Map.lookup name' (catalog ^. #roles))] of
+            [] -> Right ()
+            open -> Left ("the app's logins " <> T.intercalate ", " open <> " are open and not in the reviewed quiesce; resume, then quiesce again")
+      _ -> pure (Right ())
     appDatabaseOf runtime = fromMaybe (nameText (scopeName owner)) (T.stripPrefix "appdb-" (nameText (scopeName owner)))
       where
         owner = runtime ^. #declaration . #owner
@@ -179,8 +198,10 @@ withAppDatabaseSessions bindings members ops base =
           if null users'
             then pure (Left "an app-database drain or resume covers no user")
             else do
+              listed <- if binding ^. #step == DrainStep then unlisted runtime users' else pure (Right ())
               observed <- identityOf server' users' (runtime ^. #scopeDatabases)
               pure $ do
+                listed
                 identity' <- observed
                 let plan = SessionPlan 1 (plannedOperationId planned) (binding ^. #step) (plannedInputDigest planned) (binding ^. #member) (appDatabaseOf runtime) users' (runtime ^. #scopeDatabases) identity'
                 bytes <- canonicalValue (toJSON plan)

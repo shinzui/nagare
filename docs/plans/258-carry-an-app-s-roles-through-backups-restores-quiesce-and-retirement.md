@@ -63,10 +63,18 @@ Backups and lifecycle of app databases that did not opt in are unchanged.
   complete, and the app's login reads its data; a role file with an elevated attribute or a
   membership naming another app's role fails inside the one transaction. The compiled scratch
   and rebuilt restore Jobs run exactly that SQL (`AppOwnedDatabaseSpec`).
-- [ ] M3: Quiesce closes the owner's choice of logins and every login the app created, resume
+- [x] M3: Quiesce closes the owner's choice of logins and every login the app created, resume
   reopens exactly those, and retirement closes them all. The local smoke proves each on
   PostgreSQL 18, and the user guide documents backup, restore and lifecycle for app-owned
-  databases.
+  databases. Evidence: `AppOwnedDatabaseSpec` "quiesce, resume and retirement reach the app's
+  logins (EP-258 M3)": quiesce closes and drains `kotei_app` and keeps the owner open (or closes
+  it with `owner`), resume reopens exactly it and leaves a never-login role without login, a
+  login opened after the review refuses the drain naming it, retirement closes the owner and the
+  app's login and re-planning reopens both; a mutant that reopened nothing failed two of them.
+  The logins are observed at planning (`ownedLogins` in `cli/nagarectl/app/Nagare/Cli/Data/AppDatabase.hs`)
+  and recorded on the `AppOwnedDatabase` spec. Docs: "Backups, restores and maintenance" under
+  "App-owned databases" in `docs/user/managed-databases.md` and the rebuild steps in
+  `docs/runbooks/inventory-operations.md`. The native proof is EP-260 M1's run (Decision Log).
 
 
 ## Surprises & Discoveries
@@ -90,6 +98,9 @@ Backups and lifecycle of app databases that did not opt in are unchanged.
   the fixture). Date: 2026-11-11.
 - Decision: The native smoke for this plan runs in EP-260 M1's local run. Rationale: as EP-257's.
   Date: 2026-11-11.
+- Decision: A closed login's name is kept as text on the `AppOwnedDatabase` spec, not as a
+  `Name`, and rendered with `quoteIdent`. Rationale: the app chooses its role names, which need
+  not be Nagare identifiers. Date: 2026-11-11.
 - Decision: The role file holds SCRAM-SHA-256 verifiers for the logins the app created and none
   for Nagare's users. Rationale: MasterPlan 35's Decision Log (operator, 2026-11-11); Nagare's
   users take their passwords from their Secrets on re-apply. Date: 2026-11-11.

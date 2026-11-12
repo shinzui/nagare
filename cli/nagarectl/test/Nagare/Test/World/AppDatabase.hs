@@ -350,8 +350,12 @@ interpret command world = case command of
                   %~ grantOwning role owner'
             dbOwner = fromMaybe owner' owningRole
         Right (withRole & #databases %~ Map.insert name (WorldDatabase (fresh "database" name) dbOwner (Set.fromList ([CatalogGrant dbOwner "database" p | p <- ["CREATE", "TEMPORARY", "CONNECT"]] <> [CatalogGrant "PUBLIC" "database" p | p <- ["TEMPORARY", "CONNECT"]])) dbOwner [] Map.empty [] []))
-  SetOwnedDatabaseAccess _ name owner' owningRole ->
-    (#publicSystemAccess .~ False) . (#roleGrants %~ maybe id (`grantOwning` owner') owningRole) <$> withDatabase name (#grants %~ Set.filter (\g -> not (g ^. #grantee == "PUBLIC" && g ^. #target == "database")))
+  SetOwnedDatabaseAccess _ name owner' owningRole closed reopened ->
+    (#publicSystemAccess .~ False)
+      . (#roleGrants %~ maybe id (`grantOwning` owner') owningRole)
+      . (#users %~ \users' -> foldr (Map.adjust (#login .~ True)) (foldr (Map.adjust (#login .~ False)) users' closed) reopened)
+      . (#sessions %~ \running -> foldr (`Map.insert` 0) running closed)
+      <$> withDatabase name (#grants %~ Set.filter (\g -> not (g ^. #grantee == "PUBLIC" && g ^. #target == "database")))
   CreateUser name hash _
     | Map.member name (world ^. #users) -> Left ("role " <> name <> " already exists")
     | otherwise -> Right (world & #users %~ Map.insert name (WorldUser (fresh "user" name) hash True [] [] [] [] (-1) [] []))

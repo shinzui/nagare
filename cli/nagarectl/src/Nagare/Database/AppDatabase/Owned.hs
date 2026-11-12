@@ -202,6 +202,10 @@ data OwnedDatabaseDeclaration = OwnedDatabaseDeclaration
   , owner :: !Text
   , owningRole :: !(Maybe Text)
   , enabled :: !Bool
+  , closed :: ![Text]
+  -- ^ the app's logins a reviewed quiesce or retirement closed (EP-258)
+  , reopened :: ![Text]
+  -- ^ those the accepted scope closed and the declaration no longer does
   }
   deriving stock (Generic, Eq, Show)
 
@@ -224,6 +228,8 @@ classifyOwnedDatabase declaration catalog = case Map.lookup database' (catalog ^
     | Just role' <- owningRole', not (heldFully role') -> MemberIncomplete (facts ^. #physical) (database' <> ": " <> owner' <> " does not hold " <> role' <> " with the admin, inherit and set options")
     | any ((== "PUBLIC") . fst) (facts ^. #grants) -> MemberIncomplete (facts ^. #physical) (database' <> ": PUBLIC holds " <> T.intercalate ", " (nub [p | ("PUBLIC", p) <- facts ^. #grants]))
     | catalog ^. #publicSystemAccess -> MemberIncomplete (facts ^. #physical) (database' <> ": PUBLIC may connect to a system database")
+    | not (null stillOpen) -> MemberIncomplete (facts ^. #physical) (database' <> ": still open: " <> T.intercalate ", " stillOpen)
+    | not (null stillClosed) -> MemberIncomplete (facts ^. #physical) (database' <> ": still closed: " <> T.intercalate ", " stillClosed)
     | otherwise -> MemberComplete (facts ^. #physical)
   where
     database' = declaration ^. #database
@@ -231,3 +237,7 @@ classifyOwnedDatabase declaration catalog = case Map.lookup database' (catalog ^
     owningRole' = declaration ^. #owningRole
     declaredOwner = fromMaybe owner' owningRole'
     heldFully role' = or [m ^. #admin && m ^. #inherit && m ^. #set | m <- catalog ^. #memberships, m ^. #role == role', m ^. #member == owner']
+    canLogin login' = maybe False (^. #login) (Map.lookup login' (catalog ^. #roles))
+    -- A login the app has dropped since is neither open nor closed.
+    stillOpen = [login' | login' <- declaration ^. #closed, canLogin login']
+    stillClosed = [login' | login' <- declaration ^. #reopened, Map.member login' (catalog ^. #roles), not (canLogin login')]

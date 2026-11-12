@@ -114,7 +114,7 @@ compileAppDatabaseRestoreScope request native = do
   facts <- runFacts
   -- An app-owned database (EP-258) restores as its owner and declared
   -- database owner, with its role file before its data.
-  let owned = listToMaybe [(nameText owner', maybe (nameText owner') nameText role) | member <- appMembers, AppOwnedDatabase _ owner' role _ _ <- [member ^. #spec]]
+  let owned = listToMaybe [(nameText owner', maybe (nameText owner') nameText role) | member <- appMembers, AppOwnedDatabase _ owner' role _ _ _ <- [member ^. #spec]]
   (engine, migration, runtime, declaredDatabases, stateful) <- case ( [(engineText, nameText user, role) | member <- appMembers, DatabaseUser _ user <- [member ^. #address], DatabaseUserSpec engineText role _ _ _ <- [member ^. #spec]]
                                                                     , [(nameText db, target) | member <- appMembers, DatabaseName target db <- [member ^. #address]]
                                                                     ) of

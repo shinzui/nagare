@@ -56,7 +56,7 @@ appDatabaseParser =
           ( info
               ( AppDatabaseQuiesce
                   <$> nameOpts "Save a review that quiesces the app database"
-                  <*> strOption (long "users" <> metavar "runtime[,migration]" <> value "runtime" <> showDefault <> help "The users whose logins close; the runtime user always")
+                  <*> strOption (long "users" <> metavar "runtime[,migration]" <> value "runtime" <> showDefault <> help "The users whose logins close; the runtime user always. An app-owned database closes every login the app created, and its owner only with owner")
                     <**> helper
               )
               (progDesc "Review a maintenance window: logins off, the schedule paused, then a drain proves no session, scheduled run or mutation remains")
