@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-11T19:18:04Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-12T15:37:27Z
+      mode: "update"
+      note: "Refreshed against v0.20.0: EP-259 landed, executable-only CLI check, no worker goldens in nagarectl, one-shot jobs out of scope, Kotei script pins, trailers"
 ---
 
 # Scope an app's managed env and secrets to the workloads that reference them
@@ -51,7 +57,8 @@ raised for `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-app
   out compiles to manifests with no managed `envFrom`, each naming only its own keys, with one
   runtime Secret dependency. An Application's worker that does not opt out inherits the app's
   store. `nagarectl env` and `nagarectl secret` accept a standalone worker's configuration.
-  Evidence: the new `nagarectl-test` cases pass and `just gate-fast` is green.
+  Evidence: the new `nagarectl-test` cases pass, the built executable resolves the worker
+  fixture, and `just gate-fast` is green.
 - [ ] M3: The user guides state, per workload kind, which store is inherited and how to opt
   out, and an ADR records the rule.
 - [ ] M4: On a local context, the fixture Application (IR-44 AC-1 to AC-4) and Kotei's hosted
@@ -96,14 +103,25 @@ raised for `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-app
   "unchanged" check uses an app without workers or compares only web and task manifests.
   Date: 2026-11-11
 
-- Decision: Out of scope: the Application's own `env` field, server sites, and checking at
-  plan time that a referenced key exists in the accepted Secret.
+- Decision: Out of scope: the Application's own `env` field, server sites, one-shot jobs, and
+  checking at plan time that a referenced key exists in the accepted Secret.
   Rationale: `Application.env` is declared shared and still flows to every workload; an app
   that wants per-role values puts them on each workload, as Kotei does. Server sites
   (`Nagare.Dsl.Server.Render`) are a different type and were not requested, and the request
-  excludes Preview-scoped env. A missing key fails the Pod at start, as an explicit reference
-  to any Secret does today; a plan-time key check would be a new guarantee.
-  Date: 2026-11-11
+  excludes Preview-scoped env; the preview overlay (`Nagare.Env.PreviewOverlay`) is applied
+  only to server and static sites, so it cannot put the store back on an opted-out workload.
+  A one-shot job (`Nagare.Dsl.Job`) is a fourth kind that is never part of an Application; it
+  keeps its `envFrom` of a store named after the job, and M3's guide says so. A missing key
+  fails the Pod at start, as an explicit reference to any Secret does today; a plan-time key
+  check would be a new guarantee.
+  Date: 2026-11-11, one-shot jobs added 2026-11-12
+
+- Decision: The store commands' acceptance of a standalone worker is proved by running the
+  built executable, not by a unit test.
+  Rationale: `configIdentityOrDie` lives in the executable's sources (`cli/nagarectl/app`),
+  which neither `nagarectl-test` nor `just gate-fast` compiles. Moving it into the library for
+  one test is more change than the fix.
+  Date: 2026-11-12
 
 
 ## Outcomes & Retrospective
@@ -145,7 +163,7 @@ A *local context* is a k3d cluster with loopback substitutes for every cloud ser
 ([docs/user/local-development.md](../user/local-development.md)); the GCP guardrail steps aside
 there by design.
 
-What the code does today, checked at commit `664006f8`:
+What the code does today, checked at commit `47a97795` (v0.20.0 plus documentation):
 
 - The web service always inherits. `containerValue` in `cli/nagare-dsl/src/Nagare/Dsl/Render.hs`
   appends `envFromField` with the service's name.
@@ -163,7 +181,15 @@ What the code does today, checked at commit `664006f8`:
   the configuration's name, and `configIdentityOrDie` beside it loads only a Deployment, an
   Application or a site. So the worker-named store cannot be written for an Application, and
   from reading the code a standalone `Worker` configuration is not accepted either; M2 confirms
-  the second with a test before changing it.
+  the second with the built executable before changing it. This module is part of the
+  executable, which the test suite and `just gate-fast` do not compile.
+- A database or app-database binding reaches a workload as explicit `env` entries
+  (`cli/nagarectl/src/Nagare/Inventory/Application/Environment.hs`), never through `envFrom`,
+  so an opted-out workload keeps its bindings. Since v0.20.0 a `Task` carries `appDatabases`
+  too, and a pre-deploy hook named in an app-owned database's `owners` receives the owner
+  credential that way.
+- A one-shot job (`cli/nagare-dsl/src/Nagare/Dsl/Job/Render.hs`) also inherits a store, named
+  after the job. This plan leaves it alone (Decision Log).
 - An Application's own `env` map is merged into every workload by `flowEnv` in
   `cli/nagarectl/src/Nagare/App/Deploy.hs`. This plan leaves it alone (Decision Log).
 - A task also receives Nagare's own variables `NAGARE_TASK_NAME`, `NAGARE_NAMESPACE`,
@@ -173,8 +199,9 @@ What the code does today, checked at commit `664006f8`:
 The request's findings were checked against this code and hold. Three points refine it. The
 worker gap is wider than stated (a standalone worker's store looks unwritable too). AC-3 and
 AC-4 pull against each other for an Application that has workers; the Decision Log resolves
-it. And Kotei's `scripts/kotei-nagare-release.sh` accepts only two pinned Nagare revisions, so
-AC-5 needs an edit on Kotei's side beyond its `nagare/Config.hs`.
+it. And Kotei's `scripts/kotei-nagare-release.sh` accepts only a CLI reporting version
+`0.18.0` at one of two pinned revisions, and its `nagare/Config.hs` builds `Task` without the
+`appDatabases` field v0.20.0 added, so AC-5 needs more on Kotei's side than the opt-out.
 
 Relevant ADRs:
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) is the
@@ -186,12 +213,11 @@ holds without asking; the field added here follows its shape in the types, the J
 loaders (search for `serviceAccount`). No ADR covers the managed store's inheritance; M3 adds
 one.
 
-Related work in flight:
+Related work, landed in v0.20.0:
 [EP-259](259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md)
-(IR-43 AC-5) gives a pre-deploy hook the database owner credential through a binding. It also
-adds fields to `Task`, its JSON and its loader, so whichever lands second rebases over the
-other; neither depends on the other's behaviour. With both, Kotei's hook gets the owner
-credential from the binding and nothing from the store.
+(IR-43 AC-5) gives a pre-deploy hook the database owner credential through a binding. With
+this plan as well, Kotei's hook can get the owner credential from the binding and nothing from
+the store. Kotei has not adopted the binding yet; AC-5 here does not require it.
 
 
 ## Plan of Work
@@ -230,8 +256,9 @@ taking the store's app name, and define `renderWorker w = renderWorkerIn (nameTe
 standalone worker is unchanged. Update the module comments that say the block is "always
 present".
 
-Tests, in `cli/nagare-dsl/test/Spec.hs` and `cli/nagare-dsl/test/WorkerSpec.hs` next to the
-existing render and round-trip cases: for each of the three kinds, an opted-out value renders
+Tests, in `cli/nagare-dsl/test/Spec.hs`, `cli/nagare-dsl/test/WorkerSpec.hs` and
+`cli/nagare-dsl/test/ApplicationSpec.hs` next to the existing `serviceAccount` render and
+round-trip cases: for each of the three kinds, an opted-out value renders
 no `envFrom` key and still renders its `env` entries, including a `secretKeyRef`; the JSON of a
 default value has no `managedEnv` key; JSON without the key loads as `InheritManagedEnv`;
 `"None"` round-trips; an unknown value is refused. Existing golden output must pass untouched.
@@ -253,11 +280,14 @@ No compile rule changes for the opt-out itself: the hook Job is copied from the 
 template, and `secretDependency` already requires an accepted resource for each referenced
 Secret. Prove it with tests rather than new code.
 
-In `cli/nagarectl/app/Nagare/Cli/Application/Config.hs`, first add a test that
-`configIdentityOrDie` on a `Worker` configuration fails today; then let it fall through to
-`Load.loadWorker` before the site loaders, so `nagarectl secret set WORKER -f Config.hs`
-writes a standalone worker's store. Correct the error text in `resolveAppOrDie`, which says
-"the config's name is what the Service references".
+In `cli/nagarectl/app/Nagare/Cli/Application/Config.hs`, let `configIdentityOrDie` fall
+through to `Load.loadWorker` before the site loaders, so `nagarectl secret set WORKER -f
+Config.hs` writes a standalone worker's store. Correct the error text in `resolveAppOrDie`,
+which says "the config's name is what the Service references". Evidence is from the built
+executable (`cabal build exe:nagarectl --project-dir=cli/nagarectl`): against
+`cli/nagare-dsl/test/fixtures/worker/nagare/Config.hs`, a store command that needs no cluster
+write (`nagarectl env list WORKER -f ...` on a local context, or its dry run) is refused with
+an unexpected-kind error before the change and resolves the worker's name after it.
 
 Tests, beside the existing Application compile cases (`cli/nagarectl/test/Nagare/Test/Application.hs`,
 `cli/nagarectl/test/InventoryApplicationSpec.hs`, `cli/nagarectl/test/AppDeploySpec.hs`): build
@@ -268,8 +298,10 @@ compiled native manifests of the Knative Service, the Deployment, the CronJob an
 no `envFrom` key; the `env` names equal the declared names (plus `NAGARE_*` on the task and
 Job); each object depends on the Secret's resource ID. Add one case where the worker does not
 opt out and its `envFrom` names `nagare-env-scoped-runtime` and `nagare-secret-scoped-runtime`.
-Update the worker golden files under `cli/nagarectl/test/golden` that this changes, and no
-others.
+No golden file should change: the worker golden files are in `cli/nagare-dsl/test/golden` and
+render standalone workers, and `cli/nagarectl/test/golden` holds one CronJob. An existing
+assertion on an Application worker's store name, if one turns up, is updated to the app's
+name.
 
 ### M3: guides and the decision record
 
@@ -280,10 +312,12 @@ written with `nagarectl secret set WORKER -f Config.hs`; `managedEnv = NoManaged
 the inheritance; an opted-out workload reaches a Secret key by `EnvSecretRef` to
 `nagare-secret-APP-runtime` and the deploy passes that Secret with `--env-secret-resource`;
 values set with `nagarectl env set` are not reachable by an opted-out workload because there is
-no per-key ConfigMap reference; the Application's own `env` still reaches every workload.
+no per-key ConfigMap reference; the Application's own `env` still reaches every workload; a
+one-shot job inherits the store named after the job and has no opt-out.
 Include a short three-role example (web, worker, migration hook). Fix the sentence in
 `docs/user/workers.md` under the field table and the `env` row ("managed `envFrom` is always
-wired"), and add the `managedEnv` field to the tables in `docs/user/workers.md`,
+wired"), the matching "an `envFrom` block always" sentence in `docs/user/deploying-apps.md`
+and the inherited-env rows of `docs/user/scheduled-tasks.md`, and add the `managedEnv` field to the tables in `docs/user/workers.md`,
 `docs/user/scheduled-tasks.md` and `docs/user/config-reference.md`. Note in
 `docs/user/deploying-apps.md`, where `--env-secret-resource` is described, that the app's own
 runtime Secret is passed the same way when a workload references it.
@@ -297,7 +331,9 @@ and named Secrets per app were rejected for now.
 
 Add `scripts/local-secret-scope-smoke.sh` and a `local-secret-scope-smoke context` recipe in
 `justfile`, modelled on `scripts/local-app-database-smoke.sh` (same context checks, same
-`app image-plan` publication helper, same `apply` helper). On a bootstrapped local context it:
+`app image-plan` publication helper, same `apply` helper). Register the script and the recipe
+in `scripts/audit-managed-commands.py` in the three places `local-app-database-smoke` appears.
+On a bootstrapped local context it:
 
 1. Publishes one image whose default entrypoint serves HTTP and which has a shell, and writes
    four keys to the app's store with a reviewed `nagarectl secret sync scoped`.
@@ -309,16 +345,18 @@ Add `scripts/local-secret-scope-smoke.sh` and a `local-secret-scope-smoke contex
    log, and `kubectl exec ... env` in the worker), and that the saved review lists the one
    Secret dependency. This is AC-1 and AC-2.
 3. Deploys a web-only app with no opt-out before and after switching `NAGARECTL` between the
-   previous release and this build, and asserts the second plan has no operations. This is
-   AC-3.
+   v0.20.0 package (`nix build "git+file://$PWD?ref=v0.20.0#nagarectl"`) and this build, and
+   asserts the second plan has no operations. This is AC-3.
 4. Writes a key with `nagarectl secret set` for a second Application whose worker does not opt
    out, redeploys, and asserts the worker's environment holds it. This is AC-4's command check.
 
 Then the acceptance case, AC-5. Kotei's checkout is found with
 `mori registry show shinzui/kotei --full`. Work on a scratch copy of its `nagare/Config.hs`
 and `scripts/kotei-nagare-release.sh` and change nothing in Kotei's repository: add
-`managedEnv = NoManagedEnv` to the service, the worker and the `migrate` task, and add this
-build's revision to the revisions the script accepts. Run the script's `plan-image`,
+`managedEnv = NoManagedEnv` to the service, the worker and the `migrate` task, add
+`Task.appDatabases = []` and any other field the records gained since v0.18.0, and replace the
+script's version and revision check (it accepts only `0.18.0` at two revisions) with this
+build's version and revision. Run the script's `plan-image`,
 `apply-image`, `plan-app` and `apply-app` on the local context with Kotei's release image and
 its four keys in `nagare-secret-kotei-runtime`. Accept when the hook Job completes, the web
 service and worker become ready, and neither serving Pod spec names
@@ -341,12 +379,14 @@ All from the repository root.
 ```bash
 cabal test nagare-dsl-test --project-dir=cli/nagare-dsl --test-show-details=direct
 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p Application' --test-show-details=direct
+cabal build exe:nagarectl --project-dir=cli/nagarectl
 just haskell-style-check
 just gate-fast
 ```
 
-Per Haskell commit run `just haskell-style-check` then `just gate-fast`; land with `just land`
-(rules in `CLAUDE.md`). For M4:
+Per Haskell commit run `just haskell-style-check` then `just gate-fast`; land with
+`just land HEAD` (rules in `CLAUDE.md`). The fast gate does not compile
+`cli/nagarectl/app`, so build the executable before committing M2's change there. For M4:
 
 ```bash
 just local-secret-scope-smoke <local-context>
@@ -358,19 +398,19 @@ Expected last line:
 secret-scope smoke: PASS
 ```
 
-Commits follow Conventional Commits and carry both trailers:
+Commits follow Conventional Commits and carry the plan trailer. The `Intention:` trailer is not
+used in this repository (`CLAUDE.md`).
 
 ```text
 ExecPlan: docs/plans/261-scope-an-app-s-managed-env-and-secrets-to-the-workloads-that-reference-them.md
-Intention: intention_01m760pfm7ej5sw9pagv1aftmc
 ```
 
 
 ## Validation and Acceptance
 
 M1 is accepted when the new library tests pass and `git status` shows no changed golden file.
-M2 is accepted when the new compile tests pass, the only changed golden files are worker
-manifests of Applications, and `just gate-fast` is green. M3 is accepted when a reader of
+M2 is accepted when the new compile tests pass, no golden file changed, the built executable
+resolves a standalone worker's configuration, and `just gate-fast` is green. M3 is accepted when a reader of
 `docs/user/env-and-secrets.md` alone can say which store each workload kind inherits and how
 to opt out. M4 is accepted when the smoke prints `PASS` and the Kotei run meets the three
 conditions above, or records why it could not run.
@@ -398,6 +438,6 @@ values `"Inherit"` and `"None"`; and `Nagare.Dsl.Worker.Render.renderWorkerIn`. 
 that builds these records with full record syntax must add the field when it moves to this
 build, as it did for `serviceAccount`; say so in the release notes.
 
-No dependency on another plan. EP-259 edits the same `Task` record (see Context). Kotei's
+No dependency on another plan. Kotei's
 adoption of the field and of the qualified Nagare revision belongs to
 `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application`.
