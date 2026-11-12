@@ -22,6 +22,7 @@ module Nagare.Inventory.DeployerCloudAccess
   , CloudKey (..)
   , CloudKeyOps (..)
   , Gcloud
+  , GcloudIn
   , gcloudKeyOps
   , retireCloudKeysExcept
   , cloudBundleFiles
@@ -156,17 +157,25 @@ data CloudKeyOps = CloudKeyOps
   , listKeys :: !(IO (Either Text [Text]))
   -- ^ The account's user-managed key IDs.
   , deleteKey :: !(Text -> IO (Either Text ()))
+  , activateKey :: !(FilePath -> IO (Either Text ()))
+  -- ^ Activate the written bundle's key in the bundle's own gcloud
+  -- configuration (its home is the argument), so every gcloud command the
+  -- deployer runs, the store's credential helper included, uses that account.
   }
   deriving stock (Generic)
 
 -- | A gcloud request through the operator's session: its arguments.
 type Gcloud = [String] -> IO (Either Text (ExitCode, String, String))
 
+-- | A gcloud request under another configuration directory (the bundle's),
+-- not the operator's.
+type GcloudIn = FilePath -> Gcloud
+
 -- | Key administration over @gcloud iam service-accounts keys@. The project
 -- assertion runs once, before the first gcloud call; its refusal answers
 -- every call without running gcloud.
-gcloudKeyOps :: IO (Either Text ()) -> Gcloud -> Text -> Text -> IO CloudKeyOps
-gcloudKeyOps assertProject run project deployer = do
+gcloudKeyOps :: IO (Either Text ()) -> Gcloud -> GcloudIn -> Text -> Text -> IO CloudKeyOps
+gcloudKeyOps assertProject run runIn project deployer = do
   verdict <- newMVar Nothing
   let account = deployerCloudAccountEmail project deployer
       asserted = modifyMVar verdict $ \case
@@ -207,6 +216,13 @@ gcloudKeyOps assertProject run project deployer = do
       , deleteKey = \key -> do
           answer <- gcloud (keys ["delete", T.unpack key, "--quiet"])
           pure (() <$ outputOf ("deleting key " <> key) answer)
+      , activateKey = \home -> do
+          -- gcloud 581's credential helper crashes on a key file override
+          -- ('Credentials' object has no attribute 'private_key_id'); an
+          -- activated account is what config-helper, print-access-token and
+          -- gcloud storage all accept.
+          answer <- runIn (home </> gcloudConfigPathIn) ["auth", "activate-service-account", T.unpack account, "--key-file=" <> home </> cloudKeyPathIn, "--project", T.unpack project]
+          pure (() <$ outputOf ("activating " <> account <> " in the bundle") answer)
       }
   where
     keyIdOf bytes = case eitherDecodeStrict bytes of
@@ -242,9 +258,9 @@ cloudKeyPathIn = gcloudConfigPathIn </> "deployer-key.json"
 
 -- | The key, a gcloud configuration whose project is the context's, and the
 -- project's number where the store's ownership check remembers it, so the
--- deployer needs no project-level read. The key is selected by
--- @CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE@, which a deployer context sets to
--- the bundle's own file: the bundle has no fixed absolute path.
+-- deployer needs no project-level read. 'activateKey' then activates the key
+-- in this configuration, and a deployer context points @CLOUDSDK_CONFIG@ at
+-- it: the bundle has no fixed absolute path.
 cloudBundleFiles :: CloudKeyOps -> Text -> CloudKey -> [(FilePath, ByteString)]
 cloudBundleFiles ops number key =
   [ (cloudKeyPathIn, key ^. #keyFile)

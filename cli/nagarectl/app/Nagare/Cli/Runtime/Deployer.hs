@@ -56,10 +56,10 @@ bundleDefaults target = do
     ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
     (configRoot </> "credentials" </> T.unpack (contextNameText context) <> "-s3.json")
   -- D6: on a cloud context, gcloud (the store's session and image
-  -- publication) uses the bundle's configuration and its key.
+  -- publication) uses the bundle's configuration, where issuing activated
+  -- the deployer's key.
   let gcloudConfig = takeDirectory configRoot </> "gcloud"
       key = gcloudConfig </> "deployer-key.json"
-  defaultTo "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE" [] key
   keyPresent <- doesFileExist key
   configured <- lookupEnv "CLOUDSDK_CONFIG"
   when (keyPresent && maybe True null configured) (setEnv "CLOUDSDK_CONFIG" gcloudConfig)

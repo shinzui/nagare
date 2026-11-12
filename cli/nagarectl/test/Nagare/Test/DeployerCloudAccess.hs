@@ -31,7 +31,7 @@ import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..)
 import Nagare.Test.Support.Profiles (initProfile)
 import System.Directory (doesPathExist)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (takeFileName, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (fileMode, getFileStatus)
 import Test.Tasty
@@ -88,7 +88,7 @@ deployerCloudAccessTests =
     , testCase "D6: the bundle holds the key, a gcloud configuration for the context's project and its number, all private" $
         withSystemTempDirectory "bundle" $ \root -> do
           world <- newWorld ["old1"]
-          keyOps <- gcloudKeyOps (pure (Right ())) (fakeGcloud world) "acme-prod" "kotei"
+          keyOps <- gcloudKeyOps (pure (Right ())) (fakeGcloud world) (fakeGcloudIn world) "acme-prod" "kotei"
           document <- issueCredentials (credentialOps world keyOps) (request (root </> "kotei")) >>= either (assertFailure . T.unpack) pure
           let home = root </> "kotei"
           BS.readFile (home </> cloudKeyPathIn) >>= (@?= keyJson "key2")
@@ -101,6 +101,9 @@ deployerCloudAccessTests =
           fromNullable (document ^. #cloudKeyId) @?= Just "key2"
           document ^. #retired @?= ["cloud-key/old1"]
           readIORef (world ^. #keys) >>= (@?= ["key2"])
+          -- The written key is activated in the bundle's own configuration, never the operator's.
+          readIORef (world ^. #activations)
+            >>= (@?= [(home </> gcloudConfigPathIn, ["auth", "activate-service-account", "nagare-deployer-kotei@acme-prod.iam.gserviceaccount.com", "--key-file=" <> home </> cloudKeyPathIn, "--project", "acme-prod", "(key present)"])])
           calls <- readIORef (world ^. #gcloudCalls)
           assertBool "every gcloud call names the context's project" (all (["--project", "acme-prod"] `isSuffixOf`) calls)
           -- The number is read first, the key created, and only then are earlier keys listed and deleted.
@@ -115,7 +118,7 @@ deployerCloudAccessTests =
         withSystemTempDirectory "bundle" $ \root -> do
           world <- newWorld ["old1"]
           writeIORef (world ^. #failCreate) True
-          keyOps <- gcloudKeyOps (pure (Right ())) (fakeGcloud world) "acme-prod" "kotei"
+          keyOps <- gcloudKeyOps (pure (Right ())) (fakeGcloud world) (fakeGcloudIn world) "acme-prod" "kotei"
           refused <- issueCredentials (credentialOps world keyOps) (request (root </> "first"))
           assertBool "a failed key creation is refused" (isLeft refused)
           doesPathExist (root </> "first" </> cloudKeyPathIn) >>= (@?= False)
@@ -125,12 +128,22 @@ deployerCloudAccessTests =
           document <- issueCredentials (credentialOps world keyOps) (request (root </> "second")) >>= either (assertFailure . T.unpack) pure
           document ^. #retired @?= ["cloud-key/old1"]
           readIORef (world ^. #retiredBeforeBundle) >>= (@?= False)
+    , testCase "D6: a key the bundle cannot activate retires nothing, so the previous bundle keeps working" $
+        withSystemTempDirectory "bundle" $ \root -> do
+          world <- newWorld ["old1"]
+          writeIORef (world ^. #failActivate) True
+          keyOps <- gcloudKeyOps (pure (Right ())) (fakeGcloud world) (fakeGcloudIn world) "acme-prod" "kotei"
+          refused <- issueCredentials (credentialOps world keyOps) (request (root </> "kotei"))
+          either (\reason -> assertBool (T.unpack reason) ("activating" `T.isInfixOf` reason)) (const (assertFailure "an unactivated bundle was accepted")) refused
+          readIORef (world ^. #keys) >>= (@?= ["old1", "key2"])
+          calls <- readIORef (world ^. #gcloudCalls)
+          assertBool "no key was listed or deleted" (not (any (\call -> take 4 call `elem` [["iam", "service-accounts", "keys", "list"], ["iam", "service-accounts", "keys", "delete"]]) calls))
     , testCase "D6: the project assertion refuses with its own message before any gcloud or cluster call (ADR 9)" $
         withSystemTempDirectory "bundle" $ \root -> do
           world <- newWorld ["old1"]
           let refusal = projectGuardVerdict (guardInputs (Just "someone-elses-project"))
           expected <- either pure (const (assertFailure "the guard accepted another project")) refusal
-          keyOps <- gcloudKeyOps (pure refusal) (fakeGcloud world) "acme-prod" "kotei"
+          keyOps <- gcloudKeyOps (pure refusal) (fakeGcloud world) (fakeGcloudIn world) "acme-prod" "kotei"
           issueCredentials (credentialOps world keyOps) (request (root </> "kotei")) >>= (@?= Left expected) . fmap (const ())
           readIORef (world ^. #gcloudCalls) >>= (@?= [])
           readIORef (world ^. #kubectlCalls) >>= (@?= 0)
@@ -150,11 +163,23 @@ data World = World
   , failCreate :: !(IORef Bool)
   , checkBundle :: !(IORef (Maybe FilePath))
   , retiredBeforeBundle :: !(IORef Bool)
+  , activations :: !(IORef [(FilePath, [String])])
+  -- ^ gcloud calls under a bundle's configuration, marked when the bundle's key was present.
+  , failActivate :: !(IORef Bool)
   }
   deriving stock (Generic)
 
 newWorld :: [Text] -> IO World
-newWorld existing = World <$> newIORef [] <*> newIORef 0 <*> newIORef existing <*> newIORef False <*> newIORef Nothing <*> newIORef False
+newWorld existing = World <$> newIORef [] <*> newIORef 0 <*> newIORef existing <*> newIORef False <*> newIORef Nothing <*> newIORef False <*> newIORef [] <*> newIORef False
+
+-- | gcloud under the bundle's configuration: activation reads the written key.
+fakeGcloudIn :: World -> GcloudIn
+fakeGcloudIn world config arguments = do
+  present <- doesPathExist (config </> takeFileName cloudKeyPathIn)
+  modifyIORef' (world ^. #activations) (<> [(config, arguments <> ["(key present)" | present])])
+  readIORef (world ^. #failActivate) >>= \case
+    True -> pure (Right (ExitFailure 1, "", "ERROR: (gcloud.auth.activate-service-account) could not read the key"))
+    False -> pure (Right (ExitSuccess, "", ""))
 
 fakeGcloud :: World -> Gcloud
 fakeGcloud world arguments = do

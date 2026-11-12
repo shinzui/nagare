@@ -188,6 +188,7 @@ issueCredentials ops request = runExceptT $ do
           <> [(storeCredentialsPathIn (request ^. #context), bytes) | Just bytes <- [storeFile]]
           <> concat [cloudBundleFiles keys number key | Just (keys, key) <- [cloudKey], Just number <- [projectNumber]]
   ExceptT (writeBundle home files)
+  forM_ cloudKey $ \(keys, _) -> ExceptT ((keys ^. #activateKey) home)
   -- Only now, with the new bundle on disk, retire what was issued before.
   retiredHandles <- ExceptT (retireHandles ops system deployerAccount (handleName deployerAccount))
   retiredBuilders <- case request ^. #buildNamespace of

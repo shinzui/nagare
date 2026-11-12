@@ -38,8 +38,8 @@ import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types (generationNumber)
 import Nagare.Target (ActiveTarget, InventoryStoreKind (InventoryStoreObject), Mode (Cloud, Local), contextFilePath, contextNameText, effectiveInventoryStore)
 import Nagare.Target.Kinds (hostShapeFor)
-import System.Environment (lookupEnv)
-import System.Process (readProcessWithExitCode)
+import System.Environment (getEnvironment, lookupEnv)
+import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode, readProcessWithExitCode)
 
 runDelegation :: Maybe String -> DelegationCommand -> IO ()
 runDelegation mctx = \case
@@ -188,7 +188,13 @@ deployerCloudKeys active delegation = do
   workspace <- selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)
   let assertion = projectGuardVerdict <$> projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
       run arguments = first (\(_ :: IOException) -> "could not invoke gcloud") <$> try (readProcessWithExitCode "gcloud" arguments "")
-  gcloudKeyOps assertion run (active ^. #profile . #project) (delegation ^. #name)
+      -- Under the bundle's configuration alone: none of the operator's
+      -- CLOUDSDK_* selections apply there.
+      runIn config arguments = do
+        inherited <- filter (not . T.isPrefixOf "CLOUDSDK_" . T.pack . fst) <$> getEnvironment
+        let variables = ("CLOUDSDK_CONFIG", config) : ("CLOUDSDK_ACTIVE_CONFIG_NAME", "default") : ("CLOUDSDK_CORE_DISABLE_PROMPTS", "1") : inherited
+        first (\(_ :: IOException) -> "could not invoke gcloud") <$> try (readCreateProcessWithExitCode ((proc "gcloud" arguments) {env = Just variables}) "")
+  gcloudKeyOps assertion run runIn (active ^. #profile . #project) (delegation ^. #name)
 
 -- | EP-248 D10: on a local context whose inventory is in the in-cluster
 -- object store, the deployer's store identity is administered by the store's
