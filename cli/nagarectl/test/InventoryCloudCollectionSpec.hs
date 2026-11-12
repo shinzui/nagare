@@ -234,6 +234,65 @@ cloudCollectionTests =
           pulumiApplySavedPlan ops (operation {plannedAction = VerifyResource}) "plan" >>= (@?= AdapterEffectCompleted)
           invoked <- BS.readFile calls
           assertBool "recovery sent mutation/preview" (not (" up " `BS.isInfixOf` invoked || " preview " `BS.isInfixOf` invoked))
+    , testCase "an apply refused while IAM propagates a new custom role runs the same saved plan again, a bounded number of times" $
+        withSystemTempDirectory "cloud-iam-propagation" $ \temporary -> do
+          let program = temporary </> "program"
+              executable = temporary </> "pulumi"
+              calls = temporary </> "calls"
+              failures = temporary </> "failures"
+              config =
+                PulumiRuntimeConfig
+                  "dev"
+                  "project"
+                  "dev"
+                  "gs://state"
+                  "payload"
+                  (contentDigest "payload")
+                  executable
+                  program
+                  (temporary </> "Pulumi.dev.yaml")
+                  (encodeCloudDeclarationBundle fixture)
+                  (expectedRegistrations fixture)
+                  Map.empty
+              registration = head (expectedRegistrations fixture)
+              operation =
+                PlannedOperation
+                  (ok (mkOperationId "op-create"))
+                  CreateResource
+                  PulumiExecutor
+                  (registrationResource registration :| [])
+                  (contentDigest "spec")
+                  []
+                  Idempotent
+              -- Fail the first N `up` runs with MESSAGE, then succeed.
+              fake n message = do
+                writeFile failures (show (n :: Int))
+                writeFile calls ""
+                writeFile
+                  executable
+                  ( unlines
+                      [ "#!/bin/sh"
+                      , "echo \"$*\" >> " <> show calls
+                      , "left=$(cat " <> show failures <> ")"
+                      , "if [ \"$left\" -gt 0 ]; then echo $((left - 1)) > " <> show failures <> "; echo " <> show (message :: String) <> " >&2; exit 1; fi"
+                      ]
+                  )
+                setFileMode executable 0o700
+              upCalls = length . filter (" up " `BS.isInfixOf`) . map (\line -> " " <> line <> " ") . BS.lines <$> BS.readFile calls
+              ops = mkPulumiRuntimeOpsWith (\_ -> pure ()) config
+              propagating = "error: Role (projects/p/roles/nagareInventoryObjectReader) does not exist in the resource's hierarchy."
+          createDirectory program
+          fake 1 propagating
+          pulumiApplySavedPlan ops operation "plan" >>= (@?= AdapterEffectCompleted)
+          upCalls >>= (@?= 2)
+          fake 1 "error: googleapi: Error 403: permission denied"
+          other <- pulumiApplySavedPlan ops operation "plan"
+          case other of AdapterEffectAmbiguous _ -> pure (); unexpected -> assertFailure (show unexpected)
+          upCalls >>= (@?= 1)
+          fake 99 propagating
+          stuck <- pulumiApplySavedPlan ops operation "plan"
+          case stuck of AdapterEffectAmbiguous reason -> assertBool "the last error is kept" (iamPropagationPending reason); unexpected -> assertFailure (show unexpected)
+          upCalls >>= (@?= 5)
     ]
 
 fixture :: CloudDeclarationBundle

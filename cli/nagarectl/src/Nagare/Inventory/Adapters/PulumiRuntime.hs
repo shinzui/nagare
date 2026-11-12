@@ -7,11 +7,14 @@
 module Nagare.Inventory.Adapters.PulumiRuntime
   ( PulumiRuntimeConfig (..)
   , mkPulumiRuntimeOps
+  , mkPulumiRuntimeOpsWith
+  , iamPropagationPending
   , decodePhysicalResources
   , decodePendingOperations
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, try)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
@@ -58,12 +61,17 @@ data PulumiRuntimeConfig = PulumiRuntimeConfig
   deriving stock (Eq, Show)
 
 mkPulumiRuntimeOps :: PulumiRuntimeConfig -> PulumiAdapterOps
-mkPulumiRuntimeOps config =
+mkPulumiRuntimeOps = mkPulumiRuntimeOpsWith (threadDelay . (* 1000000))
+
+-- | The runtime with the pause between IAM propagation retries injected, in
+-- seconds, so a test need not wait.
+mkPulumiRuntimeOpsWith :: (Int -> IO ()) -> PulumiRuntimeConfig -> PulumiAdapterOps
+mkPulumiRuntimeOpsWith pause config =
   PulumiAdapterOps
     { pulumiObserveResources = observeResources config
     , pulumiPrepareSavedPlan = prepareSavedPlan config
     , pulumiReadIdentity = readIdentity config
-    , pulumiApplySavedPlan = applySavedPlan config
+    , pulumiApplySavedPlan = applySavedPlan pause config
     , pulumiVerifyResources = verifyResources config
     , pulumiRecoverSavedPlan = recoverSavedPlan config
     }
@@ -183,21 +191,34 @@ readIdentity config operation = do
         }
   pure (first (\(err :: IOException) -> "could not capture Pulumi inventory identity: " <> T.pack (show err)) result)
 
-applySavedPlan :: PulumiRuntimeConfig -> PlannedOperation -> ByteString -> IO AdapterExecution
-applySavedPlan _ operation _ | plannedAction operation == VerifyResource = pure AdapterEffectCompleted
-applySavedPlan config operation planBytes = case operationTargets config operation of
+-- | IAM refuses a binding to a custom role created moments earlier in the
+-- same update until the role propagates: "Role (...) does not exist in the
+-- resource's hierarchy" (the EP-248 D6 native check). Running the same saved
+-- plan again is safe: Pulumi keeps what the failed run created and creates
+-- the rest.
+iamPropagationPending :: Text -> Bool
+iamPropagationPending = T.isInfixOf "does not exist in the resource's hierarchy"
+
+applySavedPlan :: (Int -> IO ()) -> PulumiRuntimeConfig -> PlannedOperation -> ByteString -> IO AdapterExecution
+applySavedPlan _ _ operation _ | plannedAction operation == VerifyResource = pure AdapterEffectCompleted
+applySavedPlan pause config operation planBytes = case operationTargets config operation of
   Left err -> pure (AdapterEffectFailed (KnownNoEffect err))
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-apply" $ \temporary -> do
     let planPath = temporary </> "pulumi-plan.json"
+        attempt :: Int -> IO AdapterExecution
+        attempt remaining = do
+          result <-
+            runPulumiWithDeclarations
+              config
+              temporary
+              (["up", "--plan", planPath, "--stack", T.unpack (runtimeStack config), "--yes", "--non-interactive"] <> targets)
+          case successful "Pulumi apply" result of
+            Right _ -> pure AdapterEffectCompleted
+            Left err
+              | remaining > 0 && iamPropagationPending err -> pause 30 >> attempt (remaining - 1)
+              | otherwise -> pure (AdapterEffectAmbiguous err)
     BS.writeFile planPath planBytes
-    result <-
-      runPulumiWithDeclarations
-        config
-        temporary
-        (["up", "--plan", planPath, "--stack", T.unpack (runtimeStack config), "--yes", "--non-interactive"] <> targets)
-    pure $ case successful "Pulumi apply" result of
-      Left err -> AdapterEffectAmbiguous err
-      Right _ -> AdapterEffectCompleted
+    attempt 4
 
 verifyResources :: PulumiRuntimeConfig -> PlannedOperation -> ByteString -> IO (Either Text ContentDigest)
 verifyResources config operation planBytes | plannedAction operation == RetireResource = do
