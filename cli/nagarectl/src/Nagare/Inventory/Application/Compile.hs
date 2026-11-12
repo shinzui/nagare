@@ -144,9 +144,10 @@ compileApplicationScope input = do
           .~ [source]
           & (:| [])
   _ <- first invalid (mkApplication app)
-  -- EP-202: an application's workloads bind only the databases it declares.
+  -- EP-202: an application's workloads bind only the databases it declares;
+  -- only its pre-deploy hooks bind app databases (EP-259).
   unless
-    (all (null . (^. #appDatabases)) (maybe [] pure (app ^. #service)) && all (null . (^. #appDatabases)) (app ^. #workers))
+    (all (null . (^. #appDatabases)) (maybe [] pure (app ^. #service)) && all (null . (^. #appDatabases)) (maybe [] (^. #tasks) (app ^. #service)) && all (null . (^. #appDatabases)) (app ^. #workers))
     ( Left
         ( ( inventoryError "app-database-not-bindable-from-application" "an application's workloads bind only the databases the application declares; deploy the workload as a Deployment or Worker to bind an app database"
               & #sources
@@ -156,7 +157,7 @@ compileApplicationScope input = do
         )
     )
   unless
-    (null (app ^. #tasks) && Map.null (scopeHookEffects input))
+    (null (app ^. #tasks) && Map.null (scopeHookEffects input) && Map.null (scopeTaskDatabaseBindings input))
     (Left (invalid "application hooks need independent reviewed per-release Job scopes"))
   unless
     ( scopeRollout input ^. #appName == serviceNameText (app ^. #name)
@@ -730,6 +731,7 @@ compileApplicationDeployment input = do
         input
           { scopeApplication = baseApp
           , scopeHookEffects = Map.empty
+          , scopeTaskDatabaseBindings = Map.empty
           , scopeEnvSecrets = baseSecrets
           , scopeInputOverrides =
               Map.filterWithKey
@@ -774,6 +776,7 @@ compileApplicationDeployment input = do
         compileTaskMembers
           owner
           (stripBuildSecretRefs app ^. #tasks)
+          (scopeTaskDatabaseBindings input)
           (stripBuildSecretRollout (scopeRollout input))
           cluster
           (scopeNamespace input)
@@ -817,6 +820,7 @@ compileApplicationDeployment input = do
           app
           owner
           (scopeRollout input)
+          (scopeTaskDatabaseBindings input)
           cluster
           boundTaskNative
           effects

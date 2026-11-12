@@ -155,15 +155,17 @@ runWorkerPlan mctx options output = do
           (worker ^. #brokers)
       )
   databaseBindings <-
-    reviewedStandaloneDatabases
-      active
-      snapshot
-      cluster
-      (namespaceText (worker ^. #namespace))
-      (worker ^. #databases)
-      (worker ^. #appDatabases)
-      (worker ^. #name)
-      (worker ^. #appDatabaseReaders)
+    Map.findWithDefault Map.empty (worker ^. #name)
+      <$> reviewedStandaloneDatabases
+        active
+        snapshot
+        cluster
+        (namespaceText (worker ^. #namespace))
+        (worker ^. #databases)
+        (worker ^. #appDatabases)
+        (worker ^. #name)
+        (worker ^. #appDatabaseReaders)
+        []
   let app =
         Application
           { name = worker ^. #name

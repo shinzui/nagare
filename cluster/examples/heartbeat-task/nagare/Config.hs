@@ -59,6 +59,7 @@ deployment = first show $ do
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , appDatabases = []
         }
   pure (dep & #tasks .~ [heartbeat])
 

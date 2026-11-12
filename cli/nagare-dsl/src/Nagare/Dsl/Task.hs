@@ -45,7 +45,8 @@ import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
-  ( EnvName
+  ( AppDatabaseBinding
+  , EnvName
   , ImageRef
   , Namespace
   , Resources
@@ -55,6 +56,7 @@ import Nagare.Dsl.Types
   , defaultNamespace
   , mkImageRef
   , mkServiceName
+  , validateAppDatabaseBindings
   )
 import Nagare.Resource.Types (LogicalKey)
 
@@ -259,6 +261,10 @@ data Task = Task
   -- ^ Optional; @> 0@ when present; renders as @spec.startingDeadlineSeconds@.
   , serviceAccount :: !(Maybe ServiceAccountName)
   -- ^ The account the Pod runs as; 'Nothing' runs it with no Kubernetes API token.
+  , appDatabases :: ![AppDatabaseBinding]
+  -- ^ App databases the task connects to (EP-259), each injecting the runtime
+  -- Secret (or the migration Secret when the app database names the task in
+  -- @owners@) under the fixed variables or one named URL variable.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -283,7 +289,7 @@ mkTask t
       Left "a task with no image must reference an app to inherit its image from"
   | null (t ^. #command) && isNothing (t ^. #app) =
       Left "a task must have a command, or reference an app to inherit its entrypoint"
-  | otherwise = Right t
+  | otherwise = t <$ validateAppDatabaseBindings (Map.keysSet (t ^. #env)) (t ^. #appDatabases)
 
 -- ---------------------------------------------------------------------------
 -- Preset
@@ -319,6 +325,7 @@ scheduledTask nameT scheduleT imageT commandT = do
       , failedJobsHistoryLimit = 1
       , startingDeadlineSeconds = Nothing
       , serviceAccount = Nothing
+      , appDatabases = []
       }
 
 -- ---------------------------------------------------------------------------

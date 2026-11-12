@@ -408,7 +408,7 @@ compileServerSiteScopeWith action cdnBinding accessBinding buildSecrets inputs c
   let secretRefs =
         [ (secret, entry ^. #scopes)
         | entry <- Map.elems (site ^. #env)
-        , EnvSecretRef secret <- [entry ^. #value]
+        , Just secret <- [Dsl.envVarSecret (entry ^. #value)]
         ]
   unless
     (all (reviewedBuildReference buildSecrets) secretRefs)

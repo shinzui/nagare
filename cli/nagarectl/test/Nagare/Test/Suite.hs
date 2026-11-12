@@ -13,6 +13,7 @@ import AppDatabasePrivilegeSpec (appDatabasePrivilegeTests)
 import AppDatabaseRestartSpec (appDatabaseRestartTests)
 import AppDatabaseSpec (appDatabaseTests)
 import AppDatabaseSqlSpec (appDatabaseSqlTests)
+import AppDatabaseTaskSpec (appDatabaseTaskTests)
 import AppDatabaseWorldSpec (appDatabaseWorldTests)
 import AppDeploySpec (appDeployTests)
 import CertificateMigrationSpec (certificateMigrationTests)
@@ -221,7 +222,7 @@ main = do
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
-            , testGroup "AppDatabase" [appDatabaseTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests]
+            , testGroup "AppDatabase" [appDatabaseTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appDatabaseTaskTests]
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
             , inventoryWorldFaultsTests

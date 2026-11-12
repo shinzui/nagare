@@ -206,6 +206,7 @@ taskResolveTests =
             , failedJobsHistoryLimit = 1
             , startingDeadlineSeconds = Nothing
             , serviceAccount = Nothing
+            , appDatabases = []
             }
     ownImageTask =
       unsafe $

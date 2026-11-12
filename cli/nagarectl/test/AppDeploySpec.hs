@@ -758,6 +758,7 @@ nativeApplicationReview = do
               , scopeDatabaseBackup = hourlyGcsBackup
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
+              , scopeTaskDatabaseBindings = Map.empty
               , scopeInputOverrides =
                   Map.fromList
                     [ ("tag", rollout ^. #imageTag)
@@ -1823,6 +1824,7 @@ renderTests =
               , scopeDatabaseBackup = hourlyGcsBackup
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
+              , scopeTaskDatabaseBindings = Map.empty
               , scopeInputOverrides =
                   Map.fromList
                     [ ("tag", testEnv ^. #imageTag)
@@ -2026,11 +2028,7 @@ renderTests =
               (fail . T.unpack)
               pure
               (databaseResourceId appOwner statefulRole database)
-          cronId <-
-            either
-              (fail . T.unpack)
-              pure
-              (taskResourceId appOwner cronRole hook)
+          cronId <- either (fail . T.unpack) pure (taskResourceId appOwner cronRole hook)
           let hookName = serviceNameText (hook ^. #name)
               hookInput =
                 input
@@ -3565,7 +3563,7 @@ renderTests =
               Map.empty
               Map.empty
               Map.empty
-              databaseBindings
+              (Map.singleton (serviceWithDatabase ^. #name) databaseBindings)
               Nothing
               (scopeSource input)
           )

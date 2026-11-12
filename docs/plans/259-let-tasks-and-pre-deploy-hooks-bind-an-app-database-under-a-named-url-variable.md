@@ -41,10 +41,26 @@ This is IR-43 AC-5
 
 ## Progress
 
-- [ ] M1: A task and an Application pre-deploy hook bind an app database that did not opt into
+- [x] M1: A task and an Application pre-deploy hook bind an app database that did not opt into
   ownership, receiving the runtime credential, or the migration credential when the app
   database names the task in `owners`. A binding with `urlVariable` injects exactly that one
   variable. Existing configurations change only the form of their `appDatabases` entries.
+  Evidence (pass): `cli/nagarectl/test/AppDatabaseTaskSpec.hs` "AppDatabase task and named
+  bindings (EP-259)": a name-only binding renders byte-identical objects and dependencies to the
+  fixture `test/fixtures/app-database/v0.19.2/name-only-bindings.txt`, produced by the same
+  worker and Deployment compiled on 931c1d83; a named binding injects one variable from
+  `DATABASE_URL` and two PostgreSQL bindings coexist; a clashing `urlVariable` is refused; a
+  Deployment's task receives `alpha-pg-migration` when named in `owners` and only its own
+  Secret otherwise, ordered after the Secret and the app database's members; a hook's Job
+  carries `KOTEI_RELEASE_MAINTENANCE_DATABASE_URL` from `alpha-pg-runtime`, is ordered after
+  it, no Pod template references it, and the service, its tasks and the workers keep
+  `app-database-not-bindable-from-application`. `cli/nagare-dsl/test/AppDatabaseBindingSpec.hs`:
+  round trip on `Deployment`, `Worker` and `Task`, the bare-name form and a `SecretKeyRef` env
+  entry refused at load, `mkTask` refusals, golden `test/golden/task-url-variable.cronjob.yaml`.
+  The existing `AppDatabaseSpec` and `AppDatabasePrivilegeSpec` cases pass unchanged apart from
+  the binding form. The nagare-dsl suite is green (520 tests). New
+  cases live in their own modules because `AppDatabaseSpec.hs` and `AppDeploySpec.hs` are at
+  their size limits.
 - [ ] M2: A pre-deploy hook named in an app-owned database's `owners` receives the owner
   credential under its chosen variable, completes before promotion, and the rendered web and
   worker Pods do not reference the owner Secret. The user guides document the binding with a
@@ -74,6 +90,24 @@ This is IR-43 AC-5
 - Decision: A hook that binds an app database still needs its reviewed effects stated with
   `--hook-affects` or `--hook-no-data-effects`. The binding does not imply them. Rationale: the
   review of what a hook changes is a separate, existing safeguard. Date: 2026-11-11.
+- Decision: A named binding's variable is a new env value, `EnvSecretKeyRef SecretName EnvName`
+  (a Secret reference reading a key other than the variable's name). Only planning produces
+  it; the configuration loader refuses the `SecretKeyRef` kind, so a configuration names a
+  Secret key only through `urlVariable`. Rationale: `EnvSecretRef` reads the key equal to the
+  variable name, and the credential Secret's keys are fixed by the app database. Date:
+  2026-11-11.
+- Decision: The duplicate rule is refused only among bindings without a `urlVariable`; one app
+  database may be bound under the fixed set and under names. A `urlVariable` may not redefine
+  the workload's or task's env, the application env a task inherits, another binding's
+  variable, or a `NAGARE_` name. Rationale: only fixed sets clash. Date: 2026-11-11.
+- Decision: A standalone `Deployment`'s scheduled tasks bind too, each resolved for its own
+  name; the standalone service compile takes bindings keyed by consumer name, and a task that
+  binds needs a name other than its Deployment's. In an `Application` only the top-level
+  tasks (hooks) bind; the service's own tasks are refused with the service. A hook's Job is
+  ordered directly after the bound Secret and the app database's users and databases, not only
+  through its CronJob. Rationale: a task field that some paths ignored would silently drop a
+  binding; a failed hook Job is terminal, so it must not start before the users exist. Date:
+  2026-11-11.
 
 
 ## Outcomes & Retrospective

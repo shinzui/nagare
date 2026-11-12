@@ -510,7 +510,8 @@ rendered `deploy` shows, for a Postgres reference:
 > **An app and its database must share a namespace** (the default `personal`) for
 > the DNS name and the Secret reference to resolve. Generated connection variables
 > **override** any same-named variable you set yourself. A workload may reference
-> at most one database per engine across `databases` and `appDatabases` together,
+> at most one database per engine across `databases` and `appDatabases` bound
+> without a `urlVariable` together,
 > because each injects the same variables (two PostgreSQL references would both
 > want `DATABASE_URL`); the deploy is refused otherwise, and so is one name listed
 > in both.
@@ -689,19 +690,34 @@ On PostgreSQL, `pg_dump` opens one connection, so the migration user's
 `connectionLimit` must leave one free. `pg_dump` sets `statement_timeout = 0` in
 its own session, so a role default does not affect it.
 
-**Binding.** A workload names app databases in `appDatabases`, not `databases`:
+**Binding.** A `Deployment`, a `Worker` or a `Task` names app databases in
+`appDatabases`, not `databases`. Each entry is an `AppDatabaseBinding`;
+`appDatabaseBinding` binds by name only:
 
 ```haskell
-  pure (worker & #appDatabases .~ [ok (mkAppDatabaseName "notes-pg")])
+  pure (worker & #appDatabases .~ [appDatabaseBinding (ok (mkAppDatabaseName "notes-pg"))])
 ```
 
 The deploy injects the same variables as a direct binding (the table above), with
 the host and port of the shared server and every credential variable a
-`secretKeyRef` into `<name>-runtime`. A workload sees the migration credential
-only when the app database names it in `owners` (see "Privileges inside the
-app's own databases"); otherwise run migrations as a Job or task that reads
-`<name>-migration` yourself. An `Application`'s top-level `databases` cannot name
-an app database; bind it from the workloads that use it.
+`secretKeyRef` into `<name>-runtime`. A binding that sets `urlVariable` injects
+only that one variable, read from the Secret's `DATABASE_URL` (or
+`CLICKHOUSE_URL`) key:
+
+```haskell
+  pure (task & #appDatabases .~ [AppDatabaseBinding (ok (mkAppDatabaseName "notes-pg")) (Just (ok (mkEnvName "NOTES_MAINTENANCE_DATABASE_URL")))])
+```
+
+Named bindings do not clash, so a workload may bind several app databases of one
+engine, or one app database under several names. The deploy refuses a
+`urlVariable` that the workload's own env, its application's env or another
+binding already defines, and one app database bound twice without a
+`urlVariable`. A workload or task sees the migration credential only when the
+app database names it in `owners` (see "Privileges inside the app's own
+databases"). An `Application`'s top-level `databases` cannot name an app
+database. Of an `Application`, only the pre-deploy hooks (its top-level `tasks`)
+bind app databases; its service, the service's tasks and its workers are refused
+with `app-database-not-bindable-from-application`.
 
 **Rotation.** `nagarectl db app-database rotate NAME --user runtime|migration
 --save-plan DIR`, then `inventory apply`. The review writes the new password to
@@ -907,7 +923,7 @@ runtime credential:
           & #owners .~ [ok (mkServiceName "kansoku-migrate")]
 ```
 
-A workload in `owners` that lists the app database in `appDatabases` receives the
+A workload or task in `owners` that lists the app database in `appDatabases` receives the
 same variables as any other binder, from `<name>-migration`; every other workload
 receives `<name>-runtime`. No workload field can ask for the migration credential:
 the app database's own reviewed declaration decides.

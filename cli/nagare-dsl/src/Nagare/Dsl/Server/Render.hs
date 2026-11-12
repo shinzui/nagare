@@ -49,6 +49,7 @@ import Nagare.Dsl.Types
   , EnvVar (..)
   , Resources
   , ScopedEnvVar
+  , SecretName
   , domainText
   , envNameText
   , imageRefText
@@ -205,12 +206,16 @@ envFromField app =
 envEntryValue :: Text -> EnvVar -> Value
 envEntryValue n (EnvLiteral lit) =
   object ["name" .= n, "value" .= lit]
-envEntryValue n (EnvSecretRef sn) =
+envEntryValue n (EnvSecretRef sn) = secretKeyEntry n sn n
+envEntryValue n (EnvSecretKeyRef sn key) = secretKeyEntry n sn (envNameText key)
+
+secretKeyEntry :: Text -> SecretName -> Text -> Value
+secretKeyEntry n sn key =
   object
     [ "name" .= n
     , "valueFrom"
         .= object
-          ["secretKeyRef" .= object ["name" .= secretNameText sn, "key" .= n]]
+          ["secretKeyRef" .= object ["name" .= secretNameText sn, "key" .= key]]
     ]
 
 resourcesField :: Maybe Resources -> [Pair]

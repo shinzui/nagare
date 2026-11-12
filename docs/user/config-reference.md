@@ -58,6 +58,7 @@ data Deployment = Deployment
   , serviceAccount :: Maybe ServiceAccountName -- Nothing = no Kubernetes API token
   , volumes     :: [Volume]                  -- durable disks ([] = stateless); see Volumes
   , databases   :: [DatabaseName]            -- managed databases this app uses ([] = none); see below
+  , appDatabases :: [AppDatabaseBinding]     -- app databases on shared servers ([] = none); see below
   }
 ```
 
@@ -495,6 +496,21 @@ field on `Deployment` (above). At deploy time the app receives the per-engine
 connection env — host/port/user/db as literals and the composed `*_URL`/password
 as Secret references; the exact variables are in
 [Managed databases](managed-databases.md#connecting-an-app-to-a-database).
+
+An app database on a shared server is bound through `appDatabases ::
+[AppDatabaseBinding]` on a `Deployment`, a `Worker` or a `Task`:
+
+```haskell
+data AppDatabaseBinding = AppDatabaseBinding
+  { name        :: AppDatabaseName  -- the app database
+  , urlVariable :: Maybe EnvName    -- Nothing = the engine's fixed variables
+  }
+
+appDatabaseBinding :: AppDatabaseName -> AppDatabaseBinding  -- urlVariable = Nothing
+```
+
+A binding with a `urlVariable` injects only that variable, holding the connection
+URL; see [Managed databases](managed-databases.md#sharing-one-server-between-apps).
 
 ## One-shot jobs
 

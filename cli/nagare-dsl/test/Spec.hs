@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import AppDatabaseBindingSpec (appDatabaseBindingTests)
 import ApplicationSpec (applicationTests)
 import CdnSpec (cdnTests)
 import Control.Lens ((&), (.~))
@@ -89,6 +90,7 @@ main =
       , cdnTests
       , workerTests
       , applicationTests
+      , appDatabaseBindingTests
       , quantityTests
       ]
 
@@ -1097,9 +1099,7 @@ standaloneTask =
         , app = Nothing
         , command = ["python", "manage.py", "cleanup"]
         , args = []
-        , env =
-            Map.fromList
-              [(unsafe (mkEnvName "DRY_RUN"), runtimeScoped (EnvLiteral "false"))]
+        , env = Map.fromList [(unsafe (mkEnvName "DRY_RUN"), runtimeScoped (EnvLiteral "false"))]
         , resources = Nothing
         , timeoutSeconds = Just 600
         , concurrencyPolicy = Forbid
@@ -1109,6 +1109,7 @@ standaloneTask =
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , appDatabases = []
         }
 
 -- | A task associated with the @notes@ app: it inherits @notes@'s image
@@ -1137,6 +1138,7 @@ appTask =
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , appDatabases = []
         }
 
 taskTests :: [TestTree]

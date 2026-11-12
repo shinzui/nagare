@@ -264,13 +264,13 @@ compileStandaloneServiceWithDependencies ::
   Map SecretName Declaration ->
   Map BrokerName Declaration ->
   Map BrokerName (Map TopicName Declaration) ->
-  Map DatabaseName DatabaseBinding ->
+  Map Dsl.ServiceName (Map DatabaseName DatabaseBinding) ->
   Maybe AccessBinding ->
   SourceLocation ->
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding source = do
+compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics consumerBindings accessBinding source = do
   unless
     (scopeKind owner == Standalone)
     (Left (invalid "standalone service requires a standalone scope"))
@@ -280,12 +280,18 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
         && Map.null (rollout ^. #appEnv)
     )
     (Left (invalid "standalone rollout identity, namespace, or environment differs from its service"))
-  databaseNames <- first invalid (workloadDatabaseNames (service ^. #databases) (service ^. #appDatabases) (service ^. #appDatabaseReaders))
+  -- EP-259: the Deployment's bindings are resolved for its name, each task's for the task's.
+  unless
+    (all (\task -> task ^. #name /= service ^. #name || null (task ^. #appDatabases)) (service ^. #tasks))
+    (Left (invalid "a task that binds an app database needs a name other than its Deployment's"))
+  let databaseBindings = Map.findWithDefault Map.empty (service ^. #name) consumerBindings
+  databaseNames <- first invalid (workloadDatabaseNames (service ^. #env) (service ^. #databases) (service ^. #appDatabases) (service ^. #appDatabaseReaders))
   (databaseEnv, databaseIds, databaseSecrets) <-
     standaloneDatabaseEnvironment
       cluster
       (service ^. #namespace)
       databaseNames
+      (service ^. #appDatabases)
       databaseBindings
       invalid
   (brokerEnv, brokerIds) <-
@@ -339,6 +345,7 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
     compileTaskMembers
       owner
       (service ^. #tasks)
+      (Map.delete (service ^. #name) consumerBindings)
       rollout
       cluster
       namespaceId
@@ -390,7 +397,7 @@ compileStandaloneServiceWithRelease ::
   Map SecretName Declaration ->
   Map BrokerName Declaration ->
   Map BrokerName (Map TopicName Declaration) ->
-  Map DatabaseName DatabaseBinding ->
+  Map Dsl.ServiceName (Map DatabaseName DatabaseBinding) ->
   Maybe AccessBinding ->
   StaticReleaseLog ->
   StaticRelease ->
@@ -466,7 +473,7 @@ compileStandaloneServiceWithReleaseAndBuild ::
   Map SecretName Declaration ->
   Map BrokerName Declaration ->
   Map BrokerName (Map TopicName Declaration) ->
-  Map DatabaseName DatabaseBinding ->
+  Map Dsl.ServiceName (Map DatabaseName DatabaseBinding) ->
   Maybe AccessBinding ->
   StaticReleaseLog ->
   StaticRelease ->

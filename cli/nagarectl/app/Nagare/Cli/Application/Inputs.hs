@@ -1,12 +1,15 @@
 -- | Application / Inputs. Executable-private CLI boundary.
 module Nagare.Cli.Application.Inputs
-  ( parseHookEffects
+  ( acceptedTaskAppDatabaseBindings
+  , parseHookEffects
   , reviewedStandaloneDatabases
   , validateInlinePreviewAdoption
   , validateInlineReleaseAdoption
   )
 where
 
+import Data.ByteString (ByteString)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Generics.Labels ()
 import Data.List (find, sort)
 import Data.Map (Map)
@@ -16,8 +19,10 @@ import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
-  ( AppDatabaseName
+  ( AppDatabaseBinding
+  , AppDatabaseName
   , AppDatabaseReaderRef
   , DatabaseName
   , ServiceName
@@ -89,36 +94,62 @@ parseHookEffects app affected stateless = do
 
 -- | Database engine and credential authority come from the accepted private
 -- review, never from a live name lookup or an independently supplied config.
+-- The workload's bindings are keyed by its name and each task's by the task's
+-- (EP-259), each resolved against @owners@ for its own name.
 reviewedStandaloneDatabases ::
   ActiveTarget ->
   ResourceInventory.ScopeSnapshot ->
   Resource.ResourceId ->
   Text ->
   [DatabaseName] ->
-  [AppDatabaseName] ->
+  [AppDatabaseBinding] ->
   ServiceName ->
   [AppDatabaseReaderRef] ->
-  IO (Map DatabaseName DatabaseBinding)
-reviewedStandaloneDatabases _ _ _ _ [] [] _ [] = pure Map.empty
-reviewedStandaloneDatabases active snapshot cluster namespaceName names appNames consumer readerRefs = do
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-  inventory <-
-    either
-      (dieT . T.pack . show)
-      pure
-      (ResourceInventory.composeSnapshot snapshot)
-  (native, _) <-
-    InventoryStatus.loadAcceptedNative store history inventory
-      >>= either dieT pure
-  direct <- either dieT pure (acceptedDatabaseBindings snapshot native cluster namespaceName names)
-  -- EP-202: app databases bind their runtime credential, or their migration
-  -- credential for a workload the declaration names as an owner (EP-208).
-  apps <- either dieT pure (acceptedAppDatabaseBindings snapshot native cluster namespaceName consumer appNames)
-  -- EP-206: a reader binds its own credential, for a declared consumer only.
-  readers <- either dieT pure (acceptedAppDatabaseReaderBindings snapshot native cluster namespaceName consumer readerRefs)
-  unless (Map.disjoint direct apps && Map.disjoint (Map.union direct apps) readers) (dieT "a workload names one database twice across databases, appDatabases and appDatabaseReaders")
-  pure (Map.unions [direct, apps, readers])
+  [Task] ->
+  IO (Map ServiceName (Map DatabaseName DatabaseBinding))
+reviewedStandaloneDatabases active snapshot cluster namespaceName names appBindings consumer readerRefs tasks
+  | null names && null appBindings && null readerRefs && all (null . (^. #appDatabases)) tasks = pure Map.empty
+  | otherwise = do
+      store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+      history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+      inventory <-
+        either
+          (dieT . T.pack . show)
+          pure
+          (ResourceInventory.composeSnapshot snapshot)
+      (native, _) <-
+        InventoryStatus.loadAcceptedNative store history inventory
+          >>= either dieT pure
+      direct <- either dieT pure (acceptedDatabaseBindings snapshot native cluster namespaceName names)
+      -- EP-202: app databases bind their runtime credential, or their migration
+      -- credential for a workload the declaration names as an owner (EP-208).
+      apps <- either dieT pure (acceptedAppDatabaseBindings snapshot native cluster namespaceName consumer (boundAppDatabases appBindings))
+      -- EP-206: a reader binds its own credential, for a declared consumer only.
+      readers <- either dieT pure (acceptedAppDatabaseReaderBindings snapshot native cluster namespaceName consumer readerRefs)
+      unless (Map.disjoint direct apps && Map.disjoint (Map.union direct apps) readers) (dieT "a workload names one database twice across databases, appDatabases and appDatabaseReaders")
+      taskBindings <- either dieT pure (acceptedTaskAppDatabaseBindings snapshot native cluster namespaceName tasks)
+      pure (Map.insert consumer (Map.unions [direct, apps, readers]) taskBindings)
+
+-- | Each task's app database bindings (EP-259), resolved against @owners@ for
+-- the task's own name; a task without bindings has no entry.
+acceptedTaskAppDatabaseBindings ::
+  ResourceInventory.ScopeSnapshot ->
+  Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) ->
+  Resource.ResourceId ->
+  Text ->
+  [Task] ->
+  Either Text (Map ServiceName (Map DatabaseName DatabaseBinding))
+acceptedTaskAppDatabaseBindings snapshot native cluster namespaceName tasks =
+  Map.fromList
+    <$> sequence
+      [ (task ^. #name,) <$> acceptedAppDatabaseBindings snapshot native cluster namespaceName (task ^. #name) (boundAppDatabases (task ^. #appDatabases))
+      | task <- tasks
+      , not (null (task ^. #appDatabases))
+      ]
+
+-- | The distinct app databases a list of bindings names.
+boundAppDatabases :: [AppDatabaseBinding] -> [AppDatabaseName]
+boundAppDatabases = nubOrd . map (^. #name)
 
 validateInlineReleaseAdoption ::
   ResourceInventory.ScopeDeclaration -> Text -> InventoryLifecycle.AdoptionInput -> IO ()

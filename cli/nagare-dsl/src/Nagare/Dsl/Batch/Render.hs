@@ -73,15 +73,18 @@ runtimeEnvPairs env
 envEntry :: Text -> ScopedEnvVar -> Value
 envEntry name scoped = case scoped ^. #value of
   EnvLiteral literal -> object ["name" .= name, "value" .= literal]
-  EnvSecretRef secret ->
-    object
-      [ "name" .= name
-      , "valueFrom"
-          .= object
-            [ "secretKeyRef"
-                .= object ["name" .= secretNameText secret, "key" .= name]
-            ]
-      ]
+  EnvSecretRef secret -> secretKeyEntry secret name
+  EnvSecretKeyRef secret key -> secretKeyEntry secret (envNameText key)
+  where
+    secretKeyEntry secret key =
+      object
+        [ "name" .= name
+        , "valueFrom"
+            .= object
+              [ "secretKeyRef"
+                  .= object ["name" .= secretNameText secret, "key" .= key]
+              ]
+        ]
 
 -- | Render the standard requests/limits resource block, omitting empty parts.
 resourcesPairs :: Maybe Resources -> [Pair]

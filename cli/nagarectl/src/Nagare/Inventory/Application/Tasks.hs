@@ -8,6 +8,7 @@ where
 
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
@@ -21,7 +22,9 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
 import Nagare.Dsl.Types
-  ( SecretName
+  ( DatabaseName
+  , SecretName
+  , ServiceName
   , namespaceText
   , serviceNameText
   )
@@ -29,7 +32,9 @@ import Nagare.Inventory.Application.Environment
   ( reviewedTaskImages
   , runtimeSecretNames
   , secretDependency
+  , taskDatabaseEnvironment
   )
+import Nagare.Inventory.Application.Types (DatabaseBinding)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.TaskRun (jobFromCronJob)
@@ -45,6 +50,7 @@ import Nagare.Resource.Inventory
   , OperationKind (PreDeployHook)
   , ResourceBundle (ResourceBundle)
   , ScopeDeclaration
+  , declarationId
   , mkScopeDeclaration
   , withScopeConfigDigest
   , withScopeOverrides
@@ -95,6 +101,7 @@ compileApplicationTasks app rollout cluster namespaceId imageId envSecrets sourc
     ( app ^. #tasks
         <> maybe [] (^. #tasks) (app ^. #service)
     )
+    Map.empty
     rollout
     cluster
     namespaceId
@@ -109,11 +116,13 @@ compileApplicationTasks app rollout cluster namespaceId imageId envSecrets sourc
         & (:| [])
 
 -- | Bind each pre-deploy hook to a stable, independent per-tag scope. A new
--- tag leaves prior Jobs and completion proofs in accepted history.
+-- tag leaves prior Jobs and completion proofs in accepted history. A hook's
+-- Job is ordered after the app databases it binds (EP-259).
 compileApplicationHooks ::
   Application ->
   ScopeId ->
   RolloutEnv ->
+  Map ServiceName (Map DatabaseName DatabaseBinding) ->
   ResourceId ->
   Map ResourceId (ManagedResource, ByteString) ->
   Map T.Text [ResourceId] ->
@@ -121,7 +130,7 @@ compileApplicationHooks ::
   Either
     (NonEmpty InventoryError)
     ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString), [ResourceId])
-compileApplicationHooks app appOwner rollout cluster taskNative effects source =
+compileApplicationHooks app appOwner rollout taskBindings cluster taskNative effects source =
   go Nothing (app ^. #tasks)
   where
     invalid message =
@@ -223,12 +232,13 @@ compileApplicationHooks app appOwner rollout cluster taskNative effects source =
             && jobId `notElem` affected
         )
         (Left (invalid "pre-deploy hook repeats an affected resource"))
+      (_, databaseIds, databaseSecrets) <- taskDatabaseEnvironment cluster (rollout ^. #appEnv) (Map.findWithDefault Map.empty (task ^. #name) taskBindings) task invalid
       let member =
             bound
               { dependencies =
                   map
                     OrderedAfter
-                    (cronId : affected <> maybe [] pure previous)
+                    (nubOrd (cronId : map declarationId (Map.elems databaseSecrets) <> databaseIds <> affected <> maybe [] pure previous))
               }
           proof =
             DeclaredOperation
@@ -261,6 +271,7 @@ compileApplicationHooks app appOwner rollout cluster taskNative effects source =
 compileTaskMembers ::
   ScopeId ->
   [Task] ->
+  Map ServiceName (Map DatabaseName DatabaseBinding) ->
   RolloutEnv ->
   ResourceId ->
   ResourceId ->
@@ -270,13 +281,16 @@ compileTaskMembers ::
   Either
     (NonEmpty InventoryError)
     (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
-compileTaskMembers owner tasks rollout cluster namespaceId imageId envSecrets source = do
+compileTaskMembers owner tasks taskBindings rollout cluster namespaceId imageId envSecrets source = do
   unless
     (all ((== rollout ^. #namespace) . namespaceText . (^. #namespace)) tasks)
     (Left (invalid "scheduled task namespace differs from rollout"))
   unless
     (all (maybe True ((== rollout ^. #appName) . serviceNameText) . (^. #app)) tasks)
     (Left (invalid "scheduled task references a different application"))
+  unless
+    (Map.keysSet taskBindings `Set.isSubsetOf` Set.fromList (map (^. #name) tasks))
+    (Left (invalid "app database bindings name an undeclared task"))
   first
     invalid
     ( reviewedTaskImages
@@ -298,8 +312,12 @@ compileTaskMembers owner tasks rollout cluster namespaceId imageId envSecrets so
         & #sources
         .~ [source]
         & (:| [])
-    compileTask task = do
-      _ <- first invalid (mkTask task)
+    compileTask declared = do
+      _ <- first invalid (mkTask declared)
+      -- EP-259: the bound app databases' variables join the task's env; the
+      -- CronJob waits for their Secrets and members.
+      (task, databaseIds, databaseSecrets) <-
+        taskDatabaseEnvironment cluster (rollout ^. #appEnv) (Map.findWithDefault Map.empty (declared ^. #name) taskBindings) declared invalid
       secretNames <-
         first
           invalid
@@ -312,7 +330,7 @@ compileTaskMembers owner tasks rollout cluster namespaceId imageId envSecrets so
               . secretDependency
                 cluster
                 (rollout ^. #namespace)
-                envSecrets
+                (Map.union databaseSecrets envSecrets)
           )
           secretNames
       role <- first invalid (mkName "cronjob")
@@ -353,4 +371,4 @@ compileTaskMembers owner tasks rollout cluster namespaceId imageId envSecrets so
       unless
         (declaration ^. #address == expected)
         (Left (invalid "task render has an unexpected CronJob address"))
-      pure (declaration {dependencies = map OrderedAfter ([namespaceId, imageId] <> secretIds)}, native)
+      pure (declaration {dependencies = map OrderedAfter ([namespaceId, imageId] <> secretIds <> databaseIds)}, native)
