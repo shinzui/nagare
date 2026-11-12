@@ -37,6 +37,7 @@ module Nagare.Dsl.Types
 
     -- * EnvVar
   , EnvVar (..)
+  , envVarSecret
 
     -- * EnvScope
   , EnvScope (..)
@@ -107,6 +108,9 @@ module Nagare.Dsl.Types
   , readerNameText
   , AppDatabaseReaderRef (..)
   , appDatabaseNameText
+  , AppDatabaseBinding (..)
+  , appDatabaseBinding
+  , validateAppDatabaseBindings
 
     -- * MountPath
   , MountPath
@@ -253,7 +257,19 @@ data EnvVar
     -- the secret and @key@ = the env var's own name (see
     -- 'Nagare.Dsl.Render.renderService').
     EnvSecretRef SecretName
+  | -- | A Secret reference reading a key other than the variable's own name,
+    -- rendered as @valueFrom.secretKeyRef@ with @name@ = the secret and @key@ =
+    -- the given key. Only an app database binding with a @urlVariable@
+    -- produces one (EP-259); a configuration cannot write it.
+    EnvSecretKeyRef SecretName EnvName
   deriving stock (Generic, Eq, Show)
+
+-- | The Secret an env value reads, if any.
+envVarSecret :: EnvVar -> Maybe SecretName
+envVarSecret = \case
+  EnvLiteral _ -> Nothing
+  EnvSecretRef secret -> Just secret
+  EnvSecretKeyRef secret _ -> Just secret
 
 -- | When an environment variable applies. 'Runtime' is present in the running
 -- container; 'Build' is present during the image build; 'Preview' overlays
@@ -666,6 +682,37 @@ mkAppDatabaseName t
 appDatabaseNameText :: AppDatabaseName -> Text
 appDatabaseNameText (AppDatabaseName t) = t
 
+-- | A workload's or task's binding of one app database (EP-259). Without a
+-- 'urlVariable' it injects the engine's fixed connection variables; with one
+-- it injects only that variable, holding the connection URL.
+data AppDatabaseBinding = AppDatabaseBinding
+  { name :: !AppDatabaseName
+  , urlVariable :: !(Maybe EnvName)
+  }
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | The common binding: the fixed connection variables.
+appDatabaseBinding :: AppDatabaseName -> AppDatabaseBinding
+appDatabaseBinding n = AppDatabaseBinding {name = n, urlVariable = Nothing}
+
+-- | Refuse a 'urlVariable' that the given env already defines, that another
+-- binding names, or that is reserved (@NAGARE_*@), and an app database bound
+-- twice without one: two fixed sets would inject the same variables.
+validateAppDatabaseBindings :: Set EnvName -> [AppDatabaseBinding] -> Either Text ()
+validateAppDatabaseBindings env bindings
+  | (v : _) <- [v | v <- named, Set.member v env] =
+      Left ("app database binding urlVariable is already defined in the env: " <> envNameText v)
+  | (v : _) <- [v | v <- named, "NAGARE_" `Text.isPrefixOf` envNameText v] =
+      Left ("app database binding urlVariable uses the reserved NAGARE_ prefix: " <> envNameText v)
+  | length named /= Set.size (Set.fromList named) =
+      Left "two app database bindings name the same urlVariable"
+  | length fixed /= Set.size (Set.fromList fixed) =
+      Left "an app database is bound twice without a urlVariable"
+  | otherwise = Right ()
+  where
+    named = [v | AppDatabaseBinding _ (Just v) <- bindings]
+    fixed = [n | AppDatabaseBinding n Nothing <- bindings]
+
 -- | Validate and construct a 'DatabaseName': 1–63 characters of lowercase
 -- letters, digits, and hyphens, not starting or ending with a hyphen.
 mkDatabaseName :: Text -> Either Text DatabaseName
@@ -770,9 +817,10 @@ data Deployment = Deployment
   -- Empty (the backward-compatible default) means the app uses no managed
   -- database. EP-46 resolves each name to its in-cluster DNS and managed Secret
   -- and injects the connection env at deploy time.
-  , appDatabases :: ![AppDatabaseName]
+  , appDatabases :: ![AppDatabaseBinding]
   -- ^ App databases on shared servers this app connects to (EP-202). A deploy
-  -- injects only each one's runtime Secret. Empty by default.
+  -- injects only each one's runtime Secret, under the fixed connection
+  -- variables or one named URL variable (EP-259). Empty by default.
   , appDatabaseReaders :: ![AppDatabaseReaderRef]
   -- ^ App database readers this app connects to (EP-206); each injects only
   -- its own reader Secret. Empty by default.

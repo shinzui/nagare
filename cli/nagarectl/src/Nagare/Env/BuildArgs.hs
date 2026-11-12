@@ -73,6 +73,7 @@ assembleBuildArgs cfg sec inlineEnv = (Map.toAscList merged, warnings)
       EnvSecretRef _sn -> case Map.lookup name sec of
         Just sv -> (name, Just sv, [BuildArgSecretRef name]) -- warn: build secret as build-arg
         Nothing -> (name, Nothing, [BuildArgSecretRef name]) -- warn + drop
+      EnvSecretKeyRef _ _ -> (name, Nothing, [BuildArgSecretRef name]) -- generated for runtime only: warn + drop
     inlineMap = Map.fromList [(n, v) | (n, Just v, _) <- resolved]
     warnings = concat [w | (_, _, w) <- resolved]
     managed = Map.union sec cfg -- managed: secret values + config values

@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nagare-task-notes-migrate
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/task: notes-migrate
+spec:
+  schedule: 0 3 * * *
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            nagare.dev/managed-by: nagarectl
+            nagare.dev/task: notes-migrate
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: notes-migrate
+            image: registry.example.com/notes
+            command:
+            - migrate
+            env:
+            - name: NOTES_MAINTENANCE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notes-pg-migration
+                  key: DATABASE_URL
+          automountServiceAccountToken: false

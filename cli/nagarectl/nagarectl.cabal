@@ -613,6 +613,7 @@ test-suite nagarectl-test
     AppDatabaseRestartSpec
     AppDatabaseSpec
     AppDatabaseSqlSpec
+    AppDatabaseTaskSpec
     AppDatabaseWorldSpec
     AppDeployPhaseSpec
     AppDeploySpec

@@ -9,6 +9,8 @@ module Nagare.Dsl.Load.Fields
   , JsonVolume (..)
   , JsonAppDatabaseReaderRef (..)
   , toAppDatabaseReaderRef
+  , JsonAppDatabaseBinding (..)
+  , toAppDatabaseBinding
   , checkTaskApp
   , firstDuplicate
   , toAccessPolicy
@@ -43,6 +45,7 @@ import Nagare.Dsl.Static.Types (mkFilePathText)
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
   ( AccessMode (ReadWriteOnce)
+  , AppDatabaseBinding (..)
   , AppDatabaseReaderRef (..)
   , DomainSpec
   , EnvName
@@ -336,6 +339,7 @@ toEnvEntry e = do
         fmap EnvSecretRef
           . first (MarshalError ("env." <> e ^. #varName <> ".secretRef"))
           $ mkSecretName sec
+    "SecretKeyRef" -> Left (MarshalError ("env." <> e ^. #varName <> ".kind") "SecretKeyRef is generated for an app database binding; name the variable with the binding's urlVariable")
     other -> Left (MarshalError ("env." <> e ^. #varName <> ".kind") ("unknown env kind: " <> other))
   scopeList <- traverse (parseScope (e ^. #varName)) (fromMaybe [] (e ^. #scopes))
   let scopeSet = Set.fromList scopeList
@@ -480,3 +484,20 @@ toAppDatabaseReaderRef j =
   AppDatabaseReaderRef
     <$> first (MarshalError "appDatabaseReaders") (mkAppDatabaseName (j ^. #appDatabase))
     <*> first (MarshalError "appDatabaseReaders") (mkReaderName (j ^. #reader))
+
+-- | A workload's or task's @appDatabases@ entry (EP-259): an object naming
+-- the app database and, optionally, the variable that receives its URL.
+data JsonAppDatabaseBinding = JsonAppDatabaseBinding
+  { name :: !Text
+  , urlVariable :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonAppDatabaseBinding where
+  parseJSON = withObject "AppDatabaseBinding" $ \o -> JsonAppDatabaseBinding <$> o .: "name" <*> o .:? "urlVariable"
+
+toAppDatabaseBinding :: JsonAppDatabaseBinding -> Either LoadError AppDatabaseBinding
+toAppDatabaseBinding j =
+  AppDatabaseBinding
+    <$> first (MarshalError "appDatabases") (mkAppDatabaseName (j ^. #name))
+    <*> traverse (first (MarshalError "appDatabases.urlVariable") . mkEnvName) (j ^. #urlVariable)

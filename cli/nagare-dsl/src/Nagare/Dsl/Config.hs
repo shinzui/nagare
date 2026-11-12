@@ -188,11 +188,13 @@ appDatabaseJSON db =
         <> ["ownership" .= (db ^. #ownership) | db ^. #ownership /= NagareManaged]
     )
 
--- | Emitted only when present, so a workload without app databases keeps the
--- exact bytes (and config digest) it had before EP-202.
-appDatabasesJSON :: [AppDatabaseName] -> [(Key, Value)]
+-- | Emitted only when present, so a workload or task without app databases
+-- keeps the exact bytes (and config digest) it had before EP-202. Each
+-- binding emits @urlVariable@ only when set (EP-259).
+appDatabasesJSON :: [AppDatabaseBinding] -> [(Key, Value)]
 appDatabasesJSON [] = []
-appDatabasesJSON names = ["appDatabases" .= map appDatabaseNameText names]
+appDatabasesJSON bindings =
+  ["appDatabases" .= [object (("name" .= appDatabaseNameText (b ^. #name)) : ["urlVariable" .= envNameText v | Just v <- [b ^. #urlVariable]]) | b <- bindings]]
 
 -- | Emitted only when present (EP-206), like 'appDatabasesJSON'.
 appDatabaseReadersJSON :: [AppDatabaseReaderRef] -> [(Key, Value)]
@@ -239,23 +241,10 @@ taskJSON t =
     , "serviceAccount" .= fmap serviceAccountNameText (t ^. #serviceAccount)
     ]
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (t ^. #logicalKey)
+      <> appDatabasesJSON (t ^. #appDatabases)
   where
     res = t ^. #resources
-    taskEnvJSON (n, sev) = case sev ^. #value of
-      EnvLiteral lit ->
-        object
-          [ "varName" .= envNameText n
-          , "kind" .= ("Literal" :: Text)
-          , "value" .= lit
-          , "scopes" .= scopeTokensJSON sev
-          ]
-      EnvSecretRef sn ->
-        object
-          [ "varName" .= envNameText n
-          , "kind" .= ("SecretRef" :: Text)
-          , "secretName" .= secretNameText sn
-          , "scopes" .= scopeTokensJSON sev
-          ]
+    taskEnvJSON = scopedEnvJSON
 
 -- | Serialize a bounded one-shot 'Job' to JSON and write it to stdout.
 emitJob :: Job -> IO ()
@@ -333,9 +322,9 @@ buildSpecJSON (NixpacksBuild ctx args) =
     , "buildArgs" .= args
     ]
 
--- | The JSON shape of one scoped env entry, shared by 'workerJSON' (and matching
--- byte-for-byte the inline encoders in 'deploymentJSON' / 'serverSiteJSON' /
--- 'taskJSON'). The loader reads it back in 'Nagare.Dsl.Load.toEnvEntry'.
+-- | The JSON shape of one scoped env entry, shared by every workload encoder.
+-- The loader reads it back in 'Nagare.Dsl.Load.toEnvEntry', and refuses the
+-- generated-only @SecretKeyRef@ kind (EP-259).
 scopedEnvJSON :: (EnvName, ScopedEnvVar) -> Value
 scopedEnvJSON (n, sev) = case sev ^. #value of
   EnvLiteral lit ->
@@ -350,6 +339,14 @@ scopedEnvJSON (n, sev) = case sev ^. #value of
       [ "varName" .= envNameText n
       , "kind" .= ("SecretRef" :: Text)
       , "secretName" .= secretNameText sn
+      , "scopes" .= scopeTokensJSON sev
+      ]
+  EnvSecretKeyRef sn key ->
+    object
+      [ "varName" .= envNameText n
+      , "kind" .= ("SecretKeyRef" :: Text)
+      , "secretName" .= secretNameText sn
+      , "secretKey" .= envNameText key
       , "scopes" .= scopeTokensJSON sev
       ]
 
@@ -529,21 +526,7 @@ deploymentJSON dep =
     schemeText HTTP = "HTTP"
     schemeText HTTPS = "HTTPS"
 
-    envJSON (n, sev) = case sev ^. #value of
-      EnvLiteral lit ->
-        object
-          [ "varName" .= envNameText n
-          , "kind" .= ("Literal" :: Text)
-          , "value" .= lit
-          , "scopes" .= scopeTokensJSON sev
-          ]
-      EnvSecretRef sn ->
-        object
-          [ "varName" .= envNameText n
-          , "kind" .= ("SecretRef" :: Text)
-          , "secretName" .= secretNameText sn
-          , "scopes" .= scopeTokensJSON sev
-          ]
+    envJSON = scopedEnvJSON
 
 -- | Serialize a 'StaticSite' to JSON and write it to stdout. Call this as the
 -- last line of a static project's @Config.hs@ @main@. The top-level
@@ -654,21 +637,7 @@ serverSiteJSON site =
         , "startCommand" .= toJSON (NE.toList (r ^. #startCommand))
         ]
 
-    envEntryJSON (n, sev) = case sev ^. #value of
-      EnvLiteral lit ->
-        object
-          [ "varName" .= envNameText n
-          , "kind" .= ("Literal" :: Text)
-          , "value" .= lit
-          , "scopes" .= scopeTokensJSON sev
-          ]
-      EnvSecretRef sn ->
-        object
-          [ "varName" .= envNameText n
-          , "kind" .= ("SecretRef" :: Text)
-          , "secretName" .= secretNameText sn
-          , "scopes" .= scopeTokensJSON sev
-          ]
+    envEntryJSON = scopedEnvJSON
 
 -- | Serialize an 'Application' to JSON and write it to stdout (MasterPlan 14,
 -- EP-1). Call this as the last line of a multi-workload app's @Config.hs@ @main@.

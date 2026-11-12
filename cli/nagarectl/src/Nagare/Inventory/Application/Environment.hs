@@ -8,6 +8,7 @@ module Nagare.Inventory.Application.Environment
   , secretDependency
   , standaloneBrokerEnvironment
   , standaloneDatabaseEnvironment
+  , taskDatabaseEnvironment
   , workloadDatabaseNames
   , appDatabaseReaderKey
   , stripBuildSecretEnv
@@ -17,6 +18,7 @@ module Nagare.Inventory.Application.Environment
 where
 
 import Control.Monad (forM_)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Generics.Labels ()
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -47,16 +49,17 @@ import Nagare.Dsl.Database (Engine (..), dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
-  ( AppDatabaseName
+  ( AppDatabaseBinding
   , AppDatabaseReaderRef
   , DatabaseName
   , EnvScope (Build, Runtime)
-  , EnvVar (EnvLiteral, EnvSecretRef)
+  , EnvVar (EnvLiteral, EnvSecretKeyRef, EnvSecretRef)
   , Namespace
   , ScopedEnvVar
   , SecretName
   , appDatabaseNameText
   , databaseNameText
+  , envVarSecret
   , mkDatabaseName
   , mkEnvName
   , mkSecretName
@@ -64,8 +67,10 @@ import Nagare.Dsl.Types
   , readerNameText
   , runtimeScoped
   , secretNameText
+  , validateAppDatabaseBindings
   )
 import Nagare.Dsl.Types qualified as Dsl
+import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Application.Bindings (appDatabaseReaderKey, brokerEvidenceIds)
 import Nagare.Inventory.Application.Types (AppDatabaseBound (..), DatabaseBinding (..), ServerBinding (..))
 import Nagare.Resource.Database (databaseResourceId)
@@ -125,9 +130,9 @@ runtimeSecretNamesWithBuild ::
 runtimeSecretNamesWithBuild buildSecrets entries =
   Set.toList . Set.fromList . concat <$> traverse one entries
   where
-    one entry = case entry ^. #value of
-      EnvLiteral _ -> Right []
-      EnvSecretRef secret
+    one entry = case envVarSecret (entry ^. #value) of
+      Nothing -> Right []
+      Just secret
         | entry ^. #scopes == Set.singleton Runtime -> Right [secret]
         | entry ^. #scopes == Set.singleton Build
             && Set.member secret buildSecrets ->
@@ -161,9 +166,9 @@ stripBuildSecretRefs app =
 stripBuildSecretEnv :: Map Dsl.EnvName ScopedEnvVar -> Map Dsl.EnvName ScopedEnvVar
 stripBuildSecretEnv =
   Map.filter
-    ( \entry -> case entry ^. #value of
-        EnvSecretRef _ -> entry ^. #scopes /= Set.singleton Build
-        _ -> True
+    ( \entry ->
+        isNothing (envVarSecret (entry ^. #value))
+          || entry ^. #scopes /= Set.singleton Build
     )
 
 stripBuildSecretRollout :: RolloutEnv -> RolloutEnv
@@ -209,10 +214,13 @@ databaseConnectionEnv engine databaseName namespace = do
 
 -- | The binding keys of a workload: the servers it binds directly, the app
 -- databases it names (EP-202) and the readers it binds (EP-206, as
--- @\<appdb\>-reader-\<name\>@), which share one key space.
-workloadDatabaseNames :: [DatabaseName] -> [AppDatabaseName] -> [AppDatabaseReaderRef] -> Either T.Text [DatabaseName]
-workloadDatabaseNames direct apps readers = do
-  appKeys <- traverse (mkDatabaseName . appDatabaseNameText) apps
+-- @\<appdb\>-reader-\<name\>@), which share one key space. Named app
+-- database bindings may repeat an app database (EP-259); their URL variables
+-- must not redefine the workload's env.
+workloadDatabaseNames :: Map Dsl.EnvName ScopedEnvVar -> [DatabaseName] -> [AppDatabaseBinding] -> [AppDatabaseReaderRef] -> Either T.Text [DatabaseName]
+workloadDatabaseNames env direct apps readers = do
+  validateAppDatabaseBindings (Map.keysSet env) apps
+  appKeys <- traverse (mkDatabaseName . appDatabaseNameText) (nubOrd (map (^. #name) apps))
   readerKeys <- traverse (mkDatabaseName . appDatabaseReaderKey) readers
   let keys = direct <> appKeys <> readerKeys
   unless (length keys == Set.size (Set.fromList keys)) (Left "a workload names one database twice across databases and appDatabases")
@@ -225,19 +233,20 @@ standaloneDatabaseEnvironment ::
   ResourceId ->
   Namespace ->
   [DatabaseName] ->
+  [AppDatabaseBinding] ->
   Map DatabaseName DatabaseBinding ->
   (T.Text -> NonEmpty InventoryError) ->
   Either
     (NonEmpty InventoryError)
     (Map Dsl.EnvName ScopedEnvVar, [ResourceId], Map SecretName Declaration)
-standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
+standaloneDatabaseEnvironment cluster namespace names apps bindings invalid = do
   unless
     ( length names == Map.size bindings
         && Map.keysSet bindings == Set.fromList names
     )
     (Left (invalid "database dependencies must cover exactly the workload bindings"))
   rows <- traverse one names
-  env <- first invalid (mergeConnectionEnvs [fields | (fields, _, _) <- rows])
+  env <- first invalid (mergeConnectionEnvs (concat [fields | (fields, _, _) <- rows]))
   pure
     ( env
     , concat [resources | (_, resources, _) <- rows]
@@ -252,11 +261,13 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
           Right
           (Map.lookup name bindings)
       case binding of
-        ServerDatabaseBinding server -> direct name server
-        AppDatabaseBinding app -> appDatabase app
+        ServerDatabaseBinding server -> (\(fields, ids, secret) -> ([fields], ids, secret)) <$> direct name server
+        AppDatabaseBinding app -> appDatabase name app
     -- EP-202: the runtime credential is the only Secret; host and port are
     -- the shared server's, and the workload waits for the users and databases.
-    appDatabase app = do
+    -- EP-259: a binding with a urlVariable injects only that variable, read
+    -- from the credential's URL key; one without it the fixed set.
+    appDatabase bindingKey app = do
       let service = appService app
           credential = appRuntimeCredential app
       expectedCredential <- first invalid (kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (appCredentialName app))
@@ -270,10 +281,18 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
       secretName <- first invalid (mkSecretName (appCredentialName app))
       let lit key value = (,runtimeScoped (EnvLiteral value)) <$> mkEnvName key
           ref key = (,runtimeScoped (EnvSecretRef secretName)) <$> mkEnvName key
-      fields <-
-        first invalid . fmap Map.fromList . sequence $ case appEngine app of
-          ClickHouse -> [lit "CLICKHOUSE_HOST" host, lit "CLICKHOUSE_PORT" "9000"] <> map ref ["CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "CLICKHOUSE_DB", "CLICKHOUSE_URL"]
-          _ -> [lit "POSTGRES_HOST" host, lit "POSTGRES_PORT" "5432"] <> map ref ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL"]
+          variables = case [binding ^. #urlVariable | binding <- apps, databaseNameText bindingKey == appDatabaseNameText (binding ^. #name)] of
+            [] -> [Nothing]
+            found -> found
+          urlKey = case appEngine app of
+            ClickHouse -> "CLICKHOUSE_URL"
+            _ -> "DATABASE_URL"
+          fieldsFor = \case
+            Just variable -> (\k -> Map.singleton variable (runtimeScoped (EnvSecretKeyRef secretName k))) <$> mkEnvName urlKey
+            Nothing -> fmap Map.fromList . sequence $ case appEngine app of
+              ClickHouse -> [lit "CLICKHOUSE_HOST" host, lit "CLICKHOUSE_PORT" "9000"] <> map ref ["CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "CLICKHOUSE_DB", "CLICKHOUSE_URL"]
+              _ -> [lit "POSTGRES_HOST" host, lit "POSTGRES_PORT" "5432"] <> map ref ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL"]
+      fields <- first invalid (traverse fieldsFor variables)
       pure (fields, map (^. #identity) (appMembers app), (secretName, Managed credential))
     direct name server = do
       let binding = server
@@ -322,6 +341,22 @@ standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
       secretName <- first invalid (mkSecretName (dbSecretName dbName))
       fields <- first invalid (databaseConnectionEnv (boundEngine binding) name namespace)
       pure (fields, [stateful ^. #identity], (secretName, Managed credential))
+
+-- | A task's app database bindings (EP-259), resolved for the task's own name:
+-- the task with the connection variables merged into its env, the members its
+-- CronJob waits for, and the bound Secrets. A URL variable must not redefine
+-- the task's env or the application env it inherits.
+taskDatabaseEnvironment ::
+  ResourceId ->
+  Map Dsl.EnvName ScopedEnvVar ->
+  Map DatabaseName DatabaseBinding ->
+  Task ->
+  (T.Text -> NonEmpty InventoryError) ->
+  Either (NonEmpty InventoryError) (Task, [ResourceId], Map SecretName Declaration)
+taskDatabaseEnvironment cluster inherited bindings task invalid = do
+  names <- first invalid (workloadDatabaseNames (Map.union (task ^. #env) inherited) [] (task ^. #appDatabases) [])
+  (env, ids, secrets) <- standaloneDatabaseEnvironment cluster (task ^. #namespace) names (task ^. #appDatabases) bindings invalid
+  pure (task & #env %~ mergeGenerated env & #appDatabases .~ [], ids, secrets)
 
 -- | A workload may refer only to databases declared in this application.
 -- Ordering it after the StatefulSet records the typed lifecycle edge, while

@@ -30,6 +30,7 @@ import Nagare.Dsl.Load.Cdn (JsonCdn (..), toCdn)
 import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Load.Fields
   ( JsonAccessPolicy (..)
+  , JsonAppDatabaseBinding
   , JsonAppDatabaseReaderRef
   , JsonBuildSpec (..)
   , JsonDomainEntry (..)
@@ -40,6 +41,7 @@ import Nagare.Dsl.Load.Fields
   , checkTaskApp
   , firstDuplicate
   , toAccessPolicy
+  , toAppDatabaseBinding
   , toAppDatabaseReaderRef
   , toBuildSpec
   , toDomainSpecs
@@ -54,7 +56,6 @@ import Nagare.Dsl.Types
   , Port
   , Resources (..)
   , WebProbes (..)
-  , mkAppDatabaseName
   , mkImageRef
   , mkNamespace
   , mkPort
@@ -86,7 +87,7 @@ data JsonDeployment = JsonDeployment
   , serviceAccount :: !(Maybe Text)
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
-  , appDatabases :: ![Text]
+  , appDatabases :: ![JsonAppDatabaseBinding]
   , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
   , access :: !(Maybe JsonAccessPolicy)
@@ -144,7 +145,7 @@ toDeployment jd = do
   serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (jd ^. #serviceAccount)
   vols' <- toVolumes (jd ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jd ^. #databases)
-  appDbRefs' <- traverse (first (MarshalError "appDatabases") . mkAppDatabaseName) (jd ^. #appDatabases)
+  appDbRefs' <- traverse toAppDatabaseBinding (jd ^. #appDatabases)
   readerRefs' <- traverse toAppDatabaseReaderRef (jd ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (jd ^. #brokers)
   access' <- traverse toAccessPolicy (jd ^. #access)

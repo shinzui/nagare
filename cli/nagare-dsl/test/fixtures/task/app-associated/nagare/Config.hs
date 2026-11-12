@@ -39,6 +39,7 @@ task = first show $ do
       , failedJobsHistoryLimit = 1
       , startingDeadlineSeconds = Nothing
       , serviceAccount = Nothing
+      , appDatabases = []
       }
 
 main :: IO ()

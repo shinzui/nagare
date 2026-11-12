@@ -96,6 +96,7 @@ migrateTask =
         , failedJobsHistoryLimit = 1
         , startingDeadlineSeconds = Nothing
         , serviceAccount = Nothing
+        , appDatabases = []
         }
 
 -- | The raw (unvalidated) record for the valid multi-workload app. 'mkApplication'

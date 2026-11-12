@@ -26,11 +26,13 @@ import Nagare.Dsl.Load.Broker
   )
 import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Load.Fields
-  ( JsonAppDatabaseReaderRef
+  ( JsonAppDatabaseBinding
+  , JsonAppDatabaseReaderRef
   , JsonBuildSpec (..)
   , JsonEnvEntry (..)
   , JsonKindEnvelope (..)
   , JsonVolume (..)
+  , toAppDatabaseBinding
   , toAppDatabaseReaderRef
   , toBuildSpec
   , toEnvEntry
@@ -40,7 +42,6 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( HealthScheme (HTTP, HTTPS)
   , Resources (..)
-  , mkAppDatabaseName
   , mkImageRef
   , mkNamespace
   , mkPort
@@ -85,7 +86,7 @@ data JsonWorker = JsonWorker
   , memoryLimit :: !(Maybe Text)
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
-  , appDatabases :: ![Text]
+  , appDatabases :: ![JsonAppDatabaseBinding]
   , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
   , liveness :: !(Maybe JsonWorkerProbe)
@@ -217,7 +218,7 @@ toWorker j = do
   res' <- toWorkerResources j
   vols' <- toVolumes (j ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (j ^. #databases)
-  appDbRefs' <- traverse (first (MarshalError "appDatabases") . mkAppDatabaseName) (j ^. #appDatabases)
+  appDbRefs' <- traverse toAppDatabaseBinding (j ^. #appDatabases)
   readerRefs' <- traverse toAppDatabaseReaderRef (j ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
   liveness' <- traverse (toWorkerProbe "liveness") (j ^. #liveness)

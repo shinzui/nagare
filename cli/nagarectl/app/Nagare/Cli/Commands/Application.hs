@@ -48,7 +48,8 @@ import Nagare.Cdn.Provision (GcpStackRefs (globalIp))
 import Nagare.Cli.Application.Cdn (reviewedCdnBinding)
 import Nagare.Cli.Application.Config (appNamespace)
 import Nagare.Cli.Application.Inputs
-  ( parseHookEffects
+  ( acceptedTaskAppDatabaseBindings
+  , parseHookEffects
   , validateInlineReleaseAdoption
   )
 import Nagare.Cli.Inventory.Execution
@@ -114,6 +115,7 @@ import Nagare.Inventory.Application
       , scopeRollout
       , scopeServiceVolumeRecovery
       , scopeSource
+      , scopeTaskDatabaseBindings
       , scopeTlsSecrets
       , scopeWorkerVolumeRecovery
       )
@@ -362,6 +364,8 @@ runAppDeployPlan mctx params appOptions output = do
   (acceptedNative, _) <-
     InventoryStatus.loadAcceptedNative store history acceptedInventory
       >>= either dieT pure
+  -- EP-259: each pre-deploy hook binds its app databases for its own name.
+  taskDatabaseBindings <- either dieT pure (acceptedTaskAppDatabaseBindings snapshot acceptedNative cluster appNamespaceName (app ^. #tasks))
   let source =
         Resource.SourceLocation
           (maybe (T.pack (params ^. #configPath)) T.pack (appOptions ^. #source))
@@ -442,6 +446,7 @@ runAppDeployPlan mctx params appOptions output = do
           , scopeDatabaseBackup = DatabaseBackupTarget backend (active ^. #profile . #backupRecoveryPoint)
           , scopeRelease = (priorReleases, release)
           , scopeHookEffects = hookEffects
+          , scopeTaskDatabaseBindings = taskDatabaseBindings
           , scopeInputOverrides =
               Map.fromList
                 ( [("tag", T.pack selected) | selected <- maybe [] pure (appOptions ^. #tag)]

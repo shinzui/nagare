@@ -22,7 +22,7 @@ import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker (BrokerName, TopicName)
 import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (DatabaseName, SecretName, VolumeName)
+import Nagare.Dsl.Types (DatabaseName, SecretName, ServiceName, VolumeName)
 import Nagare.Inventory.Database (DatabaseBackupTarget)
 import Nagare.Resource.Inventory (Declaration, ManagedResource)
 import Nagare.Resource.Policy (RecoveryIntent)
@@ -128,6 +128,9 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeHookEffects :: !(Map T.Text [ResourceId])
   -- ^ An entry is required for every pre-deploy hook. An empty list is an
   -- explicit assertion that the hook has no data effects.
+  , scopeTaskDatabaseBindings :: !(Map ServiceName (Map DatabaseName DatabaseBinding))
+  -- ^ EP-259: each pre-deploy hook's accepted app database bindings, resolved
+  -- for the hook's own name.
   , scopeInputOverrides :: !(Map T.Text T.Text)
   -- ^ Explicit public command choices retained with the config digest.
   , scopeSource :: !SourceLocation

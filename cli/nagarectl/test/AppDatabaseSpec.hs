@@ -114,7 +114,7 @@ appDatabaseTests =
             decodeAppDatabases (LBS.toStrict (encodeAppDatabases [kansokuPg, kansokuCh])) @?= Right [kansokuPg, kansokuCh]
         , testCase "a workload's appDatabases round-trip, and an empty list emits nothing" $ do
             let plain = either error id (webWorker "probe" "registry.example.com/probe")
-                bound = plain & #appDatabases .~ [known (mkAppDatabaseName "kansoku-pg")]
+                bound = plain & #appDatabases .~ [Dsl.appDatabaseBinding (known (mkAppDatabaseName "kansoku-pg"))]
             decodeWorker (LBS.toStrict (encodeWorker bound)) @?= Right bound
             assertBool "an unbound worker keeps its pre-EP-202 bytes" (not ("appDatabases" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeWorker plain))))
         , testCase "loading refuses each invalid declaration with its reason" $ do
@@ -877,7 +877,7 @@ compileWorkerWith app names readers bindings =
     bindings
     (SourceLocation "test" "worker")
   where
-    worker = either error id (webWorker (app <> "-probe") "registry.example.com/probe") & #appDatabases .~ fromMaybe [] names & #appDatabaseReaders .~ readers
+    worker = either error id (webWorker (app <> "-probe") "registry.example.com/probe") & #appDatabases .~ map Dsl.appDatabaseBinding (fromMaybe [] names) & #appDatabaseReaders .~ readers
     rollout =
       RolloutEnv
         { appName = app <> "-probe"

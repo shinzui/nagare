@@ -53,7 +53,7 @@ import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Dsl.Render (renderService)
 import Nagare.Dsl.Types
   ( EnvName
-  , EnvVar (EnvLiteral, EnvSecretRef)
+  , EnvVar (EnvLiteral, EnvSecretKeyRef, EnvSecretRef)
   , ScopedEnvVar (ScopedEnvVar, value)
   , envNameText
   , mkEnvName
@@ -241,6 +241,7 @@ classifyConn m name = do
   pure $ case v of
     EnvLiteral t -> Left t
     EnvSecretRef s -> Right (secretNameText s)
+    EnvSecretKeyRef s _ -> Right (secretNameText s)
 
 connectionEnvTests :: [TestTree]
 connectionEnvTests =

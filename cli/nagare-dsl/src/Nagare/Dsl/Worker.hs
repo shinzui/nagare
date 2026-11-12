@@ -56,7 +56,7 @@ import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Command (Command (..), commandArgvList, mkCommand)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
-  ( AppDatabaseName
+  ( AppDatabaseBinding
   , AppDatabaseReaderRef
   , DatabaseName
   , EnvName
@@ -228,8 +228,9 @@ data Worker = Worker
   , resources :: !(Maybe Resources)
   , volumes :: ![Volume]
   , databases :: ![DatabaseName]
-  , appDatabases :: ![AppDatabaseName]
-  -- ^ app databases on shared servers (EP-202); only their runtime Secrets are bound.
+  , appDatabases :: ![AppDatabaseBinding]
+  -- ^ app databases on shared servers (EP-202); only their runtime Secrets are
+  -- bound, under the fixed variables or one named URL variable (EP-259).
   , appDatabaseReaders :: ![AppDatabaseReaderRef]
   -- ^ app database readers (EP-206); only each reader's own Secret is bound.
   , brokers :: ![BrokerBinding]
