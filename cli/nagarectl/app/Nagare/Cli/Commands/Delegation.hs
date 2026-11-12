@@ -16,6 +16,7 @@ import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Options.Delegation (DelegationCommand (..), DelegationCreateOpts (..))
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
+import Nagare.Cli.Runtime.Pulumi (selectReviewedPulumiForContext)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Contract.Delegation (ActorSummary (..), SourceSummary (..), TransactionHistory (..), TransactionSummary (..))
 import Nagare.Contract.Schema (fromNullable)
@@ -181,7 +182,10 @@ planDelegation mctx active creating delegation output = do
 deployerCloudKeys :: ActiveTarget -> DeployerDelegation -> IO CloudKeyOps
 deployerCloudKeys active delegation = do
   _ <- either dieT pure (delegatedRepositoryId (active ^. #profile) delegation)
-  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  -- Select the context's Pulumi backend and stack first, as every other guard
+  -- caller does: the guard reads the stack's gcp:project, and an operator
+  -- shell's ambient backend is not the context's.
+  workspace <- selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)
   let assertion = projectGuardVerdict <$> projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
       run arguments = first (\(_ :: IOException) -> "could not invoke gcloud") <$> try (readProcessWithExitCode "gcloud" arguments "")
   gcloudKeyOps assertion run (active ^. #profile . #project) (delegation ^. #name)
