@@ -2,7 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import {
     NagareDelegatedDeployer,
     deployerStoreCondition,
-    deployerStorePermissions,
+    deployerStoreRoles,
     parseDelegatedDeployers,
     validateDelegatedDeployer,
 } from "../src/components/NagareDelegatedDeployer";
@@ -22,7 +22,8 @@ const base = {
 };
 
 // EP-248 D6: a delegated deployer is its own account with a repository-level
-// writer grant and one prefix-conditioned store grant, and nothing at project level.
+// writer grant and two prefix-conditioned store grants of predefined roles, and
+// nothing at project level.
 async function main(): Promise<void> {
     const resources: RecordedResource[] = [];
     await pulumi.runtime.setMocks({
@@ -56,12 +57,12 @@ async function main(): Promise<void> {
     assert(JSON.stringify(types) === JSON.stringify([
         "gcp:artifactregistry/repository:Repository",
         "gcp:artifactregistry/repositoryIamMember:RepositoryIamMember",
-        "gcp:projects/iAMCustomRole:IAMCustomRole",
         "gcp:serviceaccount/account:Account",
         "gcp:storage/bucketIAMMember:BucketIAMMember",
+        "gcp:storage/bucketIAMMember:BucketIAMMember",
     ]), `unexpected deployer resources: ${JSON.stringify(types)}`);
-    assert(!gcp.some((resource) => /projects\/iAMMember|projects\/iAMBinding|projects\/iAMPolicy|serviceAccountKey|serviceaccount\/key/i.test(resource.type)),
-        "a deployer resource grants a project-level role or creates a key");
+    assert(!gcp.some((resource) => /projects\/iAMMember|projects\/iAMBinding|projects\/iAMPolicy|iAMCustomRole|serviceAccountKey|serviceaccount\/key/i.test(resource.type)),
+        "a deployer resource grants a project-level role, defines a custom role or creates a key");
     assert(email === "nagare-deployer-kotei@example-project.iam.gserviceaccount.com", "the account is not the derived ID");
 
     const repository = one(gcp, "gcp:artifactregistry/repository:Repository");
@@ -72,20 +73,17 @@ async function main(): Promise<void> {
         "the writer grant is not on the delegation's repository");
     assert(writer.inputs.member === `serviceAccount:${email}`, "the writer is not the deployer account");
 
-    const role = one(gcp, "gcp:projects/iAMCustomRole:IAMCustomRole");
-    assert(JSON.stringify([...(role.inputs.permissions as string[])].sort()) === JSON.stringify([
-        "storage.buckets.get",
-        "storage.objects.create",
-        "storage.objects.delete",
-        "storage.objects.get",
-        "storage.objects.list",
-    ]), `the store role has other permissions: ${JSON.stringify(role.inputs.permissions)}`);
-    assert(JSON.stringify(deployerStorePermissions) === JSON.stringify([...deployerStorePermissions].sort()), "the permission list is not sorted");
-
-    const grant = one(gcp, "gcp:storage/bucketIAMMember:BucketIAMMember");
-    assert(grant.inputs.bucket === base.inventoryBucket, "the store grant is not on the inventory bucket");
-    assert(grant.inputs.member === `serviceAccount:${email}`, "the store grant is not the deployer account");
-    assert(String(grant.inputs.role).endsWith("nagareInventoryWriter_nagare_deployer_kotei"), "the store grant has the wrong role");
+    const grants = gcp.filter((resource) => resource.type === "gcp:storage/bucketIAMMember:BucketIAMMember");
+    assert(JSON.stringify(grants.map((grant) => String(grant.inputs.role)).sort()) === JSON.stringify(["roles/storage.bucketViewer", "roles/storage.objectUser"]),
+        `the store grants are not the predefined roles: ${JSON.stringify(grants.map((grant) => grant.inputs.role))}`);
+    assert(deployerStoreRoles.objects === "roles/storage.objectUser" && deployerStoreRoles.bucket === "roles/storage.bucketViewer", "the exported roles differ");
+    for (const other of grants) {
+        assert(other.inputs.bucket === base.inventoryBucket, "a store grant is not on the inventory bucket");
+        assert(other.inputs.member === `serviceAccount:${email}`, "a store grant is not the deployer account");
+    }
+    const conditions = grants.map((grant) => (grant.inputs.condition as { expression: string }).expression);
+    assert(conditions[0] === conditions[1], "the store grants have different conditions");
+    const grant = grants[0];
     const expression = (grant.inputs.condition as { expression: string }).expression;
     const bucketName = "projects/_/buckets/example-project-nagare-pulumi-state";
     assert(expression === `resource.name == "${bucketName}" || resource.name.startsWith("${bucketName}/objects/nagare/intranet/inventory/")`,

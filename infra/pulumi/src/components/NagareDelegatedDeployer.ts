@@ -13,8 +13,9 @@ import * as gcp from "@pulumi/gcp";
 //    Registry grants per repository, so the deployer cannot write the
 //    platform's shared repository. The node account keeps its project-level
 //    reader/writer access, so the VM pulls these images unchanged;
-//  - a custom role on the inventory store's bucket, bound under an IAM
-//    condition.
+//  - two predefined roles on the inventory store's bucket, bound under one
+//    IAM condition: Storage Object User for the objects and Storage Bucket
+//    Viewer for the bucket's metadata.
 //
 // The condition admits objects under `<prefix>/` and the bucket itself.
 // Object permissions (get, create, delete) are checked against the object's
@@ -30,10 +31,12 @@ import * as gcp from "@pulumi/gcp";
 // permissions: listing for prefix reads, the bucket's metadata for the
 // owning-project check.
 //
-// Nothing here grants a project-level role. The custom role is a project
-// resource, but it is bound only on the bucket. A deleted custom role keeps
-// its ID for about 37 days, so re-creating a delegation with the same name
-// sooner fails at create until the ID is free.
+// Nothing here grants a project-level role; both roles are bound only on the
+// bucket. Predefined roles, not a custom one: a custom role created in the
+// same update as its binding was not yet visible to IAM, so the first apply
+// after a delegation failed (the EP-248 D6 native check), and a deleted
+// custom role holds its ID for about 37 days. Object User also allows
+// update, restore and move, still only beneath the prefix.
 //
 // No key is created here: a key in Pulumi state would put deployer secret
 // material in this repository's state (ADR 13). `nagarectl delegation
@@ -58,13 +61,11 @@ export interface NagareDelegatedDeployerArgs {
     deployer: DelegatedDeployerEntry;
 }
 
-export const deployerStorePermissions = [
-    "storage.buckets.get",
-    "storage.objects.create",
-    "storage.objects.delete",
-    "storage.objects.get",
-    "storage.objects.list",
-];
+// The predefined roles the store grants bind, each under the prefix condition.
+export const deployerStoreRoles = {
+    objects: "roles/storage.objectUser",
+    bucket: "roles/storage.bucketViewer",
+};
 
 export class NagareDelegatedDeployer extends pulumi.ComponentResource {
     public readonly email: pulumi.Output<string>;
@@ -98,22 +99,22 @@ export class NagareDelegatedDeployer extends pulumi.ComponentResource {
             member,
         }, { parent: this });
 
-        const storeRole = new gcp.projects.IAMCustomRole(`${name}-store-role`, {
-            project: args.gcpProject,
-            roleId: deployerStoreRoleId(deployer.accountId),
-            title: `Nagare inventory writer for ${deployer.name}`,
-            description: "Read, write and delete inventory objects; granted only on the inventory bucket under a prefix condition.",
-            permissions: deployerStorePermissions,
+        const condition = {
+            title: "nagare-inventory-deployer",
+            description: "The context's inventory objects, and the bucket for listing and its metadata.",
+            expression: deployerStoreCondition(args.inventoryBucket, args.inventoryPrefix),
+        };
+        new gcp.storage.BucketIAMMember(`${name}-store-bucket`, {
+            bucket: args.inventoryBucket,
+            role: deployerStoreRoles.bucket,
+            member,
+            condition,
         }, { parent: this });
         new gcp.storage.BucketIAMMember(`${name}-store`, {
             bucket: args.inventoryBucket,
-            role: storeRole.name,
+            role: deployerStoreRoles.objects,
             member,
-            condition: {
-                title: "nagare-inventory-deployer",
-                description: "The context's inventory objects, and the bucket for listing and its metadata.",
-                expression: deployerStoreCondition(args.inventoryBucket, args.inventoryPrefix),
-            },
+            condition,
         }, { parent: this });
 
         this.email = account.email;
@@ -147,11 +148,6 @@ export function delegatedRepositoryId(gcpProject: string, region: string, platfo
         throw new Error(`delegated deployer ${deployer.name}: image repository ${deployer.imageRepository} is the platform's shared repository ${platformRepositoryId}`);
     }
     return repositoryId;
-}
-
-// Custom role IDs allow letters, digits, underscores and periods.
-export function deployerStoreRoleId(accountId: string): string {
-    return `nagareInventoryWriter_${accountId.replace(/-/g, "_")}`;
 }
 
 // Object names are projects/_/buckets/<bucket>/objects/<name>; the bucket's

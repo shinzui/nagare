@@ -62,8 +62,8 @@
     {"type": "nagare:env:NagareDelegatedDeployer", "name": "nagare-delegated-deployer-{deployer}", "parent": null, "layer": 15},
     {"type": "gcp:serviceaccount/account:Account", "name": "nagare-delegated-deployer-{deployer}-sa", "parent": "nagare-delegated-deployer-{deployer}", "layer": 16},
     {"type": "gcp:artifactregistry/repository:Repository", "name": "nagare-delegated-deployer-{deployer}-repository", "parent": "nagare-delegated-deployer-{deployer}", "layer": 16},
-    {"type": "gcp:projects/iAMCustomRole:IAMCustomRole", "name": "nagare-delegated-deployer-{deployer}-store-role", "parent": "nagare-delegated-deployer-{deployer}", "layer": 16},
     {"type": "gcp:artifactregistry/repositoryIamMember:RepositoryIamMember", "name": "nagare-delegated-deployer-{deployer}-repository-writer", "parent": "nagare-delegated-deployer-{deployer}", "layer": 17},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-delegated-deployer-{deployer}-store-bucket", "parent": "nagare-delegated-deployer-{deployer}", "layer": 17},
     {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-delegated-deployer-{deployer}-store", "parent": "nagare-delegated-deployer-{deployer}", "layer": 17}
   ]
 }
