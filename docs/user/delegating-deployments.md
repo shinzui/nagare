@@ -115,6 +115,12 @@ Kubernetes as soon as the change applies, and on an object-store context a Job r
 with every key it holds. The namespaces and everything deployed in them stay; the operator can still
 change them.
 
+On a cloud context, then run `nagarectl platform bootstrap plan --out DIR` and apply it. That stage disables
+the deployer's service account, which refuses every key it holds. Do it before the next platform transition:
+a transition started while the foundation still holds the active account stops at the foundation stage. An
+access token minted before a key was deleted, by rotation or revocation, stays valid until it expires
+(up to an hour).
+
 ## Who applied each change
 
 Every review records its actor: `deployer:NAME`, `operator`, or `operator:NAME` when the operator's
