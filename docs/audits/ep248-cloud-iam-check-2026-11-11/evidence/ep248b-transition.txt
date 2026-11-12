@@ -1,0 +1,16 @@
+03:20:47 transition 1: 1 operations; {"operationCount":1,"operations":{"UpdateResource":1},"reaccepted":["platform:cloud-foundation"],"review":"~/.local/state/nagare/ep248b/run/reviews/transition-1","schemaVersion":1,"valida
+converged tx-1c148453c8078f8dab8d84878d14bf30b986fb2b049b72aaefafe5559f38e883
+03:21:45 transition 2: 2 operations; {"operationCount":2,"operations":{"RunDeclaredOperation":1,"UpdateResource":1},"reaccepted":["platform:host"],"review":"~/.local/state/nagare/ep248b/run/reviews/transition-2","schemaVersi
+converged tx-0222bb5860328fb8d0ab9b1a35da459fff08bb84f267b5366624de9a06331142
+03:24:03 transition 3: 1 operations; {"operationCount":1,"operations":{"UpdateResource":1},"reaccepted":[],"review":"~/.local/state/nagare/ep248b/run/reviews/transition-3","schemaVersion":1,"validationCount":219}
+converged tx-5a49e4627685b5d5f8c58116948e306420677a61e1b5d567fcda5ce50d2f3af2
+03:25:20 transition 4: 0 operations; {"operationCount":0,"operations":{},"reaccepted":[],"review":"~/.local/state/nagare/ep248b/run/reviews/transition-4","schemaVersion":1,"validationCount":0}
+nagarectl: platform transition commit requires --yes after reviewing the status above
+Nagare platform status (context ep248b)
+CLI:        0.19.2
+Payload:    0.19.2
+Context:    0.19.1
+Host:       0.19.2
+Cluster:    0.19.2
+Compatibility: patch-skew
+STOP: transition commit refused

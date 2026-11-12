@@ -86,12 +86,14 @@ Interpreter and fake-adapter evidence comes first; native runs only confirm
   The key is created after the ADR 9 project guard. Evidence: `infra/pulumi/test/delegatedDeployerResources.test.ts`,
   the `foundation-managed-delegated-deployer` parity variant and `Nagare.Test.DeployerCloudAccess`. Native:
   [the cloud IAM check](../audits/ep248-cloud-iam-check-2026-11-11.md) passed 22 of 22 allow and refusal checks
-  with only the bundle, plus rotation, after fixes `24cb442f`, `940395bb` and `064479d4`. Revoke's account disable
-  was not confirmed natively (the audit's finding 2).
+  with only the bundle, plus rotation, after fixes `24cb442f`, `940395bb` and `064479d4`. Its findings were fixed
+  and confirmed on a second context (the audit's `ep248b` section): predefined store roles, a transition that
+  converges a drifted foundation first, and a cloud stage that disables a revoked deployer's account (`6fdbadcb`).
 - [x] D7, revoke and rotate. `delegation revoke` empties every deployer and builder Role, removes the store
   user, and disables the cloud account. Running `delegation credentials` again rotates. Evidence: "D7:
   revoking keeps every identity object and empties every Role…", "D7: running it again retires every earlier
-  handle and key, only after the new bundle is written", the cloud derivation test, and the audit's P6 and P7.
+  handle and key, only after the new bundle is written", the cloud derivation test, and the audit's P6 and P7. On a cloud context the disable
+  was confirmed natively in [the cloud IAM check](../audits/ep248-cloud-iam-check-2026-11-11.md), after `6fdbadcb`.
 - [x] D8, the local confirmation. Evidence: the audit, P4 to P7.
 - [x] D9, docs and decisions: [Delegating deployments](../user/delegating-deployments.md) and its
   [reference rows](../user/reference.md#nagarectl-delegation). [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md)

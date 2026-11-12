@@ -1,0 +1,22 @@
+PASS	read own head	allow	
+PASS	write own prefix	allow	Copying file://~/.local/state/nagare/ep248b/run/evidence/iam-probe-active-031911 to gs://tan-nb-exp-ep248b-state/inventory/iam-
+PASS	delete own prefix	allow	Removing objects:    Removing gs://tan-nb-exp-ep248b-state/inventory/iam-probe-active-031911... .....
+PASS	list bucket (documented limit)	allow	
+PASS	read beside the prefix	deny	ERROR: (gcloud.storage.cat) HTTPError 403: nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com does not have storage.objects.get acc
+PASS	overwrite beside the prefix	deny	ERROR: (gcloud.storage.cp) HTTPError 403: nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com does not have storage.objects.get acce
+PASS	delete beside the prefix	deny	Removing objects: ERROR: (gcloud.storage.rm) HTTPError 403: nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com does not have storag
+PASS	write beside the prefix	deny	Copying file://~/.local/state/nagare/ep248b/run/evidence/iam-probe-active-031911 to gs://tan-nb-exp-ep248b-state/outside/iam-pr
+PASS	read another context's state bucket	deny	ERROR: (gcloud.storage.cat) HTTPError 403: nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com does not have storage.objects.get acc
+PASS	write another context's state bucket	deny	ERROR: (gcloud.storage.cp) HTTPError 403: nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com does not have storage.objects.get acce
+PASS	read the backup bucket	deny	ERROR: (gcloud.storage.ls) [nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com] does not have permission to access b instance [tan-
+PASS	read the image bucket	deny	ERROR: (gcloud.storage.ls) [nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com] does not have permission to access b instance [tan-
+PASS	list project buckets	deny	ERROR: (gcloud.storage.buckets.list) HTTPError 403: nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com does not have storage.bucket
+PASS	bucket IAM change	deny	ERROR: (gcloud.storage.buckets.add-iam-policy-binding) [nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com] does not have permissio
+PASS	list instances	deny	WARNING: Some requests did not succeed.  - Required 'compute.instances.list' permission for 'projects/tan-nb-exp'  Listed 0 items.
+PASS	list service accounts	deny	ERROR: (gcloud.iam.service-accounts.list) [nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com] does not have permission to access p
+PASS	create a key for itself	deny	ERROR: (gcloud.iam.service-accounts.keys.create) PERMISSION_DENIED: Permission 'iam.serviceAccountKeys.create' denied on resource '//iam.goo
+PASS	project IAM policy	deny	ERROR: (gcloud.projects.get-iam-policy) [nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com] does not have permission to access pro
+PASS	list secrets	deny	ERROR: (gcloud.secrets.list) [nagare-deployer-ep248bci@tan-nb-exp.iam.gserviceaccount.com] does not have permission to access projects insta
+PASS	push to the delegation repository	allow	
+PASS	push to the platform repository	deny	time="2026-11-11T19:19:43-08:00" level=fatal msg="trying to reuse blob sha256:3d3f34dcca24cb6bc147bbba4f4e3002975d65779ddc9764d12007aef7cb53
+PASS	nagarectl inventory history as the deployer	allow	

@@ -1,0 +1,8 @@
+# after transition (before 6fdbadcb):
+FAIL	read own head	expected deny, got allow	
+FAIL	write own prefix	expected deny, got allow	Copying file://~/.local/state/nagare/ep248b/run/evidence/iam-probe-revoked-032536 to gs://tan-nb-exp-ep248b-state/inventory/iam-probe-revoked-032536    .......
+FAIL	list bucket	expected deny, got allow	
+# after 6fdbadcb's cloud stage disabled the account:
+PASS	read own head	deny	ERROR: (gcloud.storage.cat) There was a problem refreshing your current auth tokens: ('invalid_grant: Invalid grant: account not found', {'e
+PASS	write own prefix	deny	ERROR: (gcloud.storage.cp) There was a problem refreshing your current auth tokens: ('invalid_grant: Invalid grant: account not found', {'er
+PASS	list bucket	deny	ERROR: (gcloud.storage.ls) There was a problem refreshing your current auth tokens: ('invalid_grant: Invalid grant: account not found', {'er

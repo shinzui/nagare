@@ -65,3 +65,16 @@ v0.19.0 shipped before these fixes, so a deployer on a cloud context needs the r
    - The deployer's account ID is per project (`nagare-deployer-NAME`), not per context.
    - A deleted custom role keeps its ID for about 37 days.
    - gcloud writes some files in the bundle's configuration group-readable; the bundle directory itself is 0700.
+
+## Fix confirmation on `ep248b` (2026-11-12 UTC)
+
+A second disposable context, `ep248b`, ran the fixes. It was bootstrapped with package A (`3e79089b`, 0.19.1 plus
+finding 1's fix), moved to 0.19.2 with package B (`ad9ee3af`), and finished with package C (`6fdbadcb`).
+Every package had a green full gate. Scripts are as above, with `ep248` renamed to `ep248b`.
+
+| Check | Observed | Transcript |
+|-------|----------|------------|
+| Finding 1 | the first foundation apply after `delegation create` converged in one pass, with both predefined-role bindings and the writer binding | [ep248b-delegate](ep248-cloud-iam-check-2026-11-11/evidence/ep248b-delegate.txt) |
+| Predefined roles | the IAM matrix passed 22 of 22 again | [ep248b-iam-active](ep248-cloud-iam-check-2026-11-11/evidence/ep248b-iam-active.txt) |
+| Finding 2 | after `delegation revoke` with no bootstrap, `platform transition plan` planned the foundation first (one update), then the host and the rest. It converged and committed 0.19.2 | [ep248b-transition](ep248-cloud-iam-check-2026-11-11/evidence/ep248b-transition.txt) |
+| Revoke (defect 4) | the transition left the account enabled and the key working, and a later `platform bootstrap plan` planned nothing. Fixed in `6fdbadcb`: the cloud stage is planned when a deployer's accepted members no longer match their intent. Its preview held one change, the service account update. After it applied, the account was disabled and every request with the old key was refused with `invalid_grant: account not found` | [ep248b-iam-revoked](ep248-cloud-iam-check-2026-11-11/evidence/ep248b-iam-revoked.txt) |

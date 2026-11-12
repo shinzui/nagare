@@ -1,0 +1,18 @@
+03:13:13 plan 12: 1 operations; changed scopes: cloud-foundation
+      1 UpdateResource	CloudFoundationExecutor
+03:13:13 apply 12
+converged tx-24846e6124f70600bb3665e59d572a817e80c024b0283cf4e305a53262665bd7
+03:13:57 plan 13: 1 operations; changed scopes: cloud
+      1 CreateResource	PulumiExecutor
+create	gcp:storage/bucketIAMMember:BucketIAMMember	nagare-delegated-deployer-ep248bci-store
+create	gcp:artifactregistry/repositoryIamMember:RepositoryIamMember	nagare-delegated-deployer-ep248b
+create	gcp:storage/bucketIAMMember:BucketIAMMember	nagare-delegated-deployer-ep248bci-store-bucket
+03:14:02 threshold met
+03:14:02 apply 13
+converged tx-11532800fd874270bdcb95773e33b83e31b95bde2ff562f9e4dad78eb0cda010
+03:16:40 plan 14: 1 operations; changed scopes: bootstrap-stamp
+      1 UpdateResource	KubernetesExecutor
+03:16:40 apply 14
+converged tx-98d3334acecb8dca3ef5c1aecf25e08d7e3a19a51376f50d570e5ed164ec17de
+03:18:57 plan 15: 0 operations; changed scopes: 
+03:18:57 converged at 15: a review with no operations
