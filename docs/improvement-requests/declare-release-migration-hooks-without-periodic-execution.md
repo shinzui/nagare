@@ -2,7 +2,7 @@
 type: Improvement Request
 title: Declare release migration hooks without periodic execution
 description: Let an application declare a migration that runs only as a reviewed release prerequisite, without also authorizing scheduled database maintenance.
-timestamp: "2026-11-12T23:40:00Z"
+timestamp: "2026-11-13T00:36:39Z"
 generated:
   by: process:codex
   at: "2026-11-12T23:40:00Z"
@@ -17,7 +17,7 @@ acceptanceCriteria:
     statement: Hook failure still prevents serving promotion, successful identical reviewed retries retain the original hook proof, and release-only behavior does not change ordinary scheduled tasks.
     verification: Effect-interpreter tests cover a failed hook, successful release, identical accepted retry and an ordinary scheduled Task; assert workload ordering, execution counts and unchanged scheduled-task behavior.
   - id: AC-3
-    statement: Changing an already accepted scheduled migration to release-only retires or suspends its periodic trigger through reviewed inventory ownership.
+    statement: Changing an already accepted scheduled migration to release-only retires or suspends its periodic trigger through reviewed inventory ownership, and subsequent application deployment preserves that release-only lifecycle.
     verification: Apply a scheduled fixture, save and apply its release-only transition, and inspect the accepted trigger state; the consumer must not patch or delete an inventory-owned CronJob out of band.
   - id: AC-4
     statement: Typed and rendered application inputs, public review evidence and documentation describe the release-only lifecycle and preserve workload-specific environment isolation.
@@ -33,6 +33,16 @@ reviews:
     model: gpt-6.1-sol
     effort: unspecified
     context: Author review against a314e7a9 live native ARM64 inspection and 18a15e93 Task and application rendering; no implementation or independent review is claimed.
+  - kind: model
+    reviewer: process:codex
+    reviewed_at: "2026-11-13T00:36:39Z"
+    document_timestamp: "2026-11-13T00:36:39Z"
+    scope: content-and-metadata
+    outcome: commented
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    context: Consumer qualification confirms reviewed task suspension works but the next identical app review restores the original unsuspended CronJob; the restoring review was not applied.
 ---
 
 # Declare release migration hooks without periodic execution
@@ -61,6 +71,29 @@ paths are local to this repository. Kotei's sanitized live evidence belongs to
 `docs/plans/evidence/135/live-hosting-matrix.json` (artifact-level URI pending).
 The harness is in that project at `scripts/test-kotei-nagare-hosting.py`
 (artifact-level URI pending).
+
+## Existing operational suspension and the remaining gap
+
+Nagare already supports reviewed suspension through the first `task delete APP TASK
+--save-plan DIR` stage. Kotei qualified that existing path on 2026-11-13 UTC instead
+of assuming an upstream feature was necessary. The review updated only
+`application:kotei/migrate/cronjob`; transaction
+`tx-4878d8c889e0b3575c9c29011d7734a192dd33c684a714633249716e450d0d4a`
+converged, and the live CronJob has `suspend=true`. Kotei's current baseline
+inspection passes with that operational suspension.
+
+The next app preview and saved review, using the same accepted release inputs,
+plan `UpdateResource` on that CronJob and replace the suspended native object
+`08cc873ed4bb81aaf5f59f1638d6c579f08e3967893ff7b0069bcb80e7aae18b`
+with the original unsuspended object
+`9440efdc58544e2e467845cce17acaa53540d12a230720e36e6a306674932ee5`.
+The operational suspension override disappears from the next desired application
+scope. The consumer did not apply that restoring review; its fixture remains
+suspended. Operational suspension exists; the demonstrated gap is preserving
+release-only lifecycle through application deployment.
+
+The full sanitized proof belongs to `mori://shinzui/kotei`, project-relative
+`docs/plans/evidence/135/reviewed-migration-suspension.json` (artifact-level URI pending).
 
 ## Requested outcome and boundary
 
