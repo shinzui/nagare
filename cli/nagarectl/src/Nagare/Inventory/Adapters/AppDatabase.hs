@@ -31,7 +31,7 @@ import Data.List (nub, sort)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -337,7 +337,11 @@ mkAppDatabaseAdapter accepted members ops =
     catalogFor member = case member ^. #kind of
       OwnedDatabaseMember db owner owningRole _ -> fmap Owned <$> observeOwned ops (member ^. #server) owner owningRole db
       UserMember OwnerRole user _ _ _ -> fmap Owned <$> observeOwned ops (member ^. #server) user Nothing (fromMaybe "" (listToMaybe (member ^. #scopeDatabases)))
-      _ -> fmap Shared <$> observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
+      _ -> do
+        let restoredDatabases = case member ^. #kind of
+              UserMember (ReaderRole _) _ _ _ desired -> concatMap (readerDatabases . (^. #objects)) (catMaybes [readerSpec desired, readerSpec (acceptedAccess member)])
+              _ -> []
+        fmap Shared <$> observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (nub (member ^. #scopeDatabases <> restoredDatabases))
     classify member catalog = fst (classifyWithPending member catalog)
     -- A reader's pending objects (EP-206) and a database's pending schemas
     -- (EP-208) ride beside its state.
