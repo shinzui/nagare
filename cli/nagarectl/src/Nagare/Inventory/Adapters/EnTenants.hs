@@ -4,10 +4,9 @@
 -- verification, and recovery, read @en_tenant_available@ for every tenant the
 -- reviewed Deployment declares, with the scrape key of @nagare-en-scrape-keys@.
 --
--- A live runtime reads @GET /metrics@ through a private port-forward. An
--- interpreted runtime sends the read to its kubectl interpreter as
--- 'enMetricsRequest', so the fake cluster answers it from its own state
--- (ADR 25).
+-- The read is the kubectl request 'enMetricsRequest': the live interpreter
+-- answers it through a private port-forward, whatever interpreters wrap it,
+-- and a fake cluster answers it from its own state (ADR 25).
 module Nagare.Inventory.Adapters.EnTenants
   ( enDeclaredTenants
   , TenantVerdict (..)
@@ -19,7 +18,6 @@ module Nagare.Inventory.Adapters.EnTenants
   )
 where
 
-import Control.Monad (join)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -30,8 +28,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.EnForward (enRequest, withEnForward)
-import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), dispatchKubectl, invokeKubectl, runtimeLive, runtimePause)
+import Nagare.Inventory.EnForward (enMetricsRequest)
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), dispatchKubectl, invokeKubectl, runtimePause)
 import System.Exit (ExitCode (..))
 
 -- | The Secret whose @metrics@ key En accepts in @EN_METRICS_KEYS@.
@@ -103,12 +101,6 @@ lastUnavailableReason tenant logs =
         Nothing | rest == "AVAILABLE" -> Just Nothing
         Nothing -> Nothing
 
--- | The interpreted form of the metrics read: the request a fake cluster
--- answers with En's status on the first line and its body after it. The
--- input carries the scrape key.
-enMetricsRequest :: [String]
-enMetricsRequest = ["port-forward", "-n", "nagare-system", "svc/en", ":80", "--", "GET", "/metrics"]
-
 -- | Prove every tenant available, retrying while En opens a store (up to a
 -- minute after its rollout), and name the first unavailable tenant with En's
 -- reason. The key is read from the cluster and never printed.
@@ -136,17 +128,14 @@ proveEnTenants config tenants = do
         Left reason -> Left ("en metrics could not be read: " <> reason)
         Right (200, body) -> Right (tenantAvailability tenants (TE.decodeUtf8With (\_ _ -> Just '?') body))
         Right (code, _) -> Left ("en metrics answered " <> T.pack (show code) <> " to the scrape key")
-    metrics secret
-      | runtimeLive config =
-          fmap join . withEnForward (runtimeKubectlContext config) $ \base ->
-            enRequest (T.unpack secret) base "GET" "/metrics" Null
-      | otherwise = do
-          answered <- dispatchKubectl config enMetricsRequest (T.unpack secret)
-          pure $ case answered of
-            Right (ExitSuccess, output, _) -> case T.breakOn "\n" (T.pack output) of
-              (code, body) | [(status, "")] <- reads (T.unpack code) -> Right (status, TE.encodeUtf8 (T.drop 1 body))
-              _ -> Left "malformed interpreted en metrics answer"
-            _ -> Left "en port-forward failed"
+    metrics secret = do
+      answered <- dispatchKubectl config enMetricsRequest (T.unpack secret)
+      pure $ case answered of
+        Left reason -> Left reason
+        Right (ExitSuccess, output, _) -> case T.breakOn "\n" (T.pack output) of
+          (code, body) | [(status, "")] <- reads (T.unpack code) -> Right (status, TE.encodeUtf8 (T.drop 1 body))
+          _ -> Left "malformed en metrics answer"
+        Right _ -> Left "en metrics read failed"
     readScrapeKey = do
       read' <- invokeKubectl config ["get", "secret", T.unpack enScrapeKeySecret, "-n", "nagare-system", "-o", "json"] ""
       pure $ case read' of

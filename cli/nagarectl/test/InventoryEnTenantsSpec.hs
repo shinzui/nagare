@@ -21,7 +21,7 @@ import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (..), RecoveryDe
 import Nagare.Inventory.Adapters.EnTenants (TenantVerdict (..), enDeclaredTenants, enMetricsRequest, lastUnavailableReason, proveEnTenants, tenantAvailability)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), noPodOps)
-import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), dispatchKubectl, runKubectlWith, withKubectlInterpreter)
 import Nagare.Resource.Types (mkContextId)
 import Nagare.Test.Support.Kubernetes qualified as K
 import System.Exit (ExitCode (..))
@@ -53,6 +53,10 @@ inventoryEnTenantsTests =
         requests <- readIORef asked
         assertBool "the scrape key appeared in kubectl arguments" (not (any (elem "scrape-secret" . fst) requests))
         assertBool "the metrics read did not carry the scrape key" (all ((== "scrape-secret") . snd) [r | r@(arguments, _) <- requests, arguments == enMetricsRequest])
+    , testCase "the metrics read is a kubectl request, so a wrapping interpreter forwards it like any other" $ do
+        (inner, _) <- interpreted [("nagare", "1")]
+        let forwarding = withKubectlInterpreter (runKubectlWith (\request -> dispatchKubectl inner (request ^. #arguments) (request ^. #input))) inner
+        proveEnTenants forwarding ["nagare"] >>= (@?= Right ())
     , testCase "available tenants pass the proof" $ do
         (config, _) <- interpreted [("nagare", "1"), ("demo", "1")]
         proveEnTenants config ["nagare", "demo"] >>= (@?= Right ())

@@ -10,12 +10,15 @@ module Nagare.Inventory.EnForward
   , enRequest
   , withEnForward
   , parseEnForwardPort
+  , enMetricsRequest
+  , enMetricsAnswer
   )
 where
 
 import Control.Concurrent (forkIO)
 import Control.Exception (IOException, bracket, catch, onException, try)
-import Data.Aeson (Value, encode)
+import Control.Monad (join)
+import Data.Aeson (Value (Null), encode)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
@@ -108,3 +111,17 @@ parseEnForwardPort line = do
   let (port, target) = T.breakOn " -> " rest
   unless (not (T.null port) && T.all (`elem` ['0' .. '9']) port && not (T.null (T.drop 4 target))) Nothing
   pure port
+
+-- | EP-262: a scrape of En's @GET /metrics@, sent as a kubectl request so an
+-- interpreter can answer it. The input carries the scrape key; the answer is
+-- En's status on the first line and its body after it.
+enMetricsRequest :: [String]
+enMetricsRequest = ["port-forward", "-n", "nagare-system", "svc/en", ":80", "--", "GET", "/metrics"]
+
+-- | The live answer to 'enMetricsRequest', through a private forward.
+enMetricsAnswer :: Text -> String -> IO (Either Text String)
+enMetricsAnswer kubectlContext key = do
+  fetched <- withEnForward kubectlContext (\base -> enRequest key base "GET" "/metrics" Null)
+  pure $ case join fetched of
+    Left reason -> Left reason
+    Right (code, body) -> Right (show code <> "\n" <> T.unpack (TE.decodeUtf8With (\_ _ -> Just '?') body))

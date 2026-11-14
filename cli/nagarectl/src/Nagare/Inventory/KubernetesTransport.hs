@@ -22,7 +22,6 @@ module Nagare.Inventory.KubernetesTransport
   , countedTransport
   , kubectlPurpose
   , runtimePause
-  , runtimeLive
   , runtimeEscrowedShomeiKey
   )
 where
@@ -38,10 +37,11 @@ import GHC.Clock (getMonotonicTimeNSec)
 import Nagare.Contract.Trace (CountCategory (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.ClusterSession (kubectlConnectionArguments)
+import Nagare.Inventory.EnForward (enMetricsAnswer, enMetricsRequest)
 import Nagare.Inventory.ShomeiKeyEscrow (readShomeiKeyEscrow)
 import Nagare.Inventory.Store.Counters (traceCount, traceProcess)
 import Nagare.Resource.Types (ContextId)
-import System.Exit (ExitCode)
+import System.Exit (ExitCode (ExitSuccess))
 import System.Process (readProcessWithExitCode)
 
 data KubectlRequest = KubectlRequest
@@ -78,6 +78,10 @@ runKubectlIO = runKubectlWith . countedTransport $ \request -> do
   -- kubeconfig its guard checked, or is refused with the guard.
   connection <- kubectlConnectionArguments (request ^. #context)
   case connection of
+    -- EP-262: En's metrics go through a private forward, not a kubectl verb.
+    Right _
+      | request ^. #arguments == enMetricsRequest ->
+          fmap (\answer -> (ExitSuccess, answer, "")) <$> enMetricsAnswer (request ^. #context) (request ^. #input)
     Left reason -> pure (Left reason)
     Right selected -> do
       result <-
@@ -119,14 +123,6 @@ runtimePause :: KubernetesRuntimeConfig -> Int -> IO ()
 runtimePause config microseconds = case config of
   KubernetesRuntimeConfig {} -> threadDelay microseconds
   InterpretedRuntime {} -> pure ()
-
--- | Whether requests reach a live cluster. A side channel kubectl requests
--- cannot carry (EP-262's En metrics read) goes live only then; an interpreted
--- runtime sends it to its interpreter.
-runtimeLive :: KubernetesRuntimeConfig -> Bool
-runtimeLive = \case
-  KubernetesRuntimeConfig {} -> True
-  InterpretedRuntime {} -> False
 
 -- | One Kubernetes request the runtime asks for: counted as logical work
 -- (EP-224), then answered by the selected interpreter.
