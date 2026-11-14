@@ -97,11 +97,30 @@ withEnTenantWorkloads tenants objects = concat <$> traverse revise objects
       unless (length [() | Object v <- env, KM.lookup "name" v == Just (String "EN_TENANTS")] == 1) (Left "en container must set EN_TENANTS once")
       let listed = Object (KM.fromList ["name" .= ("EN_TENANTS" :: Text), "value" .= T.intercalate "," ("nagare" : map enTenantNameText names)])
           env' = map (\case Object v | KM.lookup "name" v == Just (String "EN_TENANTS") -> listed; other -> other) env
-      pure (Object (KM.insert "env" (Array (V.fromList (env' <> concatMap tenantEnv names))) fields))
+      resources <- withTenantMemory (length names) fields
+      pure (Object (KM.insert "resources" resources (KM.insert "env" (Array (V.fromList (env' <> concatMap tenantEnv names))) fields)))
     container other = Right other
     field key fields = case KM.lookup key fields of
       Just (Object inner) -> Right inner
       _ -> Left "en Deployment lacks an expected field"
+
+-- | Each tenant has its own two caches of the configured sizes (En ADR 9);
+-- they are what took Nagare's own tenant from 256Mi to 384Mi, so each
+-- operator tenant adds that allowance to the limit. Idle, a tenant adds
+-- nothing measurable (EP-262 M3: 20Mi before and after tenant demo).
+tenantMemoryMi :: Int
+tenantMemoryMi = 128
+
+withTenantMemory :: Int -> KM.KeyMap Value -> Either Text Value
+withTenantMemory tenants fields = case KM.lookup "resources" fields of
+  Just (Object resources)
+    | Just (Object limits) <- KM.lookup "limits" resources
+    , Just (String memory) <- KM.lookup "memory" limits
+    , Just base <- T.stripSuffix "Mi" memory
+    , [(mebibytes, "")] <- reads (T.unpack base) ->
+        let raised = String (T.pack (show (mebibytes + tenants * tenantMemoryMi :: Int)) <> "Mi")
+         in Right (Object (KM.insert "limits" (Object (KM.insert "memory" raised limits)) resources))
+  _ -> Left "en container has no memory limit in Mi"
 
 -- | A tenant's variables. The raw secrets and database credentials are
 -- @NAGARE_EN_<NAME>_*@, which En does not read; En refuses any unknown

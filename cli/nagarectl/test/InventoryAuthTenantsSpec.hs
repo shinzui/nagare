@@ -16,6 +16,7 @@ import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -86,6 +87,7 @@ inventoryAuthTenantsTests =
         lookup "EN_TENANT_DEMO_API_KEYS_READ_ONLY" env @?= Just "demo-read:$(NAGARE_EN_DEMO_KEY_READ_ONLY)"
         assertBool "the demo database URL does not name en-demo-db" (maybe False ("host=en-demo-db.nagare-system.svc.cluster.local " `T.isPrefixOf`) (lookup "EN_TENANT_DEMO_DATABASE_URL" env))
         lookup "EN_TENANT_NAGARE_SCHEMA_PATH" env @?= Just "/etc/en/schema/app.en"
+        enMemoryLimit deployment @?= Just "512Mi"
         job <- object' (snd (native Map.! (demoJob ^. #identity)))
         assertBool "en-demo-migrate reaches another database" ("en-demo-db.nagare-system.svc.cluster.local" `T.isInfixOf` encodeText job && not ("\"nagare-db-en-db\"" `T.isInfixOf` encodeText job))
         schemas <- schemaData native
@@ -110,6 +112,8 @@ inventoryAuthTenantsTests =
         length [() | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations, Kubernetes _ "apps" kind _ _ <- [resource ^. #address], nameText kind == "statefulset"] @?= 2
         schemas <- schemaData native
         Map.keys schemas @?= ["app.en"]
+        en <- single [bytes | (resource, bytes) <- Map.elems native, Kubernetes _ "apps" kind _ name <- [resource ^. #address], nameText kind == "deployment", nameText name == "en"]
+        (enMemoryLimit <$> object' en) >>= (@?= Just "384Mi")
     , testCase "bind takes the tenant's keys under the named runtime variables, only from its own Secret" $ do
         let secret name' namespace' =
               Aeson.object
@@ -185,6 +189,23 @@ enEnv value =
   , Just (String variable) <- [KM.lookup "name" entry]
   , Just (String text) <- [KM.lookup "value" entry]
   ]
+
+-- | The en container's memory limit.
+enMemoryLimit :: Value -> Maybe Text
+enMemoryLimit value =
+  listToMaybe
+    [ memory
+    | Object root <- [value]
+    , Just (Object spec) <- [KM.lookup "spec" root]
+    , Just (Object template) <- [KM.lookup "template" spec]
+    , Just (Object podSpec) <- [KM.lookup "spec" template]
+    , Just (Array containers) <- [KM.lookup "containers" podSpec]
+    , Object container <- toList containers
+    , KM.lookup "name" container == Just (String "en")
+    , Just (Object resources) <- [KM.lookup "resources" container]
+    , Just (Object limits) <- [KM.lookup "limits" resources]
+    , Just (String memory) <- [KM.lookup "memory" limits]
+    ]
 
 schemaData :: Map.Map ResourceId (ManagedResource, ByteString) -> IO (Map.Map Text Text)
 schemaData native = do
