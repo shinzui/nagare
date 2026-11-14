@@ -275,6 +275,34 @@ API_KEY
 `secret list` prints key **names only**, never values. `secret delete envdemo API_KEY`
 removes one key.
 
+### En tenants
+
+An app that authorizes through its own En tenant (declared by the operator, see
+[Contexts](contexts.md#en-tenants)) reaches the platform En at
+`http://en.nagare-system.svc.cluster.local`. Set that base URL in the app's
+config as a literal variable. Its keys come from the tenant's generated Secret
+`nagare-en-tenant-<name>-keys` in `nagare-system`, copied into the app's managed
+runtime Secret by one reviewed change:
+
+```bash
+nagarectl en-tenant bind mori --app mori --config nagare/Config.hs \
+  --read-only-as MORI_EN_READ_KEY --read-write-as MORI_EN_GRANT_KEY \
+  --version en-keys-1
+```
+
+- Name at least one of `--read-write-as` and `--read-only-as`; each names the
+  runtime Secret key that receives that API key. Other keys of the runtime
+  Secret are kept.
+- It is a reviewed Secret change like `secret set`: `--version` is required,
+  and `--save-plan DIR` saves the review instead of applying it.
+- No key is printed. The tenant must be in the active context's
+  `NAGARE_EN_TENANTS`, and `--app` must match the config's app.
+- Only the operator can run it: it reads a Secret in `nagare-system`, which a
+  delegated deployer cannot.
+- The copy does not follow the source. Generated keys exist only in the
+  cluster, so after a cluster rebuild the tenant has new keys; run
+  `en-tenant bind` again, with a new `--version`, for each bound app.
+
 ## Bulk import with `.env`
 
 A dotenv (`.env`) file lists `KEY=VALUE` one per line; blank lines and `#` comments are

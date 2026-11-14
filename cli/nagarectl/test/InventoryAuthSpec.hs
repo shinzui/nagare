@@ -86,7 +86,7 @@ inventoryAuthTests =
                   Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
                   _ -> False
               ]
-        length secrets @?= 3
+        length secrets @?= 4
         assertBool
           "auth key material is not protected from retirement"
           (all ((== Protect) . (^. #lifecycle)) secrets)
@@ -873,6 +873,7 @@ fixture =
     Map.empty
     CloudAuth
     Nothing
+    []
   where
     images =
       Map.fromList

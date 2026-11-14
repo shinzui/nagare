@@ -30,6 +30,7 @@ import InventoryApplicationSpec (inventoryApplicationTests)
 import InventoryApplicationUpdateRecoverySpec
 import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryAuthSpec (inventoryAuthTests)
+import InventoryAuthTenantsSpec (inventoryAuthTenantsTests)
 import InventoryCacheSpec (inventoryCacheTests)
 import InventoryCdnSpec (inventoryCdnTests)
 import InventoryCloseSpec (inventoryCloseTests)
@@ -40,6 +41,7 @@ import InventoryContributionRetirementSpec (inventoryContributionRetirementTests
 import InventoryControllerCollectionSpec (controllerCollectionTests)
 import InventoryEffectfulCollectionSpec (inventoryEffectfulCollectionTests, runCollectionResumeProbe)
 import InventoryEffectfulSpec (inventoryEffectfulTests, runEffectfulResumeProbe)
+import InventoryEnTenantsSpec (inventoryEnTenantsTests)
 import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryGcloudAuthSpec (inventoryGcloudAuthTests)
 import InventoryGogolSpec (inventoryGogolTests)
@@ -238,6 +240,8 @@ main = do
             , inventoryStuckPodTests
             , inventoryActionPublicationTests
             , inventoryKubernetesReadinessTests
+            , inventoryEnTenantsTests
+            , inventoryAuthTenantsTests
             , inventoryCloseTests
             , inventoryTransferScriptTests
             , inventoryRefusedPreflightRecoveryTests

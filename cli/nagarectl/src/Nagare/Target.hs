@@ -97,6 +97,7 @@ import Nagare.Inventory.BackupFreshness
   )
 import Nagare.Target.Acme
 import Nagare.Target.ContextFile (parseContextEnv, shellQuote)
+import Nagare.Target.EnTenants (EnTenantDeclaration, parseEnTenantDeclarations, renderEnTenantDeclarations)
 import Nagare.Target.Kinds
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
@@ -463,6 +464,9 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_DEPLOYER (EP-247): set only in a delegated deployer's context.
   , operatorName :: !(Maybe Text)
   -- ^ NAGARE_OPERATOR (EP-247): an optional name for the operator actor.
+  , enTenants :: ![EnTenantDeclaration]
+  -- ^ NAGARE_EN_TENANTS and each NAGARE_EN_TENANT_<NAME>_SCHEMA (EP-262): the
+  -- operator's En tenants beside @nagare@, read from the context file only.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -592,6 +596,7 @@ renderContextShellEnv name tp penv =
     , line "PULUMI_CONFIG_PASSPHRASE_FILE" (T.pack (penv ^. #home </> "passphrase"))
     , line "NAGARE_PULUMI_STACK" (penv ^. #stack)
     ]
+    <> T.unlines [line variable value | (variable, value) <- renderEnTenantDeclarations (tp ^. #enTenants)]
   where
     ctx = contextNameText name
     line k v = "export " <> k <> "=" <> shellQuote v
@@ -772,6 +777,7 @@ profileFromContextMap ctx =
       platformVersion = T.pack <$> mapRaw ctx "NAGARE_PLATFORM_VERSION"
       deployer = T.pack <$> mapRaw ctx "NAGARE_DEPLOYER"
       operatorName = T.pack <$> mapRaw ctx "NAGARE_OPERATOR"
+      enTenants = either (error . T.unpack) id (parseEnTenantDeclarations ctx)
    in TargetProfile
         { project = project
         , region = region
@@ -808,6 +814,7 @@ profileFromContextMap ctx =
         , platformVersion = platformVersion
         , deployer = deployer
         , operatorName = operatorName
+        , enTenants = enTenants
         }
 
 resolveProfileFrom :: Map String Text -> IO TargetProfile
@@ -847,6 +854,7 @@ resolveProfileFrom ctx = do
   platformVersion <- fmap T.pack <$> ctxRaw ctx "NAGARE_PLATFORM_VERSION"
   deployer <- fmap T.pack <$> ctxRaw ctx "NAGARE_DEPLOYER"
   operatorName <- fmap T.pack <$> ctxRaw ctx "NAGARE_OPERATOR"
+  enTenants <- either (ioError . userError . T.unpack) pure (parseEnTenantDeclarations ctx)
   either (ioError . userError . T.unpack) (const (pure ())) (actorFromNames deployer operatorName)
   when (mode == Cloud && inventoryStore == InventoryStoreObject) (ioError (userError "NAGARE_INVENTORY_STORE=object is only for a local context"))
   pure
@@ -886,6 +894,7 @@ resolveProfileFrom ctx = do
       , platformVersion = platformVersion
       , deployer = deployer
       , operatorName = operatorName
+      , enTenants = enTenants
       }
 
 -- | Resolve the active context into a context name plus fully-derived

@@ -4,6 +4,7 @@
 module Nagare.Inventory.Components.Auth
   ( AuthInput (..)
   , AuthMode (..)
+  , EnTenant (..)
   , compileAuth
   , compileAuthComponent
   )
@@ -15,9 +16,11 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
+import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -25,6 +28,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (databaseNameText)
+import Nagare.Inventory.Components.AuthTenants (EnTenant (..), enTenantKeySecret, enTenantService, withEnTenantSchemas, withEnTenantWorkloads)
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Database (DatabaseBackupTarget, compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
@@ -35,6 +39,7 @@ import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy (LifecyclePolicy (Protect), RecoveryClass (VerifyBeforeRetry))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 import System.FilePath ((</>))
 
 data AuthMode = CloudAuth | LocalAuth deriving stock (Eq, Show)
@@ -59,6 +64,8 @@ data AuthInput = AuthInput
   -- ^ ADR 34: set on the enforcer for a context behind an edge, replacing
   -- @Cache-Control@ on every proxied protected response. 'Nothing' adds no
   -- variable, so a direct context's revision is unchanged.
+  , authEnTenants :: ![EnTenant]
+  -- ^ EP-262: the operator's En tenants beside @nagare@, in declaration order.
   }
 
 -- | The two auth databases and workloads share one complete owner scope.
@@ -72,8 +79,8 @@ compileAuthComponent input databases = do
   pure $ do
     (authBundle, authNative) <- compiledAuth
     unless
-      (map (\(service, _, _) -> service) databases == ["shomei", "en"])
-      (Left (single "auth database inputs must name shomei and en in order"))
+      (map (\(service, _, _) -> service) databases == ["shomei", "en"] <> map (enTenantService . (^. #name)) (authEnTenants input))
+      (Left (single "auth database inputs must name shomei, en and each En tenant in order"))
     compiledDatabases <- traverse compileDatabase databases
     let bundles = authBundle : map fst compiledDatabases
         nativeMaps = authNative : map snd compiledDatabases
@@ -119,7 +126,11 @@ compileAuth input = do
   case sequence loaded of
     Left message -> pure (Left (single message))
     Right sources -> do
-      let transformed = concat <$> traverse transformSource (concat sources) >>= stampSchemaDigest
+      let transformed =
+            withEnTenantWorkloads (authEnTenants input) (concat sources)
+              >>= fmap concat . traverse transformSource
+              >>= withEnTenantSchemas (authEnTenants input)
+              >>= stampSchemaDigest
       case transformed of
         Left message -> pure (Left (single message))
         Right objects -> do
@@ -139,7 +150,7 @@ compileAuth input = do
                       objects
                         <> map
                           secretTemplate
-                          ["nagare-access", "nagare-en-api-keys", "nagare-shomei-keys"]
+                          (["nagare-access", "nagare-en-api-keys", "nagare-en-scrape-keys", "nagare-shomei-keys"] <> map enTenantKeySecret tenantNames)
                   , upstreamAfter = internalOrder
                   , upstreamExternalAfter = Map.empty
                   , upstreamOrderDeployments = False
@@ -171,11 +182,13 @@ compileAuth input = do
                       SchemaMigration
                   | (resource, bytes) <- migrationJobs
                   ]
+                -- EP-262: a migration Job is its service's by exact name, so
+                -- en-<tenant>-migrate is never En's own.
                 proofFor service =
                   [ proofId resource
                   | (resource, _) <- migrationJobs
                   , case resource ^. #address of
-                      Kubernetes _ _ _ _ name -> service `T.isPrefixOf` nameText name
+                      Kubernetes _ _ _ _ name -> jobService (nameText name) == Just service
                       _ -> False
                   ]
                 publicationOf service = map OrderedAfter (maybe [] pure (Map.lookup service (authImagePublications input)))
@@ -193,33 +206,39 @@ compileAuth input = do
                         resource {lifecycle = Protect}
                   Kubernetes _ _ kind _ name
                     | nameText kind `elem` ["job", "deployment"] ->
-                        let service = if "en" `T.isPrefixOf` nameText name then "en" else "shomei"
-                         in case Map.lookup service (authDatabasePrerequisites input) of
-                              Just databaseId ->
+                        -- The en Deployment serves every En service; a Job
+                        -- migrates exactly one.
+                        let services = case (nameText kind, nameText name) of
+                              ("deployment", "en") -> enServices
+                              ("deployment", other) -> [other]
+                              (_, other) -> maybe [] pure (jobService other)
+                            image = if "en" `T.isPrefixOf` nameText name then "en" else "shomei"
+                         in case traverse (`Map.lookup` authDatabasePrerequisites input) services of
+                              Just databaseIds@(_ : _) ->
                                 resource
                                   { dependencies =
-                                      publicationOf service
+                                      publicationOf image
                                         <> map
                                           OrderedAfter
-                                          ( databaseId
-                                              : if nameText kind == "deployment"
+                                          ( databaseIds
+                                              <> if nameText kind == "deployment"
                                                 then
-                                                  proofFor service
+                                                  concatMap proofFor services
                                                     <> [ shomeiSettingsResourceId (authOwner input)
-                                                       | service == "shomei"
+                                                       | services == ["shomei"]
                                                        ]
                                                 else []
                                           )
                                         <> resource ^. #dependencies
                                   }
-                              Nothing -> resource
+                              _ -> resource
                   _ -> resource
                 updated = Map.map (\(resource, bytes) -> (addExternal resource, bytes)) native
                 byId = Map.map fst updated
                 update (Managed resource) = Managed (Map.findWithDefault resource (resource ^. #identity) byId)
                 update declaration = declaration
             unless
-              (all (`Map.member` authDatabasePrerequisites input) ["en", "shomei"])
+              (all (`Map.member` authDatabasePrerequisites input) ("shomei" : enServices))
               (Left (single "auth database prerequisite is missing"))
             pure
               ( bundle
@@ -241,13 +260,23 @@ compileAuth input = do
         :| []
     known = either (error . T.unpack) id . mkName
     knownKey = either (error . T.unpack) id . mkLogicalKey
+    tenantNames = map (^. #name) (authEnTenants input)
+    enServices = "en" : map enTenantService tenantNames
+    -- The service a migration Job (named before or after its revision suffix)
+    -- belongs to.
+    jobService jobName =
+      listToMaybe . sortOn (negate . T.length) $
+        [ service
+        | service <- "shomei" : enServices
+        , jobName == service <> "-migrate" || (service <> "-migrate-") `T.isPrefixOf` jobName
+        ]
     packaged =
       [ ("cluster/bootstrap/shomei/migrations.yaml", "ad92056638ae97ccf2dec2921b72f1d027e3b238a3c1c70819ffc6ebc725096e")
       , ("cluster/bootstrap/en/migrations.yaml", "45cf0132d346e43cf307ed23ddb98dd6c0a74f3f4249c1373a9d54b0d8028f0b")
       , ("cluster/bootstrap/en/configmap.yaml", "d526e9f098658215ea11245f0a855b0f375dd3de43379815b824d22889fe78ce")
       , ("cluster/bootstrap/nagare-access/configmap.yaml", "195cf7c08a5f8645207f5ba51cf4818a1ad6f9f59f4a8c7f39685a70e92344ab")
       , ("cluster/bootstrap/shomei/service.yaml", "5d5e0a1470764e4a77f717a52d5a0e74e4d61b69056629e8a5bd615b11ea8f72")
-      , ("cluster/bootstrap/en/service.yaml", "9ed0b83a91c0e3855e4574f2998cbc7ed9161701f5ba173ff9b723e968714a1a")
+      , ("cluster/bootstrap/en/service.yaml", "15283016e22e15e9394f463a3146788ed6e76d99da3d5d84fe33b0a1523739cb")
       , ("cluster/bootstrap/nagare-access/service.yaml", "bf33f987d1bc27d565b3b5490a6f4c1291c96240b1610e7bb146b238228de9a1")
       ]
     loadManifest (relative, expected) = do
@@ -301,18 +330,23 @@ compileAuth input = do
     -- EP-187: the en Deployment carries the digest of the schema it mounts,
     -- so a reviewed schema change rolls the server instead of leaving the old
     -- model active behind an updated ConfigMap.
+    -- EP-262: with tenants the digest covers every schema key, so a tenant's
+    -- schema change rolls En too; without them it is Nagare's schema's alone.
     stampSchemaDigest objects = do
-      schema <- case [ text
-                     | (_, Object root) <- objects
-                     , KM.lookup "kind" root == Just (String "ConfigMap")
-                     , Just (Object meta) <- [KM.lookup "metadata" root]
-                     , KM.lookup "name" meta == Just (String "en-schema")
-                     , Just (Object payload) <- [KM.lookup "data" root]
-                     , Just (String text) <- [KM.lookup "app.en" payload]
-                     ] of
-        [text] -> Right text
+      payload <- case [ payload
+                      | (_, Object root) <- objects
+                      , KM.lookup "kind" root == Just (String "ConfigMap")
+                      , Just (Object meta) <- [KM.lookup "metadata" root]
+                      , KM.lookup "name" meta == Just (String "en-schema")
+                      , Just (Object payload) <- [KM.lookup "data" root]
+                      , Just (String _) <- [KM.lookup "app.en" payload]
+                      ] of
+        [payload] -> Right payload
         _ -> Left "auth bootstrap has no unique en-schema ConfigMap"
-      let digest = digestText (contentDigest (TE.encodeUtf8 schema))
+      schemaBytes <- case KM.toList payload of
+        [(_, String text)] -> Right (TE.encodeUtf8 text)
+        _ -> first (T.pack . show) (canonicalValue (Object payload))
+      let digest = digestText (contentDigest schemaBytes)
       traverse (\(location, value) -> (location,) <$> stampEn digest value) objects
     stampEn digest value@(Object root)
       | KM.lookup "kind" root == Just (String "Deployment")
@@ -431,17 +465,24 @@ compileAuth input = do
         (error . T.unpack)
         id
         (kubernetesAddress (authCluster input) group kind (Just "nagare-system") name)
-    job service = do
-      image <- imageFor service
+    job service = jobNamed service service
+    jobNamed imageService service = do
+      image <- imageFor imageService
       let suffix = T.take 12 (digestText (contentDigest (TE.encodeUtf8 image)))
       pure (address "batch/v1" "Job" (service <> "-migrate-" <> suffix))
     internalOrder = either (const Map.empty) id $ do
       shomeiJob <- job "shomei"
       enJob <- job "en"
+      tenantJobs <- traverse (\tenant -> jobNamed "en" (enTenantService tenant)) tenantNames
       pure
         ( Map.fromList
             [ (address "apps/v1" "Deployment" "shomei", [shomeiJob, address "v1" "Secret" "nagare-shomei-keys"])
-            , (address "apps/v1" "Deployment" "en", [enJob, address "v1" "Secret" "nagare-en-api-keys", address "v1" "ConfigMap" "en-schema"])
+            ,
+              ( address "apps/v1" "Deployment" "en"
+              , [enJob, address "v1" "Secret" "nagare-en-api-keys", address "v1" "Secret" "nagare-en-scrape-keys", address "v1" "ConfigMap" "en-schema"]
+                  <> tenantJobs
+                  <> [address "v1" "Secret" (enTenantKeySecret tenant) | tenant <- tenantNames]
+              )
             ,
               ( address "serving.knative.dev/v1" "Service" "nagare-access"
               ,

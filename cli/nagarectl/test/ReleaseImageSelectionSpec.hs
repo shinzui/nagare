@@ -236,6 +236,7 @@ compileWith publications images =
       , authImagePublications = publications
       , authMode = CloudAuth
       , authProxiedCacheControl = Nothing
+      , authEnTenants = []
       }
     >>= expectRight
 

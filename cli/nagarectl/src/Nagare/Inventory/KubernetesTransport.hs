@@ -22,6 +22,7 @@ module Nagare.Inventory.KubernetesTransport
   , countedTransport
   , kubectlPurpose
   , runtimePause
+  , runtimeLive
   , runtimeEscrowedShomeiKey
   )
 where
@@ -118,6 +119,14 @@ runtimePause :: KubernetesRuntimeConfig -> Int -> IO ()
 runtimePause config microseconds = case config of
   KubernetesRuntimeConfig {} -> threadDelay microseconds
   InterpretedRuntime {} -> pure ()
+
+-- | Whether requests reach a live cluster. A side channel kubectl requests
+-- cannot carry (EP-262's En metrics read) goes live only then; an interpreted
+-- runtime sends it to its interpreter.
+runtimeLive :: KubernetesRuntimeConfig -> Bool
+runtimeLive = \case
+  KubernetesRuntimeConfig {} -> True
+  InterpretedRuntime {} -> False
 
 -- | One Kubernetes request the runtime asks for: counted as logical work
 -- (EP-224), then answered by the selected interpreter.

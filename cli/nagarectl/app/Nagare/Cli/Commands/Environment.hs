@@ -2,6 +2,7 @@
 module Nagare.Cli.Commands.Environment
   ( runEnv
   , runSecret
+  , saveReviewedSecretChange
   )
 where
 

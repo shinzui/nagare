@@ -497,6 +497,7 @@ fixtureProfile =
     , platformVersion = Just "0.2.2"
     , deployer = Nothing
     , operatorName = Nothing
+    , enTenants = []
     }
 
 writeExecutable :: FilePath -> [String] -> IO ()

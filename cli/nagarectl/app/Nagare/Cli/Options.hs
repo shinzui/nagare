@@ -71,6 +71,7 @@ module Nagare.Cli.Options
   , TeamMemberOpts (..)
   , ScopeSelection (..)
   , SecretCommand (..)
+  , EnTenantCommand (..)
   , ServerStatusOpts (..)
   , StandaloneRetireOpts (..)
   , StorageCommand (..)
@@ -357,6 +358,7 @@ data Command
   | SitePreviewDelete SitePreviewDeleteOpts String
   | Env EnvCommand
   | Secret SecretCommand
+  | EnTenant EnTenantCommand
   | AppCheck AppCheckOpts
   | AppList AppListOpts
   | AppGet AppGetOpts
@@ -582,6 +584,13 @@ data EnvCommand
   | -- | dryRun, reconcileExact, dotenv file, reviewed execution, optional review directory
     EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath Bool (Maybe FilePath)
   deriving stock (Generic, Show)
+
+-- | The @en-tenant@ subcommands (EP-262 M4).
+data EnTenantCommand
+  = -- | tenant, the app's store options, the read-write and read-only
+    -- variable names, rotation version, reviewed plan directory
+    EnTenantBind String StoreCommonOpts (Maybe String) (Maybe String) (Maybe String) (Maybe FilePath)
+  deriving stock (Show)
 
 -- | The @secret@ subcommands. @SecretSet@'s value is read from stdin, never argv.
 data SecretCommand

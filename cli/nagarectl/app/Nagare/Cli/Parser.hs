@@ -16,7 +16,7 @@ import Nagare.Cli.Parser.Application
 import Nagare.Cli.Parser.Context (contextCmd, initCmd)
 import Nagare.Cli.Parser.Data (brokerCmd, dbCmd, storageCmd)
 import Nagare.Cli.Parser.Delegation (delegationCmd)
-import Nagare.Cli.Parser.Environment (envCmd, secretCmd)
+import Nagare.Cli.Parser.Environment (enTenantCmd, envCmd, secretCmd)
 import Nagare.Cli.Parser.Inventory (inventoryCmd)
 import Nagare.Cli.Parser.NixCache (nixCacheCmd)
 import Nagare.Cli.Parser.Operations
@@ -87,6 +87,7 @@ commandParser =
         <> command "site" siteCmd
         <> command "env" envCmd
         <> command "secret" secretCmd
+        <> command "en-tenant" enTenantCmd
         <> command "app" appCmd
         <> command "deployments" deploymentsCmd
         <> command "storage" storageCmd

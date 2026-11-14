@@ -45,6 +45,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (ReplaceStuckPod), PlannedOperation (..), PrepareError (..), PreparedNative (..), RecoveryDecision (..), Settlement (..))
+import Nagare.Inventory.Adapters.EnTenants (enDeclaredTenants, proveEnTenants)
 import Nagare.Inventory.Adapters.KubernetesKinds (stuckPodReplacementKinds)
 import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
 import Nagare.Inventory.Adapters.KubernetesReadiness (statefulSetReady)
@@ -102,6 +103,9 @@ data KubernetesPodOps = KubernetesPodOps
   -- resourceVersion, then wait for the StatefulSet's rollout.
   , observeReplacement :: !(PodReplacement -> IO (Either Text ReplacementObservation))
   -- ^ What recovery and settlement see of a replacement.
+  , proveWorkload :: !(ResourceId -> IO (Either Text ()))
+  -- ^ A member's proof beyond its controller's readiness, asked by
+  -- verification and recovery: EP-262's every declared En tenant is available.
   }
 
 -- | A fresh observation of a replacement's StatefulSet and reviewed pod.
@@ -133,14 +137,18 @@ noPodOps =
     , readPodBlock = \_ -> pure (Right Nothing)
     , replaceStuckPod = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "this adapter has no pod access"))
     , observeReplacement = \_ -> pure (Left "this adapter has no pod access")
+    , proveWorkload = \_ -> pure (Right ())
     }
 
 -- | Read a member StatefulSet's stuck pod through kubectl. Pods are listed
 -- only when the StatefulSet reads not ready, so a healthy StatefulSet costs
 -- one read.
 runtimePodOps :: KubernetesRuntimeConfig -> Map ResourceId (ManagedResource, ByteString) -> KubernetesPodOps
-runtimePodOps config specs = KubernetesPodOps (fmap (fmap (>>= asStuck)) . reader) reader replace observe
+runtimePodOps config specs = KubernetesPodOps (fmap (fmap (>>= asStuck)) . reader) reader replace observe prove
   where
+    prove resource = case Map.lookup resource specs >>= enDeclaredTenants . snd of
+      Just tenants -> proveEnTenants config tenants
+      Nothing -> pure (Right ())
     asStuck = \case
       PodStuck pod' -> Just pod'
       PodBrokenAtRevision {} -> Nothing

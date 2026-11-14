@@ -14,8 +14,9 @@ object app {
 }
 ```
 
-Before serving real traffic, run en's PostgreSQL migrations against the database
-in `EN_DATABASE_URL`; `en-server` expects the schema tables to exist at startup.
+En runs in tenant mode (En ADR 9): Nagare's own relationships are tenant `nagare`,
+whose database is `en-db`. Before serving real traffic, run en's PostgreSQL
+migrations against each tenant's database; `en-server` expects the schema tables to exist at startup.
 Build the `en-server` image from the local en checkout with:
 
 ```bash
@@ -58,7 +59,7 @@ default path.
 
 The service and migration Job both read `POSTGRES_USER`, `POSTGRES_PASSWORD`,
 and `POSTGRES_DB` from Nagare's managed database Secret `nagare-db-en-db`. The
-service builds `EN_DATABASE_URL` as a libpq keyword connection string, and the
+service builds `EN_TENANT_NAGARE_DATABASE_URL` as a libpq keyword connection string, and the
 migration executable uses the same standard `PG*` environment variables through
 libpq. The reviewed auth component creates the database `en-db` in
 `nagare-system` before running migrations. The database
@@ -75,7 +76,10 @@ unchanged migration does not rerun when the Job is no longer present.
 En requires bearer authentication. The reviewed auth component creates and preserves the
 `nagare-en-api-keys` Secret: En receives named read-write and read-only entries,
 `nagarectl` uses the raw read-write key, and nagare-access receives only the raw
-read-only key.
+read-only key. Both are keys of tenant `nagare`. The `nagare-en-scrape-keys` Secret
+holds one more generated key, `metrics`, set as `EN_METRICS_KEYS`: it reads every
+tenant's `GET /metrics` and nothing else. Apply reads `en_tenant_available` with it,
+and vmagent scrapes En with it.
 
 ```bash
 review_dir="$(mktemp -d)"

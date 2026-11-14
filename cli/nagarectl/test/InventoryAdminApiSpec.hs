@@ -185,6 +185,7 @@ authScope = do
         , authImagePublications = Map.empty
         , authMode = CloudAuth
         , authProxiedCacheControl = Nothing
+        , authEnTenants = []
         }
       >>= expectRight
   expectRight (mkScopeDeclaration fixtureOwner [bundle])

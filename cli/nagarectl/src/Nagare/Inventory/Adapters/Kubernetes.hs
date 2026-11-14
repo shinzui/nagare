@@ -418,7 +418,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
             Nothing -> pure (Left "Kubernetes resource has no bound native object")
             Just (_, native) -> case manualBackupJobReceiptExpectation native of
               Left reason -> pure (Left reason)
-              Right Nothing -> pure (Right jobProof)
+              Right Nothing -> fmap (jobProof <$) (proveWorkload pods (mutationResource mutation))
               Right (Just expectation) -> case current of
                 KubernetesPresent physical _ _ _ -> do
                   receiptResult <- readBackupReceipt (mutationResource mutation) physical

@@ -28,6 +28,7 @@ import Nagare.Cli.Commands.Database (runDb)
 import Nagare.Cli.Commands.Delegation (runDelegation)
 import Nagare.Cli.Commands.Deployment (runDeploy)
 import Nagare.Cli.Commands.Domains (runDomains)
+import Nagare.Cli.Commands.EnTenant (runEnTenant)
 import Nagare.Cli.Commands.Environment (runEnv, runSecret)
 import Nagare.Cli.Commands.Host (runCluster, runHost, runKubeconfig)
 import Nagare.Cli.Commands.Image (runAppImagePlan)
@@ -140,6 +141,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   SitePreviewDelete copts pname -> runPreviewDelete mctx copts (T.pack pname)
   Env ecmd -> runEnv mctx ecmd
   Secret scmd -> runSecret mctx scmd
+  EnTenant tcmd -> runEnTenant mctx tcmd
   AppCheck o -> runAppCheck o
   AppList o -> runAppList o
   AppGet o -> runAppGet o

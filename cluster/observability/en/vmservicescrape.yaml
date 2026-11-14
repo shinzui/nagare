@@ -1,0 +1,25 @@
+# Scrape En's per-tenant metrics (EP-262). In tenant mode En stays ready while
+# one tenant's database is down (En ADR 10); en_tenant_available is what says
+# so. The object lives in nagare-system beside its bearer-token Secret, which a
+# scrape object can only name in its own namespace; VMAgent discovers it
+# through selectAllByDefault. The scrape key reads GET /metrics for every
+# tenant and nothing else.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: en
+  namespace: nagare-system
+  labels:
+    nagare.dev/component: alerting
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: en
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      bearerTokenSecret:
+        name: nagare-en-scrape-keys
+        key: metrics

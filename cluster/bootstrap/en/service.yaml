@@ -55,7 +55,12 @@ spec:
             httpGet:
               path: /health/live
               port: 8080
+          # Tenant mode (En ADR 9): Nagare's own relationships are tenant
+          # nagare. Operator-declared tenants are appended by the auth
+          # component (EP-262), which also extends EN_TENANTS.
           env:
+            - name: EN_TENANTS
+              value: nagare
             - name: PGHOST
               value: en-db.nagare-system.svc.cluster.local
             - name: PGPORT
@@ -75,11 +80,11 @@ spec:
                 secretKeyRef:
                   name: nagare-db-en-db
                   key: POSTGRES_DB
-            - name: EN_DATABASE_URL
+            - name: EN_TENANT_NAGARE_DATABASE_URL
               value: "host=$(PGHOST) port=$(PGPORT) dbname=$(PGDATABASE) user=$(PGUSER) password=$(PGPASSWORD)"
             - name: EN_PORT
               value: "8080"
-            - name: EN_SCHEMA_PATH
+            - name: EN_TENANT_NAGARE_SCHEMA_PATH
               value: /etc/en/schema/app.en
             - name: EN_DECISION_CACHE_MAX_ENTRIES
               value: "10000"
@@ -99,10 +104,19 @@ spec:
                 secretKeyRef:
                   name: nagare-en-api-keys
                   key: read-only
-            - name: EN_API_KEYS_READ_WRITE
+            - name: EN_TENANT_NAGARE_API_KEYS_READ_WRITE
               value: "nagarectl:$(NAGARE_EN_API_KEY_READ_WRITE)"
-            - name: EN_API_KEYS_READ_ONLY
+            - name: EN_TENANT_NAGARE_API_KEYS_READ_ONLY
               value: "nagare-access:$(NAGARE_EN_API_KEY_READ_ONLY)"
+            # A scrape key reads every tenant's GET /metrics and nothing else;
+            # apply's proof and vmagent use it (EP-262).
+            - name: NAGARE_EN_SCRAPE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-en-scrape-keys
+                  key: metrics
+            - name: EN_METRICS_KEYS
+              value: "scrape:$(NAGARE_EN_SCRAPE_KEY)"
           volumeMounts:
             - name: schema
               mountPath: /etc/en/schema

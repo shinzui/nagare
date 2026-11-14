@@ -145,9 +145,15 @@ renderRebuildRestoreJob i =
 -- datastore id so tokens minted before the loss fail cleanly, as En's own restore
 -- runbook requires. Each loop iteration commits one transaction. The tag is not
 -- @$$@, which Kubernetes collapses to @$@ in container args.
+--
+-- EP-262: every En tenant's database needs it: @en-db@ (tenant @nagare@) and
+-- each operator tenant's @en-<name>-db@. Only the auth scope declares
+-- databases in @nagare-system@.
 enDatastoreRecovery :: RestoreJobInputs -> Text
 enDatastoreRecovery i
-  | i ^. #engine == Postgres && i ^. #name == "en-db" && i ^. #namespace == "nagare-system" =
+  | i ^. #engine == Postgres
+      && i ^. #namespace == "nagare-system"
+      && (i ^. #name == "en-db" || ("en-" `T.isPrefixOf` (i ^. #name) && "-db" `T.isSuffixOf` (i ^. #name) && T.length (i ^. #name) > 6)) =
       "; "
         <> psql
         <> " -c 'DO $x$ DECLARE t xid8 := (SELECT max(x) FROM (SELECT max(xid) AS x FROM en_transaction UNION ALL SELECT max(pg_snapshot_xmax(snapshot)) FROM en_transaction UNION ALL SELECT max(created_xid) FROM relation_tuple) AS restored); BEGIN WHILE pg_current_xact_id() <= t LOOP COMMIT; END LOOP; END $x$'"

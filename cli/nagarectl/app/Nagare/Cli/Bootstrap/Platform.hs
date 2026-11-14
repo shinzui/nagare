@@ -4,7 +4,7 @@ module Nagare.Cli.Bootstrap.Platform
   )
 where
 
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as AesonMap
 import Data.ByteString (ByteString)
@@ -35,6 +35,7 @@ import Nagare.Inventory.Components.Auth
   ( AuthInput (..)
   , AuthMode (..)
   )
+import Nagare.Inventory.Components.AuthTenants (EnTenant (EnTenant), retiredEnTenants)
 import Nagare.Inventory.Components.CloudflareTunnel
   ( CloudflareTunnelInput (..)
   , cloudflareTunnelTokenSecretFile
@@ -66,7 +67,7 @@ import Nagare.Inventory.Components.ObservabilitySecrets
   , readAlertmanagerEnabled
   )
 import Nagare.Inventory.Components.PackagedAuth
-  ( packagedAuthInputs
+  ( packagedAuthInputsWithTenants
   )
 import Nagare.Inventory.Components.PackagedCache
   ( compilePackagedCache
@@ -103,6 +104,7 @@ import Nagare.Target
   , Mode (Cloud, Local)
   , TargetProfile
   , acmeDirectoryUrl
+  , contextFilePath
   , contextNameText
   , defaultGcsInventoryStoreUrl
   , effectiveInventoryStore
@@ -110,6 +112,7 @@ import Nagare.Target
   , registryPrefix
   , storeBackendFor
   )
+import Nagare.Target.EnTenants (readEnTenantSchema)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
@@ -282,17 +285,29 @@ buildPlatformCandidate active paths workspace snapshot = do
             )
     GcsBackend {} -> pure Nothing
   let authMode = if profile ^. #mode == Local then LocalAuth else CloudAuth
+  -- EP-262: the operator's En tenants, each with its schema file's bytes. A
+  -- tenant the accepted auth scope holds stays declared.
+  contextFile <- contextFilePath (active ^. #contextName)
+  enTenants <- forM (profile ^. #enTenants) $ \tenant ->
+    EnTenant (tenant ^. #name) <$> (readEnTenantSchema contextFile tenant >>= either dieT pure)
+  let authOwner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "auth")
+  forM_ (Map.lookup authOwner (ResourceInventory.snapshotScopes snapshot)) $ \(_, accepted) ->
+    case retiredEnTenants accepted (map (\(EnTenant name _) -> name) enTenants) of
+      [] -> pure ()
+      removed : _ ->
+        dieT ("En tenant " <> removed <> " is no longer in NAGARE_EN_TENANTS; its database and keys are protected, so removing a tenant is refused. Declare it again.")
   (packagedAuth, authDatabases) <-
     either
       (dieT . T.pack . show)
       pure
-      ( packagedAuthInputs
+      ( packagedAuthInputsWithTenants
           root
           foundation
           authMode
           (profile ^. #baseDomain)
           authImages
           (DatabaseBackupTarget backupBackend (profile ^. #backupRecoveryPoint))
+          enTenants
       )
   let rawAuth =
         packagedAuth

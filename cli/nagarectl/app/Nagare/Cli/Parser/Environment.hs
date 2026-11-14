@@ -2,12 +2,14 @@
 module Nagare.Cli.Parser.Environment
   ( envCmd
   , secretCmd
+  , enTenantCmd
   , storeCommonOptsParser
   )
 where
 
 import Nagare.Cli.Options
   ( Command (..)
+  , EnTenantCommand (..)
   , EnvCommand (..)
   , ScopeSelection (..)
   , SecretCommand (..)
@@ -184,4 +186,33 @@ secretSubparser =
               )
               (progDesc "Apply an exact reviewed Runtime, Build, or Preview Secret replacement, or save its review")
           )
+    )
+
+enTenantCmd :: ParserInfo Command
+enTenantCmd =
+  info
+    (EnTenant <$> enTenantSubparser <**> helper)
+    (fullDesc <> progDesc "Use an operator-declared En tenant from an app (EP-262)")
+
+enTenantSubparser :: Parser EnTenantCommand
+enTenantSubparser =
+  subparser
+    ( command
+        "bind"
+        ( info
+            ( EnTenantBind
+                <$> strArgument (metavar "NAME" <> help "The En tenant, as NAGARE_EN_TENANTS declares it")
+                <*> ( StoreCommonOpts
+                        <$> strOption (long "app" <> metavar "APP" <> help "The app whose runtime Secret receives the keys")
+                        <*> configFileOpt
+                        <*> ghcEnvOpt
+                    )
+                <*> optional (strOption (long "read-write-as" <> metavar "VAR" <> help "Runtime Secret key for the tenant's read-write API key"))
+                <*> optional (strOption (long "read-only-as" <> metavar "VAR" <> help "Runtime Secret key for the tenant's read-only API key"))
+                <*> optional (strOption (long "version" <> metavar "TOKEN" <> help "Opaque reviewed Secret rotation version"))
+                <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review the runtime Secret change"))
+                  <**> helper
+            )
+            (progDesc "Copy a tenant's API keys into an app's runtime Secret as one reviewed change; no key is printed")
+        )
     )

@@ -1,5 +1,5 @@
-# Curated alerts for Nagare's single-node k3s platform. These seven rules cover
-# the five operator-relevant failure modes; the chart's broad multi-node rule
+# Curated alerts for Nagare's single-node k3s platform. These eight rules cover
+# the six operator-relevant failure modes; the chart's broad multi-node rule
 # library is deliberately disabled in victoria-metrics/values.yaml.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
@@ -100,3 +100,17 @@ spec:
           annotations:
             summary: 'Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in less than 14d'
             description: 'Inspect the Certificate and its issuer; renewal is likely failing.'
+    - name: nagare.auth
+      interval: 60s
+      rules:
+        - alert: EnTenantUnavailable
+          # En stays ready while one tenant's database is down (En ADR 10), so
+          # no workload alert sees it. A down nagare tenant fails every sign-in.
+          expr: en_tenant_available == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'En tenant {{ $labels.tenant }} is unavailable'
+            description: 'En cannot serve tenant {{ $labels.tenant }}: its database is down or refused. Read the reason with kubectl -n nagare-system logs deploy/en | grep "[tenant {{ $labels.tenant }}]", fix the database (en-db for tenant nagare, en-<tenant>-db otherwise), then re-apply. Tenant nagare gates every protected-site sign-in.'
+            runbook: 'docs/user/observability.md#en-tenants'

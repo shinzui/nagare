@@ -142,6 +142,41 @@ exposing it publicly. If you do want a public wildcard-domain URL, put Grafana
 behind the shared Shomei/en forward-auth enforcer; see
 [Protecting observability UIs](protecting-observability-uis.md).
 
+## En tenants
+
+En serves every tenant from one process (see [Contexts](contexts.md) for
+declaring more). It stays ready while one tenant's database is down, so a
+ready `en` Deployment does not mean that tenant `nagare`, which gates every
+protected-site sign-in, can answer. Three things watch it:
+
+- **The scrape key.** The generated Secret `nagare-en-scrape-keys` in
+  `nagare-system` holds one key, `metrics`. En accepts it in `EN_METRICS_KEYS`:
+  it reads `GET /metrics` for every tenant and gets `403` on every other route.
+  It is created once and never rotates.
+- **Apply.** Applying the auth scope reads `en_tenant_available` with that key
+  through a private port-forward, retrying for up to a minute after the
+  rollout. A tenant that is not `1` fails the apply with
+  `en tenant NAME unavailable: <En's last UNAVAILABLE reason>`, and recovery
+  does not pass it either. Fix the tenant's database (`en-db` for `nagare`,
+  `en-NAME-db` otherwise) and apply again; do not remove the tenant to make
+  apply pass.
+- **The scrape and the alert.** With observability installed, the
+  `VMServiceScrape` `en` in `nagare-system` scrapes En every 30 seconds with the
+  scrape key, and the `EnTenantUnavailable` rule (group `nagare.auth`) fires
+  when `en_tenant_available == 0` for 5 minutes, naming the tenant.
+
+To read the gauge by hand:
+
+```bash
+key="$(kubectl -n nagare-system get secret nagare-en-scrape-keys -o jsonpath='{.data.metrics}' | base64 -d)"
+kubectl -n nagare-system port-forward svc/en 18080:80 &
+curl -sS -H "Authorization: Bearer $key" http://127.0.0.1:18080/metrics | grep en_tenant_available
+```
+
+```text
+en_tenant_available{tenant="nagare"} 1
+```
+
 ## Verify
 
 - All pods in `monitoring`, `logging`, `tracing` are `Running`.

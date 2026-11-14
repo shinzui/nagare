@@ -18,9 +18,10 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Components.Foundation (FoundationInput (..))
+import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Kubernetes (kubernetesObjectIdentity)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import System.FilePath ((</>))
@@ -46,14 +47,22 @@ compileObservabilityExtras root foundation metricsRelease = do
               , upstreamKey = known (mkLogicalKey "observability-extra")
               , upstreamRoot = root
               , upstreamFiles = [(path, known (mkContentDigest digest)) | (path, digest) <- manifestFiles]
-              , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
+              , upstreamNamespaces =
+                  Map.fromList
+                    [ (known (mkName "monitoring"), monitoringNamespace)
+                    , (known (mkName "nagare-system"), foundationNamespaceId foundation (known (mkName "nagare-system")))
+                    ]
               , upstreamTransferred = Set.empty
               , upstreamConfigMapData = Map.empty
               , upstreamClusterIpServices = Set.empty
               , upstreamImageOverrides = Map.empty
               , upstreamGenerated = objects
               , upstreamAfter = Map.empty
-              , upstreamExternalAfter = Map.fromList [(address, [metricsRelease]) | address <- addresses]
+              , upstreamExternalAfter =
+                  Map.fromList
+                    ( (enScrape, [metricsRelease, enScrapeKey])
+                        : [(address, [metricsRelease]) | address <- addresses]
+                    )
               , upstreamOrderDeployments = False
               , upstreamRegistryDelegations = Map.empty
               }
@@ -73,7 +82,8 @@ compileObservabilityExtras root foundation metricsRelease = do
     manifestFiles =
       [ ("cluster/observability/brokers/vmservicescrape.yaml", "671a9e79b8bb6323700c668d99bf3e8acc762ea9f7051570193cf60cb4559504")
       , ("cluster/observability/cert-manager/vmservicescrape.yaml", "863fb660be31a9de8c41102291b812e34613fd602ec95a03d40a57637e1991ed")
-      , ("cluster/observability/vmrules/nagare-alerts.yaml", "0bfb5e50ff46e337e1736ab68783e3d52f5e949e3651c5bf5fa05d6285a65a15")
+      , ("cluster/observability/vmrules/nagare-alerts.yaml", "b479e28772eaaa2d4cc154a76bb2d83c87e85a876f92a0bba15dd656f1b22b1a")
+      , ("cluster/observability/en/vmservicescrape.yaml", "30ec14c0555cecfcbc965bb0ff83bacfeeb8d978ba422ddc84629ae2e18dfc12")
       ]
     generatedFiles =
       [ ("cluster/observability/grafana/dashboards/nagare-brokers.json", "b90c9908f24e1ea0aa486a5591687d75e130ef67f7574529d066c597256ed515", "grafana-dashboard-nagare-brokers", "nagare-brokers.json", "grafana_dashboard")
@@ -86,14 +96,26 @@ compileObservabilityExtras root foundation metricsRelease = do
       , address "operator.victoriametrics.com/v1beta1" "VMRule" "nagare-alerts"
       ]
         <> [address "v1" "ConfigMap" name | (_, _, name, _, _) <- generatedFiles]
-    address api kind name =
+    address = addressIn "monitoring"
+    addressIn namespace api kind name =
       known
         ( kubernetesAddress
             (foundationCluster foundation)
             api
             kind
-            (Just "monitoring")
+            (Just namespace)
             name
+        )
+    -- EP-262: En's scrape lives beside its bearer-token Secret, which a
+    -- scrape object can only name in its own namespace, and waits for the
+    -- auth scope to create that Secret.
+    enScrape = addressIn "nagare-system" "operator.victoriametrics.com/v1beta1" "VMServiceScrape" "en"
+    enScrapeKey =
+      known
+        ( kubernetesObjectIdentity
+            (known (mkScopeId Platform "auth"))
+            (known (mkLogicalKey "auth"))
+            (addressIn "nagare-system" "v1" "Secret" "nagare-en-scrape-keys")
         )
     loadConfigMap (path, expected, name, key, label) = do
       readResult <- try (BS.readFile (root </> path)) :: IO (Either IOException ByteString)

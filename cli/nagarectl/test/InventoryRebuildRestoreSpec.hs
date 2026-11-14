@@ -67,6 +67,10 @@ inventoryRebuildRestoreTests =
         assertBool
           "an application's database named en-db ran En's recovery"
           (not ("en_datastore_metadata" `T.isInfixOf` script restoreJobInputsPg {name = "en-db", namespace = "personal"}))
+        -- EP-262: an operator tenant's database restores the same way.
+        assertBool
+          "the demo tenant's en-demo-db lacks En's recovery"
+          ("DELETE FROM en_datastore_metadata" `T.isInfixOf` script restoreJobInputsPg {name = "en-demo-db", namespace = "nagare-system"})
     , testCase "a ClickHouse rebuild restore stages the archive and moves every table into the empty default database" $ do
         let (scope, native) = engineDatabase ClickHouse
         (restoreScope, restoreNative) <- either (assertFailure . show) pure (compileRebuildRestoreScope (engineRequest ClickHouse) scope native)

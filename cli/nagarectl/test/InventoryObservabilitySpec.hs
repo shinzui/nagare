@@ -145,22 +145,25 @@ inventoryObservabilityTests =
         let metricsId = case pinnedObservabilityInputs cluster "../.." "v1.32.0" of
               firstRelease : _ -> packagedReleaseId firstRelease
               [] -> error "pinned metrics release disappeared"
-        (extras, extraNative) <-
+        (_, extraNative) <-
           compileObservabilityExtras
             "../.."
             foundation
             metricsId
             >>= either (assertFailure . show) pure
-        Map.size extraNative @?= 6
+        Map.size extraNative @?= 7
         Map.size secretNative @?= 1
         let (candidate, _) = base
         case composeInventory
           snapshot
           ( candidateChanges candidate
               <> ( case scopes of
+                     -- EP-262: the extras' En scrape waits for the auth
+                     -- scope's scrape key, which this bootstrap lacks; the
+                     -- packaged cache case below composes them with auth.
                      firstScope : rest ->
                        ReplaceScope firstScope
-                         :| (map ReplaceScope rest <> [ReplaceScope extras, ReplaceScope secretScope])
+                         :| (map ReplaceScope rest <> [ReplaceScope secretScope])
                      [] -> error "five observability scopes disappeared"
                  )
           ) of

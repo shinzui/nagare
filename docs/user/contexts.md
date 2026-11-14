@@ -58,6 +58,38 @@ The core fields are:
 | Mode | `NAGARE_MODE` (`cloud` or `local`) |
 | Local object store | `NAGARE_LOCAL_OBJECT_STORE` |
 | Backup recovery point | `NAGARE_BACKUP_RECOVERY_POINT` (`hourly`, the default, or `daily` — see [Backups](backups-and-disaster-recovery.md#managed-databases-backed-up-by-default)) |
+| En tenants | `NAGARE_EN_TENANTS` and one `NAGARE_EN_TENANT_<NAME>_SCHEMA` per tenant (see [En tenants](#en-tenants)) |
+
+## En tenants
+
+Nagare's En serves Nagare's own relationships as tenant `nagare`. An operator
+can declare more tenants for other services, such as a shared registry, each
+with its own schema, database and keys. Only the operator's context declares
+them: a tenant changes and restarts the En that gates every sign-in.
+
+```bash
+export NAGARE_EN_TENANTS=mori,team-a
+export NAGARE_EN_TENANT_MORI_SCHEMA=en/mori-registry.en
+export NAGARE_EN_TENANT_TEAM_A_SCHEMA=/srv/schemas/team-a.en
+```
+
+- A name is a lower-case letter followed by at most 30 lower-case letters,
+  digits or `-`. `nagare` is reserved.
+- `<NAME>` is the name upper-cased with `-` replaced by `_`, as En names its
+  own variables.
+- A relative schema path is resolved against the directory of the context file
+  after following its symlinks, so a context linked from the operator
+  repository finds its schema there. The file is read only when the platform is
+  planned; other commands do not need it.
+- A misspelt or undeclared `NAGARE_EN_TENANT_*` variable is refused.
+
+Planning the platform then adds, per tenant, a database `en-<name>-db` in
+`nagare-system` with its backups, a migration Job, a generated Secret
+`nagare-en-tenant-<name>-keys` (`read-write`, `read-only`), the `en-schema`
+key `tenant-<name>.en`, and the tenant's En environment. En restarts to serve
+it. Bind the keys into an app with
+[`nagarectl en-tenant bind`](env-and-secrets.md#en-tenants). Removing a tenant
+from the list is refused: its database and keys are protected.
 
 ## Commands
 

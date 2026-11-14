@@ -2,6 +2,7 @@
 module Nagare.Inventory.Components.PackagedAuth
   ( compilePackagedAuth
   , packagedAuthInputs
+  , packagedAuthInputsWithTenants
   )
 where
 
@@ -16,6 +17,7 @@ import Nagare.Dsl.Database (Database (..), Engine (Postgres), defaultEngineVersi
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
+import Nagare.Inventory.Components.AuthTenants (enTenantService)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Database (DatabaseBackupTarget)
 import Nagare.Platform.ReleaseImages (ImageSelection)
@@ -50,7 +52,21 @@ packagedAuthInputs ::
   DatabaseBackupTarget ->
   Either (NonEmpty InventoryError) (AuthInput, [(Text, DatabaseDirectInput, DatabaseBackupTarget)])
 packagedAuthInputs root foundation mode domain images backend =
-  case traverse databaseInput ["shomei", "en"] of
+  packagedAuthInputsWithTenants root foundation mode domain images backend []
+
+-- | EP-262: with the operator's En tenants, each a direct database
+-- @en-<name>-db@ declared exactly like @en-db@, after Shomei's and En's.
+packagedAuthInputsWithTenants ::
+  FilePath ->
+  FoundationInput ->
+  AuthMode ->
+  Text ->
+  Map Text ImageSelection ->
+  DatabaseBackupTarget ->
+  [EnTenant] ->
+  Either (NonEmpty InventoryError) (AuthInput, [(Text, DatabaseDirectInput, DatabaseBackupTarget)])
+packagedAuthInputsWithTenants root foundation mode domain images backend tenants =
+  case traverse databaseInput (["shomei", "en"] <> map (enTenantService . (^. #name)) tenants) of
     Left failure -> Left (failure :| [])
     Right inputs ->
       let auth =
@@ -66,6 +82,7 @@ packagedAuthInputs root foundation mode domain images backend =
               Map.empty
               mode
               Nothing
+              tenants
        in Right (auth, [(service, direct, backend) | (service, direct, _) <- inputs])
   where
     owner = known (mkScopeId Platform "auth")

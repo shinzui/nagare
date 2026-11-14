@@ -185,8 +185,8 @@ recordedScopes = do
 -- | The local platform scopes this release compiles from a payload root, the
 -- stamp included, with the fixed inputs of a local context: the scopes
 -- `platform bootstrap plan` composes in its platform stage. Components whose
--- manifests this release pins (the object store and the auth plane) come
--- from @pinnedRoot@.
+-- manifests this release pins (the object store, the auth plane and the
+-- observability extras) come from @pinnedRoot@.
 compileLocalPlatform :: FilePath -> FilePath -> PayloadManifest -> IO (Map Text ScopeDeclaration)
 compileLocalPlatform root pinnedRoot manifest = do
   let observabilityInputs = pinnedObservabilityInputs platformCluster root "v1.32.0"
@@ -214,7 +214,8 @@ compileLocalPlatform root pinnedRoot manifest = do
   metrics <- case observabilityInputs of
     firstRelease : _ -> pure (packagedReleaseId firstRelease)
     [] -> assertFailure "no pinned metrics release" >> error "unreachable"
-  (extras, _) <- compileObservabilityExtras root foundation metrics >>= expectRight
+  -- EP-262 changed the pinned alert rules and added En's scrape.
+  (extras, _) <- compileObservabilityExtras pinnedRoot foundation metrics >>= expectRight
   complete <-
     expectRight
       ( composeInventory

@@ -41,6 +41,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), runtimeEscrowedShomeiKey)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Target.EnTenants (mkEnTenantName)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -265,8 +266,14 @@ authCredentialKind (Object root) | KM.lookup "kind" root == Just (String "Secret
         (Left "auth credential template has an invalid namespace or includes data")
       case name of
         "nagare-en-api-keys" -> Right (Just ["read-write", "read-only"])
+        "nagare-en-scrape-keys" -> Right (Just ["metrics"])
         "nagare-shomei-keys" -> Right (Just ["key-encryption-key"])
         "nagare-access" -> Right (Just ["cookie-key"])
+        -- EP-262: an operator En tenant's keys.
+        _
+          | Just tenant <- T.stripPrefix "nagare-en-tenant-" name >>= T.stripSuffix "-keys"
+          , Right _ <- mkEnTenantName tenant ->
+              Right (Just ["read-write", "read-only"])
         _ -> Left "auth credential template has an unexpected Secret name"
     Just _ -> Left "unknown auth credential template"
 authCredentialKind _ = Right Nothing

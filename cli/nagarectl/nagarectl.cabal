@@ -160,6 +160,7 @@ library
     Nagare.Inventory.Adapters.Cloudflare
     Nagare.Inventory.Adapters.CloudflareRuntime
     Nagare.Inventory.Adapters.CredentialTemplate
+    Nagare.Inventory.Adapters.EnTenants
     Nagare.Inventory.Adapters.Foundation
     Nagare.Inventory.Adapters.FoundationRuntime
     Nagare.Inventory.Adapters.GitHubRelease
@@ -209,6 +210,7 @@ library
     Nagare.Inventory.Command.Open
     Nagare.Inventory.Components.AdminApi
     Nagare.Inventory.Components.Auth
+    Nagare.Inventory.Components.AuthTenants
     Nagare.Inventory.Components.CloudflareTunnel
     Nagare.Inventory.Components.CloudflareZone
     Nagare.Inventory.Components.ControllerImage
@@ -253,6 +255,7 @@ library
     Nagare.Inventory.DeployerDelegation
     Nagare.Inventory.DeployerStoreAccess
     Nagare.Inventory.Digest
+    Nagare.Inventory.EnForward
     Nagare.Inventory.Environment
     Nagare.Inventory.Execute
     Nagare.Inventory.Foundation
@@ -398,6 +401,7 @@ library
     Nagare.Target
     Nagare.Target.Acme
     Nagare.Target.ContextFile
+    Nagare.Target.EnTenants
     Nagare.Target.Kinds
     Nagare.Task.Delete
     Nagare.Task.Discover
@@ -467,6 +471,7 @@ executable nagarectl
     Nagare.Cli.Commands.Delegation
     Nagare.Cli.Commands.Deployment
     Nagare.Cli.Commands.Domains
+    Nagare.Cli.Commands.EnTenant
     Nagare.Cli.Commands.Environment
     Nagare.Cli.Commands.Host
     Nagare.Cli.Commands.Image
@@ -636,6 +641,7 @@ test-suite nagarectl-test
     InventoryApplicationUpdateRecoverySpec
     InventoryArtifactSpec
     InventoryAuthSpec
+    InventoryAuthTenantsSpec
     InventoryCacheSpec
     InventoryCdnCollectionSpec
     InventoryCdnPurgeSpec
@@ -653,6 +659,7 @@ test-suite nagarectl-test
     InventoryDatabaseEngineSpec
     InventoryEffectfulCollectionSpec
     InventoryEffectfulSpec
+    InventoryEnTenantsSpec
     InventoryFoundationSpec
     InventoryGcloudAuthSpec
     InventoryGogolSpec

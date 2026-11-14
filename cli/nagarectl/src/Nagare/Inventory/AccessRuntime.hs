@@ -18,15 +18,13 @@ module Nagare.Inventory.AccessRuntime
   )
 where
 
-import Control.Concurrent (forkIO)
 import Control.Concurrent.Async (async, waitCatch)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
-import Control.Exception (IOException, bracket, catch, onException, try)
+import Control.Exception (IOException, bracket, try)
 import Control.Monad (join)
 import Data.Aeson
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isRight)
 import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
@@ -42,6 +40,7 @@ import Nagare.Inventory.Access
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.ClusterSession (sessionKubeconfigArguments)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.EnForward (EnForward, closeEnForward, enForwardRunning, enRequest, parseEnForwardPort, startEnForward)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan (ReviewBundle, ReviewDocument (reviewOperations), ReviewInventory, ReviewOperation (reviewPlannedOperation), reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions, reviewInventoryHistory)
 import Nagare.Inventory.Plan.Types (historyDeclarations)
@@ -51,14 +50,9 @@ import Nagare.Resource.Access (teamKeyText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (decodeScope)
-import Network.HTTP.Client
-import Network.HTTP.Client.TLS (newTlsManager)
-import Network.HTTP.Types.Status (statusCode)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.IO (Handle, hClose, hGetLine)
-import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, getProcessExitCode, proc, readProcessWithExitCode, terminateProcess, waitForProcess)
-import System.Timeout (timeout)
+import System.Process (readProcessWithExitCode)
 
 accessQuery :: AccessBinding -> Value
 accessQuery binding =
@@ -434,27 +428,16 @@ prepareEnSession transport body =
       guarded <- clusterGuard transport
       when (isRight guarded) (void (withEn transport (\_ -> pure ())))
 
--- | kubectl's port-forward to the context's en Service. After its first line
--- names the local port, the rest of its output is drained, so a long
--- command's per-connection lines never fill the pipe.
-kubectlForwarder :: Text -> EnForwarder (Handle, ProcessHandle)
+-- | kubectl's port-forward to the context's en Service.
+kubectlForwarder :: Text -> EnForwarder EnForward
 kubectlForwarder kubectlContext =
   EnForwarder
     { forwardKey = lookupEnv "NAGARE_EN_API_KEY"
-    , startForward = do
-        forward@(output, _) <- openEnForward kubectlContext
-        ready <- timeout 15000000 (hGetLine output) `onException` closeEnForward forward
-        case ready >>= parseEnForwardPort . T.pack of
-          Nothing -> closeEnForward forward >> pure (Left "en port-forward did not become ready")
-          Just port -> do
-            _ <- forkIO (drain output)
-            pure (Right (forward, "http://127.0.0.1:" <> port))
-    , forwardRunning = \(_, process) -> isNothing <$> getProcessExitCode process
+    , startForward = startEnForward kubectlContext
+    , forwardRunning = enForwardRunning
     , stopForward = closeEnForward
     , forwardRequest = enRequest
     }
-  where
-    drain output = (hGetLine output >> drain output) `catch` \(_ :: IOException) -> pure ()
 
 accessKeyPresent :: Maybe String -> Bool
 accessKeyPresent = maybe False (not . null)
@@ -467,53 +450,6 @@ accessKeyRefusal credential bundle
   , any ((== AccessExecutor) . plannedExecutor . reviewPlannedOperation) (reviewOperations (reviewBundleDocument bundle)) =
       Just "reviewed access requires private NAGARE_EN_API_KEY; export it in this shell and rerun this command (the saved review stays valid)"
   | otherwise = Nothing
-
-openEnForward :: Text -> IO (Handle, ProcessHandle)
-openEnForward kubectlContext = do
-  connection <- sessionKubeconfigArguments kubectlContext >>= either (fail . T.unpack) pure
-  (_, output, _, process) <-
-    createProcess
-      ( proc
-          "kubectl"
-          (connection <> ["--context", T.unpack kubectlContext, "-n", "nagare-system", "port-forward", "svc/en", ":80", "--address", "127.0.0.1"])
-      )
-        { std_out = CreatePipe
-        , std_err = NoStream
-        }
-  maybe (fail "kubectl port-forward has no output pipe") (\handle -> pure (handle, process)) output
-
-closeEnForward :: (Handle, ProcessHandle) -> IO ()
-closeEnForward (output, process) = do
-  terminateProcess process `catch` \(_ :: IOException) -> pure ()
-  _ <- waitForProcess process
-  hClose output `catch` \(_ :: IOException) -> pure ()
-
-enRequest :: String -> Text -> EnCall
-enRequest key base verb suffix body = do
-  response <- try @HttpException $ do
-    manager <- newTlsManager
-    initial <- parseRequest (T.unpack (base <> suffix))
-    httpLbs
-      initial
-        { method = verb
-        , requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 (T.pack key)), ("Content-Type", "application/json")]
-        , requestBody = RequestBodyLBS (if verb == "GET" then "" else encode body)
-        , responseTimeout = responseTimeoutMicro 10000000
-        , redirectCount = 0
-        , checkResponse = \_ _ -> pure ()
-        }
-      manager
-  pure $ case response of
-    Left _ -> Left "access transport failed; credentials and response body withheld"
-    Right result -> Right (statusCode (responseStatus result), LBS.toStrict (responseBody result))
-
--- | The local port from kubectl's first @Forwarding from 127.0.0.1:PORT -> N@ line.
-parseEnForwardPort :: Text -> Maybe Text
-parseEnForwardPort line = do
-  rest <- T.stripPrefix "Forwarding from 127.0.0.1:" (T.strip line)
-  let (port, target) = T.breakOn " -> " rest
-  unless (not (T.null port) && T.all (`elem` ['0' .. '9']) port && not (T.null (T.drop 4 target))) Nothing
-  pure port
 
 -- Select immutable desired/base members by digest; admitted state must not turn
 -- a new grant into prior ownership during recovery.
