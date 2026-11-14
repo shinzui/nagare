@@ -64,3 +64,17 @@ database, and the only exits were a change to every app or a Nagare release per 
   reassigns or drops them, which the membership lets the migration user do.
 - The migration user can act as the runtime role. It already owns the database, so this widens
   nothing beyond the app's own data.
+
+
+## Amendment — explicit read-only verification metadata
+
+A restored-copy verifier needs system metadata and the names of view definers.
+Permit a reader's optional closed list of SELECT metadata exceptions, tracked in
+its existing user extension and revoked when removed from the accepted declaration.
+Do not permit the temporary-table exception for readers. Principal inspection is
+column-scoped SELECT(name) on system.users; full-table, other-column, partial and
+grant-option observations refuse as drift. Readers retain their object scopes,
+readonly=2 CONST and mandatory ceilings. Existing JSON omits empty metadata lists.
+The source candidate is driven by
+`mori://shinzui/kansoku/plans/53-prove-shared-server-maintenance-across-deployment-platforms`;
+no published release is inferred from this amendment.

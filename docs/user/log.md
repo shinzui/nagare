@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-14
+* **Update**: DOC-21: document unreleased explicit SELECT-only reader metadata and names-only definer inspection; retain separate scratch reader declarations.
+
 ## 2026-11-09
 
 * **Change**: `nagare-access` answers a GET or HEAD that renews a session with an immediate 307 carrying the new cookies, and delivers renewed cookies on WebSocket handshakes. Add a session renewal section with the measured browser behaviour, and tell portal authors what their fetches must allow.

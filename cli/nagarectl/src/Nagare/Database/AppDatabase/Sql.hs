@@ -65,7 +65,7 @@ import Data.Generics.Labels ()
 import Data.List (nub)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, appDatabaseServerRevokedGrants, clickHousePrivilegeText, grantExceptionGrant, runtimeOwnsObjects)
+import Nagare.Dsl.AppDatabase (AppDatabaseRole (..), DatabasePrivileges, Grant (..), GrantException, MonitoringRole, UserAccess, UserLimits, appDatabaseDatabaseGrants, appDatabaseServerGrants, appDatabaseServerRevokedGrants, clickHousePrivilegeText, grantExceptionGrant, runtimeOwnsObjects)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory (UserLogin (..))
@@ -699,6 +699,8 @@ data ReaderAccess = ReaderAccess
   , revokedDatabases :: ![Text]
   , schemas :: ![(Text, Text)]
   , revokedSchemas :: ![(Text, Text)]
+  , exceptions :: ![GrantException]
+  , revokedExceptions :: ![GrantException]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -710,6 +712,14 @@ renderReaderAccess ClickHouse access =
          | o <- access ^. #granted
          ]
       <> ["REVOKE SELECT ON " <> o ^. #database <> "." <> o ^. #relation <> " FROM " <> user' <> ";" | o <- access ^. #revoked]
+      <> [ (if enabled then "GRANT " else "REVOKE ") <> privilege <> " ON " <> object' <> (if enabled then " TO " else " FROM ") <> user' <> ";"
+         | exception <- access ^. #exceptions
+         , let (privilege, object') = grantExceptionGrant exception
+         ]
+      <> [ "REVOKE " <> privilege <> " ON " <> object' <> " FROM " <> user' <> ";"
+         | exception <- access ^. #revokedExceptions
+         , let (privilege, object') = grantExceptionGrant exception
+         ]
       <> ["ALTER USER " <> user' <> " SETTINGS readonly = 2 CONST, result_overflow_mode = 'throw' CONST" <> T.concat [", " <> n <> " = " <> v <> " MIN 1 MAX " <> v | (n, v) <- clickHouseCeilings (access ^. #limits)] <> ";"]
   where
     user' = access ^. #user

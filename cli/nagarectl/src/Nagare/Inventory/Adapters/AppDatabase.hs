@@ -365,9 +365,9 @@ mkAppDatabaseAdapter accepted members ops =
     reopenedOf member closed = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
       Just (AppOwnedDatabase _ _ _ _ _ was) -> [login | login <- was, login `notElem` closed]
       _ -> []
-    readerSpec extension = (\grant -> ReaderSpec (NE.toList (grant ^. #objects)) (extension ^. #access . #limits)) <$> extension ^. #reader
+    readerSpec extension = (\grant -> ReaderSpec (NE.toList (grant ^. #objects)) (extension ^. #access . #limits) (extension ^. #access . #exceptions)) <$> extension ^. #reader
     readerDeclaration member desired =
-      ReaderDeclaration (member ^. #enabled) (fromMaybe (ReaderSpec [] noUserLimits) (readerSpec desired)) (readerSpec (acceptedAccess member))
+      ReaderDeclaration (member ^. #enabled) (fromMaybe (ReaderSpec [] noUserLimits []) (readerSpec desired)) (readerSpec (acceptedAccess member))
     -- The access the last reviewed plan declared; an item only it names is
     -- revoked or reset by review rather than refused as drift.
     acceptedAccess member = case (^. #spec) <$> Map.lookup (member ^. #declaration . #identity) accepted of
@@ -436,9 +436,12 @@ mkAppDatabaseAdapter accepted members ops =
     accessCommand member (Shared observed) role user desired = case role of
       ReaderRole _ ->
         let engine' = member ^. #server . #engine
-            spec = fromMaybe (ReaderSpec [] noUserLimits) (readerSpec desired)
+            spec = fromMaybe (ReaderSpec [] noUserLimits []) (readerSpec desired)
             (present, _) = resolveReaderObjects engine' (spec ^. #objects) observed
             held = readerHeldSelects engine' user observed
+            metadata = spec ^. #exceptions
+            priorMetadata = acceptedAccess member ^. #access . #exceptions
+            removedMetadata = filter (`notElem` metadata) priorMetadata
             databases' = if engine' == ClickHouse then [] else readerDatabases (spec ^. #objects)
             schemas = readerSchemas engine' (spec ^. #objects) observed
             -- What the reader holds beyond its declaration now: only the
@@ -446,8 +449,8 @@ mkAppDatabaseAdapter accepted members ops =
             heldDatabases = [db | engine' /= ClickHouse, (db, cdb) <- Map.toList (observed ^. #databases), g <- cdb ^. #grants, g ^. #grantee == user, g ^. #target == "database"]
             heldSchemas = [(db, T.drop 7 (g ^. #target)) | engine' /= ClickHouse, (db, cdb) <- Map.toList (observed ^. #databases), g <- cdb ^. #grants, g ^. #grantee == user, "schema:" `T.isPrefixOf` (g ^. #target)]
          in if member ^. #enabled
-              then SetReaderAccess (ReaderAccess user LoginOpen (spec ^. #limits) present (filter (`notElem` present) held) databases' (filter (`notElem` databases') heldDatabases) schemas (filter (`notElem` schemas) heldSchemas))
-              else SetReaderAccess (ReaderAccess user (loginOf member) (spec ^. #limits) (nub (present <> held)) [] [] (nub (databases' <> heldDatabases)) [] (nub (schemas <> heldSchemas)))
+              then SetReaderAccess (ReaderAccess user LoginOpen (spec ^. #limits) present (filter (`notElem` present) held) databases' (filter (`notElem` databases') heldDatabases) schemas (filter (`notElem` schemas) heldSchemas) metadata removedMetadata)
+              else SetReaderAccess (ReaderAccess user (loginOf member) (spec ^. #limits) (nub (present <> held)) [] [] (nub (databases' <> heldDatabases)) [] (nub (schemas <> heldSchemas)) (nub (metadata <> priorMetadata)) [])
       _ -> SetUserAccess role user (loginOf member) (desired ^. #access)
     loginOff user observed = maybe False ((== LoginOff) . (^. #login)) (Map.lookup user (observed ^. #users))
     clickHouseLoginOff user = \case

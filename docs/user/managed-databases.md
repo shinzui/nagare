@@ -958,6 +958,7 @@ kansokuCh =
           , limits = defaultReaderLimits ClickHouse
           , consumers = [ok (mkServiceName "grafana")]
           , retired = False
+          , exceptions = []
           }
       ]
 
@@ -973,6 +974,7 @@ grafanaPg =
           , limits = defaultReaderLimits Postgres
           , consumers = [ok (mkServiceName "grafana")]
           , retired = False
+          , exceptions = []
           }
       ]
 ```
@@ -1400,3 +1402,25 @@ logical-transfer adapter, fresh timing evidence, explicit quiesce and read-only 
 contracts, and an independent candidate destination. Unknown engines, missing extensions, or
 incompatible collations block cutover before production writes are denied. The source database
 remains the rollback authority until candidate writes are admitted.
+
+
+### Explicit metadata access for restored-copy readers
+
+The source candidate adds an optional reader `exceptions` list. An empty list
+keeps the existing JSON declaration and grants unchanged; Haskell record literals
+must specify `exceptions = []`. ClickHouse readers may opt into SELECT metadata
+exceptions, including `SystemDisks`, `SystemStoragePolicies`, `SystemDatabases`,
+`SystemTables`, `SystemColumns` and `SystemUserNames`. The last grants only
+`SELECT(name) ON system.users`, so a verifier can check a view definer without
+reading authentication parameters. A broad SELECT on system.users, a grant option,
+and a grant on any other column remain drift. Temporary-table creation cannot be
+declared for a reader; readonly=2 CONST and the existing object grants/ceilings
+remain in force. Removing accepted metadata access revokes it through review;
+unrelated undeclared authority refuses the plan.
+
+This capability is an unreleased source candidate discovered by the local Kansoku
+ceremony at
+`mori://shinzui/kansoku/plans/53-prove-shared-server-maintenance-across-deployment-platforms`.
+It is not part of the published v0.20.0 contract. Restoring an app database still
+extends no reader automatically: scratch objects require their own explicit
+reviewed reader declaration after restore.

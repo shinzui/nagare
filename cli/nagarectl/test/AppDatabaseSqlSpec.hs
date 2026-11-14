@@ -2,7 +2,9 @@
 -- proven against the real engines in @test/fixtures/app-database/@.
 module AppDatabaseSqlSpec (appDatabaseSqlTests) where
 
+import Data.Aeson (encode, object, (.=))
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -12,7 +14,7 @@ import Nagare.Database.AppDatabase.Catalog
 import Nagare.Database.AppDatabase.Sql
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Database (Engine (..))
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory (UserLogin (..))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -49,8 +51,8 @@ appDatabaseSqlTests =
           , ("database-access alpha on with privileges removed", renderDatabaseAccess (access True & #revokedCreateIn .~ ["pgmq"] & #revokeDatabaseCreate .~ True & #revokeMembership .~ True))
           , ("database-access alpha off with privileges", renderDatabaseAccess (access False & #privileges .~ pgPrivileges & #revokeDatabaseCreate .~ True))
           , ("restore-scratch with privileges", renderScratchRestore Postgres pgPrivileges [("alpha", "alpha_restore_m1")] "" "alpha_migration" "alpha_runtime")
-          , ("reader-access alpha_reader_dash on", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [pgView "vi"] ["alpha"] [] [("alpha", "public")] []))
-          , ("reader-access alpha_reader_dash off", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [] [] ["alpha"] [] [("alpha", "public")]))
+          , ("reader-access alpha_reader_dash on", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [pgView "vi"] ["alpha"] [] [("alpha", "public")] [] [] []))
+          , ("reader-access alpha_reader_dash off", renderReaderAccess Postgres (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits Postgres) [pgView "v1", pgView "v2"] [] [] ["alpha"] [] [("alpha", "public")] [] []))
           , ("observe-relations alpha", renderObserveRelations ["alpha_reader_dash"])
           ]
     , testCase "ClickHouse commands match the proven fixture" $ do
@@ -83,8 +85,8 @@ appDatabaseSqlTests =
           , ("database-access alpha on with privileges", renderDatabaseAccess (access "alpha" True & #privileges .~ chPrivileges ["CREATE TABLE", "DROP TABLE"]))
           , ("database-access alpha on with privileges removed", renderDatabaseAccess (access "alpha" True & #privileges .~ chPrivileges ["CREATE TABLE", "DROP TABLE"] & #revoked .~ [("alpha_runtime", "ALTER TABLE")]))
           , ("restore-scratch with privileges", renderScratchRestore ClickHouse (chPrivileges ["CREATE TABLE", "DROP TABLE"]) [("alpha", "alpha_restore_r1"), ("alpha_ledger", "alpha_ledger_restore_r1")] "alpha-ch-backup-r1.zip" "alpha_migration" "alpha_runtime")
-          , ("reader-access alpha_reader_dash on", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [chView "not_yet"] [] [] [] []))
-          , ("reader-access alpha_reader_dash off", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [] [] [] [] []))
+          , ("reader-access alpha_reader_dash on", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginOpen (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [chView "not_yet"] [] [] [] [] [] []))
+          , ("reader-access alpha_reader_dash off", renderReaderAccess ClickHouse (ReaderAccess "alpha_reader_dash" LoginClosed (defaultReaderLimits ClickHouse) (map chView ["v1", "v2", "pv"]) [] [] [] [] [] [] []))
           ]
     , testCase "a converged PostgreSQL app database observes as complete" $ do
         catalog <- postgresCatalog "converged" "alpha"
@@ -171,7 +173,7 @@ appDatabaseSqlTests =
         incomplete (classifyPlain (chAccess "alpha" True) withheld)
     , testCase "an observed ClickHouse reader classifies by its declared objects and the reader settings (EP-206)" $ do
         observed <- clickHouseCatalog "reader" ["alpha_migration", "alpha_runtime", "alpha_reader_dash"] ["alpha", "alpha_ledger"]
-        let spec names = ReaderSpec [chObject n | n <- names] (defaultReaderLimits ClickHouse)
+        let spec names = ReaderSpec [chObject n | n <- names] (defaultReaderLimits ClickHouse) []
             reader desired accepted' = fst (classifyReader ClickHouse (ReaderDeclaration True (spec desired) (spec <$> accepted')) "alpha_reader_dash" observed)
         complete (reader ["v1", "v2", "pv"] (Just ["v1", "v2", "pv"]))
         -- A declared object not held yet is granted up front: nothing is pending on ClickHouse.
@@ -188,11 +190,36 @@ appDatabaseSqlTests =
         incomplete (fst (classifyReader ClickHouse (ReaderDeclaration False (spec ["v1", "v2", "pv"]) (Just (spec ["v1", "v2", "pv"]))) "alpha_reader_dash" observed))
         -- The reader's table grants are not the database's foreign grants.
         mapM_ (\db -> complete (classifyPlain (chAccess db True & #readers .~ ["alpha_reader_dash"]) observed)) ["alpha", "alpha_ledger"]
+    , testCase "reader metadata is explicit, names-only, revocable and never a write grant" $ do
+        bytes <- BS.readFile "test/fixtures/app-database/observed/clickhouse-reader.jsonl"
+        let row column option = LBS.toStrict (encode (object ["kind" .= ("grant" :: Text), "user_name" .= ("alpha_reader_dash" :: Text), "access_type" .= ("SELECT" :: Text), "database" .= ("system" :: Text), "table" .= ("users" :: Text), "column" .= column, "is_partial_revoke" .= (0 :: Int), "grant_option" .= option]))
+            parse extra = either (assertFailure . T.unpack) pure (parseClickHouseCatalog ["alpha_reader_dash"] ["alpha"] (bytes <> "\n" <> extra))
+            base = ReaderSpec (map chObject ["v1", "v2", "pv"]) (defaultReaderLimits ClickHouse) []
+            desired = base & #exceptions .~ [SystemUserNames]
+            classify wanted prior observed = fst (classifyReader ClickHouse (ReaderDeclaration True wanted (Just prior)) "alpha_reader_dash" observed)
+        observed <- parse (row (Just ("name" :: Text)) (0 :: Int))
+        complete (classify desired desired observed)
+        drift (classify base base observed)
+        incomplete (classify base desired observed)
+        missing <- parse ""
+        incomplete (classify desired base missing)
+        broad <- parse (row (Nothing :: Maybe Text) (0 :: Int))
+        drift (classify desired desired broad)
+        auth <- parse (row (Just ("auth_params" :: Text)) (0 :: Int))
+        drift (classify desired desired auth)
+        grantable <- parse (row (Just ("name" :: Text)) (1 :: Int))
+        drift (classify desired desired grantable)
+        let access = ReaderAccess "verify" LoginOpen (defaultReaderLimits ClickHouse) [] [] [] [] [] [] [SystemUserNames] [SystemDisks]
+            sql = renderReaderAccess ClickHouse access
+        assertBool "column grant only" ("GRANT SELECT(name) ON system.users TO verify;" `T.isInfixOf` sql)
+        assertBool "removed metadata revoked" ("REVOKE SELECT ON system.disks FROM verify;" `T.isInfixOf` sql)
+        assertBool "readonly retained" ("readonly = 2 CONST" `T.isInfixOf` sql)
+        assertBool "no broad users grant" (not ("GRANT SELECT ON system.users" `T.isInfixOf` sql))
     , testCase "an observed PostgreSQL reader classifies by its grants, refuses definer functions and invoker views, and names pending objects (EP-206)" $ do
         base <- postgresCatalogFrom "reader" "reader" "alpha"
         relations <- BS.readFile "test/fixtures/app-database/observed/postgres-relations-reader.json"
         observed <- either (assertFailure . T.unpack) pure (withPostgresRelations (Map.singleton "alpha" relations) base)
-        let spec names = ReaderSpec [pgObject n | n <- names] (defaultReaderLimits Postgres)
+        let spec names = ReaderSpec [pgObject n | n <- names] (defaultReaderLimits Postgres) []
             classify desired accepted' catalog = classifyReader Postgres (ReaderDeclaration True (spec desired) (spec <$> accepted')) "alpha_reader_dash" catalog
             revoked = observed & #databases . ix "alpha" . #definerFunctions .~ []
         -- add_row is SECURITY DEFINER and PUBLIC may execute it in public.
@@ -371,7 +398,7 @@ declared role access = UserDeclaration role True access access
 
 -- | The access the EP-204 fixture blocks were proven with.
 chRuntimeAccess, chMigrationAccess, pgRuntimeAccess :: UserAccess
-chRuntimeAccess = UserAccess [minBound .. maxBound] (noUserLimits & #maxMemoryBytes ?~ 268435456 & #maxExecutionSeconds ?~ 5 & #maxConcurrentQueries ?~ 2)
+chRuntimeAccess = UserAccess [SystemParts, SystemMutations, SystemDisks, SystemStoragePolicies, ArbitraryTemporaryTables] (noUserLimits & #maxMemoryBytes ?~ 268435456 & #maxExecutionSeconds ?~ 5 & #maxConcurrentQueries ?~ 2)
 chMigrationAccess = UserAccess [SystemDisks, SystemStoragePolicies] (noUserLimits & #maxMemoryBytes ?~ 1073741824 & #maxExecutionSeconds ?~ 600)
 pgRuntimeAccess = UserAccess [] (noUserLimits & #connectionLimit ?~ 3 & #statementTimeoutSeconds ?~ 30)
 

@@ -3,6 +3,12 @@
 Nagare uses semantic versions and immutable `v<major>.<minor>.<patch>` Git tags. Each release's
 notes are its changelog entry.
 
+Unreleased source candidate: app-database readers can explicitly declare SELECT-only
+verification metadata, including names-only principal inspection, with reviewed
+revocation. Existing JSON declarations omit empty exception lists; Haskell reader
+records add `exceptions = []`. The local Kansoku platform ceremony qualifies this
+candidate separately from v0.20.0.
+
 - [0.20.0](docs/releases/v0.20.0.md) - 2026-11-12
 - [0.19.2](docs/releases/v0.19.2.md) - 2026-11-12
 - [0.19.1](docs/releases/v0.19.1.md) - 2026-11-11

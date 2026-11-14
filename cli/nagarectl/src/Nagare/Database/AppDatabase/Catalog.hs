@@ -332,6 +332,9 @@ instance FromJSON ChRow where
         -- An allow-listed system-table SELECT is a server-wide grant token;
         -- whether it is declared is classification's decision.
         pure $ case (db, table) of
+          (Just "system", Just "users")
+            | column == Just "name" && privilege' == "SELECT" && not partial && not option ->
+                ChGrant who "SELECT(name) ON system.users" Nothing False
           (Just "system", Just t)
             | isNothing column && not partial && not option
             , token : _ <- [exceptionGrantToken e | e <- [minBound .. maxBound], grantExceptionGrant e == (privilege', "system." <> t)] ->
@@ -822,6 +825,7 @@ readerInvokerCode = "app-database-reader-invoker-view"
 data ReaderSpec = ReaderSpec
   { objects :: ![ReaderObject]
   , limits :: !UserLimits
+  , exceptions :: ![GrantException]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -931,12 +935,15 @@ classifyReader engine declaration name catalog = case Map.lookup name (catalog ^
     revocableSettings = if engine == ClickHouse then maybe [] (readerSettings . (^. #limits)) acceptedSpec else []
     wantedRoleSettings = if engine == ClickHouse then [] else readerRoleSettings (desiredSpec ^. #limits)
     revocableRoleSettings = if engine == ClickHouse then [] else maybe [] (readerRoleSettings . (^. #limits)) acceptedSpec
+    declaredMetadata = map exceptionGrantToken (desiredSpec ^. #exceptions)
+    wantedMetadata = if enabled' then declaredMetadata else []
+    revocableMetadata = declaredMetadata <> maybe [] (map exceptionGrantToken . (^. #exceptions)) acceptedSpec
     desiredLimit = desiredSpec ^. #limits . #connectionLimit
     acceptedLimit = acceptedSpec >>= (^. #limits . #connectionLimit)
     drifts user =
       ["holds " <> p' <> " on " <> render o | (o, p') <- held, p' /= "SELECT"]
         <> ["holds SELECT on undeclared " <> render o | o <- heldSelects, o `notElem` present, o `notElem` acceptedObjects]
-        <> ["server-wide " <> T.intercalate ", " (user ^. #serverGrants) | not (null (user ^. #serverGrants))]
+        <> ["undeclared metadata or server-wide " <> token | token <- user ^. #serverGrants, token `notElem` revocableMetadata]
         <> ["setting " <> describe' c | c <- user ^. #settings, c `notElem` wantedSettings, c `notElem` revocableSettings]
         <> ["inherits settings profile " <> p' | p' <- user ^. #inheritedProfiles]
         <> [ "connection limit " <> T.show limit
@@ -950,7 +957,9 @@ classifyReader engine declaration name catalog = case Map.lookup name (catalog ^
         <> ["holds " <> p' <> " on database " <> db | (db, p') <- heldDatabase, p' /= "CONNECT" || db `notElem` (databasesOf desiredSpec <> maybe [] databasesOf acceptedSpec)]
         <> ["holds " <> p' <> " on schema " <> renderSchema sc | (sc, p') <- heldSchemas, p' /= "USAGE" || sc `notElem` (desiredSchemas <> revocableSchemas)]
     fixes user =
-      ["lacks SELECT on " <> render o | o <- wanted, o `notElem` heldSelects]
+      ["lacks metadata " <> token | token <- wantedMetadata, token `notElem` user ^. #serverGrants]
+        <> ["keeps metadata " <> token | token <- user ^. #serverGrants, token `notElem` wantedMetadata]
+        <> ["lacks SELECT on " <> render o | o <- wanted, o `notElem` heldSelects]
         <> ["keeps SELECT on " <> render o | o <- heldSelects, o `notElem` wanted]
         <> ["lacks setting " <> describe' c | c <- wantedSettings, c `notElem` user ^. #settings]
         <> ["keeps setting " <> describe' c | c <- user ^. #settings, c `notElem` wantedSettings]

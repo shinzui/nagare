@@ -135,6 +135,7 @@ dash engine consumer (o : os) =
     , objects = fmap (\rel -> ReaderRelation (ok (mkLogicalDatabaseName "alpha")) Nothing (ok (mkRelationName rel))) (o :| os)
     , limits = defaultReaderLimits engine
     , consumers = [ok (mkServiceName consumer)]
+    , exceptions = []
     , retired = stage == "retired" && engine == Postgres
     }
 dash _ _ [] = error "a reader reads an object"

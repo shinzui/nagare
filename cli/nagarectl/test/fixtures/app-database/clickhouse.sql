@@ -46,6 +46,10 @@ REVOKE SELECT ON system.mutations FROM alpha_migration;
 REVOKE SELECT ON system.disks FROM alpha_migration;
 REVOKE SELECT ON system.storage_policies FROM alpha_migration;
 REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_migration;
+REVOKE SELECT ON system.databases FROM alpha_migration;
+REVOKE SELECT ON system.tables FROM alpha_migration;
+REVOKE SELECT ON system.columns FROM alpha_migration;
+REVOKE SELECT(name) ON system.users FROM alpha_migration;
 ALTER USER alpha_migration SETTINGS NONE;
 
 -- operation: user-access alpha_migration off
@@ -58,6 +62,10 @@ REVOKE SELECT ON system.mutations FROM alpha_migration;
 REVOKE SELECT ON system.disks FROM alpha_migration;
 REVOKE SELECT ON system.storage_policies FROM alpha_migration;
 REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_migration;
+REVOKE SELECT ON system.databases FROM alpha_migration;
+REVOKE SELECT ON system.tables FROM alpha_migration;
+REVOKE SELECT ON system.columns FROM alpha_migration;
+REVOKE SELECT(name) ON system.users FROM alpha_migration;
 ALTER USER alpha_migration SETTINGS NONE;
 
 -- operation: user-access alpha_runtime on
@@ -67,6 +75,10 @@ REVOKE SELECT ON system.mutations FROM alpha_runtime;
 REVOKE SELECT ON system.disks FROM alpha_runtime;
 REVOKE SELECT ON system.storage_policies FROM alpha_runtime;
 REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_runtime;
+REVOKE SELECT ON system.databases FROM alpha_runtime;
+REVOKE SELECT ON system.tables FROM alpha_runtime;
+REVOKE SELECT ON system.columns FROM alpha_runtime;
+REVOKE SELECT(name) ON system.users FROM alpha_runtime;
 ALTER USER alpha_runtime SETTINGS NONE;
 
 -- operation: user-access alpha_runtime off
@@ -76,6 +88,10 @@ REVOKE SELECT ON system.mutations FROM alpha_runtime;
 REVOKE SELECT ON system.disks FROM alpha_runtime;
 REVOKE SELECT ON system.storage_policies FROM alpha_runtime;
 REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_runtime;
+REVOKE SELECT ON system.databases FROM alpha_runtime;
+REVOKE SELECT ON system.tables FROM alpha_runtime;
+REVOKE SELECT ON system.columns FROM alpha_runtime;
+REVOKE SELECT(name) ON system.users FROM alpha_runtime;
 ALTER USER alpha_runtime SETTINGS NONE;
 
 -- operation: user-access alpha_runtime on with declared access
@@ -111,6 +127,10 @@ GRANT SELECT ON system.mutations TO alpha_runtime;
 GRANT SELECT ON system.disks TO alpha_runtime;
 GRANT SELECT ON system.storage_policies TO alpha_runtime;
 GRANT CREATE ARBITRARY TEMPORARY TABLE ON *.* TO alpha_runtime;
+REVOKE SELECT ON system.databases FROM alpha_runtime;
+REVOKE SELECT ON system.tables FROM alpha_runtime;
+REVOKE SELECT ON system.columns FROM alpha_runtime;
+REVOKE SELECT(name) ON system.users FROM alpha_runtime;
 ALTER USER alpha_runtime SETTINGS max_memory_usage = 268435456 MIN 1 MAX 268435456, max_execution_time = 5 MIN 1 MAX 5, max_concurrent_queries_for_user = 2 MIN 1 MAX 2;
 
 -- operation: user-access alpha_runtime off with declared access
@@ -122,6 +142,10 @@ REVOKE SELECT ON system.mutations FROM alpha_runtime;
 REVOKE SELECT ON system.disks FROM alpha_runtime;
 REVOKE SELECT ON system.storage_policies FROM alpha_runtime;
 REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_runtime;
+REVOKE SELECT ON system.databases FROM alpha_runtime;
+REVOKE SELECT ON system.tables FROM alpha_runtime;
+REVOKE SELECT ON system.columns FROM alpha_runtime;
+REVOKE SELECT(name) ON system.users FROM alpha_runtime;
 ALTER USER alpha_runtime SETTINGS max_memory_usage = 268435456 MIN 1 MAX 268435456, max_execution_time = 5 MIN 1 MAX 5, max_concurrent_queries_for_user = 2 MIN 1 MAX 2;
 
 -- operation: user-access alpha_migration on with declared access
@@ -139,6 +163,10 @@ REVOKE SELECT ON system.mutations FROM alpha_migration;
 GRANT SELECT ON system.disks TO alpha_migration;
 GRANT SELECT ON system.storage_policies TO alpha_migration;
 REVOKE CREATE ARBITRARY TEMPORARY TABLE ON *.* FROM alpha_migration;
+REVOKE SELECT ON system.databases FROM alpha_migration;
+REVOKE SELECT ON system.tables FROM alpha_migration;
+REVOKE SELECT ON system.columns FROM alpha_migration;
+REVOKE SELECT(name) ON system.users FROM alpha_migration;
 ALTER USER alpha_migration SETTINGS max_memory_usage = 1073741824 MIN 1 MAX 1073741824, max_execution_time = 600 MIN 1 MAX 600;
 
 -- operation: create-database alpha

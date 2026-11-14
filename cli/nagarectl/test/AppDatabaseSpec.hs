@@ -145,6 +145,9 @@ appDatabaseTests =
             refused (kansokuPg & #access . #runtime . #limits . #statementTimeoutSeconds ?~ 3000000) "statementTimeoutSeconds exceeds"
         , testCase "readers, their objects and a workload's reader bindings round-trip; none emits no key (EP-206 M2)" $ do
             decodeAppDatabases (LBS.toStrict (encodeAppDatabases [kansokuPgReader, kansokuChReader])) @?= Right [kansokuPgReader, kansokuChReader]
+            let metadataReader = kansokuChReader & #access . #readers . traverse . #exceptions .~ [SystemUserNames, SystemTables]
+            decodeAppDatabases (LBS.toStrict (encodeAppDatabases [metadataReader])) @?= Right [metadataReader]
+            assertBool "empty metadata omitted" (not ("exceptions" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeAppDatabases [kansokuChReader]))))
             let retiredReader = kansokuPgReader & #access . #readers . traverse . #retired .~ True
             decodeAppDatabases (LBS.toStrict (encodeAppDatabases [retiredReader])) @?= Right [retiredReader]
             assertBool "an active reader emits no retired key" (not ("retired" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeAppDatabases [kansokuPgReader]))))
@@ -161,6 +164,8 @@ appDatabaseTests =
             let onReader f db = db & #access . #readers . traverse %~ f
                 otherDb = ReaderRelation (logical "elsewhere") Nothing (known (mkRelationName "v"))
                 schemaView = ReaderSchemaViews (logical "analytics") (known (mkSchemaName "reporting"))
+            refused (kansokuChReader & onReader (#exceptions .~ [ArbitraryTemporaryTables])) "only SELECT metadata"
+            refused (kansokuPgReader & onReader (#exceptions .~ [SystemUserNames])) "ClickHouse privileges"
             refused (kansokuChReader & onReader (#objects .~ (otherDb :| []))) "outside the app's own databases"
             refused (kansokuChReader & onReader (#objects .~ (schemaView :| []))) "without a schema"
             refused (kansokuChReader & onReader (#limits . #maxThreads .~ Nothing)) "missing maxThreads"
@@ -313,7 +318,7 @@ appDatabaseTests =
               Left _ -> pure ()
               Right _ -> assertFailure "another app database's backup was restored"
         , testCase "a scratch restore extends no reader to the scratch databases (IR-33 AC-8)" $ do
-            let reader = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "gamma")] False
+            let reader = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "gamma")] False []
             (appScope, serverScope, native, receiptScope, _, _) <- ingestedWith (alpha Postgres & #access . #readers .~ [reader])
             let request = AppDatabaseRestoreRequest "alpha-pg" "personal" "r1" appScope serverScope (IngestedRun receiptScope) (known (mkPhysicalIdentity "sts")) (known (mkPhysicalIdentity "pvc")) (GcsBackend "project" "bucket") (SourceLocation "test" "restore") ScratchTarget (ScopeRevision (known (mkScopeGeneration 2)) (contentDigest "server"))
             (_, restoreNative) <- either (assertFailure . show) pure (compileAppDatabaseRestoreScope request native)
@@ -528,6 +533,7 @@ appDatabaseTests =
                       (defaultReaderLimits (db ^. #engine))
                       [known (Dsl.mkServiceName "gamma-probe")]
                       retired'
+                      []
                   ref = Dsl.AppDatabaseReaderRef (db ^. #name) (known (Dsl.mkReaderName "dash"))
                   bindingsFor retired' consumer =
                     let (compiled, native') = scopeAndNative server' (db & #access . #readers .~ [dash retired'])
@@ -564,7 +570,7 @@ appDatabaseTests =
                 Right _ -> assertFailure "a bound reader was retired"
         , testCase "an app database's own on-demand backup is not a binding: it reads no reader's Secret and blocks no retirement (EP-205, EP-206)" $
             forM_ [(pgServer, alpha Postgres), (chServer, alpha ClickHouse)] $ \(server', base) -> do
-              let dash retired' = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits (base ^. #engine)) [known (Dsl.mkServiceName "gamma")] retired'
+              let dash retired' = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits (base ^. #engine)) [known (Dsl.mkServiceName "gamma")] retired' []
                   (scope, native) = scopeAndNative server' (base & #access . #readers .~ [dash False])
                   uid = known . mkPhysicalIdentity
                   serverMembers = [m | bundle <- scopeBundles (fst server'), Managed m <- declarations bundle]
@@ -694,12 +700,12 @@ kansokuChReader =
   kansokuCh
     & #access
     . #readers
-    .~ [AppDatabaseReader (known (Dsl.mkReaderName "dashboards")) (ReaderRelation (logical "analytics") Nothing (known (mkRelationName "events_by_day")) :| [ReaderRelation (logical "analytics") Nothing (known (mkRelationName "sessions_view"))]) (defaultReaderLimits ClickHouse) [known (Dsl.mkServiceName "grafana")] False]
+    .~ [AppDatabaseReader (known (Dsl.mkReaderName "dashboards")) (ReaderRelation (logical "analytics") Nothing (known (mkRelationName "events_by_day")) :| [ReaderRelation (logical "analytics") Nothing (known (mkRelationName "sessions_view"))]) (defaultReaderLimits ClickHouse) [known (Dsl.mkServiceName "grafana")] False []]
 kansokuPgReader =
   kansokuPg
     & #access
     . #readers
-    .~ [AppDatabaseReader (known (Dsl.mkReaderName "grafana")) (ReaderSchemaViews (logical "kansoku") (known (mkSchemaName "reporting")) :| [ReaderRelation (logical "kansoku") Nothing (known (mkRelationName "daily_totals"))]) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "grafana")] False]
+    .~ [AppDatabaseReader (known (Dsl.mkReaderName "grafana")) (ReaderSchemaViews (logical "kansoku") (known (mkSchemaName "reporting")) :| [ReaderRelation (logical "kansoku") Nothing (known (mkRelationName "daily_totals"))]) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "grafana")] False []]
 
 alpha :: Engine -> AppDatabase
 alpha Postgres = AppDatabase (known (mkAppDatabaseName "alpha-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "alpha" :| []) noAppDatabaseAccess NagareManaged

@@ -202,6 +202,7 @@ withReader engine' names db =
            , limits = defaultReaderLimits engine'
            , consumers = [ok (mkServiceName "gamma")]
            , retired = False
+           , exceptions = []
            }
        ]
   where

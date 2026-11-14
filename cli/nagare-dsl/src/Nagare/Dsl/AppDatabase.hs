@@ -198,6 +198,11 @@ data GrantException
   | -- | @CREATE ARBITRARY TEMPORARY TABLE@: session-local tables with any
     -- engine whose own grant the user holds, so not File, URL or S3
     ArbitraryTemporaryTables
+  | SystemDatabases
+  | SystemTables
+  | SystemColumns
+  | -- | Only principal names, never authentication parameters.
+    SystemUserNames
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 grantExceptionToken :: GrantException -> Text
@@ -207,6 +212,10 @@ grantExceptionToken = \case
   SystemDisks -> "system-disks"
   SystemStoragePolicies -> "system-storage-policies"
   ArbitraryTemporaryTables -> "arbitrary-temporary-tables"
+  SystemDatabases -> "system-databases"
+  SystemTables -> "system-tables"
+  SystemColumns -> "system-columns"
+  SystemUserNames -> "system-user-names"
 
 parseGrantException :: Text -> Maybe GrantException
 parseGrantException token = find ((== token) . grantExceptionToken) [minBound .. maxBound]
@@ -219,6 +228,10 @@ grantExceptionGrant = \case
   SystemDisks -> ("SELECT", "system.disks")
   SystemStoragePolicies -> ("SELECT", "system.storage_policies")
   ArbitraryTemporaryTables -> ("CREATE ARBITRARY TEMPORARY TABLE", "*.*")
+  SystemDatabases -> ("SELECT", "system.databases")
+  SystemTables -> ("SELECT", "system.tables")
+  SystemColumns -> ("SELECT", "system.columns")
+  SystemUserNames -> ("SELECT(name)", "system.users")
 
 -- | A read-only PostgreSQL predefined role whose grants on the app's own
 -- objects are expected (EP-204). Nagare never grants these itself.
@@ -383,6 +396,7 @@ data AppDatabaseReader = AppDatabaseReader
   , limits :: !UserLimits
   , consumers :: ![ServiceName]
   , retired :: !Bool
+  , exceptions :: ![GrantException]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -435,7 +449,7 @@ noAppDatabaseAccess = AppDatabaseAccess noUserAccess noUserAccess [] [] noDataba
 appDatabaseUserAccess :: AppDatabase -> AppDatabaseRole -> UserAccess
 appDatabaseUserAccess db RuntimeRole = db ^. #access . #runtime
 appDatabaseUserAccess db MigrationRole = db ^. #access . #migration
-appDatabaseUserAccess db (ReaderRole reader) = maybe noUserAccess (\r -> UserAccess [] (r ^. #limits)) (appDatabaseReader db reader)
+appDatabaseUserAccess db (ReaderRole reader) = maybe noUserAccess (\r -> UserAccess (r ^. #exceptions) (r ^. #limits)) (appDatabaseReader db reader)
 appDatabaseUserAccess _ OwnerRole = noUserAccess
 
 -- | One user's access fits its engine: ClickHouse takes exceptions and the
@@ -609,17 +623,19 @@ instance ToJSON AppDatabaseReader where
         ]
           <> ["consumers" .= map serviceNameText (r ^. #consumers) | not (null (r ^. #consumers))]
           <> ["retired" .= True | r ^. #retired]
+          <> ["exceptions" .= (r ^. #exceptions) | not (null (r ^. #exceptions))]
       )
 
 instance FromJSON AppDatabaseReader where
   parseJSON = withObject "reader" $ \o -> do
-    onlyKeys ["name", "objects", "limits", "consumers", "retired"] o
+    onlyKeys ["name", "objects", "limits", "consumers", "retired", "exceptions"] o
     name' <- o .: "name" >>= checked mkReaderName
     objects' <- o .: "objects" >>= maybe (fail "a reader declares at least one object") pure . NE.nonEmpty
     limits' <- fromMaybe noUserLimits <$> o .:? "limits"
     consumers' <- fromMaybe [] <$> o .:? "consumers" >>= traverse (checked mkServiceName)
     retired' <- fromMaybe False <$> o .:? "retired"
-    pure (AppDatabaseReader name' objects' limits' consumers' retired')
+    exceptions' <- fromMaybe [] <$> o .:? "exceptions"
+    pure (AppDatabaseReader name' objects' limits' consumers' retired' exceptions')
 
 instance ToJSON ReaderGrant where
   toJSON g = object (["objects" .= NE.toList (g ^. #objects)] <> ["consumers" .= map serviceNameText (g ^. #consumers) | not (null (g ^. #consumers))])
@@ -645,11 +661,14 @@ instance ToJSON UserExtension where
     value -> value
 
 instance FromJSON UserExtension where
-  parseJSON = withObject "user extension" $ \o ->
-    UserExtension
-      <$> parseJSON (Object (KeyMap.delete "owners" (KeyMap.delete "reader" o)))
-      <*> o .:? "reader"
-      <*> (fromMaybe [] <$> o .:? "owners" >>= traverse (checked mkServiceName))
+  parseJSON = withObject "user extension" $ \o -> do
+    access' <- parseJSON (Object (KeyMap.delete "owners" (KeyMap.delete "reader" o)))
+    reader' <- o .:? "reader"
+    owners' <- fromMaybe [] <$> o .:? "owners" >>= traverse (checked mkServiceName)
+    when
+      (isJust reader' && ArbitraryTemporaryTables `elem` access' ^. #exceptions)
+      (fail "a reader may declare only SELECT metadata exceptions")
+    pure (UserExtension access' reader' owners')
 
 -- | Written only for 'AppOwned' (the declaration omits the key otherwise):
 -- @{"kind": "app-owned"}@, with @databaseOwner@ when one is declared.
@@ -738,7 +757,8 @@ validReader db reader = do
     [] -> pure ()
     outside : _ -> Left (who <> "object outside the app's own databases: " <> logicalDatabaseNameText outside)
   unless (length (nub objects') == length objects') (Left (who <> "repeats an object"))
-  first (who <>) (validUserAccess (db ^. #engine) (UserAccess [] limits'))
+  first (who <>) (validUserAccess (db ^. #engine) (UserAccess (reader ^. #exceptions) limits'))
+  when (ArbitraryTemporaryTables `elem` reader ^. #exceptions) (Left (who <> "a reader may declare only SELECT metadata exceptions"))
   case db ^. #engine of
     ClickHouse -> do
       unless (all (\case ReaderRelation _ Nothing _ -> True; _ -> False) objects') (Left (who <> "ClickHouse objects are tables or views without a schema"))

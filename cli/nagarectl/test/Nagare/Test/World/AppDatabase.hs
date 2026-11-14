@@ -429,6 +429,8 @@ interpret command world = case command of
               .~ on
               & #tableGrants
               .~ (kept <> (if on then selects else []))
+              & #serverGrants
+              .~ (filter (`notElem` map exceptionGrantToken (access ^. #exceptions <> access ^. #revokedExceptions)) (u ^. #serverGrants) <> [exceptionGrantToken e | on, e <- access ^. #exceptions])
               & #settings
               .~ readerSettings (access ^. #limits)
               & #inheritedProfiles
