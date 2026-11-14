@@ -82,7 +82,8 @@ compileObservabilityExtras root foundation metricsRelease = do
     manifestFiles =
       [ ("cluster/observability/brokers/vmservicescrape.yaml", "671a9e79b8bb6323700c668d99bf3e8acc762ea9f7051570193cf60cb4559504")
       , ("cluster/observability/cert-manager/vmservicescrape.yaml", "863fb660be31a9de8c41102291b812e34613fd602ec95a03d40a57637e1991ed")
-      , ("cluster/observability/vmrules/nagare-alerts.yaml", "b479e28772eaaa2d4cc154a76bb2d83c87e85a876f92a0bba15dd656f1b22b1a")
+      , ("cluster/observability/vmrules/nagare-alerts.yaml", "0bfb5e50ff46e337e1736ab68783e3d52f5e949e3651c5bf5fa05d6285a65a15")
+      , ("cluster/observability/vmrules/nagare-auth-alerts.yaml", "1aaa485e61dcfbe72a63591770bf4beae472b0eec5e20464d0a77fce972663ba")
       , ("cluster/observability/en/vmservicescrape.yaml", "30ec14c0555cecfcbc965bb0ff83bacfeeb8d978ba422ddc84629ae2e18dfc12")
       ]
     generatedFiles =
@@ -94,6 +95,7 @@ compileObservabilityExtras root foundation metricsRelease = do
       [ address "operator.victoriametrics.com/v1beta1" "VMServiceScrape" "nagare-brokers"
       , address "operator.victoriametrics.com/v1beta1" "VMServiceScrape" "cert-manager"
       , address "operator.victoriametrics.com/v1beta1" "VMRule" "nagare-alerts"
+      , address "operator.victoriametrics.com/v1beta1" "VMRule" "nagare-auth-alerts"
       ]
         <> [address "v1" "ConfigMap" name | (_, _, name, _, _) <- generatedFiles]
     address = addressIn "monitoring"

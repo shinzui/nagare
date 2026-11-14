@@ -162,7 +162,7 @@ protected-site sign-in, can answer. Three things watch it:
   apply pass.
 - **The scrape and the alert.** With observability installed, the
   `VMServiceScrape` `en` in `nagare-system` scrapes En every 30 seconds with the
-  scrape key, and the `EnTenantUnavailable` rule (group `nagare.auth`) fires
+  scrape key, and the `EnTenantUnavailable` rule (VMRule `nagare-auth-alerts`, group `nagare.auth`) fires
   when `en_tenant_available == 0` for 5 minutes, naming the tenant.
 
 To read the gauge by hand:

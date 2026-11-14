@@ -1,0 +1,25 @@
+# EP-262: En stays ready while one tenant's database is down (En ADR 10), so no
+# workload alert sees it. A down nagare tenant fails every protected-site
+# sign-in. Its own VMRule, so adding it creates an object instead of updating
+# nagare-alerts in place.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: nagare-auth-alerts
+  namespace: monitoring
+  labels:
+    nagare.dev/component: alerting
+spec:
+  groups:
+    - name: nagare.auth
+      interval: 60s
+      rules:
+        - alert: EnTenantUnavailable
+          expr: en_tenant_available == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'En tenant {{ $labels.tenant }} is unavailable'
+            description: 'En cannot serve tenant {{ $labels.tenant }}: its database is down or refused. Read the reason with kubectl -n nagare-system logs deploy/en | grep "[tenant {{ $labels.tenant }}]", fix the database (en-db for tenant nagare, en-<tenant>-db otherwise), then re-apply. Tenant nagare gates every protected-site sign-in.'
+            runbook: 'docs/user/observability.md#en-tenants'

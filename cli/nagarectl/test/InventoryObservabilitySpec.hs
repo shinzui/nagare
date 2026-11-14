@@ -151,7 +151,7 @@ inventoryObservabilityTests =
             foundation
             metricsId
             >>= either (assertFailure . show) pure
-        Map.size extraNative @?= 7
+        Map.size extraNative @?= 8
         Map.size secretNative @?= 1
         let (candidate, _) = base
         case composeInventory
