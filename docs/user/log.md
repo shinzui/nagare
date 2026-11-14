@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-14
+* **Update**: DOC-21: explicitly bind SELECT-only readers to accepted ClickHouse scratch restores, without enrolling scratch databases.
 * **Update**: DOC-21: document unreleased explicit SELECT-only reader metadata and names-only definer inspection; retain separate scratch reader declarations.
 
 ## 2026-11-09

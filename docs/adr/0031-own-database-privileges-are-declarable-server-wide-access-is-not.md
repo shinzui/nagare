@@ -78,3 +78,10 @@ readonly=2 CONST and mandatory ceilings. Existing JSON omits empty metadata list
 The source candidate is driven by
 `mori://shinzui/kansoku/plans/53-prove-shared-server-maintenance-across-deployment-platforms`;
 no published release is inferred from this amendment.
+
+A SELECT-only reader may explicitly follow an accepted ClickHouse scratch restore
+through `ReaderRestoredRelation`. Its source database remains app-owned; compiling
+requires the exact app, namespace, scratch targets and current server declaration
+revision from accepted restore history. It follows the restore resources in the
+inventory graph. The scratch databases are not silently adopted into managed
+storage, and the restore operation does not grant readers access automatically.

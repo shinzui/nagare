@@ -5,7 +5,9 @@ notes are its changelog entry.
 
 Unreleased source candidate: app-database readers can explicitly declare SELECT-only
 verification metadata, including names-only principal inspection, with reviewed
-revocation. Existing JSON declarations omit empty exception lists; Haskell reader
+revocation. A ReaderRestoredRelation explicitly selects a completed scratch restore
+of this app on the current accepted server revision; scratch databases are not
+enrolled as managed databases. Existing JSON declarations omit empty exception lists; Haskell reader
 records add `exceptions = []`. The local Kansoku platform ceremony qualifies this
 candidate separately from v0.20.0.
 

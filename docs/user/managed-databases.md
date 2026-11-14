@@ -1424,3 +1424,17 @@ ceremony at
 It is not part of the published v0.20.0 contract. Restoring an app database still
 extends no reader automatically: scratch objects require their own explicit
 reviewed reader declaration after restore.
+
+### Inspect a completed ClickHouse scratch restore
+
+After a reviewed scratch restore has converged, a reader may explicitly name
+`ReaderRestoredRelation sourceDatabase restoreId relation`. For example,
+`ReaderRestoredRelation (ok (mkLogicalDatabaseName "analytics")) "ep53" (ok (mkRelationName "events_raw"))`
+selects only `analytics_restore_ep53.events_raw`. Keep the source database in
+`logicalDatabases`; do not add the restored name there. Planning requires one
+accepted scratch restore of this app database, namespace, server declaration
+revision and exact target database. Missing, foreign, rebuilt or stale restore
+facts refuse. The reader depends on the accepted restore resources. The restore
+itself grants no reader access, and ordinary readers retain their original scope.
+All reader ceilings, SELECT-only grants and metadata declarations still apply.
+This is an unreleased source capability, separate from published v0.20.0.

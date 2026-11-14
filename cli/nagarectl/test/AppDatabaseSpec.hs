@@ -317,6 +317,37 @@ appDatabaseTests =
             case compileAppDatabaseRestoreScope (request betaScope) native of
               Left _ -> pure ()
               Right _ -> assertFailure "another app database's backup was restored"
+        , testCase "a scratch reader requires this app's accepted restore on the current server revision" $ do
+            let original = alpha ClickHouse
+                obj = ReaderRestoredRelation (logical "alpha") "r1" (known (mkRelationName "v1"))
+                dash = AppDatabaseReader (known (Dsl.mkReaderName "verify")) (obj :| []) (defaultReaderLimits ClickHouse) [] False []
+                db = original & #access . #readers .~ [dash]
+                base = snapshot [chServer]
+                stateful = serverStateful chServer
+                (generation, acceptedServerScope) = snapshotScopes base Map.! (stateful ^. #owner)
+                facts =
+                  Map.fromList
+                    [ ("restore.id", "r1")
+                    , ("restore.app-database", "alpha-ch")
+                    , ("restore.namespace", "personal")
+                    , ("restore.target.kind", "scratch")
+                    , ("restore.target.statefulset", resourceIdText (stateful ^. #identity))
+                    , ("restore.target.revision", digestText (contentDigest (encodeCanonicalScope acceptedServerScope)))
+                    , ("restore.target.generation", T.pack (show (generationNumber generation)))
+                    , ("restore.target.databases", "alpha_restore_r1")
+                    ]
+                restored = withScopeOverrides facts (known (mkScopeDeclaration (known (mkScopeId Standalone "restore-test")) []))
+                admits scope = compileAgainst (snapshotWith [chServer] [scope]) [chServer] db
+                refuses result = case result of Left _ -> pure (); Right _ -> assertFailure "invalid scratch reader admitted"
+            resolvedReaderObject obj @?= ReaderRelation (logical "alpha_restore_r1") Nothing (known (mkRelationName "v1"))
+            refuses (compileAgainst base [chServer] db)
+            _ <- either (assertFailure . show) pure (admits restored)
+            forM_ [("restore.app-database", "beta-ch"), ("restore.target.kind", "rebuilt"), ("restore.target.databases", "beta_restore_r1"), ("restore.target.revision", "stale")] $ \(key, value) ->
+              refuses (admits (withScopeOverrides (Map.insert key value facts) restored))
+            forM_ ["", "bad_id", "../r1", "UPPER"] $ \value ->
+              case validateAppDatabase (db & #access . #readers . traverse . #objects .~ (ReaderRestoredRelation (logical "alpha") value (known (mkRelationName "v1")) :| [])) of
+                Left _ -> pure ()
+                Right _ -> assertFailure "unsafe restore id admitted"
         , testCase "a scratch restore extends no reader to the scratch databases (IR-33 AC-8)" $ do
             let reader = AppDatabaseReader (known (Dsl.mkReaderName "dash")) (ReaderRelation (logical "alpha") Nothing (known (mkRelationName "v1")) :| []) (defaultReaderLimits Postgres) [known (Dsl.mkServiceName "gamma")] False []
             (appScope, serverScope, native, receiptScope, _, _) <- ingestedWith (alpha Postgres & #access . #readers .~ [reader])

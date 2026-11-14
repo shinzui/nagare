@@ -27,6 +27,7 @@ module Nagare.Inventory.AppDatabase
   )
 where
 
+import Control.Monad (forM)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -44,7 +45,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Database.AppDatabase.Backup (AppDatabaseBackup (..), appDatabaseBackupScheduleName, renderInventoryAppDatabaseBackupCronJob)
-import Nagare.Dsl.AppDatabase (AppDatabase (..), AppDatabaseRole (OwnerRole), Ownership (..), appDatabaseNameText, appDatabaseRoles, appDatabaseUser, appOwned, logicalDatabaseNameText, noAppDatabaseAccess, roleNameText)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), AppDatabaseAccess (..), AppDatabaseReader (..), AppDatabaseRole (OwnerRole), Ownership (..), ReaderObject (..), UserExtension (..), appDatabaseNameText, appDatabaseRoles, appDatabaseUser, appOwned, logicalDatabaseNameText, noAppDatabaseAccess, resolvedReaderObject, roleNameText)
 import Nagare.Dsl.Config (encodeAppDatabases)
 import Nagare.Dsl.Database (Engine, engineToken)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -60,7 +61,7 @@ import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry), RecoveryIntent)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
 import Text.Read (readMaybe)
 
 -- | The accepted server an app database lives in.
@@ -195,6 +196,26 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
   owner <- first (invalid Nothing) (appDatabaseScopeId db)
   serverFound <- first (\err -> (err & #scopes .~ [owner] & #sources .~ [source]) :| []) (acceptedAppDatabaseServer snapshot acceptedNative cluster db)
   let stateful = serverFound ^. #statefulSet
+  -- A scratch reader names a completed, accepted restore of this membership
+  -- on this exact declared server. It never enrolls scratch databases as managed.
+  restoredDependencies <- fmap concat $ forM [(object', restore) | reader' <- db ^. #access . #readers, object'@(ReaderRestoredRelation _ restore _) <- NE.toList (reader' ^. #objects)] $ \(object', restore) -> do
+    let matching =
+          [ scope
+          | (_, scope) <- Map.elems (snapshotScopes snapshot)
+          , let facts = scopeOverrides scope
+          , Map.lookup "restore.id" facts == Just restore
+          , Map.lookup "restore.app-database" facts == Just (appDatabaseNameText (db ^. #name))
+          , Map.lookup "restore.namespace" facts == Just (namespaceText (db ^. #namespace))
+          , Map.lookup "restore.target.kind" facts == Just "scratch"
+          , Just (serverGeneration, serverScope) <- [Map.lookup (stateful ^. #owner) (snapshotScopes snapshot)]
+          , Map.lookup "restore.target.revision" facts == Just (digestText (contentDigest (encodeCanonicalScope serverScope)))
+          , Map.lookup "restore.target.generation" facts == Just (T.pack (show (generationNumber serverGeneration)))
+          , Map.lookup "restore.target.statefulset" facts == Just (resourceIdText (stateful ^. #identity))
+          , logicalDatabaseNameText (resolvedReaderObject object' ^. #database) `elem` maybe [] (T.splitOn ",") (Map.lookup "restore.target.databases" facts)
+          ]
+    case matching of
+      [scope] -> pure [member ^. #identity | member <- scopeMembers scope]
+      _ -> Left (invalid (Just owner) "scratch reader needs one accepted restore of this app database on its declared server")
   case directServerBindings snapshot stateful of
     [] -> pure ()
     bound ->
@@ -285,7 +306,10 @@ compileStandaloneAppDatabase snapshot acceptedNative target db cluster namespace
             :| []
         )
     )
-  scope <- mkScopeDeclaration owner [bundle]
+  let withRestoreDependency = \case
+        Managed member | DatabaseUserSpec _ _ _ _ extension <- member ^. #spec, isJust (extension ^. #reader) -> Managed (member & #dependencies %~ (<> map OrderedAfter (Set.toList (Set.fromList restoredDependencies))))
+        other -> other
+  scope <- mkScopeDeclaration owner [bundle {declarations = map withRestoreDependency (declarations bundle)}]
   pure (scope, nativeById)
   where
     digestOf value = contentDigest <$> canonicalValue value

@@ -561,6 +561,7 @@ mkAppDatabaseAdapter accepted members ops =
       Just grant -> "; objects " <> T.intercalate ", " (map describeObject (NE.toList (grant ^. #objects)))
     describeObject = \case
       ReaderRelation db schema' relation' -> logicalDatabaseNameText db <> "." <> maybe "" ((<> ".") . schemaNameText) schema' <> relationNameText relation'
+      ReaderRestoredRelation db restore relation' -> logicalDatabaseNameText db <> "_restore_" <> restore <> "." <> relationNameText relation'
       ReaderSchemaViews db schema' -> logicalDatabaseNameText db <> "." <> schemaNameText schema' <> ".* (views)"
     -- The saved plan names each declared exception and limit (IR-30 AC-1).
     describeAccess access =

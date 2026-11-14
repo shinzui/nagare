@@ -66,6 +66,7 @@ module Nagare.Dsl.AppDatabase
   , mkRelationName
   , relationNameText
   , ReaderObject (..)
+  , resolvedReaderObject
   , AppDatabaseReader (..)
   , ReaderGrant (..)
   , UserExtension (..)
@@ -382,8 +383,15 @@ relationNameText (RelationName t) = t
 -- schema is in @public@; ClickHouse has none.
 data ReaderObject
   = ReaderRelation {database :: !LogicalDatabaseName, schema :: !(Maybe SchemaName), relation :: !RelationName}
+  | ReaderRestoredRelation {database :: !LogicalDatabaseName, restoreId :: !Text, relation :: !RelationName}
   | ReaderSchemaViews {database :: !LogicalDatabaseName, schemaViews :: !SchemaName}
   deriving stock (Generic, Eq, Ord, Show)
+
+-- | Resolve a reviewed scratch name without expanding the managed database set.
+resolvedReaderObject :: ReaderObject -> ReaderObject
+resolvedReaderObject = \case
+  ReaderRestoredRelation db restore relation' -> ReaderRelation (either (error . Text.unpack) id (mkLogicalDatabaseName (logicalDatabaseNameText db <> "_restore_" <> restore))) Nothing relation'
+  other -> other
 
 -- | A declared reader: its objects, its limits (on ClickHouse all five of
 -- 'defaultReaderLimits'' ceilings, on PostgreSQL at least a connection
@@ -598,17 +606,24 @@ instance ToJSON ReaderObject where
   toJSON = \case
     ReaderRelation db schema' relation' ->
       object (["database" .= logicalDatabaseNameText db, "relation" .= relationNameText relation'] <> maybe [] (\sc -> ["schema" .= schemaNameText sc]) schema')
+    ReaderRestoredRelation db restore relation' -> object ["database" .= logicalDatabaseNameText db, "restoredFrom" .= restore, "relation" .= relationNameText relation']
     ReaderSchemaViews db schema' -> object ["database" .= logicalDatabaseNameText db, "schemaViews" .= schemaNameText schema']
 
 instance FromJSON ReaderObject where
   parseJSON = withObject "reader object" $ \o -> do
-    onlyKeys ["database", "schema", "relation", "schemaViews"] o
+    onlyKeys ["database", "schema", "relation", "schemaViews", "restoredFrom"] o
     db <- o .: "database" >>= checked mkLogicalDatabaseName
     relation' <- o .:? "relation"
     schemaViews' <- o .:? "schemaViews"
-    case (relation', schemaViews') of
-      (Just r, Nothing) -> ReaderRelation db <$> (o .:? "schema" >>= traverse (checked mkSchemaName)) <*> checked mkRelationName r
-      (Nothing, Just v) -> do
+    restored <- o .:? "restoredFrom"
+    case (relation', schemaViews', restored) of
+      (Just r, Nothing, Just restore) -> do
+        schema' <- o .:? "schema" :: Parser (Maybe Text)
+        unless (isNothing schema') (fail "restored ClickHouse relations have no schema")
+        _ <- checked validRestoreId restore
+        ReaderRestoredRelation db restore <$> checked mkRelationName r
+      (Just r, Nothing, Nothing) -> ReaderRelation db <$> (o .:? "schema" >>= traverse (checked mkSchemaName)) <*> checked mkRelationName r
+      (Nothing, Just v, Nothing) -> do
         schema' <- o .:? "schema" :: Parser (Maybe Text)
         unless (isNothing schema') (fail "a schemaViews object names its schema there")
         ReaderSchemaViews db <$> checked mkSchemaName v
@@ -645,6 +660,7 @@ instance FromJSON ReaderGrant where
     onlyKeys ["objects", "consumers"] o
     objects' <- o .: "objects" >>= maybe (fail "a reader grant has at least one object") pure . NE.nonEmpty
     consumers' <- fromMaybe [] <$> o .:? "consumers" >>= traverse (checked mkServiceName)
+    unless (all (\case ReaderRestoredRelation {} -> False; _ -> True) (NE.toList objects')) (fail "native reader grants require resolved physical relations")
     pure (ReaderGrant objects' consumers')
 
 -- | Written as EP-204's access object, with a @reader@ key for a reader and
@@ -749,6 +765,10 @@ validOwnership db = case db ^. #ownership of
 -- | A reader reads only the app's own databases, through objects that fit
 -- the engine, under every ceiling its engine requires (EP-206, IR-33 AC-1).
 validReader :: AppDatabase -> AppDatabaseReader -> Either Text ()
+validRestoreId :: Text -> Either Text Text
+validRestoreId restore = do
+  unless (not (Text.null restore) && Text.length restore <= 20 && Text.all (\c -> c `elem` ['a' .. 'z'] || c `elem` ['0' .. '9']) restore) (Left "invalid scratch restore id")
+  pure restore
 validReader db reader = do
   let who = "reader " <> readerNameText (reader ^. #name) <> ": "
       objects' = NE.toList (reader ^. #objects)
@@ -756,12 +776,19 @@ validReader db reader = do
   case [o ^. #database | o <- objects', o ^. #database `notElem` NE.toList (db ^. #logicalDatabases)] of
     [] -> pure ()
     outside : _ -> Left (who <> "object outside the app's own databases: " <> logicalDatabaseNameText outside)
+  for_ objects' $ \case
+    ReaderRestoredRelation source restore _ -> do
+      unless (db ^. #engine == ClickHouse) (Left (who <> "restored relations require ClickHouse"))
+      _ <- validRestoreId restore
+      _ <- mkLogicalDatabaseName (logicalDatabaseNameText source <> "_restore_" <> restore)
+      pure ()
+    _ -> pure ()
   unless (length (nub objects') == length objects') (Left (who <> "repeats an object"))
   first (who <>) (validUserAccess (db ^. #engine) (UserAccess (reader ^. #exceptions) limits'))
   when (ArbitraryTemporaryTables `elem` reader ^. #exceptions) (Left (who <> "a reader may declare only SELECT metadata exceptions"))
   case db ^. #engine of
     ClickHouse -> do
-      unless (all (\case ReaderRelation _ Nothing _ -> True; _ -> False) objects') (Left (who <> "ClickHouse objects are tables or views without a schema"))
+      unless (all (\case ReaderRelation _ Nothing _ -> True; ReaderRestoredRelation {} -> True; _ -> False) objects') (Left (who <> "ClickHouse objects are tables or views without a schema"))
       let missing = [n | (n, Nothing) <- [("maxExecutionSeconds", limits' ^. #maxExecutionSeconds), ("maxMemoryBytes", limits' ^. #maxMemoryBytes), ("maxResultRows", limits' ^. #maxResultRows), ("maxResultBytes", limits' ^. #maxResultBytes), ("maxThreads", limits' ^. #maxThreads)]]
       unless (null missing) (Left (who <> "a ClickHouse reader sets every ceiling; missing " <> Text.intercalate ", " missing))
     _ -> when (isNothing (limits' ^. #connectionLimit)) (Left (who <> "a PostgreSQL reader sets a connection limit"))

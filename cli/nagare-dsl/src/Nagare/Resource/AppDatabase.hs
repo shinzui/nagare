@@ -86,7 +86,7 @@ appDatabaseCredentialTemplate db role =
 -- else's first logical database.
 credentialDatabase :: AppDatabase -> AppDatabaseRole -> LogicalDatabaseName
 credentialDatabase db = \case
-  ReaderRole reader | Just r <- appDatabaseReader db reader -> NE.head (r ^. #objects) ^. #database
+  ReaderRole reader | Just r <- appDatabaseReader db reader -> resolvedReaderObject (NE.head (r ^. #objects)) ^. #database
   _ -> NE.head (db ^. #logicalDatabases)
 
 -- | Compile the members. The digest callback is supplied by nagarectl, which
@@ -150,14 +150,14 @@ compileAppDatabase digestOf input = do
           declaredReader = case role of
             ReaderRole reader -> appDatabaseReader db reader
             _ -> Nothing
-          grant = (\r -> ReaderGrant (r ^. #objects) (r ^. #consumers)) <$> declaredReader
+          grant = (\r -> ReaderGrant (fmap resolvedReaderObject (r ^. #objects)) (r ^. #consumers)) <$> declaredReader
           -- A retired reader keeps its Secret and declaration; its login and
           -- grants are off (EP-206).
           login = if maybe False (^. #retired) declaredReader then LoginClosed else LoginOpen
       resource <- roleId role "-user"
       credentialId <- roleId role "-credential"
       -- A reader is granted inside its objects' databases, so it follows them.
-      objectDatabases <- traverse (\name -> memberId ("database-" <> name)) (Set.toList (Set.fromList [logicalDatabaseNameText (o ^. #database) | Just g <- [grant], o <- NE.toList (g ^. #objects)]))
+      objectDatabases <- traverse (\name -> memberId ("database-" <> name)) (Set.toList (Set.fromList [logicalDatabaseNameText (o ^. #database) | Just r <- [declaredReader], o <- NE.toList (r ^. #objects)]))
       userName <- first invalid (mkName (appDatabaseUser (db ^. #name) role))
       digest <-
         first invalid $
