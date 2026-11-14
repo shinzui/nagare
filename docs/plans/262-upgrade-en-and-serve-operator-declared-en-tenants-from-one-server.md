@@ -76,7 +76,8 @@ and is not part of this plan.
   proves every tenant is available. Acceptance: on a disposable `mode=local` context
   upgraded from current `master`, relationships written before the upgrade are read back
   after it, the `[tenant nagare] Datastore id:` line shows the pre-upgrade id, and a
-  protected-site sign-in passes.
+  protected-site sign-in passes. vmagent scrapes En, and `EnTenantUnavailable` fires while
+  `en-db` is stopped.
 - [ ] M3: Operator-declared tenants. `NAGARE_EN_TENANTS` plus a schema path per tenant
   yields a database `en-<name>-db`, a migration Job, a schema, a key Secret, En
   environment, backups, and the F147 restore recovery. Acceptance: inventory interpreter
@@ -136,12 +137,15 @@ and is not part of this plan.
   Adding a key to the existing `nagare-en-api-keys` would read as drift on every existing
   context.
   Date: 2026-11-14.
-- Decision: This plan does not make vmagent scrape En.
-  Rationale: Nagare's scrape objects (`VMServiceScrape`) live in namespace `monitoring`
-  and can only name a bearer-token Secret in their own namespace, while the scrape key
-  lives in `nagare-system`. Carrying a platform credential into `monitoring` needs its own
-  reviewed owner and is a separate change. Until then the key serves apply's proof and an
-  operator's `curl`.
+- Decision: vmagent scrapes En, and an alert fires when a tenant is unavailable. The scrape
+  object lives in `nagare-system`, beside the scrape key.
+  Rationale: in tenant mode En stays ready and running while one tenant's database is
+  down, so no existing alert sees it, and apply's proof only looks at apply time. A dead
+  `nagare` tenant fails every sign-in. A scrape object can only name a bearer-token Secret
+  in its own namespace, and vmagent selects scrape objects in every namespace
+  (`selectAllByDefault: true` in `cluster/observability/victoria-metrics/values.yaml`).
+  Placing the object in `nagare-system` therefore needs no copy of the credential in
+  `monitoring`. This replaces the earlier deferral (operator, 2026-11-14).
   Date: 2026-11-14.
 - Decision: Keys reach an app through `nagarectl en-tenant bind`, which writes into the
   app's existing managed runtime Secret through the same writer as `nagarectl secret set`.
@@ -334,8 +338,7 @@ upstream main by commit, and Hackage `biscuit-haskell-0.5.0.0` r1 cannot replace
 Keep the process-wide cache settings and update the pinned digest in `Auth.hs`. Add
 `nagare-en-scrape-keys` to the generated Secret templates beside `nagare-en-api-keys`
 (`secretTemplate` in `Auth.hs` and `authCredentialKind` in `CredentialTemplate.hs`), with
-`Protect` lifecycle, and make the Deployment wait for it in `internalOrder`. Document the
-key in `docs/user/observability.md`: what it reads, and that vmagent does not use it yet.
+`Protect` lifecycle, and make the Deployment wait for it in `internalOrder`.
 
 Then make apply's success for the `en` Deployment require `en_tenant_available{tenant=X} 1`
 for every declared tenant, from one `GET /metrics` with the scrape key. Send it through
@@ -346,7 +349,29 @@ one for the whole command (`withContextEnSession` in
 no session, use the sessionless `kubectlTransport` from the same module, which opens the
 forward on first use, so a first bootstrap works once En exists. Bound the read by the
 existing rollout wait. Report `en tenant X unavailable` with En's last `UNAVAILABLE`
-reason on failure. Do not pin
+reason on failure. Then add the scrape and the alert. Both belong to the optional observability component,
+compiled by `cli/nagarectl/src/Nagare/Inventory/Components/ObservabilityExtras.hs`, whose
+`manifestFiles` pins each file's SHA-256 and whose `addresses` lists each object:
+
+- A new file `cluster/observability/en/vmservicescrape.yaml`: a `VMServiceScrape` named
+  `en` in namespace `nagare-system`. It selects the `en` Service by
+  `app.kubernetes.io/name: en`, scrapes port `http` at `/metrics` every 30s, and sets
+  `bearerTokenSecret` to `nagare-en-scrape-keys`, key `metrics`. The Secret holds the bare
+  secret, which is what a bearer token needs; only the En variable adds the `scrape:` name.
+- Every address in that module is built for namespace `monitoring`. Let the address
+  helper take the namespace, give this object the `nagare-system` namespace prerequisite,
+  and order it after the auth scope's `nagare-en-scrape-keys` Secret through
+  `upstreamExternalAfter`.
+- A new group `nagare.auth` in `cluster/observability/vmrules/nagare-alerts.yaml` with one
+  rule, `EnTenantUnavailable`: `en_tenant_available == 0` for 5 minutes, severity
+  `critical`, naming the tenant label. Update the file's pinned digest.
+
+The VictoriaMetrics operator must be able to read that Secret in `nagare-system`. Confirm
+it on the local context; if its role is limited to `monitoring`, grant it `get` on this one
+Secret from the observability component. Document the scrape key, the scrape and the alert
+in `docs/user/observability.md`.
+
+Do not pin
 `EN_TENANT_NAGARE_EXPECTED_DATASTORE_ID`: the F147 restore deliberately rotates the
 datastore id, and a pin would need a reviewed re-pin after every restore. Model the
 availability proof in the inventory interpreter tests first (ADR 25): an unavailable
@@ -481,7 +506,10 @@ Tenants: nagare, demo
   `io.nagare.source.en` names `@5bb3f80d…`.
 - **M2.** In `nagarectl-test`, an inventory case where `en_tenant_available{tenant="nagare"}`
   is 0 fails the apply and a case where it is 1 passes it. Locally, the scrape key gets
-  200 from `GET /metrics` and 403 from `GET /v1/schema`. On a local context bootstrapped
+  200 from `GET /metrics` and 403 from `GET /v1/schema`. With observability installed on
+  the local context, the query `en_tenant_available{tenant="nagare"}` returns 1 in
+  VictoriaMetrics. After scaling `en-db` to zero replicas, En's pod stays ready and
+  `EnTenantUnavailable` fires; it clears after scaling back. On a local context bootstrapped
   from current `master`:
   - before the upgrade, grant a user on a protected site and record
     `GET /v1/relationships` for `app` objects and the datastore id;
@@ -549,6 +577,8 @@ reported to the operator.
   `Nagare.Target`.
 - Secrets in `nagare-system`: `nagare-en-scrape-keys` (`metrics`) and
   `nagare-en-tenant-<name>-keys` (`read-write`, `read-only`). Database `en-<name>-db`. ConfigMap `en-schema` key `tenant-<name>.en`.
+- Observability: `VMServiceScrape` `en` in `nagare-system`, and the alert
+  `EnTenantUnavailable` in `VMRule` `nagare-alerts`.
 - CLI: `nagarectl en-tenant bind NAME --app APP -f CONFIG [--read-write-as VAR]
   [--read-only-as VAR] [--version TOKEN] [--save-plan DIR]`.
 - Consumer: Mori plans 300 and 309 consume the `mori` tenant's keys and
