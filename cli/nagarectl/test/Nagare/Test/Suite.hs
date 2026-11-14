@@ -9,6 +9,7 @@ where
 import AccessCheckSpec (accessCheckTests)
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
+import AppDatabaseCredentialSpec (appDatabaseCredentialTests)
 import AppDatabasePrivilegeSpec (appDatabasePrivilegeTests)
 import AppDatabaseRestartSpec (appDatabaseRestartTests)
 import AppDatabaseSpec (appDatabaseTests)
@@ -224,7 +225,7 @@ main = do
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
-            , testGroup "AppDatabase" [appDatabaseTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appDatabaseTaskTests, appOwnedDatabaseTests]
+            , testGroup "AppDatabase" [appDatabaseTests, appDatabaseCredentialTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appDatabaseTaskTests, appOwnedDatabaseTests]
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
             , inventoryWorldFaultsTests

@@ -48,7 +48,6 @@ import Data.Vector qualified as V
 import Nagare.App.Deploy (RolloutEnv (..))
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.AppDatabase.Sql (renderScratchRestore)
-import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.AppDatabase
 import Nagare.Dsl.Config (encodeAppDatabases, encodeWorker)
 import Nagare.Dsl.Database (Database (Database), Engine (..), EngineVersion, defaultEngineVersion, mkDatabaseName, mkEngineVersion)
@@ -56,8 +55,6 @@ import Nagare.Dsl.Load (LoadError (..), decodeAppDatabases, decodeWorker)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (webWorker)
-import Nagare.Inventory.Adapters.AppDatabaseRuntime (clickHouseLoginVerdict)
-import Nagare.Inventory.Adapters.CredentialTemplate (credentialDataMatches, materializeCredential)
 import Nagare.Inventory.AppDatabase
 import Nagare.Inventory.AppDatabaseBackup (AppDatabaseBackupRequest (..), compileAppDatabaseOnDemandBackupScope, onDemandBackupJobName, validOnDemandBackupId)
 import Nagare.Inventory.AppDatabaseRestore (AppDatabaseRestoreRequest (..), EscrowedRun (EscrowedRun), RestoreRun (..), RestoreTarget (..), appDatabaseRebuiltShell, compileAppDatabaseRestoreScope)
@@ -78,7 +75,6 @@ import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), scheduledStatusSources)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (StatusOk), retiredRecoveryPointProbe)
-import Nagare.Resource.AppDatabase (appDatabaseCredentialTemplate)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
@@ -86,7 +82,6 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Test.Support.Profiles (tnbProfile)
-import System.Exit (ExitCode (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -659,35 +654,6 @@ appDatabaseTests =
             case bindIn retired retiredNative of
               Left reason -> assertBool (T.unpack reason) ("retired" `T.isInfixOf` reason)
               Right _ -> assertFailure "a retired app database was bound"
-        , testCase "the ClickHouse server enables SQL access management" $ do
-            let (_, native) = chServer
-            assertBool "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT is set" $
-              any (T.isInfixOf "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT" . TE.decodeUtf8 . snd) (Map.elems native)
-        ]
-    , testCase "a ClickHouse login proves the password even before the default database exists" $ do
-        clickHouseLoginVerdict ExitSuccess "" @?= Right True
-        clickHouseLoginVerdict (ExitFailure 81) "Code: 81. DB::Exception: Database beta does not exist. (UNKNOWN_DATABASE)" @?= Right True
-        clickHouseLoginVerdict (ExitFailure 4) "Code: 516. Authentication failed (AUTHENTICATION_FAILED)" @?= Right False
-        assertBool "an unknown failure is not a verdict" (isLeft (clickHouseLoginVerdict (ExitFailure 210) "Connection refused"))
-    , testGroup
-        "credential template"
-        [ testCase "a runtime Secret is filled with its own user, database and URL path" $ do
-            let template = appDatabaseCredentialTemplate (alpha ClickHouse) RuntimeRole
-            native <- either (fail . T.unpack) (pure . TE.decodeUtf8) (canonicalValue template)
-            filled <- materializeCredential native >>= either (fail . T.unpack) pure
-            value <- either fail pure (eitherDecodeStrict (TE.encodeUtf8 filled))
-            fields <- case value of
-              Object root | Just (Object entries) <- KM.lookup "data" root -> pure entries
-              _ -> fail "filled Secret has no data"
-            let decoded key = case KM.lookup key fields of
-                  Just (String encoded) -> either (const "") id (b64decode encoded)
-                  _ -> ""
-            decoded "CLICKHOUSE_USER" @?= "alpha_ch_runtime"
-            decoded "CLICKHOUSE_DB" @?= "alpha"
-            T.length (decoded "CLICKHOUSE_PASSWORD") @?= 48
-            assertBool "URL path selects the database" ("@smoke-ch.personal.svc.cluster.local:9000/alpha" `T.isSuffixOf` decoded "CLICKHOUSE_URL")
-            credentialDataMatches template value @?= True
-            credentialDataMatches template template @?= False
         ]
     ]
   where
