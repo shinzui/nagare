@@ -471,7 +471,6 @@ executable nagarectl
     Nagare.Cli.Commands.Delegation
     Nagare.Cli.Commands.Deployment
     Nagare.Cli.Commands.Domains
-    Nagare.Cli.Commands.EnTenant
     Nagare.Cli.Commands.Environment
     Nagare.Cli.Commands.Host
     Nagare.Cli.Commands.Image

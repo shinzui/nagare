@@ -33,7 +33,7 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryPublications InventoryLegacyGuard InventoryExplain InventoryStoreStatus InventoryRebuildDecisions PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SiteList SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
-        "group": "Tunnel Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache Delegation WithReviewSource",
+        "group": "Tunnel Host Kubeconfig Cluster Env Secret EnTenant Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache Delegation WithReviewSource",
         "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck SitePackage Render",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init PlatformVersions",
@@ -69,6 +69,8 @@ ROUTES = {
     },
     "EnvCommand": {"read": "EnvList", "reviewed": "EnvSet EnvDelete EnvSync"},
     "SecretCommand": {"read": "SecretList", "reviewed": "SecretSet SecretDelete SecretSync"},
+    # EP-262: bind writes a tenant's keys into a runtime Secret as a reviewed Secret change.
+    "EnTenantCommand": {"reviewed": "EnTenantBind"},
     "StorageCommand": {
         "read": "StorageList StorageInspect",
         "reviewed": "StorageSnapshot StorageRestore StoragePrune StorageRestoreRebuilt StorageBackupReceipts StoragePruneScheduledBackups",
@@ -191,6 +193,7 @@ DEFAULT_FAMILY = {
     "InfraCommand": "Pulumi cloud stack preview/apply",
     "EnvCommand": "Application environment and Secret stores",
     "SecretCommand": "Application environment and Secret stores",
+    "EnTenantCommand": "Application environment and Secret stores",
     "StorageCommand": "Application volume snapshot and restore",
     "DbCommand": "Standalone database creation and application deploy databases",
     "BrokerCommand": "Standalone Redpanda broker and logical topics",
