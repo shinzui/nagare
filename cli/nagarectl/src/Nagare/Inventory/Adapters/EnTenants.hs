@@ -149,7 +149,8 @@ proveEnTenants config tenants = do
           pure secret
         _ -> Left ("en scrape key Secret " <> enScrapeKeySecret <> " could not be read")
     explain tenant = do
-      logs <- invokeKubectl config ["logs", "deployment/en", "-n", "nagare-system", "-c", "en", "--tail=500"] ""
+      -- The migration Jobs' pods carry the en label too; only the server's.
+      logs <- invokeKubectl config ["logs", "-n", "nagare-system", "-l", "app.kubernetes.io/name=en,app.kubernetes.io/component!=migration", "-c", "en", "--tail=500"] ""
       let reason = case logs of
             Right (ExitSuccess, output, _) -> lastUnavailableReason tenant (T.pack output)
             _ -> Nothing

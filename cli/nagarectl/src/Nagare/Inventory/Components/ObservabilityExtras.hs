@@ -83,7 +83,7 @@ compileObservabilityExtras root foundation metricsRelease = do
       [ ("cluster/observability/brokers/vmservicescrape.yaml", "671a9e79b8bb6323700c668d99bf3e8acc762ea9f7051570193cf60cb4559504")
       , ("cluster/observability/cert-manager/vmservicescrape.yaml", "863fb660be31a9de8c41102291b812e34613fd602ec95a03d40a57637e1991ed")
       , ("cluster/observability/vmrules/nagare-alerts.yaml", "0bfb5e50ff46e337e1736ab68783e3d52f5e949e3651c5bf5fa05d6285a65a15")
-      , ("cluster/observability/vmrules/nagare-auth-alerts.yaml", "1aaa485e61dcfbe72a63591770bf4beae472b0eec5e20464d0a77fce972663ba")
+      , ("cluster/observability/vmrules/nagare-auth-alerts.yaml", "1494a546f29759a74ffb43147f37975f7bf1ef202870e50bdb99f06274f5cfe4")
       , ("cluster/observability/en/vmservicescrape.yaml", "30ec14c0555cecfcbc965bb0ff83bacfeeb8d978ba422ddc84629ae2e18dfc12")
       ]
     generatedFiles =
