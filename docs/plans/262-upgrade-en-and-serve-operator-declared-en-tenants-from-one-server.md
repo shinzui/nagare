@@ -10,6 +10,18 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-14T19:41:57Z
+  reviews:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-14T20:04:26Z
+      verdict: "changes-requested"
+      note: "Pins and En tenant facts verified at 5bb3f80d; bind omits secret set's config/version review inputs, schema key collides for tenant 'app', context-parse file check and rollback claim need fixing"
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-14T20:09:06Z
+      mode: "update"
+      note: "Applied review findings: per-tenant key probe replaces operator metrics key, tenant-<name>.en schema keys, context parsing, bind review inputs, forward-only upgrade"
 ---
 
 # Upgrade En and serve operator-declared En tenants from one server
@@ -71,8 +83,8 @@ and is not part of this plan.
   tests in `nagarectl-test`, then a local context with tenant `demo`. Its key writes and
   checks its own type, the `nagare` key cannot read it, and a backup-and-restore of
   `en-demo-db` brings its relationships back.
-- [ ] M4: `nagarectl en-tenant bind NAME --app APP` delivers a tenant's keys into the
-  app's managed runtime Secret. Acceptance: on the local context, a deployed app in its
+- [ ] M4: `nagarectl en-tenant bind NAME --app APP -f CONFIG` delivers a tenant's keys into
+  the app's managed runtime Secret as one reviewed secret change. Acceptance: on the local context, a deployed app in its
   own namespace makes a successful `POST /v1/check` against tenant `demo`.
 - [ ] M5: Released and live on labs with tenant `mori`. Acceptance: the release proves the
   three release facts (full gate, EP-172 upgrade rehearsal read-back, intranet upgrade with
@@ -113,19 +125,43 @@ and is not part of this plan.
   deployer's repository content is untrusted (ADR 35), so it must not be able to restart
   the service that gates every sign-in or inject a schema into it.
   Date: 2026-11-14.
-- Decision: Apply's proof for the En Deployment reads `en_tenant_available` for every
-  declared tenant through a new operator metrics key, held in a new Secret
-  `nagare-en-operator-keys`.
-  Rationale: in tenant mode `/health/ready` stays 200 while any tenant can serve (En ADR
-  10), so a ready Deployment no longer proves the `nagare` tenant opened its database. A
-  new Secret is used because credential templates compare only the key set and never
-  rotate. Adding a key to the existing `nagare-en-api-keys` would read as drift on every
-  existing context.
+- Decision: En gets a scrape key for monitoring, in a new generated Secret
+  `nagare-en-scrape-keys` (key `metrics`), set as `EN_METRICS_KEYS`. Apply's proof for the
+  En Deployment reads `en_tenant_available` for every declared tenant with it.
+  Rationale: the operator wants a monitoring credential that reads every tenant's metrics
+  and no tenant's data (2026-11-14). In tenant mode `/health/ready` stays 200 while any
+  tenant can serve (En ADR 10), so a ready Deployment no longer proves the `nagare` tenant
+  opened its database. With the key present, one `GET /metrics` covers all tenants. A new
+  Secret is used because credential templates compare only the key set and never rotate.
+  Adding a key to the existing `nagare-en-api-keys` would read as drift on every existing
+  context.
+  Date: 2026-11-14.
+- Decision: This plan does not make vmagent scrape En.
+  Rationale: Nagare's scrape objects (`VMServiceScrape`) live in namespace `monitoring`
+  and can only name a bearer-token Secret in their own namespace, while the scrape key
+  lives in `nagare-system`. Carrying a platform credential into `monitoring` needs its own
+  reviewed owner and is a separate change. Until then the key serves apply's proof and an
+  operator's `curl`.
   Date: 2026-11-14.
 - Decision: Keys reach an app through `nagarectl en-tenant bind`, which writes into the
   app's existing managed runtime Secret through the same writer as `nagarectl secret set`.
   Rationale: an app already receives `nagare-secret-<app>-runtime` through `EnvSecretRef`.
-  Reusing it adds no cross-namespace Secret owner, and the value is never printed.
+  Reusing it adds no cross-namespace Secret owner, and the value is never printed. It is a
+  reviewed secret change like any other, so it takes `secret set`'s `-f CONFIG`,
+  `--version` and `--save-plan`. Only an operator can run it, because it reads a Secret in
+  `nagare-system`.
+  Date: 2026-11-14.
+- Decision: A tenant's schema is the `en-schema` ConfigMap key `tenant-<name>.en`, and its
+  file check happens where the auth scope is compiled, not when the context is parsed.
+  Rationale: a key `<name>.en` for a tenant named `app` would overwrite Nagare's own
+  `app.en`. Every command parses the context, so a file check there would refuse unrelated
+  commands for anyone holding the context without the operator repository.
+  Date: 2026-11-14.
+- Decision: The move to tenant mode is forward-only.
+  Rationale: a release moves a context only from the sources its payload lists
+  (`cli/nagarectl/src/Nagare/Platform/Transition.hs`), and the previous release does not
+  list this one. A defect is answered with a fixing release. `en-db` is never rewritten,
+  so no data depends on going back.
   Date: 2026-11-14.
 
 
@@ -155,14 +191,17 @@ These files are compiled into the reviewed inventory by
 file's SHA-256, so any edit to them must update that digest. `compileAuthComponent`
 insists the auth databases are exactly `["shomei", "en"]`. `stampSchemaDigest` annotates
 the Deployment with the schema's digest so a schema change rolls En. The dependency
-mapping near the bottom of `compileAuth` sends every Job or Deployment whose name starts
-with `en` to the `en` database prerequisite. Tenant Jobs named `en-<name>-migrate` would
-match that prefix wrongly, so it must change. `cli/nagarectl/src/Nagare/Inventory/Bootstrap.hs`
+mapping near the bottom of `compileAuth` (`addExternal`) sends every Job or Deployment
+whose name starts with `en` to the `en` database prerequisite, and `proofFor` matches
+migration proofs by the same prefix. Tenant Jobs named `en-<name>-migrate` would match
+that prefix wrongly, so it must change. `internalOrder` lists what the `en` Deployment
+waits for, and a check near the end requires exactly the `en` and `shomei` prerequisites. `cli/nagarectl/src/Nagare/Inventory/Bootstrap.hs`
 (`compileBootstrapWithAuthAndScopes`) and
 `cli/nagarectl/src/Nagare/Inventory/Components/PackagedAuth.hs` call it.
 `cli/nagarectl/app/Nagare/Cli/Bootstrap/Platform.hs` builds `AuthInput` from the context.
 Generated, never-rotated Secrets come from
-`cli/nagarectl/src/Nagare/Inventory/Adapters/CredentialTemplate.hs`.
+`cli/nagarectl/src/Nagare/Inventory/Adapters/CredentialTemplate.hs`, whose
+`authCredentialKind` accepts three literal Secret names and refuses any other.
 
 `cli/nagarectl/src/Nagare/Database/Restore.hs` (`enDatastoreRecovery`) handles F147. En
 stamps grants with PostgreSQL transaction ids, which a dump does not carry. After a
@@ -173,6 +212,13 @@ restored tenant silently hides its grants.
 
 `nagare-access`, the forward-auth enforcer in `cli/nagare-access`, links En's
 `en-client` and `en-servant` (`cli/nagare-access/src/Nagare/Access/En.hs`).
+A third client lives outside this repository: the labs intranet portal in
+`mori://tan/tan-ng-labs` (`web/apps/portal`, artifact-level URI pending). Its admin pages
+call En's `/v1/check`, `/v1/lookup`, `/v1/lookup-subjects`, `/v1/expand` and `/v1/schema`
+with the `read-only` key of `nagare-en-api-keys`, copied into its runtime Secret as
+`EN_API_KEY`. That key stays a key of tenant `nagare`, and En's `docs/api/openapi.json` is
+byte-identical between the two pins, so the portal needs no change.
+
 `cli/nagare-access/cabal.project` pins En, Shōmei, webauthn, biscuit-haskell and
 hs-opentelemetry-instrumentation-servant by `source-repository-package` tag.
 `nix/release-images.nix` builds the release images (En, Shōmei, nagare-access, admin API,
@@ -193,10 +239,13 @@ pinning. Relevant upstream changes:
   settings (`DATABASE_URL`, `SCHEMA_PATH`, `API_KEYS_READ_WRITE`, `API_KEYS_READ_ONLY`,
   and optionally `POOL_SIZE`, `GC_WINDOW`, `EXPECTED_DATASTORE_ID`, …). `<NAME>` is the
   tenant name upper-cased, with `-` replaced by `_`. Beside `EN_TENANTS`, the legacy
-  `EN_DATABASE_URL`, `EN_SCHEMA_PATH` and `EN_API_KEYS_*` are refused. `EN_METRICS_KEYS`
-  grants `GET /metrics` across tenants and nothing else. Other `EN_*` settings are
+  `EN_DATABASE_URL`, `EN_SCHEMA_PATH` and `EN_API_KEYS_*` are refused. `GET /metrics`
+  with a tenant's key returns only that tenant's samples. `EN_METRICS_KEYS` holds
+  `name:secret` scrape keys that read every tenant's metrics and get 403 on every other
+  route. Other `EN_*` settings are
   process-wide and apply to each tenant, so each tenant gets its own caches of the
-  configured sizes and memory grows per tenant. A tenant name is a lower-case letter
+  configured sizes and its own pool of 10 PostgreSQL connections, and memory grows per
+  tenant. A tenant name is a lower-case letter
   followed by at most 30 lower-case letters, digits or `-`. Adding a tenant needs a
   restart. Subcommands such as `en-server export` take `--tenant NAME`. The operator guide
   is En's `docs/user/service-and-operations.md`, section "Serving several tenants"
@@ -204,8 +253,11 @@ pinning. Relevant upstream changes:
 - Readiness (En ADR 10). `/health/ready` is 200 while any tenant serves. Per-tenant state
   is the gauge `en_tenant_available{tenant=…}` and the log lines
   `[tenant NAME] UNAVAILABLE|AVAILABLE`.
-- Writes are validated against the active schema (En ADR 12). Nagare writes only `user`,
-  `group`, `app` and `delegation` tuples, which `app.en` defines.
+- Writes are validated against the active schema (En ADR 12): a tuple the schema cannot
+  interpret is refused with `400 schema_violation`, and deletes are never checked. Nagare
+  writes only `user`, `group`, `app` and `delegation` tuples, which `app.en` defines. The
+  tenant section of En's operator guide still says writes are not validated; the ADR and
+  the code are current.
 - `X-En-Api-Key` is now accepted beside `Authorization: Bearer` (En IR-1). It unblocks
   held EP-216 but is not used here.
 - Pins Nagare must mirror (ADR 1). biscuit-haskell moves from the fork
@@ -242,16 +294,21 @@ why tenants are operator-declared.
 
 **Terms.** A *context* is the flat `export VAR=value` file selecting a target, parsed by
 `cli/nagarectl/src/Nagare/Target.hs` and `cli/nagarectl/app/Nagare/Cli/Runtime/Context.hs`
-and documented in `nagare.target.env.example` and `docs/user/contexts.md`. A *disposable
+and documented in `nagare.target.env.example` and `docs/user/contexts.md`. `Target.hs`
+reads it into a key-value map (`parseContextEnv`) and then into the fixed fields of
+`TargetProfile`. `renderContextShellEnv` prints those fields for `nagarectl context env`,
+and `scripts/lib/target.sh` is its shell twin, which sources the file directly. A context
+file is usually a symlink from the XDG directory into the operator repository. A *disposable
 local context* is a `mode=local` k3d target (`docs/user/local-development.md`).
 
 
 ## Plan of Work
 
-**M1, the pin move.** Change En's tag in `cli/nagare-access/cabal.project` (every En
-subdir stanza) to `5bb3f80d…`. Replace the biscuit-haskell stanza with the
+**M1, the pin move.** Change En's tag in `cli/nagare-access/cabal.project` (one
+stanza listing seven subdirs) to `5bb3f80d…`. Replace the biscuit-haskell stanza with the
 `eclipse-biscuit` location and `469eaedc…`, and set the servant tag to `d79a2633…`. Copy
-any constraint or `allow-newer` change from En's `cabal.project` at that commit. Mirror
+any constraint or `allow-newer` change from En's `cabal.project` at that commit; its new
+`tasty-bench ==0.5` is test-only and is not needed. Mirror
 the same pins and hashes in `nix/release-images.nix` `sourcePins`; prefetch the hashes,
 since a wrong `hash` fails the fetch. Rebuild the cabal solve and refresh
 `nix/release-images/hackage-pins.json` for packages whose solved version differs from
@@ -271,18 +328,25 @@ upstream main by commit, and Hackage `biscuit-haskell-0.5.0.0` r1 cannot replace
 - `EN_TENANT_NAGARE_API_KEYS_READ_WRITE=nagarectl:$(…)` and
   `EN_TENANT_NAGARE_API_KEYS_READ_ONLY=nagare-access:$(…)` from the unchanged
   `nagare-en-api-keys`.
-- `EN_METRICS_KEYS=nagarectl-metrics:$(…)` from a new generated Secret
-  `nagare-en-operator-keys`, key `metrics`.
+- `EN_METRICS_KEYS=scrape:$(…)` from a new generated Secret `nagare-en-scrape-keys`, key
+  `metrics`.
 
 Keep the process-wide cache settings and update the pinned digest in `Auth.hs`. Add
-`nagare-en-operator-keys` to the generated Secret templates beside `nagare-en-api-keys`,
-with `Protect` lifecycle, and make the Deployment depend on it.
+`nagare-en-scrape-keys` to the generated Secret templates beside `nagare-en-api-keys`
+(`secretTemplate` in `Auth.hs` and `authCredentialKind` in `CredentialTemplate.hs`), with
+`Protect` lifecycle, and make the Deployment wait for it in `internalOrder`. Document the
+key in `docs/user/observability.md`: what it reads, and that vmagent does not use it yet.
 
 Then make apply's success for the `en` Deployment require `en_tenant_available{tenant=X} 1`
-for every declared tenant. Read it through the En port-forward `nagarectl` already holds
-for the whole command (see `cli/nagarectl/src/Nagare/Inventory/AccessRuntime.hs`), with
-the operator key, bounded by the existing rollout wait. Report `en tenant X unavailable`
-with En's last `UNAVAILABLE` reason on failure. Do not pin
+for every declared tenant, from one `GET /metrics` with the scrape key. Send it through
+the En port-forward
+in `cli/nagarectl/src/Nagare/Inventory/AccessRuntime.hs`. Inventory apply already holds
+one for the whole command (`withContextEnSession` in
+`cli/nagarectl/app/Nagare/Cli/Inventory/Workflow.hs`). Where the platform apply path has
+no session, use the sessionless `kubectlTransport` from the same module, which opens the
+forward on first use, so a first bootstrap works once En exists. Bound the read by the
+existing rollout wait. Report `en tenant X unavailable` with En's last `UNAVAILABLE`
+reason on failure. Do not pin
 `EN_TENANT_NAGARE_EXPECTED_DATASTORE_ID`: the F147 restore deliberately rotates the
 datastore id, and a pin would need a reviewed re-pin after every restore. Model the
 availability proof in the inventory interpreter tests first (ADR 25): an unavailable
@@ -292,11 +356,19 @@ tenant must fail apply, never pass it.
 
 - `NAGARE_EN_TENANTS`, a comma-separated list. Each name follows En's grammar, and
   `nagare` is reserved.
-- `NAGARE_EN_TENANT_<NAME>_SCHEMA`, a path to the schema file, resolved against the
-  context file's directory so it lives in the operator repository.
+- `NAGARE_EN_TENANT_<NAME>_SCHEMA`, a path to the schema file. `<NAME>` is upper-cased
+  with `-` replaced by `_`, as En does. A relative path is resolved against the directory
+  of the context file after `canonicalizePath`, so a symlinked context resolves inside the
+  operator repository.
 
-Parse them in `Nagare/Target.hs`, refuse unknown names, a missing schema, or a schema that
-is not a file. Document them in `nagare.target.env.example`, `docs/user/contexts.md` and
+Read them in `Nagare/Target.hs` from the parsed key-value map into a new `TargetProfile`
+field, since the variable names are not fixed. There, refuse an invalid or reserved name,
+a tenant with no schema variable, and a schema variable for an undeclared tenant. Do not
+touch the file there. `cli/nagarectl/app/Nagare/Cli/Bootstrap/Platform.hs` reads the file
+when it builds `AuthInput`, and refuses a path that is missing or not a file.
+`renderContextShellEnv` prints both kinds of variable verbatim, so `nagarectl context env`
+still agrees with `scripts/lib/target.sh`, which exports them by sourcing the file and
+needs no change. Document them in `nagare.target.env.example`, `docs/user/contexts.md` and
 `docs/user/config-reference.md`. Carry the tenant list with schema bytes into `AuthInput`
 (new field, for example `authEnTenants :: ![EnTenant]`, with
 `data EnTenant = EnTenant { name :: !EnTenantName, schema :: !ByteString }` following the
@@ -304,28 +376,43 @@ strict, unprefixed record rule).
 
 For each tenant, `compileAuth` generates:
 
-- the key `<name>.en` in ConfigMap `en-schema`, with the schema digest stamp extended over
-  all keys;
+- the key `tenant-<name>.en` in ConfigMap `en-schema`, with the schema digest stamp
+  extended over all keys;
 - a generated Secret `nagare-en-tenant-<name>-keys` with keys `read-write` and
-  `read-only`, `Protect`;
+  `read-only`, `Protect`. `authCredentialKind` in `CredentialTemplate.hs` gains a rule for
+  the `nagare-en-tenant-…-keys` name shape;
 - a Job `en-<name>-migrate`, the `en-migrate` Job pointed at `en-<name>-db`;
 - environment `EN_TENANT_<NAME>_DATABASE_URL`, `_SCHEMA_PATH` and `_API_KEYS_*`, with
   caller names `<name>-write` and `<name>-read`. `EN_TENANTS` lists `nagare` first.
 
-`compileAuthComponent` accepts `["shomei", "en", "en-<name>"...]` in declaration order, and
-`Bootstrap.hs` and `Platform.hs` supply a direct database input for each. Fix the
-`en`-prefix dependency mapping so `en-<name>-migrate` depends on `en-<name>-db`. Generalize
-`enDatastoreRecovery` to every En tenant database. Raise the En memory limit by a measured
-per-tenant increment (two caches per tenant); record the measurement here.
+`compileAuthComponent` accepts `["shomei", "en", "en-<name>"...]` in declaration order.
+`packagedAuthInputs` in `PackagedAuth.hs` builds a direct database input for each instead
+of its fixed two, and `Bootstrap.hs` and `Platform.hs` pass them on. Replace the `en`
+prefix tests in `compileAuth` with exact names:
+
+- `en-<name>-migrate` depends on `en-<name>-db` only;
+- the `en` Deployment depends on every En database, every En migration proof, every
+  tenant key Secret and the `en-schema` ConfigMap (`addExternal`, `proofFor` and
+  `internalOrder`);
+- the prerequisite check requires `shomei`, `en` and every `en-<name>`.
+
+Generalize `enDatastoreRecovery` to `en-db` and every `en-<name>-db` in `nagare-system`.
+Each tenant adds a PostgreSQL StatefulSet with a 5Gi volume and a backup schedule, and
+two caches and a connection pool inside En. Measure the node memory one tenant adds, raise
+the En memory limit by the measured En share, and record both numbers here.
 
 Removing a tenant from the context is refused at planning in this plan. Its database and
 Secret are protected, and a reviewed retirement is out of scope.
 
-**M4, key delivery.** Add `nagarectl en-tenant bind NAME --app APP --read-write-as VAR
---read-only-as VAR` (either flag optional, at least one required) to the parser module
-that holds `secret set`. It reads `nagare-en-tenant-<NAME>-keys` in the active context's
-cluster and writes the named variables into the app's managed runtime Secret through the
-same reviewed path `secret set` uses. It never writes a value to stdout or stderr. The
+**M4, key delivery.** Add `nagarectl en-tenant bind NAME --app APP -f CONFIG
+--read-write-as VAR --read-only-as VAR` (either `-as` flag optional, at least one
+required) to the parser module that holds `secret set`. It also takes `secret set`'s
+`--version TOKEN` and `--save-plan DIR`, with the same meaning. It reads
+`nagare-en-tenant-<NAME>-keys` in the active context's cluster and writes the named
+variables into the app's managed runtime Secret as one reviewed change, through
+`saveReviewedSecretChange` in `cli/nagarectl/app/Nagare/Cli/Commands/Environment.hs`. It
+never writes a value to stdout or stderr. It is an operator command: a delegated deployer
+cannot read Secrets in `nagare-system`, and the command says so when the read is refused. The
 app sets the En base URL itself as a literal, `http://en.nagare-system.svc.cluster.local`.
 Document both in `docs/user/env-and-secrets.md` under a new "En tenants" section.
 
@@ -393,7 +480,8 @@ Tenants: nagare, demo
   `release.json` `.releaseImages`, and the release-images check passes. The En image label
   `io.nagare.source.en` names `@5bb3f80d…`.
 - **M2.** In `nagarectl-test`, an inventory case where `en_tenant_available{tenant="nagare"}`
-  is 0 fails the apply and a case where it is 1 passes it. On a local context bootstrapped
+  is 0 fails the apply and a case where it is 1 passes it. Locally, the scrape key gets
+  200 from `GET /metrics` and 403 from `GET /v1/schema`. On a local context bootstrapped
   from current `master`:
   - before the upgrade, grant a user on a protected site and record
     `GET /v1/relationships` for `app` objects and the datastore id;
@@ -402,23 +490,27 @@ Tenants: nagare, demo
   - the user signs in to the protected site.
 - **M3.** In `nagarectl-test`:
   - a context with `NAGARE_EN_TENANTS=demo` yields `en-demo-db`, `en-demo-migrate`,
-    `nagare-en-tenant-demo-keys`, an `en-schema` key `demo.en`, and the tenant environment;
+    `nagare-en-tenant-demo-keys`, an `en-schema` key `tenant-demo.en`, and the tenant
+    environment, and the `en` Deployment waits for `en-demo-db` and its migration proof;
+  - a tenant named `app` leaves the key `app.en` holding Nagare's schema;
   - an invalid name, the name `nagare`, a missing schema, and a removed tenant are each
-    refused at planning;
+    refused at planning, and a context whose schema file is absent still parses;
   - the restore Job for `en-demo-db` carries the F147 recovery.
 
   Locally with schema `object doc { relation viewer: user }`:
   - the `demo` write key writes `doc:d1#viewer@user:ann`, and its check returns allowed;
-  - the `nagare` read-only key's check on `doc` returns 400;
+  - the `nagare` read-only key's check on `doc` returns 400, and the `nagare` write key
+    writing a `doc` tuple gets `400 schema_violation`;
   - `GET /v1/schema` per key returns only that tenant's schema;
   - after backing up `en-demo-db`, deleting its data and restoring through
     `docs/user/backups-and-disaster-recovery.md`'s path, the relationship is back.
-- **M4.** `nagarectl en-tenant bind demo --app probe --read-only-as EN_KEY` exits 0 and
-  prints no key. A probe Job in the app's namespace with `EN_KEY` from its runtime Secret
+- **M4.** `nagarectl en-tenant bind demo --app probe -f CONFIG --read-only-as EN_KEY`,
+  with the `--version` a reviewed secret change requires, exits 0 and prints no key. A probe Job in the app's namespace with `EN_KEY` from its runtime Secret
   gets 200 from `POST http://en.nagare-system.svc.cluster.local/v1/check`.
 - **M5.** The release record shows its full gate green and the EP-172 rehearsal read-back
   passing. On labs, the developer deploy-and-login check passes after the upgrade, and
-  again after the `mori` tenant is added. En's log shows `Tenants: nagare, mori` with both
+  again after the `mori` tenant is added. The portal's admin pages (sites, teams, access)
+load after each of the two. En's log shows `Tenants: nagare, mori` with both
   available. `GET /v1/schema` with the `mori` read-only key returns Mori's `registry.en`.
 
 
@@ -427,10 +519,14 @@ Tenants: nagare, demo
 Re-planning and re-applying is safe. Generated key Secrets are create-only and never
 rotate, and migration Jobs are revision-named with retained proofs (ADR 2).
 
-The tenant-mode conversion changes only the Deployment's environment. Rolling back to the
-previous release restores legacy-mode environment over the same `en-db`, whose ledger and
-datastore id this plan never touches. Tokens and cursors minted in tenant mode stay valid,
-since the datastore id is unchanged.
+The tenant-mode conversion changes only the Deployment's environment and never touches
+`en-db`'s ledger or datastore id, so tokens and cursors minted before it stay valid. It is
+forward-only: a context does not move back to the previous release, and a defect found
+after the upgrade is answered with a fixing release.
+
+A bound key is a copy. Generated keys exist only in Kubernetes, so a cluster rebuild
+mints new tenant keys and the copies in app runtime Secrets stop working. After a rebuild,
+run `nagarectl en-tenant bind` again for each bound app.
 
 If a tenant's database fails, En keeps serving the others and apply reports the tenant
 unavailable. Fix the database and re-apply; do not remove the tenant to make apply pass.
@@ -451,8 +547,9 @@ reported to the operator.
   accepts the tenant databases after `shomei` and `en`.
 - Context fields `NAGARE_EN_TENANTS` and `NAGARE_EN_TENANT_<NAME>_SCHEMA`, read by
   `Nagare.Target`.
-- Secrets in `nagare-system`: `nagare-en-operator-keys` (`metrics`) and
-  `nagare-en-tenant-<name>-keys` (`read-write`, `read-only`). Database `en-<name>-db`.
-- CLI: `nagarectl en-tenant bind NAME --app APP [--read-write-as VAR] [--read-only-as VAR]`.
+- Secrets in `nagare-system`: `nagare-en-scrape-keys` (`metrics`) and
+  `nagare-en-tenant-<name>-keys` (`read-write`, `read-only`). Database `en-<name>-db`. ConfigMap `en-schema` key `tenant-<name>.en`.
+- CLI: `nagarectl en-tenant bind NAME --app APP -f CONFIG [--read-write-as VAR]
+  [--read-only-as VAR] [--version TOKEN] [--save-plan DIR]`.
 - Consumer: Mori plans 300 and 309 consume the `mori` tenant's keys and
   `http://en.nagare-system.svc.cluster.local`.
