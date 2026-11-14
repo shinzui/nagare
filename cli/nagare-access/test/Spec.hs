@@ -1408,6 +1408,7 @@ nagareAccessActiveSchema :: ActiveSchema
 nagareAccessActiveSchema =
   ActiveSchema
     { graph = nagareAccessGraph
+    , validSchema = either (error . show) id (EnRaw.validateSchema nagareAccessSchema)
     , source = "-- compiled in; see nagareAccessSchema"
     , origin = "nagare-access-test"
     , loadedAt = UTCTime (fromGregorian 2026 8 25) 0

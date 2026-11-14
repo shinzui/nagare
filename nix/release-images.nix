@@ -37,8 +37,8 @@ let
       location = "https://github.com/shinzui/en.git";
       owner = "shinzui";
       repo = "en";
-      rev = "c3ee100a0b2cc63a50a9473ef590de7086dca4d0";
-      hash = "sha256-IXqCunqpGjzWKp9jWGuRLE56yso46Lhne57BuHd1p5U=";
+      rev = "5bb3f80d2bd54854c2d875bd89183d08d59b2106";
+      hash = "sha256-mn3cxWwrNFc1XrPHmjmQLfa/WGFx0zh8CbvrTgW+IiA=";
     };
     webauthn = {
       location = "https://github.com/shinzui/webauthn.git";
@@ -48,18 +48,18 @@ let
       hash = "sha256-ODP0Jnug7NAWQrJ3x11Qz5d4tQpSqUK48EPX+2VitHA=";
     };
     biscuit-haskell = {
-      location = "https://github.com/shinzui/biscuit-haskell.git";
-      owner = "shinzui";
+      location = "https://github.com/eclipse-biscuit/biscuit-haskell.git";
+      owner = "eclipse-biscuit";
       repo = "biscuit-haskell";
-      rev = "8c0b3c5a13ce4a310737c0336f2ae167a1597588";
-      hash = "sha256-BtqFq5O48892O2y4M+FyC4npA0mxRo9Zv2jJrWjfCIY=";
+      rev = "469eaedc66be6e7629954bfd631b1842a968a33a";
+      hash = "sha256-52ZS8uAchOY4pBEzq3J4nNtZX2jTGTCTWYzb9ROOJfU=";
     };
     hs-opentelemetry-instrumentation-servant = {
       location = "https://github.com/shinzui/hs-opentelemetry-instrumentation-servant.git";
       owner = "shinzui";
       repo = "hs-opentelemetry-instrumentation-servant";
-      rev = "7a6f692e85295f965cd1827f9354c28af9e62742";
-      hash = "sha256-oi3E1KjZLdI7Ezahz/3khwS5uxoLNwrPCzRIO1m7/80=";
+      rev = "d79a26337faedc37fd9301e58a207cb5834fc909";
+      hash = "sha256-ncZCc+dgasU1PCER5eH7DIEIO1E5p5irUNZNdjqYobc=";
     };
   };
 

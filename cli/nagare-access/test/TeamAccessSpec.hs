@@ -154,10 +154,15 @@ teamSchemaSource =
 teamGraph :: ReachabilityGraph
 teamGraph = either (error . show) id (parseSchema teamSchemaSource >>= compileSchema)
 
+-- | En ADR 12 validates writes against the active schema's validated form.
+teamValidSchema :: EnRaw.ValidSchema
+teamValidSchema = either (error . show) id (parseSchema teamSchemaSource >>= EnRaw.validateSchema)
+
 teamActiveSchema :: ActiveSchema
 teamActiveSchema =
   ActiveSchema
     { graph = teamGraph
+    , validSchema = teamValidSchema
     , source = teamSchemaSource
     , origin = "nagare-team-test"
     , loadedAt = UTCTime (fromGregorian 2026 10 12) 0

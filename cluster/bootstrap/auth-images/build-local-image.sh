@@ -247,18 +247,18 @@ EOF
   fi
   cat <<'EOF'
 
--- mori://shinzui/biscuit-haskell
+-- mori://eclipse-biscuit/biscuit-haskell (upstream main by commit)
 source-repository-package
   type: git
-  location: https://github.com/shinzui/biscuit-haskell.git
-  tag: 8c0b3c5a13ce4a310737c0336f2ae167a1597588
+  location: https://github.com/eclipse-biscuit/biscuit-haskell.git
+  tag: 469eaedc66be6e7629954bfd631b1842a968a33a
   subdir: biscuit
 
 -- mori://shinzui/hs-opentelemetry-instrumentation-servant
 source-repository-package
   type: git
   location: https://github.com/shinzui/hs-opentelemetry-instrumentation-servant.git
-  tag: 7a6f692e85295f965cd1827f9354c28af9e62742
+  tag: d79a26337faedc37fd9301e58a207cb5834fc909
 EOF
 }
 

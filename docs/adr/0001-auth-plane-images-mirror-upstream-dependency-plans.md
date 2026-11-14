@@ -73,3 +73,16 @@ both build plans. This is a narrow compatibility exception, removable when upstr
 admit 1.2; it does not relax unrelated package bounds. Source and release evidence belongs to
 mori://shinzui/pg-migrate and its project-relative `pg-migrate/CHANGELOG.md`,
 `pg-migrate-cli/CHANGELOG.md`, and `pg-migrate-embed/CHANGELOG.md` (artifact URIs pending).
+
+
+## Amendment — 2026-11-14: the En Biscuit fork is retired for upstream main by commit
+
+[ExecPlan 262](../plans/262-upgrade-en-and-serve-operator-declared-en-tenants-from-one-server.md)
+moves En to `5bb3f80d2bd54854c2d875bd89183d08d59b2106`, whose `cabal.project` replaces the
+`mori://shinzui/biscuit-haskell` fork with `mori://eclipse-biscuit/biscuit-haskell` main at
+`469eaedc66be6e7629954bfd631b1842a968a33a` (subdir `biscuit`). Upstream PR #115 merged the fork's
+only patch (crypton 1.1 with `ram`). Hackage `biscuit-haskell-0.5.0.0` revision 1 cannot replace
+the pin: it caps `crypton < 1.1` with `memory`, so `crypton >= 1.1` is load-bearing again in both
+Nagare plans. The same upgrade moves `mori://shinzui/hs-opentelemetry-instrumentation-servant` to
+`d79a26337faedc37fd9301e58a207cb5834fc909`. Shōmei does not pin that package and stays where it
+is. Read "En Biscuit fork" above as "En's pinned biscuit-haskell commit".

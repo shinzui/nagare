@@ -24,8 +24,8 @@ cluster/bootstrap/en/build-image.sh
 
 The script delegates to `cluster/bootstrap/auth-images/build-local-image.sh`,
 which assembles a temporary Docker context from the local En checkout. Its generated
-Cabal project includes `en-biscuit`, pins the reviewed
-`mori://shinzui/biscuit-haskell` fork, and resolves the remaining dependency closure
+Cabal project includes `en-biscuit`, pins upstream
+`mori://eclipse-biscuit/biscuit-haskell` main by commit, and resolves the remaining dependency closure
 from Hackage with the crypton 1.1 floor. It builds for `linux/amd64` by default, tags the
 image as
 `$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/en:<git-sha>`,
