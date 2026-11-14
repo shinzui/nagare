@@ -56,7 +56,7 @@ withEnForward :: Text -> (Text -> IO a) -> IO (Either Text a)
 withEnForward kubectlContext action = do
   started <- try (startEnForward kubectlContext)
   case started of
-    Left (_ :: IOException) -> pure (Left "en port-forward failed")
+    Left (failure :: IOException) -> pure (Left ("en port-forward failed: " <> T.pack (show failure)))
     Right (Left reason) -> pure (Left reason)
     Right (Right (forward, base)) -> Right <$> bracket (pure forward) closeEnForward (const (action base))
 

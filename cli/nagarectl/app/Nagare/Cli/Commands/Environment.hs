@@ -315,9 +315,6 @@ runEnTenant mctx = \case
   EnTenantBind rawTenant copts readWriteAs readOnlyAs rawVersion savePlan -> do
     tenant <- either dieT pure (mkEnTenantName (T.pack rawTenant))
     (name, ns) <- resolveAppOrDie copts
-    unless
-      (T.pack (copts ^. #app) == name)
-      (dieT ("--app names " <> T.pack (copts ^. #app) <> " but " <> T.pack (copts ^. #file) <> " declares " <> name))
     version <-
       maybe
         (dieT "en-tenant bind is a reviewed Secret change and requires --version")
