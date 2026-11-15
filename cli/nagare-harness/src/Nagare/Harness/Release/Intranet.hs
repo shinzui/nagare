@@ -206,8 +206,13 @@ moveIntranet runtime s index = do
       revision' = s ^. #revision
   -- preflight: refuse before changing anything
   dirty <- invoke runtime (git (s ^. #operator) (["status", "--porcelain", "--"] <> s ^. #tracked) & #stdoutTo .~ Capture)
-  unless (BS.null (dirty ^. #output)) $
-    refuse ("the pin files have uncommitted changes in " <> operator' <> ": " <> T.replace "\n" " " (lenient (dirty ^. #output)))
+  -- A run that stopped after pinning leaves the pin files naming this
+  -- candidate; a rerun continues from them instead of refusing.
+  unless (BS.null (dirty ^. #output)) $ do
+    lock <- readDocument @Value (s ^. #operator </> "flake.lock")
+    unless (either (const False) ((== Just revision') . lockedRevision) lock) $
+      refuse ("the pin files have uncommitted changes in " <> operator' <> ": " <> T.replace "\n" " " (lenient (dirty ^. #output)))
+    step runtime ("the pin files already name " <> revision' <> " from an earlier run; continuing")
   gcloud <- succeeds runtime (inShell s ["sh", "-c", "command -v gcloud"] & #stdoutTo .~ Discard)
   unless gcloud (refuse "gcloud is not on PATH")
   protected <- case lookupVariable runtime "NAGARE_RELEASE_PROTECTED_URL" of

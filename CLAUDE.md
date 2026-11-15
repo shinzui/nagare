@@ -138,8 +138,8 @@ which defer to the user's scope:
   line and keep working. Prefer removing a step to adding one.
 - **No time estimates.** Report what is done and what is next.
 - **Per Haskell commit:** `just haskell-style-check`, then `just gate-fast`. **Per landing:**
-  `just gate-fast` with no uncommitted changes, then `just land`, which starts the full gate on
-  the landed commit in the background; a red one blocks the next land until a fully gated fix
+  `just gate-fast` with no uncommitted changes, then `just land`, which starts the full gate and
+  then the release gate's mutation sweep on the landed commit in the background; a red one blocks the next land until a fully gated fix
   lands (operator decision, 2026-10-11). **Per release only:** `just gate-release REV`
   on the candidate (its green full gate, then `just mutation-sweep`). The deep tier is not part of
   a release (operator, 2026-10-12). A docs-only commit carries its gated ancestor's record forward.
@@ -147,6 +147,10 @@ which defer to the user's scope:
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud
   evidence chain is re-run.
+- **A session working a plan owns it to the end** (operator, 2026-11-14): it writes the plan's
+  absolute path to `~/.local/state/nagare/plan-owners/$CLAUDE_CODE_SESSION_ID`, and the Stop hook in
+  `.claude/settings.json` keeps it from ending a turn while the plan's Progress list has unchecked
+  items, unless it is waiting on a background task, a refusing guard or an operator answer.
 - **Held plans are not worked on.** MasterPlan 25 is held, and so is MasterPlan 26's EP-173
   M3–M4, behind a trigger (its Decision Log, 2026-10-14). MasterPlan 26 is closed; its EP-168,
   EP-170, EP-171 and EP-173 M5 are cancelled, not held.

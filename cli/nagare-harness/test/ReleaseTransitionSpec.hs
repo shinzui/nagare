@@ -471,6 +471,14 @@ intranetTests =
                 ]
           [(fieldAt attempt' ["attemptId"], fieldAt attempt' ["transaction"], fieldAt attempt' ["outcome"]) | stage <- take 1 stages, Just (Aeson.Array attempts') <- [fieldAt stage ["attempts"]], attempt' <- toList attempts']
             @?= [(Just "intranet-1/apply", Just "tx-ab12", Just "ambiguous"), (Just "intranet-1/resume", Just "tx-ab12", Just "converged")]
+    , testCase "a rerun continues from pin files an earlier run left on this candidate" $
+        withOperator $ \o -> do
+          writeFile (o ^. #operator </> "flake.lock") ("{\"nodes\":{\"nagare\":{\"locked\":{\"rev\":\"" <> T.unpack rev <> "\"}}}}\n")
+          (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {dirtyPin = True}
+          transitionRun runtime (intranetOptions o)
+          said' <- lines' world
+          assertBool "no continue line" (any (("the pin files already name " <> rev) `T.isInfixOf`) said')
+          doesFileExist (o ^. #run </> "intranet.json") >>= assertBool "no record"
     , testCase "a second ambiguous stop is not resumed again" $
         withOperator $ \o -> do
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {ambiguous = True, resumeFails = True}
