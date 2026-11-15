@@ -2,6 +2,7 @@
 # Cloudflare, so this namespace's NetworkPolicy is the only control over what a change made there can
 # reach: the external Kourier gateway, cluster DNS and port 7844 to public addresses, and nothing else.
 # EP-240 proved a rule repointed at the API server, kourier-internal or the metadata server fails.
+# The only ingress is VMAgent in `monitoring` reading the metrics port (EP-245 D6).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -16,8 +17,13 @@ metadata:
   namespace: cloudflare-tunnel
 spec:
   podSelector: {}
-  # Ingress is listed with no rules, which denies it all. An empty `ingress: []` would be dropped by the API server.
   policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports:
+        - {protocol: TCP, port: 2000}
   egress:
     - to:
         - namespaceSelector:
@@ -82,6 +88,8 @@ spec:
         - name: cloudflared
           image: "@IMAGE@"
           args: [tunnel, --no-autoupdate, --metrics, "0.0.0.0:2000", run]
+          ports:
+            - {name: metrics, containerPort: 2000, protocol: TCP}
           env:
             - name: TUNNEL_TOKEN
               valueFrom:
@@ -97,3 +105,46 @@ spec:
             httpGet: {path: /ready, port: 2000}
             periodSeconds: 5
             failureThreshold: 3
+---
+# VMAgent selects every scrape object (selectAllByDefault), so this one lives beside the connector.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cloudflared
+  namespace: cloudflare-tunnel
+  labels:
+    nagare.dev/component: alerting
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+---
+# Its own VMRule, so adding it creates an object instead of updating nagare-alerts in place.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cloudflared-alerts
+  namespace: cloudflare-tunnel
+  labels:
+    nagare.dev/component: alerting
+spec:
+  groups:
+    - name: nagare.cloudflare-tunnel
+      interval: 60s
+      rules:
+        - alert: CloudflareTunnelConnectionsLow
+          # Each connector holds four connections to two edge locations. Fewer, or no series at all,
+          # means the tunnel serves on less redundancy than it was built for, or the scrape is broken.
+          expr: cloudflared_tunnel_ha_connections < 4 or absent(cloudflared_tunnel_ha_connections)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Cloudflare Tunnel connector {{ $labels.pod }} holds fewer than four edge connections'
+            description: 'A connector has held fewer than four HA connections to the Cloudflare edge for five minutes, or no connector is scraped. Read kubectl -n cloudflare-tunnel logs deploy/cloudflared and run nagarectl doctor, which lists the connectors Cloudflare sees.'
+            runbook: 'docs/user/cloudflare-tunnel.md#connector-metrics'

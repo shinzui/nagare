@@ -40,7 +40,7 @@ inventoryCloudflareTunnelTests =
         (scope, native) <- compileWith fixtureSecret >>= expectRight
         scopeId scope @?= ok (mkScopeId Platform "cloudflare-tunnel")
         decodeScope (encodeCanonicalScope scope) @?= Right scope
-        Map.keys (kindCounts native) @?= ["deployment", "namespace", "networkpolicy", "secret"]
+        Map.keys (kindCounts native) @?= ["configmap", "deployment", "namespace", "networkpolicy", "secret", "vmpodscrape", "vmrule"]
         deployment <- objectOf "deployment" native
         let pod = field ["spec", "template", "spec"] deployment
             container = headOf (field ["containers"] pod)
@@ -63,10 +63,12 @@ inventoryCloudflareTunnelTests =
     , testCase "the policy allows only the external gateway, cluster DNS and port 7844 to public addresses" $ do
         (_, native) <- compileWith fixtureSecret >>= expectRight
         policy <- objectOf "networkpolicy" native
-        -- Listing Ingress with no rules denies it all.
         field ["spec", "policyTypes"] policy @?= toJSONList ["Ingress", "Egress"]
-        field ["spec", "ingress"] policy @?= Null
-        field ["spec", "policyTypes"] policy @?= toJSONList ["Ingress", "Egress"]
+        -- The only ingress is the metrics port, from the monitoring namespace (EP-245 D6).
+        [metrics] <- pure (arrayOf (field ["spec", "ingress"] policy))
+        arrayOf (field ["from"] metrics)
+          @?= [object ["namespaceSelector" .= object ["matchLabels" .= object ["kubernetes.io/metadata.name" .= ("monitoring" :: Text)]]]]
+        arrayOf (field ["ports"] metrics) @?= [object ["protocol" .= ("TCP" :: Text), "port" .= (2000 :: Int)]]
         [gateway, dns, edge] <- pure (arrayOf (field ["spec", "egress"] policy))
         let gatewayPeer = headOf (field ["to"] gateway)
         field ["namespaceSelector", "matchLabels", "kubernetes.io/metadata.name"] gatewayPeer @?= String "kourier-system"
@@ -81,6 +83,26 @@ inventoryCloudflareTunnelTests =
         mapM_
           (\range -> assertBool (T.unpack range) (String range `elem` excepted))
           ["10.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"]
+    , testCase "the connector's metrics are scraped, alerted on and shown, after the metrics release" $ do
+        (_, native) <- compileWith fixtureSecret >>= expectRight
+        scrape <- objectOf "vmpodscrape" native
+        field ["spec", "selector", "matchLabels", "app.kubernetes.io/name"] scrape @?= String "cloudflared"
+        field ["port"] (headOf (field ["spec", "podMetricsEndpoints"] scrape)) @?= String "metrics"
+        deployment <- objectOf "deployment" native
+        let container = headOf (field ["spec", "template", "spec", "containers"] deployment)
+        headOf (field ["ports"] container) @?= object ["name" .= ("metrics" :: Text), "containerPort" .= (2000 :: Int), "protocol" .= ("TCP" :: Text)]
+        rule <- objectOf "vmrule" native
+        let alert = headOf (field ["rules"] (headOf (field ["spec", "groups"] rule)))
+        field ["alert"] alert @?= String "CloudflareTunnelConnectionsLow"
+        field ["for"] alert @?= String "5m"
+        assertBool "the alert reads the connection gauge" (case field ["expr"] alert of String e -> "cloudflared_tunnel_ha_connections < 4" `T.isInfixOf` e; _ -> False)
+        dashboard <- objectOf "configmap" native
+        field ["metadata", "namespace"] dashboard @?= String "monitoring"
+        field ["metadata", "labels", "grafana_dashboard"] dashboard @?= String "1"
+        assertBool "the dashboard is JSON" (case field ["data", "nagare-cloudflared.json"] dashboard of String body -> (decodeStrict (TE.encodeUtf8 body) :: Maybe Value) /= Nothing; _ -> False)
+        forM_ ["vmpodscrape", "vmrule", "configmap"] $ \kind -> do
+          member <- memberOf kind native
+          assertBool (T.unpack kind <> " waits for the metrics release") (OrderedAfter fixtureMetricsRelease `elem` member ^. #dependencies)
     , testCase "the token stays a private member, and only its digest reaches the Deployment" $ do
         (scope, native) <- compileWith fixtureSecret >>= expectRight
         secret <- memberOf "secret" native
@@ -182,7 +204,12 @@ fixtureInput secret =
     , image = ImageSelection (Just fixtureImage) fixtureImage ReleaseSource
     , imagePublication = Nothing
     , tokenSecret = secret
+    , metricsRelease = fixtureMetricsRelease
     }
+
+fixtureMetricsRelease :: ResourceId
+fixtureMetricsRelease =
+  mintResourceId (ok (mkScopeId Platform "observability-metrics")) (ok (mkLogicalKey "metrics")) (ok (mkName "release"))
 
 fixtureImage :: Text
 fixtureImage = "us-west1-docker.pkg.dev/project/nagare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba"

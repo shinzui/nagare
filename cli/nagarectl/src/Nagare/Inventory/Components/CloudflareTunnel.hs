@@ -1,6 +1,7 @@
 -- | The Cloudflare Tunnel connector as scope @platform:cloudflare-tunnel@ (EP-241).
 --
 -- One namespace, its NetworkPolicy and Deployment from the packaged template,
+-- the connector's metrics scrape, alert and Grafana dashboard (EP-245 D6),
 -- and the operator's token Secret as a private member. The token is an
 -- interception credential (ADR 34): it rests sops-encrypted in the context's
 -- cluster-secrets directory and in this one Secret, and is never a context
@@ -13,7 +14,7 @@ module Nagare.Inventory.Components.CloudflareTunnel
 where
 
 import Control.Exception (IOException, try)
-import Data.Aeson (Value (..))
+import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -25,7 +26,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.ObservabilitySecrets (normalizeSecretData)
 import Nagare.Inventory.Components.Upstream
@@ -46,6 +47,9 @@ data CloudflareTunnelInput = CloudflareTunnelInput
   -- ^ The publication the Deployment waits for when its image is the release's.
   , tokenSecret :: !(SourceLocation, Value)
   -- ^ The decrypted Secret from 'cloudflareTunnelTokenSecretFile'.
+  , metricsRelease :: !ResourceId
+  -- ^ The metrics Helm release, whose CRDs the scrape and alert need and whose
+  -- Grafana reads the dashboard.
   }
   deriving stock (Generic)
 
@@ -60,16 +64,18 @@ compileCloudflareTunnel input = case validated of
   Left reason -> pure (Left (invalid reason :| []))
   Right (tokenDigest, secretObject) -> do
     loaded <- try (BS.readFile (input ^. #root </> templatePath)) :: IO (Either IOException ByteString)
-    case loaded of
-      Left _ -> pure (Left (invalid ("the connector template is unavailable: " <> T.pack templatePath) :| []))
-      Right bytes -> case render tokenDigest bytes of
+    dashboardLoaded <- try (BS.readFile (input ^. #root </> dashboardPath)) :: IO (Either IOException ByteString)
+    case (loaded, dashboardLoaded >>= first (userError . show) . TE.decodeUtf8') of
+      (Left _, _) -> pure (Left (invalid ("the connector template is unavailable: " <> T.pack templatePath) :| []))
+      (_, Left _) -> pure (Left (invalid ("the connector dashboard is unavailable: " <> T.pack dashboardPath) :| []))
+      (Right bytes, Right dashboard) -> case render tokenDigest bytes of
         Left reason -> pure (Left (invalid reason :| []))
         Right rendered -> case parseKubernetesManifest (SourceLocation (T.pack templatePath) "cloudflare-tunnel") rendered of
           Left reason -> pure (Left (reason :| []))
           Right objects -> case traverse recordSelection objects of
             Left reason -> pure (Left (invalid reason :| []))
             Right recorded -> do
-              result <- compileUpstream (upstreamInput (recorded <> [secretObject]))
+              result <- compileUpstream (upstreamInput (recorded <> [secretObject, dashboardObject dashboard]))
               pure $ do
                 (bundle, native) <- result
                 scope <- mkScopeDeclaration owner [bundle]
@@ -85,6 +91,32 @@ compileCloudflareTunnel input = case validated of
     deployment = address "apps/v1" "Deployment" "cloudflared"
     policy = address "networking.k8s.io/v1" "NetworkPolicy" "cloudflared"
     secret = address "v1" "Secret" tokenSecretName
+    monitoringAddress api kind name = known (kubernetesAddress cluster api kind (Just "monitoring") name)
+    scrape = address "operator.victoriametrics.com/v1beta1" "VMPodScrape" "cloudflared"
+    alerts = address "operator.victoriametrics.com/v1beta1" "VMRule" "cloudflared-alerts"
+    dashboardName = "grafana-dashboard-nagare-cloudflared"
+    dashboard = monitoringAddress "v1" "ConfigMap" dashboardName
+    dashboardPath = "cluster/observability/grafana/dashboards/nagare-cloudflared.json"
+    -- Grafana's sidecar reads labelled ConfigMaps in its own namespace only.
+    dashboardObject contents =
+      ( SourceLocation (T.pack dashboardPath) "grafana"
+      , object
+          [ "apiVersion" .= ("v1" :: Text)
+          , "kind" .= ("ConfigMap" :: Text)
+          , "metadata"
+              .= object
+                [ "name" .= dashboardName
+                , "namespace" .= ("monitoring" :: Text)
+                , "labels" .= object ["grafana_dashboard" .= ("1" :: Text)]
+                ]
+          , "data" .= object ["nagare-cloudflared.json" .= contents]
+          ]
+      )
+    monitoringNamespace =
+      mintResourceId
+        (foundationOwner (input ^. #foundation))
+        (known (mkLogicalKey "monitoring"))
+        (known (mkName "namespace"))
 
     validated = do
       unless (immutableImage (input ^. #image . #selected)) (Left "the connector image must be an immutable @sha256 reference")
@@ -112,7 +144,7 @@ compileCloudflareTunnel input = case validated of
         , upstreamKey = known (mkLogicalKey "cloudflare-tunnel")
         , upstreamRoot = input ^. #root
         , upstreamFiles = []
-        , upstreamNamespaces = Map.empty
+        , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
         , upstreamTransferred = Set.empty
         , upstreamConfigMapData = Map.empty
         , upstreamClusterIpServices = Set.empty
@@ -120,7 +152,11 @@ compileCloudflareTunnel input = case validated of
         , upstreamGenerated = generated
         , -- The policy exists before a pod can start, so no connector runs unbounded.
           upstreamAfter = Map.singleton deployment [policy, secret]
-        , upstreamExternalAfter = Map.fromList [(deployment, [publication]) | publication <- maybe [] pure (input ^. #imagePublication)]
+        , upstreamExternalAfter =
+            Map.fromList
+              ( [(deployment, [publication]) | publication <- maybe [] pure (input ^. #imagePublication)]
+                  <> [(member, [input ^. #metricsRelease]) | member <- [scrape, alerts, dashboard]]
+              )
         , upstreamOrderDeployments = False
         , upstreamRegistryDelegations = Map.empty
         }

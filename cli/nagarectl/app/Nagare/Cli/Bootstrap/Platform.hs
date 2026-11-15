@@ -407,6 +407,7 @@ buildPlatformCandidate active paths workspace snapshot = do
             (Map.lookup CloudflaredImage releaseImagePublications)
             root
             foundation
+            metricsRelease
       else pure Nothing
   let (tunnelScopes, tunnelNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) tunnel
       nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative, adminApiNative, tunnelNative]
@@ -591,8 +592,9 @@ compilePlatformCloudflareTunnel ::
   Maybe Resource.ResourceId ->
   FilePath ->
   FoundationInput ->
+  Resource.ResourceId ->
   IO (ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, BC.ByteString))
-compilePlatformCloudflareTunnel active releaseImages publication root foundation = do
+compilePlatformCloudflareTunnel active releaseImages publication root foundation metricsRelease = do
   image <- selectImage (contextImageRegistry (active ^. #profile)) releaseImages CloudflaredImage >>= either (dieT . renderImageSelectionError) pure
   token <-
     loadContextSecretObject root (contextNameText (active ^. #contextName)) "Cloudflare tunnel token" cloudflareTunnelTokenSecretFile
@@ -604,6 +606,7 @@ compilePlatformCloudflareTunnel active releaseImages publication root foundation
       , image = image
       , imagePublication = publication
       , tokenSecret = token
+      , metricsRelease = metricsRelease
       }
     >>= either (dieT . T.pack . show) pure
 
