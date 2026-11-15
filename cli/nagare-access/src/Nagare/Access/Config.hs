@@ -39,9 +39,11 @@ data RuntimeConfig = RuntimeConfig
   , authPlaneConfig :: !(Maybe AuthPlaneConfig)
   , decisionTtlSeconds :: !Int
   , proxiedCacheControl :: !(Maybe Text)
-  -- ^ @NAGARE_ACCESS_PROXIED_CACHE_CONTROL@: replaces @Cache-Control@ on every
-  -- proxied protected response. Set only when an edge sits in front of the
-  -- gateway (ADR 34); unset leaves upstream headers alone.
+  -- ^ @NAGARE_ACCESS_PROXIED_CACHE_CONTROL@: when set, every proxied protected
+  -- response has its @Cache-Control@ tightened and the CDN override headers
+  -- stripped, and a response with no @Cache-Control@ gets this value. Set only
+  -- when an edge sits in front of the gateway (ADR 34); unset leaves upstream
+  -- headers alone.
   }
   deriving stock (Generic, Eq, Show)
 

@@ -38,6 +38,7 @@ library
     Nagare.Access.Cookie
     Nagare.Access.Credential
     Nagare.Access.DecisionCache
+    Nagare.Access.EdgeCacheControl
     Nagare.Access.En
     Nagare.Access.Jwks
     Nagare.Access.Portal

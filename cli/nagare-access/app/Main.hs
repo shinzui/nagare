@@ -18,10 +18,11 @@ import Nagare.Access.BackendSource (BackendSource, RefreshResult (..), liveAppli
 import Nagare.Access.Config (AuthPlaneConfig (..), RuntimeConfig (..), listenPort, parseRuntimeConfig)
 import Nagare.Access.Cookie (CookieSettings, defaultCookieSettings, signedCookieSettings)
 import Nagare.Access.DecisionCache (newDecisionCache)
+import Nagare.Access.EdgeCacheControl (withProxiedCacheControl)
 import Nagare.Access.En (authorizeDelegationWithEn, authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Prelude
-import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder, withProxiedCacheControl)
+import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder)
 import Nagare.Access.RefreshCoalescer (coalesceRefresh, defaultRefreshReuseSeconds, newRefreshCoalescer)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
 import Nagare.Access.ShomeiClient (completeMfaWithShomei, loginWithShomei, logoutWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
