@@ -381,6 +381,13 @@ recordedTests =
               ]
         assertBool "a credential or the query string reached the log" (not (any (\line -> "secret-token" `BC.isInfixOf` line || "namespace=" `BC.isInfixOf` line) lines'))
         field "user_agent" (head' values) @?= Just (String "kotei/1")
+        assertBool "a line without edge headers names an edge field" (all (\value -> field "cf_ray" value == Nothing && field "cf_connecting_ip" value == Nothing) values)
+    , testCase "behind the edge the access line carries the visitor address and ray it was forwarded" $ withServer 1 defaults $ \server -> do
+        _ <- request server "GET" "/v1/sites" [("CF-Connecting-IP", "203.0.113.7"), ("CF-Ray", "8f1d2c3b4a5e6f70-NRT")]
+        lines' <- accessLines server
+        values <- traverse (either (\failure -> assertFailure failure >> fail "json") pure . eitherDecode . LBS.fromStrict) lines'
+        [(field "cf_connecting_ip" value, field "cf_ray" value) | value <- values]
+          @?= [(Just (String "203.0.113.7"), Just (String "8f1d2c3b4a5e6f70-NRT"))]
     , testCase "the client derived from the routes walks the sites of one head" $ withServer 30 defaults $ \server -> do
         expected <- map (^. #resourceId) <$> allSites server
         length expected @?= 30

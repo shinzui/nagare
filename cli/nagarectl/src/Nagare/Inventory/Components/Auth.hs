@@ -61,9 +61,11 @@ data AuthInput = AuthInput
   -- moves one image leaves the others' declarations alone.
   , authMode :: !AuthMode
   , authProxiedCacheControl :: !(Maybe Text)
-  -- ^ ADR 34: set on the enforcer for a context behind an edge, replacing
-  -- @Cache-Control@ on every proxied protected response. 'Nothing' adds no
-  -- variable, so a direct context's revision is unchanged.
+  -- ^ ADR 34: set for a context behind an edge. The enforcer then tightens
+  -- @Cache-Control@ on every proxied protected response, using this value
+  -- when the upstream sent none, and records Cloudflare's visitor headers on
+  -- its access line (EP-245 D4). 'Nothing' adds no variable, so a direct
+  -- context's revision is unchanged.
   , authEnTenants :: ![EnTenant]
   -- ^ EP-262: the operator's En tenants beside @nagare@, in declaration order.
   }
@@ -403,8 +405,11 @@ compileAuth input = do
     appendEnforcerEnv header (Array containers) = case V.uncons containers of
       Just (Object container, rest) -> case KM.lookup "env" container of
         Just (Array items) ->
-          let extra = object ["name" .= ("NAGARE_ACCESS_PROXIED_CACHE_CONTROL" :: Text), "value" .= header]
-           in Right (Array (V.cons (Object (KM.insert "env" (Array (V.snoc items extra)) container)) rest))
+          let extra =
+                [ object ["name" .= ("NAGARE_ACCESS_PROXIED_CACHE_CONTROL" :: Text), "value" .= header]
+                , object ["name" .= ("NAGARE_ACCESS_EDGE_ATTRIBUTION" :: Text), "value" .= ("cloudflare" :: Text)]
+                ]
+           in Right (Array (V.cons (Object (KM.insert "env" (Array (items <> V.fromList extra)) container)) rest))
         _ -> Left "the enforcer has no env array"
       _ -> Left "the enforcer has no container"
     appendEnforcerEnv _ _ = Left "the enforcer's containers are not a list"

@@ -134,6 +134,12 @@ inventoryAuthTests =
         assertBool
           "the edge enforcer lacks its header"
           (any ("private, no-store, no-transform" `BS.isInfixOf`) (enforcerBytes edgeNative))
+        assertBool
+          "a direct context's enforcer records visitor headers"
+          (not (any ("NAGARE_ACCESS_EDGE_ATTRIBUTION" `BS.isInfixOf`) (enforcerBytes native)))
+        assertBool
+          "the edge enforcer does not record visitor headers"
+          (any ("NAGARE_ACCESS_EDGE_ATTRIBUTION" `BS.isInfixOf`) (enforcerBytes edgeNative))
         (localBundle, localNative) <- compileAuth fixture {authMode = LocalAuth} >>= expectRight
         length (declarations localBundle) @?= length members
         localNative @?= native

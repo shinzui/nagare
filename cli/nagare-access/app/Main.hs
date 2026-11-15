@@ -11,6 +11,7 @@ import Data.Text.Encoding qualified as TE
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import GHC.Clock (getMonotonicTime)
+import Nagare.Access.AccessLog (accessLog)
 import Nagare.Access.App (appWithBackends, appWithRuntime)
 import Nagare.Access.Auth (AccessServices (..), PortalUpstreamResult (..))
 import Nagare.Access.BackendMap (BackendMap, emptyBackendMap)
@@ -52,7 +53,7 @@ main = do
     _ -> pure (build emptyBackendMap)
   let port = listenPort (runtime ^. #listen)
   putStrLn ("nagare-access listening on :" <> show port)
-  run port waiApp
+  run port (accessLog (runtime ^. #edgeAttribution) (BS.hPutStr stdout) waiApp)
 
 appForRuntime :: RuntimeConfig -> IO (BackendMap -> Application)
 appForRuntime runtime =

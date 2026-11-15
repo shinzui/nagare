@@ -14,6 +14,7 @@ where
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Access.AccessLog (EdgeAttribution, parseEdgeAttribution)
 import Nagare.Access.Prelude
 
 data Listen = Listen
@@ -44,6 +45,9 @@ data RuntimeConfig = RuntimeConfig
   -- stripped, and a response with no @Cache-Control@ gets this value. Set only
   -- when an edge sits in front of the gateway (ADR 34); unset leaves upstream
   -- headers alone.
+  , edgeAttribution :: !EdgeAttribution
+  -- ^ @NAGARE_ACCESS_EDGE_ATTRIBUTION@: whether the access line records and
+  -- forwards Cloudflare's visitor headers (EP-245 D4).
   }
   deriving stock (Generic, Eq, Show)
 
@@ -78,6 +82,7 @@ parseRuntimeConfig env = do
   decisionTtlSeconds <- parseDecisionTtl (envText "NAGARE_ACCESS_DECISION_TTL")
   authPlaneConfig <- parseAuthPlane env
   proxiedCacheControl <- parseHeaderValue "NAGARE_ACCESS_PROXIED_CACHE_CONTROL" (envText "NAGARE_ACCESS_PROXIED_CACHE_CONTROL")
+  edgeAttribution <- parseEdgeAttribution (Text.strip . Text.pack <$> lookup "NAGARE_ACCESS_EDGE_ATTRIBUTION" env)
   pure
     RuntimeConfig
       { listen
@@ -85,6 +90,7 @@ parseRuntimeConfig env = do
       , authPlaneConfig
       , decisionTtlSeconds
       , proxiedCacheControl
+      , edgeAttribution
       }
   where
     envText name = maybe "" Text.pack (lookup name env)

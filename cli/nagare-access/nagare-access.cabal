@@ -29,6 +29,7 @@ library
   import: common
   hs-source-dirs: src
   exposed-modules:
+    Nagare.Access.AccessLog
     Nagare.Access.App
     Nagare.Access.Auth
     Nagare.Access.BackendMap
@@ -72,6 +73,7 @@ library
     shomei-jwt,
     shomei-servant,
     text,
+    time,
     transformers,
     wai,
 

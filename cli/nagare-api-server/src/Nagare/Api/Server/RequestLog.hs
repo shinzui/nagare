@@ -5,6 +5,11 @@
 -- status, the monotonic duration, the user agent, and what the handler did:
 -- whether its representation came from the cache and whether it ran out of
 -- time. It never carries a body, a credential, a cookie or the query string.
+--
+-- Behind Cloudflare it also carries @CF-Connecting-IP@ and @CF-Ray@ when the
+-- request has them, for attribution only (EP-245 D4). Only the enforcer
+-- reaches this server, and the enforcer forwards those headers only when its
+-- context serves through the tunnel; without an edge it removes them.
 -- Writing it is one handle operation on the caller's sink (stdout in the
 -- server, which the cluster's log collector reads), so no request waits on a
 -- telemetry collector.
@@ -16,6 +21,7 @@ where
 import Control.Exception (onException)
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Text.Encoding qualified as TE
@@ -39,7 +45,7 @@ requestLog env sink application request respond
         stats <- endRequest env
         now <- getCurrentTime
         let line =
-              object
+              object $
                 [ "time" .= now
                 , "method" .= decode (requestMethod request)
                 , "path" .= decode (rawPathInfo request)
@@ -49,6 +55,10 @@ requestLog env sink application request respond
                 , "cache" .= fmap (\hit -> if hit then "hit" else "miss" :: Text) (stats ^. #cache)
                 , "deadline_exceeded" .= (stats ^. #deadlineExceeded)
                 ]
+                  <> [ key .= decode (BS.take 256 value)
+                     | (key, name) <- [("cf_connecting_ip", "CF-Connecting-IP"), ("cf_ray", "CF-Ray")]
+                     , Just value <- [lookup name (requestHeaders request)]
+                     ]
         sink (LBS.toStrict (encode line) <> "\n")
         respond response
   where

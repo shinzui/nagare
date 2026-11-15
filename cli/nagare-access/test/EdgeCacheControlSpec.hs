@@ -1,12 +1,15 @@
 -- | ADR 34, EP-245 D1: a context behind an edge tightens @Cache-Control@ on
--- proxied protected responses and strips the CDN override headers.
+-- proxied protected responses and strips the CDN override headers; D4: its
+-- access line records Cloudflare's visitor headers only behind the edge.
 module EdgeCacheControlSpec (edgeCacheControlTests) where
 
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
+import Data.IORef (modifyIORef, newIORef, readIORef)
 import Data.Text qualified as Text
+import Nagare.Access.AccessLog (EdgeAttribution (..), accessLog, parseEdgeAttribution)
 import Nagare.Access.App (appWithRuntime)
 import Nagare.Access.Auth (AuthenticatedUser (..))
 import Nagare.Access.BackendMap
@@ -61,6 +64,32 @@ edgeCacheControlTests =
         tightenCacheControl ["private, no-transform, s-maxage=60"] @?= Just "private, no-transform"
         tightenCacheControl [" , "] @?= Nothing
         tightenCacheControl [] @?= Nothing
+    , testCase "the access line carries Cloudflare's visitor headers behind the edge, and the upstream sees them" $ do
+        (line, seen) <- loggedRequest CloudflareAttribution "/docs/index.html" ""
+        assertBool "the address" ("\"cf_connecting_ip\":\"203.0.113.7\"" `BS.isInfixOf` line)
+        assertBool "the ray" ("\"cf_ray\":\"8f1d2c3b4a5e6f70-NRT\"" `BS.isInfixOf` line)
+        assertBool "the host and path" ("\"host\":\"tools.example.com\"" `BS.isInfixOf` line && "\"path\":\"/docs/index.html\"" `BS.isInfixOf` line)
+        seen @?= Just "203.0.113.7"
+    , testCase "without an edge the line has neither field and the upstream never sees a client-chosen value" $ do
+        (line, seen) <- loggedRequest NoEdgeAttribution "/docs/index.html" ""
+        assertBool "no address" (not ("cf_connecting_ip" `BS.isInfixOf` line))
+        assertBool "no ray" (not ("cf_ray" `BS.isInfixOf` line))
+        seen @?= Nothing
+    , testCase "the access line never carries a cookie, a bearer token or the query string" $
+        for_ [CloudflareAttribution, NoEdgeAttribution] $ \attribution -> do
+          (line, _) <- loggedRequest attribution "/v1/sites" "?token=query-secret"
+          for_ ["query-secret", "bearer-secret", "cookie-secret", "Bearer"] $ \secret ->
+            assertBool ("leaked " <> show secret) (not (secret `BS.isInfixOf` line))
+          assertBool "one line" (BS.count 10 line == 1 && "\n" `BS.isSuffixOf` line)
+    , testCase "probes write no access line, and the variable takes only cloudflare" $ do
+        sink <- newIORef []
+        _ <- runSession (request (setPath defaultRequest "/_nagare/healthz")) (accessLog CloudflareAttribution (\l -> modifyIORef sink (l :)) visitorEchoApp)
+        readIORef sink >>= (@?= [])
+        parseEdgeAttribution Nothing @?= Right NoEdgeAttribution
+        parseEdgeAttribution (Just "cloudflare") @?= Right CloudflareAttribution
+        assertBool "refused" (either (const True) (const False) (parseEdgeAttribution (Just "true")))
+        cfg <- either (assertFailure . Text.unpack) pure (parseRuntimeConfig [("NAGARE_ACCESS_EDGE_ATTRIBUTION", "cloudflare")])
+        cfg ^. #edgeAttribution @?= CloudflareAttribution
     , testCase "parses the header and refuses an injection" $ do
         cfg <- either (assertFailure . Text.unpack) pure (parseRuntimeConfig [("NAGARE_ACCESS_PROXIED_CACHE_CONTROL", " private, no-store, no-transform ")])
         cfg ^. #proxiedCacheControl @?= Just "private, no-store, no-transform"
@@ -90,6 +119,37 @@ edgeCacheControlTests =
         assertBool "the form must keep the return destination" ("name=\"rd\" value=\"/tools\"" `BS.isInfixOf` body)
         assertBool "the form must say why" ("expired" `BS.isInfixOf` body)
     ]
+
+-- | One request through the access line; the line written and the
+-- @CF-Connecting-IP@ the upstream saw.
+loggedRequest :: EdgeAttribution -> BS.ByteString -> BS.ByteString -> IO (BS.ByteString, Maybe BS.ByteString)
+loggedRequest attribution path query = do
+  sink <- newIORef []
+  res <-
+    runSession
+      ( request
+          (setPath defaultRequest (path <> query))
+            { Wai.requestHeaders =
+                [ ("Host", "tools.example.com")
+                , ("CF-Connecting-IP", "203.0.113.7")
+                , ("CF-Ray", "8f1d2c3b4a5e6f70-NRT")
+                , ("Authorization", "Bearer bearer-secret")
+                , ("Cookie", "nagare_session=cookie-secret")
+                , ("User-Agent", "kotei/1")
+                ]
+            , Wai.requestHeaderHost = Just "tools.example.com"
+            }
+      )
+      (accessLog attribution (\l -> modifyIORef sink (l :)) visitorEchoApp)
+  lines' <- readIORef sink
+  line <- case lines' of
+    [one] -> pure one
+    other -> assertFailure ("expected one access line, got " <> show other)
+  pure (line, lookup "Seen-Connecting-IP" (simpleHeaders res))
+
+visitorEchoApp :: Wai.Application
+visitorEchoApp req respond =
+  respond (Wai.responseLBS status200 [("Seen-Connecting-IP", ip) | Just ip <- [lookup "CF-Connecting-IP" (Wai.requestHeaders req)]] "ok")
 
 edgeFallback :: BS.ByteString
 edgeFallback = "private, no-store, no-transform"
