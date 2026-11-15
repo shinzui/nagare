@@ -10,15 +10,17 @@ module Nagare.Inventory.Components.CloudflareZone
   , compileCloudflareZone
   , connectorOrigin
   , tunnelEdgePolicy
+  , tunnelEdgeValuePolicy
   )
 where
 
+import Data.Aeson (Value (..), object, (.=))
 import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -53,6 +55,30 @@ tunnelEdgePolicy =
   , ("rocket_loader", "off")
   , ("server_side_exclude", "off")
   , ("automatic_https_rewrites", "off")
+  , -- A challenge is a hard failure for a bearer-token client or a webhook sender (EP-245 D2).
+    ("browser_check", "off")
+  ]
+
+-- | The edge policy's settings whose values are not strings (EP-245 D2, D3). Browser Cache TTL @0@
+-- respects the origin's headers instead of raising a shorter @max-age@ to four hours. HSTS is six
+-- months with @includeSubDomains@, because the zone holds nothing but this installation; preload
+-- stays off, since it cannot be undone on the timescale of a mistake.
+tunnelEdgeValuePolicy :: [(Text, Value)]
+tunnelEdgeValuePolicy =
+  [ ("browser_cache_ttl", Number 0)
+  ,
+    ( "security_header"
+    , object
+        [ "strict_transport_security"
+            .= object
+              [ "enabled" .= True
+              , "max_age" .= (15552000 :: Int)
+              , "include_subdomains" .= True
+              , "preload" .= False
+              , "nosniff" .= False
+              ]
+        ]
+    )
   ]
 
 compileCloudflareZone :: CloudflareZoneInput -> Either (NonEmpty InventoryError) ScopeDeclaration
@@ -73,10 +99,10 @@ compileCloudflareZone input = do
           afterTunnel
       record key role name =
         member key (CloudflareTunnelRecord (input ^. #zone) role) (CloudflareTunnelRecordSpec name tunnelName) afterTunnel
+      zoneSetting key desired = member ("setting-" <> T.replace "_" "-" key) (CloudflareZoneSetting (input ^. #zone) (known key)) desired []
       settings =
-        [ member ("setting-" <> T.replace "_" "-" setting) (CloudflareZoneSetting (input ^. #zone) (known setting)) (CloudflareZoneSettingSpec value) []
-        | (setting, value) <- tunnelEdgePolicy
-        ]
+        [zoneSetting key (CloudflareZoneSettingSpec value) | (key, value) <- tunnelEdgePolicy]
+          <> [zoneSetting key (CloudflareZoneSettingValueSpec value) | (key, value) <- tunnelEdgeValuePolicy]
       bypass = member "cache-bypass" (CloudflareRuleset (input ^. #zone)) CloudflareBypassCacheSpec []
       members =
         [tunnel, config, record "record-apex" apex (input ^. #baseDomain), record "record-wildcard" wildcard ("*." <> input ^. #baseDomain), bypass]

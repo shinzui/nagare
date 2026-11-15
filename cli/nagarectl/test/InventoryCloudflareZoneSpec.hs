@@ -35,12 +35,15 @@ inventoryCloudflareZoneTests =
     "Cloudflare zone scope"
     [ testCase "the scope declares one tunnel, its rules, two records, the edge policy and a bypass, and survives the wire" $ do
         decodeScope (encodeCanonicalScope fixtureScope) @?= Right fixtureScope
-        length members @?= 5 + length tunnelEdgePolicy
+        length members @?= 5 + length tunnelEdgePolicy + length tunnelEdgeValuePolicy
         lookup "ssl" tunnelEdgePolicy @?= Just "strict"
         lookup "min_tls_version" tunnelEdgePolicy @?= Just "1.2"
         lookup "always_use_https" tunnelEdgePolicy @?= Just "on"
         lookup "rocket_loader" tunnelEdgePolicy @?= Just "off"
         lookup "email_obfuscation" tunnelEdgePolicy @?= Just "off"
+        lookup "browser_check" tunnelEdgePolicy @?= Just "off"
+        lookup "browser_cache_ttl" tunnelEdgeValuePolicy @?= Just (Number 0)
+        lookup "security_header" tunnelEdgeValuePolicy @?= Just hsts
     , testCase "every member binds to the adapter and is planned then written in order" $ do
         world <- newWorld
         let adapter = adapterFor world Map.empty
@@ -52,6 +55,9 @@ inventoryCloudflareZoneTests =
         ingressHosts state @?= Just [Just base, Just ("*." <> base), Nothing]
         Map.lookup "ssl" (settings state) @?= Just "strict"
         Map.lookup "always_use_https" (settings state) @?= Just "on"
+        Map.lookup "browser_check" (settings state) @?= Just "off"
+        Map.lookup "browser_cache_ttl" (settings state) @?= Just (Number 0)
+        Map.lookup "security_header" (settings state) @?= Just hsts
         rules state @?= Just "true"
     , testCase "a second pass over accepted members finds nothing to change" $ do
         world <- newWorld
@@ -118,6 +124,34 @@ inventoryCloudflareZoneTests =
             setting = settingMember "min_tls_version"
         facts <- adapterObserve accepted [setting ^. #identity] >>= either (fail . T.unpack) pure
         assertBool "a weakened minimum is drift" (all isDrifted (Map.elems (observationMap facts)))
+    , testCase "Browser Integrity Check, Browser Cache TTL or HSTS turned back from Cloudflare is drift" $ do
+        world <- newWorld
+        mapM_ (runCreate (adapterFor world Map.empty)) ordered
+        let accepted = adapterFor world (Map.fromList [(member ^. #identity, member) | member <- ordered])
+            driftOf name value = do
+              modifyIORef' world (\state -> state {settings = Map.insert name value (settings state)})
+              facts <- adapterObserve accepted [settingMember name ^. #identity] >>= either (fail . T.unpack) pure
+              assertBool (T.unpack name <> " drifted is not drift") (all isDrifted (Map.elems (observationMap facts)))
+        driftOf "browser_check" "on"
+        driftOf "browser_cache_ttl" (Number 14400)
+        driftOf "security_header" (hstsWith "enabled" (Bool False))
+        driftOf "security_header" (hstsWith "include_subdomains" (Bool False))
+        driftOf "security_header" (hstsWith "max_age" (Number 0))
+    , testCase "a field Cloudflare adds to the HSTS value is not drift, and a reviewed update restores HSTS" $ do
+        world <- newWorld
+        mapM_ (runCreate (adapterFor world Map.empty)) ordered
+        modifyIORef' world (\state -> state {settings = Map.insert "security_header" (hstsWith "future_field" (String "x")) (settings state)})
+        let accepted = adapterFor world (Map.fromList [(member ^. #identity, member) | member <- ordered])
+            setting = settingMember "security_header"
+        present <- adapterObserve accepted [setting ^. #identity] >>= either (fail . T.unpack) pure
+        assertBool "an added provider field reads as drift" (all isPresent (Map.elems (observationMap present)))
+        modifyIORef' world (\state -> state {settings = Map.insert "security_header" (hstsWith "enabled" (Bool False)) (settings state)})
+        let weakened = setting & #spec .~ CloudflareZoneSettingValueSpec (hstsWith "enabled" (Bool False))
+            adapter = adapterFor world (Map.singleton (setting ^. #identity) weakened)
+            op = (createOp setting) {plannedAction = UpdateResource}
+        prepared <- adapterPrepare adapter op >>= either (fail . show) pure
+        adapterExecute adapter op prepared >>= (@?= AdapterEffectCompleted)
+        (Map.lookup "security_header" . settings <$> readIORef world) >>= (@?= Just hsts)
     , testCase "a reviewed update restores a drifted setting that reports no modified time" $ do
         world <- newWorld
         mapM_ (runCreate (adapterFor world Map.empty)) ordered
@@ -183,7 +217,33 @@ settingMember :: Text -> ManagedResource
 settingMember setting = memberAt (\case CloudflareZoneSetting _ name -> nameText name == setting; _ -> False)
 
 ordered :: [ManagedResource]
-ordered = [tunnelMember, configMember, apexMember, wildcardMember, bypassMember] <> [settingMember name | (name, _) <- tunnelEdgePolicy]
+ordered =
+  [tunnelMember, configMember, apexMember, wildcardMember, bypassMember]
+    <> [settingMember name | (name, _) <- tunnelEdgePolicy]
+    <> [settingMember name | (name, _) <- tunnelEdgeValuePolicy]
+
+-- | The declared HSTS value, and one with a field of its policy changed or added.
+hsts :: Value
+hsts = hstsWith "enabled" (Bool True)
+
+hstsWith :: Key.Key -> Value -> Value
+hstsWith key value =
+  object
+    [ "strict_transport_security"
+        .= Object
+          ( KM.insert
+              key
+              value
+              ( KM.fromList
+                  [ ("enabled", Bool True)
+                  , ("max_age", Number 15552000)
+                  , ("include_subdomains", Bool True)
+                  , ("preload", Bool False)
+                  , ("nosniff", Bool False)
+                  ]
+              )
+          )
+    ]
 
 identityOf :: ManagedResource -> ResourceId
 identityOf = (^. #identity)
@@ -233,7 +293,7 @@ data World = World
   { tunnels :: !(Map.Map Text Text)
   , ingress :: !(Maybe [Value])
   , records :: !(Map.Map Text FakeRecord)
-  , settings :: !(Map.Map Text Text)
+  , settings :: !(Map.Map Text Value)
   , rulesBody :: !(Maybe Value)
   , zoneName :: !Text
   , writes :: !Int
@@ -247,7 +307,19 @@ newWorld =
       { tunnels = Map.empty
       , ingress = Nothing
       , records = Map.empty
-      , settings = Map.fromList [("ssl", "full"), ("min_tls_version", "1.0"), ("always_use_https", "off"), ("email_obfuscation", "on"), ("rocket_loader", "on"), ("server_side_exclude", "on"), ("automatic_https_rewrites", "on")]
+      , settings =
+          Map.fromList
+            [ ("ssl", "full")
+            , ("min_tls_version", "1.0")
+            , ("always_use_https", "off")
+            , ("email_obfuscation", "on")
+            , ("rocket_loader", "on")
+            , ("server_side_exclude", "on")
+            , ("automatic_https_rewrites", "on")
+            , ("browser_check", "on")
+            , ("browser_cache_ttl", Number 14400)
+            , ("security_header", hstsWith "enabled" (Bool False))
+            ]
       , rulesBody = Nothing
       , zoneName = base
       , writes = 0
@@ -332,7 +404,7 @@ fakeCloudflare world method path body = do
           Just other -> success other
       | Just setting <- T.stripPrefix "/zones/zone1/settings/" p ->
           -- As observed: modified_on can be null or absent.
-          success (object ["id" .= setting, "value" .= Map.findWithDefault "" setting (settings state), "modified_on" .= Null, "editable" .= True])
+          success (object ["id" .= setting, "value" .= Map.findWithDefault (String "") setting (settings state), "modified_on" .= Null, "editable" .= True])
     ("POST", "/accounts/acct/cfd_tunnel") -> do
       let name = stringAt "name"
       mutate (\s -> s {tunnels = Map.insert name fakeTunnelId (tunnels s)}) (object ["id" .= fakeTunnelId])
@@ -353,10 +425,13 @@ fakeCloudflare world method path body = do
         (object [])
     ("PATCH", p)
       | Just setting <- T.stripPrefix "/zones/zone1/settings/" p ->
-          mutate (\s -> s {settings = Map.insert setting (stringAt "value") (settings s)}) (object [])
+          mutate (\s -> s {settings = Map.insert setting (valueAt "value") (settings s)}) (object [])
     _ -> pure (Left ("the fake has no " <> method <> " " <> path))
   where
     configPath = "/accounts/acct/cfd_tunnel/" <> fakeTunnelId <> "/configurations"
+    valueAt key = case body of
+      Just (Object fields) | Just value <- KM.lookup (Key.fromText key) fields -> value
+      _ -> error ("the request has no " <> T.unpack key)
     stringAt key = case body of
       Just (Object fields) | Just (String value) <- KM.lookup (Key.fromText key) fields -> value
       _ -> error ("the request has no " <> T.unpack key)

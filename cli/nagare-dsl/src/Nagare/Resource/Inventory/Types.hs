@@ -26,6 +26,7 @@ module Nagare.Resource.Inventory.Types
   )
 where
 
+import Data.Aeson (Value)
 import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -87,6 +88,8 @@ data DesiredSpec
   | -- | The record's full name and the tunnel it points at, whose ID is resolved at execution.
     CloudflareTunnelRecordSpec !Text !Name
   | CloudflareZoneSettingSpec !Text
+  | -- | A zone setting whose value is a number or an object, compared structurally (EP-245).
+    CloudflareZoneSettingValueSpec !Value
   | -- | A zone-wide bypass in tunnel mode, in place of per-host composed rules (ADR 34).
     CloudflareBypassCacheSpec
   deriving stock (Eq, Ord, Show, Generic)

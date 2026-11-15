@@ -62,6 +62,7 @@ module Nagare.Resource.Inventory
   )
 where
 
+import Data.Aeson (Value (Null))
 import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -258,6 +259,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
         nameText role `elem` ["apex", "wildcard"] && not (Data.Text.null record)
       (CloudflareTunnelRecord {}, _) -> False
       (CloudflareZoneSetting {}, CloudflareZoneSettingSpec value) -> not (Data.Text.null value)
+      (CloudflareZoneSetting {}, CloudflareZoneSettingValueSpec value) -> value /= Null
       (CloudflareZoneSetting {}, _) -> False
       (CloudflareTlsSetting _, CloudflareZoneTlsSpec _) -> True
       (CloudflareTlsSetting {}, _) -> False

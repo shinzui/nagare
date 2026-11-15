@@ -19,12 +19,14 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Cdn.Cloudflare (parseExactARecordListing)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
@@ -213,8 +215,9 @@ matchesBase plan fact = case (cloudflarePlanAction plan, fact) of
     isNothing (cloudflarePlanPrevious plan)
       && isNothing (cloudflarePlanPhysical plan)
   -- A zone setting always exists, so its first write is bound to the value reviewed.
-  (CreateResource, CloudflarePresent physical version CloudflareZoneSettingTarget {}) ->
-    Just physical == cloudflarePlanPhysical plan && version == cloudflarePlanVersion plan
+  (CreateResource, CloudflarePresent physical version target)
+    | isZoneSettingTarget target ->
+        Just physical == cloudflarePlanPhysical plan && version == cloudflarePlanVersion plan
   (action, CloudflarePresent physical version target)
     | action `elem` [UpdateResource, RetireResource] ->
         Just target == cloudflarePlanPrevious plan
@@ -268,6 +271,8 @@ tunnelFamilyRequest config plan = case cloudflarePlanTarget plan of
           _ -> Left "a tunnel record is only created or updated"
   CloudflareZoneSettingTarget setting value ->
     pure (Right ("PATCH", zonePath (cloudflarePlanZone plan) <> "/settings/" <> nameText setting, object ["value" .= value]))
+  CloudflareZoneSettingValueTarget setting value ->
+    pure (Right ("PATCH", zonePath (cloudflarePlanZone plan) <> "/settings/" <> nameText setting, object ["value" .= value]))
   _ -> pure (mutationRequest plan)
   where
     withTunnel tunnel build =
@@ -281,6 +286,13 @@ accountPath config = "/accounts/" <> cloudflareRuntimeAccount config
 
 tunnelCnameTarget :: Text -> Text
 tunnelCnameTarget tunnelId = tunnelId <> ".cfargotunnel.com"
+
+-- | An observed object keeps only the keys the declaration names, recursively, so a field
+-- Cloudflare adds to a setting's value is not drift while every declared field still is.
+projectOnto :: Value -> Value -> Value
+projectOnto (Object declared) (Object observed) =
+  Object (KM.mapMaybeWithKey (\key wanted -> projectOnto wanted <$> KM.lookup key observed) declared)
+projectOnto _ observed = observed
 
 -- | The declared rules: the two names the free certificate covers, then a catch-all.
 tunnelIngressRules :: Text -> Text -> [Value]
@@ -340,10 +352,17 @@ inspectTunnelFamily config resource = case resource ^. #address of
     pure $ either CloudflareUnavailable id $ do
       result <- response >>= successfulResult
       unless (fieldText "id" result == Just (nameText setting)) (Left "Cloudflare returned another zone setting")
-      value <- requiredText "value" result
       physical <- physicalId ("cloudflare:zone/" <> nameText zone <> "/setting/" <> nameText setting)
       -- A setting's @modified_on@ can be null or absent (observed 2026-11-02); its value is what a review binds.
-      Right (CloudflarePresent physical (Just (fromMaybe value (fieldText "modified_on" result))) (CloudflareZoneSettingTarget setting value))
+      let bindVersion observed = Just (fromMaybe observed (fieldText "modified_on" result))
+      case resource ^. #spec of
+        CloudflareZoneSettingValueSpec declared -> do
+          observed <- maybe (Left "Cloudflare response has no valid value") Right (field "value" result)
+          let projected = projectOnto declared observed
+          Right (CloudflarePresent physical (bindVersion (TE.decodeUtf8 (LBS.toStrict (Aeson.encode projected)))) (CloudflareZoneSettingValueTarget setting projected))
+        _ -> do
+          value <- requiredText "value" result
+          Right (CloudflarePresent physical (bindVersion value) (CloudflareZoneSettingTarget setting value))
   _ -> pure (CloudflareUnavailable "resource is not in the Cloudflare tunnel family")
   where
     present raw version target = either CloudflareUnavailable (\physical -> CloudflarePresent physical version target) (physicalId raw)

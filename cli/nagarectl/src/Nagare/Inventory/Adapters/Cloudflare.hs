@@ -10,6 +10,7 @@ module Nagare.Inventory.Adapters.Cloudflare
   , cloudflareBindingsFromDeclarations
   , foreignTunnel
   , isTunnelFamily
+  , isZoneSettingTarget
   , mkCloudflareAdapter
   , unproxiedTunnel
   )
@@ -18,6 +19,7 @@ where
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -50,7 +52,17 @@ data CloudflareTarget
     -- with 'foreignTunnel', and an unproxied one with 'unproxiedTunnel'.
     CloudflareTunnelRecordTarget !Text !Name
   | CloudflareZoneSettingTarget !Name !Text
+  | -- | A number- or object-valued setting; an observed object reads back projected onto the
+    -- declared keys, so a field Cloudflare adds is not drift.
+    CloudflareZoneSettingValueTarget !Name !Value
   deriving stock (Eq, Show, Generic)
+
+-- | Every zone setting exists with some value, so first ownership is a reviewed write.
+isZoneSettingTarget :: CloudflareTarget -> Bool
+isZoneSettingTarget = \case
+  CloudflareZoneSettingTarget {} -> True
+  CloudflareZoneSettingValueTarget {} -> True
+  _ -> False
 
 -- | Observed in place of a tunnel name when a record points at something else.
 foreignTunnel :: Name
@@ -285,8 +297,9 @@ mkCloudflareAdapter accepted specs ops =
                   (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))
               )
           -- A zone setting always has a value, so first ownership is a reviewed write and not an adoption.
-          CloudflarePresent _ _ CloudflareZoneSettingTarget {}
-            | Map.notMember resource accepted ->
+          CloudflarePresent _ _ target
+            | isZoneSettingTarget target
+            , Map.notMember resource accepted ->
                 Right
                   ( resource
                   , ConfirmedAbsent
@@ -365,6 +378,8 @@ targetFor resource = case (resource ^. #address, resource ^. #spec) of
     Right (zone, CloudflareTunnelRecordTarget record tunnel)
   (CloudflareZoneSetting zone setting, CloudflareZoneSettingSpec value) ->
     Right (zone, CloudflareZoneSettingTarget setting value)
+  (CloudflareZoneSetting zone setting, CloudflareZoneSettingValueSpec value) ->
+    Right (zone, CloudflareZoneSettingValueTarget setting value)
   _ -> Left "Cloudflare address or desired specification is invalid"
 
 preparePhysical ::
@@ -374,8 +389,8 @@ preparePhysical ::
 preparePhysical plan fact = case (cloudflarePlanAction plan, fact) of
   (CreateResource, CloudflareMissing) -> Right (Nothing, Nothing)
   -- First ownership of a setting records what it replaces; the check below keeps it bound.
-  (CreateResource, CloudflarePresent physical version CloudflareZoneSettingTarget {}) ->
-    Right (Just physical, version)
+  (CreateResource, CloudflarePresent physical version target)
+    | isZoneSettingTarget target -> Right (Just physical, version)
   (RetireResource, CloudflarePresent physical version target)
     | Just target == cloudflarePlanPrevious plan, isJust version -> Right (Just physical, version)
   (UpdateResource, CloudflarePresent physical version target)
@@ -425,6 +440,8 @@ summary plan = case cloudflarePlanTarget plan of
   CloudflareTunnelRecordTarget record tunnel -> "review proxied CNAME " <> record <> " to tunnel " <> nameText tunnel
   CloudflareZoneSettingTarget setting value ->
     "review Cloudflare zone setting " <> nameText setting <> " = " <> value
+  CloudflareZoneSettingValueTarget setting value ->
+    "review Cloudflare zone setting " <> nameText setting <> " = " <> TE.decodeUtf8 (LBS.toStrict (encode value))
 
 absentProof :: CloudflareMutationPlan -> ContentDigest
 absentProof plan =
