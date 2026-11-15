@@ -104,20 +104,31 @@ and is not part of this plan.
   `en_tenant_available{tenant="nagare"} 1`, `EnTenantUnavailable` fired 401 s after `en-db`
   went to 0 replicas and cleared 91 s after it returned. Evidence:
   `~/.local/state/nagare/drills/ep262/evidence/`.
-- [ ] M3: Operator-declared tenants. `NAGARE_EN_TENANTS` plus a schema path per tenant
+- [x] M3: Operator-declared tenants. `NAGARE_EN_TENANTS` plus a schema path per tenant
   yields a database `en-<name>-db`, a migration Job, a schema, a key Secret, En
   environment, backups, and the F147 restore recovery. Acceptance: inventory interpreter
   tests in `nagarectl-test`, then a local context with tenant `demo`. Its key writes and
   checks its own type, the `nagare` key cannot read it, and a backup-and-restore of
   `en-demo-db` brings its relationships back.
   2026-11-14, code and interpreter tests done (8 tests in `InventoryAuthTenantsSpec`, the
-  restore case in `InventoryRebuildRestoreSpec`). Open: the local `demo` run, the backup and
-  restore, and the measured memory per tenant.
-- [ ] M4: `nagarectl en-tenant bind NAME --app APP -f CONFIG` delivers a tenant's keys into
+  restore case in `InventoryRebuildRestoreSpec`). 2026-11-14, confirmed on the same local
+  context: a relative `NAGARE_EN_TENANT_DEMO_SCHEMA` beside the context file applied in one
+  stage; En logs `Tenants: nagare, demo` with nagare's datastore id unchanged; demo's write
+  key writes `doc:d1#viewer@user:ann` and its check is `allowed`; nagare's read-only check on
+  `doc` is `400 unknown_relation` and nagare's write is `400 schema_violation`; each key's
+  `GET /v1/schema` is its own. `en-demo-db` lost (StatefulSet and PVC deleted) came back
+  through `rebuild-decisions` with the escrow-verified scheduled backup, `inventory rebuild`
+  and `db restore-rebuilt en-demo-db -n nagare-system`: the relationship is back,
+  `en_datastore_metadata` was cleared, and the check is `allowed`. Memory: En 20Mi before
+  and after demo, `en-demo-db` 36Mi, node +65Mi; the limit grows by the 128Mi cache
+  allowance per tenant (efc4aec1).
+- [x] M4: `nagarectl en-tenant bind NAME --app APP -f CONFIG` delivers a tenant's keys into
   the app's managed runtime Secret as one reviewed secret change. Acceptance: on the local context, a deployed app in its
   own namespace makes a successful `POST /v1/check` against tenant `demo`.
-  2026-11-14, command and helper tests done (`tenantKeyBinding`). Open: the local probe
-  app's `POST /v1/check`.
+  2026-11-14, done: `en-tenant bind demo --app protected-static-site --read-only-as EN_KEY`
+  kept the runtime Secret's other key, printed no key, and a probe Job in `personal` with
+  `EN_KEY` from `nagare-secret-protected-static-site-runtime` got `200 allowed` from
+  `POST http://en.nagare-system.svc.cluster.local/v1/check`.
 - [ ] M5: Released and live on labs with tenant `mori`. Acceptance: the release proves the
   three release facts (full gate, EP-172 upgrade rehearsal read-back, intranet upgrade with
   deploy-and-login), then the labs context declares `mori`. The `mori` read-only key's
@@ -144,6 +155,12 @@ and is not part of this plan.
   interpreter answers through the forward (dc73cf50). The migration Jobs' pods carry
   `app.kubernetes.io/name=en`, so `logs deploy/en` can pick one; the proof and the alert
   text select the server pod.
+- After restoring one tenant's database while En runs, En reconnects (`AVAILABLE`) but
+  keeps the datastore id it read at open, so tokens minted before the loss stay valid until
+  En restarts; a restarted En minted a new id for `demo` and kept `nagare`'s. A full
+  rebuild is unaffected, since En is absent until its databases are restored. Not data
+  loss; a deferral is proposed to the operator (re-read the id after reconnect, upstream in
+  En).
 - 6b3a7dd3 (another session's commit) left two modules over the 1000-line limit, which
   made every fast gate red; 293c9717 split them without behaviour changes.
 
