@@ -89,8 +89,9 @@ real work.
   it unlocks four plans, but the node-upgrade drills pass on the in-place route with reboots of a few
   minutes. Trigger: the team cannot tolerate that downtime after some weeks of use.
 - **[MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md),
-  teardown.** Trigger: a cloud context actually needs disposing (checked 2026-10-21: `tan-ng-labs`
-  holds only the intranet). Deletion is where data risk lives, so when it reopens,
+  teardown.** Trigger: the operator reopens it. Disposable contexts are removed by a bounded
+  scripted destroy, as `ep245` to `ep248b` were in `tan-nb-exp` (refresh 2026-11-15). Deletion is
+  where data risk lives, so when it reopens,
   [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M3–M4 go
   first and the plan is re-chartered as one reviewed destroy-to-zero transaction (its Decision Log,
   2026-10-21), run outside the intranet's project. F33 (P1, Verifying: cloud collection rechecks its

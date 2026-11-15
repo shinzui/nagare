@@ -20,6 +20,11 @@ provenance:
       at: 2026-10-22T01:39:10Z
       mode: "update"
       note: "Refresh: EP-173 M3-M4 first at reopening, L3 stage on the release rehearsal, G1 outside tan-ng-labs, destroy-to-zero reopening shape recorded; stays Held"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-15T22:21:05Z
+      mode: "update"
+      note: "Refresh: trigger restated as operator reopening after four scripted disposals; destroy-to-zero shape covers tunnel, images, Tailscale key and deployer IAM; stays Held"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -97,8 +102,10 @@ apply:
       Every reachable stop reaches zero through supported commands, and nothing protected is deleted
       without its intent. Mutation records show each guard is observed (EP-167 M1).
 - [ ] 7. **Native run L3 (cp3).** A local context is torn down to zero by review, as the final stage
-      of the release rehearsal's disposable local context (`scripts/release-rehearse.sh`; MasterPlan
-      26's `nagare-harness local-acceptance` was cancelled on 2026-10-14). This adds a stage to an
+      of the release rehearsal's disposable local context (`scripts/release-rehearse.sh`, which runs
+      `nagare-harness transition rehearse`; MasterPlan 26's `nagare-harness local-acceptance` was
+      cancelled on 2026-10-14). Today the rehearsal removes the previous run's cluster with an
+      unreviewed `k3d cluster delete` on reset (`TransitionDrill.hs`). This adds a stage to an
       existing run, not a separate run (EP-167 M3).
 - [ ] 8. **Native run G1 (one bounded cloud sequence).** A fresh disposable GCP context, holding a
       revoked access grant, is torn down to zero through saved reviews only. A read-only listing of
@@ -112,7 +119,8 @@ G1 is the only cloud sequence. The operator approves it once, when item 8 is rea
 preflight has passed (MasterPlan 26 EP-168 was cancelled on 2026-10-14, so the runner carries its
 own). G1 runs in a project that holds no context in real use. `tan-ng-labs` hosts the intranet
 (`nagare-intranet`, in use since 2026-10-12), so it is excluded: the project guard is per project,
-not per context. The operator names the project when item 8 is reached.
+not per context. The operator names the project when item 8 is reached. `tan-nb-exp`, where the
+disposable contexts `ep245` to `ep248b` ran, is the candidate.
 
 ## Decomposition Strategy
 
@@ -145,7 +153,9 @@ Alternatives considered:
 down to zero, not a general per-leaf cloud collection. The plan is then re-chartered as one reviewed,
 intent-bound destroy-to-zero transaction, which is not the unreviewed command rejected above. It
 drops the leaf ordering, the VM as a separately collected leaf and identity at creation, and keeps
-the typed destruction intent, the identity recheck before effect and one run of each kind. The four
+the typed destruction intent, the identity recheck before effect and one run of each kind. The
+transaction also covers the members a destroy of the stack leaves behind: the Cloudflare tunnel and
+its records, the context's host images and its Tailscale key (Decision Log, 2026-11-15). The four
 children stay Held as written until the operator confirms that shape at reopening.
 
 Relevant ADRs:
@@ -184,19 +194,23 @@ until the operator reopens it.
 
 ## Progress
 
-2026-10-21: held since 2026-10-10. No child has started, and the trigger has not fired.
-- **Trigger check.** A read-only listing of the active project `tan-ng-labs` on 2026-10-21 shows
-  only the intranet: `nagare-intranet` and its data disk, the stopped `nix-builder-intranet`, the
-  three intranet buckets and one address. No disposable cloud context exists, none was created since
-  the hold, and EP-183's cloud run N2 has not run. The `tan-nb-exp` context is still configured on
-  the workstation and is the foreseeable candidate; it was not inspected, because reads are scoped to
-  the active project.
-- **Premises re-checked in the tree.** Since the hold, the modules this plan touches changed only in
-  `ea2304d6` (F113, F114). `cloudCollectionTypes` still names ten stateless types, so the data disk,
-  buckets, images, registry, service account and IAM have no collection; `consumersOf` still counts
-  `OrderedAfter` edges as consumption; a retained cloud finding still has no Pulumi observation.
-- **Dependency.** The Pulumi cloud-foundation world does not exist. MasterPlan 26 closed on
-  2026-10-14 with EP-173 M3–M4 re-chartered to this plan's reopening.
+2026-11-15: held since 2026-10-10. No child has started, and the operator has not reopened it.
+- **Disposals since the last refresh.** Four disposable cloud contexts ran in `tan-nb-exp`: `ep245`
+  and `ep246` (VM-loss drills, 2026-11-04) and `ep248` and `ep248b` (delegated-deployer IAM checks,
+  2026-11-11/12). `ep248` was removed by a bounded script, not a review: VM deletion protection off
+  through a targeted `pulumi up`, `state unprotect --all`, an all-versions purge of its buckets, then
+  `pulumi destroy`, gated on a preview that held only deletes inside the stack. 25 resources went and
+  none were left. After that, the new host image, the Cloudflare tunnel with its DNS records and
+  cache ruleset, and the Tailscale key were removed separately
+  ([teardown](../audits/ep248-cloud-iam-check-2026-11-11/evidence/teardown.txt),
+  [scripts](../audits/ep248-cloud-iam-check-2026-11-11/scripts/)). `ep248b` used the same scripts.
+- **Premises re-checked in the tree.** `cloudCollectionTypes` still names the same ten stateless
+  types, and `consumersOf` still counts `OrderedAfter` edges as consumption. Since 2026-10-21 the
+  modules that use them changed only for performance, a typed operation view and delegated
+  deployers; none of those changes touched collection or consumer counting.
+- **Dependency.** The Pulumi cloud-foundation world does not exist. EP-173 M3–M4 stay held until
+  this plan reopens (EP-173, 2026-10-14). MasterPlan 21, the other consumer of identity at creation,
+  is still on hold.
 - **Already proven natively, and reused** (MP-23 C3 checkpoint, development builds
   `24320d82`–`07d203ad`): policy, retirement of every platform scope, and cloud-scope retirement.
   F84's fix (`b171712a`, in v0.4.0) unblocks retiring a context that holds a revoked access grant.
@@ -211,8 +225,29 @@ until the operator reopens it.
 - 2026-10-09: ADR 27 §4 leaves the host VM, GCS buckets and Pulumi resources without recorded
   provider identity. Both this plan (delete preconditions) and MasterPlan 21 (candidate slots) need
   that identity, so it is built once, here.
+- 2026-11-11: The `ep248` teardown needed steps outside `pulumi destroy`. It removed a host image
+  outside the stack, and Cloudflare tunnel, DNS and ruleset members through the Cloudflare API. It
+  also revoked a Tailscale key. The 2026-10-21 reopening shape ("a saved Pulumi destroy plan over the
+  whole stack") would not have reached zero
+  ([teardown](../audits/ep248-cloud-iam-check-2026-11-11/evidence/teardown.txt)). Decision Log,
+  2026-11-15.
 
 ## Decision Log
+
+- 2026-11-15 (refresh): The plan stays Held. The 2026-10-21 trigger, "a cloud context that actually
+  needs disposing", fired four times (`ep245` to `ep248b`), and each time the bounded scripted
+  destroy was used without reopening the plan. The trigger is therefore restated: the operator
+  reopens the plan. A disposable context that needs removing does not reopen it.
+  At reopening, the destroy-to-zero transaction covers three more things:
+  - members outside the Pulumi stack: the Cloudflare tunnel, its DNS records and cache ruleset
+    (MasterPlan 32), host images published for the context, and its Tailscale auth key;
+  - the delegated deployers' service accounts and IAM bindings inside the stack (MasterPlan 33);
+  - the VM deletion-protection change, which today is an unreviewed targeted `pulumi up`. It becomes
+    part of the reviewed transaction.
+  G1's project is still the operator's choice. `tan-nb-exp` is the one where disposable contexts
+  run; it also holds the shared Nix builder, which stays excluded.
+  Rationale: the `ep248` teardown is the current real procedure, and the reopening shape must reach
+  zero over everything it removed.
 
 - 2026-10-21 (review and refresh): The plan stays Held; the trigger, a cloud context that actually
   needs disposing, has not fired. Three refreshes: EP-173 M3–M4 are this plan's first work at
