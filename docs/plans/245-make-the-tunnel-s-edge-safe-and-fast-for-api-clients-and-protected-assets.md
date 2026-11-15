@@ -227,6 +227,22 @@ curl -sS -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" -H "
 Expected: `200` with `strict-transport-security` present and no `cf-mitigated` header, then `304`.
 
 
+Bounded native sequence (operator go-ahead 2026-11-15, base domain `topagentnetworklabs.com` with the protected site on
+`staging.topagentnetworklabs.com`, as on `ep245` and `ep248`). Disposable context `ep245e` in `tan-nb-exp`, from the packaged
+build of the landed revision, in its own XDG root, with the admin API enabled; EP-243 D8 rides along. Each step stops the run
+at the result named, and any guard refusal stops it.
+
+1. Preflight, no mutation: `just gate-verify` green at the revision; no `ep245e` resource in the project; the zone holds no
+   tunnel, tunnel record or cache rule.
+2. `context create --ingress cloudflare-tunnel`, then the stages to convergence. Stop at a delete, retire or replace, a zone
+   stage other than its fifteen members, or another VM or image changing. Sign exactly the new node if Tailnet Lock locks it out.
+3. Observe D2 and D3 on the zone settings and response headers; D1 with a signed-in `304` from `admin.<base>/v1/openapi.json`, the
+   repeated leak check on `.pdf` and `.js`, and a protected echo sending `Cloudflare-CDN-Cache-Control: max-age=600`; D2's
+   no-`User-Agent` bearer request and a signed `nagared` delivery; D4's access lines; D5 on ten hostnames; D6's scrape, alert
+   and dashboard; D7's measurements; EP-243 D8's operator paths.
+4. Teardown as on `ep248`: Pulumi destroy of the run's local stack, new images, then the zone stage's records, cache rule and
+   tunnel by ID. The zone and its settings stay. Revoke the Tailscale key.
+
 ## Idempotence and Recovery
 
 Every change is a reviewed inventory operation or a gateway release. The edge settings are declared state; removing a row
