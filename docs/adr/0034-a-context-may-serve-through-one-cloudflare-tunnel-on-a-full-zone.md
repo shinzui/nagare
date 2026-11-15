@@ -97,4 +97,13 @@ A review of the shipped code against the API, performance and security found fou
   `CF-Ray`. No access decision or throttle keys on them: Kourier's external Service is a `ClusterIP` any pod can reach with a forged
   header.
 
+Implementation (EP-245) settled two further points:
+
+- **Without an edge, the enforcer removes `CF-Connecting-IP` and `CF-Ray`** before any upstream sees them, so an address on the
+  admin API's access line was forwarded by a tunnel-mode enforcer, never chosen by a direct client. The Auth component sets
+  `NAGARE_ACCESS_EDGE_ATTRIBUTION=cloudflare` beside the cache header in tunnel mode only.
+- **Number- and object-valued zone settings** (`browser_cache_ttl`, `security_header`) are a separate inventory spec compared
+  structurally on the declared keys, so the string settings keep their recorded encoding and a field Cloudflare adds to a value
+  is not drift.
+
 The first measured latency and load baseline through the edge is EP-245 D7; its numbers replace the single figure above when recorded.

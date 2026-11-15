@@ -30,15 +30,25 @@ scan finds nothing to attack, and a mistake in a firewall rule reaches nothing. 
 - **The tunnel token is an interception credential.** A connector started anywhere with it receives a share of every request. Rotate
   it after a suspected leak, when an operator leaves, or after rebuilding a node from material you do not trust.
 - **No edge request logs** on Free or Pro.
-- **Limits:** a 100 MB upload, and a response silent for 125 seconds is reset. A response that keeps sending is not.
+- **Limits:** a 100 MB upload, and a response silent for 125 seconds is reset. A response that keeps sending is not, so a stream
+  or WebSocket must send a keepalive.
+- **Never turn on Bot Fight Mode or Under Attack mode.** Both challenge API clients and webhook senders, and no rule can skip them.
 - **The base domain must be the zone itself.** Cloudflare's free certificate covers the zone and one label below it, so a deeper
   custom domain needs Advanced Certificate Manager at $10 a month, which Nagare does not manage.
 
 ## What Nagare sets on the zone
 
 Always Use HTTPS, a minimum of TLS 1.2 and strict SSL. Rocket Loader, email obfuscation, server-side excludes and automatic HTTPS
-rewrites are off because they rewrite hosted pages. One cache rule bypasses the cache for every hostname, and protected responses
-carry `Cache-Control: private, no-store, no-transform`, so no cached copy can answer for a login check.
+rewrites are off because they rewrite hosted pages. Browser Integrity Check is off, so API clients and webhook senders are never
+challenged, and Browser Cache TTL respects each site's own headers.
+
+HSTS is on for six months with `includeSubDomains`, and preload is off. Once a browser has seen it, every name under the zone must
+serve HTTPS for six months. That is why the zone should hold nothing but this installation.
+
+One cache rule bypasses the cache for every hostname. On protected responses the gateway adds `private` and `no-transform` to the
+site's `Cache-Control` and strips the headers Cloudflare reads in its place, so no cached copy can answer for a login check while
+browsers keep validators and hashed assets. [API clients, webhooks and the edge](cloudflare-tunnel.md#api-clients-webhooks-and-the-edge)
+has the details.
 
 ## When to choose direct ingress
 

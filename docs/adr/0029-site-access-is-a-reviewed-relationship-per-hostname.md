@@ -136,8 +136,9 @@ measures the current transport independently and does not assume this held chang
 
 A protected site in a Cloudflare Tunnel context ([ADR 34](0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md))
 sits behind Cloudflare without being a CDN site. The per-site CDN stays refused. Two independent controls keep any cache from
-answering for the identity check: the zone's cache rule bypasses every hostname, and the enforcer adds
-`Cache-Control: private, no-store, no-transform` to each proxied protected response.
+answering for the identity check: the zone's cache rule bypasses every hostname, and the enforcer tightens each proxied
+protected response's `Cache-Control`, adding `private` and `no-transform` and stripping the CDN override headers, with
+`private, no-store, no-transform` when the upstream sent none (ADR 34's 2026-11-04 amendment).
 
 ## Amendment — 2026-11-08: delegated protected-route authority (planned)
 

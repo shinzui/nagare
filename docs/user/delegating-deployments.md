@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Delegating deployments"
+description: "Let a CI deployer deploy inside a reviewed, bounded part of a context, and see who applied each change."
+docId: DOC-42
+tags: [delegation, deployers, ci, access]
+generated:
+  by: human:nadeem
+  at: 2026-11-11T00:00:00Z
+---
+
 # Delegating deployments
 
 A context's operator can let a CI/CD program, such as Kotei, deploy apps and sites inside a bounded part

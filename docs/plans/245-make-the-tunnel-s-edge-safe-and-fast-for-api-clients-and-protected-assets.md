@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-11-04T13:59:20Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-15T22:56:50Z
+      mode: "implement"
+      note: "D1-D6 code and fake-adapter tests landed, D4 complete, D8 docs and ADR text; native run pending"
 ---
 
 # Make the tunnel's edge safe and fast for API clients and protected assets
@@ -29,7 +35,22 @@ a measurement rather than an estimate. Nothing here weakens the two cache contro
 
 ## Progress
 
-Each item passes only with the named evidence.
+Each item passes only with the named evidence. 2026-11-15: D1 to D6's code and fake-adapter tests are landed on `master`;
+each item stays open until its native observation in the one bounded run below, which needs the operator's go-ahead.
+
+- D1 code: `81b1d893` (`Nagare.Access.EdgeCacheControl`; `EdgeCacheControlSpec`: the five upstream shapes, direct mode
+  unchanged, a 304 through the proxy with the admin API's validators, quoted commas). Native observation pending.
+- D2 and D3 code: `11b8c5fa` (`browser_check` off, `browser_cache_ttl` 0, `security_header` HSTS;
+  `InventoryCloudflareZoneSpec`: first write, drift of each, an added provider field, a reviewed HSTS restore). Native pending.
+- D4: `fa5b4767` (`Nagare.Access.AccessLog`, admin API `RequestLog`; tests in `EdgeCacheControlSpec`, `Serve.hs` and
+  `InventoryAuthSpec`). Complete; it needs no native observation beyond reading one line in the run below.
+- D5 code: `a4bfa3e0` (`probeConcurrently` in `Nagare.Ops.Domains`; twenty hosts keep their order with at most eight in flight,
+  and ten hosts with one at 1 s and nine at 300 ms finish in 1.3 s against 3.7 s in sequence). The ten-hostname timing on a
+  context is pending.
+- D6 code: `5d552c24` (VMPodScrape, VMRule `cloudflared-alerts`, dashboard, policy ingress on 2000 from `monitoring`;
+  `InventoryCloudflareTunnelSpec`). The scrape, alert and dashboard on a context are pending.
+- D8 docs: this commit's `docs/user/cloudflare-tunnel.md` and `choosing-ingress.md` sections and the ADR 34 and ADR 29 text;
+  `just user-documentation-validate` passes. D7's numbers in ADR 34 are pending.
 
 - [ ] D1: The enforcer tightens the proxied `Cache-Control` instead of replacing it. It keeps the upstream's directives,
   adds `private` and `no-transform`, removes `public` and `s-maxage`, and strips `CDN-Cache-Control`,
@@ -49,7 +70,7 @@ Each item passes only with the named evidence.
   `max-age`, `includeSubDomains` on, preload off and `nosniff` off. Drift tests cover a zone that turns it off. Natively,
   every response through the edge carries the header. `docs/user/choosing-ingress.md` states the consequence: once set,
   every name under the zone must serve HTTPS for six months, which is why the zone holds nothing but this installation.
-- [ ] D4: Visitor attribution in tunnel mode. The enforcer writes one bounded JSON access line per request, like the admin
+- [x] D4 (`fa5b4767`): Visitor attribution in tunnel mode. The enforcer writes one bounded JSON access line per request, like the admin
   API's, and in tunnel mode both carry `CF-Connecting-IP` and `CF-Ray`, read through an environment variable the Auth
   component sets only in tunnel mode, as it does `NAGARE_ACCESS_PROXIED_CACHE_CONTROL`. Nothing authorizes, throttles or
   records a decision on them. Tests: the line carries both in tunnel mode, neither in direct mode, and never a cookie,
@@ -76,10 +97,29 @@ Each item passes only with the named evidence.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-11-15: cloudflared exposes no per-request origin latency (Cloudflare's metrics page lists `cloudflared_tunnel_total_requests`,
+  `cloudflared_tunnel_request_errors`, `cloudflared_tunnel_concurrent_requests_per_tunnel`, `cloudflared_tunnel_ha_connections` and
+  `quic_client_smoothed_rtt` in ms, and no histogram). D6's dashboard shows the edge round trip as its latency; D7's measurement is the
+  only origin-latency evidence.
 
 
 ## Decision Log
+
+- Decision: Without an edge the enforcer removes `CF-Connecting-IP` and `CF-Ray` from every request, and the admin API logs them
+  whenever present. Rationale: only the enforcer reaches the admin API, so the admin API needs no mode switch of its own, and a
+  direct client can never choose a value that lands on an access line. Date: 2026-11-15
+
+- Decision: `browser_cache_ttl` and `security_header` use a new `CloudflareZoneSettingValueSpec` holding a JSON value, compared on
+  the declared keys, instead of changing `CloudflareZoneSettingSpec` to hold a value. Rationale: the seven string settings keep their
+  recorded encoding on existing tunnel contexts, so an upgrade plans only the three new settings. Date: 2026-11-15
+
+- Decision: The VMPodScrape and VMRule live in `cloudflare-tunnel`, owned by the connector scope, and the dashboard ConfigMap in
+  `monitoring`. Rationale: VMAgent and VMAlert select every namespace (`selectAllByDefault`), the connector scope exists only in
+  tunnel mode, and Grafana's sidecar reads only its own namespace. A new VMRule, not an edit of `nagare-alerts`, because a VMRule has
+  no proved conditional update (EP-262, `206d0fb0`). Date: 2026-11-15
+
+- Decision: `doctor`'s tunnel reads take two round trips, not one: the connections and configuration reads overlap, after the read
+  that finds the tunnel's ID they both need. Date: 2026-11-15
 
 - Decision: `CF-Connecting-IP` is read for attribution only, never for an access decision or a throttle.
   Rationale: Kourier's external Service is a `ClusterIP` any pod in the cluster can reach, so a workload could send a

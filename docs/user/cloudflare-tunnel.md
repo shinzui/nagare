@@ -28,7 +28,10 @@ has the design and threat model.
   account that holds nothing else.
 - **The tunnel token and the API token are interception credentials.** Anyone with the tunnel token can start a connector
   that receives a share of every request.
-- **Protected sites are not cached in the browser or at the edge,** so their assets reload on each visit.
+- **Protected sites are never cached at the edge.** The browser still keeps what the site allows: a hashed asset marked
+  `immutable` is not fetched again, and a revalidation answers `304`.
+- **HSTS for six months.** Once a browser has seen the header, every name under the zone must serve HTTPS until it expires,
+  which is one more reason the zone should hold nothing but this installation.
 
 ## Before you begin
 
@@ -98,6 +101,47 @@ nagarectl doctor
 `tunnel status` fails on a wrong connector count or a connector from another address. `doctor` reports `Tunnel ingress`,
 which is healthy only when the connector is ready, `kourier` is `ClusterIP` and the public IP does **not** answer.
 
+## API clients, webhooks and the edge
+
+The edge treats a machine client like a browser:
+
+- **No challenge.** The zone's edge policy turns Browser Integrity Check off, so a request with no `User-Agent` or an unusual
+  one, such as a bearer-token call to the admin API or a webhook delivery to `nagared`, is not challenged. Never turn on
+  **Bot Fight Mode** or **Under Attack mode** on this zone: both challenge API clients, no rule can skip them, and the
+  API token cannot manage them, so Nagare cannot tell you they are on.
+- **HSTS.** Every response carries `Strict-Transport-Security: max-age=15552000; includeSubDomains`. Preload stays off.
+- **Caching.** On a protected response the gateway adds `private` and `no-transform` to the site's own `Cache-Control`,
+  removes `public` and `s-maxage`, and strips `Cloudflare-CDN-Cache-Control`, `CDN-Cache-Control` and `Surrogate-Control`.
+  Everything else the site sent stays, including `ETag`, `max-age` and `immutable`, so a client that sends `If-None-Match`
+  gets `304`. A response with no `Cache-Control` gets `private, no-store, no-transform`. Browser Cache TTL respects these
+  headers instead of raising them to four hours.
+- **Keep long responses talking.** A stream, WebSocket or long poll that sends nothing for 125 seconds is reset at the edge.
+  Send a keepalive more often than that.
+- **Who made a request.** Free and Pro have no edge request logs. The gateway's and the admin API's access lines record
+  `cf_connecting_ip` and `cf_ray` for each request:
+
+  ```bash
+  kubectl -n nagare-system logs -l serving.knative.dev/service=nagare-access -c user-container | grep '"cf_ray"'
+  ```
+
+  These are for finding a request, never for deciding one: a pod inside the cluster can reach the gateway with any header.
+  On a direct context the gateway removes both headers before a site sees them.
+
+## Connector metrics
+
+VMAgent scrapes each connector's metrics port, and the dashboard **Nagare Cloudflare Tunnel connector** in Grafana shows
+its edge connections, requests, origin errors, concurrent requests, edge round trip, memory and CPU. cloudflared reports
+no per-request latency to the origin.
+
+The alert `CloudflareTunnelConnectionsLow` (VMRule `cloudflared-alerts` in `cloudflare-tunnel`) fires when a connector has
+held fewer than four connections to the edge for five minutes, or no connector is scraped. Read the connector's logs and
+compare with what Cloudflare lists:
+
+```bash
+kubectl -n cloudflare-tunnel logs deploy/cloudflared --tail=100
+nagarectl tunnel status
+```
+
 ## Escrow the keys a restore needs
 
 Without these files, a backup of your platform databases can't be restored after losing the VM. Run this once the platform is up,
@@ -131,7 +175,7 @@ Planning refuses:
 
 Deploying a site makes no Cloudflare call: the zone's two records carry every name.
 
-`nagarectl domains check` probes the apex and the wildcard as well as your routes. Each must answer in public DNS with an
+`nagarectl domains check` probes the apex and the wildcard as well as your routes, eight hostnames at a time. Each must answer in public DNS with an
 address other than the VM's and complete a TLS handshake with a certificate that verifies. `nagarectl domains tls HOST`
 reports the edge certificate; there is no origin certificate to renew.
 

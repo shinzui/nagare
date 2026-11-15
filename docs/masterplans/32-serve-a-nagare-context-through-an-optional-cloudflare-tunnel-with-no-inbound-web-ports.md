@@ -30,6 +30,11 @@ provenance:
       at: 2026-11-04T17:52:52Z
       mode: "update"
       note: "EP-246 added: move a context to a new base domain, extending EP-243's move"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-15T22:56:50Z
+      mode: "implement"
+      note: "EP-245 In Progress: D1-D6 code landed; native run pending"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -142,7 +147,7 @@ Relevant ADRs:
 | 242 | Route a context's hostnames through its Cloudflare zone and check them | docs/plans/242-route-a-context-s-hostnames-through-its-cloudflare-zone-and-check-them.md | EP-240 | EP-241 | Complete |
 | 243 | Close a context's inbound ports and move existing contexts onto the tunnel | docs/plans/243-close-a-context-s-inbound-ports-and-move-existing-contexts-onto-the-tunnel.md | EP-241, EP-242 | None | In Progress |
 | 244 | Make the tunnel the recommended path for new Nagare installations | docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md | EP-243 | EP-245 D1–D3 | In Progress |
-| 245 | Make the tunnel's edge safe and fast for API clients and protected assets | docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md | EP-241, EP-242 | None | Not Started |
+| 245 | Make the tunnel's edge safe and fast for API clients and protected assets | docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md | EP-241, EP-242 | None | In Progress |
 | 246 | Move a context to a new base domain and carry its routes, grants and sign-in | docs/plans/246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md | EP-243 D2, D3, D5, D11; EP-245 D1–D3 for its rehearsal | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -215,7 +220,7 @@ EP-246 adds a new base domain to EP-243's move, so it needs EP-243's engine and 
 EP-240 is complete and passed on 2026-11-02; its topology and threat model are in
 [ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-242 is complete. A new context bootstraps
 through the reviewed path and serves a protected site with no web port, proved natively on `ep243` on 2026-11-03. v0.16.0 carries this.
-EP-241 is complete. Left: EP-245, EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed in v0.16.1. A restore from real backups on `ep245` found F144, F146 and F147 and passed with no hand fixes on 2026-11-04, in v0.16.2 ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)). `ep245` showed D6's site, login, closed ports and no web listener, but was driven by scripts, so "from the onboarding page alone" stays unproved and D6 stays open. The review of 2026-11-04 (API, performance, security) found the shipped edge wrong for machine clients and protected assets; EP-245 holds the fixes and the first measured baseline, and EP-244 D6 waits for its D1 to D3. EP-243 D8, the operator paths with no inbound ports, needs no move and can run on a new context now.
+EP-241 is complete. Left: EP-245, EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed in v0.16.1. A restore from real backups on `ep245` found F144, F146 and F147 and passed with no hand fixes on 2026-11-04, in v0.16.2 ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)). `ep245` showed D6's site, login, closed ports and no web listener, but was driven by scripts, so "from the onboarding page alone" stays unproved and D6 stays open. The review of 2026-11-04 (API, performance, security) found the shipped edge wrong for machine clients and protected assets; EP-245 holds the fixes and the first measured baseline, and EP-244 D6 waits for its D1 to D3. EP-243 D8, the operator paths with no inbound ports, needs no move and can run on a new context now. 2026-11-15: EP-245 D1 to D6's code is landed with fake-adapter tests and D4 is complete; D1 to D3, D5 to D7 wait on one bounded native run on a disposable tunnel context, which can also carry EP-243 D8.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
   working, an outside port check finding nothing open, and the host listening on no web port (EP-244).
