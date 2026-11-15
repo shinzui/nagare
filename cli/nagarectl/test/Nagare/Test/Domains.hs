@@ -5,6 +5,7 @@ module Nagare.Test.Domains
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -13,11 +14,12 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.Foldable (forM_)
 import Data.Generics.Labels ()
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
+import GHC.Clock (getMonotonicTime)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Inventory.Adapter (AdapterExecution (..))
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubernetesRuntimeConfig (KubernetesRuntimeConfig), runKubectlWith, withKubectlInterpreter)
@@ -52,6 +54,7 @@ import Nagare.Ops.Domains
   , formatDomainList
   , observeDnsWith
   , parseDigShort
+  , probeConcurrency
   , queryDomainRowsWith
   , queryTunnelBaseRowsWith
   , queryTunnelDomainRowsWith
@@ -186,6 +189,43 @@ domainsTests =
         other -> assertFailure ("expected observed rows, got " <> show other)
       commands <- readIORef calls
       [args | ("kubectl", args) <- commands] @?= [["get", "domainmapping", "-n", "personal", "-o", "json"]]
+  , testCase "tunnel rows are probed at most eight at a time, in order, and one slow probe delays no other" $ do
+      inFlight <- newIORef (0 :: Int)
+      peak <- newIORef (0 :: Int)
+      let hosts = ["site-" <> T.pack (show i) <> "." <> base | i <- [0 .. 19 :: Int]]
+          mappingsFor names =
+            LBS.toStrict $
+              Aeson.encode
+                ( Aeson.object
+                    [ "items"
+                        Aeson..= [ Aeson.object ["metadata" Aeson..= Aeson.object ["name" Aeson..= name], "spec" Aeson..= Aeson.object ["ref" Aeson..= Aeson.object ["name" Aeson..= ("web" :: Text)]]]
+                                 | name <- names
+                                 ]
+                    ]
+                )
+          runner names delayFor tool args
+            | tool == "kubectl" = pure (Observed (mappingsFor names))
+            | tool == "curl" = do
+                current <- atomicModifyIORef' inFlight (\n -> (n + 1, n + 1))
+                atomicModifyIORef' peak (\p -> (max p current, ()))
+                threadDelay (delayFor (concat (take 1 (reverse args))))
+                atomicModifyIORef' inFlight (\n -> (n - 1, ()))
+                pure (Observed "0")
+            | otherwise = tunnelRunner "198.51.100.77" (Observed "0") tool args
+          domainsOf = \case
+            Observed rows -> pure (map (^. #domain) rows)
+            other -> assertFailure ("expected observed rows, got " <> show other)
+      twenty <- queryTunnelDomainRowsWith (runner hosts (const 100000)) base (Just vmIp) "personal" >>= domainsOf
+      twenty @?= hosts
+      readIORef peak >>= \p -> assertBool ("peak " <> show p) (p >= 2 && p <= probeConcurrency)
+      -- Ten hosts, one at one second and nine at 300 ms: 3.7 s in sequence, about 1.3 s eight at a time.
+      let ten = take 10 hosts
+          slowFirst url = if url == "https://site-0." <> T.unpack base then 1000000 else 300000
+      started <- getMonotonicTime
+      tenRows <- queryTunnelDomainRowsWith (runner ten slowFirst) base (Just vmIp) "personal" >>= domainsOf
+      finished <- getMonotonicTime
+      tenRows @?= ten
+      assertBool ("ten hosts took " <> show (finished - started) <> " s") (finished - started < 2.0)
   , testCase "versioned JSON report does not depend on table columns" $
       assertBool
         "schemaVersion"

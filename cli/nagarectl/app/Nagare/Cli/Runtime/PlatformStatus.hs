@@ -7,6 +7,7 @@ module Nagare.Cli.Runtime.PlatformStatus
   )
 where
 
+import Control.Concurrent.Async (concurrently)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -122,8 +123,11 @@ tunnelConnectorProbes mctx = do
               case found >>= uncurry (parseTunnelId name) of
                 Left reason -> pure (Just (Left reason), Just (Left reason))
                 Right tunnelId -> do
-                  listed <- request "GET" (base <> "/" <> tunnelId <> "/connections") Nothing
-                  rules <- request "GET" (base <> "/" <> tunnelId <> "/configurations") Nothing
+                  -- Both reads need only the tunnel's ID, so they overlap (EP-245 D5).
+                  (listed, rules) <-
+                    concurrently
+                      (request "GET" (base <> "/" <> tunnelId <> "/connections") Nothing)
+                      (request "GET" (base <> "/" <> tunnelId <> "/configurations") Nothing)
                   pure (Just (listed >>= uncurry parseConnectors), Just (rules >>= uncurry parseTunnelRules))
         _ -> pure (Nothing, Nothing)
       pure

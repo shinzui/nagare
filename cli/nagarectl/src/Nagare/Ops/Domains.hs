@@ -26,6 +26,7 @@ module Nagare.Ops.Domains
   , queryTunnelBaseRowsWith
   , queryTunnelDomainRowsWith
   , edgeCertificateStateWith
+  , probeConcurrency
   , systemToolRunner
   , observeNamespaces
   , listNamespaces
@@ -35,7 +36,9 @@ module Nagare.Ops.Domains
   )
 where
 
-import Control.Exception (IOException, try)
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+import Control.Exception (IOException, bracket_, try)
 import Data.Aeson (eitherDecodeStrict, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -350,7 +353,7 @@ queryDomainRowsWith runner base publicIp apexIp cdnGlobalIp namespace = do
       certManager <- observeParsed extractCertificateEvidence =<< kube ["get", "certificates.cert-manager.io", "-n", ns, "-o", "json"]
       knative <- observeParsed extractCertificateEvidence =<< kube ["get", "certificates.networking.internal.knative.dev", "-n", ns, "-o", "json"]
       let certificates = mergeCertificateObservations certManager knative
-      Observed <$> traverse (rowFor tlsMode issuer certificates) domainMappings
+      Observed <$> probeConcurrently (rowFor tlsMode issuer certificates) domainMappings
   where
     ns = T.unpack namespace
     kube = runner "kubectl"
@@ -373,7 +376,7 @@ queryDomainRowsWith runner base publicIp apexIp cdnGlobalIp namespace = do
 -- proves it: an answer and a good certificate, whatever the route says about the label.
 queryTunnelBaseRowsWith :: ToolRunner -> Text -> Maybe Text -> IO [DomainRow]
 queryTunnelBaseRowsWith runner base publicIp =
-  traverse
+  probeConcurrently
     (\(shown, probed) -> tunnelRow runner base publicIp shown probed Nothing NotFound)
     [(base, base), ("*." <> base, "nagare-domains-check." <> base)]
 
@@ -385,7 +388,7 @@ queryTunnelDomainRowsWith runner base publicIp namespace = do
     NotFound -> pure NotFound
     Observed domainMappings ->
       Observed
-        <$> traverse
+        <$> probeConcurrently
           ( \domainMapping ->
               tunnelRow
                 runner
@@ -397,6 +400,16 @@ queryTunnelDomainRowsWith runner base publicIp namespace = do
                 (Observed (domainMapping ^. #state))
           )
           domainMappings
+
+-- | Each hostname's probes are independent, and a tunnel probe may wait out its 15-second limit, so
+-- rows are probed at most 'probeConcurrency' at a time, keeping their order (EP-245 D5).
+probeConcurrently :: (a -> IO b) -> [a] -> IO [b]
+probeConcurrently probe items = do
+  slots <- newQSem probeConcurrency
+  mapConcurrently (bracket_ (waitQSem slots) (signalQSem slots) . probe) items
+
+probeConcurrency :: Int
+probeConcurrency = 8
 
 tunnelRow :: ToolRunner -> Text -> Maybe Text -> Text -> Text -> Maybe Text -> Observation MappingState -> IO DomainRow
 tunnelRow runner base publicIp shown probed routedService routeState = do
