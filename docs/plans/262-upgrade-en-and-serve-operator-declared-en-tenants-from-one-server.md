@@ -129,10 +129,16 @@ and is not part of this plan.
   kept the runtime Secret's other key, printed no key, and a probe Job in `personal` with
   `EN_KEY` from `nagare-secret-protected-static-site-runtime` got `200 allowed` from
   `POST http://en.nagare-system.svc.cluster.local/v1/check`.
-- [ ] M5: Released and live on labs with tenant `mori`. Acceptance: the release proves the
+- [x] M5: Released and live on labs with tenant `mori`. Acceptance: the release proves the
   three release facts (full gate, EP-172 upgrade rehearsal read-back, intranet upgrade with
   deploy-and-login), then the labs context declares `mori`. The `mori` read-only key's
   `GET /v1/schema` returns Mori's `registry.en`, and intranet sign-in still passes.
+  2026-11-14, done: v0.21.0 published from af1141b4 in one candidate run (full gate green,
+  rehearsal record bbe09e1b, `intranet.json` exact with the protected URL answering 302 to
+  the login page). Labs declares `mori` (mori://tan/tan-ng-labs ff89a78, schema from Mori
+  `297dcc36`); the platform plan's 15 operations converged in one apply. En logs
+  `Tenants: nagare, mori`, the `mori` read-only key gets 200 on `/v1/schema` with Mori's
+  `registry.en` as its source, and the protected site still answers 302 to the login page.
 
 
 ## Surprises & Discoveries
@@ -264,7 +270,13 @@ and is not part of this plan.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Nagare's En runs En `5bb3f80d` in tenant mode, operators declare more tenants in the context,
+and the intranet serves Mori's registry as tenant `mori` on v0.21.0. The local drills found two
+real defects before the release (a VMRule update no proof covered, and the metrics read in the
+live interpreter), and the release itself took one candidate run. What remains is the
+operator's own passkey sign-in on 0.21.0 and binding `mori`'s keys into the Mori app with
+`nagarectl en-tenant bind`. The labs app configs now build from `webService`, so a new DSL field
+no longer breaks them; nothing moves to an ADR.
 
 
 ## Context and Orientation
