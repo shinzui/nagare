@@ -96,9 +96,13 @@ nagarectl context move rollback --yes
 ```
 
 Rollback reopens the firewall and `kourier` before it moves the records back, and it checks the VM answers before the
-switch. It then waits until edge answers cached before the switch back have expired, removes the connector and the
-flattened names, waits for you to remove the DS record at the registrar, and waits for you to point the name servers back
-at Cloud DNS before it removes the mirror records. The step that prints them names the Cloud DNS servers.
+switch. It then waits until edge answers cached before the switch back have expired, restores the nested names, waits for
+you to remove the DS record at the registrar, and waits for you to point the name servers back at Cloud DNS. The step that
+waits names the Cloud DNS servers.
+
+Rollback keeps the Cloudflare zone's records and the connector: the connector keeps running with no record pointing at it,
+and the zone stops answering once the name servers are back at Cloud DNS. A later move finds them in place and goes on
+from there.
 
 You can roll back a move that is waiting at any step, including one stopped by a refused review. After `commit-move` the
 move cannot be rolled back: the web rules are gone. Going back to direct ingress after that is a new context.

@@ -94,6 +94,13 @@ open on the VM.
 
 ## Decision Log
 
+- Decision: Rolling back `start-connector` and `mirror-zone` keeps the `cloudflare-tunnel` and `cloudflare-zone` scopes accepted: the
+  connector keeps running with no record pointing at it, and the DNS-only mirror records stay in a zone that no longer answers once the
+  name servers are back. A retried move finds both accepted and plans nothing for those steps. Rationale: admission refuses to reactivate a
+  retired identity without reviewed recovery and never reuses a collected one, so retiring either scope would make a retried move
+  impossible; neither leftover can reach a visitor. D5's native rollback must confirm the platform plans cleanly beside the connector
+  scope. Date: 2026-11-16
+
 - Decision: While a move is open, admission refuses every review but the move's step in progress, so an application cannot be deployed
   or given a hostname during the window (D4's "hostname added during the window"). A move refuses to start when any cert-manager
   Certificate renews within 14 days or has no renewal time, since DNS-01 needs Cloud DNS. Rationale: a hostname added while Cloudflare
