@@ -42,4 +42,8 @@ source-repository-package
 
 -- Scoped upper-bound compatibility is covered by InventoryGogolSpec.
 -- Preserve Nagare's existing dependency versions; do not relax other bounds.
+-- Without a floor the solver can pair crypton 1.1 with tls 1.6, whose x509
+-- stack still pulls in the deprecated cryptonite.
+constraints: tls >=2
+
 allow-newer: gogol:aeson, gogol:crypton, gogol:crypton-x509, gogol:crypton-x509-store, gogol-core:aeson
