@@ -4,6 +4,7 @@ module Nagare.Test.SiteInventory.Tunnel
   )
 where
 
+import Control.Monad (forM_)
 import Data.ByteString (ByteString)
 import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
@@ -29,6 +30,7 @@ import Nagare.Dsl.Types
   , withTlsSecret
   )
 import Nagare.Inventory.CollectionPolicy (retainedConsumerInert)
+import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Site (compileStaticSiteScope)
 import Nagare.Inventory.TunnelRoute (checkTunnelRoutes, defaultHostClaims)
 import Nagare.Resource.Inventory
@@ -109,6 +111,26 @@ tunnelSiteInventoryTests =
       let service = demoService
       serviceUrl service "example.com" @?= "https://notes.personal.example.com"
       serviceUrlFor FlatHosts service "example.com" @?= "https://notes-personal.example.com"
+  , testCase "a public site's flattened-name claim passes planning's native member check" $ do
+      -- ep245e, 2026-11-15: every public site in a tunnel context refused with
+      -- "generated native member does not match its typed declaration".
+      forM_ [IngressCloudflareTunnel, IngressDirect] $ \ingress -> do
+        (scope, native) <- either (fail . show) pure (compileSite ingress "pub" "personal" [])
+        let declared = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
+        validateSuppliedKubernetesMembers declared native @?= Right ()
+      (scope, native) <- either (fail . show) pure (compileSite IngressCloudflareTunnel "pub" "personal" [])
+      -- The claim stays checked: a Service claiming another name still refuses.
+      let forged =
+            Map.map
+              ( \(resource, bytes) ->
+                  ( if null (resource ^. #aliases) then resource else resource & #aliases .~ [Resource.Hostname (unsafe (Resource.mkName "other-personal.example.com"))]
+                  , bytes
+                  )
+              )
+              native
+          declared = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
+          forgedDeclared = [maybe resource fst (Map.lookup (resource ^. #identity) forged) | resource <- declared]
+      assertBool "a forged claim passed" (isLeft (validateSuppliedKubernetesMembers forgedDeclared forged))
   , testCase "the refusal reaches planning" $ do
       compiled <- pure (compileSite IngressCloudflareTunnel "a" "c" [("a.b.example.com", True)])
       assertBool "planned" (isLeft compiled)

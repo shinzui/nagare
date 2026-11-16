@@ -139,9 +139,21 @@ validateSuppliedKubernetesMembers declarations supplied =
           expected <- renderShomeiSettingsNative base portal
           unless (expected == bytes) (Left "generated Shomei settings differ from typed contributions")
         _ -> pure ()
-      let reboundDeclaration =
+      -- A public Knative Service in a tunnel context claims its flattened default name,
+      -- <name>-<namespace>.<base> (EP-242); the object cannot spell the base domain, so the
+      -- typed claim is kept when it is exactly that one name and composition checks it.
+      let flattenedClaim = case (declaration ^. #address, declaration ^. #aliases) of
+            (Kubernetes _ "serving.knative.dev" kind (Just namespace) name, [Hostname host]) ->
+              nameText kind == "service"
+                && (nameText name <> "-" <> nameText namespace <> ".") `T.isPrefixOf` nameText host
+            _ -> False
+          reboundDeclaration =
             recompiled
-              { dependencies = declaration ^. #dependencies
+              { aliases =
+                  if null (recompiled ^. #aliases) && flattenedClaim
+                    then declaration ^. #aliases
+                    else recompiled ^. #aliases
+              , dependencies = declaration ^. #dependencies
               , -- Static owner grants, like dependency edges, belong to the typed
                 -- inventory rather than the native object's recompiler. Composition
                 -- validates their authority; native content and identity stay exact.
@@ -153,4 +165,15 @@ validateSuppliedKubernetesMembers declarations supplied =
               }
       unless
         (reboundDeclaration == declaration && rebound == bytes)
-        (Left "generated native member does not match its typed declaration")
+        ( Left
+            ( "generated native member "
+                <> resourceIdText resource
+                <> " does not match its typed declaration ("
+                <> T.intercalate
+                  ", "
+                  ( [field | (field, differs) <- [("spec", reboundDeclaration ^. #spec /= declaration ^. #spec), ("aliases", reboundDeclaration ^. #aliases /= declaration ^. #aliases), ("address", reboundDeclaration ^. #address /= declaration ^. #address), ("dependencies", reboundDeclaration ^. #dependencies /= declaration ^. #dependencies), ("lifecycle", reboundDeclaration ^. #lifecycle /= declaration ^. #lifecycle), ("dataPolicy", reboundDeclaration ^. #dataPolicy /= declaration ^. #dataPolicy), ("source", reboundDeclaration ^. #source /= declaration ^. #source)], differs]
+                      <> ["native bytes" | rebound /= bytes]
+                  )
+                <> ")"
+            )
+        )
