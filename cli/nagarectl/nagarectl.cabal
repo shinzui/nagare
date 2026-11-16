@@ -109,6 +109,7 @@ library
     Nagare.Context.Move
     Nagare.Context.MoveChecks
     Nagare.Context.MoveCommit
+    Nagare.Context.MoveHosts
     Nagare.Context.MoveStore
     Nagare.Context.Posture
     Nagare.Context.Review

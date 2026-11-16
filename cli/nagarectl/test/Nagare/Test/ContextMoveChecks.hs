@@ -14,6 +14,7 @@ import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
+import Nagare.Context.MoveHosts
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Cloud
 import Nagare.Inventory.Digest (contentDigest)
@@ -110,6 +111,28 @@ contextMoveChecksTests =
         let remaining = cloudScopeWithout
         commitAction (Just remaining) [] @?= Right CommitProfile
         assertBool "no cloud scope" (isLeft (commitAction Nothing []))
+    , testCase "the move lists every URL it changes and blocks what it cannot carry (D11)" $ do
+        let service ns name' = kube "service" (Just ns) name'
+            mapping host = kube "domainmapping" (Just "apps") host
+            changes =
+              hostChanges
+                "example.com"
+                ( appScope
+                    [ service "apps" "site"
+                    , service "apps" "wiki"
+                    , mapping "wiki.apps.example.com"
+                    , mapping "docs.example.com"
+                    , mapping "a.b.example.com"
+                    , service "nagare-system" "nagare-access"
+                    ]
+                )
+        changes
+          @?= [ DefaultRenamed "site.apps.example.com" "site-apps.example.com"
+              , ProtectedRenamed "wiki.apps.example.com" "wiki-apps.example.com"
+              , NeedsAdvancedCertificate "a.b.example.com"
+              ]
+        map blocksMove changes @?= [False, True, True]
+        hostChanges "example.com" (appScope [service "apps" "site"]) @?= [DefaultRenamed "site.apps.example.com" "site-apps.example.com"]
     ]
 
 now :: UTCTime
@@ -182,3 +205,29 @@ expectRight = either (\e -> assertFailure (show e) >> error "unreachable") pure
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
+
+-- | An application scope's members holding these Kubernetes objects.
+appScope :: [ProviderAddress] -> [ManagedResource]
+appScope addresses = zipWith member [0 :: Int ..] addresses
+  where
+    owner = ok (mkScopeId Application "apps")
+    member index address =
+      ManagedResource
+        { identity = ok (mkResourceId ("application:apps/member-" <> T.pack (show index) <> "/object"))
+        , owner = owner
+        , executor = KubernetesExecutor
+        , address = address
+        , aliases = []
+        , spec = NativeObject (contentDigest (TE.encodeUtf8 (T.pack (show index))))
+        , lifecycle = Retain
+        , dataPolicy = Stateless
+        , sensitivity = Private
+        , dependencies = []
+        , delegations = []
+        , source = SourceLocation "test" "member"
+        }
+
+kube :: Text -> Maybe Text -> Text -> ProviderAddress
+kube kind namespace name' = Kubernetes cluster "serving.knative.dev" (ok (mkName kind)) (ok . mkName <$> namespace) (ok (mkName name'))
+  where
+    cluster = ok (mkResourceId "platform:cluster/cluster/local")

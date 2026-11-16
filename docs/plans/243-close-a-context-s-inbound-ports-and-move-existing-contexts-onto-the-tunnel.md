@@ -82,7 +82,12 @@ open on the VM.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- D11's carrier cannot be built as written: an application's scope is compiled only from its sources at `nagarectl deploy`, so
+  nagarectl cannot re-declare a protected default route or its ADR 29 grants (keyed by host, `app:<host>`) for the flat name by
+  itself, and admission refuses deploys while the move is open. `context move start` now lists every URL that changes
+  (`Nagare.Context.MoveHosts`) and refuses to start when a protected default name or a custom domain two labels deep would stop being
+  served; public default names move with Knative's domain template. Carrying protected names needs an operator decision: redeploy each
+  protected workload under the move at `carry-hostnames`, or keep two-label names with Advanced Certificate Manager. (2026-11-16)
 
 
 ## Decision Log

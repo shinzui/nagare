@@ -31,6 +31,7 @@ import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Context.Move
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
+import Nagare.Context.MoveHosts
 import Nagare.Context.MoveStore
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (VerifyResource), plannedAction, withPreparationGuard)
@@ -68,6 +69,19 @@ start active = do
   let profile = active ^. #profile
   unless (profile ^. #mode == Cloud) (dieT "a context move needs a cloud context")
   unless (profile ^. #ingress == IngressDirect) (dieT "this context already serves through the tunnel")
+  -- D11: list every URL the move changes, and refuse what it cannot carry.
+  snapshot <- Inventory.loadTargetSnapshot active
+  let changes =
+        hostChanges
+          (profile ^. #baseDomain)
+          [ member
+          | (_, scope) <- Map.elems (Resource.snapshotScopes snapshot)
+          , bundle <- Resource.scopeBundles scope
+          , Resource.Managed member <- Resource.declarations bundle
+          ]
+  unless (null changes) $ TIO.putStr (T.unlines ("These URLs change when the move flattens default names:" : map renderHostChange changes))
+  when (any blocksMove changes) $
+    dieT "a protected name or a deep custom domain would stop being served; this nagarectl cannot carry them yet, so the move does not start"
   store <- withStore active
   now <- T.pack . iso8601Show <$> getCurrentTime
   marker <- openMove store ingressMove now (profile ^. #baseDomain) sameDomainSteps >>= either dieT pure
