@@ -248,6 +248,21 @@ the landed revision, in its own XDG root with its names overridden as in EP-240.
 6. Observe: a protected site on its flattened default name through a real browser login without the form workaround; `nagarectl tunnel status` and `doctor` green; anonymous fetch of a protected `.pdf` and `.js` gets `302` and never `HIT`; a browser-like request gets no analytics beacon; from outside, TCP 80 and 443 closed; `firewall-rules list` shows only `fw-iap-ssh`; `ss -ltn` on the host shows no 80 or 443.
 7. Teardown as EP-240 did it, recording F137, and check the same list of leftovers. The zone and its edge settings stay.
 
+Bounded sequence for D2, D5, D6 and D8, the native move (drafted 2026-11-16, waiting for the operator). It needs a domain the operator
+can delegate to Cloud DNS and then point at Cloudflare at its registrar (`topagentnetworklabs.com` already answers from Cloudflare, so it
+cannot be the direct context's domain without first moving back), a Tailscale key tagged `tag:nagare-test`, and the go-ahead. Disposable
+context `ep243m` in `tan-nb-exp`, from the packaged build of a landed revision with a green `just gate-verify`, a request loop sampling a
+public site every second for the whole run. Any refusal or a failed sample stops the run.
+
+1. Preflight, no mutation: gate record green, no `ep243m` resource, the domain's zone in Cloudflare holds no record.
+2. A direct context through the reviewed bootstrap, one public site deployed, the loop started.
+3. `context move start`, then `apply --yes` through `switch-records`, the operator changing the name servers and DNSSEC when asked.
+4. Rollback from `verify-tunnel` to the start (D5), the loop still clean; then `apply --yes` again to the end (D6), waiting out
+   `await-old-ttl`.
+5. Observe D6 from outside the project and the tailnet (`nc` to 80 and 443, the firewall listing, `ss -ltn`), and D8: `nagarectl` over the
+   tailnet, `just host-switch`, IAP SSH, a backup, a signed `nagared` webhook through the edge, a `kubectl` round trip timed.
+6. `context move retire-dns --yes` to the end (D2). Teardown as for `ep243`, revoking the Tailscale key.
+
 ## Validation and Acceptance
 
 Per Haskell commit run `just haskell-style-check`, then `just gate-fast`. Land with `just land`. The outside port check must run from a
