@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ts="$src/infra/pulumi/src/vmShape.ts"
-hs="$src/cli/nagarectl/src/Nagare/Target.hs"
+hs="$src/cli/nagarectl/src/Nagare/Target/VmShape.hs"
 compare_default() {
   label="$1"
   ts_pattern="$2"

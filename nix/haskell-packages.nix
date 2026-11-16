@@ -187,6 +187,8 @@ let
                 --replace-fail "../../cluster/" "${sourceForTests}/cluster/"
               substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
                 --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
+              substituteInPlace test/InventoryCloudSpec.hs \
+                --replace-fail "../../infra/pulumi/resource-catalog.json" "${../infra/pulumi/resource-catalog.json}"
               substituteInPlace \
                 test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
                 test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs test/InventoryAdminApiSpec.hs \
