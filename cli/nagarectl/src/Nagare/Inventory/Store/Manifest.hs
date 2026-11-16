@@ -131,16 +131,19 @@ data MoveMarker = MoveMarker
   }
   deriving stock (Eq, Show, Generic)
 
--- | The payload identity of one move step's review.
-moveReviewIdentity :: Text -> MoveStep -> Text
-moveReviewIdentity kind step = "nagare-move:" <> kind <> ":" <> moveStepToken step
+-- | The payload identity of one move step's review: the move's kind, the step, and the platform
+-- payload that planned it, which apply binds exactly as it binds a bootstrap review's.
+moveReviewIdentity :: Text -> MoveStep -> Text -> Text
+moveReviewIdentity kind step payload = "nagare-move:" <> kind <> ":" <> moveStepToken step <> ":" <> payload
 
-parseMoveReviewIdentity :: Text -> Maybe (Text, MoveStep)
+parseMoveReviewIdentity :: Text -> Maybe (Text, MoveStep, Text)
 parseMoveReviewIdentity identity = do
   rest <- T.stripPrefix "nagare-move:" identity
-  let (kind, token) = T.breakOn ":" rest
-  step <- parseMoveStep =<< T.stripPrefix ":" token
-  if T.null kind then Nothing else Just (kind, step)
+  let (kind, afterKind) = T.breakOn ":" rest
+      (token, afterToken) = T.breakOn ":" (T.drop 1 afterKind)
+  step <- parseMoveStep token
+  payload <- T.stripPrefix ":" afterToken
+  if T.null kind || T.null payload || T.null afterKind then Nothing else Just (kind, step, payload)
 
 data HeadManifest = HeadManifest
   { headSchemaVersion :: !Int

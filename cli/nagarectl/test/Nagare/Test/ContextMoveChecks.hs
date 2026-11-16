@@ -1,0 +1,184 @@
+-- | EP-243 D3, D4 and D5: what each observation and wait step of a move decides from the facts, and
+-- which review the commit plans next. The production interpreter only gathers the facts.
+module Nagare.Test.ContextMoveChecks
+  ( contextMoveChecksTests
+  )
+where
+
+import Data.Either (isLeft)
+import Data.Generics.Labels ()
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime, addUTCTime, nominalDay)
+import Data.Time.Format.ISO8601 (iso8601ParseM)
+import Nagare.Context.Move (StepOutcome (..))
+import Nagare.Context.MoveChecks
+import Nagare.Context.MoveCommit
+import Nagare.Dsl.Prelude
+import Nagare.Inventory.Cloud
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Resource.Inventory
+import Nagare.Resource.Policy
+import Nagare.Resource.Types
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+
+contextMoveChecksTests :: TestTree
+contextMoveChecksTests =
+  testGroup
+    "context move checks (EP-243)"
+    [ testCase "dig output parses into records, skipping comments and blank lines" $
+        parseDigRecords
+          ( T.unlines
+              [ "; <<>> DiG 9.20 <<>> NS example.com"
+              , ""
+              , "example.com.\t\t172800\tIN\tNS\tA.IANA-SERVERS.NET."
+              , "example.com. 3600 IN DS 2371 13 2 1F987CC6583E92DF0890718C42"
+              ]
+          )
+          @?= [ DigRecord "example.com" 172800 "NS" "A.IANA-SERVERS.NET."
+              , DigRecord "example.com" 3600 "DS" "2371 13 2 1F987CC6583E92DF0890718C42"
+              ]
+    , testCase "a move starts only when the zone is the base, the parent has no DS and no certificate renews soon (D3, D4)" $ do
+        let zone = Just (ZoneStatus "Example.com." "pending" ["ada.ns.cloudflare.com"] Nothing)
+            later = Just (addUTCTime (15 * nominalDay) now)
+        preconditions now "example.com" zone False [("apps/site", later)] @?= StepCompleted
+        waiting (preconditions now "example.com" Nothing False [])
+        refused "not example.com" (preconditions now "example.com" (Just (ZoneStatus "other.com" "active" [] Nothing)) False [])
+        refused "DS record" (preconditions now "example.com" zone True [])
+        refused "apps/site renews" (preconditions now "example.com" zone False [("apps/site", Just (addUTCTime (13 * nominalDay) now))])
+        refused "no renewal time" (preconditions now "example.com" zone False [("apps/site", Nothing)])
+    , testCase "the move waits for Cloudflare to activate the zone, naming its name servers" $ do
+        nameServersActive (ZoneStatus "example.com" "active" [] (Just now)) @?= StepCompleted
+        case nameServersActive (ZoneStatus "example.com" "pending" ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"] Nothing) of
+          StepWaiting reason -> assertBool "names both servers" (all (`T.isInfixOf` reason) ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"])
+          other -> assertFailure (show other)
+    , testCase "DNSSEC completes once active, hands over the DS while pending, and must lose its DS before rollback (D3, D5)" $ do
+        dnssecReady (DnssecStatus "active" Nothing) @?= StepCompleted
+        case dnssecReady (DnssecStatus "pending" (Just "example.com. 3600 IN DS 2371 13 2 ABC")) of
+          StepWaiting reason -> assertBool "the DS record" ("2371 13 2 ABC" `T.isInfixOf` reason)
+          other -> assertFailure (show other)
+        waiting (dnssecReady (DnssecStatus "disabled" Nothing))
+        waiting (dnssecRemoved True)
+        dnssecRemoved False @?= StepCompleted
+    , testCase "direct and edge probes refuse what does not answer" $ do
+        directAnswers "example.com" True @?= StepCompleted
+        refused "does not answer" (directAnswers "example.com" False)
+        edgeAnswers [("example.com", True), ("a.example.com", True)] @?= StepCompleted
+        refused "a.example.com" (edgeAnswers [("example.com", True), ("a.example.com", False)])
+        refused "no hostname" (edgeAnswers [])
+    , testCase "the firewall waits for the old delegation, a Cloud DNS answer and a mirror answer to expire (D3)" $ do
+        let activated = Just (addUTCTime (-1000) now)
+            switched = Just (addUTCTime (-100) now)
+        -- Parent TTL 172800 after activation is far in the future.
+        waiting (oldAnswersExpired now 300 activated 172800 switched)
+        -- A short parent TTL has expired, but the mirror record switched 100 s ago has not.
+        waiting (oldAnswersExpired now 300 activated 300 switched)
+        oldAnswersExpired now 300 activated 300 (Just (addUTCTime (-301) now)) @?= StepCompleted
+        refused "activation time" (oldAnswersExpired now 300 Nothing 300 switched)
+        refused "modification time" (oldAnswersExpired now 300 activated 300 Nothing)
+    , testCase "rollback keeps the connector and carried names until edge answers have expired (D5)" $ do
+        waiting (edgeCachesExpired now 300 False (Just now))
+        waiting (edgeCachesExpired now 300 True (Just (addUTCTime (-10) now)))
+        edgeCachesExpired now 300 True (Just (addUTCTime (-301) now)) @?= StepCompleted
+        refused "modification time" (edgeCachesExpired now 300 True Nothing)
+    , testCase "rollback keeps the mirror until the parent and public resolvers name Cloud DNS again (D5)" $ do
+        let cloudDns = ["ns-cloud-a1.googledomains.com.", "ns-cloud-a2.googledomains.com."]
+            cloudflare = ["ada.ns.cloudflare.com"]
+            normalised = ["NS-CLOUD-A2.googledomains.com", "ns-cloud-a1.googledomains.com"]
+        waiting (nameServersReturned cloudDns cloudflare [cloudDns])
+        waiting (nameServersReturned cloudDns normalised [cloudDns, cloudflare])
+        nameServersReturned cloudDns normalised [cloudDns, normalised] @?= StepCompleted
+    , testCase "the commit lets the web rules be deleted, retires them, collects each, then writes the profile (D6)" $ do
+        let accepted = cloudScopeWith Retain
+        policy <- expectRight (commitAction (Just accepted) [])
+        policyScope <- case policy of
+          CommitPolicy revised -> pure revised
+          other -> assertFailure ("expected the policy review: " <> show other) >> pure accepted
+        [m ^. #lifecycle | m <- members policyScope, isTunnelWebRule m] @?= replicate 3 DeleteWhenUnreferenced
+        [m | m <- members policyScope, not (isTunnelWebRule m)] @?= [m | m <- members accepted, not (isTunnelWebRule m)]
+        retire <- expectRight (commitAction (Just policyScope) [])
+        case retire of
+          CommitRetire revised retired -> do
+            filter isTunnelWebRule (members revised) @?= []
+            length (members revised) @?= 1
+            length retired @?= 3
+          other -> assertFailure ("expected the retirement: " <> show other)
+        case [m ^. #identity | m <- members accepted, isTunnelWebRule m] of
+          retained : _ -> commitAction (Just cloudScopeWithout) [retained] @?= Right (CommitCollect retained)
+          [] -> assertFailure "the scope has no web rule"
+        let remaining = cloudScopeWithout
+        commitAction (Just remaining) [] @?= Right CommitProfile
+        assertBool "no cloud scope" (isLeft (commitAction Nothing []))
+    ]
+
+now :: UTCTime
+now = fromMaybe (error "time") (iso8601ParseM "2026-11-16T12:00:00Z")
+
+waiting :: StepOutcome -> IO ()
+waiting = \case
+  StepWaiting _ -> pure ()
+  other -> assertFailure ("expected a wait: " <> show other)
+
+refused :: Text -> StepOutcome -> IO ()
+refused fragment = \case
+  StepRefused reason -> assertBool (T.unpack (fragment <> " in: " <> reason)) (fragment `T.isInfixOf` reason)
+  other -> assertFailure ("expected a refusal: " <> show other)
+
+members :: ScopeDeclaration -> [ManagedResource]
+members scope = [m | b <- scopeBundles scope, Managed m <- declarations b]
+
+-- | A cloud scope with the three web rules at @lifecycle@, beside a bucket that must not change.
+cloudScopeWith :: LifecyclePolicy -> ScopeDeclaration
+cloudScopeWith lifecycle = ok (compileCloudScope (cloudBundle (bucket : map (rule lifecycle) tunnelWebRuleKeys)))
+
+cloudScopeWithout :: ScopeDeclaration
+cloudScopeWithout = ok (compileCloudScope (cloudBundle [bucket]))
+
+cloudBundle :: [CloudResource] -> CloudDeclarationBundle
+cloudBundle resources =
+  CloudDeclarationBundle
+    { cloudBundleVersion = 1
+    , cloudContext = ok (mkContextId "dev")
+    , cloudProject = ok (mkName "example-project")
+    , cloudStack = ok (mkName "dev")
+    , cloudScope = ok (mkScopeId Platform "cloud")
+    , cloudResources = resources
+    }
+
+bucket :: CloudResource
+bucket =
+  (rule Protect "nagare-images")
+    { cloudLogicalKey = ok (mkLogicalKey "image-bucket")
+    , cloudRole = ok (mkName "bucket")
+    , cloudAddress = BucketAddress (ok (mkName "example-project-images"))
+    , cloudNativeType = "gcp:storage/bucket:Bucket"
+    , cloudNativeUrn = "urn:pulumi:dev::nagare::gcp:storage/bucket:Bucket::nagare-images"
+    }
+
+rule :: LifecyclePolicy -> Text -> CloudResource
+rule lifecycle key =
+  CloudResource
+    { cloudLogicalKey = ok (mkLogicalKey key)
+    , cloudRole = ok (mkName "firewall")
+    , cloudAddress = PulumiAddress urn
+    , cloudAliases = []
+    , cloudSpecDigest = contentDigest (TE.encodeUtf8 key)
+    , cloudLifecycle = lifecycle
+    , cloudDataPolicy = Stateless
+    , cloudSensitivity = Private
+    , cloudDependencies = []
+    , cloudSource = SourceLocation "infra/pulumi/src/components/NagareNetwork.ts" key
+    , cloudNativeType = "gcp:compute/firewall:Firewall"
+    , cloudNativeName = ok (mkName key)
+    , cloudNativeUrn = urn
+    , cloudRegistrationClass = ManagedRegistration
+    }
+  where
+    urn = "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork$gcp:compute/firewall:Firewall::" <> key
+
+expectRight :: (Show e) => Either e a -> IO a
+expectRight = either (\e -> assertFailure (show e) >> error "unreachable") pure
+
+ok :: (Show e) => Either e a -> a
+ok = either (error . show) id

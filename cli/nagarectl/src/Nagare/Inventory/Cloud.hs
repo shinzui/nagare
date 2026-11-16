@@ -26,6 +26,7 @@ module Nagare.Inventory.Cloud
   , withDelegatedDeployers
   , delegatedDeployerComponentName
   , withTunnelPerimeter
+  , tunnelWebRuleKeys
   , cloudCatalogUrn
   , cloudBookkeepingRegistrations
   )
@@ -239,12 +240,16 @@ selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalo
 -- Cloud DNS zone (EP-243 D2) and keeps that zone, its records and its solver grants until a reviewed
 -- retirement. @infra/pulumi@ omits the same members from @nagare:ingress@ and
 -- @nagare:retainedDnsName@, and its parity test holds the two together.
+-- | The internet-facing firewall rules a tunnel context does not declare (EP-241), and a move
+-- collects at its commit (EP-243).
+tunnelWebRuleKeys :: [Text]
+tunnelWebRuleKeys = ["nagare-network-fw-web", "nagare-network-fw-lb-health", "nagare-network-fw-tailscale"]
+
 withTunnelPerimeter :: Text -> CloudCatalog -> CloudCatalog
 withTunnelPerimeter retainedDnsName catalog =
   catalog {catalogFoundationManaged = filter ((`notElem` omitted) . nameText . catalogKey) (catalogFoundationManaged catalog)}
   where
-    omitted = webRules <> (if T.null retainedDnsName then cloudDns else [])
-    webRules = ["nagare-network-fw-web", "nagare-network-fw-lb-health", "nagare-network-fw-tailscale"]
+    omitted = tunnelWebRuleKeys <> (if T.null retainedDnsName then cloudDns else [])
     cloudDns = ["nagare-zone", "nagare-iam-dns-zone", "nagare-iam-dns-read", "nagare-wildcard", "nagare-apex"]
 
 withCloudInstanceName :: Name -> CloudCatalog -> CloudCatalog

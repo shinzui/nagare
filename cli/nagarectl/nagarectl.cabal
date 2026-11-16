@@ -107,6 +107,8 @@ library
     Nagare.Cluster.Kubeconfig
     Nagare.Cluster.Namespace
     Nagare.Context.Move
+    Nagare.Context.MoveChecks
+    Nagare.Context.MoveCommit
     Nagare.Context.MoveStore
     Nagare.Context.Posture
     Nagare.Context.Review
@@ -463,6 +465,7 @@ executable nagarectl
     Nagare.Cli.Bootstrap.Image
     Nagare.Cli.Bootstrap.Local
     Nagare.Cli.Bootstrap.Platform
+    Nagare.Cli.Bootstrap.Review
     Nagare.Cli.Bootstrap.Sequence
     Nagare.Cli.Bootstrap.Stage
     Nagare.Cli.Commands.Access
@@ -523,6 +526,7 @@ executable nagarectl
     Nagare.Cli.Inventory.SourceEvidence
     Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.Workflow
+    Nagare.Cli.Move.Observe
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase
@@ -745,6 +749,7 @@ test-suite nagarectl-test
     Nagare.Test.Cluster
     Nagare.Test.Context
     Nagare.Test.ContextMove
+    Nagare.Test.ContextMoveChecks
     Nagare.Test.ContextMoveStore
     Nagare.Test.Contract
     Nagare.Test.ContractCommands

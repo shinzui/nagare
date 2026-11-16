@@ -69,7 +69,7 @@ moveAdmissionRefusal Nothing identity = case parseMoveReviewIdentity identity of
   Just _ -> Just "this review belongs to a context move that is not open"
   Nothing -> Nothing
 moveAdmissionRefusal (Just marker) identity = case parseMoveReviewIdentity identity of
-  Just (kind, step)
+  Just (kind, step, _)
     | kind == moveKind marker && Just step == moveProgress marker ^. #inProgress -> Nothing
     | otherwise -> Just ("this review is for step " <> moveStepToken step <> ", but the open move " <> current)
   Nothing -> Just ("a " <> moveKind marker <> " context move is open (" <> current <> "); continue it with context move apply or roll it back")

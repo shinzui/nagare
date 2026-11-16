@@ -71,12 +71,13 @@ contextMoveStoreTests =
   , testCase "while a move is open only its step in progress is admitted" $ do
       let marker = MoveMarker "ingress" "t" "" (newMove sameDomainSteps & #completed .~ 1 & #inProgress .~ Just MirrorZone)
       moveAdmissionRefusal Nothing "nagare-bootstrap:payload" @?= Nothing
-      assertBool "a move review without a move" (isJust (moveAdmissionRefusal Nothing (moveReviewIdentity "ingress" MirrorZone)))
-      moveAdmissionRefusal (Just marker) (moveReviewIdentity "ingress" MirrorZone) @?= Nothing
-      assertBool "another step" (isJust (moveAdmissionRefusal (Just marker) (moveReviewIdentity "ingress" SwitchRecords)))
-      assertBool "another kind" (isJust (moveAdmissionRefusal (Just marker) (moveReviewIdentity "base-domain" MirrorZone)))
+      assertBool "a move review without a move" (isJust (moveAdmissionRefusal Nothing (moveReviewIdentity "ingress" MirrorZone "p1")))
+      moveAdmissionRefusal (Just marker) (moveReviewIdentity "ingress" MirrorZone "p1") @?= Nothing
+      assertBool "another step" (isJust (moveAdmissionRefusal (Just marker) (moveReviewIdentity "ingress" SwitchRecords "p1")))
+      assertBool "another kind" (isJust (moveAdmissionRefusal (Just marker) (moveReviewIdentity "base-domain" MirrorZone "p1")))
       assertBool "an ordinary review" (isJust (moveAdmissionRefusal (Just marker) "nagare-bootstrap:payload"))
-      parseMoveReviewIdentity (moveReviewIdentity "ingress" CloseFirewall) @?= Just ("ingress", CloseFirewall)
+      parseMoveReviewIdentity (moveReviewIdentity "ingress" CloseFirewall "sha256:ab") @?= Just ("ingress", CloseFirewall, "sha256:ab")
+      parseMoveReviewIdentity "nagare-move:ingress:close-firewall" @?= Nothing
   , testCase "the engine saving to the head stops, and a new process resumes from what the head says" $ do
       store <- fixtureStore
       marker <- openMove store "ingress" "t" "" sameDomainSteps >>= expectRight

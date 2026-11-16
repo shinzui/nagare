@@ -19,6 +19,7 @@ import Data.Text.IO qualified as TIO
 import Nagare.Cdn.Cloudflare (cfRequestWithStatus)
 import Nagare.Cli.Options (TunnelCommand (..))
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (activePosture)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -43,9 +44,11 @@ import System.Process (proc, readCreateProcessWithExitCode)
 runTunnel :: Maybe String -> TunnelCommand -> IO ()
 runTunnel mctx command = do
   active <- activeTarget mctx
+  -- EP-243: an open move creates the tunnel with the zone, before the profile says cloudflare-tunnel.
+  current <- activePosture active
   unless
-    (active ^. #profile . #ingress == IngressCloudflareTunnel)
-    (dieT "this context's NAGARE_INGRESS is not cloudflare-tunnel")
+    (active ^. #profile . #ingress == IngressCloudflareTunnel || isJust (current ^. #posture . #zoneRecords))
+    (dieT "this context's NAGARE_INGRESS is not cloudflare-tunnel, and no open move has created its tunnel")
   account <- requiredEnv "CF_ACCOUNT_ID"
   apiToken <- requiredEnv "CF_API_TOKEN"
   let request = cfRequestWithStatus apiToken

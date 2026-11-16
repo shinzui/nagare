@@ -175,7 +175,7 @@ inventoryCloseRegistry :: Maybe String -> InventoryPlan.ReviewInventory -> Inven
 inventoryCloseRegistry mctx inventory bundle = do
   let identity = InventoryPlan.reviewPayloadIdentity (InventoryPlan.reviewBundleDocument bundle)
   across <-
-    if "nagare-bootstrap:" `T.isPrefixOf` identity || "nagare-transition:" `T.isPrefixOf` identity
+    if payloadBound identity
       then do
         active <- activeTarget mctx
         (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
@@ -197,6 +197,11 @@ inventoryExecutionRegistryIn = inventoryExecutionRegistryWith RunsReviewedPayloa
 
 data PayloadBinding = RunsReviewedPayload | SettlesOnly
   deriving stock (Eq)
+
+-- | Reviews whose payload identity names the platform payload that planned them: bootstrap stages,
+-- release transitions and context move steps (EP-243).
+payloadBound :: Text -> Bool
+payloadBound identity = any (`T.isPrefixOf` identity) ["nagare-bootstrap:", "nagare-transition:", "nagare-move:"]
 
 inventoryExecutionRegistryWith :: PayloadBinding -> Maybe EnTransport -> Maybe String -> InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
 inventoryExecutionRegistryWith _ session mctx inventory bundle
@@ -242,7 +247,7 @@ inventoryExecutionRegistryWith binding session mctx inventory bundle = do
         | binding == SettlesOnly = const (Right ())
         | transitionReview = guardTransitionMutation
         | otherwise = guardPlatformMutation
-  when (binding == RunsReviewedPayload && ("nagare-bootstrap:" `T.isPrefixOf` reviewIdentity || "nagare-transition:" `T.isPrefixOf` reviewIdentity)) $ do
+  when (binding == RunsReviewedPayload && payloadBound reviewIdentity) $ do
     active <- activeTarget mctx
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure

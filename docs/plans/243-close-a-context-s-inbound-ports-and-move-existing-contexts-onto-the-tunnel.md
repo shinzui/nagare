@@ -87,6 +87,16 @@ open on the VM.
 
 ## Decision Log
 
+- Decision: While a move is open, admission refuses every review but the move's step in progress, so an application cannot be deployed
+  or given a hostname during the window (D4's "hostname added during the window"). A move refuses to start when any cert-manager
+  Certificate renews within 14 days or has no renewal time, since DNS-01 needs Cloud DNS. Rationale: a hostname added while Cloudflare
+  answers would get no origin certificate, and the window is bounded by the operator's own pace through the steps; refusing is the
+  smallest rule that is always safe. Date: 2026-11-16
+- Decision: DNSSEC and the name server change stay the operator's actions: `enable-dnssec` waits until Cloudflare reports DNSSEC active,
+  printing the DS record to publish while it is pending, and nagarectl does not switch DNSSEC on itself. Undoing `mirror-zone` waits
+  until the parent delegates to Cloud DNS again and 1.1.1.1, 8.8.8.8 and 9.9.9.9 all answer with Cloud DNS's name servers. Rationale: both
+  are registrar or account actions outside the reviewed inventory; observing them adds no new mutation path. Date: 2026-11-16
+
 - Decision: `CloseFirewall` disables the three web rules in place and its inverse enables them; `CommitMove` collects them.
   Rationale: admission refuses to declare a collected identity again ("collected logical identity cannot be reused after its deletion
   tombstone", `Execute/Admission.hs`), so a rollback after collection could never reopen the firewall. Disabling is an update of the same
@@ -189,17 +199,22 @@ Milestones, each landed with its interpreter tests before the next:
    rollback. The marker, its store operations and admission landed with `Nagare.Context.MoveStore` and
    `Nagare.Test.ContextMoveStore`: a move opens only on an idle head and beside no release transition, reopens as itself, saves
    progress only while the head is idle, closes only when finished or fully rolled back, and admits only its step in progress; a
-   head holding both a move and a transition refuses to decode, and an older CLI refuses the field. The commands come with
-   milestone 4, whose steps they run.
+   head holding both a move and a transition refuses to decode, and an older CLI refuses the field. The commands landed in
+   `eb97c0c3` (`context move start`, `apply`, `status`, `rollback`). Their production steps: a step that changes the context plans
+   its stage under the move's identity (`nagare-move:ingress:<step>:<payload>`, bound to the planning payload and the release guard
+   like a bootstrap review), saves the review and waits; the next `apply --yes` applies it and plans the next, and the step completes
+   when a plan has only verifications and no scope change. Observation and wait steps gather facts (`Nagare.Cli.Move.Observe`: the
+   Cloudflare zone, DNSSEC and apex record, `dig` at the parent and three public resolvers, cert-manager renewal times, HTTP to the VM
+   and through the edge) and `Nagare.Context.MoveChecks` decides, with tests in `Nagare.Test.ContextMoveChecks`.
 4. Stageable tunnel mode: the planner phases of the second 2026-11-15 decision, each a reviewed stage. Landed so far:
    `Nagare.Context.Posture` (`6e8078b5`) and its wiring (`820f5297`): the cloud catalog, the Pulumi seed, the zone stage, the
    platform's upstream set, the gateway's edge headers and the connector read one posture, computed once per plan from the head its
    snapshot came from, and unchanged for contexts with no move. The zone's mirror records landed in `8130b7c1`: DNS-only A records to
    the VM (TTL 300) at the tunnel records' identities, switched in place to proxied CNAMEs on the same Cloudflare record ID and back,
    with fake-adapter tests. The firewall step disables the three rules in place (`nagare:webRulesDisabled`, GCP's `disabled`), and
-   its inverse enables them; only `CommitMove` collects them (see the Decision Log). Left: the commit's collection, which reuses cloud
-   teardown's narrowed to the three rules (policy-only review to `DeleteWhenUnreferenced`, a cloud scope revision without them, an exact
-   collection of each).
+   its inverse enables them; only `CommitMove` collects them (see the Decision Log). The commit (`Nagare.Context.MoveCommit`) reviews,
+   in turn, a policy revision letting the three rules be deleted, a cloud scope revision retiring them, and one exact collection of
+   each, then writes `NAGARE_INGRESS=cloudflare-tunnel` and `NAGARE_RETAINED_DNS_NAME` into the profile.
 5. The window and the hostnames (D4, D11): the renewal refusal, a hostname added during the window, and the carrier with its host map.
 6. Retirement, docs and the native run (D2's retirement, D6, D8, D10).
 

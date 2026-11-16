@@ -26,6 +26,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Store (HeadManifest (..), TransitionMarker (..), parseTransitionReviewIdentity)
+import Nagare.Inventory.Store.Manifest (parseMoveReviewIdentity)
 import Nagare.Platform.Workspace (PayloadManifest)
 import Nagare.Resource.Inventory (ScopeDeclaration)
 import Nagare.Resource.Types (ScopeId, scopeIdText)
@@ -133,7 +134,10 @@ transitionCommitRefusal payload moved headValue = case headTransition headValue 
 platformReviewExpectation :: PayloadManifest -> Text -> Maybe (Text, Text)
 platformReviewExpectation manifest identity = case T.stripPrefix "nagare-bootstrap:" identity of
   Just payload -> Just (payload, manifest ^. #platformVersion)
-  Nothing -> (\(source, payload) -> (payload, source)) <$> parseTransitionReviewIdentity identity
+  Nothing -> case parseMoveReviewIdentity identity of
+    -- EP-243: a move step is planned by this payload against a context pinned to its release.
+    Just (_, _, payload) -> Just (payload, manifest ^. #platformVersion)
+    Nothing -> (\(source, payload) -> (payload, source)) <$> parseTransitionReviewIdentity identity
 
 renderTransitionRefusal :: TransitionRefusal -> Text
 renderTransitionRefusal = \case

@@ -20,6 +20,7 @@ module Nagare.Inventory.Command
   , planInventoryWith
   , planInventoryWithRetirements
   , planInventoryCandidateWithRetirements
+  , planInventoryCandidateWithRetirementsPayload
   , planInventoryCandidateWith
   , planInventoryCandidateLoaded
   , planInventoryCandidateQuiet
@@ -38,6 +39,7 @@ module Nagare.Inventory.Command
   , planInventoryRetirementsWith
   , planInventoryCollectionWith
   , planInventoryCollectionsWith
+  , planInventoryCollectionsWithPayload
   , tryPlanInventoryCollectionWith
   , applyInventory
   , applyInventoryWith
@@ -276,7 +278,19 @@ planInventoryCandidateWithRetirements ::
   [ResourceId] ->
   FilePath ->
   IO ()
-planInventoryCandidateWithRetirements registryFor target candidate resources output = do
+planInventoryCandidateWithRetirements registryFor = planInventoryCandidateWithRetirementsPayload registryFor "operator-cli"
+
+-- | 'planInventoryCandidateWithRetirements' under a payload identity, for a context move's step
+-- (EP-243), which admission takes only under its own identity.
+planInventoryCandidateWithRetirementsPayload ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  T.Text ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  [ResourceId] ->
+  FilePath ->
+  IO ()
+planInventoryCandidateWithRetirementsPayload registryFor identity target candidate resources output = do
   when
     (Set.size (Set.fromList resources) /= length resources)
     (dieText "retirement resource IDs must be distinct")
@@ -302,7 +316,7 @@ planInventoryCandidateWithRetirements registryFor target candidate resources out
             )
             resources
         validateLifecycleDecisions candidate history observations proposals
-  planInventoryCandidateWithDecider registryFor decide target candidate output
+  planInventoryCandidateWithDeciderPayload registryFor decide identity target candidate output
 
 -- | Versioned adoption proposals name a compiled candidate and exact
 -- observed incarnations. The decision is validated after fresh observation.
@@ -395,7 +409,17 @@ planInventoryCollectionsWith ::
   NonEmpty ResourceId ->
   FilePath ->
   IO ()
-planInventoryCollectionsWith registryFor target resources output = do
+planInventoryCollectionsWith registryFor = planInventoryCollectionsWithPayload registryFor "operator-cli"
+
+-- | 'planInventoryCollectionsWith' under a payload identity (EP-243).
+planInventoryCollectionsWithPayload ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  T.Text ->
+  ActiveTarget ->
+  NonEmpty ResourceId ->
+  FilePath ->
+  IO ()
+planInventoryCollectionsWithPayload registryFor identity target resources output = do
   when
     (Set.size (Set.fromList (NE.toList resources)) /= length (NE.toList resources))
     (dieText "collection resource IDs must be distinct")
@@ -405,9 +429,10 @@ planInventoryCollectionsWith registryFor target resources output = do
       (dieText . showText . NE.toList)
       pure
       (composeInventory snapshot (fmap CollectRetained resources))
-  planInventoryCandidateWithDecider
+  planInventoryCandidateWithDeciderPayload
     registryFor
     (\history observations -> decideCollection candidate history observations)
+    identity
     target
     candidate
     output
