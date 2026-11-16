@@ -40,6 +40,7 @@ import Nagare.Cli.Commands.Infrastructure
 import Nagare.Cli.Commands.Init (runInit)
 import Nagare.Cli.Commands.Inventory.Status (runInventoryPublications, runInventoryStatus)
 import Nagare.Cli.Commands.Inventory.Store (runInventoryMaterializeNative, runInventoryStoreMigrate, runInventoryStoreStatus)
+import Nagare.Cli.Commands.Move (runContextMove)
 import Nagare.Cli.Commands.NixCache (runNixCache)
 import Nagare.Cli.Commands.Platform
   ( runPlatformAdopt
@@ -86,7 +87,7 @@ import Nagare.Cli.Inventory.Workflow
   , runInventoryResume
   , runInventoryRetire
   )
-import Nagare.Cli.Options (Command (..), InfraCommand (..))
+import Nagare.Cli.Options (Command (..), ContextCommand (ContextMove), InfraCommand (..))
 import Nagare.Cli.Platform.Upgrade
   ( runPlatformUpgrade
   , runPlatformUpgradeRecoverPulumi
@@ -160,6 +161,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Access acmd -> runAccess mctx acmd
   ServerStatus o -> runServerStatus mctx o
   Doctor o -> runDoctor mctx o
+  ContextCmdGroup (ContextMove move) -> runContextMove mctx move
   ContextCmdGroup ccmd -> runContext mctx ccmd
   Init o -> runInit mctx o
   Infra icmd -> runInfra mctx icmd

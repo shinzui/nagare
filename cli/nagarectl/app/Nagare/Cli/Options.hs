@@ -103,6 +103,7 @@ import Nagare.Cli.Options.Access
   )
 import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
 import Nagare.Cli.Options.Delegation (DelegationCommand)
+import Nagare.Cli.Options.Move (MoveCommand)
 import Nagare.Cli.Options.NixCache (NixCacheCommand)
 import Nagare.Cli.Options.Site
   ( SiteCommonOpts (..)
@@ -488,6 +489,8 @@ data ContextCommand
   | -- | EP-113: print the active context's shell environment for @eval@ by the
     -- @nagare@ launcher, which has no @.envrc@.
     ContextEnv
+  | -- | EP-243: move a direct context onto the Cloudflare Tunnel.
+    ContextMove MoveCommand
   deriving stock (Generic, Show)
 
 data ContextCreateOpts = ContextCreateOpts

@@ -142,6 +142,8 @@ runContext mctx = \case
       TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
   ContextGuard asJson -> runContextGuard mctx asJson
   ContextEnv -> runContextEnv mctx
+  -- EP-243: the dispatcher runs context move, so this shared policy depends on no handler.
+  ContextMove _ -> dieT "context move is dispatched by the command dispatcher"
   ContextApply input yes -> runContextReview False input yes
   ContextRestore input yes -> runContextReview True input yes
   ContextDelete rawName yes savePlan -> do

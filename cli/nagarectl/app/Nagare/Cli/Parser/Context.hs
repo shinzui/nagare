@@ -10,6 +10,7 @@ import Nagare.Cli.Options
   , ContextCommand (..)
   , ContextCreateOpts (..)
   )
+import Nagare.Cli.Options.Move (MoveCommand (..))
 import Nagare.Dsl.Prelude
 import Nagare.Init (InitOpts (InitOpts))
 import Options.Applicative
@@ -125,6 +126,16 @@ contextSubparser =
         <> command "restore" (info (ContextRestore <$> strArgument (metavar "REVIEW_DIR") <*> switch (long "yes" <> help "Restore the exact removed context profile") <**> helper) (progDesc "Restore access using a completed local removal review"))
         <> command "guard" (info (ContextGuard <$> switch (long "json" <> help "Emit the compared values as JSON") <**> helper) (progDesc "Refuse unless the Pulumi stack, the environment and gcloud all agree with the active context's project"))
         <> command "env" (info (pure ContextEnv <**> helper) (progDesc "Print the active context's shell environment as export lines, safe to eval"))
+        <> command "move" (info (ContextMove <$> moveSubparser <**> helper) (progDesc "Move a direct context onto the Cloudflare Tunnel, one reviewed step at a time"))
+    )
+
+moveSubparser :: Parser MoveCommand
+moveSubparser =
+  subparser
+    ( command "start" (info (pure MoveStart <**> helper) (progDesc "Open a move of the active context onto the tunnel"))
+        <> command "apply" (info (MoveApply <$> switch (long "yes" <> help "Run the move's steps") <**> helper) (progDesc "Run or resume the open move's steps until one waits for you"))
+        <> command "status" (info (pure MoveStatus <**> helper) (progDesc "Show where the open move stands"))
+        <> command "rollback" (info (MoveRollback <$> switch (long "yes" <> help "Undo the move's completed steps") <**> helper) (progDesc "Undo the open move's completed steps, newest first"))
     )
 
 initCmd :: ParserInfo Command
