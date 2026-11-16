@@ -110,6 +110,7 @@ library
     Nagare.Context.MoveChecks
     Nagare.Context.MoveCommit
     Nagare.Context.MoveHosts
+    Nagare.Context.MoveReview
     Nagare.Context.MoveStore
     Nagare.Context.Posture
     Nagare.Context.Review
@@ -751,6 +752,7 @@ test-suite nagarectl-test
     Nagare.Test.Context
     Nagare.Test.ContextMove
     Nagare.Test.ContextMoveChecks
+    Nagare.Test.ContextMoveReview
     Nagare.Test.ContextMoveStore
     Nagare.Test.Contract
     Nagare.Test.ContractCommands

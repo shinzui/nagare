@@ -115,6 +115,7 @@ import Nagare.Test.Context
   )
 import Nagare.Test.ContextMove (contextMoveTests)
 import Nagare.Test.ContextMoveChecks (contextMoveChecksTests)
+import Nagare.Test.ContextMoveReview (contextMoveReviewTests)
 import Nagare.Test.ContextMoveStore (contextMoveStoreTests)
 import Nagare.Test.Contract (contractTests)
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
@@ -278,6 +279,7 @@ main = do
             , testGroup "Nagare.Context.Move" contextMoveTests
             , testGroup "Nagare.Context.MoveStore" contextMoveStoreTests
             , testGroup "Nagare.Context.MoveChecks" [contextMoveChecksTests]
+            , testGroup "Nagare.Context.MoveReview" [contextMoveReviewTests]
             , testGroup "Nagare.Ops.Cleanup" cleanupTests
             , testGroup "Nagare.App" appTests
             , testGroup "Nagare.App.Deployments" deploymentsTests
