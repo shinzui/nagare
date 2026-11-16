@@ -75,11 +75,11 @@ open on the VM.
 - [x] D9 (native: `ep243` moved from a 0.15.0 build through published v0.16.0 with 220 requests and no failure, connectors and doctor intact; the v0.16.0 rehearsal read its seeded row back): The upgrade path holds: a tunnel-mode disposable context upgrades through a release and still serves, and the EP-172
   rehearsal for `direct` contexts still reads its seeded data back unchanged.
 - [x] D10 ([`docs/user/moving-a-context-to-the-tunnel.md`](../user/moving-a-context-to-the-tunnel.md), [`docs/runbooks/context-move.md`](../runbooks/context-move.md), ADR 20's 2026-11-16 amendment; the guide stays 🔴 until the native run): `docs/user` and `docs/runbooks` describe the move and rollback. ADR 20 records the final state.
-- [ ] D11: The move carries hostnames. It first lists every URL that changes (default hostnames, OIDC redirect URIs,
-  webhook hooks) and asks once whether to flatten or to keep two-label names with Advanced Certificate Manager. When
-  flattening, the same reviewed move re-declares every default route, its protected route and its ADR 29 grants for
-  `<name>-<namespace>.<base>`, retires the old routes, and `access check` passes for every previously granted subject
-  on each new name. Interpreter tests cover a grant that fails to re-declare: the old route stays until it succeeds.
+- [x] D11 (`Nagare.Context.MoveHosts`, `Nagare.Test.ContextMoveChecks`; Decision Log 2026-11-16): The move lists every URL that
+  changes before it opens: default hostnames flatten to `<name>-<namespace>.<base>` with Knative's domain template. It refuses to
+  start while a protected site uses its default name or a custom domain sits two labels below the base, and names each one; the
+  operator gives it a one-label custom domain and deploys first. Carrying protected routes and their ADR 29 grants across a rename
+  is built once, in [EP-246](246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md) D5.
 
 
 ## Surprises & Discoveries
@@ -93,6 +93,13 @@ open on the VM.
 
 
 ## Decision Log
+
+- Decision: A same-domain move does not carry protected hostnames. It refuses while a protected default name or a two-label custom
+  domain exists, and the route-and-grant carrier is built in EP-246, which must redeploy every site under a new base anyway. Advanced
+  Certificate Manager is not used.
+  Rationale: operator, 2026-11-16, choosing "leave the refusal" over redeploying protected workloads inside this move or paying for
+  two-label edge certificates. The intranet moves to a new base domain (EP-246), so a carrier here would be built twice.
+  Date: 2026-11-16
 
 - Decision: Rolling back `start-connector` and `mirror-zone` keeps the `cloudflare-tunnel` and `cloudflare-zone` scopes accepted: the
   connector keeps running with no record pointing at it, and the DNS-only mirror records stay in a zone that no longer answers once the
@@ -294,4 +301,4 @@ reversing the registrar change, and DNS-01 renewal resumes after that.
 
 Requires EP-241 and EP-242 complete. Consumes `NAGARE_INGRESS`, the connector health probe and `nagarectl domains check`. The exact command
 names are this plan's choice. Add no `just` recipe unless the operator asks for one.
-EP-246 consumes the move engine, D2's retention, D5's rollback rule and D11's carrier.
+EP-246 consumes the move engine, D2's retention and D5's rollback rule, and builds the hostname carrier itself.
