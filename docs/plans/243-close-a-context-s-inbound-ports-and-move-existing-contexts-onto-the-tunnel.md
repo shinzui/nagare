@@ -187,9 +187,13 @@ Milestones, each landed with its interpreter tests before the next:
 4. Stageable tunnel mode: the planner phases of the second 2026-11-15 decision, each a reviewed stage. Landed so far:
    `Nagare.Context.Posture` (`6e8078b5`) and its wiring (`820f5297`): the cloud catalog, the Pulumi seed, the zone stage, the
    platform's upstream set, the gateway's edge headers and the connector read one posture, computed once per plan from the head its
-   snapshot came from, and unchanged for contexts with no move. Left: the zone component's mirror records (DNS-only A records to the VM
-   at the tunnel records' addresses, switched in place to CNAMEs), the firewall step as the reviewed policy, retirement and collection
-   of the three rules that cloud teardown uses, and its inverse.
+   snapshot came from, and unchanged for contexts with no move. The zone's mirror records landed in `8130b7c1`: DNS-only A records to
+   the VM (TTL 300) at the tunnel records' identities, switched in place to proxied CNAMEs on the same Cloudflare record ID and back,
+   with fake-adapter tests. Left: the firewall step. The cloud stage refuses a catalog smaller than the accepted scope
+   (`Bootstrap/Cloud.hs`), so `CloseFirewall` reuses cloud teardown's collection narrowed to the three rules: a policy-only review
+   moving them from `Protect` to `DeleteWhenUnreferenced` (`Nagare.Inventory.CloudCollection`), a cloud scope revision without them,
+   and an exact collection of each. Its inverse re-declares them; whether a collected identity may be declared again is the first thing
+   to prove on the interpreter.
 5. The window and the hostnames (D4, D11): the renewal refusal, a hostname added during the window, and the carrier with its host map.
 6. Retirement, docs and the native run (D2's retirement, D6, D8, D10).
 
