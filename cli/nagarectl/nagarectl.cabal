@@ -560,6 +560,7 @@ executable nagarectl
     Nagare.Cli.Runtime.ObjectStore
     Nagare.Cli.Runtime.Ownership
     Nagare.Cli.Runtime.PlatformStatus
+    Nagare.Cli.Runtime.Posture
     Nagare.Cli.Runtime.PreviewCleanup
     Nagare.Cli.Runtime.Process
     Nagare.Cli.Runtime.ProjectGuard

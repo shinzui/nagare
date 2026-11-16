@@ -5,6 +5,7 @@ module Nagare.Inventory.Command
   , compileInventory
   , loadCandidate
   , loadTargetSnapshot
+  , loadTargetSnapshotWithHead
   , loadTargetSnapshotReadOnly
   , OpenedInventory (..)
   , openInventoryForPlanning

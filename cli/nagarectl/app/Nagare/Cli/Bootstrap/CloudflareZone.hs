@@ -9,6 +9,8 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (ActivePosture)
+import Nagare.Context.Posture (ZoneRecords (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.CloudflareZone
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -21,32 +23,39 @@ import Nagare.Target
 import System.Environment (lookupEnv)
 
 buildCloudflareZoneStageCandidate ::
+  ActivePosture ->
   ActiveTarget ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildCloudflareZoneStageCandidate active snapshot
-  | active ^. #profile . #ingress /= IngressCloudflareTunnel = pure Nothing
-  | otherwise = do
-      rawZone <-
-        lookupEnv "CF_ZONE_ID"
-          >>= maybe (dieT "a tunnel context requires CF_ZONE_ID, CF_ACCOUNT_ID and CF_API_TOKEN in the operator's environment") pure
-      zone <- either dieT pure (Resource.mkName (T.pack rawZone))
-      scope <-
-        either
+buildCloudflareZoneStageCandidate current active snapshot =
+  case current ^. #posture . #zoneRecords of
+    Nothing -> pure Nothing
+    -- EP-243: mirrored DNS-only records need the zone component's mirror mode, which is not built yet.
+    Just MirrorRecords -> dieT "a context move's mirrored zone records are not supported by this nagarectl yet"
+    Just TunnelRecords -> tunnelZoneStage active snapshot
+
+tunnelZoneStage :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> IO (Maybe ResourceInventory.CompositionCandidate)
+tunnelZoneStage active snapshot = do
+  rawZone <-
+    lookupEnv "CF_ZONE_ID"
+      >>= maybe (dieT "a tunnel context requires CF_ZONE_ID, CF_ACCOUNT_ID and CF_API_TOKEN in the operator's environment") pure
+  zone <- either dieT pure (Resource.mkName (T.pack rawZone))
+  scope <-
+    either
+      (dieT . T.pack . show)
+      pure
+      ( compileCloudflareZone
+          CloudflareZoneInput
+            { zone = zone
+            , baseDomain = active ^. #profile . #baseDomain
+            , context = contextNameText (active ^. #contextName)
+            }
+      )
+  case Map.lookup cloudflareZoneOwner (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, accepted) | accepted == scope -> pure Nothing
+    _ ->
+      Just
+        <$> either
           (dieT . T.pack . show)
           pure
-          ( compileCloudflareZone
-              CloudflareZoneInput
-                { zone = zone
-                , baseDomain = active ^. #profile . #baseDomain
-                , context = contextNameText (active ^. #contextName)
-                }
-          )
-      case Map.lookup cloudflareZoneOwner (ResourceInventory.snapshotScopes snapshot) of
-        Just (_, accepted) | accepted == scope -> pure Nothing
-        _ ->
-          Just
-            <$> either
-              (dieT . T.pack . show)
-              pure
-              (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope :| []))
+          (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope :| []))

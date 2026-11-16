@@ -8,6 +8,7 @@ module Nagare.Inventory.Command.Open
   , openedSnapshot
   , selectFoundationStore
   , loadTargetSnapshot
+  , loadTargetSnapshotWithHead
   , loadTargetSnapshotReadOnly
   , clientIdentity
   , dieText
@@ -189,16 +190,21 @@ selectFoundationStore target
 -- | Use the accepted complete scopes as the base of a freshly compiled
 -- component candidate. The planner still checks unresolved transactions.
 loadTargetSnapshot :: ActiveTarget -> IO ScopeSnapshot
-loadTargetSnapshot target = do
+loadTargetSnapshot target = fst <$> loadTargetSnapshotWithHead target
+
+-- | The snapshot and the head it was read from, so a planner that needs the head (an open context
+-- move, EP-243) reads it with no second store open.
+loadTargetSnapshotWithHead :: ActiveTarget -> IO (ScopeSnapshot, HeadManifest)
+loadTargetSnapshotWithHead target = do
   context <- either dieText pure (mkContextId (contextNameText (target ^. #contextName)))
   project <- either dieText pure (mkName (target ^. #profile . #project))
   let binding = ContextBinding context project
   store <- openTargetStore target
-  _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
+  headValue <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
   history <- loadInventoryHistory store >>= either (dieText . showText) pure
   either
     (dieText . showText . NE.toList)
-    pure
+    (\snapshot -> pure (snapshot, headValue))
     ( mkScopeSnapshot
         binding
         (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))

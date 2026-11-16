@@ -16,8 +16,9 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (ActivePosture (..), activePosture)
 import Nagare.Dsl.Prelude
-import Nagare.Init (seedKeys)
+import Nagare.Init (seedKeysFor)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Foundation
   ( FoundationTarget (FoundationBucket, FoundationStack)
@@ -135,8 +136,9 @@ foundationStackTarget active workspace imageLink scopes = do
   stack <- either dieT pure (Resource.mkName context)
   bucket <- foundationPulumiBucket active
   deployerKeys <- foundationDeployerKeys active scopes
+  ActivePosture {posture = ingressPosture, retainedDnsName = retained} <- activePosture active
   let environment = pulumiEnvFor stateRoot context profile
-      seeded = seedKeys profile
+      seeded = seedKeysFor profile ingressPosture retained
   pure
     ( FoundationStack
         project

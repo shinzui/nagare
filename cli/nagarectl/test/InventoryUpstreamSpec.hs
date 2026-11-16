@@ -10,6 +10,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Context.Posture (directPosture)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compileConfiguredBootstrap, compileIssuerBootstrap, compilePinnedBootstrap)
 import Nagare.Inventory.Components.ControllerImage (compileControllerImage, controllerImageDeclaration)
@@ -710,6 +711,15 @@ inventoryUpstreamTests =
         let kourierAddress = ok (kubernetesAddress fixtureCluster "v1" "Service" (Just "kourier-system") "kourier")
         assertBool "the direct gateway keeps its node exposure" (all (Set.notMember kourierAddress . upstreamClusterIpServices) scopes)
         assertBool "the tunnel gateway has no node exposure" (any (Set.member kourierAddress . upstreamClusterIpServices) tunnel)
+        -- EP-243: a move flattens names and closes kourier at different steps, and keeps the issuer until kourier closes.
+        let flatOnly = postureUpstreamInputs (directPosture & #flatHosts .~ True) scopes
+            closedOnly = postureUpstreamInputs (directPosture & #kourierClosed .~ True) scopes
+        let unchanged = postureUpstreamInputs directPosture scopes
+        (map upstreamOwner unchanged, templates unchanged, concatMap (Set.toList . upstreamClusterIpServices) unchanged) @?= (map upstreamOwner scopes, templates scopes, concatMap (Set.toList . upstreamClusterIpServices) scopes)
+        (templates flatOnly, issuerOwner `elem` map upstreamOwner flatOnly) @?= ([Just tunnelDomainTemplate], True)
+        assertBool "flat names alone closed kourier" (all (Set.notMember kourierAddress . upstreamClusterIpServices) flatOnly)
+        (templates closedOnly, issuerOwner `elem` map upstreamOwner closedOnly) @?= ([], False)
+        assertBool "a closed kourier kept its node exposure" (any (Set.member kourierAddress . upstreamClusterIpServices) closedOnly)
         Map.size cloudTlsNative @?= Map.size cloudNative
         let networkAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
             networkData native =

@@ -23,6 +23,7 @@ module Nagare.Init
   , renderTargetEnv
   , pulumiConfigSetArgs
   , seedKeys
+  , seedKeysFor
   , adminApiInventoryKeys
   , nextStepsText
   , operatorRoles
@@ -47,6 +48,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
+import Nagare.Context.Posture (IngressPosture, postureFor)
 import Nagare.Dsl.Prelude
 import Nagare.Gcp.Adc (adcEnvFromProcess, observeAdc, validateAdc)
 import Nagare.Inventory.BackupFreshness (recoveryPointObjectiveText)
@@ -371,7 +373,12 @@ renderTargetEnv tp =
 -- is deliberately NOT seeded — it is a build-time client concern (the architecture
 -- nagarectl builds images for), not GCP infrastructure, so Pulumi has no use for it.
 seedKeys :: TargetProfile -> [(Text, Text)]
-seedKeys tp =
+seedKeys tp = seedKeysFor tp (postureFor (tp ^. #ingress) Nothing) (tp ^. #retainedDnsName)
+
+-- | The seed for a posture (EP-243): an open move closes the perimeter, and with it adds
+-- @nagare:ingress@ and its retained Cloud DNS name, only at its firewall step.
+seedKeysFor :: TargetProfile -> IngressPosture -> Text -> [(Text, Text)]
+seedKeysFor tp posture retained =
   [ ("gcp:project", tp ^. #project)
   , ("gcp:region", tp ^. #region)
   , ("gcp:zone", tp ^. #zone)
@@ -390,11 +397,11 @@ seedKeys tp =
   , ("nagare:manageProjectApis", "false")
   ]
     -- MasterPlan 32: absent for direct, so an existing stack previews unchanged.
-    <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | tp ^. #ingress == IngressCloudflareTunnel]
+    <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | posture ^. #perimeterClosed]
     -- EP-243 D2: only a context moved onto the tunnel keeps its Cloud DNS zone.
-    <> [ ("nagare:retainedDnsName", tp ^. #retainedDnsName)
-       | tp ^. #ingress == IngressCloudflareTunnel
-       , not (T.null (tp ^. #retainedDnsName))
+    <> [ ("nagare:retainedDnsName", retained)
+       | posture ^. #perimeterClosed
+       , not (T.null retained)
        ]
     -- An inventory context keeps its apex on the VM: the CDN is created as
     -- reviewed cloud members first, and application hostnames opt into it with

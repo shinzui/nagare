@@ -15,6 +15,7 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (ActivePosture)
 import Nagare.Cli.Runtime.Process (currentTimestamp)
 import Nagare.Cluster.GcsJob
   ( StoreBackend (GcsBackend, MinioBackend)
@@ -78,7 +79,7 @@ import Nagare.Inventory.Components.Upstream
   , bindHostRegistryCredentials
   , bindNetCertManagerControllerImage
   , configuredUpstreamInputsWithIssuer
-  , tunnelUpstreamInputs
+  , postureUpstreamInputs
   )
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
@@ -121,6 +122,7 @@ import System.Process (readProcessWithExitCode)
 -- Keep payload paths explicit so a fresh context compiles one immutable
 -- release against the complete selected inventory snapshot.
 buildPlatformCandidate ::
+  ActivePosture ->
   ActiveTarget ->
   PlatformPaths ->
   PlatformWorkspace ->
@@ -129,7 +131,7 @@ buildPlatformCandidate ::
     ( ResourceInventory.CompositionCandidate
     , Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)
     )
-buildPlatformCandidate active paths workspace snapshot = do
+buildPlatformCandidate current active paths workspace snapshot = do
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
   unless
     ( manifest ^. #payloadId == workspace ^. #payloadId
@@ -140,6 +142,7 @@ buildPlatformCandidate active paths workspace snapshot = do
     (active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion))
     (dieT "platform bootstrap requires a context pin matching the selected payload; in-place platform version changes require a separate reviewed transition")
   kubeVersion <- readBootstrapKubeVersion active
+  let ingress = current ^. #posture
   let root = workspace ^. #root
       profile = active ^. #profile
       knownName value = either (error . T.unpack) (\name -> name) (Resource.mkName value)
@@ -155,7 +158,8 @@ buildPlatformCandidate active paths workspace snapshot = do
           cluster
           (root </> "cluster/bootstrap/job-runs/resourcequota.yaml")
           granted
-      tunnelMode = profile ^. #ingress == IngressCloudflareTunnel
+      -- EP-243: an open move turns on the connector, flat names and a closed kourier one step at a time.
+      connectorMode = ingress ^. #connectorRunning
       issuer = case profile ^. #mode of
         Local -> LocalIssuer
         Cloud ->
@@ -174,7 +178,7 @@ buildPlatformCandidate active paths workspace snapshot = do
     (profile ^. #mode == Local && profile ^. #externalDomainTlsEnabled)
     (dieT "external domain TLS belongs to cloud bootstrap; local TLS is enabled by its own issuer")
   rawUpstream <-
-    (if tunnelMode then tunnelUpstreamInputs else id)
+    postureUpstreamInputs ingress
       <$> ( configuredUpstreamInputsWithIssuer
               cluster
               root
@@ -260,7 +264,7 @@ buildPlatformCandidate active paths workspace snapshot = do
       (dieT . T.pack . show)
       pure
       ( traverse
-          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled] <> [CloudflaredImage | profile ^. #ingress == IngressCloudflareTunnel]))
+          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled] <> [CloudflaredImage | connectorMode]))
           (manifest ^. #releaseImages)
       )
   let releaseImagePublications = maybe Map.empty snd releaseImages
@@ -312,7 +316,7 @@ buildPlatformCandidate active paths workspace snapshot = do
   let rawAuth =
         packagedAuth
           { authProxiedCacheControl =
-              if tunnelMode then Just "private, no-store, no-transform" else Nothing
+              if connectorMode then Just "private, no-store, no-transform" else Nothing
           }
   localPrerequisites <- case localStore of
     Nothing -> pure []
@@ -398,7 +402,7 @@ buildPlatformCandidate active paths workspace snapshot = do
       else pure Nothing
   let (adminApiScopes, adminApiNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) adminApi
   tunnel <-
-    if profile ^. #ingress == IngressCloudflareTunnel
+    if connectorMode
       then
         Just
           <$> compilePlatformCloudflareTunnel

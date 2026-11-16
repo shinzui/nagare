@@ -15,8 +15,9 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Cli.Inventory.CloudCatalog (loadCloudCatalog)
 import Nagare.Cli.Inventory.Foundation (foundationDeployerKeys, foundationImageLink)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (ActivePosture (..))
 import Nagare.Dsl.Prelude
-import Nagare.Init (seedKeys)
+import Nagare.Init (seedKeysFor)
 import Nagare.Inventory.Adapters.PulumiRuntime
   ( decodePhysicalResources
   )
@@ -37,15 +38,17 @@ import System.Process (readProcessWithExitCode)
 -- has its own journal operation; later registrations remain explicit native
 -- bookkeeping until their prerequisites have receipts.
 buildCloudStageCandidate ::
+  ActivePosture ->
   ActiveTarget ->
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildCloudStageCandidate active workspace snapshot
+buildCloudStageCandidate current active workspace snapshot
   | active ^. #profile . #mode /= Cloud = pure Nothing
   | otherwise = do
       (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
-      let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter (active ^. #profile . #retainedDnsName) loadedCatalog else loadedCatalog
+      let ActivePosture {posture = ingressPosture, retainedDnsName = retained} = current
+      let rawCatalog = if ingressPosture ^. #perimeterClosed then InventoryCloud.withTunnelPerimeter retained loadedCatalog else loadedCatalog
       let profile = active ^. #profile
           acceptedScopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
       -- EP-248 D6: one principal per accepted, active delegation, as the
@@ -158,7 +161,7 @@ buildCloudStageCandidate active workspace snapshot
                   <> TE.encodeUtf8
                     ( T.pack
                         ( show
-                            ( seedKeys profile
+                            ( seedKeysFor profile ingressPosture retained
                                 <> [ ("nagare:nagareImageSelfLink", link)
                                    | entry `elem` InventoryCloud.catalogImageEnabled catalog
                                    , link <- maybe [] pure imageLink

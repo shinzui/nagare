@@ -10,6 +10,7 @@ module Nagare.Inventory.Components.Upstream
   , bindHostRegistryCredentials
   , tunnelDomainTemplate
   , tunnelUpstreamInputs
+  , postureUpstreamInputs
   , compileUpstream
   )
 where
@@ -35,6 +36,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
+import Nagare.Context.Posture (IngressPosture, tunnelPosture)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject, kubernetesObjectIdentity)
@@ -325,14 +327,21 @@ configuredUpstreamInputsWithIssuer cluster root domain registry issuerMode = do
 -- base, because the free edge certificate covers no deeper, and no DNS-01 issuer is installed:
 -- Cloud DNS is not authoritative for a zone on Cloudflare, and no certificate is requested.
 tunnelUpstreamInputs :: [UpstreamInput] -> [UpstreamInput]
-tunnelUpstreamInputs = map flatten . filter ((/= issuerOwner) . upstreamOwner)
+tunnelUpstreamInputs = postureUpstreamInputs tunnelPosture
+
+-- | The upstream set for a posture (EP-243): a context moving onto the tunnel flattens its names
+-- and closes @kourier@ at different steps, and keeps its issuer until @kourier@ closes.
+postureUpstreamInputs :: IngressPosture -> [UpstreamInput] -> [UpstreamInput]
+postureUpstreamInputs posture =
+  map flatten . filter (\input -> not (posture ^. #kourierClosed) || upstreamOwner input /= issuerOwner)
   where
     issuerOwner = either (error . T.unpack) id (mkScopeId Platform "certificate-issuer")
     flatten input =
       input
-        { upstreamConfigMapData = Map.mapWithKey withTemplate (upstreamConfigMapData input)
+        { upstreamConfigMapData =
+            if posture ^. #flatHosts then Map.mapWithKey withTemplate (upstreamConfigMapData input) else upstreamConfigMapData input
         , upstreamClusterIpServices =
-            if upstreamOwner input == kourierOwner
+            if posture ^. #kourierClosed && upstreamOwner input == kourierOwner
               then Set.singleton (either (error . T.unpack) id (kubernetesAddress (upstreamCluster input) "v1" "Service" (Just "kourier-system") "kourier"))
               else Set.empty
         }

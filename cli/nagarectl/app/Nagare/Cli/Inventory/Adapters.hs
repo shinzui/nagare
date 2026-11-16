@@ -39,6 +39,7 @@ import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
 import Nagare.Cli.Inventory.Foundation (foundationImageLink)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (ActivePosture (..), activePosture)
 import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiInWorkspaceWithDependencies)
 import Nagare.Dsl.Prelude
@@ -571,7 +572,8 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
     if profile ^. #mode == Cloud && hasCloudScope
       then do
         (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
-        let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter (active ^. #profile . #retainedDnsName) loadedCatalog else loadedCatalog
+        ActivePosture {posture = ingressPosture, retainedDnsName = retained} <- activePosture active
+        let rawCatalog = if ingressPosture ^. #perimeterClosed then InventoryCloud.withTunnelPerimeter retained loadedCatalog else loadedCatalog
         imageLink <-
           foundationImageLink
             active
