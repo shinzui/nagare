@@ -22,11 +22,17 @@ module Nagare.Context.Move
   , runMove
   , rollbackMove
   , remainingSteps
+  , moveStepToken
+  , parseMoveStep
   )
 where
 
+import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.:), (.=))
+import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
-import Nagare.Dsl.Prelude
+import Data.Maybe (listToMaybe)
+import Data.Text qualified as T
+import Nagare.Dsl.Prelude hiding ((.=))
 
 data MoveStep
   = -- | No mutation: an idle ledger, no DS record for the domain at its parent, no origin
@@ -166,3 +172,66 @@ rollbackMove ops record
               case outcome of
                 StepCompleted -> saveMove ops undone >> go undone
                 _ -> pure (MoveStopped step outcome, started)
+
+-- | The stable name of a step in the head marker and in review identities.
+moveStepToken :: MoveStep -> Text
+moveStepToken = \case
+  CheckPreconditions -> "check-preconditions"
+  MirrorZone -> "mirror-zone"
+  AwaitNameServers -> "await-name-servers"
+  EnableDnssec -> "enable-dnssec"
+  ConfirmDirect -> "confirm-direct"
+  StartConnector -> "start-connector"
+  CarryHostnames -> "carry-hostnames"
+  SwitchRecords -> "switch-records"
+  VerifyTunnel -> "verify-tunnel"
+  AwaitOldTtl -> "await-old-ttl"
+  CloseFirewall -> "close-firewall"
+  CloseKourier -> "close-kourier"
+  CommitMove -> "commit-move"
+
+parseMoveStep :: Text -> Maybe MoveStep
+parseMoveStep token = lookup token [(moveStepToken step, step) | step <- [minBound .. maxBound]]
+
+instance ToJSON MoveStep where
+  toJSON = toJSON . moveStepToken
+
+instance FromJSON MoveStep where
+  parseJSON = withText "MoveStep" $ \token -> maybe (fail ("unknown move step " <> T.unpack token)) pure (parseMoveStep token)
+
+instance ToJSON MoveDirection where
+  toJSON = \case
+    MovingForward -> "forward"
+    RollingBack -> "rollback"
+
+instance FromJSON MoveDirection where
+  parseJSON = withText "MoveDirection" $ \case
+    "forward" -> pure MovingForward
+    "rollback" -> pure RollingBack
+    other -> fail ("unknown move direction " <> T.unpack other)
+
+instance ToJSON MoveRecord where
+  toJSON record =
+    object
+      [ "steps" .= (record ^. #steps)
+      , "completed" .= (record ^. #completed)
+      , "inProgress" .= (record ^. #inProgress)
+      , "direction" .= (record ^. #direction)
+      ]
+
+-- | Strict: an unknown field, a negative or overlong count, or a step in progress that is not the
+-- next one in its direction refuses, so a head written by a newer CLI never half-decodes.
+instance FromJSON MoveRecord where
+  parseJSON = withObject "MoveRecord" $ \o -> do
+    unless (all (`elem` ["steps", "completed", "inProgress", "direction"]) (KM.keys o)) (fail "move record has an unknown field")
+    record <- MoveRecord <$> o .: "steps" <*> o .: "completed" <*> o .: "inProgress" <*> o .: "direction"
+    let count = record ^. #completed
+    when (count < 0 || count > length (record ^. #steps)) (fail "move record counts steps it does not have")
+    case record ^. #inProgress of
+      Just step
+        | record ^. #direction == MovingForward && Just step /= listToMaybe (drop count (record ^. #steps)) ->
+            fail "move record's step in progress is not the next forward step"
+        | record ^. #direction == RollingBack && Just step /= listToMaybe (drop (count - 1) (record ^. #steps)) ->
+            fail "move record's step in progress is not the next step to undo"
+      _ -> pure ()
+    pure record

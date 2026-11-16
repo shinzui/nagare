@@ -277,7 +277,7 @@ initializeStoreFrom store binding clientIdentity existing =
       | headBinding headValue == binding -> pure (Right headValue)
       | otherwise -> pure (Left (StoreConditionFailed "inventory store is bound to a different context or provider target"))
     Nothing -> do
-      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing
+      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing Nothing
       replaced <- replaceHeadIfGenerationMatches store Nothing initial
       pure (initial <$ replaced)
 

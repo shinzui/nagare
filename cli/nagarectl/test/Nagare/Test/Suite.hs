@@ -114,6 +114,7 @@ import Nagare.Test.Context
   , targetProfileTests
   )
 import Nagare.Test.ContextMove (contextMoveTests)
+import Nagare.Test.ContextMoveStore (contextMoveStoreTests)
 import Nagare.Test.Contract (contractTests)
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
 import Nagare.Test.Delegation (delegationTests)
@@ -274,6 +275,7 @@ main = do
             , testGroup "Nagare.Ops.Doctor" doctorTests
             , testGroup "Nagare.Ops.Domains" domainsTests
             , testGroup "Nagare.Context.Move" contextMoveTests
+            , testGroup "Nagare.Context.MoveStore" contextMoveStoreTests
             , testGroup "Nagare.Ops.Cleanup" cleanupTests
             , testGroup "Nagare.App" appTests
             , testGroup "Nagare.App.Deployments" deploymentsTests

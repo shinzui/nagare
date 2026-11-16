@@ -11,11 +11,13 @@ import Data.Generics.Labels ()
 import Data.List (reverse)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Nagare.Context.Move (newMove, sameDomainSteps)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Command
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Manifest (MoveMarker (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
@@ -60,13 +62,14 @@ inventoryTests =
         doesPathExist output >>= (@?= False)
     , testCase "legacy platform mutation closes after any inventory admission" $ do
         let binding = ContextBinding (ok (mkContextId "legacy-guard")) (ok (mkName "project"))
-            emptyHead = HeadManifest 1 0 0 binding "test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing
+            emptyHead = HeadManifest 1 0 0 binding "test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing Nothing
         hasSubstantiveHistory emptyHead @?= False
         hasSubstantiveHistory (emptyHead {headGeneration = 1}) @?= True
         hasSubstantiveHistory (emptyHead {headSequence = 1}) @?= True
         hasSubstantiveHistory (emptyHead {headActiveTransaction = Just "tx"}) @?= True
         hasSubstantiveHistory (emptyHead {headExecutorClaim = Just (ExecutorClaim "tx" "client" 0 "time")}) @?= True
         hasSubstantiveHistory (emptyHead {headMigration = Just (MigrationTombstone "other-store" (contentDigest "head"))}) @?= True
+        hasSubstantiveHistory (emptyHead {headMove = Just (MoveMarker "ingress" "t" "" (newMove sameDomainSteps))}) @?= True
     , testCase "Kubernetes declaration binds the exact canonical native object" $ do
         let owner = ok (mkScopeId Platform "foundation")
             rid key = mintResourceId owner (ok (mkLogicalKey key)) (ok (mkName "resource"))
@@ -153,7 +156,7 @@ inventoryTests =
               destination <- openTargetStore target
               readHead destination >>= (@?= Right Nothing)
               restoreInventory target backup True
-              readHead destination >>= (@?= Right (Just (HeadManifest 1 0 0 binding "restore-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing)))
+              readHead destination >>= (@?= Right (Just (HeadManifest 1 0 0 binding "restore-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing Nothing)))
               duplicate <- try (restoreInventory target backup True) :: IO (Either ExitCode ())
               assertBool "occupied destination accepted" (isLeft duplicate)
     ]

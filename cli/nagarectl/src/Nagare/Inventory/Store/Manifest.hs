@@ -10,6 +10,9 @@ module Nagare.Inventory.Store.Manifest
   , DataFenceRecord (..)
   , HeadManifest (..)
   , TransitionMarker (..)
+  , MoveMarker (..)
+  , moveReviewIdentity
+  , parseMoveReviewIdentity
   , hasSubstantiveHistory
   , transitionReviewIdentity
   , parseTransitionReviewIdentity
@@ -24,6 +27,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Context.Move (MoveRecord, MoveStep, moveStepToken, parseMoveStep)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Digest
 import Nagare.Resource.Types
@@ -115,6 +119,29 @@ data TransitionMarker = TransitionMarker
   }
   deriving stock (Eq, Show, Generic)
 
+-- | An open context move (EP-243, EP-246): what it moves, when it opened, the Cloud DNS name it
+-- keeps, and its step record. While it is open only reviews carrying 'moveReviewIdentity' for its
+-- step in progress are admitted, so no other change lands between two of its steps. An older CLI
+-- refuses the field, so it cannot admit across a move either.
+data MoveMarker = MoveMarker
+  { moveKind :: !Text
+  , moveStartedAt :: !Text
+  , moveRetainedDnsName :: !Text
+  , moveProgress :: !MoveRecord
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The payload identity of one move step's review.
+moveReviewIdentity :: Text -> MoveStep -> Text
+moveReviewIdentity kind step = "nagare-move:" <> kind <> ":" <> moveStepToken step
+
+parseMoveReviewIdentity :: Text -> Maybe (Text, MoveStep)
+parseMoveReviewIdentity identity = do
+  rest <- T.stripPrefix "nagare-move:" identity
+  let (kind, token) = T.breakOn ":" rest
+  step <- parseMoveStep =<< T.stripPrefix ":" token
+  if T.null kind then Nothing else Just (kind, step)
+
 data HeadManifest = HeadManifest
   { headSchemaVersion :: !Int
   , headGeneration :: !Integer
@@ -134,6 +161,8 @@ data HeadManifest = HeadManifest
   -- transaction converges and never silently replaced (F49).
   , headTransition :: !(Maybe TransitionMarker)
   -- ^ The open release transition, if any (EP-172).
+  , headMove :: !(Maybe MoveMarker)
+  -- ^ The open context move, if any (EP-243).
   }
   deriving stock (Eq, Show, Generic)
 
@@ -153,6 +182,7 @@ hasSubstantiveHistory headValue =
     || isJust (headMigration headValue)
     || isJust (headDataFence headValue)
     || isJust (headTransition headValue)
+    || isJust (headMove headValue)
 
 -- | The payload identity of a release transition's reviews (EP-172): the
 -- pinned source release and the target payload.
@@ -203,6 +233,20 @@ instance FromJSON TransitionMarker where
   parseJSON = withObject "TransitionMarker" $ \o -> do
     unless (all (`elem` ["from", "to", "startedAt", "finalizing"]) (KM.keys o)) (fail "transition marker has an unknown field")
     TransitionMarker <$> o .: "from" <*> o .: "to" <*> o .: "startedAt" <*> o .:? "finalizing"
+
+instance ToJSON MoveMarker where
+  toJSON marker =
+    object
+      [ "kind" .= moveKind marker
+      , "startedAt" .= moveStartedAt marker
+      , "retainedDnsName" .= moveRetainedDnsName marker
+      , "progress" .= moveProgress marker
+      ]
+
+instance FromJSON MoveMarker where
+  parseJSON = withObject "MoveMarker" $ \o -> do
+    unless (all (`elem` ["kind", "startedAt", "retainedDnsName", "progress"]) (KM.keys o)) (fail "move marker has an unknown field")
+    MoveMarker <$> o .: "kind" <*> o .: "startedAt" <*> o .: "retainedDnsName" <*> o .: "progress"
 
 instance ToJSON RetainedIncarnation where
   toJSON retained =
@@ -399,6 +443,7 @@ instance ToJSON HeadManifest where
           <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue)
           <> maybe [] (\fence -> ["dataFence" .= fence]) (headDataFence headValue)
           <> maybe [] (\marker -> ["transition" .= marker]) (headTransition headValue)
+          <> maybe [] (\marker -> ["move" .= marker]) (headMove headValue)
           <> ["incarnations" .= [object ["resource" .= r, "physical" .= p] | (r, p) <- Map.toAscList (headIncarnations headValue)] | not (Map.null (headIncarnations headValue))]
       )
     where
@@ -414,7 +459,7 @@ instance ToJSON HeadManifest where
 
 instance FromJSON HeadManifest where
   parseJSON = withObject "HeadManifest" $ \o -> do
-    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence", "incarnations", "transition"]
+    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence", "incarnations", "transition", "move"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
     version <- o .: "version"
     unless (version == 1) (fail "unsupported inventory head schema version")
@@ -437,6 +482,8 @@ instance FromJSON HeadManifest where
     binding <- o .: "binding"
     fence <- o .:? "dataFence"
     transition <- o .:? "transition"
+    move <- o .:? "move"
+    when (isJust transition && isJust (move :: Maybe MoveMarker)) (fail "a head cannot hold a release transition and a context move at once")
     unless
       ( maybe
           True
@@ -464,6 +511,7 @@ instance FromJSON HeadManifest where
       <*> pure fence
       <*> pure (Map.fromList incarnations)
       <*> pure transition
+      <*> pure move
     where
       parseRevisions values = do
         revisions <- traverse (withObject "scope revision" (\v -> (,) <$> v .: "scope" <*> v .: "revision")) values

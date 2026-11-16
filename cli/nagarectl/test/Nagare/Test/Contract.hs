@@ -399,6 +399,7 @@ sampleHead =
     , headDataFence = Nothing
     , headIncarnations = Map.empty
     , headTransition = Nothing
+    , headMove = Nothing
     }
   where
     revision number seed = ScopeRevision (ok (mkScopeGeneration number)) (contentDigest seed)

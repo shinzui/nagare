@@ -166,6 +166,7 @@ inventoryStatusTests =
                 Nothing
                 Map.empty
                 Nothing
+                Nothing
             event sequenceNumber prior state detail =
               JournalEvent
                 1

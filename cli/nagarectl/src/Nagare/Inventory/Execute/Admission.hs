@@ -18,6 +18,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Time (getCurrentTime)
+import Nagare.Context.MoveStore (moveAdmissionRefusal)
 import Nagare.Contract.Trace (OperationRecord (RecordExecuted))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Actor (Actor (..))
@@ -115,6 +116,7 @@ import Nagare.Inventory.Store
     , headDataFence
     , headExecutorClaim
     , headGeneration
+    , headMove
     , headRetained
     , headSequence
     , headTransition
@@ -184,6 +186,10 @@ admitWithHistory locked registry reviewed pinned = do
                  ]
               <> validateOperationInputs registry reviewed Map.empty
               <> transitionAdmission (headTransition headValue) (reviewPayloadIdentity document)
+              -- EP-243: while a context move is open only its step in progress is admitted.
+              <> [ AdmissionError "open-move" reason
+                 | Just reason <- [moveAdmissionRefusal (headMove headValue) (reviewPayloadIdentity document)]
+                 ]
       historyAt <- lockedHistory store headValue
       -- EP-247 D5: a deployer's bounds are judged with the other static
       -- refusals, so a review a revocation made stale says so.

@@ -179,7 +179,11 @@ Milestones, each landed with its interpreter tests before the next:
    direct ingress, a rollback stopped after any inverse resumes, a DS registered after DNSSEC holds rollback until removed, and a
    list without the TTL wait stops at the firewall.
 3. The marker and the commands: the head marker, admission while a move is open, and `context move` plan, apply, status and
-   rollback.
+   rollback. The marker, its store operations and admission landed with `Nagare.Context.MoveStore` and
+   `Nagare.Test.ContextMoveStore`: a move opens only on an idle head and beside no release transition, reopens as itself, saves
+   progress only while the head is idle, closes only when finished or fully rolled back, and admits only its step in progress; a
+   head holding both a move and a transition refuses to decode, and an older CLI refuses the field. The commands come with
+   milestone 4, whose steps they run.
 4. Stageable tunnel mode: the planner phases of the second 2026-11-15 decision, each a reviewed stage.
 5. The window and the hostnames (D4, D11): the renewal refusal, a hostname added during the window, and the carrier with its host map.
 6. Retirement, docs and the native run (D2's retirement, D6, D8, D10).
