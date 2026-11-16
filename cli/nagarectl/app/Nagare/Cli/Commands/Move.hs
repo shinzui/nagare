@@ -25,6 +25,7 @@ import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
 import Nagare.Cli.Move.BaseSteps (BaseStepOps (..), performBase)
 import Nagare.Cli.Move.Manifest (collectManifest, listBaseMove, manifestFile)
 import Nagare.Cli.Move.Observe
+import Nagare.Cli.Move.Sites (carrySitesStep, readSavedManifest, verifySitesStep)
 import Nagare.Cli.Options.Move (MoveCommand (..))
 import Nagare.Cli.Platform.InfrastructureReview (prepareInfraTargetWithPulumi)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
@@ -40,6 +41,7 @@ import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
 import Nagare.Context.MoveReview (ReviewOps (..), ReviewPlan (..))
 import Nagare.Context.MoveReview qualified as MoveReview
+import Nagare.Context.MoveSites (renderUnrouted, siteProgress)
 import Nagare.Context.MoveStore
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (VerifyResource), plannedAction, withPreparationGuard)
@@ -68,7 +70,7 @@ runContextMove :: Maybe String -> MoveCommand -> IO ()
 runContextMove mctx command = do
   active <- activeTarget mctx
   case command of
-    MoveStatus -> withStore active >>= status
+    MoveStatus -> withStore active >>= status active
     MoveList new out -> listBaseMove active new out
     MoveStart Nothing -> start active
     MoveStart (Just new) -> startBase active new
@@ -132,8 +134,8 @@ basePrecheck new = do
   facts <- sequence3 observeZone (observeParentDs new) observeDnssec
   pure (either StepRefused (\(zone, ds, dnssec) -> basePreconditions new zone ds dnssec) facts)
 
-status :: InventoryStore -> IO ()
-status store =
+status :: ActiveTarget -> InventoryStore -> IO ()
+status active store =
   openMoveOf store >>= either dieT pure >>= \case
     Nothing -> TIO.putStrLn "No context move is open."
     Just marker -> do
@@ -142,6 +144,15 @@ status store =
       TIO.putStrLn (T.pack (show (progress ^. #completed)) <> " of " <> T.pack (show (length (progress ^. #steps))) <> " steps done")
       forM_ (progress ^. #inProgress) $ \step -> TIO.putStrLn ("In progress: " <> moveStepToken step)
       TIO.putStrLn ("Left: " <> T.intercalate ", " (map moveStepToken (remainingSteps progress)))
+      -- EP-246 D5: while the sites carry over, what is left of them.
+      when (moveKind marker == baseMoveKind && progress ^. #inProgress == Just CarrySites) $ do
+        manifest <- takeDirectory <$> reviewDirectory active baseMoveKind MovingForward CheckPreconditions >>= readSavedManifest
+        snapshot <- Inventory.loadTargetSnapshotReadOnly active
+        case siteProgress snapshot (manifest ^. #hosts) of
+          Left reason -> TIO.putStrLn ("Sites: " <> reason)
+          Right sites -> do
+            unless (null (sites ^. #unrouted)) (TIO.putStrLn ("Sites: " <> renderUnrouted (manifest ^. #newBase) (sites ^. #unrouted)))
+            TIO.putStrLn ("Grants left to declare on the new names: " <> T.pack (show (length (sites ^. #grants))))
 
 -- | D2: once a move has committed and the registrar delegates to Cloudflare, retire the Cloud DNS
 -- zone the move kept, its records and the solver's grants, then clear @NAGARE_RETAINED_DNS_NAME@.
@@ -218,9 +229,22 @@ perform mctx active store marker direction step
         , tokenSaved = tokenSaved
         , precheck = basePrecheck (moveTargetBase marker)
         , dnssecActive = observed dnssecReady <$> observeDnssec
-        , carrySites = pure (StepRefused "this nagarectl cannot carry sites yet (EP-246 D5)")
-        , verifySites = pure (StepRefused "this nagarectl cannot verify sites yet (EP-246 D5)")
+        , carrySites = do
+            manifest <- movesDirectory >>= readSavedManifest
+            carrySitesStep active manifest $ \plan -> do
+              directory <- reviewDirectory active (moveKind marker) MovingForward CarrySites
+              identity <- identityFor CarrySites <$> payloadId
+              MoveReview.reviewStep
+                (stageReviewOps mctx active store (isStep CarrySites) "the move's carry-sites" directory (plan identity directory))
+        , verifySites = do
+            manifest <- movesDirectory >>= readSavedManifest
+            verifySitesStep active manifest (\hosts -> moveEnv >>= (`probeEdgeHosts` hosts))
         }
+    movesDirectory = takeDirectory <$> reviewDirectory active (moveKind marker) MovingForward CheckPreconditions
+    payloadId = do
+      (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
+      manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+      pure (manifest ^. #payloadId)
     sameDomain = case (direction, step) of
       (MovingForward, CheckPreconditions) -> checkPreconditions active base
       (MovingForward, AwaitNameServers) -> observed (maybe (StepRefused "CF_ZONE_ID names no zone") nameServersActive) <$> observeZone

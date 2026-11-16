@@ -21,7 +21,7 @@ module Nagare.Context.BaseMove
   )
 where
 
-import Data.Aeson (ToJSON (..), object, (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.:), (.=))
 import Data.Generics.Labels ()
 import Data.List (nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
@@ -48,6 +48,10 @@ hostKindToken = \case
 instance ToJSON HostKind where
   toJSON = toJSON . hostKindToken
 
+instance FromJSON HostKind where
+  parseJSON = withText "HostKind" $ \token ->
+    maybe (fail ("unknown host kind " <> T.unpack token)) pure (lookup token [(hostKindToken k, k) | k <- [minBound .. maxBound]])
+
 -- | One hostname, its new name, and who may open it.
 data MovedHost = MovedHost
   { oldName :: !Text
@@ -70,6 +74,10 @@ instance ToJSON MovedHost where
       , "teams" .= (h ^. #teams)
       ]
 
+instance FromJSON MovedHost where
+  parseJSON = withObject "MovedHost" $ \o ->
+    MovedHost <$> o .: "old" <*> o .: "new" <*> o .: "kind" <*> o .: "protected" <*> o .: "users" <*> o .: "teams"
+
 -- | A Shomei OAuth client with a redirect URI under the old base; the operator updates it at Shomei.
 data OAuthClient = OAuthClient
   { clientId :: !Text
@@ -80,6 +88,9 @@ data OAuthClient = OAuthClient
 
 instance ToJSON OAuthClient where
   toJSON c = object ["clientId" .= (c ^. #clientId), "displayName" .= (c ^. #displayName), "redirectUris" .= (c ^. #redirectUris)]
+
+instance FromJSON OAuthClient where
+  parseJSON = withObject "OAuthClient" $ \o -> OAuthClient <$> o .: "clientId" <*> o .: "displayName" <*> o .: "redirectUris"
 
 -- | An account holding a passkey, which the browser cannot use on the new domain (D4).
 data PasskeyHolder = PasskeyHolder
@@ -92,6 +103,9 @@ data PasskeyHolder = PasskeyHolder
 
 instance ToJSON PasskeyHolder where
   toJSON p = object ["userId" .= (p ^. #userId), "email" .= (p ^. #email), "passkeys" .= (p ^. #passkeys), "totp" .= (p ^. #hasTotp)]
+
+instance FromJSON PasskeyHolder where
+  parseJSON = withObject "PasskeyHolder" $ \o -> PasskeyHolder <$> o .: "userId" <*> o .: "email" <*> o .: "passkeys" <*> o .: "totp"
 
 data MoveManifest = MoveManifest
   { oldBase :: !Text
@@ -111,6 +125,10 @@ instance ToJSON MoveManifest where
       , "oauthClients" .= (m ^. #oauthClients)
       , "passkeyHolders" .= (m ^. #passkeyHolders)
       ]
+
+instance FromJSON MoveManifest where
+  parseJSON = withObject "MoveManifest" $ \o ->
+    MoveManifest <$> o .: "oldBase" <*> o .: "newBase" <*> o .: "hosts" <*> o .: "oauthClients" <*> o .: "passkeyHolders"
 
 -- | What the accepted declarations say about hostnames.
 data HostFacts = HostFacts

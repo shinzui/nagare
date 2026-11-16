@@ -63,7 +63,8 @@ openMoveOf store = do
   observed <- readHead store
   pure (either (Left . T.pack . show) (Right . (>>= headMove)) observed)
 
--- | While a move is open, a review is admitted only when it is that move's step in progress.
+-- | While a move is open, a review is admitted only when it is that move's step in progress, and, while a
+-- base move carries its sites, the operator's own redeploys.
 moveAdmissionRefusal :: Maybe MoveMarker -> Text -> Maybe Text
 moveAdmissionRefusal Nothing identity = case parseMoveReviewIdentity identity of
   Just _ -> Just "this review belongs to a context move that is not open"
@@ -72,7 +73,10 @@ moveAdmissionRefusal (Just marker) identity = case parseMoveReviewIdentity ident
   Just (kind, step, _)
     | kind == moveKind marker && Just step == moveProgress marker ^. #inProgress -> Nothing
     | otherwise -> Just ("this review is for step " <> moveStepToken step <> ", but the open move " <> current)
-  Nothing -> Just ("a " <> moveKind marker <> " context move is open (" <> current <> "); continue it with context move apply or roll it back")
+  Nothing
+    -- EP-246 D5: carry-sites waits for the operator to redeploy each site from its config on the new base.
+    | moveKind marker == "base-domain" && moveProgress marker ^. #inProgress == Just CarrySites -> Nothing
+    | otherwise -> Just ("a " <> moveKind marker <> " context move is open (" <> current <> "); continue it with context move apply or roll it back")
   where
     current = maybe "has no step in progress" (("is at " <>) . moveStepToken) (moveProgress marker ^. #inProgress)
 

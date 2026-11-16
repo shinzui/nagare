@@ -9,6 +9,7 @@ import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, addUTCTime, nominalDay)
@@ -17,6 +18,7 @@ import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
+import Nagare.Context.MoveRoutes (carryGrantedRoutes)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
@@ -171,6 +173,20 @@ contextMoveChecksTests =
               ]
         map blocksMove changes @?= [False, True, True]
         hostChanges "example.com" (appScope [service "apps" "site"]) @?= [DefaultRenamed "site.apps.example.com" "site-apps.example.com"]
+    , testCase "a redeploy during a base move keeps each protected route a grant still names, and nothing else (EP-246 D5)" $ do
+        let host = ok . mkName
+            accepted = routeScope [("docs.old.example", True), ("public.old.example", False)]
+            redeployed = routeScope [("docs.new.example", True)]
+            hostsOf scope = sort [nameText h | b <- scopeBundles scope, RegisterBackend {host = h} <- b ^. #contributions]
+            mappingsOf scope = sort [nameText n | m <- members scope, Kubernetes _ _ k _ n <- [m ^. #address], nameText k == "domainmapping"]
+        carried <- either (assertFailure . T.unpack) pure (carryGrantedRoutes (Set.fromList [host "docs.old.example"]) (Just accepted) redeployed)
+        (hostsOf carried, mappingsOf carried) @?= (["docs.new.example", "docs.old.example"], ["docs.new.example", "docs.old.example"])
+        -- The carried route is the accepted one, byte for byte.
+        let oldRoute scope = [m | m <- members scope, m ^. #address == kube "domainmapping" (Just "apps") "docs.old.example"]
+        oldRoute carried @?= oldRoute accepted
+        carryGrantedRoutes Set.empty (Just accepted) redeployed @?= Right redeployed
+        carryGrantedRoutes (Set.fromList [host "docs.old.example"]) Nothing redeployed @?= Right redeployed
+        carryGrantedRoutes (Set.fromList [host "docs.new.example"]) (Just redeployed) redeployed @?= Right redeployed
     ]
 
 now :: UTCTime
@@ -277,3 +293,47 @@ kube :: Text -> Maybe Text -> Text -> ProviderAddress
 kube kind namespace name' = Kubernetes cluster "serving.knative.dev" (ok (mkName kind)) (ok . mkName <$> namespace) (ok (mkName name'))
   where
     cluster = ok (mkResourceId "platform:cluster/cluster/local")
+
+-- | An application scope with one DomainMapping per host and, for a protected host, its backend
+-- registration with the auth owner.
+routeScope :: [(Text, Bool)] -> ScopeDeclaration
+routeScope hosts =
+  ok
+    ( mkScopeDeclaration
+        owner
+        [ ResourceBundle
+            [Managed (mapping host')]
+            []
+            []
+            [ RegisterBackend
+                (ok (mkScopeId Platform "auth"))
+                (ok (mkResourceId "platform:cluster/cluster/local"))
+                (ok (mkName host'))
+                "http://docs.apps.svc.cluster.local"
+                ProtectedBackend
+                (ok (mkLogicalKey host'))
+                Nothing
+            | protected
+            ]
+            []
+            []
+        | (host', protected) <- hosts
+        ]
+    )
+  where
+    owner = ok (mkScopeId Application "apps")
+    mapping host' =
+      ManagedResource
+        { identity = ok (mkResourceId ("application:apps/" <> T.replace "." "-" host' <> "/domainmapping"))
+        , owner = owner
+        , executor = KubernetesExecutor
+        , address = kube "domainmapping" (Just "apps") host'
+        , aliases = [Hostname (ok (mkName host'))]
+        , spec = NativeObject (contentDigest (TE.encodeUtf8 host'))
+        , lifecycle = Retain
+        , dataPolicy = Stateless
+        , sensitivity = Private
+        , dependencies = []
+        , delegations = []
+        , source = SourceLocation "test" "route"
+        }

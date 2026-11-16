@@ -16,6 +16,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Access.Grants (accessTuple, teamAccessTuple, teamMemberTuple)
 import Nagare.Access.ShomeiUser (ShomeiUser (..))
+import Nagare.Context.BaseMove (HostKind (..), MovedHost (..))
+import Nagare.Context.MoveSites (siteProgress)
 import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Access
@@ -105,6 +107,19 @@ inventoryAccessTests =
           @?= [AccessGrantSpec "http://en.nagare-system.svc.cluster.local" False]
         -- The old record still binds, so status and review can observe it.
         Map.size (ok (accessBindings (inventoryDeclarations (ok (composeSnapshot withGrant))))) @?= 1
+    , testCase "carry-sites waits for a site's new route, then plans each grant on the new name once (EP-246 D5)" $ do
+        let moved old new' = MovedHost old new' DefaultHost True [aliceId] []
+            hosts = [moved "one.example.test" "two.example.test", moved "one.example.test" "three.example.test"]
+        progress <- either (assertFailure . T.unpack) pure (siteProgress snapshot hosts)
+        map (^. #newName) (progress ^. #unrouted) @?= ["three.example.test"]
+        [nameText host | scope <- progress ^. #grants, bundle <- scopeBundles scope, Managed r <- bundle ^. #declarations, AccessTuple _ host _ <- [r ^. #address]]
+          @?= ["two.example.test"]
+        let accepted = [(scopeId g, (generation, g)) | g <- progress ^. #grants]
+            carried = ok (mkScopeSnapshot context (Map.union (Map.fromList accepted) (snapshotScopes snapshot)) Map.empty)
+        either (assertFailure . T.unpack) (\p -> length (p ^. #grants) @?= 0) (siteProgress carried (take 1 hosts))
+        -- The old host's own grants are never part of what the move plans.
+        let oldGrant = ok (compileAccessScope snapshot "one.example.test" alice True)
+        assertBool "the move planned a grant on the old name" (scopeId oldGrant `notElem` map scopeId (progress ^. #grants))
     , testCase "the en forward port is read from kubectl's first forwarding line" $ do
         parseEnForwardPort "Forwarding from 127.0.0.1:53817 -> 8080\n" @?= Just "53817"
         parseEnForwardPort "Forwarding from [::1]:53817 -> 8080" @?= Nothing

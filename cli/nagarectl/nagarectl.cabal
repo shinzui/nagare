@@ -114,6 +114,8 @@ library
     Nagare.Context.MoveCommit
     Nagare.Context.MoveHosts
     Nagare.Context.MoveReview
+    Nagare.Context.MoveRoutes
+    Nagare.Context.MoveSites
     Nagare.Context.MoveStore
     Nagare.Context.Posture
     Nagare.Context.Review
@@ -532,9 +534,11 @@ executable nagarectl
     Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.Workflow
     Nagare.Cli.Move.BaseSteps
+    Nagare.Cli.Move.Carry
     Nagare.Cli.Move.Manifest
     Nagare.Cli.Move.Observe
     Nagare.Cli.Move.Passkeys
+    Nagare.Cli.Move.Sites
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase

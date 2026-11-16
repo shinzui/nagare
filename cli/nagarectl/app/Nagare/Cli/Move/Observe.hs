@@ -17,6 +17,7 @@ module Nagare.Cli.Move.Observe
   , observeConnectors
   , probeDirect
   , probeEdge
+  , probeEdgeHosts
   , moveProbeHost
   )
 where
@@ -183,8 +184,12 @@ probeDirect env throughDns = do
 -- the edge address 1.1.1.1 resolves, so no cache on this machine decides. 'Nothing' when public DNS
 -- still answers with the VM's address.
 probeEdge :: MoveEnv -> IO [(Text, Maybe Bool)]
-probeEdge env =
-  for [env ^. #base, moveProbeHost (env ^. #base)] $ \host -> do
+probeEdge env = probeEdgeHosts env [env ^. #base, moveProbeHost (env ^. #base)]
+
+-- | The same for the given hosts (EP-246: every new name).
+probeEdgeHosts :: MoveEnv -> [Text] -> IO [(Text, Maybe Bool)]
+probeEdgeHosts env hosts =
+  for hosts $ \host -> do
     addresses <- either (const []) (\records -> [r ^. #value | r <- records, r ^. #recordType == "A"]) <$> digRecords ["+noall", "+answer", "A", T.unpack host, "@1.1.1.1"]
     case addresses of
       _ | env ^. #publicIp `elem` addresses -> pure (host, Nothing)

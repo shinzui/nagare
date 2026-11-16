@@ -42,6 +42,7 @@ import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistry
   , inventoryPlanRegistryWithNative
   )
+import Nagare.Cli.Move.Carry (withMovedRoutes)
 import Nagare.Cli.Options
   ( SiteCommonOpts
   , SiteDeployOpts
@@ -424,11 +425,12 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent a
       (dieT . T.pack . show)
       pure
       (compile cdnBinding accessBinding buildSecrets envSecrets tlsSecrets cluster namespaceId imageId prior release source)
+  carriedScope <- withMovedRoutes active snapshot scope
   candidate <-
     either
       (dieT . T.pack . show)
       pure
-      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
   if options ^. #dryRun
     then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
     else case (adoption, output) of
@@ -643,11 +645,12 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
             release
             source
         )
+  carriedScope <- withMovedRoutes active snapshot scope
   candidate <-
     either
       (dieT . T.pack . show)
       pure
-      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
   Inventory.planInventoryCandidateWith
     (inventoryPlanRegistryWithNative active workspace native)
     active
@@ -750,11 +753,12 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
           dependencies
           source
       )
+  carriedScope <- withMovedRoutes active snapshot scope
   candidate <-
     either
       (dieT . T.pack . show)
       pure
-      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
   if options ^. #dryRun
     then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
     else case (options ^. #sitePreviewAdoptionInput, output) of
@@ -883,11 +887,12 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
           runtimeSecrets
           source
       )
+  carriedScope <- withMovedRoutes active snapshot scope
   candidate <-
     either
       (dieT . T.pack . show)
       pure
-      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
   if options ^. #dryRun
     then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
     else case (options ^. #sitePreviewAdoptionInput, output) of

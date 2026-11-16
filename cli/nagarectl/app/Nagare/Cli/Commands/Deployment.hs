@@ -40,6 +40,7 @@ import Nagare.Cli.Inventory.Execution
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistryWithNative
   )
+import Nagare.Cli.Move.Carry (withMovedRoutes)
 import Nagare.Cli.Options (DeployOpts)
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -341,11 +342,12 @@ runDeployPlan mctx options output = do
           )
           compiledScope
       )
+  carriedScope <- withMovedRoutes active snapshot scope
   candidate <-
     either
       (dieT . T.pack . show)
       pure
-      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
   forM_
     adoption
     ( validateInlineReleaseAdoption

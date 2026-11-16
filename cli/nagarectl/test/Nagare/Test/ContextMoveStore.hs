@@ -78,6 +78,13 @@ contextMoveStoreTests =
       assertBool "an ordinary review" (isJust (moveAdmissionRefusal (Just marker) "nagare-bootstrap:payload"))
       assertBool "a deploy during the window" (isJust (moveAdmissionRefusal (Just marker) "operator-cli"))
       assertBool "a deploy between steps" (isJust (moveAdmissionRefusal (Just (marker {moveProgress = newMove sameDomainSteps & #completed .~ 8})) "operator-cli"))
+      -- EP-246 D5: a base move admits the operator's redeploys only while it carries its sites.
+      let carrying = length (takeWhile (/= CarrySites) baseDomainSteps)
+          base step done = MoveMarker "base-domain" "t" "old.example" "new.example" True (newMove baseDomainSteps & #completed .~ done & #inProgress .~ step)
+      moveAdmissionRefusal (Just (base (Just CarrySites) carrying)) "operator-cli" @?= Nothing
+      assertBool "a redeploy before the sites step" (isJust (moveAdmissionRefusal (Just (base (Just FlipBase) (carrying - 2))) "operator-cli"))
+      assertBool "a redeploy between steps" (isJust (moveAdmissionRefusal (Just (base Nothing carrying)) "operator-cli"))
+      assertBool "another step's review while carrying" (isJust (moveAdmissionRefusal (Just (base (Just CarrySites) carrying)) (moveReviewIdentity "base-domain" FlipBase "p1")))
       parseMoveReviewIdentity (moveReviewIdentity "ingress" CloseFirewall "sha256:ab") @?= Just ("ingress", CloseFirewall, "sha256:ab")
       parseMoveReviewIdentity "nagare-move:ingress:close-firewall" @?= Nothing
   , testCase "the engine saving to the head stops, and a new process resumes from what the head says" $ do
