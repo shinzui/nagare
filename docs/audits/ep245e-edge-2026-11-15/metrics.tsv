@@ -1,0 +1,12 @@
+scrape	cloudflared operational
+rule	cloudflared-alerts operational
+policy ingress	[{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"monitoring"}}}],"ports":[{"port":2000,"protocol":"TCP"}]}]
+ha connections	[{"pod":"cloudflared-bc774459b-tj45c","v":"4"},{"pod":"cloudflared-bc774459b-528hx","v":"4"}]
+alert expression while healthy	0 series
+vmalert rule	[{"name":"CloudflareTunnelConnectionsLow","state":"inactive","health":"ok","lastError":""}]
+series cloudflared_tunnel_total_requests	2
+series cloudflared_tunnel_request_errors	2
+series cloudflared_tunnel_concurrent_requests_per_tunnel	2
+series quic_client_smoothed_rtt	8
+series process_resident_memory_bytes	2
+grafana dashboard	{"title":"Nagare Cloudflare Tunnel connector","panels":7}

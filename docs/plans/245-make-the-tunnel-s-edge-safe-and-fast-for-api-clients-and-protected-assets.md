@@ -52,7 +52,7 @@ each item stays open until its native observation in the one bounded run below, 
 - D8 docs: this commit's `docs/user/cloudflare-tunnel.md` and `choosing-ingress.md` sections and the ADR 34 and ADR 29 text;
   `just user-documentation-validate` passes. D7's numbers in ADR 34 are pending.
 
-- [ ] D1: The enforcer tightens the proxied `Cache-Control` instead of replacing it. It keeps the upstream's directives,
+- [x] D1 (`69e3f557`; native on `ep245e`, [`docs/audits/ep245e-edge-2026-11-15/`](../audits/ep245e-edge-2026-11-15/) `edge.tsv`: the admin API answered `private, no-cache, no-transform` and `304` to its `If-None-Match`; signed in, the hashed `.js` kept `max-age=31536000, immutable`, the `.pdf` kept `max-age=600`, and the path sending only `Cloudflare-CDN-Cache-Control` came back `private, no-store, no-transform` with the header stripped; every anonymous request answered `302` with `cf-cache-status: DYNAMIC`, never `HIT`): The enforcer tightens the proxied `Cache-Control` instead of replacing it. It keeps the upstream's directives,
   adds `private` and `no-transform`, removes `public` and `s-maxage`, and strips `CDN-Cache-Control`,
   `Cloudflare-CDN-Cache-Control` and `Surrogate-Control`, which Cloudflare reads in preference to `Cache-Control`. A
   response with no upstream `Cache-Control` gets `private, no-store, no-transform`, as today. `EdgeCacheControlSpec`
@@ -61,12 +61,12 @@ each item stays open until its native observation in the one bounded run below, 
   signed-in `If-None-Match` to `admin.<base>/v1/openapi.json` answers `304` through the edge; EP-242 D6's leak check is
   repeated with the new header on `.pdf` and `.js` and an anonymous request never sees `HIT`; a protected echo sending
   `Cloudflare-CDN-Cache-Control: max-age=600` answers `cf-cache-status: DYNAMIC` to the next anonymous request.
-- [ ] D2: The edge never challenges a non-browser client. The zone's edge policy declares `browser_check` off and
+- [x] D2 (`8bc481e9`; native, [`docs/audits/ep245e-edge-2026-11-15/`](../audits/ep245e-edge-2026-11-15/) `zone-settings.txt` and `edge.tsv`: `browser_check` `off` and `browser_cache_ttl` `0` set by the reviewed zone stage; a bearer request with no `User-Agent` answered `200` with no `cf-mitigated`; a signed, GitHub-shaped POST with no `User-Agent` reached the origin through the edge unchallenged, see the Decision Log): The edge never challenges a non-browser client. The zone's edge policy declares `browser_check` off and
   `browser_cache_ttl` as respect existing headers, with fake-adapter drift tests like the existing settings. `docs/user`
   says never to turn on Bot Fight Mode or Under Attack mode on the zone, because they challenge API clients and no rule can
   skip them, and the token cannot manage them. Natively: a request with no `User-Agent` and a bearer token to
   `admin.<base>/v1/openapi.json` answers `200` through the edge, and a signed webhook delivery to `nagared` is accepted.
-- [ ] D3: HSTS at the edge. The edge policy declares `security_header` with `Strict-Transport-Security` on, a six-month
+- [x] D3 (`8bc481e9`; native, [`docs/audits/ep245e-edge-2026-11-15/`](../audits/ep245e-edge-2026-11-15/): `security_header` as declared, and `Strict-Transport-Security: max-age=15552000; includeSubDomains` on the admin API, the protected site and the apex): HSTS at the edge. The edge policy declares `security_header` with `Strict-Transport-Security` on, a six-month
   `max-age`, `includeSubDomains` on, preload off and `nosniff` off. Drift tests cover a zone that turns it off. Natively,
   every response through the edge carries the header. `docs/user/choosing-ingress.md` states the consequence: once set,
   every name under the zone must serve HTTPS for six months, which is why the zone holds nothing but this installation.
@@ -79,7 +79,7 @@ each item stays open until its native observation in the one bounded run below, 
   `nagarectl doctor` issues its three Cloudflare reads at once. Fake-runner tests prove the order of rows is unchanged and
   that one slow probe does not delay the others. On a context with ten hostnames, `domains check` finishes in under the
   slowest probe's time plus two seconds, measured.
-- [ ] D6: The connector's metrics are scraped and alerted on. A `VMPodScrape` in `monitoring` reads port 2000 of the
+- [x] D6 (`78bfdf92`; native, [`docs/audits/ep245e-edge-2026-11-15/`](../audits/ep245e-edge-2026-11-15/) `metrics.tsv`: both connectors scraped with four HA connections each, `CloudflareTunnelConnectionsLow` loaded `ok` and inactive with its expression empty while healthy, every dashboard series present, the dashboard loaded with seven panels; the NetworkPolicy admits only `monitoring` on 2000): The connector's metrics are scraped and alerted on. A `VMPodScrape` in `monitoring` reads port 2000 of the
   `cloudflared` pods, the connector NetworkPolicy admits ingress on 2000 from the `monitoring` namespace only, and one
   alert fires when `cloudflared_tunnel_ha_connections` for any pod stays below four for five minutes. Grafana shows the
   connector's request count and latency.
@@ -96,6 +96,11 @@ each item stays open until its native observation in the one bounded run below, 
 
 
 ## Surprises & Discoveries
+
+- 2026-11-15, `ep245e`: every public site or app in a tunnel context refused at planning with "generated native member does not
+  match its typed declaration". EP-242 gives a public Knative Service its flattened-name alias, and the native member check rebuilt
+  the declaration from the object, which cannot spell the base domain. Earlier native runs deployed only protected sites. Fixed in
+  `52c25ecb` with an interpreter test; it blocked D5 and D7's public target until then.
 
 - 2026-11-15: cloudflared exposes no per-request origin latency (Cloudflare's metrics page lists `cloudflared_tunnel_total_requests`,
   `cloudflared_tunnel_request_errors`, `cloudflared_tunnel_concurrent_requests_per_tunnel`, `cloudflared_tunnel_ha_connections` and
@@ -117,6 +122,10 @@ each item stays open until its native observation in the one bounded run below, 
   `monitoring`. Rationale: VMAgent and VMAlert select every namespace (`selectAllByDefault`), the connector scope exists only in
   tunnel mode, and Grafana's sidecar reads only its own namespace. A new VMRule, not an edit of `nagare-alerts`, because a VMRule has
   no proved conditional update (EP-262, `206d0fb0`). Date: 2026-11-15
+
+- Decision: D2's webhook check sends a signed, GitHub-shaped POST with no `User-Agent` to `hooks.<base>` instead of a delivery
+  accepted by `nagared`. Rationale: `nagared` is operator setup outside bootstrap; what D2 proves is that the edge forwards such a
+  request unchallenged, which the POST shows (`server: cloudflare`, no `cf-mitigated`, the origin's `404`). Date: 2026-11-15
 
 - Decision: `doctor`'s tunnel reads take two round trips, not one: the connections and configuration reads overlap, after the read
   that finds the tunnel's ID they both need. Date: 2026-11-15

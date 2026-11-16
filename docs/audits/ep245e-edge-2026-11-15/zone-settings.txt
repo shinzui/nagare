@@ -1,0 +1,7 @@
+{"id":"browser_check","value":"off"}
+{"id":"browser_cache_ttl","value":0}
+{"id":"security_header","value":{"strict_transport_security":{"enabled":true,"max_age":15552000,"include_subdomains":true,"preload":false,"nosniff":false}}}
+{"id":"always_use_https","value":"on"}
+{"id":"min_tls_version","value":"1.2"}
+{"id":"ssl","value":"strict"}
+["CNAME *.topagentnetworklabs.com proxied=true","CNAME topagentnetworklabs.com proxied=true"]

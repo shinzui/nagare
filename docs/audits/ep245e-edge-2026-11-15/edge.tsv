@@ -1,0 +1,22 @@
+service account	svcacct_01m7gwjew4ert9zw3z7gezd69p
+D2 admin, bearer, no User-Agent	200
+D2 no cf-mitigated	
+D2 server	cloudflare
+D2 signed POST with no User-Agent to hooks.topagentnetworklabs.com	404, cf-mitigated=[], server=[cloudflare]
+D3 HSTS https://admin.topagentnetworklabs.com/v1/openapi.json	max-age=15552000; includeSubDomains
+D3 HSTS https://staging.topagentnetworklabs.com/	max-age=15552000; includeSubDomains
+D3 HSTS https://topagentnetworklabs.com/	max-age=15552000; includeSubDomains
+D1 admin 200	200
+D1 admin Cache-Control	private, no-cache, no-transform
+D1 admin Cache-Control shape	private, no-cache, no-transform
+D1 admin 304 on If-None-Match	304
+D1 signed-in /assets/app.3f9a1c.js	private, max-age=31536000, immutable, no-transform | cf-cache-status=DYNAMIC | cdn-override=[]
+D1 anonymous /assets/app.3f9a1c.js	302, cf-cache-status=DYNAMIC
+D1 signed-in /report.pdf	private, max-age=600, no-transform | cf-cache-status=DYNAMIC | cdn-override=[]
+D1 anonymous /report.pdf	302, cf-cache-status=DYNAMIC
+D1 signed-in /cdn/probe.txt	private, no-store, no-transform | cf-cache-status=DYNAMIC | cdn-override=[]
+D1 anonymous /cdn/probe.txt	302, cf-cache-status=DYNAMIC
+D1 hashed asset keeps immutable	private, max-age=31536000, immutable, no-transform
+D1 CDN-override path falls back	private, no-store, no-transform
+D4 enforcer line	{"host":"admin.topagentnetworklabs.com","path":"/v1/openapi.json","status":200,"cf_ray":"a5b26e15dd0b1172-LAX","has_ip":true}
+D4 admin API line	{"path":"/v1/openapi.json","status":200,"cf_ray":"a5b26e15dd0b1172-LAX","has_ip":true}
