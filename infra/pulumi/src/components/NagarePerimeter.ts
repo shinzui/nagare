@@ -179,9 +179,10 @@ export class NagarePerimeter extends pulumi.ComponentResource {
 
         // Cloud DNS managed zone for the apps domain (IP-4). dnsName must
         // be a fully-qualified domain with a trailing dot.
-        // EP-243 D2: a moved context keeps its zone under the name it was created with.
+        // EP-243 D2, EP-246 D2: a moved context keeps its zone under the name it was created with, whatever
+        // its base domain is now.
         const keepDns = !args.tunnel || !!args.retainedDnsName;
-        const dnsName = args.tunnel && args.retainedDnsName ? `${args.retainedDnsName}.` : `${args.baseDomain}.`;
+        const dnsName = args.retainedDnsName ? `${args.retainedDnsName}.` : `${args.baseDomain}.`;
         const dnsZone = (keepDns && shouldDeclareResource("gcp:dns/managedZone:ManagedZone", `${name}-zone`)) ? new gcp.dns.ManagedZone(`${name}-zone`, {
             dnsName,
             description: "Nagare apps wildcard zone",

@@ -261,16 +261,22 @@ initTests =
         -- EP-243 D2: only a moved tunnel context projects its retained Cloud DNS name.
         lookup "nagare:retainedDnsName" (seedKeys tunnel) @?= Just ""
         lookup "nagare:retainedDnsName" (seedKeys (tunnel & #retainedDnsName .~ "apps.example.com")) @?= Just "apps.example.com"
-        lookup "nagare:retainedDnsName" (seedKeys (initProfile & #retainedDnsName .~ "apps.example.com")) @?= Nothing
+        -- A direct context projects it only while a base move's flip has changed its base (EP-246 D2).
+        lookup "nagare:retainedDnsName" (seedKeys (initProfile & #retainedDnsName .~ (initProfile ^. #baseDomain))) @?= Nothing
         -- During a move the firewall keys appear only once its perimeter closes.
-        let movingSeed rules = seedKeysFor initProfile (directPosture & #webRules .~ rules) "apps.example.com"
+        let base = initProfile ^. #baseDomain
+            movingSeed rules = seedKeysFor initProfile (directPosture & #webRules .~ rules) base
             keys rules = (lookup "nagare:ingress" (movingSeed rules), lookup "nagare:retainedDnsName" (movingSeed rules), lookup "nagare:webRulesDisabled" (movingSeed rules))
         keys WebRulesOpen @?= (Nothing, Nothing, Nothing)
         keys WebRulesDisabled @?= (Nothing, Nothing, Just "true")
-        keys WebRulesAbsent @?= (Just "cloudflare-tunnel", Just "apps.example.com", Nothing)
+        keys WebRulesAbsent @?= (Just "cloudflare-tunnel", Just base, Nothing)
         -- Undoing the firewall step inside a move writes false: seeding never removes a key.
-        lookup "nagare:webRulesDisabled" (seedKeysFor initProfile (directPosture & #zoneRecords .~ Just TunnelRecords) "apps.example.com")
+        lookup "nagare:webRulesDisabled" (seedKeysFor initProfile (directPosture & #zoneRecords .~ Just TunnelRecords) base)
           @?= Just "false"
+        -- EP-246 D2: a move to a new base keeps the zone's old name from its flip, while still direct.
+        let flipped = initProfile & #baseDomain .~ "new.example.org"
+        lookup "nagare:retainedDnsName" (seedKeysFor flipped (directPosture & #flatHosts .~ True) "apps.example.com") @?= Just "apps.example.com"
+        lookup "nagare:baseDomain" (seedKeysFor flipped directPosture "apps.example.com") @?= Just "new.example.org"
         let moved = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_INGRESS=cloudflare-tunnel\nexport NAGARE_RETAINED_DNS_NAME=apps.example.com\n")
         moved ^. #retainedDnsName @?= "apps.example.com"
     , testCase "nix cache is cloud-only and round-trips when enabled" $ do

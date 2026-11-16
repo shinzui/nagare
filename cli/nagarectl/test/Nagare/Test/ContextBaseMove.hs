@@ -11,9 +11,14 @@ import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Text qualified as T
 import Nagare.Access.ShomeiMove (parseOAuthClients, parsePasskeyHolders)
+import Nagare.Context.BaseFlip
 import Nagare.Context.BaseMove
+import Nagare.Context.Move
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.Manifest (MoveMarker (..))
 import Nagare.Resource.Inventory (BackendRole (..))
+import Nagare.Target (IngressMode (..))
+import Nagare.Test.Support.Profiles (initProfile)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -118,9 +123,34 @@ contextBaseMoveTests =
         fmap (map (\p -> (p ^. #email, p ^. #passkeys, p ^. #hasTotp, "user_" `T.isPrefixOf` (p ^. #userId)))) (parsePasskeyHolders rows)
           @?= Right [("a@example.com", 2, True, True)]
         isLeft (parsePasskeyHolders "[{\"userId\":\"not-a-uuid\",\"email\":\"a@example.com\",\"passkeys\":1,\"totp\":false}]") @?= True
+    , testCase "the flip changes the base, ingress and origin TLS together, keeps the old zone name, and undoing it restores all four (D2)" $ do
+        let marker = baseMarker 0 Nothing
+            before = initProfile & #baseDomain .~ old & #externalDomainTlsEnabled .~ True
+            after = flippedProfile marker before
+        (after ^. #baseDomain, after ^. #ingress, after ^. #externalDomainTlsEnabled, after ^. #retainedDnsName)
+          @?= (new, IngressCloudflareTunnel, False, old)
+        profileFlipped marker after @?= True
+        profileFlipped marker before @?= False
+        restoredProfile marker after @?= before
+    , testCase "while a base move is open the shell may name only the base the journal expects (D2)" $ do
+        let flipIndex = length (takeWhile (/= FlipBase) baseDomainSteps)
+            beforeFlip = baseMarker 1 Nothing
+            flipping = baseMarker flipIndex (Just FlipBase)
+            afterFlip = baseMarker (flipIndex + 1) Nothing
+        baseEnvironmentRefusal beforeFlip (Just old) @?= Nothing
+        isJust (baseEnvironmentRefusal beforeFlip (Just new)) @?= True
+        map (baseEnvironmentRefusal flipping . Just) [old, new] @?= [Nothing, Nothing]
+        isJust (baseEnvironmentRefusal afterFlip (Just old)) @?= True
+        baseEnvironmentRefusal afterFlip (Just (new <> ".")) @?= Nothing
+        baseEnvironmentRefusal afterFlip Nothing @?= Nothing
+        baseEnvironmentRefusal (afterFlip {moveKind = "ingress"}) (Just old) @?= Nothing
     ]
 
 refusedNaming :: Text -> HostFacts -> IO ()
 refusedNaming host facts = case movedHosts old new facts of
   Left reasons -> assertBool (show reasons) (any (host `T.isInfixOf`) reasons)
   Right _ -> assertFailure ("accepted " <> T.unpack host)
+
+baseMarker :: Int -> Maybe MoveStep -> MoveMarker
+baseMarker done step =
+  MoveMarker baseMoveKind "t" old new True (newMove baseDomainSteps & #completed .~ done & #inProgress .~ step)

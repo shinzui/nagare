@@ -49,8 +49,10 @@ const delegatedDeployersCfg = parseDelegatedDeployers(cfg.get("delegatedDeployer
 const manageProjectApisCfg = cfg.getBoolean("manageProjectApis") ?? true;
 // ADR 34: absent on a direct context, so its preview is unchanged.
 const tunnelCfg = cfg.get("ingress") === "cloudflare-tunnel";
-// EP-243 D2: set only on a context moved from direct ingress, so its Cloud DNS zone is retained.
-const retainedDnsNameCfg = tunnelCfg ? cfg.get("retainedDnsName") : undefined;
+// EP-243 D2: set on a context moved from direct ingress, so its Cloud DNS zone is retained. EP-246 D2: a
+// move to a new base domain sets it from its flip, while the context is still direct, so the zone keeps
+// the old name. Empty is absent.
+const retainedDnsNameCfg = cfg.get("retainedDnsName") || undefined;
 // EP-243: set only while a move has disabled the web rules; absent, the rules are unchanged.
 const webRulesDisabledCfg = cfg.getBoolean("webRulesDisabled") ?? false;
 

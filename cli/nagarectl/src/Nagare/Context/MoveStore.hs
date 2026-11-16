@@ -20,15 +20,15 @@ import Nagare.Inventory.Store.Manifest (MoveMarker (..), parseMoveReviewIdentity
 
 -- | Open a move on an idle head, or return the one already open when it is the same kind, so a
 -- second @move apply@ resumes it.
-openMove :: InventoryStore -> Text -> Text -> Text -> [MoveStep] -> IO (Either Text MoveMarker)
-openMove store kind startedAt retained list = underLock store $ \current -> case headMove current of
+openMove :: InventoryStore -> Text -> Text -> Text -> Text -> Bool -> [MoveStep] -> IO (Either Text MoveMarker)
+openMove store kind startedAt retained target originTls list = underLock store $ \current -> case headMove current of
   Just marker
     | moveKind marker == kind -> Right (Left marker)
     | otherwise -> Left ("a " <> moveKind marker <> " move is already open; finish or roll it back first")
   Nothing -> case busy current of
     Just reason -> Left reason
     Nothing ->
-      let marker = MoveMarker {moveKind = kind, moveStartedAt = startedAt, moveRetainedDnsName = retained, moveProgress = newMove list}
+      let marker = MoveMarker {moveKind = kind, moveStartedAt = startedAt, moveRetainedDnsName = retained, moveTargetBase = target, moveOriginTls = originTls, moveProgress = newMove list}
        in Right (Right (marker, bumped current {headMove = Just marker}))
 
 -- | Record a step's intent or completion. Steps run their reviews between two of these writes, so

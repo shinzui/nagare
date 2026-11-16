@@ -38,13 +38,16 @@ data IngressPosture = IngressPosture
   , webRules :: !WebRules
   -- ^ The internet-facing firewall rules.
   , kourierClosed :: !Bool
-  -- ^ @kourier@ is @ClusterIP@ and no DNS-01 issuer is installed.
+  -- ^ @kourier@ is @ClusterIP@.
+  , originIssuer :: !Bool
+  -- ^ The DNS-01 issuer is installed. A same-domain move drops it when @kourier@ closes; a move to a new
+  -- base drops it at the flip, because Cloud DNS is not authoritative for the new base.
   }
   deriving stock (Eq, Show, Generic)
 
 directPosture, tunnelPosture :: IngressPosture
-directPosture = IngressPosture Nothing False False WebRulesOpen False
-tunnelPosture = IngressPosture (Just TunnelRecords) True True WebRulesAbsent True
+directPosture = IngressPosture Nothing False False WebRulesOpen False True
+tunnelPosture = IngressPosture (Just TunnelRecords) True True WebRulesAbsent True False
 
 -- | The steps whose effect the next plan must hold: the completed ones, plus a step being planned
 -- forward, minus a step being undone.
@@ -73,5 +76,7 @@ postureFor ingress = \case
       SwitchRecords -> posture & #zoneRecords .~ Just TunnelRecords
       CloseFirewall -> posture & #webRules .~ WebRulesDisabled
       CommitMove -> posture & #webRules .~ WebRulesAbsent
-      CloseKourier -> posture & #kourierClosed .~ True
+      CloseKourier -> posture & #kourierClosed .~ True & #originIssuer .~ False
+      CreateZone -> posture & #zoneRecords .~ Just TunnelRecords
+      FlipBase -> posture & #flatHosts .~ True & #originIssuer .~ False
       _ -> posture

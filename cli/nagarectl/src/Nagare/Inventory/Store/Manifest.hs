@@ -127,6 +127,10 @@ data MoveMarker = MoveMarker
   { moveKind :: !Text
   , moveStartedAt :: !Text
   , moveRetainedDnsName :: !Text
+  , moveTargetBase :: !Text
+  -- ^ The base domain the move ends on: the same one for an ingress move, the new one for EP-246's.
+  , moveOriginTls :: !Bool
+  -- ^ @NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED@ when the move opened, which undoing EP-246's flip restores.
   , moveProgress :: !MoveRecord
   }
   deriving stock (Eq, Show, Generic)
@@ -243,13 +247,15 @@ instance ToJSON MoveMarker where
       [ "kind" .= moveKind marker
       , "startedAt" .= moveStartedAt marker
       , "retainedDnsName" .= moveRetainedDnsName marker
+      , "targetBase" .= moveTargetBase marker
+      , "originTls" .= moveOriginTls marker
       , "progress" .= moveProgress marker
       ]
 
 instance FromJSON MoveMarker where
   parseJSON = withObject "MoveMarker" $ \o -> do
-    unless (all (`elem` ["kind", "startedAt", "retainedDnsName", "progress"]) (KM.keys o)) (fail "move marker has an unknown field")
-    MoveMarker <$> o .: "kind" <*> o .: "startedAt" <*> o .: "retainedDnsName" <*> o .: "progress"
+    unless (all (`elem` ["kind", "startedAt", "retainedDnsName", "targetBase", "originTls", "progress"]) (KM.keys o)) (fail "move marker has an unknown field")
+    MoveMarker <$> o .: "kind" <*> o .: "startedAt" <*> o .: "retainedDnsName" <*> o .: "targetBase" <*> o .: "originTls" <*> o .: "progress"
 
 instance ToJSON RetainedIncarnation where
   toJSON retained =

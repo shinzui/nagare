@@ -405,7 +405,11 @@ seedKeysFor tp posture retained =
     <> [("nagare:webRulesDisabled", "false") | posture ^. #webRules == WebRulesOpen, isJust (posture ^. #zoneRecords)]
     -- EP-243 D2: a context moved onto the tunnel keeps its Cloud DNS zone while the name is set. A tunnel
     -- context always seeds it, empty once `context move retire-dns` has cleared it, for the same reason.
-    <> [("nagare:retainedDnsName", retained) | posture ^. #webRules == WebRulesAbsent]
+    -- EP-246 D2: from a move's flip to a new base, while the context is still direct, the zone keeps the old
+    -- name too. Undoing the flip restores the base, and the key left behind then names the base itself.
+    <> [ ("nagare:retainedDnsName", retained)
+       | posture ^. #webRules == WebRulesAbsent || (not (T.null retained) && retained /= tp ^. #baseDomain)
+       ]
     -- An inventory context keeps its apex on the VM: the CDN is created as
     -- reviewed cloud members first, and application hostnames opt into it with
     -- --cdn-backend-resource. Absent keys keep older stacks unchanged (F43).

@@ -713,13 +713,17 @@ inventoryUpstreamTests =
         assertBool "the tunnel gateway has no node exposure" (any (Set.member kourierAddress . upstreamClusterIpServices) tunnel)
         -- EP-243: a move flattens names and closes kourier at different steps, and keeps the issuer until kourier closes.
         let flatOnly = postureUpstreamInputs (directPosture & #flatHosts .~ True) scopes
-            closedOnly = postureUpstreamInputs (directPosture & #kourierClosed .~ True) scopes
+            closedOnly = postureUpstreamInputs (directPosture & #kourierClosed .~ True & #originIssuer .~ False) scopes
+            -- EP-246: a move to a new base drops the issuer at its flip, with kourier still a LoadBalancer.
+            flipped = postureUpstreamInputs (directPosture & #flatHosts .~ True & #originIssuer .~ False) scopes
         let unchanged = postureUpstreamInputs directPosture scopes
         (map upstreamOwner unchanged, templates unchanged, concatMap (Set.toList . upstreamClusterIpServices) unchanged) @?= (map upstreamOwner scopes, templates scopes, concatMap (Set.toList . upstreamClusterIpServices) scopes)
         (templates flatOnly, issuerOwner `elem` map upstreamOwner flatOnly) @?= ([Just tunnelDomainTemplate], True)
         assertBool "flat names alone closed kourier" (all (Set.notMember kourierAddress . upstreamClusterIpServices) flatOnly)
         (templates closedOnly, issuerOwner `elem` map upstreamOwner closedOnly) @?= ([], False)
         assertBool "a closed kourier kept its node exposure" (any (Set.member kourierAddress . upstreamClusterIpServices) closedOnly)
+        (templates flipped, issuerOwner `elem` map upstreamOwner flipped) @?= ([Just tunnelDomainTemplate], False)
+        assertBool "the flip closed kourier" (all (Set.notMember kourierAddress . upstreamClusterIpServices) flipped)
         Map.size cloudTlsNative @?= Map.size cloudNative
         let networkAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
             networkData native =

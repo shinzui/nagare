@@ -94,7 +94,7 @@ start active = do
     StepRefused reason -> dieT reason
   store <- withStore active
   now <- T.pack . iso8601Show <$> getCurrentTime
-  marker <- openMove store ingressMove now (profile ^. #baseDomain) sameDomainSteps >>= either dieT pure
+  marker <- openMove store ingressMove now (profile ^. #baseDomain) (profile ^. #baseDomain) (profile ^. #externalDomainTlsEnabled) sameDomainSteps >>= either dieT pure
   TIO.putStrLn ("Opened a move of " <> profile ^. #baseDomain <> " onto the Cloudflare Tunnel, started " <> moveStartedAt marker <> ".")
   TIO.putStrLn "While it is open, only the move's own reviews are admitted: deploys wait until it finishes or rolls back."
   TIO.putStrLn "Run `nagarectl context move apply --yes` to run its steps; it stops whenever you have something to do."

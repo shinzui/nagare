@@ -7,7 +7,45 @@ interface RecordedResource {
     inputs: Record<string, unknown>;
 }
 
+async function recordNames(baseDomain: string, retainedDnsName?: string): Promise<{ zone: unknown; records: unknown[]; rules: string[] }> {
+    const resources: RecordedResource[] = [];
+    await pulumi.runtime.setMocks({
+        newResource: (args: pulumi.runtime.MockResourceArgs) => {
+            resources.push({ type: args.type, name: args.name, inputs: args.inputs });
+            return { id: `${args.name}-id`, state: { ...args.inputs, name: args.inputs.name ?? args.name, address: "203.0.113.10" } };
+        },
+        call: (args: pulumi.runtime.MockCallArgs) => args.inputs,
+    }, "nagare", "test", true);
+    new NagarePerimeter("nagare", {
+        gcpProject: "example-project", region: "us-west1", zone: "us-west1-a", instanceName: "nagare-01",
+        machineType: "e2-standard-2", dataDiskSizeGb: 100, baseDomain, retainedDnsName, artifactRegistryId: "nagare", serviceAccountId: "ep150-node",
+        backupBucketName: "example-project-nagare-backups", imageBucketName: "example-project-nagare-images",
+        enableCdn: false, cdnCertificateMode: "legacy", vmDeletionProtection: true, bootDiskSizeGb: 100, bootDiskType: "pd-balanced",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await pulumi.runtime.disconnect();
+    return {
+        zone: resources.find((r) => r.type === "gcp:dns/managedZone:ManagedZone")?.inputs.dnsName,
+        records: resources.filter((r) => r.type === "gcp:dns/recordSet:RecordSet").map((r) => r.inputs.name).sort(),
+        rules: resources.filter((r) => r.type === "gcp:compute/firewall:Firewall").map((r) => r.name).sort(),
+    };
+}
+
+// EP-246 D2: once a move to a new base domain has flipped the profile, the zone, its records and every
+// firewall rule keep their old values, so a preview with the new base replaces and deletes nothing.
+async function retainedAcrossBaseChange(): Promise<void> {
+    const before = await recordNames("apps.example.test");
+    const after = await recordNames("new.example.org", "apps.example.test");
+    if (after.zone !== "apps.example.test." || JSON.stringify(after.records) !== JSON.stringify(["*.apps.example.test.", "apps.example.test."]) || after.rules.length !== 4) {
+        throw new Error(`the retained zone lost its old name, records or rules: ${JSON.stringify(after)}`);
+    }
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+        throw new Error(`a base domain change with a retained zone changed the DNS set or the rules: ${JSON.stringify({ before, after })}`);
+    }
+}
+
 async function main(): Promise<void> {
+    await retainedAcrossBaseChange();
     const resources: RecordedResource[] = [];
     await pulumi.runtime.setMocks({
         newResource: (args: pulumi.runtime.MockResourceArgs) => {

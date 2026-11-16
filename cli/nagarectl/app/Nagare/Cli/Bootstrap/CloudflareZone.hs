@@ -38,11 +38,11 @@ buildCloudflareZoneStageCandidate current active workspace snapshot =
       address <-
         stackOutput (workspace ^. #pulumiDir) "publicIp"
           >>= maybe (dieT "a context move mirrors Cloud DNS to the VM, but the stack has no publicIp output") pure
-      zoneStage active snapshot (Just address)
-    Just TunnelRecords -> zoneStage active snapshot Nothing
+      zoneStage active (current ^. #zoneBase) snapshot (Just address)
+    Just TunnelRecords -> zoneStage active (current ^. #zoneBase) snapshot Nothing
 
-zoneStage :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Maybe Text -> IO (Maybe ResourceInventory.CompositionCandidate)
-zoneStage active snapshot mirror = do
+zoneStage :: ActiveTarget -> Text -> ResourceInventory.ScopeSnapshot -> Maybe Text -> IO (Maybe ResourceInventory.CompositionCandidate)
+zoneStage active base snapshot mirror = do
   rawZone <-
     lookupEnv "CF_ZONE_ID"
       >>= maybe (dieT "a tunnel context requires CF_ZONE_ID, CF_ACCOUNT_ID and CF_API_TOKEN in the operator's environment") pure
@@ -54,7 +54,7 @@ zoneStage active snapshot mirror = do
       ( compileCloudflareZone
           CloudflareZoneInput
             { zone = zone
-            , baseDomain = active ^. #profile . #baseDomain
+            , baseDomain = base
             , context = contextNameText (active ^. #contextName)
             , mirrorAddress = mirror
             }

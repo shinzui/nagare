@@ -17,6 +17,7 @@ module Nagare.Context.Move
   , MoveOps (..)
   , MoveResult (..)
   , sameDomainSteps
+  , baseDomainSteps
   , hasInverse
   , newMove
   , runMove
@@ -63,11 +64,53 @@ data MoveStep
     CloseKourier
   | -- | The profile records the tunnel and the retained Cloud DNS name; the move closes.
     CommitMove
+  | -- | EP-246: the new base's Cloudflare zone, its tunnel and proxied records; old names still serve.
+    CreateZone
+  | -- | EP-246 D2, D3: the profile takes the new base, ingress and origin TLS together, and the platform
+    -- follows; the sign-in outage starts here. Cloud DNS keeps the old name.
+    FlipBase
+  | -- | EP-246 D4: passkeys bound to the old domain are exported, then removed.
+    RemovePasskeys
+  | -- | EP-246 D5: every site answers on its new name with its grants, old routes and grants kept.
+    CarrySites
+  | -- | EP-246: the new names serve and every listed subject still gets in; the outage ends.
+    VerifySites
   deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
 
 -- | EP-243's move on the same base domain, in the order of its D3.
 sameDomainSteps :: [MoveStep]
-sameDomainSteps = [minBound .. maxBound]
+sameDomainSteps =
+  [ CheckPreconditions
+  , MirrorZone
+  , AwaitNameServers
+  , EnableDnssec
+  , ConfirmDirect
+  , StartConnector
+  , CarryHostnames
+  , SwitchRecords
+  , VerifyTunnel
+  , AwaitOldTtl
+  , CloseFirewall
+  , CloseKourier
+  , CommitMove
+  ]
+
+-- | EP-246's move to a new base domain on a zone that is already active: no name server change, no
+-- DNS-only mirror and no old TTL to outlast, so the zone and connector come first, then one cutover.
+baseDomainSteps :: [MoveStep]
+baseDomainSteps =
+  [ CheckPreconditions
+  , CreateZone
+  , EnableDnssec
+  , StartConnector
+  , FlipBase
+  , RemovePasskeys
+  , CarrySites
+  , VerifySites
+  , CloseFirewall
+  , CloseKourier
+  , CommitMove
+  ]
 
 -- | Steps that change something have an inverse; observation and waiting steps do not, and
 -- 'CommitMove' closes the move, after which rollback is a new move.
@@ -80,6 +123,10 @@ hasInverse = \case
   SwitchRecords -> True
   CloseFirewall -> True
   CloseKourier -> True
+  CreateZone -> True
+  FlipBase -> True
+  RemovePasskeys -> True
+  CarrySites -> True
   _ -> False
 
 data MoveDirection = MovingForward | RollingBack
@@ -189,6 +236,11 @@ moveStepToken = \case
   CloseFirewall -> "close-firewall"
   CloseKourier -> "close-kourier"
   CommitMove -> "commit-move"
+  CreateZone -> "create-zone"
+  FlipBase -> "flip-base"
+  RemovePasskeys -> "remove-passkeys"
+  CarrySites -> "carry-sites"
+  VerifySites -> "verify-sites"
 
 parseMoveStep :: Text -> Maybe MoveStep
 parseMoveStep token = lookup token [(moveStepToken step, step) | step <- [minBound .. maxBound]]

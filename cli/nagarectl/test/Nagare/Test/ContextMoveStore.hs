@@ -20,23 +20,23 @@ contextMoveStoreTests :: [TestTree]
 contextMoveStoreTests =
   [ testCase "a move opens on an idle head, reopens as itself, and refuses another kind" $ do
       store <- fixtureStore
-      opened <- openMove store "ingress" "2026-11-16T00:00:00Z" "apps.example.com" sameDomainSteps >>= expectRight
+      opened <- openMove store "ingress" "2026-11-16T00:00:00Z" "apps.example.com" "apps.example.com" False sameDomainSteps >>= expectRight
       moveProgress opened @?= newMove sameDomainSteps
-      again <- openMove store "ingress" "2026-11-17T00:00:00Z" "other.example.com" sameDomainSteps >>= expectRight
+      again <- openMove store "ingress" "2026-11-17T00:00:00Z" "other.example.com" "other.example.com" False sameDomainSteps >>= expectRight
       again @?= opened
-      refused <- openMove store "base-domain" "2026-11-17T00:00:00Z" "" sameDomainSteps
+      refused <- openMove store "base-domain" "2026-11-17T00:00:00Z" "" "" False sameDomainSteps
       assertRefusedWith "already open" refused
   , testCase "a move does not open beside an active transaction or a release transition" $ do
       active <- fixtureStore
       adjustHead active (\h -> h {headActiveTransaction = Just "tx-elsewhere"})
-      openMove active "ingress" "t" "" sameDomainSteps >>= assertRefusedWith "tx-elsewhere"
+      openMove active "ingress" "t" "" "" False sameDomainSteps >>= assertRefusedWith "tx-elsewhere"
       transition <- fixtureStore
       adjustHead transition (\h -> h {headTransition = Just (TransitionMarker "0.4.0" "payload-t" "t" Nothing)})
-      openMove transition "ingress" "t" "" sameDomainSteps >>= assertRefusedWith "release transition"
+      openMove transition "ingress" "t" "" "" False sameDomainSteps >>= assertRefusedWith "release transition"
   , testCase "progress saves on an idle head, refuses another step list, and is read back" $ do
       store <- fixtureStore
       saveMoveProgress store (newMove sameDomainSteps) >>= assertRefusedWith "no context move"
-      _ <- openMove store "ingress" "t" "" sameDomainSteps >>= expectRight
+      _ <- openMove store "ingress" "t" "" "" False sameDomainSteps >>= expectRight
       let started = newMove sameDomainSteps & #completed .~ 1 & #inProgress .~ Just MirrorZone
       saveMoveProgress store started >>= expectRight
       saveMoveProgress store started >>= expectRight
@@ -46,19 +46,19 @@ contextMoveStoreTests =
       saveMoveProgress store (started & #inProgress .~ Nothing & #completed .~ 2) >>= assertRefusedWith "tx-step"
   , testCase "a move closes only when every step finished or every completed step rolled back" $ do
       store <- fixtureStore
-      _ <- openMove store "ingress" "t" "" sameDomainSteps >>= expectRight
+      _ <- openMove store "ingress" "t" "" "" False sameDomainSteps >>= expectRight
       saveMoveProgress store (newMove sameDomainSteps & #completed .~ 4) >>= expectRight
       closeMove store >>= assertRefusedWith "confirm-direct"
       saveMoveProgress store (newMove sameDomainSteps & #completed .~ length sameDomainSteps) >>= expectRight
       _ <- closeMove store >>= expectRight
       openMoveOf store >>= (@?= Right Nothing)
-      _ <- openMove store "ingress" "t" "" sameDomainSteps >>= expectRight
+      _ <- openMove store "ingress" "t" "" "" False sameDomainSteps >>= expectRight
       saveMoveProgress store (newMove sameDomainSteps & #direction .~ RollingBack) >>= expectRight
       _ <- closeMove store >>= expectRight
       openMoveOf store >>= (@?= Right Nothing)
   , testCase "the marker round-trips, and a head refuses a move beside a transition and an unknown field" $ do
       store <- fixtureStore
-      marker <- openMove store "ingress" "t" "apps.example.com" sameDomainSteps >>= expectRight
+      marker <- openMove store "ingress" "t" "apps.example.com" "apps.example.com" False sameDomainSteps >>= expectRight
       eitherDecode (encode marker) @?= Right marker
       headValue <- readHead store >>= either (fail . show) pure >>= maybe (fail "no head") pure
       eitherDecode (encode headValue) @?= Right headValue
@@ -69,7 +69,7 @@ contextMoveStoreTests =
       assertBool "a step in progress out of order decoded" (isLeftOf (eitherDecode @MoveRecord (encode (newMove sameDomainSteps & #completed .~ 2 & #inProgress .~ Just SwitchRecords))))
       eitherDecode progress @?= Right (newMove sameDomainSteps)
   , testCase "while a move is open only its step in progress is admitted, so nothing deploys in the window (D4)" $ do
-      let marker = MoveMarker "ingress" "t" "" (newMove sameDomainSteps & #completed .~ 1 & #inProgress .~ Just MirrorZone)
+      let marker = MoveMarker "ingress" "t" "" "" False (newMove sameDomainSteps & #completed .~ 1 & #inProgress .~ Just MirrorZone)
       moveAdmissionRefusal Nothing "nagare-bootstrap:payload" @?= Nothing
       assertBool "a move review without a move" (isJust (moveAdmissionRefusal Nothing (moveReviewIdentity "ingress" MirrorZone "p1")))
       moveAdmissionRefusal (Just marker) (moveReviewIdentity "ingress" MirrorZone "p1") @?= Nothing
@@ -82,7 +82,7 @@ contextMoveStoreTests =
       parseMoveReviewIdentity "nagare-move:ingress:close-firewall" @?= Nothing
   , testCase "the engine saving to the head stops, and a new process resumes from what the head says" $ do
       store <- fixtureStore
-      marker <- openMove store "ingress" "t" "" sameDomainSteps >>= expectRight
+      marker <- openMove store "ingress" "t" "" "" False sameDomainSteps >>= expectRight
       let stopAt target = MoveOps {performStep = \_ step -> pure (if step == target then StepWaiting "operator" else StepCompleted), saveMove = \r -> saveMoveProgress store r >>= either (fail . T.unpack) pure}
       (first', _) <- runMove (stopAt AwaitNameServers) (moveProgress marker)
       first' @?= MoveStopped AwaitNameServers (StepWaiting "operator")

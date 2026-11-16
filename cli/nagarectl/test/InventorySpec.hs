@@ -69,7 +69,7 @@ inventoryTests =
         hasSubstantiveHistory (emptyHead {headActiveTransaction = Just "tx"}) @?= True
         hasSubstantiveHistory (emptyHead {headExecutorClaim = Just (ExecutorClaim "tx" "client" 0 "time")}) @?= True
         hasSubstantiveHistory (emptyHead {headMigration = Just (MigrationTombstone "other-store" (contentDigest "head"))}) @?= True
-        hasSubstantiveHistory (emptyHead {headMove = Just (MoveMarker "ingress" "t" "" (newMove sameDomainSteps))}) @?= True
+        hasSubstantiveHistory (emptyHead {headMove = Just (MoveMarker "ingress" "t" "" "" False (newMove sameDomainSteps))}) @?= True
     , testCase "Kubernetes declaration binds the exact canonical native object" $ do
         let owner = ok (mkScopeId Platform "foundation")
             rid key = mintResourceId owner (ok (mkLogicalKey key)) (ok (mkName "resource"))

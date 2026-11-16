@@ -20,6 +20,7 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("cache")) config["nagare:enableNixCache"] = "true";
     if (variant.includes("tunnel")) config["nagare:ingress"] = "cloudflare-tunnel";
     if (variant.includes("retained")) config["nagare:retainedDnsName"] = "apps.example.com";
+    if (variant.includes("retained") && !variant.includes("tunnel")) config["nagare:baseDomain"] = "new.example.org";
     if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
     if (variant.includes("delegated-deployer")) {
         config["nagare:delegatedDeployers"] = JSON.stringify([
@@ -186,6 +187,10 @@ async function main(): Promise<void> {
     const retainedDns = [...retainedNames].filter((key) => dnsSet.some((name) => String(key).endsWith(`::${name}`))).sort();
     assert(JSON.stringify(directDns) === JSON.stringify(retainedDns), "the retained Cloud DNS set differs from the direct context's");
     verifyGuardedVariant("foundation-managed-image-tunnel-retained", retained);
+    // EP-246 D2: a direct context whose move to a new base has flipped keeps every registration it had.
+    const flipped = runVariant("foundation-managed-image-retained");
+    assert(JSON.stringify(flipped) === JSON.stringify(runVariant("foundation-managed-image")), "a flipped base move changed the cloud registrations");
+    verifyGuardedVariant("foundation-managed-image-retained", flipped);
     const image = runVariant("image");
     const cache = runVariant("cache");
     const legacyCdn = runVariant("cdn-legacy");

@@ -129,6 +129,7 @@ perform MovingForward step w = case step of
     | otherwise -> (StepCompleted, w {firewallOpen = False})
   CloseKourier -> (StepCompleted, w {kourierLb = False})
   CommitMove -> (StepCompleted, w {committed = True})
+  _ -> (StepRefused ("not a same-domain step: " <> T.pack (show step)), w)
 perform RollingBack step w = case step of
   CloseKourier -> (StepCompleted, w {kourierLb = True})
   CloseFirewall -> (StepCompleted, w {firewallOpen = True})

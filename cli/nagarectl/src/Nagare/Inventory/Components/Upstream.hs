@@ -333,7 +333,7 @@ tunnelUpstreamInputs = postureUpstreamInputs tunnelPosture
 -- and closes @kourier@ at different steps, and keeps its issuer until @kourier@ closes.
 postureUpstreamInputs :: IngressPosture -> [UpstreamInput] -> [UpstreamInput]
 postureUpstreamInputs posture =
-  map flatten . filter (\input -> not (posture ^. #kourierClosed) || upstreamOwner input /= issuerOwner)
+  map flatten . filter (\input -> posture ^. #originIssuer || upstreamOwner input /= issuerOwner)
   where
     issuerOwner = either (error . T.unpack) id (mkScopeId Platform "certificate-issuer")
     flatten input =

@@ -107,6 +107,7 @@ library
     Nagare.Cluster.GcsJob
     Nagare.Cluster.Kubeconfig
     Nagare.Cluster.Namespace
+    Nagare.Context.BaseFlip
     Nagare.Context.BaseMove
     Nagare.Context.Move
     Nagare.Context.MoveChecks
