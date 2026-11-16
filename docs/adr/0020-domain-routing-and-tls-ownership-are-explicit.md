@@ -127,3 +127,15 @@ for that domain, so `letsencrypt-dns` issues nothing there and `external-domain-
 below it. The operator's machine holds the scoped Cloudflare API token and the cluster holds only the tunnel token, so the rule that the cluster holds no
 credential for an external DNS provider still stands. A context that does not opt in is unchanged. EP-242 owns the DNS expectation and the platform zone claims
 for this mode, using the zone-and-host ownership of the 2026-09-25 amendment; EP-240 observed the topology by hand and no product code implements it yet.
+
+## Amendment — 2026-11-16: a moved context ends where a new tunnel context starts
+
+EP-243 moves a direct context onto the tunnel with `nagarectl context move`. Its end state is the same as a new tunnel context's: Cloudflare is
+authoritative for the base domain, the apex and wildcard are proxied CNAMEs to the tunnel, `fw-iap-ssh` is the network's only firewall rule,
+`kourier` is a `ClusterIP` Service, and no DNS-01 issuer is installed. Two things differ until the operator retires them. The Cloud DNS zone, its
+two records and the solver's two grants are kept (`NAGARE_RETAINED_DNS_NAME`), so a resolver holding the old delegation still reaches an answer;
+`context move retire-dns` collects the zone and records by review once the parent and public resolvers name only Cloudflare, and retires the two
+grants without deleting them. And default names change from `<name>.<namespace>.<base>` to `<name>-<namespace>.<base>`, because the free edge
+certificate covers one label below the base; a move does not start while a protected default name or a two-label custom domain would stop being
+served. During the move Cloudflare serves DNS-only mirror records pointing at the VM, and origin certificates keep serving until `close-kourier`,
+so a move refuses to start when a certificate renews within 14 days, and admission refuses every other review while it is open.

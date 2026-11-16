@@ -69,6 +69,8 @@ you can observe.
   Cloudflare Tunnel, what it trades away, and when to stay on direct ingress. 🟡
 - [Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md) — the
   recommended path for a new context, with no inbound web ports. 🟡
+- [Moving an existing context onto the Cloudflare Tunnel](moving-a-context-to-the-tunnel.md) —
+  `context move`, its steps, rollback and retiring the kept Cloud DNS zone. 🔴
 - [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) — the
   zero-to-running runbook for direct ingress. ✅
 - [Local development](local-development.md) — run Nagare on your laptop with k3d,

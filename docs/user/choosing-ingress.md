@@ -57,7 +57,7 @@ has the details.
 - You need uploads over 100 MB.
 - You run a local context, which has no public ingress at all.
 
-A context on direct ingress stays supported. `nagarectl platform status` and `nagarectl doctor` print one line pointing here. Add
+A context on direct ingress stays supported, and can move onto the tunnel later: see [Moving an existing context onto the Cloudflare Tunnel](moving-a-context-to-the-tunnel.md). `nagarectl platform status` and `nagarectl doctor` print one line pointing here. Add
 `export NAGARE_INGRESS_NOTICE=off` to the context file to silence it.
 
 ## Alternatives we did not choose

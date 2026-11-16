@@ -74,7 +74,7 @@ open on the VM.
   reported to the operator.
 - [x] D9 (native: `ep243` moved from a 0.15.0 build through published v0.16.0 with 220 requests and no failure, connectors and doctor intact; the v0.16.0 rehearsal read its seeded row back): The upgrade path holds: a tunnel-mode disposable context upgrades through a release and still serves, and the EP-172
   rehearsal for `direct` contexts still reads its seeded data back unchanged.
-- [ ] D10: `docs/user` and `docs/runbooks` describe the move and rollback. ADR 20 records the final state.
+- [x] D10 ([`docs/user/moving-a-context-to-the-tunnel.md`](../user/moving-a-context-to-the-tunnel.md), [`docs/runbooks/context-move.md`](../runbooks/context-move.md), ADR 20's 2026-11-16 amendment; the guide stays 🔴 until the native run): `docs/user` and `docs/runbooks` describe the move and rollback. ADR 20 records the final state.
 - [ ] D11: The move carries hostnames. It first lists every URL that changes (default hostnames, OIDC redirect URIs,
   webhook hooks) and asks once whether to flatten or to keep two-label names with Advanced Certificate Manager. When
   flattening, the same reviewed move re-declares every default route, its protected route and its ADR 29 grants for
