@@ -136,7 +136,9 @@ foundationStackTarget active workspace imageLink scopes = do
   stack <- either dieT pure (Resource.mkName context)
   bucket <- foundationPulumiBucket active
   deployerKeys <- foundationDeployerKeys active scopes
-  ActivePosture {posture = ingressPosture, retainedDnsName = retained} <- activePosture active
+  -- The posture reads the head the foundation uses: a fresh context's history is local until its first stage makes the bucket.
+  selected <- Inventory.selectFoundationStore active >>= either (dieT . T.pack . show) pure
+  ActivePosture {posture = ingressPosture, retainedDnsName = retained} <- activePosture selected
   let environment = pulumiEnvFor stateRoot context profile
       seeded = seedKeysFor profile ingressPosture retained
   pure
