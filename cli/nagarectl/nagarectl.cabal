@@ -108,6 +108,7 @@ library
     Nagare.Cluster.Namespace
     Nagare.Context.Move
     Nagare.Context.MoveStore
+    Nagare.Context.Posture
     Nagare.Context.Review
     Nagare.Contract.Project
     Nagare.Contract.Sink

@@ -10,7 +10,9 @@ import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as T
 import Nagare.Context.Move
+import Nagare.Context.Posture
 import Nagare.Dsl.Prelude
+import Nagare.Target.Kinds (IngressMode (..))
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -294,6 +296,24 @@ contextMoveTests =
       (result, _) <- readIORef (saved h) >>= runMove (harnessOps h)
       result @?= MoveStopped CloseFirewall (StepRefused "visitors may still arrive directly")
       assertServedThroughout h
+  , testCase "the posture is today's at both ends, and each step turns on its own part" $ do
+      postureFor IngressDirect Nothing @?= directPosture
+      postureFor IngressCloudflareTunnel Nothing @?= tunnelPosture
+      let at n = postureFor IngressDirect (Just (newMove sameDomainSteps & #completed .~ n))
+          planning step n = postureFor IngressDirect (Just (newMove sameDomainSteps & #completed .~ n & #inProgress .~ Just step))
+      at 0 @?= directPosture
+      at (length sameDomainSteps) @?= tunnelPosture
+      at 2 ^. #zoneRecords @?= Just MirrorRecords
+      (at 2 ^. #connectorRunning, at 6 ^. #connectorRunning) @?= (False, True)
+      (at 7 ^. #zoneRecords, at 8 ^. #zoneRecords) @?= (Just MirrorRecords, Just TunnelRecords)
+      (at 10 ^. #perimeterClosed, at 11 ^. #perimeterClosed, at 11 ^. #kourierClosed) @?= (False, True, False)
+      -- A step planned forward is in the plan; a step being undone is not.
+      planning SwitchRecords 7 ^. #zoneRecords @?= Just TunnelRecords
+      postureFor IngressDirect (Just (newMove sameDomainSteps & #completed .~ 8 & #direction .~ RollingBack & #inProgress .~ Just SwitchRecords)) ^. #zoneRecords
+        @?= Just MirrorRecords
+      -- The firewall never closes while the records still send visitors to the VM.
+      forM_ [0 .. length sameDomainSteps] $ \n ->
+        assertBool ("closed before the switch at " <> show n) (not (at n ^. #perimeterClosed) || at n ^. #zoneRecords == Just TunnelRecords)
   , testCase "the remaining steps name what is left in each direction" $ do
       let record = newMove sameDomainSteps & #completed .~ 8
       take 1 (remainingSteps record) @?= [VerifyTunnel]
