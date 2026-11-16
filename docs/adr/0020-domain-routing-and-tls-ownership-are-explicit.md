@@ -132,7 +132,9 @@ for this mode, using the zone-and-host ownership of the 2026-09-25 amendment; EP
 
 EP-243 moves a direct context onto the tunnel with `nagarectl context move`. Its end state is the same as a new tunnel context's: Cloudflare is
 authoritative for the base domain, the apex and wildcard are proxied CNAMEs to the tunnel, `fw-iap-ssh` is the network's only firewall rule,
-`kourier` is a `ClusterIP` Service, and no DNS-01 issuer is installed. Two things differ until the operator retires them. The Cloud DNS zone, its
+and `kourier` is a `ClusterIP` Service. The `certificate-issuer` scope stays accepted and installed, since admission never reactivates a
+retired identity and a rollback must be able to bring DNS-01 back; with Cloudflare authoritative it can no longer issue. Two other things differ
+until the operator retires them. The Cloud DNS zone, its
 two records and the solver's two grants are kept (`NAGARE_RETAINED_DNS_NAME`), so a resolver holding the old delegation still reaches an answer;
 `context move retire-dns` collects the zone and records by review once the parent and public resolvers name only Cloudflare, and retires the two
 grants without deleting them. And default names change from `<name>.<namespace>.<base>` to `<name>-<namespace>.<base>`, because the free edge

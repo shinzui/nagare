@@ -80,7 +80,7 @@ it. The step completes when its next plan changes nothing.
 | `verify-tunnel` | Checks the base and a wildcard name answer through the edge | Nothing |
 | `await-old-ttl` | Waits until the old delegation, a Cloud DNS answer and a mirror answer have all expired | Wait; it prints the time |
 | `close-firewall` | Reviews the three web rules disabled in place | Read and apply |
-| `close-kourier` | Reviews `kourier` as `ClusterIP` and removes the DNS-01 issuer | Read and apply |
+| `close-kourier` | Reviews `kourier` as `ClusterIP` | Read and apply |
 | `commit-move` | Reviews deleting the three rules, then writes `NAGARE_INGRESS=cloudflare-tunnel` and `NAGARE_RETAINED_DNS_NAME` | Read and apply each; commit the context file if it lives in your operator repository |
 
 The `await-old-ttl` wait is usually two days: the parent zone's NS records for `.com` live 172800 seconds.
