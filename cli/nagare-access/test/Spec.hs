@@ -81,6 +81,7 @@ import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
 import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
+import PasskeyMoveSpec (passkeyMoveTests)
 import RealShomei (withRealShomeiServer)
 import RefreshCoalescerSpec (refreshCoalescerTests)
 import RememberedSessionSpec (rememberedSessionTests)
@@ -126,6 +127,7 @@ main =
       , edgeCacheControlTests
       , appTests
       , refreshCoalescerTests
+      , passkeyMoveTests
       , sessionRefreshTests
       , rotatedCookieRedirectTests
       , webSocketTunnelTests

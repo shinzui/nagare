@@ -8,6 +8,7 @@ module Nagare.Context.MoveChecks
   , DigRecord (..)
   , parseDigRecords
   , preconditions
+  , basePreconditions
   , nameServersActive
   , dnssecReady
   , dnssecRemoved
@@ -28,7 +29,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
-import Data.Time (NominalDiffTime, UTCTime, addUTCTime, nominalDay)
+import Data.Time (NominalDiffTime, UTCTime (..), addUTCTime, nominalDay)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Dsl.Prelude
@@ -109,6 +110,23 @@ preconditions now base zone parentDs renewals
             <> ", inside the move's window; start the move after it has renewed"
         )
   | otherwise = StepCompleted
+
+-- | EP-246's @check-preconditions@: the new base is the zone, already active, and a DS record at its
+-- parent is Cloudflare's own, published with DNSSEC on, never a foreign one.
+basePreconditions :: Text -> Maybe ZoneStatus -> Bool -> DnssecStatus -> StepOutcome
+basePreconditions target zone parentDs dnssec = case preconditions epoch target zone False [] of
+  StepCompleted
+    | Just status <- zone, status ^. #zoneState /= "active" -> nameServersActive status
+    | parentDs && dnssec ^. #dnssecState /= "active" ->
+        StepRefused
+          ( "the parent zone publishes a DS record for "
+              <> target
+              <> " that is not Cloudflare's; remove it at the registrar first, or validating resolvers fail"
+          )
+    | otherwise -> StepCompleted
+  other -> other
+  where
+    epoch = UTCTime (toEnum 0) 0
 
 -- | @await-name-servers@: Cloudflare activates the zone once the registrar points at its name servers.
 nameServersActive :: ZoneStatus -> StepOutcome

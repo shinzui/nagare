@@ -105,6 +105,7 @@ test-suite nagare-access-test
     DelegationAccessSpec
     EdgeCacheControlSpec
     EnContractSpec
+    PasskeyMoveSpec
     RealShomei
     RefreshCoalescerSpec
     RememberedSessionSpec
@@ -119,12 +120,14 @@ test-suite nagare-access-test
     aeson,
     base,
     bytestring,
+    crypton,
     effectful,
     effectful-core,
     en-client,
     en-core,
     en-servant,
     generic-lens ^>=2.3,
+    hasql,
     hasql-pool,
     http-client,
     http-types,
@@ -147,6 +150,7 @@ test-suite nagare-access-test
     tasty-hunit >=0.10,
     text,
     time,
+    uuid,
     wai,
     wai-extra,
     warp,

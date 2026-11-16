@@ -8,12 +8,17 @@ module Nagare.Access.ShomeiMove
   , parseOAuthClients
   , parsePasskeyHolders
   , readShomeiJson
+  , runShomeiSql
   , underBase
+  , expectedPasskeyColumns
+  , bindRows
+  , passkeyIds
   )
 where
 
 import Control.Exception (IOException, try)
-import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:))
+import Data.Aeson (FromJSON (..), Value (..), eitherDecodeStrict, withObject, (.:))
+import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -74,9 +79,37 @@ uriHost uri = do
 underBase :: Text -> Text -> Bool
 underBase base host = host == T.toLower base || ("." <> T.toLower base) `T.isSuffixOf` host
 
+-- | The passkey table's columns that the move's export and restore name (EP-246 D4), as
+-- @cluster/bootstrap/shomei/move/columns.sql@ reports them. A Shomei whose table differs is refused.
+expectedPasskeyColumns :: Text
+expectedPasskeyColumns =
+  "passkey_id uuid,user_id uuid,credential_id bytea,user_handle bytea,public_key bytea,sign_counter bigint,transports jsonb,label text,created_at timestamp with time zone,last_used_at timestamp with time zone"
+
+-- | Bind an export to the move SQL's psql variable @:'rows'@ as a dollar-quoted literal, so the rows
+-- reach psql on stdin and never on a command line.
+bindRows :: Text -> Text -> Either Text Text
+bindRows sql rows
+  | delimiter `T.isInfixOf` rows = Left "the passkey export holds the SQL quote delimiter"
+  | not (":'rows'" `T.isInfixOf` sql) = Left "the move SQL names no rows"
+  | otherwise = Right (T.replace ":'rows'" (delimiter <> rows <> delimiter) sql)
+  where
+    delimiter = "$nagare_rows$"
+
+-- | The passkey ids of an export, refusing anything but a JSON array of rows with ids.
+passkeyIds :: Text -> Either Text [Text]
+passkeyIds rows = first (\reason -> "the passkey export is unreadable: " <> T.pack reason) (eitherDecodeStrict (TE.encodeUtf8 rows) >>= traverse rowId)
+  where
+    rowId value = case value of
+      Object o | Just (String passkey) <- KM.lookup "passkey_id" o -> Right passkey
+      _ -> Left "a row has no passkey_id"
+
 -- | Run one read-only query against @nagare-system/shomei-db@ once the context guard passes.
 readShomeiJson :: Text -> IO (Either Text ()) -> String -> IO (Either Text Text)
-readShomeiJson kubectlContext contextGuard sql =
+readShomeiJson kubectlContext contextGuard = runShomeiSql kubectlContext contextGuard True
+
+-- | Run SQL against @nagare-system/shomei-db@ on stdin, read-only or in one transaction.
+runShomeiSql :: Text -> IO (Either Text ()) -> Bool -> String -> IO (Either Text Text)
+runShomeiSql kubectlContext contextGuard readOnly sql =
   contextGuard >>= \case
     Left reason -> pure (Left ("refusing to read Shomei: " <> reason))
     Right () -> do
@@ -100,5 +133,6 @@ readShomeiJson kubectlContext contextGuard sql =
       , "--"
       , "sh"
       , "-c"
-      , "PGPASSWORD=\"$POSTGRES_PASSWORD\" exec psql -X -q -At -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c 'SET default_transaction_read_only = on' -f -"
+      , "PGPASSWORD=\"$POSTGRES_PASSWORD\" exec psql -X -q -At -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" "
+          <> (if readOnly then "-c 'SET default_transaction_read_only = on' -f -" else "--single-transaction -f -")
       ]

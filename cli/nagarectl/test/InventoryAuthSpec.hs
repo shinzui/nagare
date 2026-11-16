@@ -8,6 +8,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -157,6 +158,30 @@ inventoryAuthTests =
         assertBool
           "Shomei settings are not read from the owner ConfigMap"
           (any (BC.isInfixOf "nagare-shomei-settings" . snd) (Map.elems native))
+    , testCase "a move to a new base changes only the cookie domain and relying party, and keeps every key, issuer and Secret (EP-246 D3)" $ do
+        (_, before) <- compileAuth fixture >>= expectRight
+        (_, after) <- compileAuth fixture {authBaseDomain = "moved.example.org"} >>= expectRight
+        Map.keys after @?= Map.keys before
+        let changed = [resource ^. #address | (resourceId, (resource, bytes)) <- Map.toList after, Just (_, old) <- [Map.lookup resourceId before], old /= bytes]
+            named address = case address of
+              Kubernetes _ _ kind _ name -> (nameText kind, nameText name)
+              _ -> ("", "")
+        sort (map named changed) @?= [("deployment", "shomei"), ("service", "nagare-access")]
+        -- The fixture's images live at registry.example.test; the base itself appears only as a whole value.
+        let namesOldBase bytes = BC.isInfixOf "\"example.test\"" bytes || BC.isInfixOf "\".example.test\"" bytes
+        assertBool "the old compile does not name its base" (any (namesOldBase . snd) (Map.elems before))
+        assertBool "a compiled member still names the old base" (not (any (namesOldBase . snd) (Map.elems after)))
+        forM_ (Map.toList before) $ \(resourceId, (resource, bytes)) -> case resource ^. #address of
+          Kubernetes _ "" kind _ _
+            | nameText kind == "secret" -> fmap snd (Map.lookup resourceId after) @?= Just bytes
+          _ -> pure ()
+        let enforcer = [bytes | (resource, bytes) <- Map.elems after, named (resource ^. #address) == ("service", "nagare-access")]
+            shomei = [bytes | (resource, bytes) <- Map.elems after, named (resource ^. #address) == ("deployment", "shomei")]
+        assertBool "the enforcer's cookie domain did not move" (any (BC.isInfixOf "\".moved.example.org\"") enforcer)
+        assertBool "Shomei's relying party did not move" (any (BC.isInfixOf "\"moved.example.org\"") shomei)
+        settings <- either (assertFailure . T.unpack) pure (renderShomeiSettingsNative (ok (mkName "moved.example.org")) (Just (ok (mkName "auth.moved.example.org"))))
+        assertBool "the new auth origin is missing" (BC.isInfixOf "https://auth.moved.example.org" settings)
+        assertBool "the settings keep the old base" (not (BC.isInfixOf "example.test" settings))
     , testCase "backend contributions bind exact reviewed ConfigMap bytes" $ do
         (authBundle, _) <- compileAuth fixture >>= expectRight
         let authScope = ok (mkScopeDeclaration fixtureOwner [authBundle])

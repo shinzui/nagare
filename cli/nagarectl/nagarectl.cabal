@@ -531,8 +531,10 @@ executable nagarectl
     Nagare.Cli.Inventory.SourceEvidence
     Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.Workflow
+    Nagare.Cli.Move.BaseSteps
     Nagare.Cli.Move.Manifest
     Nagare.Cli.Move.Observe
+    Nagare.Cli.Move.Passkeys
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase
@@ -755,6 +757,7 @@ test-suite nagarectl-test
     Nagare.Test.Cluster
     Nagare.Test.Context
     Nagare.Test.ContextBaseMove
+    Nagare.Test.ContextBaseMoveRun
     Nagare.Test.ContextMove
     Nagare.Test.ContextMoveChecks
     Nagare.Test.ContextMoveReview

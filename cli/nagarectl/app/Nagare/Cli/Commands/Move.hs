@@ -9,6 +9,8 @@
 module Nagare.Cli.Commands.Move (runContextMove) where
 
 import Control.Exception (try)
+import Data.Aeson (encode)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (forM_)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty ((:|)))
@@ -20,7 +22,8 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Cli.Bootstrap.Review (applyStageReview, planStageReview)
 import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
-import Nagare.Cli.Move.Manifest (listBaseMove)
+import Nagare.Cli.Move.BaseSteps (BaseStepOps (..), performBase)
+import Nagare.Cli.Move.Manifest (collectManifest, listBaseMove, manifestFile)
 import Nagare.Cli.Move.Observe
 import Nagare.Cli.Options.Move (MoveCommand (..))
 import Nagare.Cli.Platform.InfrastructureReview (prepareInfraTargetWithPulumi)
@@ -29,6 +32,8 @@ import Nagare.Cli.Runtime.Context (writeContextProfile)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
+import Nagare.Context.BaseFlip (baseEnvironmentRefusal, baseMoveKind, flippedProfile)
+import Nagare.Context.BaseMove (renderManifest)
 import Nagare.Context.Move
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
@@ -50,7 +55,8 @@ import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory qualified as Resource
 import Nagare.Resource.Types (ScopeKind (Platform), mkScopeId, nameText, scopeKind, scopeName)
 import Nagare.Target (ActiveTarget, IngressMode (..), Mode (Cloud), contextNameText, contextStateDirName, nagareStateDir, validateIngressMode)
-import System.Directory (doesDirectoryExist, doesFileExist, removeDirectoryRecursive)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, removeDirectoryRecursive)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode)
 import System.FilePath (takeDirectory, (</>))
 
@@ -64,7 +70,8 @@ runContextMove mctx command = do
   case command of
     MoveStatus -> withStore active >>= status
     MoveList new out -> listBaseMove active new out
-    MoveStart -> start active
+    MoveStart Nothing -> start active
+    MoveStart (Just new) -> startBase active new
     MoveApply yes -> requireYes yes "context move apply" >> proceed mctx active runMove
     MoveRollback yes -> requireYes yes "context move rollback" >> proceed mctx active rollbackMove
     MoveRetireDns yes -> requireYes yes "context move retire-dns" >> retireDns mctx active
@@ -99,6 +106,32 @@ start active = do
   TIO.putStrLn "While it is open, only the move's own reviews are admitted: deploys wait until it finishes or rolls back."
   TIO.putStrLn "Run `nagarectl context move apply --yes` to run its steps; it stops whenever you have something to do."
 
+-- | EP-246: list what changes, refuse what cannot move, check the new zone, save the manifest, open.
+startBase :: ActiveTarget -> Text -> IO ()
+startBase active new = do
+  let profile = active ^. #profile
+  manifest <- collectManifest active new >>= either (\refusals -> dieT (T.unlines ("The move to " <> new <> " cannot start:" : map ("  " <>) refusals))) pure
+  TIO.putStr (renderManifest manifest)
+  basePrecheck new >>= \case
+    StepCompleted -> pure ()
+    StepWaiting reason -> dieT ("not yet: " <> reason)
+    StepRefused reason -> dieT reason
+  directory <- takeDirectory <$> reviewDirectory active baseMoveKind MovingForward CheckPreconditions
+  createDirectoryIfMissing True directory
+  LBS.writeFile (directory </> manifestFile) (encode manifest)
+  store <- withStore active
+  now <- T.pack . iso8601Show <$> getCurrentTime
+  marker <-
+    openMove store baseMoveKind now (profile ^. #baseDomain) new (profile ^. #externalDomainTlsEnabled) baseDomainSteps >>= either dieT pure
+  TIO.putStrLn ("Opened a move of " <> profile ^. #baseDomain <> " to " <> new <> ", started " <> moveStartedAt marker <> "; the manifest is " <> T.pack (directory </> manifestFile) <> ".")
+  TIO.putStrLn "Old names serve until the flip. Run `nagarectl context move apply --yes`; it stops whenever you have something to do."
+
+-- | The new zone is the target, active, with no foreign DS record at its parent.
+basePrecheck :: Text -> IO StepOutcome
+basePrecheck new = do
+  facts <- sequence3 observeZone (observeParentDs new) observeDnssec
+  pure (either StepRefused (\(zone, ds, dnssec) -> basePreconditions new zone ds dnssec) facts)
+
 status :: InventoryStore -> IO ()
 status store =
   openMoveOf store >>= either dieT pure >>= \case
@@ -125,7 +158,7 @@ retireDns mctx active = do
   let cloudflare = zone ^. #assignedNameServers
   unless (zone ^. #zoneState == "active" && all (sameNameServers cloudflare) (fst parent : resolvers)) $
     dieT "the parent or a public resolver still names other name servers than Cloudflare's; Cloud DNS may still answer for this domain"
-  directory <- (</> "retire-cloud-dns") . takeDirectory <$> reviewDirectory active MovingForward CommitMove
+  directory <- (</> "retire-cloud-dns") . takeDirectory <$> reviewDirectory active ingressMove MovingForward CommitMove
   let identity = "operator-cli"
       finish = do
         writeContextProfile (active ^. #contextName) (profile & #retainedDnsName .~ "")
@@ -155,6 +188,8 @@ proceed :: Maybe String -> ActiveTarget -> (MoveOps IO -> MoveRecord -> IO (Move
 proceed mctx active run = do
   store <- withStore active
   marker <- openMoveOf store >>= either dieT pure >>= maybe (dieT "no context move is open; start one with `nagarectl context move start`") pure
+  environment <- fmap T.pack <$> lookupEnv "NAGARE_BASE_DOMAIN"
+  forM_ (baseEnvironmentRefusal marker environment) dieT
   (result, _) <- run (moveOps mctx active store marker) (moveProgress marker)
   case result of
     MoveFinished -> closeMove store >>= either dieT pure >> TIO.putStrLn "Every step is done; the move is closed and the context serves through the tunnel."
@@ -172,28 +207,41 @@ moveOps mctx active store marker =
     }
 
 perform :: Maybe String -> ActiveTarget -> InventoryStore -> MoveMarker -> MoveDirection -> MoveStep -> IO StepOutcome
-perform mctx active store marker direction step = case (direction, step) of
-  (MovingForward, CheckPreconditions) -> checkPreconditions active base
-  (MovingForward, AwaitNameServers) -> observed (maybe (StepRefused "CF_ZONE_ID names no zone") nameServersActive) <$> observeZone
-  (MovingForward, EnableDnssec) -> observed dnssecReady <$> observeDnssec
-  (MovingForward, ConfirmDirect) -> moveEnv >>= \env -> directAnswers base <$> probeDirect env True
-  (MovingForward, VerifyTunnel) -> moveEnv >>= fmap edgeAnswers . probeEdge
-  (MovingForward, AwaitOldTtl) -> oldAnswers
-  (MovingForward, CloseFirewall) -> guarded oldAnswers (reviewStep MovingForward CloseFirewall)
-  (MovingForward, StartConnector) -> guarded tokenSaved (reviewStep MovingForward StartConnector)
-  (MovingForward, SwitchRecords) ->
-    guarded (moveEnv >>= observeConnectors <&> observed connectorsServe) (reviewStep MovingForward SwitchRecords)
-  (MovingForward, CommitMove) -> commit
-  (MovingForward, other) -> reviewStep MovingForward other
-  (RollingBack, SwitchRecords) -> guarded (moveEnv >>= \env -> directAnswers base <$> probeDirect env False) (reviewStep RollingBack SwitchRecords)
-  (RollingBack, CarryHostnames) -> guarded edgeCaches (reviewStep RollingBack CarryHostnames)
-  (RollingBack, StartConnector) -> guarded edgeCaches (reviewStep RollingBack StartConnector)
-  (RollingBack, EnableDnssec) -> observed dnssecRemoved <$> observeParentDs base
-  (RollingBack, MirrorZone) -> guarded returned (reviewStep RollingBack MirrorZone)
-  (RollingBack, other) -> reviewStep RollingBack other
+perform mctx active store marker direction step
+  | moveKind marker == baseMoveKind = performBase active marker baseOps direction step
+  | otherwise = sameDomain
   where
+    baseOps =
+      BaseStepOps
+        { reviewIt = reviewStep
+        , commit = commit
+        , tokenSaved = tokenSaved
+        , precheck = basePrecheck (moveTargetBase marker)
+        , dnssecActive = observed dnssecReady <$> observeDnssec
+        , carrySites = pure (StepRefused "this nagarectl cannot carry sites yet (EP-246 D5)")
+        , verifySites = pure (StepRefused "this nagarectl cannot verify sites yet (EP-246 D5)")
+        }
+    sameDomain = case (direction, step) of
+      (MovingForward, CheckPreconditions) -> checkPreconditions active base
+      (MovingForward, AwaitNameServers) -> observed (maybe (StepRefused "CF_ZONE_ID names no zone") nameServersActive) <$> observeZone
+      (MovingForward, EnableDnssec) -> observed dnssecReady <$> observeDnssec
+      (MovingForward, ConfirmDirect) -> moveEnv >>= \env -> directAnswers base <$> probeDirect env True
+      (MovingForward, VerifyTunnel) -> moveEnv >>= fmap edgeAnswers . probeEdge
+      (MovingForward, AwaitOldTtl) -> oldAnswers
+      (MovingForward, CloseFirewall) -> guarded oldAnswers (reviewStep MovingForward CloseFirewall)
+      (MovingForward, StartConnector) -> guarded tokenSaved (reviewStep MovingForward StartConnector)
+      (MovingForward, SwitchRecords) ->
+        guarded (moveEnv >>= observeConnectors <&> observed connectorsServe) (reviewStep MovingForward SwitchRecords)
+      (MovingForward, CommitMove) -> commit
+      (MovingForward, other) -> reviewStep MovingForward other
+      (RollingBack, SwitchRecords) -> guarded (moveEnv >>= \env -> directAnswers base <$> probeDirect env False) (reviewStep RollingBack SwitchRecords)
+      (RollingBack, CarryHostnames) -> guarded edgeCaches (reviewStep RollingBack CarryHostnames)
+      (RollingBack, StartConnector) -> guarded edgeCaches (reviewStep RollingBack StartConnector)
+      (RollingBack, EnableDnssec) -> observed dnssecRemoved <$> observeParentDs base
+      (RollingBack, MirrorZone) -> guarded returned (reviewStep RollingBack MirrorZone)
+      (RollingBack, other) -> reviewStep RollingBack other
     base = moveRetainedDnsName marker
-    identityFor = moveReviewIdentity ingressMove
+    identityFor = moveReviewIdentity (moveKind marker)
     oldAnswers = do
       now <- getCurrentTime
       facts <- sequence3 observeZone (observeParentDelegation base) (observeApexRecord base)
@@ -227,20 +275,24 @@ perform mctx active store marker direction step = case (direction, step) of
     -- A review step: apply the review saved by the last run, then plan the next one; complete when a
     -- plan changes nothing ('Nagare.Context.MoveReview').
     reviewStep dir' stepNow = do
-      directory <- reviewDirectory active dir' stepNow
+      directory <- reviewDirectory active (moveKind marker) dir' stepNow
       MoveReview.reviewStep
         (stageReviewOps mctx active store (isStep stepNow) ("the move's " <> moveStepToken stepNow) directory (planStageReview active (identityFor stepNow) directory >> pure True))
     isStep stepNow identity = case parseMoveReviewIdentity identity of
-      Just (kind, reviewed, _) -> kind == ingressMove && reviewed == stepNow
+      Just (kind, reviewed, _) -> kind == moveKind marker && reviewed == stepNow
       Nothing -> False
 
     -- commit-move: the web rules' policy, retirement and collection reviews, then the profile.
     commit = do
-      directory <- reviewDirectory active MovingForward CommitMove
+      directory <- reviewDirectory active (moveKind marker) MovingForward CommitMove
       (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
       manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
       let finish = do
-            let profile = active ^. #profile & #ingress .~ IngressCloudflareTunnel & #retainedDnsName .~ base
+            -- EP-246's flip already wrote the new base; the commit writes the same four values again.
+            let profile =
+                  if moveKind marker == baseMoveKind
+                    then flippedProfile marker (active ^. #profile)
+                    else active ^. #profile & #ingress .~ IngressCloudflareTunnel & #retainedDnsName .~ base
             either dieT pure (validateIngressMode profile)
             writeContextProfile (active ^. #contextName) profile
             TIO.putStrLn ("Wrote the context profile: NAGARE_INGRESS=cloudflare-tunnel, NAGARE_RETAINED_DNS_NAME=" <> base <> ".")
@@ -343,13 +395,13 @@ sequence3 a b c = do
   pure ((,,) <$> x <*> y <*> z)
 
 -- | Where a step's saved review waits for the operator: one directory per direction and step.
-reviewDirectory :: ActiveTarget -> MoveDirection -> MoveStep -> IO FilePath
-reviewDirectory active direction step = do
+reviewDirectory :: ActiveTarget -> Text -> MoveDirection -> MoveStep -> IO FilePath
+reviewDirectory active kind direction step = do
   state <- nagareStateDir
   let prefix = case direction of
         MovingForward -> "forward-"
         RollingBack -> "rollback-"
-  pure (state </> T.unpack (contextStateDirName (active ^. #contextName)) </> "moves" </> T.unpack (ingressMove <> "-" <> prefix <> moveStepToken step))
+  pure (state </> T.unpack (contextStateDirName (active ^. #contextName)) </> "moves" </> T.unpack (kind <> "-" <> prefix <> moveStepToken step))
 
 withStore :: ActiveTarget -> IO InventoryStore
 withStore = Inventory.openTargetStore

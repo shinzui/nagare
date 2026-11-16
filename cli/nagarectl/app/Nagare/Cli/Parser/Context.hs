@@ -142,7 +142,12 @@ moveSubparser =
             )
             (progDesc "List every URL, grant, OAuth client and passkey a move to a new base domain changes; mutates nothing")
         )
-        <> command "start" (info (pure MoveStart <**> helper) (progDesc "Open a move of the active context onto the tunnel"))
+        <> command
+          "start"
+          ( info
+              (MoveStart <$> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Move to this new base domain, a Cloudflare zone (EP-246)")) <**> helper)
+              (progDesc "Open a move of the active context onto the tunnel, or to a new base domain")
+          )
         <> command "apply" (info (MoveApply <$> switch (long "yes" <> help "Run the move's steps") <**> helper) (progDesc "Run or resume the open move's steps until one waits for you"))
         <> command "status" (info (pure MoveStatus <**> helper) (progDesc "Show where the open move stands"))
         <> command "rollback" (info (MoveRollback <$> switch (long "yes" <> help "Undo the move's completed steps") <**> helper) (progDesc "Undo the open move's completed steps, newest first"))
