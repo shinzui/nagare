@@ -43,39 +43,39 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
   base; and every account holding a passkey, marked with whether it also holds TOTP. It refuses, naming the host, a name
   outside the old base, two names that map to one, a name deeper than one label under the new base and a clash with a
   reserved platform name. Evidence: fake-adapter tests over each refusal, and a fixture holding every web kind.
-- [ ] D2, the profile: an open move, and nothing else, changes `NAGARE_BASE_DOMAIN`, `NAGARE_INGRESS` and
+- [x] D2 (`Nagare.Context.BaseFlip`: the flip writes the four values together and undoing it restores them, a shell naming another base is refused, `Nagare.Test.ContextBaseMove`; `perimeterDomainRecords.test.ts` and the `foundation-managed-image-retained` parity variant keep the zone, its records and every rule across the base change; the seed projects the retained name from the flip, `Nagare.Test.Init`), the profile: an open move, and nothing else, changes `NAGARE_BASE_DOMAIN`, `NAGARE_INGRESS` and
   `NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED` together. A plain context review of any of them is still refused. The move refuses
   while the process environment sets `NAGARE_BASE_DOMAIN` to anything but the journal's value. The Pulumi projection keeps
   the old base as the retained zone's `dnsName`, so a preview with the new base shows no replace or delete of the Cloud DNS
   zone, its records, or a firewall rule. Evidence: review tests, and a new variant in
   `infra/pulumi/test/resourceProgramParity.test.ts`.
-- [ ] D3, the auth plane: after the flip, the enforcer's cookie domain is `.<new>`, `SHOMEI_WEBAUTHN_RP_ID` is `<new>`,
+- [x] D3 (compiled-scope test `InventoryAuthSpec`: on a new base only the enforcer's cookie domain and Shomei's relying party change, every Secret byte-identical, the settings name only new origins; `PasskeyMoveSpec` against real Shomei: an access token issued before the flip verifies under the new base's auth plane), the auth plane: after the flip, the enforcer's cookie domain is `.<new>`, `SHOMEI_WEBAUTHN_RP_ID` is `<new>`,
   `SHOMEI_WEBAUTHN_ORIGINS` is exactly the new auth origin with the old one gone, and `SHOMEI_PUBLIC_BASE_URL` is that
   origin. `SHOMEI_ISSUER`, `NAGARE_ACCESS_SHOMEI_ISSUER` and the audience are byte-identical, as are the cookie key and
   Shomei's key-encryption key. A service account's token issued before the flip still verifies after it. Evidence: a
   compiled-scope test of the auth owner across the flip, and a `cli/nagare-access` test against real Shomei.
-- [ ] D4, passkeys: nobody is locked out by a passkey the browser can no longer use. In the flip, rows of
+- [x] D4 (`cluster/bootstrap/shomei/move/*.sql` run by `remove-passkeys` and by `PasskeyMoveSpec` against real Shomei: removal after export of exactly the exported rows, password sign-in and passkey registration begin for a former holder, TOTP still asked, exact restore; the column refusal in `Nagare.Cli.Move.Passkeys`), passkeys: nobody is locked out by a passkey the browser can no longer use. In the flip, rows of
   `shomei.shomei_webauthn_credentials` are exported to a sops-encrypted file in the context's `cluster-secrets` directory
   and then deleted, in that order, and the step refuses if the pinned Shomei's columns differ from the ones it names. A
   password-and-passkey account then signs in with its password and can register a new passkey; a TOTP account is still asked
   for TOTP; rollback restores the table to the exported rows exactly. Evidence: a test against real Shomei covering all
   three.
-- [ ] D5, routes and grants: for each host in the manifest, the new route is accepted, then its grants are accepted, then
+- [x] D5 (`Nagare.Context.MoveRoutes` carries a granted route through a redeploy, `Nagare.Test.ContextMoveChecks`; `Nagare.Context.MoveSites` waits for each new route then plans each grant on the new name once, `InventoryAccessSpec`; admission takes redeploys only during `carry-sites`, `Nagare.Test.ContextMoveStore`; `verify-sites` checks listed and unlisted subjects and the edge; `status` names what is left), routes and grants: for each host in the manifest, the new route is accepted, then its grants are accepted, then
   `nagarectl access check` passes for every subject the manifest lists and fails for one it does not. Only retirement (D7)
   revokes an old grant or removes an old route. A grant that fails to declare leaves the old route and grant in place, and
   `context move status` names what is left, including any site not yet redeployed. Team memberships are not rewritten,
   because they do not name a host. This uses EP-243 D11's carrier with this plan's host map. Evidence: fake-adapter tests
   stopping at each host and kind.
-- [ ] D6, the order and its exits: the move runs the sequence in Plan of Work and refuses to advance otherwise. An
+- [x] D6 (`Nagare.Test.ContextBaseMoveRun`: stopped after every step's effect, resume reaches the end state and rollback the old base with its passkeys, and a rollback stopping after any inverse resumes; the outage is only between the flip and `verify-sites`), the order and its exits: the move runs the sequence in Plan of Work and refuses to advance otherwise. An
   interpreter test stops it after every step, then proves resume reaches the end state and rollback reaches a context
   serving on the old base with its old grants and passkeys. Evidence: the stuck-state invariant test from
   [Before a native run](../runbooks/before-a-native-run.md) covering this transaction.
-- [ ] D7, retirement: `context move retire` is a separate, separately approved step. It revokes the old grants, retires the
+- [x] D7 (`context move retire`, `Nagare.Context.MoveRetire`: revoke, retire the grant scopes, drop the old routes, then the Cloud DNS set; `zoneRetirement` refuses under a live delegation, `InventoryAccessSpec`), retirement: `context move retire` is a separate, separately approved step. It revokes the old grants, retires the
   old routes, then retires the old Cloud DNS zone and deletes the passkey export. It refuses to retire the zone while the
   parent domain still publishes an NS delegation for the old base. Evidence: fake-adapter tests, including that refusal.
 - [ ] D8, the rehearsal: the Rehearsal section below passes in full on a disposable context, and the length of the
   sign-in outage is recorded, because the team's notice states it. Evidence: an audit file under `docs/audits/`.
-- [ ] D9, docs and decisions: `docs/user/cloudflare-tunnel.md` no longer says moving a context is not built, and describes
+- [x] D9 ([`docs/user/moving-to-a-new-base-domain.md`](../user/moving-to-a-new-base-domain.md), [`docs/runbooks/context-move.md`](../runbooks/context-move.md), the tunnel guides' links, ADR 20, ADR 29 and ADR 34 amended 2026-11-16), docs and decisions: `docs/user/cloudflare-tunnel.md` no longer says moving a context is not built, and describes
   the move, rollback and retirement with EP-243's D10. ADR 20 and ADR 34 are amended, since a base domain can now change, and
   ADR 29 is amended with how a grant follows a host. Evidence: the linked pages.
 
@@ -93,6 +93,23 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
 
 
 ## Decision Log
+
+- Decision: The move's steps are EP-243's engine with this list: `check-preconditions`, `create-zone`, `enable-dnssec`,
+  `start-connector`, `flip-base`, `remove-passkeys`, `carry-sites`, `verify-sites`, then EP-243's `close-firewall`, `close-kourier` and
+  `commit-move`. The flip writes the profile and stops for the shell to reload, because the environment wins over the context file, and
+  the next run reviews the platform; undoing it does the same in reverse. The DNS-01 issuer goes at the flip (the posture's
+  `originIssuer`), since Cloud DNS is not authoritative for the new base. Rolling back `create-zone` and `start-connector` keeps their
+  scopes accepted, as EP-243 does. `remove-passkeys` removes exactly the rows it exported, so a passkey registered on the new domain after
+  the export stays.
+  Rationale: one engine for both moves; a profile change the running shell does not see would plan for the wrong base.
+  Date: 2026-11-16
+
+- Decision: While a base move is open, or the context still keeps its old base, a redeploy carries every accepted protected route an
+  accepted grant still names, unchanged, beside the new routes; `carry-sites` admits the operator's own reviews so the sites can be
+  redeployed. The move declares grants on new names itself and never rewrites a deploy's bytes.
+  Rationale: a grant binds to its exact accepted route, so a redeploy that dropped it would orphan the grant; carrying the accepted
+  members keeps rollback mechanical and leaves retirement as the only step that removes anything on the old names.
+  Date: 2026-11-16
 
 - Decision: The commands are EP-243's as built: `context move list --base-domain NEW [--out DIR]` is the read-only list, and
   `context move start --base-domain NEW` opens this plan's step list; `apply --yes`, `status` and `rollback --yes` are shared, and reviews

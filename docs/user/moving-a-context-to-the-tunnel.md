@@ -12,7 +12,8 @@ generated:
 # Moving an existing context onto the Cloudflare Tunnel
 
 > 🔴 **Built and proven on the interpreter, not yet on a native run.** Use it on a disposable context first. A new context
-> should start in tunnel mode instead: see [Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md).
+> should start in tunnel mode instead: see [Serving a new context through a Cloudflare Tunnel](cloudflare-tunnel.md). To move to a new
+> domain that is already a Cloudflare zone, see [Moving a context to a new base domain](moving-to-a-new-base-domain.md).
 
 `nagarectl context move` takes a context that serves directly from its VM and ends with the same end state a new tunnel
 context has: no inbound web port, `fw-iap-ssh` as the network's only firewall rule, `kourier` as a `ClusterIP` Service,
@@ -50,7 +51,8 @@ The free edge certificate covers the base and one label below it, so default nam
 re-declare them yet:
 
 - **a protected site on its default name.** Its enforcer route and its grants are on the old name. Give it a custom domain
-  one label below the base, deploy that, and start again.
+  one label below the base, deploy that, and start again. A [move to a new base domain](moving-to-a-new-base-domain.md) carries
+  protected names itself.
 - **a custom domain two labels below the base.** It needs Cloudflare's Advanced Certificate Manager, or a one-label name.
 
 Public default names move with Knative's domain template; tell your users the new names.

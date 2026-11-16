@@ -60,3 +60,19 @@ The move cannot be rolled back: the three web firewall rules are deleted, and a 
 A tunnel problem after the commit is a tunnel context's problem, handled as in
 [Serving a new context through a Cloudflare Tunnel](../user/cloudflare-tunnel.md): `tunnel status`, `tunnel rotate`, `doctor`.
 Going back to direct ingress means a new context.
+
+## A move to a new base domain
+
+[Moving a context to a new base domain](../user/moving-to-a-new-base-domain.md) shares the cases above, and adds these:
+
+- **`apply` refuses because `NAGARE_BASE_DOMAIN` names the other base.** The shell was loaded before the flip wrote the profile, or
+  before a rollback restored it. Run `direnv reload` and run again.
+- **`remove-passkeys` refuses because the passkey table differs.** The platform's Shomei changed its passkey columns. Roll back, or
+  upgrade nagarectl with the platform; nothing was removed.
+- **`carry-sites` keeps waiting.** `context move status` names each site without a route on its new name. Update its config's
+  hostnames and redeploy it; a deploy is admitted during this step.
+- **`verify-sites` refuses.** A listed subject does not get in on a new name, or an unlisted one does. Check the grant reviews
+  `carry-sites` applied with `nagarectl access check --host NEW --user ID`; if the cause is not clear, roll back. The old grants were
+  never touched.
+- **`context move retire` refuses at the zone.** The old base's parent zone still delegates it. Remove those NS records first.
+

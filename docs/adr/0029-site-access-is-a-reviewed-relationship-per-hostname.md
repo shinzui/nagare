@@ -163,3 +163,12 @@ sites without holding the access-service key. There is still no bypass: the inhe
 relationship like any other, revoking it is a review, an unavailable check is an outage, and an enforcer that
 predates the entry member reads the host as an ordinary protected one (fail closed). Implemented by
 [EP-250](../plans/250-open-a-delegated-namespace-s-sites-to-the-delegation-s-team-without-a-per-site-grant.md).
+
+## Amendment — 2026-11-16: a grant follows its host to a new base domain by being declared again (EP-246)
+
+A grant is never rewritten to name another host. When a context moves to a new base domain, the move declares the same direct and
+team grants on each new hostname as new reviewed relationships, after that host's new protected route is accepted, and leaves the old
+grants and their routes as they were. While a move to a new base is open, or the context still keeps its old base, a redeployed site
+keeps each old protected route an accepted grant still names, so no grant loses its binding. Only `context move retire` revokes the
+old grants, retires them and then drops their routes. Team memberships and delegation grants name no host and do not change.
+Implemented by [EP-246](../plans/246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md).

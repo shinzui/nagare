@@ -112,3 +112,10 @@ Implementation (EP-245) settled two further points:
   is not drift.
 
 The first measured latency and load baseline through the edge is EP-245 D7, recorded under Consequences.
+
+## Amendment — 2026-11-16: a direct context can move to a new base that is a Cloudflare zone (EP-246)
+
+Besides moving onto a tunnel on its own domain (EP-243), a direct context can move to a new base domain that is already an active
+Cloudflare zone, served by one tunnel. The base is still the zone, so the free edge certificate covers every name; default names
+flatten and a name two labels deep is refused. The move is one cutover with a stated sign-in outage, because a context has one cookie
+domain and one relying party. See [Moving a context to a new base domain](../user/moving-to-a-new-base-domain.md).

@@ -71,6 +71,8 @@ you can observe.
   recommended path for a new context, with no inbound web ports. 🟡
 - [Moving an existing context onto the Cloudflare Tunnel](moving-a-context-to-the-tunnel.md) —
   `context move`, its steps, rollback and retiring the kept Cloud DNS zone. 🔴
+- [Moving a context to a new base domain](moving-to-a-new-base-domain.md) — `context move --base-domain`:
+  the changed-URL list, the flip, passkeys, carrying sites and grants, rollback and retiring the old base. 🔴
 - [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) — the
   zero-to-running runbook for direct ingress. ✅
 - [Local development](local-development.md) — run Nagare on your laptop with k3d,

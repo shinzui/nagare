@@ -141,3 +141,10 @@ grants without deleting them. And default names change from `<name>.<namespace>.
 certificate covers one label below the base; a move does not start while a protected default name or a two-label custom domain would stop being
 served. During the move Cloudflare serves DNS-only mirror records pointing at the VM, and origin certificates keep serving until `close-kourier`,
 so a move refuses to start when a certificate renews within 14 days, and admission refuses every other review while it is open.
+
+## Amendment — 2026-11-16: a context's base domain can change, through a move (EP-246)
+
+`NAGARE_BASE_DOMAIN` is no longer fixed for a context's life. Only an open move to a new base changes it, together with
+`NAGARE_INGRESS` and `NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED`; a plain context review of any of them is still refused. The Cloud DNS zone
+keeps the old name as `NAGARE_RETAINED_DNS_NAME` until `context move retire` removes it, which it does only once the parent no longer
+delegates the old base. See [Moving a context to a new base domain](../user/moving-to-a-new-base-domain.md).

@@ -10,6 +10,7 @@ import Crypto.Cipher.Types (AEADMode (AEAD_GCM), AuthTag (..), aeadInit, aeadSim
 import Crypto.Error (throwCryptoError)
 import Data.ByteArray qualified as BA
 import Data.ByteString qualified as BS
+import Data.Either (isRight)
 import Data.Functor.Contravariant ((>$<))
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -20,8 +21,13 @@ import Hasql.Encoders qualified as E
 import Hasql.Pool qualified as HasqlPool
 import Hasql.Session qualified as Session
 import Hasql.Statement (Statement, preparable)
+import Nagare.Access.Config (AuthPlaneConfig (..))
+import Nagare.Access.Credential (Credential (..))
+import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Prelude
-import RealShomei (withRealShomeiServerAndPool)
+import Nagare.Access.Shomei (verifyShomeiCredentialCached)
+import Network.HTTP.Client qualified as HC
+import RealShomei (withRealShomeiServer, withRealShomeiServerAndPool)
 import Shomei.Account.Dto qualified as ShomeiAccountDTO
 import Shomei.Account.User.Dto (UserResponse (..))
 import Shomei.Client qualified as ShomeiClient
@@ -78,6 +84,30 @@ passkeyMoveTests =
           run pool (withRows restoreSql exported)
           (moveSql "export-passkeys.sql" >>= run pool . queryText) >>= (@?= exported)
           loginState env "alice" >>= (@?= Left ["passkey"])
+    , testCase "a token issued before the flip verifies on the new base: the issuer, audience and keys do not follow the domain (EP-246 D3)" $
+        withRealShomeiServer $ \port -> do
+          let url = "http://127.0.0.1:" <> show port
+          env <- ShomeiClient.shomeiClientEnv url
+          _ <- signupUser env "dora"
+          ShomeiClient.Token token <- loginState env "dora" >>= either (\methods -> assertFailure ("dora was asked for " <> show methods)) pure
+          manager <- HC.newManager HC.defaultManagerSettings
+          let plane domain =
+                AuthPlaneConfig
+                  { shomeiUrl = Text.pack url
+                  , shomeiIssuer = "nagare-shomei-test"
+                  , shomeiAudience = "shomei-clients"
+                  , enUrl = "http://127.0.0.1:1"
+                  , enApiKey = Nothing
+                  , cookieDomain = domain
+                  , cookieKey = Just "cookie-secret"
+                  }
+              verifyOn domain = do
+                cache <- newJwksCache 0 (pure 0) (fetchJwksFromShomei manager (plane domain))
+                verifyShomeiCredentialCached cache ((plane domain) {shomeiIssuer = "shomei"}) (BearerToken token)
+          before <- verifyOn ".labs.example.net"
+          after <- verifyOn ".examplelabs.com"
+          assertBool ("the token did not verify before the flip: " <> show (void before)) (isRight before)
+          assertBool ("the token did not verify after the flip: " <> show (void after)) (isRight after)
     ]
 
 expectedColumns :: Text
