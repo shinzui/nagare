@@ -179,12 +179,19 @@ probeDirect env throughDns = do
       else pure True
   pure (resolved && maybe False (not . snd) answered)
 
--- | Each sampled host answers through Cloudflare's edge (a @cf-ray@ header, no 52x or 530).
-probeEdge :: MoveEnv -> IO [(Text, Bool)]
+-- | Each sampled host answers through Cloudflare's edge (a @cf-ray@ header, no 52x or 530), asked at
+-- the edge address 1.1.1.1 resolves, so no cache on this machine decides. 'Nothing' when public DNS
+-- still answers with the VM's address.
+probeEdge :: MoveEnv -> IO [(Text, Maybe Bool)]
 probeEdge env =
   for [env ^. #base, moveProbeHost (env ^. #base)] $ \host -> do
-    answered <- httpAnswer ["https://" <> T.unpack host <> "/"]
-    pure (host, maybe False (\(code, edge) -> edge && not (code >= 520 && code <= 530)) answered)
+    addresses <- either (const []) (\records -> [r ^. #value | r <- records, r ^. #recordType == "A"]) <$> digRecords ["+noall", "+answer", "A", T.unpack host, "@1.1.1.1"]
+    case addresses of
+      _ | env ^. #publicIp `elem` addresses -> pure (host, Nothing)
+      edge : _ -> do
+        answered <- httpAnswer ["--resolve", T.unpack host <> ":443:" <> T.unpack edge, "https://" <> T.unpack host <> "/"]
+        pure (host, Just (maybe False (\(code, viaEdge) -> viaEdge && not (code >= 520 && code <= 530)) answered))
+      [] -> pure (host, Just False)
 
 -- | The status code and whether Cloudflare's edge answered, or 'Nothing' when nothing answered.
 httpAnswer :: [String] -> IO (Maybe (Int, Bool))

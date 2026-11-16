@@ -147,12 +147,16 @@ directAnswers base answered
   | answered = StepCompleted
   | otherwise = StepRefused (base <> " does not answer on the VM's address; direct ingress must work before records move")
 
--- | @verify-tunnel@: every sampled hostname answers through the edge.
-edgeAnswers :: [(Text, Bool)] -> StepOutcome
-edgeAnswers results = case [host | (host, False) <- results] of
-  [] | not (null results) -> StepCompleted
-  [] -> StepRefused "no hostname was sampled through the edge"
-  silent -> StepRefused ("through the edge, these do not answer: " <> T.intercalate ", " silent)
+-- | @verify-tunnel@: every sampled hostname answers through the edge. 'Nothing' means public DNS still
+-- answers with the VM's address, a mirror answer not yet expired: wait for it.
+edgeAnswers :: [(Text, Maybe Bool)] -> StepOutcome
+edgeAnswers results
+  | null results = StepRefused "no hostname was sampled through the edge"
+  | direct@(_ : _) <- [host | (host, Nothing) <- results] =
+      StepWaiting ("public DNS still sends " <> T.intercalate ", " direct <> " to the VM; run again in a few minutes")
+  | silent@(_ : _) <- [host | (host, Just False) <- results] =
+      StepRefused ("through the edge, these do not answer: " <> T.intercalate ", " silent)
+  | otherwise = StepCompleted
 
 -- | @await-old-ttl@, and the guard before the firewall closes: every answer that sends a visitor to
 -- the VM has expired. A resolver may hold the old delegation for the parent's NS TTL after Cloudflare

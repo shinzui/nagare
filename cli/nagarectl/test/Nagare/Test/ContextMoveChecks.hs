@@ -69,8 +69,9 @@ contextMoveChecksTests =
     , testCase "direct and edge probes refuse what does not answer" $ do
         directAnswers "example.com" True @?= StepCompleted
         refused "does not answer" (directAnswers "example.com" False)
-        edgeAnswers [("example.com", True), ("a.example.com", True)] @?= StepCompleted
-        refused "a.example.com" (edgeAnswers [("example.com", True), ("a.example.com", False)])
+        edgeAnswers [("example.com", Just True), ("a.example.com", Just True)] @?= StepCompleted
+        refused "a.example.com" (edgeAnswers [("example.com", Just True), ("a.example.com", Just False)])
+        waiting (edgeAnswers [("example.com", Nothing), ("a.example.com", Just True)])
         refused "no hostname" (edgeAnswers [])
     , testCase "the firewall waits for the old delegation, a Cloud DNS answer and a mirror answer to expire (D3)" $ do
         let activated = Just (addUTCTime (-1000) now)
