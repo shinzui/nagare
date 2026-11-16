@@ -36,7 +36,7 @@ This plan is complete when the move is proved on a disposable context.
 Each deliverable passes on the evidence it names. Native evidence comes only after the interpreter evidence, under
 [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md).
 
-- [ ] D1, the list: `nagarectl context move --ingress cloudflare-tunnel --base-domain NEW --list` mutates nothing and
+- [x] D1 (`nagarectl context move list --base-domain NEW [--out DIR]`; `Nagare.Context.BaseMove`, `Nagare.Access.ShomeiMove`, `Nagare.Test.ContextBaseMove`: every web kind and each refusal by name; grants from the ledger, refused when En differs): the list: `nagarectl context move --ingress cloudflare-tunnel --base-domain NEW --list` mutates nothing and
   prints every URL that changes, and writes `move-manifest.json`. The manifest holds every accepted hostname (apex, auth
   portal, admin API, `nagared` hooks, custom, default and preview) with its new name, kind and protection; every direct and
   team grant on it, read from En at a fully consistent snapshot; every Shomei OAuth client whose `redirect_uris` name the old
@@ -93,6 +93,14 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
 
 
 ## Decision Log
+
+- Decision: The commands are EP-243's as built: `context move list --base-domain NEW [--out DIR]` is the read-only list, and
+  `context move start --base-domain NEW` opens this plan's step list; `apply --yes`, `status` and `rollback --yes` are shared, and reviews
+  are saved under the context's state directory as for EP-243. The manifest takes each host's grants from the ledger's accepted tuples and
+  reads En fully consistently only to refuse when the two differ, because the carrier re-declares what the ledger accepted and an En-only
+  grant could not be carried. EP-243 D11's carrier is built here (EP-243 Decision Log, 2026-11-16).
+  Rationale: one command shape for both moves; a grant the move cannot carry must stop it before it opens, not after the flip.
+  Date: 2026-11-16
 
 - Decision: One command with two step lists. `nagarectl context move --ingress cloudflare-tunnel` is EP-243's move on the
   same domain, and adding `--base-domain NEW` selects this plan's list. EP-243 owns the journal, the refusal to advance,

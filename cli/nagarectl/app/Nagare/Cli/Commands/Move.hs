@@ -20,6 +20,7 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Cli.Bootstrap.Review (applyStageReview, planStageReview)
 import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
+import Nagare.Cli.Move.Manifest (listBaseMove)
 import Nagare.Cli.Move.Observe
 import Nagare.Cli.Options.Move (MoveCommand (..))
 import Nagare.Cli.Platform.InfrastructureReview (prepareInfraTargetWithPulumi)
@@ -62,6 +63,7 @@ runContextMove mctx command = do
   active <- activeTarget mctx
   case command of
     MoveStatus -> withStore active >>= status
+    MoveList new out -> listBaseMove active new out
     MoveStart -> start active
     MoveApply yes -> requireYes yes "context move apply" >> proceed mctx active runMove
     MoveRollback yes -> requireYes yes "context move rollback" >> proceed mctx active rollbackMove

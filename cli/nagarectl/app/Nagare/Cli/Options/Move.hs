@@ -7,7 +7,9 @@ where
 import Nagare.Dsl.Prelude
 
 data MoveCommand
-  = MoveStart
+  = -- | EP-246 D1: list what a move to a new base domain changes, and write its manifest; mutates nothing.
+    MoveList !Text !(Maybe FilePath)
+  | MoveStart
   | MoveApply Bool
   | MoveStatus
   | MoveRollback Bool

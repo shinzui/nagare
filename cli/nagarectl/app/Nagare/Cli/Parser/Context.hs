@@ -132,7 +132,17 @@ contextSubparser =
 moveSubparser :: Parser MoveCommand
 moveSubparser =
   subparser
-    ( command "start" (info (pure MoveStart <**> helper) (progDesc "Open a move of the active context onto the tunnel"))
+    ( command
+        "list"
+        ( info
+            ( MoveList
+                <$> strOption (long "base-domain" <> metavar "DOMAIN" <> help "The new base domain, a Cloudflare zone")
+                <*> optional (strOption (long "out" <> metavar "DIR" <> help "Write move-manifest.json here"))
+                  <**> helper
+            )
+            (progDesc "List every URL, grant, OAuth client and passkey a move to a new base domain changes; mutates nothing")
+        )
+        <> command "start" (info (pure MoveStart <**> helper) (progDesc "Open a move of the active context onto the tunnel"))
         <> command "apply" (info (MoveApply <$> switch (long "yes" <> help "Run the move's steps") <**> helper) (progDesc "Run or resume the open move's steps until one waits for you"))
         <> command "status" (info (pure MoveStatus <**> helper) (progDesc "Show where the open move stands"))
         <> command "rollback" (info (MoveRollback <$> switch (long "yes" <> help "Undo the move's completed steps") <**> helper) (progDesc "Undo the open move's completed steps, newest first"))
