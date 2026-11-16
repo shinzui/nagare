@@ -1,9 +1,10 @@
 -- | Public access commands compile one independent scope and use the common journal.
-module Nagare.Access.Reviewed (checkEffectiveAccess, hostDelegation, planAccess, planTeamAccess, planDelegationAccess, planTeamMember, accessPlanRegistry, planPortalSync, accessAdapter) where
+module Nagare.Access.Reviewed (checkEffectiveAccess, hostDelegation, planAccess, planTeamAccess, planDelegationAccess, planTeamMember, accessPlanRegistry, planPortalSync, portalSyncPending, accessAdapter) where
 
 import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forM)
 import Data.Aeson (toJSON)
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -202,6 +203,40 @@ accessAdapter active en declarations history = do
   ops <- accessRuntimeOpsWith (en {clusterGuard = selectedGuard}) (headBinding (historyHead history))
   pure (mkAccessAdapter accepted specs ops)
 
+-- | The backend and Shomei settings maps composed from every accepted contribution.
+contributedPortalMaps :: [Declaration] -> Either Text (Map.Map ResourceId (ManagedResource, BS.ByteString))
+contributedPortalMaps declarations = do
+  backends <- compileContributedBackendMaps declarations
+  settings <- compileContributedShomeiSettings declarations
+  pure (Map.union backends settings)
+
+-- | Whether Shomei and the enforcer still run on other settings maps than the accepted
+-- contributions compose: a portal that changed host is not served until a portal sync.
+portalSyncPending :: ActiveTarget -> IO Bool
+portalSyncPending active = do
+  opened <- Command.openInventoryForPlanning active
+  snapshot <- Command.openedSnapshot opened
+  inventory <- either (fail . show) pure (composeSnapshot snapshot)
+  owner <- either (fail . T.unpack) pure (mkScopeId Platform "auth")
+  maps <- either (fail . T.unpack) pure (contributedPortalMaps (inventoryDeclarations inventory))
+  let shomei =
+        [ resource
+        | Managed resource <- inventoryDeclarations inventory
+        , resource ^. #owner == owner
+        , Kubernetes _ "apps" kind (Just namespace) name <- [resource ^. #address]
+        , nameText namespace == "nagare-system"
+        , nameText kind == "deployment"
+        , nameText name == "shomei"
+        ]
+  case shomei of
+    [resource] -> do
+      (acceptedNative, _) <-
+        loadAcceptedNativeSelected (Set.singleton (resource ^. #identity)) (opened ^. #inventoryStore) (opened ^. #loadedHistory) inventory
+          >>= either (fail . T.unpack) pure
+      native <- maybe (fail "the accepted Shomei Deployment's native evidence is missing") (pure . snd) (Map.lookup (resource ^. #identity) acceptedNative)
+      pure (portalSyncStale native (portalSyncMapsDigest (Map.map snd maps)))
+    _ -> fail "portal sync status needs exactly one accepted Shomei Deployment"
+
 -- The accepted owner and all accepted contributors supply authority. Live reads
 -- check the resulting objects; they never discover or discard contributors.
 planPortalSync :: ActiveTarget -> IO (Either Text ()) -> FilePath -> IO ()
@@ -238,17 +273,14 @@ planPortalSync active guard output = do
       pure
       (Map.lookup (resource ^. #identity) acceptedNative)
   stamp <- T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" <$> getCurrentTime
+  maps <- either (fail . T.unpack) pure (contributedPortalMaps (inventoryDeclarations inventory))
   (revised, rollout) <-
     either
       (fail . T.unpack)
       pure
-      (compilePortalSyncScope scope members stamp)
+      (compilePortalSyncScope scope members stamp (portalSyncMapsDigest (Map.map snd maps)))
   candidate <- either (fail . show) pure (composeInventory snapshot (ReplaceScope revised :| []))
-  let declarations = inventoryDeclarations inventory
-  backends <- either (fail . T.unpack) pure (compileContributedBackendMaps declarations)
-  settings <- either (fail . T.unpack) pure (compileContributedShomeiSettings declarations)
-  let maps = Map.union backends settings
-      native = Map.union maps rollout
+  let native = Map.union maps rollout
       expected = Map.fromList [(backendMapResourceId owner, ()), (shomeiSettingsResourceId owner, ())]
   unless
     (Map.keysSet maps == Map.keysSet expected)

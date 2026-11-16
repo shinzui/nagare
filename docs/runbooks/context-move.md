@@ -70,7 +70,9 @@ Going back to direct ingress means a new context.
 - **`remove-passkeys` refuses because the passkey table differs.** The platform's Shomei changed its passkey columns. Roll back, or
   upgrade nagarectl with the platform; nothing was removed.
 - **`carry-sites` keeps waiting.** `context move status` names each site without a route on its new name. Update its config's
-  hostnames and redeploy it; a deploy is admitted during this step.
+  hostnames and redeploy it; a deploy is admitted during this step. Once every site answers it asks for a portal sync, because
+  Shomei and the access enforcer read the portal's host only at startup: run `nagarectl access portal sync --save-plan DIR` and
+  `nagarectl inventory apply DIR --yes`.
 - **`verify-sites` refuses.** A listed subject does not get in on a new name, or an unlisted one does. Check the grant reviews
   `carry-sites` applied with `nagarectl access check --host NEW --user ID`; if the cause is not clear, roll back. The old grants were
   never touched.

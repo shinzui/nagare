@@ -88,8 +88,11 @@ at `nagare-access`, and configures Shomei with:
 - the portal origin added to `SHOMEI_WEBAUTHN_ORIGINS`; and
 - `SHOMEI_PUBLIC_BASE_URL=https://<portal-host>` for email links.
 
-These changes roll Shomei only when a value differs. Redeploying the same portal is
-safe. The managed cloud and local auth-plane installers preserve both the backend map
+Shomei and the access enforcer read these values only at startup, and a reviewed deploy
+updates the maps without restarting them. After a deploy that adds the portal or changes its
+host, roll both with `nagarectl access portal sync --save-plan DIR` and
+`nagarectl inventory apply DIR --yes`; until then a new passkey is refused for the new origin.
+Redeploying the same portal is safe. The managed cloud and local auth-plane installers preserve both the backend map
 and Shomei's portal environment. If either is replaced by an older installer or a
 manual manifest application in a legacy context, restore the Shomei values with:
 

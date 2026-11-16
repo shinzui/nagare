@@ -152,7 +152,7 @@ inventoryAccessTests =
         let owner = ok (mkScopeId Platform "auth")
             scope = maybe (error "auth fixture absent") snd (Map.lookup owner (snapshotScopes snapshot))
             readers = [fixtureShomei, fixtureEnforcer]
-            (revised, rollout) = ok (compilePortalSyncScope scope readers "bounded-sync")
+            (revised, rollout) = ok (compilePortalSyncScope scope readers "bounded-sync" "maps-one")
         scopeId revised @?= owner
         Map.keysSet rollout @?= Set.fromList [resource ^. #identity | (resource, _) <- readers]
         forM_ readers $ \(original, _) -> do
@@ -160,6 +160,17 @@ inventoryAccessTests =
           (changed & #spec .~ (original ^. #spec) & #dependencies .~ (original ^. #dependencies)) @?= original
           assertBool "backend-map dependency missing" (OrderedAfter (backendMapResourceId owner) `elem` (changed ^. #dependencies))
           assertBool "Shomei-settings dependency missing" (OrderedAfter (shomeiSettingsResourceId owner) `elem` (changed ^. #dependencies))
+        -- EP-246 D8: the rolled Shomei records the maps it was rolled onto, so a later change to them
+        -- (a portal on a new host) reads as a sync still owed, and an unsynced Shomei always does.
+        let (_, rolledShomei) = rollout Map.! ((fst fixtureShomei) ^. #identity)
+            mapsA = Map.fromList [(backendMapResourceId owner, "backends-a"), (shomeiSettingsResourceId owner, "settings-a")]
+            mapsB = Map.insert (shomeiSettingsResourceId owner) "settings-b" mapsA
+            (_, rolledOntoA) = ok (compilePortalSyncScope scope readers "bounded-sync" (portalSyncMapsDigest mapsA)) & snd & (Map.! ((fst fixtureShomei) ^. #identity))
+        portalSyncStale rolledShomei "maps-one" @?= False
+        portalSyncStale rolledOntoA (portalSyncMapsDigest mapsA) @?= False
+        portalSyncStale rolledOntoA (portalSyncMapsDigest mapsB) @?= True
+        portalSyncStale (snd fixtureShomei) (portalSyncMapsDigest mapsA) @?= True
+        assertBool "two different maps share a digest" (portalSyncMapsDigest mapsA /= portalSyncMapsDigest mapsB)
         forM_
           [ [fixtureShomei]
           , [fixtureShomei, fixtureShomei]
@@ -169,7 +180,7 @@ inventoryAccessTests =
           $ \invalid ->
             assertBool
               "foreign, missing, duplicate or changed reader accepted"
-              (either (const True) (const False) (compilePortalSyncScope scope invalid "bounded-sync"))
+              (either (const True) (const False) (compilePortalSyncScope scope invalid "bounded-sync" "maps-one"))
     , testCase "atomic wire uses exact direct-subject filter and fully consistent observation" $ do
         let binding = accessBinding True
             before = AccessFact physical False

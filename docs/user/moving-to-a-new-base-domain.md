@@ -77,7 +77,7 @@ it.
 | `start-connector` | Reviews the connector beside direct ingress | Run `nagarectl tunnel token` first if it asks |
 | `flip-base` | Writes `NAGARE_BASE_DOMAIN`, `NAGARE_INGRESS`, `NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED` and `NAGARE_RETAINED_DNS_NAME` together, then reviews the platform on the new base. **The outage starts.** | Reload your shell (`direnv reload`) when it asks, then read and apply |
 | `remove-passkeys` | Exports every passkey to `move-passkeys.sops.yaml` in the context's secrets directory, then removes exactly those | Nothing; commit the export with your other secrets |
-| `carry-sites` | Waits until every site answers on its new name, then reviews the same grants on the new names | Redeploy each site from its updated config, the auth portal first, then the apex: `nagarectl deploy -f site.yaml` |
+| `carry-sites` | Waits until every site answers on its new name and Shomei and the enforcer run on the portal's new host, then reviews the same grants on the new names | Redeploy each site from its updated config, the auth portal first, then the apex: `nagarectl deploy -f site.yaml`. Then run `nagarectl access portal sync --save-plan DIR` and `nagarectl inventory apply DIR --yes` when it asks |
 | `verify-sites` | Every listed subject gets in on each new protected name, an unlisted one does not, every new name answers through the edge. **The outage ends.** | Take fresh `en-db` and `shomei-db` backups: one from before the move lacks the new grants |
 | `close-firewall` | Reviews the three web rules disabled in place | Read and apply |
 | `close-kourier` | Reviews `kourier` as `ClusterIP` | Read and apply |
@@ -91,7 +91,8 @@ say) before you redeploy it. A redeploy keeps each old protected route beside th
 binding; the old grants and routes stay until you retire them.
 
 **Passkeys.** A browser refuses a passkey on another domain, and Shomei asks a passkey holder for one at every sign-in, so the move
-removes them. Their holders sign in with their password and register a new passkey. Accounts with TOTP keep being asked for it.
+removes them. Their holders sign in with their password and register a new passkey. Nagare does not enable Shomei's TOTP, so no
+account has a second factor left to ask for.
 Everyone signs in once on the new auth host, because browsers do not send the old cookie to the new domain.
 
 ## Roll back
@@ -102,7 +103,7 @@ nagarectl context move rollback --yes
 
 Until `commit-move` completes: rollback reopens the firewall and `kourier` first, restores the passkey table to the export exactly
 (passkeys registered after the flip are removed), writes the old profile back and stops for your shell to reload, then reviews the
-platform on the old base. Redeploy each site from its old config. The old grants were never touched. The new zone and the connector
+platform on the old base. Redeploy each site from its old config, the auth portal first, and run the portal sync above again. The old grants were never touched. The new zone and the connector
 stay, unused, so a later move finds them in place.
 
 ## Retire the old base

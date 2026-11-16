@@ -91,6 +91,14 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
   literal `nagare-shomei`, matched by `cluster/bootstrap/nagare-access/service.yaml`. There is nothing to roll, so D3 proves it
   stays the same.
 
+- 2026-11-16, D8 rehearsal on `ep246d`. A fresh cloud context could not bootstrap: the posture read EP-243 added opened the
+  remote inventory store before its bucket existed. Fixed in `4d38b541` before any cloud change.
+- 2026-11-16, same run. A reviewed deploy updates the auth portal's settings maps but does not restart Shomei or the enforcer,
+  which read them only at startup, so the first portal on `ep246d` refused a new passkey (`webauthn_verification_failed`, Shomei
+  still on its default origin) until `access portal sync`. After the flip the same holds for the portal's new host, so
+  `carry-sites` now waits for a sync (`portalSyncPending`, from the maps digest the sync records) and the guides say so.
+- 2026-11-16, same run. Nagare never sets `SHOMEI_TOTP_ENCRYPTION_KEY`, so Shomei answers `totp_disabled` and no Nagare account
+  can hold TOTP. The guide no longer promises TOTP survives the move; the rehearsal has no TOTP account.
 
 ## Decision Log
 
@@ -169,6 +177,11 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
   own calls to the admin API cross the edge, so it needs EP-245's edge.
   Date: 2026-11-04
 
+- Decision: The rehearsal's passkey account uses a software authenticator (a P-256 key held by the drill) through Shomei's own
+  registration and sign-in API over a port-forward, not a browser, and has no TOTP account.
+  Rationale: Nagare does not enable TOTP (above), and a browser sign-in needs a test-labelled host, which neither base has. The
+  software authenticator drives the same ceremonies, so the old passkey's sign-in after rollback is still proved.
+  Date: 2026-11-16
 
 ## Outcomes & Retrospective
 

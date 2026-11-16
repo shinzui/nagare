@@ -16,7 +16,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Text qualified as T
 import Nagare.Access.Check (CheckDecision (..), CheckReport (..), CheckResult (..))
-import Nagare.Access.Reviewed (accessPlanRegistry, checkEffectiveAccess)
+import Nagare.Access.Reviewed (accessPlanRegistry, checkEffectiveAccess, portalSyncPending)
 import Nagare.Cli.Move.Manifest (manifestFile)
 import Nagare.Cli.Runtime.Cluster (withPreparedContextEnSession)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -44,7 +44,13 @@ carrySitesStep active manifest reviewWith = do
     Left reason -> pure (StepRefused reason)
     Right progress
       | not (null (progress ^. #unrouted)) -> pure (StepWaiting (renderUnrouted (manifest ^. #newBase) (progress ^. #unrouted)))
-      | otherwise -> reviewWith planGrants
+      | otherwise -> do
+          -- Shomei and the enforcer read the portal's settings only at startup: until a sync rolls them,
+          -- sign-in and new passkeys still expect the old auth host.
+          pending <- portalSyncPending active
+          if pending
+            then pure (StepWaiting portalSyncNeeded)
+            else reviewWith planGrants
   where
     planGrants identity directory = do
       snapshot <- Inventory.loadTargetSnapshot active
@@ -56,6 +62,10 @@ carrySitesStep active manifest reviewWith = do
           withPreparedContextEnSession active $ \en ->
             Inventory.planInventoryCandidateWithPayloadIdentity (accessPlanRegistry active en) identity active candidate directory
           pure True
+
+portalSyncNeeded :: Text
+portalSyncNeeded =
+  "every site answers on its new name; roll Shomei and the access enforcer onto the auth portal's new host, then run apply again:\n  nagarectl access portal sync --save-plan DIR\n  nagarectl inventory apply DIR --yes"
 
 -- | A subject no grant names: En must deny it everywhere.
 unlisted :: Text

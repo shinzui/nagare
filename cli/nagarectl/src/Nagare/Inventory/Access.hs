@@ -22,6 +22,8 @@ module Nagare.Inventory.Access
   , compileTeamAccessScope
   , compileDelegationAccessScope
   , compilePortalSyncScope
+  , portalSyncMapsDigest
+  , portalSyncStale
   , accessBindings
   , acceptedAccessBindings
   , mkAccessAdapter
@@ -60,8 +62,10 @@ compilePortalSyncScope ::
   ScopeDeclaration ->
   [(ManagedResource, ByteString)] ->
   Text ->
+  -- | 'portalSyncMapsDigest' of the settings maps the readers are rolled onto.
+  Text ->
   Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compilePortalSyncScope scope workloads token = do
+compilePortalSyncScope scope workloads token mapsDigest = do
   owner <- mkScopeId Platform "auth"
   unless
     (scopeId scope == owner && not (T.null token))
@@ -131,7 +135,7 @@ compilePortalSyncScope scope workloads token = do
         ( Object
             ( KM.insert
                 "annotations"
-                (Object (KM.insert "nagare.dev/portal-sync" (String stamp) annotations))
+                (Object (KM.insert "nagare.dev/portal-sync-maps" (String mapsDigest) (KM.insert "nagare.dev/portal-sync" (String stamp) annotations)))
                 metadata
             )
         )
@@ -142,6 +146,27 @@ compilePortalSyncScope scope workloads token = do
       updated <- updateAt remaining change value
       pure (Object (KM.insert field updated fields))
     updateAt _ _ _ = Left "portal workload Pod template is malformed"
+
+-- | The digest of the backend and Shomei settings maps a portal sync rolls both readers onto.
+portalSyncMapsDigest :: Map ResourceId ByteString -> Text
+portalSyncMapsDigest maps =
+  digestText (contentDigest (TE.encodeUtf8 (T.concat [resourceIdText k <> "\n" | k <- Map.keys maps]) <> mconcat (Map.elems maps)))
+
+-- | Whether the accepted Shomei Deployment was last rolled onto other settings maps than these:
+-- Shomei and the enforcer read them only at startup, so a portal that moved to a new host (a base
+-- move's redeploy, or a first deploy) is not served until a portal sync rolls them.
+portalSyncStale :: ByteString -> Text -> Bool
+portalSyncStale shomeiNative mapsDigest = synced /= Just mapsDigest
+  where
+    synced = case eitherDecodeStrict shomeiNative of
+      Right (Object deployment) -> do
+        Object spec <- KM.lookup "spec" deployment
+        Object template <- KM.lookup "template" spec
+        Object metadata <- KM.lookup "metadata" template
+        Object annotations <- KM.lookup "annotations" metadata
+        String value <- KM.lookup "nagare.dev/portal-sync-maps" annotations
+        pure value
+      _ -> Nothing
 
 -- | The one relationship a reviewed access scope controls.
 data Relationship
