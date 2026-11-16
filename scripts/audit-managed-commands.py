@@ -64,7 +64,7 @@ ROUTES = {
         "group": "ContextMove",
     },
     # EP-243: a move's steps are reviews admitted only under its marker in the shared head.
-    "MoveCommand": {"read": "MoveStatus", "reviewed": "MoveStart MoveApply MoveRollback"},
+    "MoveCommand": {"read": "MoveStatus", "reviewed": "MoveStart MoveApply MoveRollback MoveRetireDns"},
     "InfraCommand": {
         "read": "InfraGuard",
         "reviewed": "InfraPreview InfraApply InfraDestroy",

@@ -11,4 +11,6 @@ data MoveCommand
   | MoveApply Bool
   | MoveStatus
   | MoveRollback Bool
+  | -- | D2: retire the Cloud DNS set a committed move kept.
+    MoveRetireDns Bool
   deriving stock (Generic, Show)

@@ -49,7 +49,7 @@ import Nagare.Resource.Types (ScopeKind (Platform), mkScopeId, nameText, scopeKi
 import Nagare.Target (ActiveTarget, IngressMode (..), Mode (Cloud), contextNameText, contextStateDirName, nagareStateDir, validateIngressMode)
 import System.Directory (doesDirectoryExist, doesFileExist, removeDirectoryRecursive)
 import System.Exit (ExitCode)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 
 -- | The kind of move EP-243 runs; EP-246 adds another.
 ingressMove :: Text
@@ -63,6 +63,7 @@ runContextMove mctx command = do
     MoveStart -> start active
     MoveApply yes -> requireYes yes "context move apply" >> proceed mctx active runMove
     MoveRollback yes -> requireYes yes "context move rollback" >> proceed mctx active rollbackMove
+    MoveRetireDns yes -> requireYes yes "context move retire-dns" >> retireDns mctx active
 
 start :: ActiveTarget -> IO ()
 start active = do
@@ -99,6 +100,34 @@ status store =
       TIO.putStrLn (T.pack (show (progress ^. #completed)) <> " of " <> T.pack (show (length (progress ^. #steps))) <> " steps done")
       forM_ (progress ^. #inProgress) $ \step -> TIO.putStrLn ("In progress: " <> moveStepToken step)
       TIO.putStrLn ("Left: " <> T.intercalate ", " (map moveStepToken (remainingSteps progress)))
+
+-- | D2: once a move has committed and the registrar delegates to Cloudflare, retire the Cloud DNS
+-- zone the move kept, its records and the solver's grants, then clear @NAGARE_RETAINED_DNS_NAME@.
+retireDns :: Maybe String -> ActiveTarget -> IO ()
+retireDns mctx active = do
+  let profile = active ^. #profile
+      base = profile ^. #retainedDnsName
+  unless (profile ^. #ingress == IngressCloudflareTunnel && not (T.null base)) (dieT "this context keeps no Cloud DNS zone from a move")
+  store <- withStore active
+  openMoveOf store >>= either dieT pure >>= mapM_ (const (dieT "a context move is open; finish or roll it back first"))
+  zone <- observeZone >>= either dieT pure >>= maybe (dieT "CF_ZONE_ID names no zone") pure
+  parent <- observeParentDelegation base >>= either dieT pure
+  resolvers <- observeResolverNameServers base
+  let cloudflare = zone ^. #assignedNameServers
+  unless (zone ^. #zoneState == "active" && all (sameNameServers cloudflare) (fst parent : resolvers)) $
+    dieT "the parent or a public resolver still names other name servers than Cloudflare's; Cloud DNS may still answer for this domain"
+  directory <- (</> "retire-cloud-dns") . takeDirectory <$> reviewDirectory active MovingForward CommitMove
+  saved <- doesDirectoryExist directory
+  let identity = "operator-cli"
+      next =
+        retireSet active store cloudDnsSet "the kept Cloud DNS zone, its records and grants" identity directory $ do
+          writeContextProfile (active ^. #contextName) (profile & #retainedDnsName .~ "")
+          TIO.putStrLn "Cleared NAGARE_RETAINED_DNS_NAME. The solver's two IAM grants are retired, not deleted: remove them in the project if you want."
+  outcome <- if saved then applySavedReview mctx active (== identity) "the Cloud DNS retirement's" directory next else next
+  case outcome of
+    StepCompleted -> TIO.putStrLn "The Cloud DNS set is retired."
+    StepWaiting reason -> TIO.putStrLn ("Waiting: " <> reason)
+    StepRefused reason -> dieT reason
 
 directionText :: MoveDirection -> Text
 directionText = \case
@@ -191,25 +220,7 @@ perform mctx active store marker direction step = case (direction, step) of
     planned directory stepNow = do
       planStageReview active (identityFor stepNow) directory
       settledOrWait directory
-    applySaved directory stepNow next = do
-      outcome <-
-        try
-          ( applyStageReview
-              mctx
-              active
-              (isStep stepNow)
-              ("this review is not the move's " <> moveStepToken stepNow <> " review")
-              directory
-              True
-          )
-      removeDirectoryRecursive directory
-      case outcome of
-        Left (_ :: ExitCode) ->
-          pure
-            ( StepRefused
-                "the saved review did not apply (see above). If `nagarectl inventory status` shows an active transaction, settle it with `nagarectl inventory resume`; then run the same command again to plan afresh"
-            )
-        Right () -> next
+    applySaved directory stepNow = applySavedReview mctx active (isStep stepNow) ("the move's " <> moveStepToken stepNow) directory
     isStep stepNow identity = case parseMoveReviewIdentity identity of
       Just (kind, reviewed, _) -> kind == ingressMove && reviewed == stepNow
       Nothing -> False
@@ -218,50 +229,15 @@ perform mctx active store marker direction step = case (direction, step) of
     commit = do
       directory <- reviewDirectory active MovingForward CommitMove
       saved <- doesDirectoryExist directory
-      if saved then applySaved directory CommitMove (nextCommit directory) else nextCommit directory
-    nextCommit directory = do
-      (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-      manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
-      let identity = identityFor CommitMove (manifest ^. #payloadId)
-      snapshot <- Inventory.loadTargetSnapshot active
-      history <- Plan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-      cloud <- either dieT pure (mkScopeId Platform "cloud")
-      let accepted = snd <$> Map.lookup cloud (Resource.snapshotScopes snapshot)
-          retained =
-            [ resource
-            | (resource, (_, member)) <- Map.toAscList (Plan.historyRetained history)
-            , scopeKind (member ^. #owner) == Platform
-            , nameText (scopeName (member ^. #owner)) == "cloud"
-            , isTunnelWebRule member
-            ]
-          registry check candidate previous = withPreparationGuard check <$> inventoryPlanRegistry active workspace candidate previous
-      either (pure . StepRefused) id $
-        commitAction accepted retained <&> \case
-          CommitPolicy scope -> do
-            candidate <- compose snapshot scope
-            Inventory.planInventoryCandidateWithPayloadIdentity (registry verifyOnly) identity active candidate directory
-            waitForReview directory "it lets the three web firewall rules be deleted; nothing changes in the cloud"
-          CommitRetire scope rules -> do
-            candidate <- compose snapshot scope
-            Inventory.planInventoryCandidateWithRetirementsPayload (registry verifyOnly) identity active candidate rules directory
-            waitForReview directory "it removes the three web firewall rules from the cloud scope and keeps them in the cloud"
-          CommitCollect rule -> do
-            (_, infra) <- prepareInfraTargetWithPulumi True active
-            requireCloudCollectionProtocol infra
-            Inventory.planInventoryCollectionsWithPayload (registry (const (Right ()))) identity active (rule :| []) directory
-            waitForReview directory "it deletes one disabled web firewall rule"
-          CommitProfile -> do
-            let profile = active ^. #profile & #ingress .~ IngressCloudflareTunnel & #retainedDnsName .~ base
-            either dieT pure (validateIngressMode profile)
-            writeContextProfile (active ^. #contextName) profile
-            TIO.putStrLn ("Wrote the context profile: NAGARE_INGRESS=cloudflare-tunnel, NAGARE_RETAINED_DNS_NAME=" <> base <> ".")
-            pure StepCompleted
-    compose snapshot scope =
-      either (dieT . T.pack . show) pure (Resource.composeInventory snapshot (Resource.ReplaceScope scope :| []))
-    verifyOnly operation =
-      unless (plannedAction operation == VerifyResource) (Left "a move's commit cannot change a native resource before it collects one")
-    waitForReview directory what =
-      pure (StepWaiting ("read the review saved in " <> T.pack directory <> " above: " <> what <> ". Run the same command again to apply it"))
+      let next = do
+            (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
+            manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+            retireSet active store webRuleSet "the three web firewall rules" (identityFor CommitMove (manifest ^. #payloadId)) directory $ do
+              let profile = active ^. #profile & #ingress .~ IngressCloudflareTunnel & #retainedDnsName .~ base
+              either dieT pure (validateIngressMode profile)
+              writeContextProfile (active ^. #contextName) profile
+              TIO.putStrLn ("Wrote the context profile: NAGARE_INGRESS=cloudflare-tunnel, NAGARE_RETAINED_DNS_NAME=" <> base <> ".")
+      if saved then applySaved directory CommitMove next else next
     settledOrWait directory = do
       bundle <- Plan.loadReviewBundle directory >>= either dieT pure
       headValue <- readHead store >>= either (dieT . T.pack . show) pure
@@ -271,6 +247,55 @@ perform mctx active store marker direction step = case (direction, step) of
       if null changes && Plan.reviewDesiredRevisions document `Map.isSubmapOf` accepted
         then removeDirectoryRecursive directory >> pure StepCompleted
         else waitForReview directory "its operations are this step's change"
+
+-- | Apply the review saved in @directory@ when its identity is @accepted@, discard it either way, and
+-- continue with @next@ only when it applied.
+applySavedReview :: Maybe String -> ActiveTarget -> (Text -> Bool) -> Text -> FilePath -> IO StepOutcome -> IO StepOutcome
+applySavedReview mctx active accepted label directory next = do
+  outcome <- try (applyStageReview mctx active accepted ("this review is not " <> label <> " review") directory True)
+  removeDirectoryRecursive directory
+  case outcome of
+    Left (_ :: ExitCode) ->
+      pure
+        ( StepRefused
+            "the saved review did not apply (see above). If `nagarectl inventory status` shows an active transaction, settle it with `nagarectl inventory resume`; then run the same command again to plan afresh"
+        )
+    Right () -> next
+
+-- | Plan the next review that moves @set@ out of the cloud scope under @identity@, or, when none is
+-- left, run @finish@ and complete.
+retireSet :: ActiveTarget -> InventoryStore -> RetiredSet -> Text -> Text -> FilePath -> IO () -> IO StepOutcome
+retireSet active store retiring what identity directory finish = do
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  history <- Plan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  cloud <- either dieT pure (mkScopeId Platform "cloud")
+  let accepted = snd <$> Map.lookup cloud (Resource.snapshotScopes snapshot)
+      retained = [member | (_, (_, member)) <- Map.toAscList (Plan.historyRetained history), retiredMember retiring member]
+      registry check candidate previous = withPreparationGuard check <$> inventoryPlanRegistry active workspace candidate previous
+      compose scope = either (dieT . T.pack . show) pure (Resource.composeInventory snapshot (Resource.ReplaceScope scope :| []))
+      verifyOnly operation =
+        unless (plannedAction operation == VerifyResource) (Left "retiring a cloud set cannot change a native resource before it collects one")
+  either (pure . StepRefused) id $
+    commitAction retiring accepted retained <&> \case
+      CommitPolicy scope -> do
+        candidate <- compose scope
+        Inventory.planInventoryCandidateWithPayloadIdentity (registry verifyOnly) identity active candidate directory
+        waitForReview directory ("it lets " <> what <> " be deleted; nothing changes in the cloud")
+      CommitRetire scope members -> do
+        candidate <- compose scope
+        Inventory.planInventoryCandidateWithRetirementsPayload (registry verifyOnly) identity active candidate members directory
+        waitForReview directory ("it removes " <> what <> " from the cloud scope and keeps them in the cloud")
+      CommitCollect member -> do
+        (_, infra) <- prepareInfraTargetWithPulumi True active
+        requireCloudCollectionProtocol infra
+        Inventory.planInventoryCollectionsWithPayload (registry (const (Right ()))) identity active (member :| []) directory
+        waitForReview directory ("it deletes one of " <> what)
+      CommitProfile -> finish >> pure StepCompleted
+
+waitForReview :: FilePath -> Text -> IO StepOutcome
+waitForReview directory what =
+  pure (StepWaiting ("read the review saved in " <> T.pack directory <> " above: " <> what <> ". Run the same command again to apply it"))
 
 -- | Run a guard, and the step only when the guard completes.
 guarded :: IO StepOutcome -> IO StepOutcome -> IO StepOutcome

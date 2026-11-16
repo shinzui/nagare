@@ -7,6 +7,7 @@ where
 
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
+import Data.List (sort)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, addUTCTime, nominalDay)
@@ -92,25 +93,49 @@ contextMoveChecksTests =
         nameServersReturned cloudDns normalised [cloudDns, normalised] @?= StepCompleted
     , testCase "the commit lets the web rules be deleted, retires them, collects each, then writes the profile (D6)" $ do
         let accepted = cloudScopeWith Retain
-        policy <- expectRight (commitAction (Just accepted) [])
+        policy <- expectRight (commitAction webRuleSet (Just accepted) [])
         policyScope <- case policy of
           CommitPolicy revised -> pure revised
           other -> assertFailure ("expected the policy review: " <> show other) >> pure accepted
         [m ^. #lifecycle | m <- members policyScope, isTunnelWebRule m] @?= replicate 3 DeleteWhenUnreferenced
         [m | m <- members policyScope, not (isTunnelWebRule m)] @?= [m | m <- members accepted, not (isTunnelWebRule m)]
-        retire <- expectRight (commitAction (Just policyScope) [])
+        retire <- expectRight (commitAction webRuleSet (Just policyScope) [])
         case retire of
           CommitRetire revised retired -> do
             filter isTunnelWebRule (members revised) @?= []
             length (members revised) @?= 1
             length retired @?= 3
           other -> assertFailure ("expected the retirement: " <> show other)
-        case [m ^. #identity | m <- members accepted, isTunnelWebRule m] of
-          retained : _ -> commitAction (Just cloudScopeWithout) [retained] @?= Right (CommitCollect retained)
+        case [m | m <- members accepted, isTunnelWebRule m] of
+          retained : _ -> commitAction webRuleSet (Just cloudScopeWithout) [retained] @?= Right (CommitCollect (retained ^. #identity))
           [] -> assertFailure "the scope has no web rule"
-        let remaining = cloudScopeWithout
-        commitAction (Just remaining) [] @?= Right CommitProfile
-        assertBool "no cloud scope" (isLeft (commitAction Nothing []))
+        commitAction webRuleSet (Just cloudScopeWithout) [] @?= Right CommitProfile
+        assertBool "no cloud scope" (isLeft (commitAction webRuleSet Nothing []))
+    , testCase "retiring the kept Cloud DNS set deletes records before the zone and only retires the solver's grants (D2)" $ do
+        let dnsKeys = cloudDnsSet ^. #keys
+            accepted = ok (compileCloudScope (cloudBundle (bucket : map (rule Retain) dnsKeys)))
+            inSet m = any (\key -> ("::" <> key) `T.isSuffixOf` urnOf m) dnsKeys
+        policy <- expectRight (commitAction cloudDnsSet (Just accepted) [])
+        policyScope <- case policy of
+          CommitPolicy revised -> pure revised
+          other -> assertFailure ("expected the policy review: " <> show other) >> pure accepted
+        sort [(keyOf m, m ^. #lifecycle) | m <- members policyScope, inSet m]
+          @?= [ (key, if key `elem` cloudDnsSet ^. #collected then DeleteWhenUnreferenced else Retain)
+              | key <- sort dnsKeys
+              ]
+        case commitAction cloudDnsSet (Just policyScope) [] of
+          Right (CommitRetire revised retired) -> do
+            filter inSet (members revised) @?= []
+            length retired @?= 5
+          other -> assertFailure ("expected the retirement: " <> show other)
+        let retained = filter inSet (members policyScope)
+            byKey key = head [m | m <- retained, keyOf m == key]
+        commitAction cloudDnsSet (Just cloudScopeWithout) retained @?= Right (CommitCollect (byKey "nagare-wildcard" ^. #identity))
+        commitAction cloudDnsSet (Just cloudScopeWithout) (filter ((/= "nagare-wildcard") . keyOf) retained)
+          @?= Right (CommitCollect (byKey "nagare-apex" ^. #identity))
+        commitAction cloudDnsSet (Just cloudScopeWithout) [byKey "nagare-zone", byKey "nagare-iam-dns-read"]
+          @?= Right (CommitCollect (byKey "nagare-zone" ^. #identity))
+        commitAction cloudDnsSet (Just cloudScopeWithout) [byKey "nagare-iam-dns-zone", byKey "nagare-iam-dns-read"] @?= Right CommitProfile
     , testCase "the move lists every URL it changes and blocks what it cannot carry (D11)" $ do
         let service ns name' = kube "service" (Just ns) name'
             mapping host = kube "domainmapping" (Just "apps") host
@@ -205,6 +230,14 @@ expectRight = either (\e -> assertFailure (show e) >> error "unreachable") pure
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
+
+urnOf :: ManagedResource -> Text
+urnOf m = case [urn | PulumiUrn urn <- m ^. #address : m ^. #aliases] of
+  urn : _ -> urn
+  [] -> ""
+
+keyOf :: ManagedResource -> Text
+keyOf = snd . T.breakOnEnd "::" . urnOf
 
 -- | An application scope's members holding these Kubernetes objects.
 appScope :: [ProviderAddress] -> [ManagedResource]

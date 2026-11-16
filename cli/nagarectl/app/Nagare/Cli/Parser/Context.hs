@@ -136,6 +136,7 @@ moveSubparser =
         <> command "apply" (info (MoveApply <$> switch (long "yes" <> help "Run the move's steps") <**> helper) (progDesc "Run or resume the open move's steps until one waits for you"))
         <> command "status" (info (pure MoveStatus <**> helper) (progDesc "Show where the open move stands"))
         <> command "rollback" (info (MoveRollback <$> switch (long "yes" <> help "Undo the move's completed steps") <**> helper) (progDesc "Undo the open move's completed steps, newest first"))
+        <> command "retire-dns" (info (MoveRetireDns <$> switch (long "yes" <> help "Review the Cloud DNS set's retirement") <**> helper) (progDesc "After a move, retire the Cloud DNS zone it kept, one reviewed step at a time"))
     )
 
 initCmd :: ParserInfo Command

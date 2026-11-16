@@ -49,7 +49,9 @@ open on the VM.
   `infra/pulumi` passes with new variants in `test/resourceProgramParity.test.ts`. In tunnel mode the `kourier`
   Service is `ClusterIP`, so ServiceLB binds no host port and a rule added by mistake reaches nothing.
 - [ ] D2 (retention mechanism `0646b22e`: Pulumi and catalog parity tests keep the zone, both records and the solver's grants when
-  `NAGARE_RETAINED_DNS_NAME` is set; the reviewed retirement is milestone 6): On a converted context, the existing Cloud DNS zone is retained until the operator retires it through a reviewed
+  `NAGARE_RETAINED_DNS_NAME` is set; the reviewed retirement is `context move retire-dns`, which refuses until the parent and three
+  public resolvers name only Cloudflare's servers, then reviews a policy revision, the set's retirement, and collection of the
+  records and the zone, retiring the two IAM grants without deleting them (`Nagare.Test.ContextMoveChecks`); native proof is left): On a converted context, the existing Cloud DNS zone is retained until the operator retires it through a reviewed
   step. Nothing deletes it automatically.
 - [ ] D3: A move runs in a fixed order and refuses to advance otherwise: refuse while the parent zone publishes a DS
   record for the domain, add the zone on Cloudflare with its records DNS-only and pointing at the VM, wait for the
@@ -221,7 +223,8 @@ Milestones, each landed with its interpreter tests before the next:
    in turn, a policy revision letting the three rules be deleted, a cloud scope revision retiring them, and one exact collection of
    each, then writes `NAGARE_INGRESS=cloudflare-tunnel` and `NAGARE_RETAINED_DNS_NAME` into the profile.
 5. The window and the hostnames (D4, D11): the renewal refusal, a hostname added during the window, and the carrier with its host map.
-6. Retirement, docs and the native run (D2's retirement, D6, D8, D10).
+6. Retirement, docs and the native run (D2's retirement, D6, D8, D10). The retirement is `context move retire-dns`, sharing the
+   commit's policy, retire and collect sequence (`Nagare.Context.MoveCommit`).
 
 Add the Pulumi variants first, proven in parity tests. Build the move and rollback on the interpreter, then prove them on a disposable
 context with a continuous request loop. Prove a new context, the operator paths and the upgrade path there too.
