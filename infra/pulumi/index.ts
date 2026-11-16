@@ -51,6 +51,8 @@ const manageProjectApisCfg = cfg.getBoolean("manageProjectApis") ?? true;
 const tunnelCfg = cfg.get("ingress") === "cloudflare-tunnel";
 // EP-243 D2: set only on a context moved from direct ingress, so its Cloud DNS zone is retained.
 const retainedDnsNameCfg = tunnelCfg ? cfg.get("retainedDnsName") : undefined;
+// EP-243: set only while a move has disabled the web rules; absent, the rules are unchanged.
+const webRulesDisabledCfg = cfg.getBoolean("webRulesDisabled") ?? false;
 
 // IP-10: EP-3 writes this after building+registering the NixOS image.
 // `get` (not `require`) so the VM is simply omitted until it is set.
@@ -117,6 +119,7 @@ const perimeter = new NagarePerimeter(
         dataDiskSizeGb: dataDiskSizeGbCfg,
         tunnel: tunnelCfg,
         retainedDnsName: retainedDnsNameCfg,
+        webRulesDisabled: webRulesDisabledCfg,
         baseDomain: baseDomainCfg,
         artifactRegistryId: artifactRegistryIdCfg,
         serviceAccountId: serviceAccountIdCfg,

@@ -306,14 +306,17 @@ contextMoveTests =
       at 2 ^. #zoneRecords @?= Just MirrorRecords
       (at 2 ^. #connectorRunning, at 6 ^. #connectorRunning) @?= (False, True)
       (at 7 ^. #zoneRecords, at 8 ^. #zoneRecords) @?= (Just MirrorRecords, Just TunnelRecords)
-      (at 10 ^. #perimeterClosed, at 11 ^. #perimeterClosed, at 11 ^. #kourierClosed) @?= (False, True, False)
+      (at 10 ^. #webRules, at 11 ^. #webRules, at 11 ^. #kourierClosed) @?= (WebRulesOpen, WebRulesDisabled, False)
+      at (length sameDomainSteps) ^. #webRules @?= WebRulesAbsent
+      -- Only the commit removes the rules, so every step before it can roll back.
+      at (length sameDomainSteps - 1) ^. #webRules @?= WebRulesDisabled
       -- A step planned forward is in the plan; a step being undone is not.
       planning SwitchRecords 7 ^. #zoneRecords @?= Just TunnelRecords
       postureFor IngressDirect (Just (newMove sameDomainSteps & #completed .~ 8 & #direction .~ RollingBack & #inProgress .~ Just SwitchRecords)) ^. #zoneRecords
         @?= Just MirrorRecords
       -- The firewall never closes while the records still send visitors to the VM.
       forM_ [0 .. length sameDomainSteps] $ \n ->
-        assertBool ("closed before the switch at " <> show n) (not (at n ^. #perimeterClosed) || at n ^. #zoneRecords == Just TunnelRecords)
+        assertBool ("closed before the switch at " <> show n) (at n ^. #webRules == WebRulesOpen || at n ^. #zoneRecords == Just TunnelRecords)
   , testCase "the remaining steps name what is left in each direction" $ do
       let record = newMove sameDomainSteps & #completed .~ 8
       take 1 (remainingSteps record) @?= [VerifyTunnel]

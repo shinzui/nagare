@@ -87,6 +87,13 @@ open on the VM.
 
 ## Decision Log
 
+- Decision: `CloseFirewall` disables the three web rules in place and its inverse enables them; `CommitMove` collects them.
+  Rationale: admission refuses to declare a collected identity again ("collected logical identity cannot be reused after its deletion
+  tombstone", `Execute/Admission.hs`), so a rollback after collection could never reopen the firewall. Disabling is an update of the same
+  identity and takes effect at once; the commit is the move's point of no return anyway. D6's end state, `fw-iap-ssh` and no other rule,
+  holds after the commit.
+  Date: 2026-11-16
+
 - Decision: The move is one engine of named steps over existing machinery. Every provider effect is an ordinary reviewed
   inventory transaction run by the existing admission, journal, `inventory resume` and `inventory close`; the engine only
   sequences them. Its state is a marker in the inventory head, like the release transition's `TransitionMarker`, holding the
@@ -189,11 +196,10 @@ Milestones, each landed with its interpreter tests before the next:
    platform's upstream set, the gateway's edge headers and the connector read one posture, computed once per plan from the head its
    snapshot came from, and unchanged for contexts with no move. The zone's mirror records landed in `8130b7c1`: DNS-only A records to
    the VM (TTL 300) at the tunnel records' identities, switched in place to proxied CNAMEs on the same Cloudflare record ID and back,
-   with fake-adapter tests. Left: the firewall step. The cloud stage refuses a catalog smaller than the accepted scope
-   (`Bootstrap/Cloud.hs`), so `CloseFirewall` reuses cloud teardown's collection narrowed to the three rules: a policy-only review
-   moving them from `Protect` to `DeleteWhenUnreferenced` (`Nagare.Inventory.CloudCollection`), a cloud scope revision without them,
-   and an exact collection of each. Its inverse re-declares them; whether a collected identity may be declared again is the first thing
-   to prove on the interpreter.
+   with fake-adapter tests. The firewall step disables the three rules in place (`nagare:webRulesDisabled`, GCP's `disabled`), and
+   its inverse enables them; only `CommitMove` collects them (see the Decision Log). Left: the commit's collection, which reuses cloud
+   teardown's narrowed to the three rules (policy-only review to `DeleteWhenUnreferenced`, a cloud scope revision without them, an exact
+   collection of each).
 5. The window and the hostnames (D4, D11): the renewal refusal, a hostname added during the window, and the carrier with its host map.
 6. Retirement, docs and the native run (D2's retirement, D6, D8, D10).
 

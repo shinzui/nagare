@@ -8,7 +8,7 @@ import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text qualified as T
-import Nagare.Context.Posture (directPosture)
+import Nagare.Context.Posture (WebRules (..), directPosture)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Init
   ( InitOpts (..)
@@ -263,9 +263,11 @@ initTests =
         lookup "nagare:retainedDnsName" (seedKeys (tunnel & #retainedDnsName .~ "apps.example.com")) @?= Just "apps.example.com"
         lookup "nagare:retainedDnsName" (seedKeys (initProfile & #retainedDnsName .~ "apps.example.com")) @?= Nothing
         -- During a move the firewall keys appear only once its perimeter closes.
-        let movingSeed perimeter = seedKeysFor initProfile (directPosture & #perimeterClosed .~ perimeter) "apps.example.com"
-        (lookup "nagare:ingress" (movingSeed False), lookup "nagare:retainedDnsName" (movingSeed False)) @?= (Nothing, Nothing)
-        (lookup "nagare:ingress" (movingSeed True), lookup "nagare:retainedDnsName" (movingSeed True)) @?= (Just "cloudflare-tunnel", Just "apps.example.com")
+        let movingSeed rules = seedKeysFor initProfile (directPosture & #webRules .~ rules) "apps.example.com"
+            keys rules = (lookup "nagare:ingress" (movingSeed rules), lookup "nagare:retainedDnsName" (movingSeed rules), lookup "nagare:webRulesDisabled" (movingSeed rules))
+        keys WebRulesOpen @?= (Nothing, Nothing, Nothing)
+        keys WebRulesDisabled @?= (Nothing, Nothing, Just "true")
+        keys WebRulesAbsent @?= (Just "cloudflare-tunnel", Just "apps.example.com", Nothing)
         let moved = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_INGRESS=cloudflare-tunnel\nexport NAGARE_RETAINED_DNS_NAME=apps.example.com\n")
         moved ^. #retainedDnsName @?= "apps.example.com"
     , testCase "nix cache is cloud-only and round-trips when enabled" $ do

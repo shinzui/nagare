@@ -4,6 +4,7 @@
 -- @NAGARE_INGRESS@ reads this instead.
 module Nagare.Context.Posture
   ( ZoneRecords (..)
+  , WebRules (..)
   , IngressPosture (..)
   , directPosture
   , tunnelPosture
@@ -22,6 +23,11 @@ import Nagare.Target.Kinds (IngressMode (..))
 data ZoneRecords = MirrorRecords | TunnelRecords
   deriving stock (Eq, Show)
 
+-- | The three internet-facing firewall rules: open, disabled in place while a move can still roll back
+-- (a collected identity can never be declared again), or absent once the move commits.
+data WebRules = WebRulesOpen | WebRulesDisabled | WebRulesAbsent
+  deriving stock (Eq, Show)
+
 data IngressPosture = IngressPosture
   { zoneRecords :: !(Maybe ZoneRecords)
   -- ^ Whether the Cloudflare zone scope exists, and what its records point at.
@@ -29,16 +35,16 @@ data IngressPosture = IngressPosture
   -- ^ The connector scope, and the gateway's edge headers that go with it.
   , flatHosts :: !Bool
   -- ^ Default names one label below the base (@<name>-<namespace>.<base>@).
-  , perimeterClosed :: !Bool
-  -- ^ No internet-facing firewall rule.
+  , webRules :: !WebRules
+  -- ^ The internet-facing firewall rules.
   , kourierClosed :: !Bool
   -- ^ @kourier@ is @ClusterIP@ and no DNS-01 issuer is installed.
   }
   deriving stock (Eq, Show, Generic)
 
 directPosture, tunnelPosture :: IngressPosture
-directPosture = IngressPosture Nothing False False False False
-tunnelPosture = IngressPosture (Just TunnelRecords) True True True True
+directPosture = IngressPosture Nothing False False WebRulesOpen False
+tunnelPosture = IngressPosture (Just TunnelRecords) True True WebRulesAbsent True
 
 -- | The steps whose effect the next plan must hold: the completed ones, plus a step being planned
 -- forward, minus a step being undone.
@@ -62,6 +68,7 @@ postureFor ingress = \case
       StartConnector -> posture & #connectorRunning .~ True
       CarryHostnames -> posture & #flatHosts .~ True
       SwitchRecords -> posture & #zoneRecords .~ Just TunnelRecords
-      CloseFirewall -> posture & #perimeterClosed .~ True
+      CloseFirewall -> posture & #webRules .~ WebRulesDisabled
+      CommitMove -> posture & #webRules .~ WebRulesAbsent
       CloseKourier -> posture & #kourierClosed .~ True
       _ -> posture

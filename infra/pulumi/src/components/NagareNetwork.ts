@@ -6,6 +6,9 @@ export interface NagareNetworkArgs {
     region: string;
     /** ADR 34: no internet-facing rule; only SSH from the IAP range remains. */
     tunnel?: boolean;
+    /** EP-243: a move disables the web rules in place, so rollback can enable them again; a collected
+     *  rule could never be declared again. Absent, the rules carry no `disabled` input at all. */
+    webRulesDisabled?: boolean;
 }
 
 // The subnet's private IP range. /24 is 256 addresses — far more than a
@@ -44,6 +47,7 @@ export class NagareNetwork extends pulumi.ComponentResource {
         // node, k3s's ServiceLB binds host ports 80 and 443 to Kourier's
         // LoadBalancer Service, so the world must be able to reach 80/443.
         (!args.tunnel && shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-web`)) ? new gcp.compute.Firewall(`${name}-fw-web`, {
+            ...(args.webRulesDisabled ? { disabled: true } : {}),
             network: this.network!.id,
             direction: "INGRESS",
             sourceRanges: ["0.0.0.0/0"],
@@ -67,6 +71,7 @@ export class NagareNetwork extends pulumi.ComponentResource {
         // free and harmless when the CDN is off, and it documents the dependency
         // and survives any future tightening of fw-web.
         (!args.tunnel && shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-lb-health`)) ? new gcp.compute.Firewall(`${name}-fw-lb-health`, {
+            ...(args.webRulesDisabled ? { disabled: true } : {}),
             network: this.network!.id,
             direction: "INGRESS",
             sourceRanges: ["130.211.0.0/22", "35.191.0.0/16"],
@@ -80,6 +85,7 @@ export class NagareNetwork extends pulumi.ComponentResource {
         // if blocked, Tailscale still works via its relays (DERP), so
         // this is an optimization, not a hard requirement.
         (!args.tunnel && shouldDeclareResource("gcp:compute/firewall:Firewall", `${name}-fw-tailscale`)) ? new gcp.compute.Firewall(`${name}-fw-tailscale`, {
+            ...(args.webRulesDisabled ? { disabled: true } : {}),
             network: this.network!.id,
             direction: "INGRESS",
             sourceRanges: ["0.0.0.0/0"],

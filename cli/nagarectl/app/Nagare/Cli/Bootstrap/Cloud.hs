@@ -16,6 +16,7 @@ import Nagare.Cli.Inventory.CloudCatalog (loadCloudCatalog)
 import Nagare.Cli.Inventory.Foundation (foundationDeployerKeys, foundationImageLink)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (ActivePosture (..))
+import Nagare.Context.Posture (WebRules (WebRulesAbsent))
 import Nagare.Dsl.Prelude
 import Nagare.Init (seedKeysFor)
 import Nagare.Inventory.Adapters.PulumiRuntime
@@ -48,7 +49,7 @@ buildCloudStageCandidate current active workspace snapshot
   | otherwise = do
       (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
       let ActivePosture {posture = ingressPosture, retainedDnsName = retained} = current
-      let rawCatalog = if ingressPosture ^. #perimeterClosed then InventoryCloud.withTunnelPerimeter retained loadedCatalog else loadedCatalog
+      let rawCatalog = if ingressPosture ^. #webRules == WebRulesAbsent then InventoryCloud.withTunnelPerimeter retained loadedCatalog else loadedCatalog
       let profile = active ^. #profile
           acceptedScopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
       -- EP-248 D6: one principal per accepted, active delegation, as the

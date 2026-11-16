@@ -13,6 +13,8 @@ export interface NagarePerimeterArgs {
     /** EP-243 D2: a context moved onto the tunnel keeps its Cloud DNS zone, records and solver
      *  grants under this name (no trailing dot) until a reviewed retirement removes it. */
     retainedDnsName?: string;
+    /** EP-243: an open move has disabled the web firewall rules in place. */
+    webRulesDisabled?: boolean;
     gcpProject: string;
     region: string;
     zone: string;
@@ -65,7 +67,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
     constructor(name: string, args: NagarePerimeterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("nagare:env:NagarePerimeter", name, {}, opts);
 
-        const net = shouldDeclareResource("nagare:net:NagareNetwork", `${name}-network`) ? new NagareNetwork(`${name}-network`, { region: args.region, tunnel: args.tunnel }, { parent: this }) : undefined;
+        const net = shouldDeclareResource("nagare:net:NagareNetwork", `${name}-network`) ? new NagareNetwork(`${name}-network`, { region: args.region, tunnel: args.tunnel, webRulesDisabled: args.webRulesDisabled }, { parent: this }) : undefined;
 
         // Static external IPv4 address, regional. Reserving it means the
         // VM keeps the same public IP across rebuilds, so the wildcard DNS

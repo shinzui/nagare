@@ -42,6 +42,7 @@ import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (ActivePosture (..), activePosture)
 import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiInWorkspaceWithDependencies)
+import Nagare.Context.Posture (WebRules (WebRulesAbsent))
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir, readContextHostName)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
@@ -573,7 +574,7 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
       then do
         (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
         ActivePosture {posture = ingressPosture, retainedDnsName = retained} <- activePosture active
-        let rawCatalog = if ingressPosture ^. #perimeterClosed then InventoryCloud.withTunnelPerimeter retained loadedCatalog else loadedCatalog
+        let rawCatalog = if ingressPosture ^. #webRules == WebRulesAbsent then InventoryCloud.withTunnelPerimeter retained loadedCatalog else loadedCatalog
         imageLink <-
           foundationImageLink
             active

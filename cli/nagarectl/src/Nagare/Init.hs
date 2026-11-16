@@ -48,7 +48,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
-import Nagare.Context.Posture (IngressPosture, postureFor)
+import Nagare.Context.Posture (IngressPosture, WebRules (..), postureFor)
 import Nagare.Dsl.Prelude
 import Nagare.Gcp.Adc (adcEnvFromProcess, observeAdc, validateAdc)
 import Nagare.Inventory.BackupFreshness (recoveryPointObjectiveText)
@@ -397,10 +397,12 @@ seedKeysFor tp posture retained =
   , ("nagare:manageProjectApis", "false")
   ]
     -- MasterPlan 32: absent for direct, so an existing stack previews unchanged.
-    <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | posture ^. #perimeterClosed]
+    <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | posture ^. #webRules == WebRulesAbsent]
+    -- EP-243: a move disables the web rules in place; only its commit removes them.
+    <> [("nagare:webRulesDisabled", "true") | posture ^. #webRules == WebRulesDisabled]
     -- EP-243 D2: only a context moved onto the tunnel keeps its Cloud DNS zone.
     <> [ ("nagare:retainedDnsName", retained)
-       | posture ^. #perimeterClosed
+       | posture ^. #webRules == WebRulesAbsent
        , not (T.null retained)
        ]
     -- An inventory context keeps its apex on the VM: the CDN is created as
