@@ -99,6 +99,7 @@ import Nagare.Target.Acme
 import Nagare.Target.ContextFile (parseContextEnv, shellQuote)
 import Nagare.Target.EnTenants (EnTenantDeclaration, parseEnTenantDeclarations, renderEnTenantDeclarations)
 import Nagare.Target.Kinds
+import Nagare.Target.VmShape (VmShape (..), defaultVmShape, validateVmShape)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (<.>), (</>))
@@ -285,30 +286,6 @@ writeContextInventoryStore name kind url = do
             , "NAGARE_INVENTORY_STORE_URL="
             ]
 
--- | The four values that determine the GCE instance's compute and disk shape.
--- They live in the target context so a later change to a Pulumi-program fallback
--- cannot silently change an existing stack.
-data VmShape = VmShape
-  { machineType :: !Text
-  , bootDiskType :: !Text
-  , bootDiskSizeGb :: !Text
-  , dataDiskSizeGb :: !Text
-  }
-  deriving stock (Generic, Eq, Show)
-
--- | The shape used by a fresh context and by legacy contexts that predate the
--- four explicit fields. Keep these literals in sync with
--- @infra\/pulumi\/src\/vmShape.ts@; the @vm-shape-defaults-agree@ flake check
--- enforces the contract.
-defaultVmShape :: VmShape
-defaultVmShape =
-  VmShape
-    { machineType = "e2-standard-2"
-    , bootDiskType = "pd-balanced"
-    , bootDiskSizeGb = "100"
-    , dataDiskSizeGb = "100"
-    }
-
 -- | Project a target profile down to the shape values Pulumi consumes.
 vmShapeOf :: TargetProfile -> VmShape
 vmShapeOf tp =
@@ -318,48 +295,6 @@ vmShapeOf tp =
     , bootDiskSizeGb = tp ^. #bootDiskSizeGb
     , dataDiskSizeGb = tp ^. #dataDiskSizeGb
     }
-
--- | Validate a VM shape at context-write and apply-guard boundaries. This is a
--- deliberately small syntax check, not a live GCE catalog lookup.
-validateVmShape :: VmShape -> Either Text VmShape
-validateVmShape shape
-  | T.null machine = Left "NAGARE_MACHINE_TYPE must not be empty"
-  | not (validMachineType machine) =
-      Left
-        ( "NAGARE_MACHINE_TYPE='"
-            <> machine
-            <> "' is invalid (expected <family>-<series> using lowercase letters/digits/hyphens, or custom-<cpus>-<mb>)"
-        )
-  | bootType `notElem` acceptedBootTypes =
-      Left
-        ( "NAGARE_BOOT_DISK_TYPE='"
-            <> bootType
-            <> "' is invalid (accepted: pd-standard, pd-balanced, pd-ssd, hyperdisk-balanced)"
-        )
-  | not (validSize bootSize) = Left "NAGARE_BOOT_DISK_SIZE_GB must be an integer of at least 10 GB"
-  | not (validSize dataSize) = Left "NAGARE_DATA_DISK_SIZE_GB must be an integer of at least 10 GB"
-  | otherwise = Right shape
-  where
-    machine = shape ^. #machineType
-    bootType = shape ^. #bootDiskType
-    bootSize = shape ^. #bootDiskSizeGb
-    dataSize = shape ^. #dataDiskSizeGb
-    acceptedBootTypes = ["pd-standard", "pd-balanced", "pd-ssd", "hyperdisk-balanced"]
-    validSize value = maybe False (>= (10 :: Integer)) (readMaybe (T.unpack value))
-    validMachineType value
-      | "custom-" `T.isPrefixOf` value = validCustom value
-      | otherwise = validNamed value
-    validCustom value = case T.splitOn "-" value of
-      ["custom", cpus, mb] -> positiveDecimal cpus && positiveDecimal mb
-      _ -> False
-    validNamed value = case T.breakOn "-" value of
-      (family, suffix) ->
-        not (T.null family)
-          && T.all lowerAlphaNum family
-          && not (T.null suffix)
-          && T.all (\c -> lowerAlphaNum c || c == '-') (T.drop 1 suffix)
-    positiveDecimal value = not (T.null value) && T.all isDigit value && value /= "0"
-    lowerAlphaNum c = isAsciiLower c || isDigit c
 
 -- | The fully-resolved GCP target. Every field is the final value a consumer
 -- should use; no further env lookups or literal fallbacks happen downstream.
@@ -400,6 +335,10 @@ data TargetProfile = TargetProfile
   -- after DNS delegation. Local bootstrap enables its own local TLS policy.
   , ingress :: !IngressMode
   -- ^ NAGARE_INGRESS, default 'IngressDirect'; see 'validateIngressMode'
+  , retainedDnsName :: !Text
+  -- ^ NAGARE_RETAINED_DNS_NAME (EP-243 D2): set only on a context moved onto the tunnel, whose Cloud DNS
+  -- zone, records and solver grants stay under this name until a reviewed retirement clears it. Empty
+  -- otherwise.
   , instanceName :: !Text
   -- ^ NAGARE_INSTANCE_NAME, default @"nagare-01"@
   , serviceAccountId :: !Text
@@ -578,6 +517,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_TARGET_PLATFORM" (tp ^. #targetPlatform)
     , line "NAGARE_MODE" (modeToken (tp ^. #mode))
     , line "NAGARE_INGRESS" (ingressModeToken (tp ^. #ingress))
+    , line "NAGARE_RETAINED_DNS_NAME" (tp ^. #retainedDnsName)
     , line "NAGARE_LOCAL_OBJECT_STORE" (tp ^. #localObjectStore)
     , line "NAGARE_PULUMI_BACKEND" (pulumiBackendToken (effectivePulumiBackend tp))
     , line "NAGARE_PULUMI_BACKEND_URL" (tp ^. #pulumiBackendUrl)
@@ -757,6 +697,7 @@ profileFromContextMap ctx =
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
       ingress = either (error . T.unpack) id (parseIngressMode (mapRaw ctx "NAGARE_INGRESS"))
+      retainedDnsName = mapOr ctx "NAGARE_RETAINED_DNS_NAME" ""
       instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
       serviceAccountId = mapOr ctx "NAGARE_SERVICE_ACCOUNT_ID" "nagare-node"
       machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
@@ -794,6 +735,7 @@ profileFromContextMap ctx =
         , baseDomain = baseDomain
         , externalDomainTlsEnabled = externalDomainTlsEnabled
         , ingress = ingress
+        , retainedDnsName = retainedDnsName
         , instanceName = instanceName
         , serviceAccountId = serviceAccountId
         , machineType = machineType
@@ -834,6 +776,7 @@ resolveProfileFrom ctx = do
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
   ingress <- either (ioError . userError . T.unpack) pure . parseIngressMode =<< ctxRaw ctx "NAGARE_INGRESS"
+  retainedDnsName <- ctxOr ctx "NAGARE_RETAINED_DNS_NAME" ""
   instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
   serviceAccountId <- ctxOr ctx "NAGARE_SERVICE_ACCOUNT_ID" "nagare-node"
   machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
@@ -874,6 +817,7 @@ resolveProfileFrom ctx = do
       , baseDomain = baseDomain
       , externalDomainTlsEnabled = externalDomainTlsEnabled
       , ingress = ingress
+      , retainedDnsName = retainedDnsName
       , instanceName = instanceName
       , serviceAccountId = serviceAccountId
       , machineType = machineType

@@ -45,6 +45,15 @@ inventoryCloudTests =
         nestedScope <- expectRight (compileCloudScope nestedBundle)
         registrationsFromDeclarations [managed | resourceBundle <- scopeBundles nestedScope, managed <- declarations resourceBundle]
           @?= Right [registration {registrationPulumiUrn = nestedUrn}]
+    , testCase "a moved tunnel context keeps its Cloud DNS set and still closes the web rules (EP-243 D2)" $ do
+        catalog <- BC.readFile "../../infra/pulumi/resource-catalog.json" >>= expectRight . decodeCloudCatalog
+        let keys c = map (nameText . catalogKey) (catalogFoundationManaged c)
+            webRules = ["nagare-network-fw-web", "nagare-network-fw-lb-health", "nagare-network-fw-tailscale"]
+            cloudDns = filter (`notElem` webRules) tunnelOmitted
+        assertBool "the catalog declares every member" (all (`elem` keys catalog) tunnelOmitted)
+        filter (`elem` tunnelOmitted) (keys (withTunnelPerimeter "" catalog)) @?= []
+        filter (`elem` tunnelOmitted) (keys (withTunnelPerimeter "apps.example.com" catalog)) @?= filter (`elem` cloudDns) (keys catalog)
+        filter (`notElem` tunnelOmitted) (keys (withTunnelPerimeter "apps.example.com" catalog)) @?= filter (`notElem` tunnelOmitted) (keys catalog)
     , testCase "cloud catalog builds nested URNs and excludes admitted registrations" $ do
         catalog <-
           expectRight
@@ -56,7 +65,7 @@ inventoryCloudTests =
         length (selectedCloudCatalog False False False False catalog) @?= 2
         length (selectedCloudCatalog True False False False catalog) @?= 3
         -- ADR 34: a tunnel context's perimeter drops only what it says it drops.
-        selectedCloudCatalog False False False False (withTunnelPerimeter catalog)
+        selectedCloudCatalog False False False False (withTunnelPerimeter "" catalog)
           @?= filter ((`notElem` tunnelOmitted) . nameText . catalogKey) (selectedCloudCatalog False False False False catalog)
         let image = last (catalogFoundationManaged catalog)
         imageUrn <- expectRight (cloudCatalogUrn (name "dev") catalog image)

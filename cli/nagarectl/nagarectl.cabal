@@ -403,6 +403,7 @@ library
     Nagare.Target.ContextFile
     Nagare.Target.EnTenants
     Nagare.Target.Kinds
+    Nagare.Target.VmShape
     Nagare.Task.Delete
     Nagare.Task.Discover
     Nagare.Task.List

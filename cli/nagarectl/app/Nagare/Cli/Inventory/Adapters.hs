@@ -571,7 +571,7 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
     if profile ^. #mode == Cloud && hasCloudScope
       then do
         (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
-        let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter loadedCatalog else loadedCatalog
+        let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter (active ^. #profile . #retainedDnsName) loadedCatalog else loadedCatalog
         imageLink <-
           foundationImageLink
             active

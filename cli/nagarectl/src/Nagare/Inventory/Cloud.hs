@@ -235,22 +235,17 @@ selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalo
     <> catalogDelegatedDeployers catalog
 
 -- | A tunnel context's perimeter (ADR 34): no internet-facing firewall rule, and no Cloud DNS zone or
--- record, since the domain's DNS is on Cloudflare. @infra/pulumi@ omits the same members from
--- @nagare:ingress@, and its parity test holds the two together.
-withTunnelPerimeter :: CloudCatalog -> CloudCatalog
-withTunnelPerimeter catalog =
+-- record, since the domain's DNS is on Cloudflare. A context moved onto the tunnel names its retained
+-- Cloud DNS zone (EP-243 D2) and keeps that zone, its records and its solver grants until a reviewed
+-- retirement. @infra/pulumi@ omits the same members from @nagare:ingress@ and
+-- @nagare:retainedDnsName@, and its parity test holds the two together.
+withTunnelPerimeter :: Text -> CloudCatalog -> CloudCatalog
+withTunnelPerimeter retainedDnsName catalog =
   catalog {catalogFoundationManaged = filter ((`notElem` omitted) . nameText . catalogKey) (catalogFoundationManaged catalog)}
   where
-    omitted =
-      [ "nagare-network-fw-web"
-      , "nagare-network-fw-lb-health"
-      , "nagare-network-fw-tailscale"
-      , "nagare-zone"
-      , "nagare-iam-dns-zone"
-      , "nagare-iam-dns-read"
-      , "nagare-wildcard"
-      , "nagare-apex"
-      ]
+    omitted = webRules <> (if T.null retainedDnsName then cloudDns else [])
+    webRules = ["nagare-network-fw-web", "nagare-network-fw-lb-health", "nagare-network-fw-tailscale"]
+    cloudDns = ["nagare-zone", "nagare-iam-dns-zone", "nagare-iam-dns-read", "nagare-wildcard", "nagare-apex"]
 
 withCloudInstanceName :: Name -> CloudCatalog -> CloudCatalog
 withCloudInstanceName instanceName catalog =

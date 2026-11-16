@@ -10,6 +10,9 @@ import { CdnCertificateMode } from "../cdnCertificateMode";
 export interface NagarePerimeterArgs {
     /** ADR 34: served through a Cloudflare Tunnel, so no web firewall rule and no Cloud DNS. */
     tunnel?: boolean;
+    /** EP-243 D2: a context moved onto the tunnel keeps its Cloud DNS zone, records and solver
+     *  grants under this name (no trailing dot) until a reviewed retirement removes it. */
+    retainedDnsName?: string;
     gcpProject: string;
     region: string;
     zone: string;
@@ -174,8 +177,10 @@ export class NagarePerimeter extends pulumi.ComponentResource {
 
         // Cloud DNS managed zone for the apps domain (IP-4). dnsName must
         // be a fully-qualified domain with a trailing dot.
-        const dnsName = `${args.baseDomain}.`;
-        const dnsZone = (!args.tunnel && shouldDeclareResource("gcp:dns/managedZone:ManagedZone", `${name}-zone`)) ? new gcp.dns.ManagedZone(`${name}-zone`, {
+        // EP-243 D2: a moved context keeps its zone under the name it was created with.
+        const keepDns = !args.tunnel || !!args.retainedDnsName;
+        const dnsName = args.tunnel && args.retainedDnsName ? `${args.retainedDnsName}.` : `${args.baseDomain}.`;
+        const dnsZone = (keepDns && shouldDeclareResource("gcp:dns/managedZone:ManagedZone", `${name}-zone`)) ? new gcp.dns.ManagedZone(`${name}-zone`, {
             dnsName,
             description: "Nagare apps wildcard zone",
         }, { parent: this }) : undefined;
@@ -193,7 +198,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // record in it (covered by the zone-scoped admin). roles/dns.reader is
         // read-only. Tightening further by setting `hostedZoneName` in the
         // template and dropping dns.reader is an optional follow-up.
-        if (!args.tunnel) {
+        if (keepDns) {
             new gcp.dns.DnsManagedZoneIamMember(`${name}-iam-dns-zone`, {
                 project: args.gcpProject,
                 managedZone: dnsZone!.name,
@@ -275,14 +280,14 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             vmPublicIp: (address?.address ?? pulumi.output("(collected)")),
             cdnGlobalIp: cdn?.cdnGlobalIp,
         });
-        (!args.tunnel && shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-wildcard`)) ? new gcp.dns.RecordSet(`${name}-wildcard`, {
+        (keepDns && shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-wildcard`)) ? new gcp.dns.RecordSet(`${name}-wildcard`, {
             managedZone: dnsZone!.name,
             name: pulumi.interpolate`*.${dnsName}`,
             type: "A",
             ttl: 300,
             rrdatas: [domainTopology.wildcardIp],
         }, { parent: this }) : undefined;
-        (!args.tunnel && shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-apex`)) ? new gcp.dns.RecordSet(`${name}-apex`, {
+        (keepDns && shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-apex`)) ? new gcp.dns.RecordSet(`${name}-apex`, {
             managedZone: dnsZone!.name,
             name: dnsName,
             type: "A",

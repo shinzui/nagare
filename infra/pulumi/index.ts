@@ -49,6 +49,8 @@ const delegatedDeployersCfg = parseDelegatedDeployers(cfg.get("delegatedDeployer
 const manageProjectApisCfg = cfg.getBoolean("manageProjectApis") ?? true;
 // ADR 34: absent on a direct context, so its preview is unchanged.
 const tunnelCfg = cfg.get("ingress") === "cloudflare-tunnel";
+// EP-243 D2: set only on a context moved from direct ingress, so its Cloud DNS zone is retained.
+const retainedDnsNameCfg = tunnelCfg ? cfg.get("retainedDnsName") : undefined;
 
 // IP-10: EP-3 writes this after building+registering the NixOS image.
 // `get` (not `require`) so the VM is simply omitted until it is set.
@@ -114,6 +116,7 @@ const perimeter = new NagarePerimeter(
         machineType: machineTypeCfg,
         dataDiskSizeGb: dataDiskSizeGbCfg,
         tunnel: tunnelCfg,
+        retainedDnsName: retainedDnsNameCfg,
         baseDomain: baseDomainCfg,
         artifactRegistryId: artifactRegistryIdCfg,
         serviceAccountId: serviceAccountIdCfg,

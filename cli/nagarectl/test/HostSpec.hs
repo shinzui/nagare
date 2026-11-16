@@ -477,6 +477,7 @@ fixtureProfile =
     , baseDomain = "apps.example.com"
     , externalDomainTlsEnabled = False
     , ingress = IngressDirect
+    , retainedDnsName = ""
     , instanceName = "nagare-01"
     , serviceAccountId = "nagare-node"
     , machineType = "e2-standard-2"

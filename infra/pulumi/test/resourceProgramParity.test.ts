@@ -19,6 +19,7 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("image") || variant.includes("cdn-")) config["nagare:nagareImageSelfLink"] = "projects/example-project/global/images/nagare-image";
     if (variant.includes("cache")) config["nagare:enableNixCache"] = "true";
     if (variant.includes("tunnel")) config["nagare:ingress"] = "cloudflare-tunnel";
+    if (variant.includes("retained")) config["nagare:retainedDnsName"] = "apps.example.com";
     if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
     if (variant.includes("delegated-deployer")) {
         config["nagare:delegatedDeployers"] = JSON.stringify([
@@ -171,6 +172,20 @@ async function main(): Promise<void> {
     }
     assert([...tunnelNames].some((key) => String(key).includes("nagare-network-fw-iap-ssh")), "tunnel variant lost the IAP SSH rule");
     verifyGuardedVariant("foundation-managed-image-tunnel", tunnel);
+    // EP-243 D2: a context moved onto the tunnel keeps exactly its Cloud DNS set and still opens no web port.
+    const retained = runVariant("foundation-managed-image-tunnel-retained");
+    const retainedNames = names(retained);
+    const dnsSet = ["nagare-zone", "nagare-iam-dns-zone", "nagare-iam-dns-read", "nagare-wildcard", "nagare-apex"];
+    const declares = (set: Set<unknown>, name: string) => [...set].some((key) => String(key).endsWith(`::${name}`) || String(key) === name);
+    for (const name of dnsSet) assert(declares(retainedNames, name), `the retained variant lost ${name}`);
+    for (const name of ["nagare-network-fw-web", "nagare-network-fw-lb-health", "nagare-network-fw-tailscale"]) {
+        assert(!declares(retainedNames, name), `the retained variant still opens ${name}`);
+    }
+    assert(declares(retainedNames, "nagare-network-fw-iap-ssh"), "the retained variant lost the IAP SSH rule");
+    const directDns = [...names(runVariant("foundation-managed-image"))].filter((key) => dnsSet.some((name) => String(key).endsWith(`::${name}`))).sort();
+    const retainedDns = [...retainedNames].filter((key) => dnsSet.some((name) => String(key).endsWith(`::${name}`))).sort();
+    assert(JSON.stringify(directDns) === JSON.stringify(retainedDns), "the retained Cloud DNS set differs from the direct context's");
+    verifyGuardedVariant("foundation-managed-image-tunnel-retained", retained);
     const image = runVariant("image");
     const cache = runVariant("cache");
     const legacyCdn = runVariant("cdn-legacy");

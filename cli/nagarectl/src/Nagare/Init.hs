@@ -391,6 +391,11 @@ seedKeys tp =
   ]
     -- MasterPlan 32: absent for direct, so an existing stack previews unchanged.
     <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | tp ^. #ingress == IngressCloudflareTunnel]
+    -- EP-243 D2: only a context moved onto the tunnel keeps its Cloud DNS zone.
+    <> [ ("nagare:retainedDnsName", tp ^. #retainedDnsName)
+       | tp ^. #ingress == IngressCloudflareTunnel
+       , not (T.null (tp ^. #retainedDnsName))
+       ]
     -- An inventory context keeps its apex on the VM: the CDN is created as
     -- reviewed cloud members first, and application hostnames opt into it with
     -- --cdn-backend-resource. Absent keys keep older stacks unchanged (F43).

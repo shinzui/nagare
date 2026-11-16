@@ -256,6 +256,12 @@ initTests =
         lookup "nagare:ingress" (seedKeys tunnel) @?= Just "cloudflare-tunnel"
         let parsed = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_INGRESS=cloudflare-tunnel\n")
         parsed ^. #ingress @?= IngressCloudflareTunnel
+        -- EP-243 D2: only a moved tunnel context projects its retained Cloud DNS name.
+        lookup "nagare:retainedDnsName" (seedKeys tunnel) @?= Nothing
+        lookup "nagare:retainedDnsName" (seedKeys (tunnel & #retainedDnsName .~ "apps.example.com")) @?= Just "apps.example.com"
+        lookup "nagare:retainedDnsName" (seedKeys (initProfile & #retainedDnsName .~ "apps.example.com")) @?= Nothing
+        let moved = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_INGRESS=cloudflare-tunnel\nexport NAGARE_RETAINED_DNS_NAME=apps.example.com\n")
+        moved ^. #retainedDnsName @?= "apps.example.com"
     , testCase "nix cache is cloud-only and round-trips when enabled" $ do
         let enabled = initProfile & #nixCacheEnabled .~ True
         validateNixCacheMode enabled @?= Right ()

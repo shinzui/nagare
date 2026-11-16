@@ -45,7 +45,7 @@ buildCloudStageCandidate active workspace snapshot
   | active ^. #profile . #mode /= Cloud = pure Nothing
   | otherwise = do
       (catalogBytes, loadedCatalog) <- loadCloudCatalog workspace
-      let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter loadedCatalog else loadedCatalog
+      let rawCatalog = if active ^. #profile . #ingress == IngressCloudflareTunnel then InventoryCloud.withTunnelPerimeter (active ^. #profile . #retainedDnsName) loadedCatalog else loadedCatalog
       let profile = active ^. #profile
           acceptedScopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
       -- EP-248 D6: one principal per accepted, active delegation, as the
