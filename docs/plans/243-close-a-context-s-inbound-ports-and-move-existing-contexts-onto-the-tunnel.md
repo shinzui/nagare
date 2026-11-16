@@ -53,14 +53,14 @@ open on the VM.
   public resolvers name only Cloudflare's servers, then reviews a policy revision, the set's retirement, and collection of the
   records and the zone, retiring the two IAM grants without deleting them (`Nagare.Test.ContextMoveChecks`); native proof is left): On a converted context, the existing Cloud DNS zone is retained until the operator retires it through a reviewed
   step. Nothing deletes it automatically.
-- [ ] D3: A move runs in a fixed order and refuses to advance otherwise: refuse while the parent zone publishes a DS
+- [x] D3 (`Nagare.Test.ContextMove`: a modelled world stopped after every step's effect resumes to the end and rolls back to direct ingress; `Nagare.Test.ContextMoveChecks`: each production refusal and wait; in the window the gateway records `CF-Connecting-IP` for attribution only, `Nagare.Access.AccessLog`): A move runs in a fixed order and refuses to advance otherwise: refuse while the parent zone publishes a DS
   record for the domain, add the zone on Cloudflare with its records DNS-only and pointing at the VM, wait for the
   operator's name server change to activate it, turn DNSSEC on at Cloudflare and hand the operator its DS record,
   confirm direct ingress still works, start the connector, switch records to the tunnel, verify, wait out the old
   TTL, close the firewall, and only then make the `kourier` Service `ClusterIP`. Interpreter tests stop it at each
   step and prove that resume and rollback both end in a serving state. Between the record switch and the firewall
   step both paths are open; nothing in that window trusts a forwarded address.
-- [ ] D4: The window where Cloud DNS is no longer authoritative but origin certificates are still in use is bounded. A move
+- [x] D4 (`context move start` and `check-preconditions` refuse a certificate renewing within 14 days or with no renewal time, `Nagare.Test.ContextMoveChecks`; a deploy during the window is refused by admission, `Nagare.Test.ContextMoveStore`; Decision Log 2026-11-16): The window where Cloud DNS is no longer authoritative but origin certificates are still in use is bounded. A move
   refuses to start if a certificate is close to renewal, and the behaviour for a hostname added during the window is defined
   and tested.
 - [ ] D5: Rollback reopens the firewall before moving records back, and on a disposable context a site stays reachable

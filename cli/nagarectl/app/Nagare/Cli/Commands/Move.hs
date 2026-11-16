@@ -83,6 +83,11 @@ start active = do
   unless (null changes) $ TIO.putStr (T.unlines ("These URLs change when the move flattens default names:" : map renderHostChange changes))
   when (any blocksMove changes) $
     dieT "a protected name or a deep custom domain would stop being served; this nagarectl cannot carry them yet, so the move does not start"
+  -- D4: refuse before the move opens, so a renewing certificate or a DS record costs nothing.
+  checkPreconditions active (profile ^. #baseDomain) >>= \case
+    StepCompleted -> pure ()
+    StepWaiting reason -> dieT ("not yet: " <> reason)
+    StepRefused reason -> dieT reason
   store <- withStore active
   now <- T.pack . iso8601Show <$> getCurrentTime
   marker <- openMove store ingressMove now (profile ^. #baseDomain) sameDomainSteps >>= either dieT pure
@@ -156,10 +161,7 @@ moveOps mctx active store marker =
 
 perform :: Maybe String -> ActiveTarget -> InventoryStore -> MoveMarker -> MoveDirection -> MoveStep -> IO StepOutcome
 perform mctx active store marker direction step = case (direction, step) of
-  (MovingForward, CheckPreconditions) -> do
-    now <- getCurrentTime
-    facts <- sequence3 observeZone (observeParentDs base) (requireCluster >> observeRenewals)
-    pure (either StepRefused (\(zone, ds, renewals) -> preconditions now base zone ds renewals) facts)
+  (MovingForward, CheckPreconditions) -> checkPreconditions active base
   (MovingForward, AwaitNameServers) -> observed (maybe (StepRefused "CF_ZONE_ID names no zone") nameServersActive) <$> observeZone
   (MovingForward, EnableDnssec) -> observed dnssecReady <$> observeDnssec
   (MovingForward, ConfirmDirect) -> moveEnv >>= \env -> directAnswers base <$> probeDirect env True
@@ -180,7 +182,6 @@ perform mctx active store marker direction step = case (direction, step) of
   where
     base = moveRetainedDnsName marker
     identityFor = moveReviewIdentity ingressMove
-    requireCluster = guardKubernetesContext active >>= either dieT (const (pure ()))
     oldAnswers = do
       now <- getCurrentTime
       facts <- sequence3 observeZone (observeParentDelegation base) (observeApexRecord base)
@@ -296,6 +297,15 @@ retireSet active store retiring what identity directory finish = do
 waitForReview :: FilePath -> Text -> IO StepOutcome
 waitForReview directory what =
   pure (StepWaiting ("read the review saved in " <> T.pack directory <> " above: " <> what <> ". Run the same command again to apply it"))
+
+-- | @check-preconditions@: the zone, the parent's DS record and every certificate's renewal time.
+checkPreconditions :: ActiveTarget -> Text -> IO StepOutcome
+checkPreconditions active base = do
+  now <- getCurrentTime
+  facts <- sequence3 observeZone (observeParentDs base) (requireCluster >> observeRenewals)
+  pure (either StepRefused (\(zone, ds, renewals) -> preconditions now base zone ds renewals) facts)
+  where
+    requireCluster = guardKubernetesContext active >>= either dieT (const (pure ()))
 
 -- | Run a guard, and the step only when the guard completes.
 guarded :: IO StepOutcome -> IO StepOutcome -> IO StepOutcome

@@ -68,7 +68,7 @@ contextMoveStoreTests =
       assertBool "an unknown field decoded" (isLeftOf (eitherDecode @MoveRecord (encode (object ["steps" .= sameDomainSteps, "completed" .= (0 :: Int), "inProgress" .= (Nothing :: Maybe MoveStep), "direction" .= MovingForward, "extra" .= True]))))
       assertBool "a step in progress out of order decoded" (isLeftOf (eitherDecode @MoveRecord (encode (newMove sameDomainSteps & #completed .~ 2 & #inProgress .~ Just SwitchRecords))))
       eitherDecode progress @?= Right (newMove sameDomainSteps)
-  , testCase "while a move is open only its step in progress is admitted" $ do
+  , testCase "while a move is open only its step in progress is admitted, so nothing deploys in the window (D4)" $ do
       let marker = MoveMarker "ingress" "t" "" (newMove sameDomainSteps & #completed .~ 1 & #inProgress .~ Just MirrorZone)
       moveAdmissionRefusal Nothing "nagare-bootstrap:payload" @?= Nothing
       assertBool "a move review without a move" (isJust (moveAdmissionRefusal Nothing (moveReviewIdentity "ingress" MirrorZone "p1")))
@@ -76,6 +76,8 @@ contextMoveStoreTests =
       assertBool "another step" (isJust (moveAdmissionRefusal (Just marker) (moveReviewIdentity "ingress" SwitchRecords "p1")))
       assertBool "another kind" (isJust (moveAdmissionRefusal (Just marker) (moveReviewIdentity "base-domain" MirrorZone "p1")))
       assertBool "an ordinary review" (isJust (moveAdmissionRefusal (Just marker) "nagare-bootstrap:payload"))
+      assertBool "a deploy during the window" (isJust (moveAdmissionRefusal (Just marker) "operator-cli"))
+      assertBool "a deploy between steps" (isJust (moveAdmissionRefusal (Just (marker {moveProgress = newMove sameDomainSteps & #completed .~ 8})) "operator-cli"))
       parseMoveReviewIdentity (moveReviewIdentity "ingress" CloseFirewall "sha256:ab") @?= Just ("ingress", CloseFirewall, "sha256:ab")
       parseMoveReviewIdentity "nagare-move:ingress:close-firewall" @?= Nothing
   , testCase "the engine saving to the head stops, and a new process resumes from what the head says" $ do
