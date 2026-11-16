@@ -398,13 +398,14 @@ seedKeysFor tp posture retained =
   ]
     -- MasterPlan 32: absent for direct, so an existing stack previews unchanged.
     <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | posture ^. #webRules == WebRulesAbsent]
-    -- EP-243: a move disables the web rules in place; only its commit removes them.
+    -- EP-243: a move disables the web rules in place; only its commit removes them. Seeding sets keys
+    -- and never removes one, so inside a move the key is explicit both ways: undoing the firewall step
+    -- writes false. A direct context with no move seeds nothing, so its stack previews unchanged.
     <> [("nagare:webRulesDisabled", "true") | posture ^. #webRules == WebRulesDisabled]
-    -- EP-243 D2: only a context moved onto the tunnel keeps its Cloud DNS zone.
-    <> [ ("nagare:retainedDnsName", retained)
-       | posture ^. #webRules == WebRulesAbsent
-       , not (T.null retained)
-       ]
+    <> [("nagare:webRulesDisabled", "false") | posture ^. #webRules == WebRulesOpen, isJust (posture ^. #zoneRecords)]
+    -- EP-243 D2: a context moved onto the tunnel keeps its Cloud DNS zone while the name is set. A tunnel
+    -- context always seeds it, empty once `context move retire-dns` has cleared it, for the same reason.
+    <> [("nagare:retainedDnsName", retained) | posture ^. #webRules == WebRulesAbsent]
     -- An inventory context keeps its apex on the VM: the CDN is created as
     -- reviewed cloud members first, and application hostnames opt into it with
     -- --cdn-backend-resource. Absent keys keep older stacks unchanged (F43).
