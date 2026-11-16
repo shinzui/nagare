@@ -32,7 +32,7 @@ import Nagare.Dsl.Types
 import Nagare.Inventory.CollectionPolicy (retainedConsumerInert)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Site (compileStaticSiteScope)
-import Nagare.Inventory.TunnelRoute (checkTunnelRoutes, defaultHostClaims)
+import Nagare.Inventory.TunnelRoute (checkTunnelRoutes, defaultHostClaims, reboundAliases)
 import Nagare.Resource.Inventory
   ( Declaration (Managed)
   , Executor (KubernetesExecutor)
@@ -131,6 +131,19 @@ tunnelSiteInventoryTests =
           declared = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
           forgedDeclared = [maybe resource fst (Map.lookup (resource ^. #identity) forged) | resource <- declared]
       assertBool "a forged claim passed" (isLeft (validateSuppliedKubernetesMembers forgedDeclared forged))
+  , testCase "planning and apply rebind only a Service's exact flattened claim" $ do
+      (scope, _) <- either (fail . show) pure (compileSite IngressCloudflareTunnel "pub" "personal" [])
+      let declared = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
+      service <- case [r | r <- declared, not (null (r ^. #aliases))] of
+        [one] -> pure one
+        other -> assertFailure ("expected one claiming member, got " <> show (length other))
+      let recompiled = service & #aliases .~ []
+          claim name = Resource.Hostname (unsafe (Resource.mkName name))
+      reboundAliases service recompiled @?= [claim "pub-personal.example.com"]
+      reboundAliases (service & #aliases .~ [claim "other-personal.example.com"]) recompiled @?= []
+      reboundAliases (service & #aliases .~ [claim "pub-personal.example.com", claim "pub-personal.example.org"]) recompiled @?= []
+      let domainMember = recompiled & #aliases .~ [claim "www.example.com"]
+      reboundAliases (service & #aliases .~ [claim "pub-personal.example.com"]) domainMember @?= [claim "www.example.com"]
   , testCase "the refusal reaches planning" $ do
       compiled <- pure (compileSite IngressCloudflareTunnel "a" "c" [("a.b.example.com", True)])
       assertBool "planned" (isLeft compiled)

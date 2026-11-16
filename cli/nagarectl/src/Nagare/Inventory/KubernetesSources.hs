@@ -16,6 +16,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.TunnelRoute (reboundAliases)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types
@@ -139,20 +140,9 @@ validateSuppliedKubernetesMembers declarations supplied =
           expected <- renderShomeiSettingsNative base portal
           unless (expected == bytes) (Left "generated Shomei settings differ from typed contributions")
         _ -> pure ()
-      -- A public Knative Service in a tunnel context claims its flattened default name,
-      -- <name>-<namespace>.<base> (EP-242); the object cannot spell the base domain, so the
-      -- typed claim is kept when it is exactly that one name and composition checks it.
-      let flattenedClaim = case (declaration ^. #address, declaration ^. #aliases) of
-            (Kubernetes _ "serving.knative.dev" kind (Just namespace) name, [Hostname host]) ->
-              nameText kind == "service"
-                && (nameText name <> "-" <> nameText namespace <> ".") `T.isPrefixOf` nameText host
-            _ -> False
-          reboundDeclaration =
+      let reboundDeclaration =
             recompiled
-              { aliases =
-                  if null (recompiled ^. #aliases) && flattenedClaim
-                    then declaration ^. #aliases
-                    else recompiled ^. #aliases
+              { aliases = reboundAliases declaration recompiled
               , dependencies = declaration ^. #dependencies
               , -- Static owner grants, like dependency edges, belong to the typed
                 -- inventory rather than the native object's recompiler. Composition

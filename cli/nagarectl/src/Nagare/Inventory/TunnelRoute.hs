@@ -6,6 +6,7 @@
 module Nagare.Inventory.TunnelRoute
   ( checkTunnelRoutes
   , defaultHostClaims
+  , reboundAliases
   )
 where
 
@@ -15,7 +16,8 @@ import Data.Text qualified as T
 import Nagare.Deploy.Host (HostShape (..), defaultHostName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), domainText)
-import Nagare.Resource.Types (ProviderAddress (Hostname), mkName)
+import Nagare.Resource.Inventory (ManagedResource)
+import Nagare.Resource.Types (ProviderAddress (Hostname, Kubernetes), mkName, nameText)
 
 -- | Refuse what cannot work behind the tunnel, before anything is applied.
 checkTunnelRoutes :: HostShape -> Text -> Bool -> [DomainSpec] -> Either Text ()
@@ -65,3 +67,18 @@ defaultHostClaims FlatHosts name namespace base domains = do
     else (: []) . Hostname <$> mkName host
   where
     platformNamespace = "nagare-system" :: Text
+
+-- | The aliases a native member rebinds to. A public Knative Service in a tunnel context claims
+-- its flattened default name, @<name>-<namespace>.<base>@, which its object cannot spell; that one
+-- claim is kept from the typed declaration when it has exactly that shape for the Service's own
+-- name and namespace, and composition checks it. Every other member takes what its object says.
+reboundAliases :: ManagedResource -> ManagedResource -> [ProviderAddress]
+reboundAliases declaration recompiled
+  | null (recompiled ^. #aliases), flattenedClaim = declaration ^. #aliases
+  | otherwise = recompiled ^. #aliases
+  where
+    flattenedClaim = case (declaration ^. #address, declaration ^. #aliases) of
+      (Kubernetes _ "serving.knative.dev" kind (Just namespace) name, [Hostname host]) ->
+        nameText kind == "service"
+          && (nameText name <> "-" <> nameText namespace <> ".") `T.isPrefixOf` nameText host
+      _ -> False

@@ -20,6 +20,7 @@ import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettings
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.TunnelRoute (reboundAliases)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types
@@ -138,7 +139,8 @@ kubernetesSpecsFromReview bundle = do
         _ -> pure ()
       let reboundDeclaration =
             recompiled
-              { dependencies = declaration ^. #dependencies
+              { aliases = reboundAliases declaration recompiled
+              , dependencies = declaration ^. #dependencies
               , -- These grants belong to the composed declaration. Rebinding still
                 -- checks the exact reviewed native bytes, address and specification.
                 delegations = declaration ^. #delegations
