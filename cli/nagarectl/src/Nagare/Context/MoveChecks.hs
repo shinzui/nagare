@@ -17,18 +17,24 @@ module Nagare.Context.MoveChecks
   , edgeCachesExpired
   , nameServersReturned
   , sameNameServers
+  , reviewSettled
   )
 where
 
 import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.List (nub, sort)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
 import Data.Time (NominalDiffTime, UTCTime, addUTCTime, nominalDay)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapter (OperationAction (VerifyResource))
+import Nagare.Inventory.Store.Manifest (ScopeRevision (revisionDigest))
+import Nagare.Resource.Types (ScopeId)
 
 -- | How long a move may hold Cloud DNS out of authority while origin certificates are still in use:
 -- DNS-01 renewal needs Cloud DNS, so a move refuses to start when any certificate renews sooner. The
@@ -184,6 +190,14 @@ nameServersReturned cloudDns parent resolvers
       StepWaiting ("point the name servers back at Cloud DNS at the registrar: " <> T.intercalate " and " (map normalName cloudDns))
   | not (all (sameNameServers cloudDns) resolvers) = StepWaiting "public resolvers still answer with Cloudflare's name servers"
   | otherwise = StepCompleted
+
+-- | A step's review changes nothing: it only verifies, and each scope it would write has the
+-- accepted content. Composition bumps a selected scope's generation even when nothing in it changed,
+-- so the digests decide, not the revisions.
+reviewSettled :: [OperationAction] -> Map ScopeId ScopeRevision -> Map ScopeId ScopeRevision -> Bool
+reviewSettled actions desired accepted =
+  all (== VerifyResource) actions
+    && and [fmap revisionDigest (Map.lookup scope accepted) == Just (revisionDigest revision) | (scope, revision) <- Map.toList desired]
 
 sameNameServers :: [Text] -> [Text] -> Bool
 sameNameServers a b = not (null a) && canonical a == canonical b

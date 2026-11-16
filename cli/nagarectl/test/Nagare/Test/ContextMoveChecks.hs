@@ -8,6 +8,7 @@ where
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.List (sort)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, addUTCTime, nominalDay)
@@ -17,8 +18,10 @@ import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Store.Manifest (ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -136,6 +139,15 @@ contextMoveChecksTests =
         commitAction cloudDnsSet (Just cloudScopeWithout) [byKey "nagare-zone", byKey "nagare-iam-dns-read"]
           @?= Right (CommitCollect (byKey "nagare-zone" ^. #identity))
         commitAction cloudDnsSet (Just cloudScopeWithout) [byKey "nagare-iam-dns-zone", byKey "nagare-iam-dns-read"] @?= Right CommitProfile
+    , testCase "a step's review is settled when it only verifies and every scope keeps its accepted digest" $ do
+        let scope = ok (mkScopeId Platform "upstream")
+            revision generation digest = ScopeRevision (ok (mkScopeGeneration generation)) (contentDigest digest)
+            accepted = Map.fromList [(scope, revision 3 "a")]
+        reviewSettled [VerifyResource, VerifyResource] (Map.fromList [(scope, revision 4 "a")]) accepted @?= True
+        reviewSettled [] Map.empty accepted @?= True
+        reviewSettled [VerifyResource] (Map.fromList [(scope, revision 4 "b")]) accepted @?= False
+        reviewSettled [UpdateResource] (Map.fromList [(scope, revision 4 "a")]) accepted @?= False
+        reviewSettled [VerifyResource] (Map.fromList [(ok (mkScopeId Platform "cloudflare-tunnel"), revision 1 "a")]) accepted @?= False
     , testCase "the move lists every URL it changes and blocks what it cannot carry (D11)" $ do
         let service ns name' = kube "service" (Just ns) name'
             mapping host = kube "domainmapping" (Just "apps") host

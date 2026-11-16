@@ -243,9 +243,9 @@ perform mctx active store marker direction step = case (direction, step) of
       bundle <- Plan.loadReviewBundle directory >>= either dieT pure
       headValue <- readHead store >>= either (dieT . T.pack . show) pure
       let document = Plan.reviewBundleDocument bundle
-          changes = filter ((/= VerifyResource) . plannedAction . Plan.reviewPlannedOperation) (Plan.reviewOperations document)
           accepted = maybe Map.empty headAccepted headValue
-      if null changes && Plan.reviewDesiredRevisions document `Map.isSubmapOf` accepted
+          actions = map (plannedAction . Plan.reviewPlannedOperation) (Plan.reviewOperations document)
+      if reviewSettled actions (Plan.reviewDesiredRevisions document) accepted
         then removeDirectoryRecursive directory >> pure StepCompleted
         else waitForReview directory "its operations are this step's change"
 
