@@ -32,7 +32,7 @@ authority.
 | `CdnCommand` | 4 | none |
 | `TunnelCommand` | 4 | none |
 | `justfile` | 56 |  |
-| `Inventory.Command` production calls | 39 | none |
+| `Inventory.Command` production calls | 40 | none |
 <!-- managed-command-registry:end -->
 
 Each row names the lifecycle-owning scope, declaration compiler, native executor,
