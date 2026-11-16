@@ -188,7 +188,16 @@ buildCloudStageCandidate current active workspace snapshot
             , Just spec <- [Map.lookup urn acceptedSpecs]
             , spec /= ResourceInventory.NativeObject (intentDigest entry)
             ]
-      case missing <> deployerDrift of
+          -- EP-243: a move disables the web rules in place, a change only the seed carries, so their
+          -- drift plans the stage too.
+          webRuleDrift =
+            [ urn
+            | (entry, urn) <- zip entries catalogUrns
+            , Resource.nameText (InventoryCloud.catalogKey entry) `elem` InventoryCloud.tunnelWebRuleKeys
+            , Just spec <- [Map.lookup urn acceptedSpecs]
+            , spec /= ResourceInventory.NativeObject (intentDigest entry)
+            ]
+      case missing <> deployerDrift <> webRuleDrift of
         [] -> pure Nothing
         _ -> do
           let admitted = entries
