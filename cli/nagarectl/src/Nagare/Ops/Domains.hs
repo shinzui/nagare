@@ -24,9 +24,13 @@ module Nagare.Ops.Domains
   , queryDomainRowsWith
   , queryBaseDomainRow
   , queryTunnelBaseRowsWith
+  , queryTunnelBaseRowsIn
   , queryTunnelDomainRowsWith
+  , queryTunnelDomainRowsIn
   , edgeCertificateStateWith
   , probeConcurrency
+  , ProbeSlots
+  , newProbeSlots
   , systemToolRunner
   , observeNamespaces
   , listNamespaces
@@ -37,7 +41,7 @@ module Nagare.Ops.Domains
 where
 
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+import Control.Concurrent.QSem (QSem, newQSem, signalQSem, waitQSem)
 import Control.Exception (IOException, bracket_, try)
 import Data.Aeson (eitherDecodeStrict, (.=))
 import Data.Aeson qualified as Aeson
@@ -375,20 +379,29 @@ queryDomainRowsWith runner base publicIp apexIp cdnGlobalIp namespace = do
 -- | A tunnel context's zone records. The wildcard has no row of its own in public DNS, so an unused label
 -- proves it: an answer and a good certificate, whatever the route says about the label.
 queryTunnelBaseRowsWith :: ToolRunner -> Text -> Maybe Text -> IO [DomainRow]
-queryTunnelBaseRowsWith runner base publicIp =
-  probeConcurrently
+queryTunnelBaseRowsWith runner base publicIp = newProbeSlots >>= \slots -> queryTunnelBaseRowsIn slots runner base publicIp
+
+-- | 'queryTunnelBaseRowsWith' sharing the caller's slots, so every batch of one command stays within one bound.
+queryTunnelBaseRowsIn :: ProbeSlots -> ToolRunner -> Text -> Maybe Text -> IO [DomainRow]
+queryTunnelBaseRowsIn slots runner base publicIp =
+  probeIn
+    slots
     (\(shown, probed) -> tunnelRow runner base publicIp shown probed Nothing NotFound)
     [(base, base), ("*." <> base, "nagare-domains-check." <> base)]
 
 queryTunnelDomainRowsWith :: ToolRunner -> Text -> Maybe Text -> Text -> IO (Observation [DomainRow])
-queryTunnelDomainRowsWith runner base publicIp namespace = do
+queryTunnelDomainRowsWith runner base publicIp namespace = newProbeSlots >>= \slots -> queryTunnelDomainRowsIn slots runner base publicIp namespace
+
+queryTunnelDomainRowsIn :: ProbeSlots -> ToolRunner -> Text -> Maybe Text -> Text -> IO (Observation [DomainRow])
+queryTunnelDomainRowsIn slots runner base publicIp namespace = do
   mappings <- observeParsed extractDomainMappings =<< runner "kubectl" ["get", "domainmapping", "-n", T.unpack namespace, "-o", "json"]
   case mappings of
     Unavailable detail -> pure (Unavailable detail)
     NotFound -> pure NotFound
     Observed domainMappings ->
       Observed
-        <$> probeConcurrently
+        <$> probeIn
+          slots
           ( \domainMapping ->
               tunnelRow
                 runner
@@ -404,9 +417,16 @@ queryTunnelDomainRowsWith runner base publicIp namespace = do
 -- | Each hostname's probes are independent, and a tunnel probe may wait out its 15-second limit, so
 -- rows are probed at most 'probeConcurrency' at a time, keeping their order (EP-245 D5).
 probeConcurrently :: (a -> IO b) -> [a] -> IO [b]
-probeConcurrently probe items = do
-  slots <- newQSem probeConcurrency
-  mapConcurrently (bracket_ (waitQSem slots) (signalQSem slots) . probe) items
+probeConcurrently probe items = newProbeSlots >>= \slots -> probeIn slots probe items
+
+-- | At most 'probeConcurrency' probes in flight across every batch that shares these slots.
+newtype ProbeSlots = ProbeSlots QSem
+
+newProbeSlots :: IO ProbeSlots
+newProbeSlots = ProbeSlots <$> newQSem probeConcurrency
+
+probeIn :: ProbeSlots -> (a -> IO b) -> [a] -> IO [b]
+probeIn (ProbeSlots slots) probe = mapConcurrently (bracket_ (waitQSem slots) (signalQSem slots) . probe)
 
 probeConcurrency :: Int
 probeConcurrency = 8

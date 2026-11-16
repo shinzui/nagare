@@ -13,9 +13,15 @@
 -- in place for the deploy path and is not touched here.
 module Nagare.Ops.Pulumi
   ( stackOutput
+  , stackOutputs
   )
 where
 
+import Data.Aeson (Value (..), decodeStrict)
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KM
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Nagare.Dsl.Prelude
@@ -29,3 +35,12 @@ stackOutput :: FilePath -> Text -> IO (Maybe Text)
 stackOutput dir name = do
   m <- captureTool "pulumi" ["-C", dir, "stack", "output", T.unpack name]
   pure $ fmap (T.strip . decodeUtf8) m
+
+-- | Every string output of the stack from one @pulumi stack output --json@, so a command that needs
+-- several pays for one process instead of one each (EP-245 D5). Empty when Pulumi is missing or fails.
+stackOutputs :: FilePath -> IO (Map Text Text)
+stackOutputs dir = do
+  m <- captureTool "pulumi" ["-C", dir, "stack", "output", "--json"]
+  pure $ case m >>= decodeStrict of
+    Just (Object fields) -> Map.fromList [(Key.toText key, T.strip text) | (key, String text) <- KM.toList fields]
+    _ -> Map.empty

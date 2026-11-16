@@ -6,6 +6,7 @@ module Nagare.Test.Domains
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (concurrently)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -14,7 +15,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.Foldable (forM_)
 import Data.Generics.Labels ()
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
@@ -52,11 +53,14 @@ import Nagare.Ops.Domains
   , extractCertificateEvidence
   , extractDomainMappings
   , formatDomainList
+  , newProbeSlots
   , observeDnsWith
   , parseDigShort
   , probeConcurrency
   , queryDomainRowsWith
+  , queryTunnelBaseRowsIn
   , queryTunnelBaseRowsWith
+  , queryTunnelDomainRowsIn
   , queryTunnelDomainRowsWith
   )
 import Nagare.Resource.Types (mkContextId)
@@ -218,6 +222,16 @@ domainsTests =
       twenty <- queryTunnelDomainRowsWith (runner hosts (const 100000)) base (Just vmIp) "personal" >>= domainsOf
       twenty @?= hosts
       readIORef peak >>= \p -> assertBool ("peak " <> show p) (p >= 2 && p <= probeConcurrency)
+      -- The zone rows and a namespace's rows probed together through shared slots stay within one bound.
+      writeIORef peak 0
+      slots <- newProbeSlots
+      (zone, shared) <-
+        concurrently
+          (queryTunnelBaseRowsIn slots (runner hosts (const 100000)) base (Just vmIp))
+          (queryTunnelDomainRowsIn slots (runner hosts (const 100000)) base (Just vmIp) "personal" >>= domainsOf)
+      length zone @?= 2
+      shared @?= hosts
+      readIORef peak >>= \p -> assertBool ("shared peak " <> show p) (p >= 2 && p <= probeConcurrency)
       -- Ten hosts, one at one second and nine at 300 ms: 3.7 s in sequence, about 1.3 s eight at a time.
       let ten = take 10 hosts
           slowFirst url = if url == "https://site-0." <> T.unpack base then 1000000 else 300000

@@ -4,9 +4,11 @@ module Nagare.Cli.Commands.Domains
   )
 where
 
+import Control.Concurrent.Async (concurrently, mapConcurrently)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
@@ -18,7 +20,7 @@ import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
 import Nagare.Cli.Runtime.Target
   ( activeProfile
   , activeTarget
-  , resolveDomainsBaseAt
+  , resolveBaseDomain
   )
 import Nagare.Dsl.Prelude
 import Nagare.Ops.CertificateChain
@@ -35,14 +37,15 @@ import Nagare.Ops.Domains
   , domainReportValue
   , edgeCertificateStateWith
   , formatDomainList
+  , newProbeSlots
   , observeNamespaces
   , queryBaseDomainRow
   , queryDomainRows
-  , queryTunnelBaseRowsWith
-  , queryTunnelDomainRowsWith
+  , queryTunnelBaseRowsIn
+  , queryTunnelDomainRowsIn
   , systemToolRunner
   )
-import Nagare.Ops.Pulumi (stackOutput)
+import Nagare.Ops.Pulumi (stackOutputs)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (IngressMode (..), Mode (Cloud, Local), contextNameText)
 import System.Exit (exitFailure, exitSuccess)
@@ -67,14 +70,16 @@ runDomainsInventory :: Bool -> Maybe String -> DomainsListOpts -> IO [DomainRow]
 runDomainsInventory checking mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
-  base <- resolveDomainsBaseAt mctx workspace (o ^. #baseDomain)
-  (publicIp, apexIp, cdnGlobalIp) <- case tp ^. #mode of
-    Local -> pure (Just "127.0.0.1", Just "127.0.0.1", Nothing)
-    Cloud ->
-      (,,)
-        <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
-        <*> stackOutput (workspace ^. #pulumiDir) "apexIp"
-        <*> stackOutput (workspace ^. #pulumiDir) "cdnGlobalIp"
+  -- One Pulumi process for every output this command reads (EP-245 D5).
+  outputs <- stackOutputs (workspace ^. #pulumiDir)
+  let output name = Map.lookup name outputs
+  base <- case (o ^. #baseDomain, output "baseDomain") of
+    (Just flag, _) -> pure (T.pack flag)
+    (Nothing, Just recorded) | not (T.null recorded) -> pure recorded
+    _ -> resolveBaseDomain mctx Nothing
+  let (publicIp, apexIp, cdnGlobalIp) = case tp ^. #mode of
+        Local -> (Just "127.0.0.1", Just "127.0.0.1", Nothing)
+        Cloud -> (output "publicIp", output "apexIp", output "cdnGlobalIp")
   namespaceObservation <-
     if o ^. #allNamespaces
       then observeNamespaces
@@ -87,10 +92,12 @@ runDomainsInventory checking mctx o = do
       (,)
         <$> (pure <$> queryBaseDomainRow base apexIp)
         <*> traverse (queryDomainRows base publicIp apexIp cdnGlobalIp) nss
-    IngressCloudflareTunnel ->
-      (,)
-        <$> queryTunnelBaseRowsWith systemToolRunner base publicIp
-        <*> traverse (queryTunnelDomainRowsWith systemToolRunner base publicIp) nss
+    IngressCloudflareTunnel -> do
+      -- The zone rows and every namespace's rows probe together, eight at a time in all.
+      slots <- newProbeSlots
+      concurrently
+        (queryTunnelBaseRowsIn slots systemToolRunner base publicIp)
+        (mapConcurrently (queryTunnelDomainRowsIn slots systemToolRunner base publicIp) nss)
   let rows = baseRows <> concat [found | Observed found <- observations]
       namespaceFailures = case namespaceObservation of
         Observed _ -> []
