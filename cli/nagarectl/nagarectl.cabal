@@ -113,6 +113,7 @@ library
     Nagare.Context.MoveChecks
     Nagare.Context.MoveCommit
     Nagare.Context.MoveHosts
+    Nagare.Context.MoveRetire
     Nagare.Context.MoveReview
     Nagare.Context.MoveRoutes
     Nagare.Context.MoveSites

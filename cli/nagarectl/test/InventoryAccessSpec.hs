@@ -4,6 +4,7 @@ import Control.Monad (forM_, void)
 import Data.Aeson (Value (..), encode, object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
+import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -17,6 +18,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Access.Grants (accessTuple, teamAccessTuple, teamMemberTuple)
 import Nagare.Access.ShomeiUser (ShomeiUser (..))
 import Nagare.Context.BaseMove (HostKind (..), MovedHost (..))
+import Nagare.Context.MoveRetire (RetirePhase (..), retirePhase, zoneRetirement)
 import Nagare.Context.MoveSites (siteProgress)
 import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -120,6 +122,27 @@ inventoryAccessTests =
         -- The old host's own grants are never part of what the move plans.
         let oldGrant = ok (compileAccessScope snapshot "one.example.test" alice True)
         assertBool "the move planned a grant on the old name" (scopeId oldGrant `notElem` map scopeId (progress ^. #grants))
+    , testCase "retiring an old base revokes its grants, retires them, drops their routes, and only then the zone (EP-246 D7)" $ do
+        let granted = ok (compileAccessScope snapshot "one.example.test" alice True)
+            with scopes = ok (mkScopeSnapshot context (Map.union (Map.fromList [(scopeId g, (generation, g)) | g <- scopes]) (snapshotScopes snapshot)) Map.empty)
+            phaseOf = either (error . T.unpack) id . retirePhase ["one.example.test"]
+        case phaseOf (with [granted]) of
+          RevokeGrants [revoked] -> do
+            scopeId revoked @?= scopeId granted
+            [present | bundle <- scopeBundles revoked, Managed r <- bundle ^. #declarations, AccessGrantSpec _ present <- [r ^. #spec]] @?= [False]
+            phaseOf (with [revoked]) @?= RetireGrants [scopeId granted]
+          other -> assertFailure ("expected one revocation: " <> show other)
+        case phaseOf snapshot of
+          RetireRoutes trimmed -> do
+            let hostsOf scope = [nameText h | bundle <- scopeBundles scope, RegisterBackend {host = h} <- bundle ^. #contributions]
+                mappingsOf scope = [nameText n | bundle <- scopeBundles scope, Managed r <- bundle ^. #declarations, Kubernetes _ _ k _ n <- [r ^. #address], nameText k == "domainmapping"]
+            assertBool "the old route is still registered" (all (notElem "one.example.test" . hostsOf) trimmed)
+            assertBool "the old DomainMapping is still declared" (all (notElem "one.example.test" . mappingsOf) trimmed)
+            assertBool "no scope was trimmed" (not (null trimmed))
+          other -> assertFailure ("expected the routes next: " <> show other)
+        retirePhase ["gone.example.test"] snapshot @?= Right RetireDns
+        assertBool "the zone retired under a live delegation" (isLeft (zoneRetirement "old.example.test" True))
+        zoneRetirement "old.example.test" False @?= Right ()
     , testCase "the en forward port is read from kubectl's first forwarding line" $ do
         parseEnForwardPort "Forwarding from 127.0.0.1:53817 -> 8080\n" @?= Just "53817"
         parseEnForwardPort "Forwarding from [::1]:53817 -> 8080" @?= Nothing

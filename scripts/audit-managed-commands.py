@@ -64,7 +64,7 @@ ROUTES = {
         "group": "ContextMove",
     },
     # EP-243: a move's steps are reviews admitted only under its marker in the shared head.
-    "MoveCommand": {"read": "MoveStatus MoveList", "reviewed": "MoveStart MoveApply MoveRollback MoveRetireDns"},
+    "MoveCommand": {"read": "MoveStatus MoveList", "reviewed": "MoveStart MoveApply MoveRollback MoveRetireDns MoveRetire"},
     "InfraCommand": {
         "read": "InfraGuard",
         "reviewed": "InfraPreview InfraApply InfraDestroy",
@@ -208,7 +208,7 @@ DEFAULT_FAMILY = {
     "CdnCommand": "Cloudflare CDN host DNS",
     "NixCacheCommand": "Nix cache producer token, forward, and push",
     "DelegationCommand": "Deployer delegation namespaces, quotas and record",
-    "MoveCommand": "Context ingress move onto the Cloudflare Tunnel",
+    "MoveCommand": "Context move onto the Cloudflare Tunnel or to a new base domain",
 }
 
 FAMILY_ROUTES = {

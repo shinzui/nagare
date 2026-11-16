@@ -16,4 +16,6 @@ data MoveCommand
   | MoveRollback Bool
   | -- | D2: retire the Cloud DNS set a committed move kept.
     MoveRetireDns Bool
+  | -- | EP-246 D7: after a move to a new base, retire the old names' grants, routes and Cloud DNS zone.
+    MoveRetire Bool
   deriving stock (Generic, Show)

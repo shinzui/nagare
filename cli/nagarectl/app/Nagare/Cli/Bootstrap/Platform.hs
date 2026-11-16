@@ -13,6 +13,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Text qualified as T
+import Nagare.Cli.Move.Carry (withMovedRoutes)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (ActivePosture)
@@ -419,7 +420,9 @@ buildPlatformCandidate current active paths workspace snapshot = do
   unless
     (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
-  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> adminApiScopes <> tunnelScopes of
+  -- EP-246 D5: during a move to a new base, the admin API keeps its old route while grants name it.
+  carriedAdminApiScopes <- traverse (withMovedRoutes active snapshot) adminApiScopes
+  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> carriedAdminApiScopes <> tunnelScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
   let kubeconfigEdges =

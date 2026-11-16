@@ -19,16 +19,18 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import Nagare.Access.Reviewed (accessPlanRegistry)
 import Nagare.Cli.Bootstrap.Review (applyStageReview, planStageReview)
 import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
 import Nagare.Cli.Move.BaseSteps (BaseStepOps (..), performBase)
 import Nagare.Cli.Move.Manifest (collectManifest, listBaseMove, manifestFile)
 import Nagare.Cli.Move.Observe
+import Nagare.Cli.Move.Passkeys (passkeyExportFile)
 import Nagare.Cli.Move.Sites (carrySitesStep, readSavedManifest, verifySitesStep)
 import Nagare.Cli.Options.Move (MoveCommand (..))
 import Nagare.Cli.Platform.InfrastructureReview (prepareInfraTargetWithPulumi)
-import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
+import Nagare.Cli.Runtime.Cluster (guardKubernetesContext, withPreparedContextEnSession)
 import Nagare.Cli.Runtime.Context (writeContextProfile)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
@@ -39,6 +41,7 @@ import Nagare.Context.Move
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
+import Nagare.Context.MoveRetire (RetirePhase (..), retirePhase, zoneRetirement)
 import Nagare.Context.MoveReview (ReviewOps (..), ReviewPlan (..))
 import Nagare.Context.MoveReview qualified as MoveReview
 import Nagare.Context.MoveSites (renderUnrouted, siteProgress)
@@ -55,9 +58,10 @@ import Nagare.Inventory.Store.Manifest (MoveMarker (..), moveReviewIdentity, par
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory qualified as Resource
+import Nagare.Resource.Policy (RetirementIntent (RetainResources))
 import Nagare.Resource.Types (ScopeKind (Platform), mkScopeId, nameText, scopeKind, scopeName)
 import Nagare.Target (ActiveTarget, IngressMode (..), Mode (Cloud), contextNameText, contextStateDirName, nagareStateDir, validateIngressMode)
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, removeDirectoryRecursive)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode)
 import System.FilePath (takeDirectory, (</>))
@@ -77,6 +81,7 @@ runContextMove mctx command = do
     MoveApply yes -> requireYes yes "context move apply" >> proceed mctx active runMove
     MoveRollback yes -> requireYes yes "context move rollback" >> proceed mctx active rollbackMove
     MoveRetireDns yes -> requireYes yes "context move retire-dns" >> retireDns mctx active
+    MoveRetire yes -> requireYes yes "context move retire" >> retireBase mctx active
 
 start :: ActiveTarget -> IO ()
 start active = do
@@ -187,6 +192,59 @@ retireDns mctx active = do
       )
   case outcome of
     StepCompleted -> TIO.putStrLn "The Cloud DNS set is retired."
+    StepWaiting reason -> TIO.putStrLn ("Waiting: " <> reason)
+    StepRefused reason -> dieT reason
+
+-- | EP-246 D7: one phase per run, each reviewed: revoke the old names' grants, retire them, drop the
+-- old routes, then, once the parent no longer delegates the old base, retire its Cloud DNS set, clear
+-- @NAGARE_RETAINED_DNS_NAME@ and delete the passkey export.
+retireBase :: Maybe String -> ActiveTarget -> IO ()
+retireBase mctx active = do
+  let profile = active ^. #profile
+      old = profile ^. #retainedDnsName
+  unless (profile ^. #ingress == IngressCloudflareTunnel && not (T.null old) && old /= profile ^. #baseDomain) $
+    dieT "this context has no old base domain to retire; a same-domain move retires its zone with `context move retire-dns`"
+  store <- withStore active
+  openMoveOf store >>= either dieT pure >>= mapM_ (const (dieT "a context move is open; finish or roll it back first"))
+  moves <- takeDirectory <$> reviewDirectory active baseMoveKind MovingForward CheckPreconditions
+  manifest <- readSavedManifest moves
+  let identity = "operator-cli"
+      directory = moves </> "retire-old-base"
+      oldHosts = map (^. #oldName) (manifest ^. #hosts)
+      review planIt = MoveReview.reviewStep (stageReviewOps mctx active store (== identity) "the old base's retirement" directory planIt)
+      plan registryFor changes = do
+        snapshot <- Inventory.loadTargetSnapshot active
+        candidate <- either (dieT . T.pack . show) pure (Resource.composeInventory snapshot changes)
+        registryFor $ \registry -> Inventory.planInventoryCandidateWithPayloadIdentity registry identity active candidate directory
+        pure True
+      withAccess body = withPreparedContextEnSession active (\en -> body (accessPlanRegistry active en))
+      withWorkspace body = do
+        (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+        body (inventoryPlanRegistry active workspace)
+      finish = do
+        writeContextProfile (active ^. #contextName) (profile & #retainedDnsName .~ "")
+        (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+        secrets <- contextSecretsDirectory (workspace ^. #root) (contextNameText (active ^. #contextName))
+        let export = secrets </> passkeyExportFile
+        doesFileExist export >>= (`when` removeFile export)
+        TIO.putStrLn ("Cleared NAGARE_RETAINED_DNS_NAME and deleted " <> T.pack export <> ". The old base is retired.")
+      phase = do
+        snapshot <- Inventory.loadTargetSnapshot active
+        either dieT pure (retirePhase oldHosts snapshot)
+  outcome <-
+    phase >>= \case
+      RevokeGrants (scope : rest) -> review (plan withAccess (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
+      RevokeGrants [] -> dieT "nothing to revoke"
+      RetireGrants (owner : rest) ->
+        review (plan withAccess (fmap (`Resource.RetireScope` RetainResources) (owner :| rest)))
+      RetireGrants [] -> dieT "nothing to retire"
+      RetireRoutes (scope : rest) -> review (plan withWorkspace (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
+      RetireRoutes [] -> dieT "no routes to retire"
+      RetireDns -> do
+        observeParentDelegates old >>= either dieT pure >>= either dieT pure . zoneRetirement old
+        review (planRetirement active store cloudDnsSet identity directory finish)
+  case outcome of
+    StepCompleted -> TIO.putStrLn "This phase is done; run the same command again for the next."
     StepWaiting reason -> TIO.putStrLn ("Waiting: " <> reason)
     StepRefused reason -> dieT reason
 

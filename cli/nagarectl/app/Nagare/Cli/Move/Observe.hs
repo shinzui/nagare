@@ -11,6 +11,7 @@ module Nagare.Cli.Move.Observe
   , observeApexRecord
   , observeParentDs
   , observeParentDelegation
+  , observeParentDelegates
   , observeResolverNameServers
   , observeCloudDnsNameServers
   , observeRenewals
@@ -112,6 +113,18 @@ observeParentDelegation name = do
         delegation >>= \records -> case [r | r <- records, r ^. #recordType == "NS"] of
           [] -> Left ("the parent server " <> server <> " delegates no name servers for " <> name)
           found -> Right (map (^. #value) found, minimum (map (^. #ttl) found))
+
+-- | EP-246 D7: whether the parent zone still delegates @name@ to any name server, asked of the parent's
+-- own server so no cache answers.
+observeParentDelegates :: Text -> IO (Either Text Bool)
+observeParentDelegates name = do
+  let parent = T.drop 1 (T.dropWhile (/= '.') name)
+  servers <- digRecords ["+noall", "+answer", "NS", T.unpack parent]
+  case [r ^. #value | r <- either (const []) id servers, r ^. #recordType == "NS"] of
+    [] -> pure (Left ("no name server answers for the parent zone " <> parent))
+    server : _ -> do
+      delegation <- digRecords ["+norecurse", "+noall", "+authority", "NS", T.unpack name, "@" <> T.unpack server]
+      pure (any (\r -> r ^. #recordType == "NS") <$> delegation)
 
 -- | What three public resolvers answer for the domain's name servers.
 observeResolverNameServers :: Text -> IO [[Text]]
