@@ -59,6 +59,17 @@ inventoryCloudflareZoneTests =
         Map.lookup "browser_cache_ttl" (settings state) @?= Just (Number 0)
         Map.lookup "security_header" (settings state) @?= Just hsts
         rules state @?= Just "true"
+    , testCase "the operator's MX and TXT records at the base neither block nor change the tunnel's records" $ do
+        world <- newWorld
+        let extras = [FakeRecord "mx1" "mail.example.net" False "MX", FakeRecord "txt1" "v=spf1 -all" False "TXT"]
+        modifyIORef' world (\state -> state {apexExtras = extras})
+        mapM_ (runCreate (adapterFor world Map.empty)) ordered
+        state <- readIORef world
+        fmap recordContent (Map.lookup base (records state)) @?= Just (fakeTunnelId <> ".cfargotunnel.com")
+        apexExtras state @?= extras
+        let accepted = adapterFor world (Map.fromList [(member ^. #identity, member) | member <- ordered])
+        facts <- adapterObserve accepted (map identityOf ordered) >>= either (fail . T.unpack) pure
+        assertBool "every member is present" (all isPresent (Map.elems (observationMap facts)))
     , testCase "a second pass over accepted members finds nothing to change" $ do
         world <- newWorld
         mapM_ (runCreate (adapterFor world Map.empty)) ordered
@@ -341,11 +352,14 @@ isAbsent = \case ConfirmedAbsent _ -> True; _ -> False
 isUnowned = \case ObservedUnowned _ -> True; _ -> False
 
 data FakeRecord = FakeRecord {recordId :: !Text, recordContent :: !Text, recordProxied :: !Bool, recordType :: !Text}
+  deriving stock (Eq, Show)
 
 data World = World
   { tunnels :: !(Map.Map Text Text)
   , ingress :: !(Maybe [Value])
   , records :: !(Map.Map Text FakeRecord)
+  , apexExtras :: ![FakeRecord]
+  -- ^ The operator's own records at the base (MX, TXT), listed beside the tunnel's.
   , settings :: !(Map.Map Text Value)
   , rulesBody :: !(Maybe Value)
   , zoneName :: !Text
@@ -360,6 +374,7 @@ newWorld =
       { tunnels = Map.empty
       , ingress = Nothing
       , records = Map.empty
+      , apexExtras = []
       , settings =
           Map.fromList
             [ ("ssl", "full")
@@ -454,7 +469,7 @@ fakeCloudflare world method path body = do
           success (object ["version" .= (1 :: Int), "config" .= maybe Null (\items -> object ["ingress" .= items]) (ingress state)])
       | Just encoded <- T.stripPrefix "/zones/zone1/dns_records?name.exact=" p ->
           let name = T.replace "%2A" "*" encoded
-           in success (toJSONList [recordJson name record | Just record <- [Map.lookup name (records state)]])
+           in success (toJSONList ([recordJson name record | Just record <- [Map.lookup name (records state)]] <> [recordJson name record | name == base, record <- apexExtras state]))
       | p == "/zones/zone1/rulesets/phases/http_request_cache_settings/entrypoint" -> case rulesBody state of
           Nothing -> notFound
           Just (Object fields) -> success (Object (KM.mapWithKey (\key value -> if key == "rules" then withProviderFields value else value) fields <> KM.fromList [("id", String "rs1"), ("version", String "1"), ("phase", String "http_request_cache_settings"), ("kind", String "zone")]))

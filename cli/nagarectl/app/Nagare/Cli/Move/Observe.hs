@@ -83,14 +83,15 @@ observeApexRecord :: Text -> IO (Either Text ApexRecord)
 observeApexRecord name = withZone $ \zone ->
   cloudflare ("/zones/" <> zone <> "/dns_records?name.exact=" <> name) <&> \case
     Left reason -> Left reason
-    Right (Array records) -> case toList records of
+    -- The apex also holds the operator's own records (MX, TXT); only the A or CNAME is the move's.
+    Right (Array records) -> case filter ((`elem` [Just "A", Just "CNAME"]) . field "type") (toList records) of
       [record] ->
         Right
           ApexRecord
             { toVm = field "type" record == Just "A" && boolField "proxied" record == Just False
             , modifiedOn = time =<< field "modified_on" record
             }
-      found -> Left ("Cloudflare holds " <> T.pack (show (length found)) <> " records for " <> name <> ", not one")
+      found -> Left ("Cloudflare holds " <> T.pack (show (length found)) <> " A or CNAME records for " <> name <> ", not one")
     Right _ -> Left "Cloudflare's record listing has no result array"
 
 -- | Whether the parent publishes a DS record for the domain.

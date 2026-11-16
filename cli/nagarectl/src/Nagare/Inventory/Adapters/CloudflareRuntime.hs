@@ -438,7 +438,9 @@ parseTunnelRecord :: Name -> Text -> Name -> Maybe Text -> CloudflareResponse ->
 parseTunnelRecord zone record tunnel tunnelId response = do
   result <- successfulResult response
   case result of
-    Array values -> case toList values of
+    -- The apex also holds the operator's MX, TXT or CAA records: only an address or alias at this name
+    -- can be the tunnel's record or the move's mirror, or stand in their way.
+    Array values -> case filter ((`elem` [Just "A", Just "AAAA", Just "CNAME"]) . fieldText "type") (toList values) of
       [] -> Right CloudflareMissing
       [one] -> do
         recordId <- requiredText "id" one
@@ -456,7 +458,7 @@ parseTunnelRecord zone record tunnel tunnelId response = do
               Just "CNAME" -> CloudflareTunnelRecordTarget record observed
               _ -> CloudflareTunnelRecordTarget record foreignTunnel
         Right (CloudflarePresent physical (fieldText "modified_on" one) target)
-      _ -> Left "more than one record has this exact name"
+      _ -> Left "more than one A, AAAA or CNAME record has this exact name"
     _ -> Left "Cloudflare DNS listing has no result array"
 
 -- | A mirrored record's TTL. A move waits this long after switching it before closing the firewall.
