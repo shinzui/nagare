@@ -1,0 +1,11 @@
+public IP	35.233.172.102
+firewall rules on the context network (nagare-network-net-f50b028)	nagare-network-fw-iap-ssh-98bf706 INGRESS 35.235.240.0/20 tcp:22, and no other
+outside TCP 80	closed
+outside TCP 443	closed
+outside TCP 6443	closed
+outside TCP 8443	closed
+IAP SSH	ep245e-nagare 
+host listeners on 80/443	[]
+tailscale path	ep245e-nagare relay=sea curaddr=
+kubectl /readyz round trip over the tailnet (20)	p50 159 ms, max 207 ms
+backup CronJobs	nagare-system/nagare-dbbackup-en-db nagare-system/nagare-dbbackup-shomei-db 

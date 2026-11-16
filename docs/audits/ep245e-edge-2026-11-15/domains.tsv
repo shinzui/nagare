@@ -1,0 +1,7 @@
+build	nagarectl 0.21.0 (d347419c), ep245e, 2026-11-15
+probed names	13: *.topagentnetworklabs.com admin staging pub0-pub8 and the apex
+domains check -n personal, first run of a new package	11 rows in 6.91 s (one-time npm ci of the Pulumi program into the package's new workspace)
+domains check -n personal, warm	11 rows in 1.85 s; slowest single probe 0.246 s
+domains check -n personal, warm	11 rows in 1.76 s; slowest single probe 0.206 s
+domains check -n personal, warm	11 rows in 1.77 s; slowest single probe 0.202 s
+domains check -n personal, warm, c5acf81b before the change	11 rows in 2.38-2.58 s; slowest single probe 0.20-0.27 s

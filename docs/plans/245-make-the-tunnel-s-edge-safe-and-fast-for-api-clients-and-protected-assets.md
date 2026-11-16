@@ -75,7 +75,7 @@ each item stays open until its native observation in the one bounded run below, 
   component sets only in tunnel mode, as it does `NAGARE_ACCESS_PROXIED_CACHE_CONTROL`. Nothing authorizes, throttles or
   records a decision on them. Tests: the line carries both in tunnel mode, neither in direct mode, and never a cookie,
   bearer token or query string.
-- [ ] D5: Checks run concurrently. `nagarectl domains check` probes hostnames with a bounded concurrency of eight, and
+- [x] D5 (`597c0cae`, `d347419c`; native on `ep245e`, [`docs/audits/ep245e-edge-2026-11-15/domains.tsv`](../audits/ep245e-edge-2026-11-15/domains.tsv): eleven rows in 1.76-1.85 s warm against a slowest single probe of 0.20-0.25 s, after one Pulumi output read and one shared pool of eight replaced four reads and separate batches, which took 2.4-2.6 s): Checks run concurrently. `nagarectl domains check` probes hostnames with a bounded concurrency of eight, and
   `nagarectl doctor` issues its three Cloudflare reads at once. Fake-runner tests prove the order of rows is unchanged and
   that one slow probe does not delay the others. On a context with ten hostnames, `domains check` finishes in under the
   slowest probe's time plus two seconds, measured.
@@ -83,13 +83,13 @@ each item stays open until its native observation in the one bounded run below, 
   `cloudflared` pods, the connector NetworkPolicy admits ingress on 2000 from the `monitoring` namespace only, and one
   alert fires when `cloudflared_tunnel_ha_connections` for any pod stays below four for five minutes. Grafana shows the
   connector's request count and latency.
-- [ ] D7: A measured baseline through the edge, on a disposable context from one workstation, 40 requests each, recorded
+- [x] D7 (native on `ep245e`, [`docs/audits/ep245e-edge-2026-11-15/`](../audits/ep245e-edge-2026-11-15/) `measure.tsv` and `load-summary.json`: new connection 91 ms p50, reused 64 ms p50, within 25 ms of EP-240's 85 ms; `304` 75 ms p50; 42,002 load requests with none failed; no connector restart; peak 54 MB; on the second navigation both hashed assets came from the browser cache with no request, where before D1 both were fetched; numbers in ADR 34): A measured baseline through the edge, on a disposable context from one workstation, 40 requests each, recorded
   in `docs/audits/`: admin API `GET` with a bearer token on a new and on a reused connection (TTFB p50 and p95); a `304`
   revalidation (p50); a protected documentation page's second navigation, counting asset requests before and after D1; 50
   concurrent requests for 60 seconds against a public echo, with the connector's peak CPU and memory from the metrics of
   D6. Pass: no failed request, no connector restart, peak memory under the 256 MiB limit, and a reused-connection p50 within
   25 ms of EP-240 P8's 85 ms. The numbers go into ADR 34's consequences.
-- [ ] D8: `docs/user/cloudflare-tunnel.md` and `docs/user/choosing-ingress.md` describe the edge for API clients: no
+- [x] D8 (`3bec59a0` and this change: the two guides, ADR 34's amendment and D7 numbers, ADR 29's header; `just user-documentation-validate` passes): `docs/user/cloudflare-tunnel.md` and `docs/user/choosing-ingress.md` describe the edge for API clients: no
   challenge, HSTS, what the enforcer does to `Cache-Control`, that any stream or WebSocket silent for 125 seconds is reset so
   applications send keepalives, and which headers carry the visitor address. ADR 34 is amended with D1 to D4 and D7.
   `just user-documentation-validate` passes.
@@ -143,7 +143,13 @@ each item stays open until its native observation in the one bounded run below, 
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Complete on 2026-11-15. Machine clients and protected sites now get the same answers through the Cloudflare edge as directly: no
+challenge, a `304` on a matching `If-None-Match`, hashed assets kept in the browser cache, HSTS on every response, and no protected
+byte ever served from the edge cache. Access lines name the visitor and the Cloudflare ray, the connector is scraped, alerted on and
+graphed, `domains check` probes in parallel, and ADR 34 holds the first measured latency and load baseline. The native run found a
+defect the plan did not target: no public site or app could be deployed in a tunnel context since EP-242, fixed in `52c25ecb` and
+`c5acf81b`. What remains is outside this plan: EP-244 D6's onboarding run, which should now deploy a public site too, and `nagared`
+as a real webhook receiver on a tunnel context. ADR 34 carries the durable decisions; nothing else moves to an ADR.
 
 
 ## Context and Orientation

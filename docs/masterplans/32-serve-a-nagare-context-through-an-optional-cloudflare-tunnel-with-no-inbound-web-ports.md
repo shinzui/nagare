@@ -147,7 +147,7 @@ Relevant ADRs:
 | 242 | Route a context's hostnames through its Cloudflare zone and check them | docs/plans/242-route-a-context-s-hostnames-through-its-cloudflare-zone-and-check-them.md | EP-240 | EP-241 | Complete |
 | 243 | Close a context's inbound ports and move existing contexts onto the tunnel | docs/plans/243-close-a-context-s-inbound-ports-and-move-existing-contexts-onto-the-tunnel.md | EP-241, EP-242 | None | In Progress |
 | 244 | Make the tunnel the recommended path for new Nagare installations | docs/plans/244-make-the-tunnel-the-recommended-path-for-new-nagare-installations.md | EP-243 | EP-245 D1–D3 | In Progress |
-| 245 | Make the tunnel's edge safe and fast for API clients and protected assets | docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md | EP-241, EP-242 | None | In Progress |
+| 245 | Make the tunnel's edge safe and fast for API clients and protected assets | docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md | EP-241, EP-242 | None | Complete |
 | 246 | Move a context to a new base domain and carry its routes, grants and sign-in | docs/plans/246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md | EP-243 D2, D3, D5, D11; EP-245 D1–D3 for its rehearsal | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -220,16 +220,22 @@ EP-246 adds a new base domain to EP-243's move, so it needs EP-243's engine and 
 EP-240 is complete and passed on 2026-11-02; its topology and threat model are in
 [ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md). EP-242 is complete. A new context bootstraps
 through the reviewed path and serves a protected site with no web port, proved natively on `ep243` on 2026-11-03. v0.16.0 carries this.
-EP-241 is complete. Left: EP-245, EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed in v0.16.1. A restore from real backups on `ep245` found F144, F146 and F147 and passed with no hand fixes on 2026-11-04, in v0.16.2 ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)). `ep245` showed D6's site, login, closed ports and no web listener, but was driven by scripts, so "from the onboarding page alone" stays unproved and D6 stays open. The review of 2026-11-04 (API, performance, security) found the shipped edge wrong for machine clients and protected assets; EP-245 holds the fixes and the first measured baseline, and EP-244 D6 waits for its D1 to D3. EP-243 D8, the operator paths with no inbound ports, needs no move and can run on a new context now. 2026-11-15: EP-245 D1 to D6's code is landed with fake-adapter tests and D4 is complete; D1 to D3, D5 to D7 wait on one bounded native run on a disposable tunnel context, which can also carry EP-243 D8.
+EP-241 is complete. Left: EP-245, EP-244 D6, and EP-243's move of an existing context. EP-241 D7's rebuild drill passed and found F142 and F143, fixed in v0.16.1. A restore from real backups on `ep245` found F144, F146 and F147 and passed with no hand fixes on 2026-11-04, in v0.16.2 ([evidence](../audits/ep245-vm-loss-drill-2026-11-04.txt)). `ep245` showed D6's site, login, closed ports and no web listener, but was driven by scripts, so "from the onboarding page alone" stays unproved and D6 stays open. The review of 2026-11-04 (API, performance, security) found the shipped edge wrong for machine clients and protected assets; EP-245 holds the fixes and the first measured baseline, and EP-244 D6 waits for its D1 to D3. EP-243 D8, the operator paths with no inbound ports, needs no move and can run on a new context now. 2026-11-15: EP-245 is complete, proved natively on `ep245e` ([evidence](../audits/ep245e-edge-2026-11-15/)), which also fixed public sites in tunnel contexts and recorded EP-243 D8's operator paths. EP-244 D6 can run now. Left: EP-243's move of an existing context, EP-244 D6 and EP-246.
 
 - [ ] Gate: a new installation followed from the onboarding page alone ends with sites serving, login
   working, an outside port check finding nothing open, and the host listening on no web port (EP-244).
-- [ ] Gate: through the edge, a bearer request with no `User-Agent` to the admin API answers 200 and a
+- [x] Gate ([`docs/audits/ep245e-edge-2026-11-15/edge.tsv`](../audits/ep245e-edge-2026-11-15/edge.tsv), `ep245e`, 2026-11-15): through the edge, a bearer request with no `User-Agent` to the admin API answers 200 and a
   matching `If-None-Match` answers 304; an anonymous request never receives cached protected bytes, with the
   tightened header and a `Cloudflare-CDN-Cache-Control` response from the upstream (EP-245).
 
 
 ## Surprises & Discoveries
+
+- 2026-11-15, `ep245e`: no public site or app could be deployed in a tunnel context since EP-242 (v0.16.0). EP-242 gives a public
+  Knative Service its flattened-name alias, and both the planning and the apply native member checks rebuilt the declaration from
+  the object, which cannot spell the base domain. Every earlier native run deployed only protected sites, and the interpreter
+  tests compiled tunnel sites without passing them through those checks. Fixed in `52c25ecb` and `c5acf81b`
+  (`TunnelRoute.reboundAliases`), with interpreter tests; EP-244 D6's onboarding run should deploy a public site as well.
 
 - 2026-11-02, security review before any child started. The tunnel's ingress configuration is remotely
   managed, so the connector pod is a reverse proxy into the cluster whose targets are set from Cloudflare;
@@ -257,6 +263,11 @@ EP-241 is complete. Left: EP-245, EP-244 D6, and EP-243's move of an existing co
 
 
 ## Decision Log
+
+- Decision: The `ep245e` native run of EP-245 also carried EP-243 D8's operator-path observations; they are recorded in
+  `docs/audits/ep245e-edge-2026-11-15/ep243-d8-operator-paths.tsv` for EP-243 to cite.
+  Rationale: one bounded cloud run instead of two, approved by the operator on 2026-11-15.
+  Date: 2026-11-15
 
 - Decision: EP-246 is added now, ahead of EP-243's completion, as the capability the 2026-11-02 entry below held back: re-homing
   a context onto a new base domain. It extends EP-243's move rather than running beside it, with one command and a second step

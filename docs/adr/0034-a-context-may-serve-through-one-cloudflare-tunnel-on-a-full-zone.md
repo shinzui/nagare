@@ -72,7 +72,12 @@ browser -> Cloudflare edge -> tunnel -> cloudflared pod -> external kourier Serv
 
 - An operator accepts Cloudflare's limits: a 100 MB upload, no edge request logs on Free or Pro, and a 125-second read timeout. A stream that sends
   regularly is unaffected (200 s observed); one silent for longer is reset at about 126 s.
-- Measured from one workstation, time to first byte excluding TLS setup was 85 ms at p50 through the tunnel against 73 ms direct.
+- Measured from one workstation, time to first byte excluding TLS setup was 85 ms at p50 through the tunnel against 73 ms direct
+  (EP-240). EP-245 D7 on `ep245e`, 2026-11-15, through the edge to the admin API: 91 ms p50 and 137 ms p95 on a new connection,
+  64 ms p50 and 92 ms p95 on a reused one, and 75 ms p50 for a `304` revalidation. Fifty concurrent clients for 60 seconds against a
+  public site made 42,002 requests at about 700 per second with none failed, 65 ms p50 and 98 ms p95; the two connectors did not
+  restart and peaked at 54 MB of their 256 MiB limit and half a core
+  ([evidence](../audits/ep245e-edge-2026-11-15/measure.tsv)).
 - Moving a context changes its default hostnames, and ADR 29 grants are per hostname, so a move carries its routes and grants.
 - Local-mode contexts, more than one tunnel per context, and per-site CDN stay out of scope.
 
@@ -106,4 +111,4 @@ Implementation (EP-245) settled two further points:
   structurally on the declared keys, so the string settings keep their recorded encoding and a field Cloudflare adds to a value
   is not drift.
 
-The first measured latency and load baseline through the edge is EP-245 D7; its numbers replace the single figure above when recorded.
+The first measured latency and load baseline through the edge is EP-245 D7, recorded under Consequences.

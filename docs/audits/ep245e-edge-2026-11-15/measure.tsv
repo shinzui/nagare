@@ -1,0 +1,8 @@
+admin GET, new connection (TTFB minus TLS)	n 40 p50 90.9 ms p95 136.5 ms max 140.7 ms
+admin GET, reused connection	n 39 p50 64.0 ms p95 92.3 ms max 107.5 ms; new connects after the first: 0
+304 revalidation, reused connection	n 39 p50 74.9 ms p95 107.9 ms max 122.2 ms
+load 50 VUs 60 s	{"reqs":42002,"rps":699,"failed":0,"p50_ms":65.099,"p95_ms":98.35964999999999}
+connector restarts	unchanged: cloudflared-bc774459b-528hx=0 cloudflared-bc774459b-tj45c=0 
+connector peak memory	54194176 bytes
+connector peak CPU	0.5023333333333334 cores
+protected page second navigation (Chrome, signed in as a disposable test user)	2 hashed assets referenced; both deliveryType=cache transferSize=0, so 0 asset requests reached the network (before D1 the enforcer's no-store forced both every visit: 2 requests)
