@@ -113,6 +113,7 @@ import Nagare.Test.Context
   , modeResolutionTests
   , targetProfileTests
   )
+import Nagare.Test.ContextMove (contextMoveTests)
 import Nagare.Test.Contract (contractTests)
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
 import Nagare.Test.Delegation (delegationTests)
@@ -272,6 +273,7 @@ main = do
             , testGroup "Nagare.Ops" opsTests
             , testGroup "Nagare.Ops.Doctor" doctorTests
             , testGroup "Nagare.Ops.Domains" domainsTests
+            , testGroup "Nagare.Context.Move" contextMoveTests
             , testGroup "Nagare.Ops.Cleanup" cleanupTests
             , testGroup "Nagare.App" appTests
             , testGroup "Nagare.App.Deployments" deploymentsTests

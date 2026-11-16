@@ -48,7 +48,8 @@ open on the VM.
   context declares no Cloud DNS zone, wildcard or apex record. A `direct` context's preview is unchanged. `npm test` in
   `infra/pulumi` passes with new variants in `test/resourceProgramParity.test.ts`. In tunnel mode the `kourier`
   Service is `ClusterIP`, so ServiceLB binds no host port and a rule added by mistake reaches nothing.
-- [ ] D2: On a converted context, the existing Cloud DNS zone is retained until the operator retires it through a reviewed
+- [ ] D2 (retention mechanism `0646b22e`: Pulumi and catalog parity tests keep the zone, both records and the solver's grants when
+  `NAGARE_RETAINED_DNS_NAME` is set; the reviewed retirement is milestone 6): On a converted context, the existing Cloud DNS zone is retained until the operator retires it through a reviewed
   step. Nothing deletes it automatically.
 - [ ] D3: A move runs in a fixed order and refuses to advance otherwise: refuse while the parent zone publishes a DS
   record for the domain, add the zone on Cloudflare with its records DNS-only and pointing at the VM, wait for the
@@ -85,6 +86,30 @@ open on the VM.
 
 
 ## Decision Log
+
+- Decision: The move is one engine of named steps over existing machinery. Every provider effect is an ordinary reviewed
+  inventory transaction run by the existing admission, journal, `inventory resume` and `inventory close`; the engine only
+  sequences them. Its state is a marker in the inventory head, like the release transition's `TransitionMarker`, holding the
+  move's kind, direction and step cursor, and admission refuses any review that is not the move's current step while it is
+  open. The step list and its inverse are pure data run against an injected operations record, as
+  `Nagare.Platform.Cutover` does, so interpreter tests stop it at every step, resume it and roll it back. A step either
+  advances, waits for something outside Nagare (the operator's name server change, an old TTL), or refuses; a wait stops
+  `move apply` with the instruction and the next run re-observes. Rollback runs the inverses of the completed steps in
+  reverse order, which by the order of D3 reopens the firewall before records move back.
+  Rationale: the inventory has one active transaction at a time and no record that ties several reviews together
+  (`headActiveTransaction`, the release-only `headTransition`); a second executor for provider effects would duplicate the
+  riskiest code. Exploration of 2026-11-15: bootstrap plans its next stage statelessly (`planNextStage`), the release
+  transition is a head marker enforced by `transitionAdmission`, and `Platform.Cutover` is the only step machine with
+  rollback.
+  Date: 2026-11-15
+
+- Decision: Tunnel mode becomes stageable. The planner reads the move's step from the marker: the connector runs while
+  `kourier` stays a LoadBalancer and the issuer stays; the zone's records are DNS-only A records to the VM until the switch;
+  the firewall closes through the reviewed collection used by cloud teardown (policy, retirement, collection of the three
+  rules); `kourier` becomes `ClusterIP` last. Without an open move the planner behaves as today.
+  Rationale: `tunnelUpstreamInputs` switches the issuer, `kourier` and the domain template at once, and the cloud stage
+  refuses an accepted scope whose catalog lost members, so neither admits D3's order as it stands.
+  Date: 2026-11-15
 
 - Decision: The command is `nagarectl context move`, and its engine takes a step list and D11's carrier takes a host map, because
   [EP-246](246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md) adds `--base-domain` to the same move.
@@ -142,6 +167,22 @@ Relevant decisions:
 
 
 ## Plan of Work
+
+Milestones, each landed with its interpreter tests before the next:
+
+1. Retention (D2): `NAGARE_RETAINED_DNS_NAME` keeps the Cloud DNS set in the Pulumi program and the cloud catalog. Landed in
+   `0646b22e`; its reviewed retirement belongs to milestone 6.
+2. The engine (D3, D5): the step list, inverses, waits and refusals as pure data over an operations record, with tests that stop at
+   every step and prove resume and rollback both end serving. Landed with `Nagare.Context.Move` and its interpreter tests
+   (`Nagare.Test.ContextMove`): a modelled world of name servers, mirror, records, DNSSEC and DS, connector, carried names, firewall,
+   `kourier` and resolver caches is checked after every effect; a stop after any step's effect resumes to the end and rolls back to
+   direct ingress, a rollback stopped after any inverse resumes, a DS registered after DNSSEC holds rollback until removed, and a
+   list without the TTL wait stops at the firewall.
+3. The marker and the commands: the head marker, admission while a move is open, and `context move` plan, apply, status and
+   rollback.
+4. Stageable tunnel mode: the planner phases of the second 2026-11-15 decision, each a reviewed stage.
+5. The window and the hostnames (D4, D11): the renewal refusal, a hostname added during the window, and the carrier with its host map.
+6. Retirement, docs and the native run (D2's retirement, D6, D8, D10).
 
 Add the Pulumi variants first, proven in parity tests. Build the move and rollback on the interpreter, then prove them on a disposable
 context with a continuous request loop. Prove a new context, the operator paths and the upgrade path there too.
