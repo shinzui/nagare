@@ -73,7 +73,7 @@ it.
 |---|---|---|
 | `check-preconditions` | The zone is the new base, active, with no foreign DS record | Fix what it names |
 | `create-zone` | Reviews the tunnel and the proxied apex and wildcard records on the new zone | Read and apply |
-| `enable-dnssec` | Waits for DNSSEC on the new zone | Turn it on in Cloudflare; publish the DS record it prints |
+| `enable-dnssec` | Waits for DNSSEC on the new zone | Turn it on in Cloudflare; publish the DS record it prints. With Cloudflare Registrar the DS appears by itself, one to two days later, so turn DNSSEC on ahead of the move |
 | `start-connector` | Reviews the connector beside direct ingress | Run `nagarectl tunnel token` first if it asks |
 | `flip-base` | Writes `NAGARE_BASE_DOMAIN`, `NAGARE_INGRESS`, `NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED` and `NAGARE_RETAINED_DNS_NAME` together, then reviews the platform on the new base. **The outage starts.** | Reload your shell (`direnv reload`) when it asks, then read and apply |
 | `remove-passkeys` | Exports every passkey to `move-passkeys.sops.yaml` in the context's secrets directory, then removes exactly those | Nothing; commit the export with your other secrets |
