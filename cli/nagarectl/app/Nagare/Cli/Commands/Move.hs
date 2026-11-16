@@ -267,6 +267,9 @@ applySavedReview mctx active accepted label directory next = do
 -- left, run @finish@ and complete.
 retireSet :: ActiveTarget -> InventoryStore -> RetiredSet -> Text -> Text -> FilePath -> IO () -> IO StepOutcome
 retireSet active store retiring what identity directory finish = do
+  -- Cloud plans and collections need the context's Pulumi home, backend and passphrase.
+  (_, infra) <- prepareInfraTargetWithPulumi True active
+  requireCloudCollectionProtocol infra
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   history <- Plan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -288,8 +291,6 @@ retireSet active store retiring what identity directory finish = do
         Inventory.planInventoryCandidateWithRetirementsPayload (registry verifyOnly) identity active candidate members directory
         waitForReview directory ("it removes " <> what <> " from the cloud scope and keeps them in the cloud")
       CommitCollect member -> do
-        (_, infra) <- prepareInfraTargetWithPulumi True active
-        requireCloudCollectionProtocol infra
         Inventory.planInventoryCollectionsWithPayload (registry (const (Right ()))) identity active (member :| []) directory
         waitForReview directory ("it deletes one of " <> what)
       CommitProfile -> finish >> pure StepCompleted

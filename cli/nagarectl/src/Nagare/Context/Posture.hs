@@ -57,12 +57,15 @@ stepsInEffect record = case (record ^. #direction, record ^. #inProgress) of
     done = take (record ^. #completed) (record ^. #steps)
 
 -- | The posture of a context: its profile's ingress when no move is open, otherwise the direct
--- posture with each step in effect applied.
+-- posture with each step in effect applied. The commit is the exception: it takes effect only once
+-- complete, because its own reviews retire and collect the rules from a scope that still declares
+-- them disabled.
 postureFor :: IngressMode -> Maybe MoveRecord -> IngressPosture
 postureFor ingress = \case
   Nothing -> if ingress == IngressCloudflareTunnel then tunnelPosture else directPosture
-  Just record -> foldl' apply directPosture (stepsInEffect record)
+  Just record -> foldl' apply directPosture (filter (committing record) (stepsInEffect record))
   where
+    committing record step = not (step == CommitMove && record ^. #inProgress == Just CommitMove)
     apply posture = \case
       MirrorZone -> posture & #zoneRecords .~ Just (fromMaybe MirrorRecords (posture ^. #zoneRecords))
       StartConnector -> posture & #connectorRunning .~ True

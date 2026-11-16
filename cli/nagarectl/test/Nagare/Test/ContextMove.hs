@@ -308,8 +308,10 @@ contextMoveTests =
       (at 7 ^. #zoneRecords, at 8 ^. #zoneRecords) @?= (Just MirrorRecords, Just TunnelRecords)
       (at 10 ^. #webRules, at 11 ^. #webRules, at 11 ^. #kourierClosed) @?= (WebRulesOpen, WebRulesDisabled, False)
       at (length sameDomainSteps) ^. #webRules @?= WebRulesAbsent
-      -- Only the commit removes the rules, so every step before it can roll back.
+      -- Only the commit removes the rules, so every step before it can roll back; while its own reviews
+      -- retire and collect them, the scope still declares them disabled.
       at (length sameDomainSteps - 1) ^. #webRules @?= WebRulesDisabled
+      planning CommitMove (length sameDomainSteps - 1) ^. #webRules @?= WebRulesDisabled
       -- A step planned forward is in the plan; a step being undone is not.
       planning SwitchRecords 7 ^. #zoneRecords @?= Just TunnelRecords
       postureFor IngressDirect (Just (newMove sameDomainSteps & #completed .~ 8 & #direction .~ RollingBack & #inProgress .~ Just SwitchRecords)) ^. #zoneRecords
