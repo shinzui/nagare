@@ -532,6 +532,8 @@ is bound directly, never both. Then declare the app databases in a config that
 calls `emitAppDatabases`:
 
 ```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
 import Data.List.NonEmpty (NonEmpty (..))
 import Nagare.Dsl.AppDatabase (AppDatabase (..), Ownership (..), mkLogicalDatabaseName, noAppDatabaseAccess)
 import Nagare.Dsl.Config (emitAppDatabases)

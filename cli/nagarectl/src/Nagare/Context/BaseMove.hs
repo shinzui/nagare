@@ -261,8 +261,9 @@ renderManifest m =
          | any ((== HooksHost) . (^. #kind)) (m ^. #hosts)
          ]
   where
-    protection h
-      | h ^. #protected = ", protected, " <> T.pack (show (length (h ^. #users) + length (h ^. #teams))) <> " grants"
-      | otherwise = ""
+    protection h =
+      (if h ^. #protected then ", protected" else "")
+        <> (if granted h == 0 then "" else ", " <> T.pack (show (granted h)) <> " grants")
+    granted h = length (h ^. #users) + length (h ^. #teams)
     section _ [] = []
     section title rows = title : map ("  " <>) rows
