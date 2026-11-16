@@ -184,7 +184,12 @@ Milestones, each landed with its interpreter tests before the next:
    progress only while the head is idle, closes only when finished or fully rolled back, and admits only its step in progress; a
    head holding both a move and a transition refuses to decode, and an older CLI refuses the field. The commands come with
    milestone 4, whose steps they run.
-4. Stageable tunnel mode: the planner phases of the second 2026-11-15 decision, each a reviewed stage.
+4. Stageable tunnel mode: the planner phases of the second 2026-11-15 decision, each a reviewed stage. Landed so far:
+   `Nagare.Context.Posture` (`6e8078b5`) and its wiring (`820f5297`): the cloud catalog, the Pulumi seed, the zone stage, the
+   platform's upstream set, the gateway's edge headers and the connector read one posture, computed once per plan from the head its
+   snapshot came from, and unchanged for contexts with no move. Left: the zone component's mirror records (DNS-only A records to the VM
+   at the tunnel records' addresses, switched in place to CNAMEs), the firewall step as the reviewed policy, retirement and collection
+   of the three rules that cloud teardown uses, and its inverse.
 5. The window and the hostnames (D4, D11): the renewal refusal, a hostname added during the window, and the carrier with its host map.
 6. Retirement, docs and the native run (D2's retirement, D6, D8, D10).
 
