@@ -13,6 +13,8 @@ import Nagare.Cli.Runtime.Posture (ActivePosture)
 import Nagare.Context.Posture (ZoneRecords (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.CloudflareZone
+import Nagare.Ops.Pulumi (stackOutput)
+import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target
@@ -25,17 +27,22 @@ import System.Environment (lookupEnv)
 buildCloudflareZoneStageCandidate ::
   ActivePosture ->
   ActiveTarget ->
+  PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildCloudflareZoneStageCandidate current active snapshot =
+buildCloudflareZoneStageCandidate current active workspace snapshot =
   case current ^. #posture . #zoneRecords of
     Nothing -> pure Nothing
-    -- EP-243: mirrored DNS-only records need the zone component's mirror mode, which is not built yet.
-    Just MirrorRecords -> dieT "a context move's mirrored zone records are not supported by this nagarectl yet"
-    Just TunnelRecords -> tunnelZoneStage active snapshot
+    -- EP-243: while a move mirrors Cloud DNS, the records point at the VM's address, DNS-only.
+    Just MirrorRecords -> do
+      address <-
+        stackOutput (workspace ^. #pulumiDir) "publicIp"
+          >>= maybe (dieT "a context move mirrors Cloud DNS to the VM, but the stack has no publicIp output") pure
+      zoneStage active snapshot (Just address)
+    Just TunnelRecords -> zoneStage active snapshot Nothing
 
-tunnelZoneStage :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> IO (Maybe ResourceInventory.CompositionCandidate)
-tunnelZoneStage active snapshot = do
+zoneStage :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Maybe Text -> IO (Maybe ResourceInventory.CompositionCandidate)
+zoneStage active snapshot mirror = do
   rawZone <-
     lookupEnv "CF_ZONE_ID"
       >>= maybe (dieT "a tunnel context requires CF_ZONE_ID, CF_ACCOUNT_ID and CF_API_TOKEN in the operator's environment") pure
@@ -49,6 +56,7 @@ tunnelZoneStage active snapshot = do
             { zone = zone
             , baseDomain = active ^. #profile . #baseDomain
             , context = contextNameText (active ^. #contextName)
+            , mirrorAddress = mirror
             }
       )
   case Map.lookup cloudflareZoneOwner (ResourceInventory.snapshotScopes snapshot) of

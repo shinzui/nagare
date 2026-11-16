@@ -51,6 +51,8 @@ data CloudflareTarget
   | -- | The record's name and the tunnel it points at; a record pointing elsewhere reads back
     -- with 'foreignTunnel', and an unproxied one with 'unproxiedTunnel'.
     CloudflareTunnelRecordTarget !Text !Name
+  | -- | EP-243: the record DNS-only to the VM while a move mirrors Cloud DNS; its name and address.
+    CloudflareMirrorRecordTarget !Text !Text
   | CloudflareZoneSettingTarget !Name !Text
   | -- | A number- or object-valued setting; an observed object reads back projected onto the
     -- declared keys, so a field Cloudflare adds is not drift.
@@ -376,6 +378,8 @@ targetFor resource = case (resource ^. #address, resource ^. #spec) of
     Right (zone, CloudflareTunnelConfigTarget tunnel base origin)
   (CloudflareTunnelRecord zone _, CloudflareTunnelRecordSpec record tunnel) ->
     Right (zone, CloudflareTunnelRecordTarget record tunnel)
+  (CloudflareTunnelRecord zone _, CloudflareMirrorRecordSpec record address _) ->
+    Right (zone, CloudflareMirrorRecordTarget record address)
   (CloudflareZoneSetting zone setting, CloudflareZoneSettingSpec value) ->
     Right (zone, CloudflareZoneSettingTarget setting value)
   (CloudflareZoneSetting zone setting, CloudflareZoneSettingValueSpec value) ->
@@ -438,6 +442,7 @@ summary plan = case cloudflarePlanTarget plan of
   CloudflareTunnelConfigTarget tunnel base origin ->
     "review tunnel " <> nameText tunnel <> " ingress: " <> base <> " and *." <> base <> " to " <> origin <> ", then a 404 catch-all"
   CloudflareTunnelRecordTarget record tunnel -> "review proxied CNAME " <> record <> " to tunnel " <> nameText tunnel
+  CloudflareMirrorRecordTarget record address -> "review DNS-only A record " <> record <> " -> " <> address
   CloudflareZoneSettingTarget setting value ->
     "review Cloudflare zone setting " <> nameText setting <> " = " <> value
   CloudflareZoneSettingValueTarget setting value ->

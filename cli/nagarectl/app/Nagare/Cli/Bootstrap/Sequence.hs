@@ -92,7 +92,7 @@ planNextStage mode active paths workspace identity output = do
             Just candidate -> plan candidate
             Nothing -> afterKubeconfig ingress snapshot
     afterKubeconfig ingress snapshot = do
-      zoneStage <- buildCloudflareZoneStageCandidate ingress active snapshot
+      zoneStage <- buildCloudflareZoneStageCandidate ingress active workspace snapshot
       case zoneStage of
         Just candidate -> plan candidate
         Nothing -> do

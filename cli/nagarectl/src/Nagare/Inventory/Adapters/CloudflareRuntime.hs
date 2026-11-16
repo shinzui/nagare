@@ -9,6 +9,7 @@ module Nagare.Inventory.Adapters.CloudflareRuntime
   , CloudflareResponse
   , cloudflareRuntimeOps
   , tunnelIngressRules
+  , mirrorRecordTtl
   , parseCloudflareZone
   , parseCloudflareResource
   )
@@ -269,6 +270,25 @@ tunnelFamilyRequest config plan = case cloudflarePlanTarget plan of
               _ -> Left "reviewed DNS record ID differs from the bound zone"
             Right ("PUT", base <> "/" <> recordId, body)
           _ -> Left "a tunnel record is only created or updated"
+  CloudflareMirrorRecordTarget record address ->
+    let body =
+          object
+            [ "type" .= ("A" :: Text)
+            , "name" .= record
+            , "content" .= address
+            , "proxied" .= False
+            , "ttl" .= mirrorRecordTtl
+            ]
+        base = zonePath (cloudflarePlanZone plan) <> "/dns_records"
+     in pure $ case cloudflarePlanAction plan of
+          CreateResource -> Right ("POST", base, body)
+          UpdateResource -> do
+            physical <- maybe (Left "reviewed DNS update has no provider ID") Right (cloudflarePlanPhysical plan)
+            recordId <- case T.stripPrefix ("cloudflare:zone/" <> nameText (cloudflarePlanZone plan) <> "/dns/") (physicalIdentityText physical) of
+              Just value | validProviderId value -> Right value
+              _ -> Left "reviewed DNS record ID differs from the bound zone"
+            Right ("PUT", base <> "/" <> recordId, body)
+          _ -> Left "a mirrored record is only created or updated"
   CloudflareZoneSettingTarget setting value ->
     pure (Right ("PATCH", zonePath (cloudflarePlanZone plan) <> "/settings/" <> nameText setting, object ["value" .= value]))
   CloudflareZoneSettingValueTarget setting value ->
@@ -340,9 +360,10 @@ inspectTunnelFamily config resource = case resource ^. #address of
             response <- cloudflareRuntimeRequest config "GET" (accountPath config <> "/cfd_tunnel/" <> tunnelId <> "/configurations") Nothing
             pure (either CloudflareUnavailable id (response >>= parseTunnelConfig config tunnel tunnelId base origin))
   CloudflareTunnelRecord zone _
-    | CloudflareTunnelRecordSpec record tunnel <- resource ^. #spec -> bound zone $ do
+    | Just (record, tunnel) <- recordOf (resource ^. #spec) -> bound zone $ do
         found <- findTunnel config tunnel
-        response <- cloudflareRuntimeRequest config "GET" (zonePath zone <> "/dns_records?type=CNAME&name.exact=" <> T.replace "*" "%2A" record) Nothing
+        -- EP-243: listed by name alone, so a mirrored A record and the tunnel's CNAME read as one record.
+        response <- cloudflareRuntimeRequest config "GET" (zonePath zone <> "/dns_records?name.exact=" <> T.replace "*" "%2A" record) Nothing
         pure $ either CloudflareUnavailable id $ do
           tunnelId <- found
           received <- response
@@ -429,9 +450,25 @@ parseTunnelRecord zone record tunnel tunnelId response = do
               | pointsAt && proxied = tunnel
               | pointsAt = unproxiedTunnel
               | otherwise = foreignTunnel
-        Right (CloudflarePresent physical (fieldText "modified_on" one) (CloudflareTunnelRecordTarget record observed))
-      _ -> Left "more than one CNAME has this exact name"
+            target = case fieldText "type" one of
+              -- EP-243: a DNS-only A record is the move's mirror; a proxied one is nobody's.
+              Just "A" | not proxied -> CloudflareMirrorRecordTarget record content
+              Just "CNAME" -> CloudflareTunnelRecordTarget record observed
+              _ -> CloudflareTunnelRecordTarget record foreignTunnel
+        Right (CloudflarePresent physical (fieldText "modified_on" one) target)
+      _ -> Left "more than one record has this exact name"
     _ -> Left "Cloudflare DNS listing has no result array"
+
+-- | A mirrored record's TTL. A move waits this long after switching it before closing the firewall.
+mirrorRecordTtl :: Int
+mirrorRecordTtl = 300
+
+-- | The record name and tunnel of either spec a tunnel record address takes.
+recordOf :: DesiredSpec -> Maybe (Text, Name)
+recordOf = \case
+  CloudflareTunnelRecordSpec record tunnel -> Just (record, tunnel)
+  CloudflareMirrorRecordSpec record _ tunnel -> Just (record, tunnel)
+  _ -> Nothing
 
 mutationRequest :: CloudflareMutationPlan -> Either Text (Text, Text, Value)
 mutationRequest plan = case cloudflarePlanTarget plan of

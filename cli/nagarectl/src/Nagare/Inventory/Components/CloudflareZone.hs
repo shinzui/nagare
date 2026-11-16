@@ -31,6 +31,9 @@ data CloudflareZoneInput = CloudflareZoneInput
   -- ^ @CF_ZONE_ID@.
   , baseDomain :: !Text
   , context :: !Text
+  , mirrorAddress :: !(Maybe Text)
+  -- ^ EP-243: while a move mirrors Cloud DNS, the VM's address, and the apex and wildcard are DNS-only
+  -- A records to it; otherwise they are proxied CNAMEs to the tunnel.
   }
   deriving stock (Generic)
 
@@ -98,7 +101,10 @@ compileCloudflareZone input = do
           (CloudflareTunnelConfigSpec (input ^. #baseDomain) connectorOrigin)
           afterTunnel
       record key role name =
-        member key (CloudflareTunnelRecord (input ^. #zone) role) (CloudflareTunnelRecordSpec name tunnelName) afterTunnel
+        member key (CloudflareTunnelRecord (input ^. #zone) role) (recordSpec name) afterTunnel
+      recordSpec name = case input ^. #mirrorAddress of
+        Just address -> CloudflareMirrorRecordSpec name address tunnelName
+        Nothing -> CloudflareTunnelRecordSpec name tunnelName
       zoneSetting key desired = member ("setting-" <> T.replace "_" "-" key) (CloudflareZoneSetting (input ^. #zone) (known key)) desired []
       settings =
         [zoneSetting key (CloudflareZoneSettingSpec value) | (key, value) <- tunnelEdgePolicy]

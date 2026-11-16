@@ -87,6 +87,9 @@ data DesiredSpec
     CloudflareTunnelConfigSpec !Text !Text
   | -- | The record's full name and the tunnel it points at, whose ID is resolved at execution.
     CloudflareTunnelRecordSpec !Text !Name
+  | -- | EP-243: the same record while a move mirrors Cloud DNS: its full name, the VM's address,
+    -- DNS-only, and the tunnel it is switched to in place ('CloudflareTunnelRecordSpec').
+    CloudflareMirrorRecordSpec !Text !Text !Name
   | CloudflareZoneSettingSpec !Text
   | -- | A zone setting whose value is a number or an object, compared structurally (EP-245).
     CloudflareZoneSettingValueSpec !Value

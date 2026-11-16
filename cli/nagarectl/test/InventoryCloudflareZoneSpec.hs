@@ -172,6 +172,41 @@ inventoryCloudflareZoneTests =
         runCreate adapter setting
         state <- readIORef world
         Map.lookup "ssl" (settings state) @?= Just "strict"
+    , testCase "a move's mirror records are DNS-only A records at the tunnel records' identities (EP-243)" $ do
+        map (^. #identity) mirrorMembers @?= map (^. #identity) members
+        world <- newWorld
+        mapM_ (runCreate (adapterWith mirrorMembers world Map.empty)) mirrorOrdered
+        state <- readIORef world
+        [(name, recordType r, recordContent r, recordProxied r) | (name, r) <- Map.toList (records state)]
+          @?= [("*." <> base, "A", vmAddress, False), (base, "A", vmAddress, False)]
+    , testCase "switching the records to the tunnel updates the same record in place, and switching back restores it" $ do
+        world <- newWorld
+        mapM_ (runCreate (adapterWith mirrorMembers world Map.empty)) mirrorOrdered
+        before <- Map.map recordId . records <$> readIORef world
+        let acceptedMirror = Map.fromList [(member ^. #identity, member) | member <- mirrorMembers]
+            switch adapter member = do
+              let op = (createOp member) {plannedAction = UpdateResource}
+              prepared <- adapterPrepare adapter op >>= either (fail . show) pure
+              adapterExecute adapter op prepared >>= (@?= AdapterEffectCompleted)
+              adapterVerify adapter op prepared >>= assertBool "the switch verifies" . isRightValue
+        mapM_ (switch (adapterWith members world acceptedMirror)) [apexMember, wildcardMember]
+        switched <- records <$> readIORef world
+        Map.map recordId switched @?= before
+        [(recordType r, recordContent r, recordProxied r) | r <- Map.elems switched]
+          @?= replicate 2 ("CNAME", fakeTunnelId <> ".cfargotunnel.com", True)
+        let acceptedTunnel = Map.fromList [(member ^. #identity, member) | member <- members]
+            mirrorApex = mirrorMemberAt (\case CloudflareTunnelRecord _ role -> nameText role == "apex"; _ -> False)
+            mirrorWildcard = mirrorMemberAt (\case CloudflareTunnelRecord _ role -> nameText role == "wildcard"; _ -> False)
+        mapM_ (switch (adapterWith mirrorMembers world acceptedTunnel)) [mirrorApex, mirrorWildcard]
+        restored <- records <$> readIORef world
+        Map.map recordId restored @?= before
+        [(recordType r, recordContent r, recordProxied r) | r <- Map.elems restored] @?= replicate 2 ("A", vmAddress, False)
+    , testCase "an A record where the tunnel is declared is drift, never accepted" $ do
+        world <- newWorld
+        mapM_ (runCreate (adapterWith mirrorMembers world Map.empty)) mirrorOrdered
+        let accepted = adapterFor world (Map.fromList [(member ^. #identity, member) | member <- members])
+        facts <- adapterObserve accepted [apexMember ^. #identity] >>= either (fail . T.unpack) pure
+        assertBool "a mirrored record read as the tunnel" (all isDrifted (Map.elems (observationMap facts)))
     , testCase "a base domain that is not the zone refuses, and no record is written" $ do
         world <- newWorld
         modifyIORef' world (\state -> state {zoneName = "other.example"})
@@ -196,7 +231,7 @@ fixtureZone :: Name
 fixtureZone = ok (mkName "zone1")
 
 fixtureScope :: ScopeDeclaration
-fixtureScope = either (error . show) id (compileCloudflareZone (CloudflareZoneInput fixtureZone base "ctx"))
+fixtureScope = either (error . show) id (compileCloudflareZone (CloudflareZoneInput fixtureZone base "ctx" Nothing))
 
 members :: [ManagedResource]
 members = [resource | bundle <- scopeBundles fixtureScope, Managed resource <- bundle ^. #declarations]
@@ -205,6 +240,24 @@ memberAt :: (ProviderAddress -> Bool) -> ManagedResource
 memberAt wanted = case filter (wanted . (^. #address)) members of
   [one] -> one
   _ -> error "expected one member"
+
+vmAddress :: Text
+vmAddress = "203.0.113.10"
+
+mirrorScope :: ScopeDeclaration
+mirrorScope = either (error . show) id (compileCloudflareZone (CloudflareZoneInput fixtureZone base "ctx" (Just vmAddress)))
+
+mirrorMembers :: [ManagedResource]
+mirrorMembers = [resource | bundle <- scopeBundles mirrorScope, Managed resource <- bundle ^. #declarations]
+
+mirrorMemberAt :: (ProviderAddress -> Bool) -> ManagedResource
+mirrorMemberAt wanted = case filter (wanted . (^. #address)) mirrorMembers of
+  [one] -> one
+  _ -> error "expected one member"
+
+-- | The mirror's members in the same order as 'ordered'.
+mirrorOrdered :: [ManagedResource]
+mirrorOrdered = [mirrorMemberAt (== (member ^. #address)) | member <- ordered]
 
 tunnelMember, configMember, apexMember, wildcardMember, bypassMember :: ManagedResource
 tunnelMember = memberAt (\case CloudflareTunnel {} -> True; _ -> False)
@@ -287,7 +340,7 @@ isDrifted = \case ObservedDrifted {} -> True; _ -> False
 isAbsent = \case ConfirmedAbsent _ -> True; _ -> False
 isUnowned = \case ObservedUnowned _ -> True; _ -> False
 
-data FakeRecord = FakeRecord {recordId :: !Text, recordContent :: !Text, recordProxied :: !Bool}
+data FakeRecord = FakeRecord {recordId :: !Text, recordContent :: !Text, recordProxied :: !Bool, recordType :: !Text}
 
 data World = World
   { tunnels :: !(Map.Map Text Text)
@@ -347,7 +400,11 @@ rules state = case rulesBody state of
   _ -> Nothing
 
 adapterFor :: IORef World -> Map.Map ResourceId ManagedResource -> Adapter
-adapterFor world accepted =
+adapterFor = adapterWith members
+
+-- | An adapter whose desired members are the given scope's, so a test can plan the mirror or the tunnel.
+adapterWith :: [ManagedResource] -> IORef World -> Map.Map ResourceId ManagedResource -> Adapter
+adapterWith desired world accepted =
   mkCloudflareAdapter
     accepted
     specs
@@ -361,7 +418,7 @@ adapterFor world accepted =
           }
     )
   where
-    specs = either (error . T.unpack) id (cloudflareBindingsFromDeclarations (map Managed members))
+    specs = either (error . T.unpack) id (cloudflareBindingsFromDeclarations (map Managed desired))
 
 success :: Value -> IO (Either Text CloudflareResponse)
 success result = pure (Right (200, LBS.toStrict (encode (object ["success" .= True, "result" .= result]))))
@@ -395,7 +452,7 @@ fakeCloudflare world method path body = do
           success (toJSONList [object ["id" .= tunnelId, "name" .= name, "created_at" .= ("2026-11-02T00:00:00Z" :: Text)] | (name, tunnelId) <- Map.toList (tunnels state)])
       | p == configPath ->
           success (object ["version" .= (1 :: Int), "config" .= maybe Null (\items -> object ["ingress" .= items]) (ingress state)])
-      | Just encoded <- T.stripPrefix "/zones/zone1/dns_records?type=CNAME&name.exact=" p ->
+      | Just encoded <- T.stripPrefix "/zones/zone1/dns_records?name.exact=" p ->
           let name = T.replace "%2A" "*" encoded
            in success (toJSONList [recordJson name record | Just record <- [Map.lookup name (records state)]])
       | p == "/zones/zone1/rulesets/phases/http_request_cache_settings/entrypoint" -> case rulesBody state of
@@ -421,8 +478,20 @@ fakeCloudflare world method path body = do
           mutate (\s -> s {rulesBody = body}) (object ["id" .= ("rs1" :: Text)])
     ("POST", "/zones/zone1/dns_records") ->
       mutate
-        (\s -> s {records = Map.insert (stringAt "name") (FakeRecord ("r" <> T.pack (show (Map.size (records s)))) (stringAt "content") True) (records s)})
+        (\s -> s {records = Map.insert (stringAt "name") (FakeRecord ("r" <> T.pack (show (Map.size (records s)))) (stringAt "content") (boolAt "proxied") (stringAt "type")) (records s)})
         (object [])
+    ("PUT", p)
+      | Just recordKey <- T.stripPrefix "/zones/zone1/dns_records/" p ->
+          mutate
+            ( \s ->
+                s
+                  { records =
+                      Map.map
+                        (\r -> if recordId r == recordKey then r {recordContent = stringAt "content", recordProxied = boolAt "proxied", recordType = stringAt "type"} else r)
+                        (records s)
+                  }
+            )
+            (object [])
     ("PATCH", p)
       | Just setting <- T.stripPrefix "/zones/zone1/settings/" p ->
           mutate (\s -> s {settings = Map.insert setting (valueAt "value") (settings s)}) (object [])
@@ -431,6 +500,9 @@ fakeCloudflare world method path body = do
     configPath = "/accounts/acct/cfd_tunnel/" <> fakeTunnelId <> "/configurations"
     valueAt key = case body of
       Just (Object fields) | Just value <- KM.lookup (Key.fromText key) fields -> value
+      _ -> error ("the request has no " <> T.unpack key)
+    boolAt key = case body of
+      Just (Object fields) | Just (Bool value) <- KM.lookup (Key.fromText key) fields -> value
       _ -> error ("the request has no " <> T.unpack key)
     stringAt key = case body of
       Just (Object fields) | Just (String value) <- KM.lookup (Key.fromText key) fields -> value
@@ -441,6 +513,7 @@ fakeCloudflare world method path body = do
         , "name" .= name
         , "content" .= recordContent record
         , "proxied" .= recordProxied record
+        , "type" .= recordType record
         , "modified_on" .= ("2026-11-02T00:00:00Z" :: Text)
         ]
     mutate change result = do

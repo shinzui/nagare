@@ -257,6 +257,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (CloudflareTunnelConfig {}, _) -> False
       (CloudflareTunnelRecord _ role, CloudflareTunnelRecordSpec record _) ->
         nameText role `elem` ["apex", "wildcard"] && not (Data.Text.null record)
+      (CloudflareTunnelRecord _ role, CloudflareMirrorRecordSpec record address _) ->
+        nameText role `elem` ["apex", "wildcard"] && not (Data.Text.null record) && validDnsIpv4 address
       (CloudflareTunnelRecord {}, _) -> False
       (CloudflareZoneSetting {}, CloudflareZoneSettingSpec value) -> not (Data.Text.null value)
       (CloudflareZoneSetting {}, CloudflareZoneSettingValueSpec value) -> value /= Null
