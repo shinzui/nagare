@@ -67,6 +67,11 @@ A context can run lifecycle event collection and webhook delivery continuously w
 
 ## Decision Log
 
+- 2026-11-17: The native drill continues the existing disposable local orchestrator
+  (`scripts/site-access-drill.sh` with `NAGARE_DRILL_LIFECYCLE=1`, then a continuation script like
+  `scripts/admin-api-drill.sh`) instead of a new harness scenario: it adds no orchestration step.
+  It runs on `nagare-c4-amd64` with x86_64 release images built from the candidate.
+
 - 2026-11-17: `platform status` does not classify the worker's image: it observes one workload per
   release image key, and the worker shares the admin API image. The scope compiles the release
   digest, so an upgrade still rolls it. Recorded for the operator's deferral decision.

@@ -16,6 +16,10 @@ set -euo pipefail
 # NAGARE_DRILL_BOOTSTRAP_ONLY=1 stops once the platform has converged (scripts/admin-api-drill.sh
 # continues from there), and needs neither the harness nor the GHC environment.
 ADMIN_API="${NAGARE_DRILL_ADMIN_API:-0}"
+# EP-235: NAGARE_DRILL_LIFECYCLE=1 enables the lifecycle worker and its delivery; the worker
+# runs the admin API image, so that image is pinned as for NAGARE_DRILL_ADMIN_API.
+LIFECYCLE="${NAGARE_DRILL_LIFECYCLE:-0}"
+ADMIN_IMAGE=0; [ "$ADMIN_API" != 1 ] && [ "$LIFECYCLE" != 1 ] || ADMIN_IMAGE=1
 BOOTSTRAP_ONLY="${NAGARE_DRILL_BOOTSTRAP_ONLY:-0}"
 [ "$BOOTSTRAP_ONLY" = 1 ] || : "${NAGARE_DRILL_HARNESS:?the candidate nagare-harness}"
 : "${NAGARE_DRILL_IMAGE_TAG:?the tag of the en, shomei and nagare-access images built from this tree on this daemon}"
@@ -84,10 +88,10 @@ if [ "${NAGARE_DRILL_SKIP_BOOTSTRAP:-0}" = 1 ]; then
   log "continuing in $ROOT on the bootstrapped context $CTX; candidate $(printf '%s' "$candidate" | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("version"), d.get("revision"))')"
 else
 AUTH_REPOS=(en shomei nagare-access)
-[ "$ADMIN_API" != 1 ] || AUTH_REPOS+=(nagare-admin-api)
+[ "$ADMIN_IMAGE" != 1 ] || AUTH_REPOS+=(nagare-admin-api)
 # The admin API's local store is mounted from the workstation through the daemon's VM, which
 # shares only the home directory.
-[ "$ADMIN_API" != 1 ] || case "$ROOT" in "$HOME"/*) ;; *) echo "an admin API drill root must be under $HOME, which the VM mounts" >&2; exit 1 ;; esac
+[ "$ADMIN_IMAGE" != 1 ] || case "$ROOT" in "$HOME"/*) ;; *) echo "an admin API or lifecycle drill root must be under $HOME, which the VM mounts" >&2; exit 1 ;; esac
 for repo in "${AUTH_REPOS[@]}"; do
   docker image inspect "k3d-registry.localhost:5000/$repo:$TAG" >/dev/null 2>&1 || { echo "this daemon has no $repo:$TAG image built from this tree" >&2; exit 1; }
 done
@@ -122,12 +126,20 @@ if [ "$ADMIN_API" = 1 ]; then
   fi
   "$NAGARE_DRILL_NAGARECTL" --context "$CTX" context env | grep -q 'NAGARE_ADMIN_API_ENABLED=.*1' || { echo "the context does not enable the admin API" >&2; exit 1; }
 fi
+if [ "$LIFECYCLE" = 1 ]; then
+  profile="$XDG_CONFIG_HOME/nagare/contexts/$CTX.env"
+  for var in NAGARE_LIFECYCLE_EVENTS_ENABLED NAGARE_LIFECYCLE_DELIVERY; do
+    grep -v "^export $var=" "$profile" > "$profile.new" && mv "$profile.new" "$profile"
+    printf 'export %s=1\n' "$var" >> "$profile"
+    "$NAGARE_DRILL_NAGARECTL" --context "$CTX" context env | grep -q "$var=.*1" || { echo "the context does not set $var" >&2; exit 1; }
+  done
+fi
 
 # --- 3. the images the platform pins: this tree's auth plane, the pinned object store ---
 seed_images() {
   local pair repo tag digest
   local pairs=("en:$TAG" "shomei:$TAG" "nagare-access:$TAG")
-  [ "$ADMIN_API" != 1 ] || pairs+=("nagare-admin-api:$TAG")
+  [ "$ADMIN_IMAGE" != 1 ] || pairs+=("nagare-admin-api:$TAG")
   for pair in "${pairs[@]}" nagare-minio:release-2025-09-07-arm64 nagare-mc:release-2025-08-13-arm64; do
     repo="${pair%%:*}"; tag="${pair#*:}"
     docker image inspect "k3d-registry.localhost:5000/$repo:$tag" >/dev/null 2>&1 \
