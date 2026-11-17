@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-17T23:37:14Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-17T23:52:58Z
+      mode: "update"
+      note: "Added the six constraints Mori's client and registry enforce as tested acceptance, Mori's redirect URI and scope, the in-cluster JWKS check, and release timing"
 ---
 
 # Serve the platform Shomei as an OIDC provider for native clients
@@ -131,6 +137,16 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
 - Decision: The audience stays `nagare-access` for every token, and `userinfo`,
   `introspect` and `revoke` are not served although Shomei's discovery document names them.
   Rationale: IR-47 asks for exactly four endpoints and keeps the single audience.
+  Date: 2026-11-17
+- Decision: Acceptance includes six constraints Mori's client and registry enforce, taken
+  from the Mori session's review of this plan against `mori://shinzui/mori` (its
+  `mori-client/src/Mori/Client/Auth/Oidc.hs`, `mori-api/src/Mori/Api/Access/Shomei.hs` and
+  `mori-api/src/Mori/Api/Access/Jwks.hs`, artifact-level URIs pending). They are listed
+  under "What the first consumer enforces" and each has a test. The design is unchanged.
+  Rationale: Each would break `mori-lite login` or the registry's token check without
+  failing any test the plan had. Mori confirmed it calls none of `userinfo`, `introspect`
+  and `revoke`, requests only the `openid` scope, and keeps the in-cluster JWKS fetch as
+  its own work.
   Date: 2026-11-17
 
 
@@ -254,6 +270,32 @@ Shomei's `master` is 50 commits past the pin and slightly stricter at `/oauth/au
 (it validates scope names and refuses a session with an actor). This plan does not move the
 pin.
 
+**What the first consumer enforces.** Mori's command-line client and registry were
+reviewed against this plan. They need nothing beyond the four endpoints, but they refuse a
+provider that breaks any of these:
+
+- The discovery document's `authorization_endpoint` must be exactly
+  `<issuer>/oauth/authorize` and its `token_endpoint` exactly `<issuer>/oauth/token`; the
+  client compares strings. The redirect back to the client must carry `iss` equal to the
+  issuer.
+- None of discovery, JWKS and token may answer with a redirect. The registry fetches the
+  JWKS with redirects disabled, a 5-second deadline and a 1 MiB limit.
+- Shomei's `302` from `/oauth/authorize` to `http://127.0.0.1:PORT/PATH` must reach the
+  browser unchanged. The enforcer's return-target check applies to the portal hand-off,
+  never to this response.
+- Any signed-in user must be able to authorize, whatever their site grants in En. The
+  registry decides permission in its own En tenant.
+- `POST /oauth/token` comes from a command-line program with no cookie, `Origin` or CSRF
+  token.
+- The issuer origin needs a publicly trusted certificate; both programs use the system
+  trust store.
+
+The client requests the scope `openid` only, and its guide registers the redirect
+`http://127.0.0.1:18090/callback`. The registry requires the access token's header `typ`
+`at+jwt`, exact `iss` and `aud`, `exp`, `iat` and a non-empty `sid`, and binds the exact
+`(issuer, subject)` pair to a Mori principal, so the issuer must be final before any
+intranet identity is bound.
+
 **Relevant ADRs.**
 [ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md):
 the enforcer owns every `nagare_*` cookie and the portal hands sessions over through a
@@ -341,6 +383,10 @@ and body unchanged apart from hop-by-hop headers:
   `Content-Type` and the client's `Authorization` header verbatim, because a confidential
   client or service account authenticates with HTTP Basic. Do not forward `Cookie`.
 
+The authorize route makes no En call and consults no site grant. The token route applies
+no CSRF, `Origin` or cookie requirement. The enforcer never rewrites a `Location` header
+it proxies from Shomei.
+
 Every other path on that host keeps going to the portal as today; with no OIDC host
 nothing changes. Add the forwarder as a field of `AccessServices` so tests can stub it, and
 wire it in `cli/nagare-access/app/Main.hs`. Do not follow redirects when proxying.
@@ -387,7 +433,9 @@ release, the operator sets `NAGARE_AUTH_ISSUER` in `mori://tan/tan-ng-labs`
 (`contexts/intranet.env`, artifact-level URI pending) to the labs portal origin, and the
 plan is saved, reviewed and applied with the operator's go-ahead. The labs portal is the
 operator's own app (`web/apps/portal` there), so confirm on labs that it returns
-`return_to` unchanged.
+`return_to` unchanged. Mori needs this release before its plan 302 M2 settings and M3
+pilot, and the issuer must be moved before any intranet identity is bound to a Mori
+principal; none is bound yet.
 
 
 ## Concrete Steps
@@ -423,7 +471,7 @@ Register a public client and a service account:
 ```bash
 kubectl --context k3d-nagare-local -n nagare-system exec deploy/shomei -- \
   env LC_ALL=C.UTF-8 shomei-admin oauth-clients create --display-name cli --type public \
-    --redirect-uri http://127.0.0.1:53682/callback --scope openid
+    --redirect-uri http://127.0.0.1:18090/callback --scope openid
 kubectl --context k3d-nagare-local -n nagare-system exec deploy/shomei -- \
   env LC_ALL=C.UTF-8 shomei-admin service-accounts create --display-name publisher
 ```
@@ -440,15 +488,15 @@ VERIFIER=$(openssl rand -base64 48 | tr -d '=+/' | cut -c1-43)
 CHALLENGE=$(printf '%s' "$VERIFIER" | openssl dgst -sha256 -binary | basenc --base64url | tr -d '=')
 curl -s -o /dev/null -D - --cacert "$CA" -b "$JAR" -G "$ISS/oauth/authorize" \
   --data-urlencode response_type=code --data-urlencode "client_id=$CLIENT_ID" \
-  --data-urlencode redirect_uri=http://127.0.0.1:53682/callback --data-urlencode scope=openid \
+  --data-urlencode redirect_uri=http://127.0.0.1:18090/callback --data-urlencode scope=openid \
   --data-urlencode state=s1 --data-urlencode "code_challenge=$CHALLENGE" \
   --data-urlencode code_challenge_method=S256 | grep -i '^location:'
 curl -s --cacert "$CA" "$ISS/oauth/token" -d grant_type=authorization_code \
   -d "client_id=$CLIENT_ID" -d "code=$CODE" -d "code_verifier=$VERIFIER" \
-  --data-urlencode redirect_uri=http://127.0.0.1:53682/callback | jq '{token_type, expires_in}'
+  --data-urlencode redirect_uri=http://127.0.0.1:18090/callback | jq '{token_type, expires_in}'
 ```
 
-Expected: `location: http://127.0.0.1:53682/callback?code=…&state=s1&iss=https://auth.127-0-0-1.sslip.io`,
+Expected: `location: http://127.0.0.1:18090/callback?code=…&state=s1&iss=https://auth.127-0-0-1.sslip.io`,
 then a 200 with an `access_token`. Without `-b "$JAR"` the first command's location is
 `https://auth.127-0-0-1.sslip.io/login?return_to=…`.
 
@@ -485,9 +533,19 @@ Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": ["nagare-access"]}`
     equal to the setting and `S256`; the same path on a protected host does not reach
     Shomei;
   - the end-to-end case described in M2 passes, including the JWKS signature check;
+  - the discovery document's `authorization_endpoint` and `token_endpoint` equal
+    `<issuer>/oauth/authorize` and `<issuer>/oauth/token` exactly;
+  - discovery, JWKS and token answer directly, never with a 3xx, including for a request
+    that carries an expired session cookie;
+  - the `Location` of a successful authorize is the registered loopback URI with `code`,
+    `state` and `iss` equal to the issuer, byte for byte as Shomei sent it;
+  - a signed-in user with no En relationship of any kind authorizes successfully, and the
+    En stub records no call;
   - a client-supplied `Authorization: Bearer` on `/oauth/authorize` is not forwarded;
   - `POST /oauth/token` with `grant_type=client_credentials` and HTTP Basic returns 200
-    with `iss` = the issuer and `aud` = the configured audience, with no session cookie;
+    with `iss` = the issuer and `aud` = the configured audience, with no cookie, `Origin`
+    or CSRF token on the request; the same holds for a public client's code exchange and
+    refresh;
   - `GET /v1/admin/users`, `POST /v1/auth/signup`, `GET /oauth/userinfo`,
     `POST /oauth/introspect`, `GET /metrics`, `GET /openapi.json` and `POST /oauth/authorize`
     on the issuer host are forwarded to the portal upstream, never to Shomei;
@@ -497,11 +555,16 @@ Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": ["nagare-access"]}`
   workstation; `curl "$ISS/v1/admin/users"` and `curl "$ISS/metrics"` are answered by the
   portal (404), not Shomei; an access token minted before the issuer move gets no access
   to the protected site as a bearer token; the cookie jar from before the move reaches the
-  protected site with 200 after at most one new sign-in.
+  protected site with 200 after at most one new sign-in. From a Pod in the
+  `personal` namespace, `curl` the issuer's `/.well-known/jwks.json` and record in Progress
+  whether in-cluster traffic reaches the public origin; either result is acceptable, and a
+  failure is reported to Mori, which then adds its own cluster-local fetch setting.
 - **M4**: the guide walk-through on a fresh local context reaches the M3 outputs.
 - **M5**: the release record shows the full gate green and the EP-172 rehearsal read-back
   passing; labs passes deploy-and-login after the release move and again after the issuer
-  move; `curl https://<labs portal>/.well-known/openid-configuration` reports the issuer.
+  move; `curl https://<labs portal>/.well-known/openid-configuration`, with no CA option
+  so the system trust store is used, reports the issuer and the two exact endpoint URLs;
+  the JWKS fetch from a Pod in `personal` on labs is recorded.
   Mori's own acceptance is recorded in Mori's plan 302, not here.
 
 
