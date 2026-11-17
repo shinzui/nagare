@@ -10,6 +10,7 @@ module Nagare.Events.Target
   , targetBinding
   , openTargetFeedReadOnly
   , openTargetFeed
+  , openTargetLifecycle
   , readOnlyFeedOps
   , targetBackupReader
   , targetSigningKey
@@ -56,6 +57,11 @@ openTargetFeedReadOnly target = openFeedOps target >>= traverse (newFeedStore . 
 -- lifecycle state (@events collect-backups@) opens it so.
 openTargetFeed :: ActiveTarget -> IO (Either Text FeedStore)
 openTargetFeed target = openFeedOps target >>= traverse newFeedStore
+
+-- | The context's lifecycle location as plain object operations, which
+-- list: only an export or restore of lifecycle state uses them (EP-235).
+openTargetLifecycle :: ActiveTarget -> IO (Either Text ObjectOps)
+openTargetLifecycle = openFeedOps
 
 openFeedOps :: ActiveTarget -> IO (Either Text ObjectOps)
 openFeedOps target = do

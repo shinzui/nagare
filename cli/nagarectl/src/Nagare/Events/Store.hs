@@ -43,6 +43,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.IORef
+import Data.List (isPrefixOf)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -55,7 +56,7 @@ import Nagare.Inventory.Store.FileIO (atomicWrite)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath ((</>))
 import System.IO (IOMode (ReadWriteMode), hClose, openFile)
 
@@ -354,10 +355,30 @@ filesystemObjectOps root = do
                       pure $ case written of
                         Left err -> PutUnknown (T.pack (show err))
                         Right () -> PutWritten (ObjectEtag (digestText (contentDigest bytes)))
-      , listObjects = \_ -> pure (Left "the filesystem feed store does not list")
+      , -- Only an export of lifecycle state lists (EP-235); the feed itself
+        -- never does, and its 'FeedStore' refuses to.
+        listObjects = \(ObjectName prefix) -> do
+          exists <- doesDirectoryExist root
+          if not exists
+            then pure (Right [])
+            else do
+              found <- try (walk "") :: IO (Either IOException [Text])
+              pure (bimap (T.pack . show) (map ObjectName . filter (prefix `T.isPrefixOf`)) found)
       , pauseBeforeRetry = \_ -> pure ()
       }
   where
+    walk relative = do
+      entries <- listDirectory (root </> relative)
+      concat
+        <$> traverse
+          ( \entry -> do
+              let path = if null relative then entry else relative </> entry
+              isDirectory <- doesDirectoryExist (root </> path)
+              if isDirectory
+                then walk path
+                else pure [T.pack path | entry /= ".lock", not ("." `isPrefixOf` entry)]
+          )
+          entries
     safe name =
       not (T.null name)
         && not ("/" `T.isPrefixOf` name)

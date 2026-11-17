@@ -150,6 +150,7 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
+    Nagare.Events.Archive
     Nagare.Events.Backup
     Nagare.Events.BackupCollector
     Nagare.Events.BackupSources

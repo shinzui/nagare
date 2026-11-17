@@ -27,6 +27,7 @@ import Data.Vector qualified as V
 import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding, preparedFixtureFrom)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Events.Archive (exportLifecycle, restoreLifecycle)
 import Nagare.Events.Delivery
 import Nagare.Events.Delivery.Store
 import Nagare.Events.Delivery.Transport
@@ -295,6 +296,29 @@ eventsDeliveryTests =
         let sizeOf p = BS.length (LBS.toStrict (Aeson.encode (toJSON p)))
         -- Two digests and a count, whatever the history's length.
         assertBool ("the log pointer is constant-size: " <> show (sizeOf pointer, sizeOf small)) (sizeOf pointer <= 200 && sizeOf small <= 200)
+    , testCase "lifecycle state exports and restores object for object, heads last, only into an empty place (EP-235)" $ withReceiver $ \receiver -> withSystemTempDirectory "nagare-lifecycle-export" $ \dir -> do
+        world <- newWorld receiver
+        commit world [deploy "a"] [revisionOf (recordingSub 1)]
+        _ <- cycleOnce world
+        exported <- filesystemObjectOps (dir <> "/lifecycle/v1")
+        copied <- exportLifecycle (world ^. #ops) exported >>= either (assertFailure . T.unpack) pure
+        names <- listObjects (world ^. #ops) (ObjectName "") >>= either (assertFailure . T.unpack) pure
+        copied @?= length names
+        restored <- memoryObjectOps
+        _ <- restoreLifecycle exported restored >>= either (assertFailure . T.unpack) pure
+        for_ names $ \name -> do
+          original <- getObject (world ^. #ops) name
+          again <- getObject restored name
+          (objectBytes again) @?= (objectBytes original)
+        refused <- restoreLifecycle exported restored
+        assertBool "a second restore into the same place is refused" (isLeftResult refused)
+        -- The restored sender sends nothing again: the delivery is recorded.
+        feed' <- newFeedStore restored
+        let world' = world & #feed .~ feed'
+        before <- length <$> readIORef (world ^. #recorded)
+        _ <- cycleOnce world'
+        after <- length <$> readIORef (world ^. #recorded)
+        after @?= before
     , testCase "the signature input and digest match the published vector" $ do
         let input = signingInput 1700000000 "ev-00000000000000000000000000000001" "dl-00000000000000000000000000000002" "{\"a\":1}"
         input @?= "v1\n1700000000\nev-00000000000000000000000000000001\ndl-00000000000000000000000000000002\n{\"a\":1}"
@@ -509,6 +533,11 @@ isInFlightState :: DeliveryState -> Bool
 isInFlightState = \case
   InFlight _ -> True
   _ -> False
+
+objectBytes :: GetOutcome -> Maybe ByteString
+objectBytes = \case
+  ObjectFound _ bytes -> Just bytes
+  _ -> Nothing
 
 isLeftResult :: Either a b -> Bool
 isLeftResult = either (const True) (const False)

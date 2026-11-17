@@ -84,6 +84,9 @@ import Nagare.Contract.Problem (ProblemSpec, admissionRefused, reviewChanged, re
 import Nagare.Contract.Project (savedReview)
 import Nagare.Contract.Sink (contractSinkSet, emitDocument, progressLine, refuseWith, reportTransaction)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Events.Archive (exportLifecycle, restoreLifecycle)
+import Nagare.Events.Store (filesystemObjectOps)
+import Nagare.Events.Target (feedLocation, openTargetLifecycle)
 import Nagare.Inventory.Actor (currentReviewSource)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Command.Open
@@ -849,7 +852,13 @@ exportInventory target output = do
   case result of
     Left err -> dieText (showText err)
     Right (Left err) -> dieText (showText err)
-    Right (Right ()) -> TIO.putStrLn (T.pack output)
+    Right (Right ()) -> do
+      TIO.putStrLn (T.pack output)
+      -- EP-235: the lifecycle state beside the inventory, beside the export.
+      lifecycle <- openTargetLifecycle target >>= either dieText pure
+      destination <- filesystemObjectOps (T.unpack (feedLocation (T.pack output)))
+      copied <- exportLifecycle lifecycle destination >>= either dieText pure
+      when (copied > 0) (TIO.putStrLn (feedLocation (T.pack output) <> " (" <> T.pack (show copied) <> " lifecycle objects)"))
 
 -- | Restore a verified private export into an empty local context store.
 -- The binding is checked before any target write, and the store's conditional
@@ -890,7 +899,13 @@ restoreInventory target backup yes = do
       case result of
         Left err -> dieText (showText err)
         Right (Left err) -> dieText (showText err)
-        Right (Right ()) -> TIO.putStrLn "Private inventory history restored; inspect inventory store status before mutation."
+        Right (Right ()) -> do
+          TIO.putStrLn "Private inventory history restored; inspect inventory store status before mutation."
+          -- EP-235: lifecycle state exported beside the history, if any.
+          source <- filesystemObjectOps (T.unpack (feedLocation (T.pack backup)))
+          lifecycle <- openTargetLifecycle target >>= either dieText pure
+          copied <- restoreLifecycle source lifecycle >>= either dieText pure
+          when (copied > 0) (TIO.putStrLn ("Lifecycle state restored: " <> T.pack (show copied) <> " objects; a receiver may see an event again under its original ID."))
 
 validateTarget :: ActiveTarget -> CompositionCandidate -> IO ()
 validateTarget target candidate = do
