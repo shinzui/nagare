@@ -43,6 +43,7 @@ import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationN
 import Nagare.Inventory.Components.ObservabilitySecrets (normalizeSecretData)
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Kubernetes (kubernetesObjectIdentity)
 import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), scheduledStatusSources)
 import Nagare.Platform.ReleaseImages (ImageSelection, annotateImageSelection)
 import Nagare.Resource.Inventory
@@ -150,6 +151,13 @@ compileLifecycleEvents input = case validated of
     userSecret = address "v1" "Secret" (Just system) "nagare-events-minio"
     userPolicy = address "v1" "ConfigMap" (Just system) "nagare-events-minio"
     grantJob = address "batch/v1" "Job" (Just system) "nagare-events-minio-grant"
+    objectStoreReady =
+      known
+        ( kubernetesObjectIdentity
+            (known (mkScopeId Platform "local-object-store"))
+            (known (mkLogicalKey "local-object-store"))
+            (address "batch/v1" "Job" (Just system) "minio-make-bucket")
+        )
     (templatePath, cloud) = case input ^. #store of
       LocalLifecycle {} -> ("cluster/bootstrap/lifecycle-events/lifecycle-events-local.yaml.tmpl", False)
       CloudLifecycle {} -> ("cluster/bootstrap/lifecycle-events/lifecycle-events-cloud.yaml.tmpl", True)
@@ -222,7 +230,14 @@ compileLifecycleEvents input = case validated of
               ( [(binding, [role, account]), (deployment, [binding, policy] <> (if cloud then [secret] else [grantJob]))]
                   <> [(grantJob, [userSecret, userPolicy]) | not cloud]
               )
-        , upstreamExternalAfter = Map.fromList [(deployment, [publication]) | publication <- maybe [] pure (input ^. #imagePublication)]
+        , -- A local user is created only once the object store answers with
+          -- its bucket: after platform:local-object-store's bucket Job, which
+          -- follows MinIO and its root credential.
+          upstreamExternalAfter =
+            Map.fromList
+              ( [(deployment, [publication]) | publication <- maybe [] pure (input ^. #imagePublication)]
+                  <> [(grantJob, [objectStoreReady]) | not cloud]
+              )
         , upstreamOrderDeployments = False
         , upstreamRegistryDelegations = Map.empty
         }

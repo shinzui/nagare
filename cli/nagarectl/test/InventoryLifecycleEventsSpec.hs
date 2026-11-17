@@ -10,11 +10,14 @@ import Data.List (isInfixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Cluster.GcsJob (MinioRef (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.LifecycleEvents
+import Nagare.Inventory.Components.LocalObjectStore (LocalMinioImages (..), compileLocalObjectStore)
 import Nagare.Platform.ReleaseImages (explicitSelection)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -54,6 +57,19 @@ inventoryLifecycleEventsTests =
         (_, native) <- compileLifecycleEvents (input localStore [] False) >>= expectRight
         role <- objectOf "clusterrole" "nagare-events-signing-keys" native
         resourceNames role @?= [String "nagare-events-no-signing-secret"]
+    , testCase "a local worker's object-store user is granted after the object store's bucket Job" $ do
+        (_, native) <- compileLifecycleEvents (input localStore [] False) >>= expectRight
+        (_, store) <-
+          compileLocalObjectStore
+            "../.."
+            (FoundationInput fixtureOwner fixtureCluster "../../cluster/bootstrap/job-runs/resourcequota.yaml" [])
+            (MinioRef "http://minio.nagare-system.svc.cluster.local:9000" "nagare-backups" "nagare-minio-credentials")
+            (LocalMinioImages ("k3d-registry.localhost:5000/nagare-minio@sha256:" <> T.replicate 64 "a") ("k3d-registry.localhost:5000/nagare-mc@sha256:" <> T.replicate 64 "b"))
+            >>= expectRight
+        let member kind wanted bound = [resource | (resource, _) <- Map.elems bound, Kubernetes _ _ k _ n <- [resource ^. #address], nameText k == kind, nameText n == wanted]
+        case (member "job" "nagare-events-minio-grant" native, member "job" "minio-make-bucket" store) of
+          ([grant], [bucket]) -> assertBool "the grant Job does not wait for the bucket Job" (OrderedAfter (bucket ^. #identity) `elem` (grant ^. #dependencies))
+          other -> assertFailure ("grant or bucket Job missing: " <> show (length (fst other), length (snd other)))
     , testCase "a mutable worker image is refused before any member is bound" $ do
         result <- compileLifecycleEvents ((input localStore [] False) & #image .~ explicitSelection "registry.example.test/nagare-admin-api:latest")
         case result of
