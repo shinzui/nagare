@@ -47,7 +47,7 @@ A context can run lifecycle event collection and webhook delivery continuously w
 ## Progress
 
 
-- [ ] M1: A packaged Haskell worker runs bounded source materialization, receipt collection and delivery loops against filesystem and object-store configurations with correct capability separation.
+- [x] M1: A packaged Haskell worker runs bounded source materialization, receipt collection and delivery loops against filesystem and object-store configurations with correct capability separation. Evidence: `nagare-api-server-test` `Events.Worker` (one cycle of each loop with no inventory write, failure isolation with readiness and metrics, activation at the journal tip); `cabal build exe:nagare-events`, `nagare-events --help`; the binary is in the `nagare-admin-api` release image and the `nagare-api-server-build` gate step.
 - [ ] M2: Reviewed context enable/disable, deployment, read-only API access, secret delivery and persistent state survive upgrade and documented recovery.
 - [ ] M3: Gated offline coverage and disposable native deployment/backup/receiver drills prove catch-up, duplicate handling, credential isolation and latency reporting.
 
@@ -67,6 +67,12 @@ A context can run lifecycle event collection and webhook delivery continuously w
 
 2026-11-04: `nagare-events` is a second executable of the `nagare-api-server` package in its existing release image, run by a second Deployment with its own credentials, as `nagared` is of `nagarectl`; its tests join `nagare-api-server-test`. Probes report the last loop iteration and never touch the store. Receipt discovery defaults to five minutes.
 
+
+2026-11-17: The probes and `/metrics` are a plain WAI application on the worker's own port, not `Servant.Health`: the worker serves three fixed paths and no API, and readiness is the last iteration of each loop. Metrics are Prometheus text rendered from the loops' gauges, with no metrics library added.
+
+2026-11-17: In the cloud the worker uses one service-account key for both stores: read-only for the inventory (the existing service store) and a writing environment for the lifecycle prefix beside it (`serviceWriterEnv`); IAM, not the code, limits its writes to that prefix (M2). Signing keys are read in process from the Kubernetes API with the projected token and cluster CA (`Nagare.Events.SigningKeys`); without `--deliver` and backups the worker reads no Secret.
+
+2026-11-17: A stop request (SIGTERM, SIGINT) lets each loop finish its cycle in progress and starts no new one, so a shutdown never leaves an attempt between its intent and its outcome.
 
 ## Outcomes & Retrospective
 

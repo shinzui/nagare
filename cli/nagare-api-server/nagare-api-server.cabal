@@ -33,6 +33,7 @@ library
     Nagare.Api.Access.Handler
     Nagare.Api.Events.DeliveryHandler
     Nagare.Api.Events.Handler
+    Nagare.Api.Events.Worker
     Nagare.Api.Inventory.Handler
     Nagare.Api.Platform.Handler
     Nagare.Api.Server.App
@@ -45,6 +46,7 @@ library
 
   build-depends:
     aeson >=2.2 && <2.3,
+    async,
     base >=4.17 && <5,
     bytestring,
     containers,
@@ -62,6 +64,29 @@ library
     text,
     time,
     wai,
+
+executable nagare-events
+  import: common
+  main-is: Events.hs
+  hs-source-dirs: app
+  build-depends:
+    async,
+    base,
+    bytestring,
+    crypton,
+    generic-lens ^>=2.3,
+    http-types,
+    nagare-api-server,
+    nagare-contract,
+    nagare-dsl,
+    nagarectl,
+    optparse-applicative,
+    ram,
+    text,
+    time,
+    unix,
+    wai,
+    warp,
 
 executable nagare-api-server
   import: common
@@ -90,6 +115,7 @@ test-suite nagare-api-server-test
     Nagare.Api.Server.Test.Events
     Nagare.Api.Server.Test.Fixture
     Nagare.Api.Server.Test.Serve
+    Nagare.Api.Server.Test.Worker
 
   build-depends:
     aeson,

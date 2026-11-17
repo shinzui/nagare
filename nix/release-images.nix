@@ -274,8 +274,10 @@ let
       entrypoint = "${accessServer}/bin/nagare-access";
       labels = upstreamLabels [ "shomei" "en" ];
     };
+    # EP-235: the lifecycle worker is a second executable of the same
+    # package, run by its own Deployment with its own command.
     nagare-admin-api = mkImage "admin-api" {
-      binaries = [ "${adminApiServer}/bin/nagare-api-server" ];
+      binaries = [ "${adminApiServer}/bin/nagare-api-server" "${adminApiServer}/bin/nagare-events" ];
       entrypoint = "${adminApiServer}/bin/nagare-api-server";
       labels = { };
     };

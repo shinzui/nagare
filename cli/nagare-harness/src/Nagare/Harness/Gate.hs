@@ -112,7 +112,7 @@ buildSteps :: FilePath -> [Step]
 buildSteps self =
   [ Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
-  , Step "nagare-api-server-build" "cli/nagarectl" "cabal" ["build", "nagare-api-server-test"]
+  , Step "nagare-api-server-build" "cli/nagarectl" "cabal" ["build", "nagare-api-server-test", "exe:nagare-events"]
   , harnessStep self "mutation-patterns" ["mutations", "patterns"]
   ]
 

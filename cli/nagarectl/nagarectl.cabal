@@ -164,6 +164,7 @@ library
     Nagare.Events.Query
     Nagare.Events.Read
     Nagare.Events.Receipts
+    Nagare.Events.SigningKeys
     Nagare.Events.Source
     Nagare.Events.Store
     Nagare.Events.Subscription
@@ -460,6 +461,7 @@ library
     cradle,
     crypton,
     crypton-connection,
+    crypton-x509-store,
     data-default,
     directory,
     effectful-core >=2.7.1.2 && <2.8,
@@ -481,6 +483,7 @@ library
     temporary,
     text,
     time,
+    tls,
     transformers,
     unix,
     vector,

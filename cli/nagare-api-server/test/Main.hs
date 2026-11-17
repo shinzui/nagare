@@ -10,6 +10,7 @@ import Nagare.Api.Server.Test.Document (documentTests)
 import Nagare.Api.Server.Test.Events (eventsTests, seedFeed, seededKeys)
 import Nagare.Api.Server.Test.Fixture (sampleSnapshot, seedStore)
 import Nagare.Api.Server.Test.Serve (serveTests)
+import Nagare.Api.Server.Test.Worker (workerTests)
 import Nagare.Contract.Prelude
 import Nagare.Events.Store (filesystemObjectOps, memoryObjectOps, newFeedStore)
 import Nagare.Events.Target (feedLocation)
@@ -43,4 +44,4 @@ tests = do
   -- Force the generated document once before tests run in parallel; see
   -- adminApplication.
   _ <- evaluate (LBS.length renderAdminOpenApi)
-  defaultMain (testGroup "nagare-api-server" [documentTests, clientTests, serveTests, eventsTests])
+  defaultMain (testGroup "nagare-api-server" [documentTests, clientTests, serveTests, eventsTests, workerTests])

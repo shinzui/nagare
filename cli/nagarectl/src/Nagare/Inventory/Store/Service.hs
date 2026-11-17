@@ -20,6 +20,7 @@ module Nagare.Inventory.Store.Service
   , ServiceStore (..)
   , ReaderEnv
   , openServiceStore
+  , serviceWriterEnv
   , readOnlyObjectOps
   )
 where
@@ -48,7 +49,7 @@ import Nagare.Inventory.Store
   , readHead
   , readObject
   )
-import Nagare.Inventory.Store.Gogol (gogolLocation)
+import Nagare.Inventory.Store.Gogol (StorageEnv, gogolLocation)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types (ContextBinding, nameText)
 import Network.HTTP.Client qualified as HTTP
@@ -128,6 +129,21 @@ openServiceStore config = do
             Right number
               | number == config ^. #projectNumber -> action
               | otherwise -> pure (Left (StoreConditionFailed "the inventory bucket belongs to another project"))
+
+-- | A writing environment from the same kind of key (EP-235): the
+-- lifecycle worker's service account, whose IAM grants write only to the
+-- lifecycle prefix. The initial token exchange happens here.
+serviceWriterEnv :: FilePath -> HTTP.ManagerSettings -> IO (Either StoreError StorageEnv)
+serviceWriterEnv credentials settings = do
+  keyBytes <- BS.readFile credentials
+  case serviceAccount keyBytes of
+    Left reason -> pure (Left (StoreCredentialsUnavailable reason))
+    Right account -> do
+      manager <- HTTP.newManager settings
+      created <- attempt (G.newEnvWith (Auth.FromAccount account) (\_ _ -> pure ()) manager :: IO StorageEnv)
+      pure $ case created of
+        Left _ -> Left (StoreCredentialsUnavailable "the worker service account could not obtain a token")
+        Right env -> Right (Env.configure (G.serviceTimeout ?~ 20) env)
 
 -- | The key must be a service account's: an authorized user would be a
 -- person's refreshable credential.
