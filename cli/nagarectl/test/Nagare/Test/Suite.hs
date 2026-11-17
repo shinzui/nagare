@@ -23,6 +23,7 @@ import Data.ByteString qualified as BS
 import DataFenceSpec (dataFenceTests)
 import DomainBindingSpec (domainBindingTests)
 import EventsSourceSpec (eventsSourceTests)
+import EventsStoreSpec (eventsStoreTests)
 import HostSpec (hostTests)
 import InventoryAccessSessionSpec (inventoryAccessSessionTests)
 import InventoryAccessSpec (inventoryAccessTests)
@@ -233,6 +234,7 @@ main = do
             , testGroup "inventory object store" [inventoryObjectOpsTests, inventoryStoreOnceTests, s3StoreTests, inventoryImmutableReadTests]
             , inventoryJournalHeadAdvanceTests
             , eventsSourceTests
+            , eventsStoreTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
             , testGroup "AppDatabase" [appDatabaseTests, appDatabaseCredentialTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appDatabaseTaskTests, appOwnedDatabaseTests]

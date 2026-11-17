@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/Materialize.hs
++++ b/cli/nagarectl/src/Nagare/Events/Materialize.hs
+@@ -122,7 +122,7 @@
+             Left err -> pure (Left (MaterializeFeed err))
+             Right existing -> do
+               now <- clock
+-              let fresh = [(eventId, pair) | (eventId, pair) <- ordered, Map.notMember eventId existing]
++              let fresh = [(eventId, pair) | (eventId, pair) <- ordered, const True existing]
+                   envelopes = [envelopeFor context observedAt now candidate | (_, (observedAt, candidate)) <- fresh]
+               appended <- appendEnvelopes store headValue envelopes
+               case appended of

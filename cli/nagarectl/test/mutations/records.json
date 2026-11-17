@@ -1144,5 +1144,11 @@
     "suite": "nagarectl",
     "pattern": "/Events.Source/&&/a release head write whose acknowledgement was lost/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP231-materialize-ignores-id-index",
+    "suite": "nagarectl",
+    "pattern": "/Events.Store/&&/a source key repeated in a later cycle/",
+    "expect": "test-fails"
   }
 ]

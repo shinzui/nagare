@@ -63,7 +63,7 @@ initialCheckpoint = SourceCheckpoint 0 Nothing
 
 -- | A committed convergence that carries source facts.
 data CommittedSource = CommittedSource
-  { sequence :: !Integer
+  { journalSequence :: !Integer
   , previous :: !(Maybe ContentDigest)
   -- ^ The digest of the journal event before it.
   , transaction :: !TransactionId
@@ -185,7 +185,7 @@ consumeControls channel decode batch = go [] (batch ^. #sources)
     go kept (committed : rest) =
       let mine = [control | control <- committed ^. #facts . #controls, control ^. #channel == channel]
        in case traverse (\control -> first ((,) (control ^. #key)) (decode control)) mine of
-            Left refusal -> ControlStep (reverse kept) (SourceCheckpoint (committed ^. #sequence) (committed ^. #previous)) (Just refusal)
+            Left refusal -> ControlStep (reverse kept) (SourceCheckpoint (committed ^. #journalSequence) (committed ^. #previous)) (Just refusal)
             Right values -> go (reverse values <> kept) rest
 
 instance ToJSON SourceCheckpoint where

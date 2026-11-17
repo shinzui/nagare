@@ -152,7 +152,7 @@ eventsSourceTests =
         , testCase "a convergence followed by its own transaction's event is not a source" $ do
             chain <- buildChain [Conv tx1 (Just []), Plain tx1, Conv tx1 (Just []), Plain tx2] Nothing
             batch <- readFrom chain initialCheckpoint 10
-            map (^. #sequence) (batch ^. #sources) @?= [2]
+            map (^. #journalSequence) (batch ^. #sources) @?= [2]
         , testCase "a convergence without facts is passed over" $ do
             chain <- buildChain [Conv tx1 Nothing, Plain tx2] Nothing
             batch <- readFrom chain initialCheckpoint 10
@@ -161,10 +161,10 @@ eventsSourceTests =
         , testCase "a convergence at the end of a batch is decided by one event beyond it" $ do
             chain <- buildChain [Plain tx1, Conv tx1 (Just []), Plain tx1, Conv tx1 (Just []), Plain tx2] Nothing
             first2 <- readFrom chain initialCheckpoint 2
-            map (^. #sequence) (first2 ^. #sources) @?= []
+            map (^. #journalSequence) (first2 ^. #sources) @?= []
             first2 ^. #checkpoint . #next @?= 2
             rest <- readFrom chain (first2 ^. #checkpoint) 2
-            map (^. #sequence) (rest ^. #sources) @?= [3]
+            map (^. #journalSequence) (rest ^. #sources) @?= [3]
             rest ^. #checkpoint . #next @?= 4
         , testCase "a newer transaction does not hide an earlier committed source" $ do
             chain <- buildChain [Conv tx1 (Just []), Plain tx2, Plain tx2, Conv tx2 (Just [])] Nothing

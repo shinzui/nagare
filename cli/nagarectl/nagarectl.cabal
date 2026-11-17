@@ -149,7 +149,12 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
+    Nagare.Events.Envelope
+    Nagare.Events.Layout
+    Nagare.Events.Materialize
+    Nagare.Events.Read
     Nagare.Events.Source
+    Nagare.Events.Store
     Nagare.Gcp.Adc
     Nagare.GhcEnv
     Nagare.Host.AgeKey
@@ -657,6 +662,7 @@ test-suite nagarectl-test
     DataFenceSpec
     DomainBindingSpec
     EventsSourceSpec
+    EventsStoreSpec
     HostSpec
     ImageStatusSpec
     InventoryAccessSessionSpec

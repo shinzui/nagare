@@ -47,7 +47,7 @@ Operators can list a durable, versioned history of lifecycle events through `nag
 ## Progress
 
 
-- [ ] M1: A real inventory executor commits source reachability with final convergence; interrupted and lost-acknowledgment paths neither lose a successful fact nor announce an unsuccessful transaction.
+- [x] M1: A real inventory executor commits source reachability with final convergence; interrupted and lost-acknowledgment paths neither lose a successful fact nor announce an unsuccessful transaction. Evidence: 15779151 (landed 2026-11-17, fast gate green); `Events.Source` executor cases (facts upload lost, convergence write refused, head refused, head acknowledgement lost, persistent release failure with adoption) and the recovery model fast tier with I10 on all ten shards; mutation records `EP231-chain-counts-adopted-convergence` and `EP231-release-lost-acknowledgement-unsettled`; [ADR 39](../adr/0039-lifecycle-sources-are-committed-by-the-converged-release.md).
 - [ ] M2: Filesystem and conditional object-store materialization expose a deduplicated event prefix with resumable, bounded reads.
 - [ ] M3: CLI, protected HTTP reads, generated schemas and client decoding expose the same versioned event contract.
 
@@ -74,6 +74,8 @@ Operators can list a durable, versioned history of lifecycle events through `nag
 2026-11-17: A failed release head write leaves its convergence event as an uncommitted orphan, which a later append by the same transaction adopts as ordinary history (`appendEventAt`). Instead of a separate chain, consumers apply one rule ([ADR 39](../adr/0039-lifecycle-sources-are-committed-by-the-converged-release.md)): while a transaction is active only its own events are appended, so a convergence event is a committed source exactly when the next event belongs to another transaction, or it is the last event and its transaction is inactive. A re-release reuses its own orphan. The head reaches wire version 2 at the first committed convergence event, including an adopted one; no transition step rewrites a version 1 store.
 
 2026-11-17: Producers are pure `SourceProducer`s registered on the adapter registry (`withSourceProducer`); the executor gives them the transaction, review, payload identity, base and desired revisions, operations and the transaction's journal. Facts objects are content-addressed `facts/<digest>.json` members, so export, migration and rebuild copy them with every other member. The three payload types are defined here from the MasterPlan and its children's text; EP-232 and EP-233 may refine their fields before the first producer ships, since nothing produces them yet.
+
+2026-11-17: The feed layout is segments of 64 envelopes, a tail index node of up to 1024 segment digests and a node listing completed ones, so a late page of the 10,000-event fixture reads exactly the head, one node and two segments. Event IDs resolve through a persistent 16-way trie whose touched path is the only part a cycle reads and writes, so the ID index cost grows with the logarithm of the history rather than with buckets that grow with it. Every interpreter is an `ObjectOps` (the bucket's, an in-memory one, a filesystem one), so the feed has one code path; the feed store caches the content-addressed objects it read or wrote, which never change. The feed lives beside the inventory: a location ending in `/inventory` becomes `/lifecycle/v1`, any other gets `-lifecycle/v1` appended, which inventory listings of `root/` never reach.
 
 
 ## Outcomes & Retrospective
