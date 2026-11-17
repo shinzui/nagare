@@ -49,11 +49,12 @@ import Nagare.Events.Source
   , SourceBatch
   , SourceChainError
   , SourceItem (Control)
-  , SourceProducer (SourceProducer)
+  , SourceProducer
   , initialCheckpoint
   , mkControlChannel
   , mkSourceKey
   , readSourceChain
+  , sourceProducer
   )
 import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry, withSourceProducer)
 import Nagare.Inventory.Journal (transactionIdText)
@@ -243,7 +244,7 @@ inspectSources run = let InspectStore store = runInspect run in readSourceChain 
 -- | EP-231: every converging transaction commits one source fact, so the
 -- model's faults reach the facts object and the convergence event.
 modelSourceProducer :: SourceProducer
-modelSourceProducer = SourceProducer $ \input ->
+modelSourceProducer = sourceProducer $ \input ->
   [ Control
       ( ControlFact
           (ok (mkSourceKey ("model:" <> transactionIdText (input ^. #transaction))))

@@ -120,16 +120,16 @@ eventsSourceTests =
             assertBool "a convergence of another review" (isLeft (roundTrip conv {eventState = Completed (contentDigest "other")}))
             assertBool "an operation's convergence" (isLeft (roundTrip conv {eventOperation = Just (either (error . T.unpack) id (mkOperationId "op-one"))}))
         , testCase "facts round-trip canonically and refuse unknown fields" $ do
-            let facts = SourceFacts factsSchemaVersion tx1 (contentDigest "review") "2026-11-17T00:00:00Z" [] [control "rev-1" 1]
+            let facts = SourceFacts factsSchemaVersion tx1 (contentDigest "review") [] [control "rev-1" 1]
                 bytes = encodeSourceFacts facts
             decodeSourceFacts bytes @?= Right facts
             assertBool "an unknown field is refused" (isLeft (decodeSourceFacts (either (error . T.unpack) id (canonicalValue (addField (toJSON facts))))))
         , testCase "producers' items assemble once per key and refuse a key naming two facts" $ do
-            let input = SourceInput tx1 (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty []
-                producing items = SourceProducer (const items)
-            assembleFacts input "t" [] @?= Right Nothing
-            fmap (fmap (^. #controls)) (assembleFacts input "t" [producing [Control (control "a" 1)], producing [Control (control "a" 1)]]) @?= Right (Just [control "a" 1])
-            assertBool "a key naming two facts" (isLeft (assembleFacts input "t" [producing [Control (control "a" 1), Control (control "a" 2)]]))
+            let input = SourceInput tx1 (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] Map.empty
+                producing items = sourceProducer (const items)
+            assembleFacts input [] @?= Right Nothing
+            fmap (fmap (^. #controls)) (assembleFacts input [producing [Control (control "a" 1)], producing [Control (control "a" 1)]]) @?= Right (Just [control "a" 1])
+            assertBool "a key naming two facts" (isLeft (assembleFacts input [producing [Control (control "a" 1), Control (control "a" 2)]]))
         , testCase "source keys are bounded lowercase tokens" $ do
             fmap sourceKeyText (mkSourceKey "app:tx-1/web") @?= Right "app:tx-1/web"
             assertBool "empty" (isLeft (mkSourceKey ""))
@@ -348,14 +348,14 @@ isRightJust = \case
 
 -- | One public candidate per converging transaction, keyed by it.
 testProducer :: SourceProducer
-testProducer = SourceProducer $ \input ->
+testProducer = sourceProducer $ \input ->
   case Map.toList (input ^. #desiredRevisions) of
     (scope, revision) : _ ->
       [ PublicCandidate
           EventCandidate
             { key = candidateKey (input ^. #transaction)
             , resource = ResourceRef scope Nothing Nothing Nothing
-            , occurredAt = "2026-11-17T00:00:00Z"
+            , occurredAt = Just "2026-11-17T00:00:00Z"
             , evidence = [Evidence "review" (input ^. #review)]
             , payload =
                 AppDeployedPayload
@@ -407,7 +407,7 @@ buildChainWith publishFacts entries active = do
           Plain transaction -> pure (transaction, Nothing)
           Conv transaction Nothing -> pure (transaction, Just (Convergence review Nothing))
           Conv transaction (Just controlFacts) -> do
-            let facts = SourceFacts factsSchemaVersion transaction review "2026-11-17T00:00:00Z" [] controlFacts
+            let facts = SourceFacts factsSchemaVersion transaction review [] controlFacts
             when publishFacts (void (publishIfAbsent store (factsKey (factsDigest facts)) (encodeSourceFacts facts) >>= either (assertFailure . show) pure))
             pure (transaction, Just (Convergence review (Just (factsDigest facts))))
         let event =

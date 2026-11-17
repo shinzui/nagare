@@ -1150,5 +1150,17 @@
     "suite": "nagarectl",
     "pattern": "/Events.Store/&&/a source key repeated in a later cycle/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP232-deployment-ignores-converged-release",
+    "suite": "nagarectl",
+    "pattern": "/Events.Deployment/&&/a new release of a two-workload application/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP232-deployment-never-a-rollback",
+    "suite": "nagarectl",
+    "pattern": "/Events.Deployment/&&/a later release names the previous one/",
+    "expect": "test-fails"
   }
 ]

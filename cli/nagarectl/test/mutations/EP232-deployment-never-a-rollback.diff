@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/Deployment.hs
++++ b/cli/nagarectl/src/Nagare/Events/Deployment.hs
+@@ -78,7 +78,7 @@
+                 AppDeployedPayload
+                   AppDeployment
+                     { subject
+-                    , action = if isRollback previousLog desiredLog then RollbackAction else DeployAction
++                    , action = DeployAction
+                     , release
+                     , previousRelease
+                     , scopeRevision = revision

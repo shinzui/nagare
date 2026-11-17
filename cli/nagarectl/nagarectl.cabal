@@ -64,6 +64,7 @@ library
     Nagare.Inventory.Execute.Recovery
     Nagare.Inventory.Execute.RecoveryPolicy
     Nagare.Inventory.Execute.Settle
+    Nagare.Inventory.Execute.Sources
     Nagare.Inventory.Execute.Transaction
     Nagare.Inventory.Execute.Types
     Nagare.Inventory.Plan.Changes
@@ -149,6 +150,7 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
+    Nagare.Events.Deployment
     Nagare.Events.Envelope
     Nagare.Events.Layout
     Nagare.Events.Materialize
@@ -667,6 +669,7 @@ test-suite nagarectl-test
     ContextReviewSpec
     DataFenceSpec
     DomainBindingSpec
+    EventsDeploymentSpec
     EventsSourceSpec
     EventsStoreSpec
     HostSpec

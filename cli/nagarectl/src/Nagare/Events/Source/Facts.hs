@@ -29,6 +29,8 @@ module Nagare.Events.Source.Facts
   , SourceItem (..)
   , SourceInput (..)
   , SourceProducer (..)
+  , sourceProducer
+  , MemberView (..)
   , SourceFacts (..)
   , factsSchemaVersion
   , assembleFacts
@@ -173,7 +175,9 @@ payloadKind = \case
 data EventCandidate = EventCandidate
   { key :: !SourceKey
   , resource :: !ResourceRef
-  , occurredAt :: !Text
+  , occurredAt :: !(Maybe Text)
+  -- ^ When it happened, if the source knows better than its convergence;
+  -- a journal source leaves it out and takes its convergence time.
   , evidence :: ![Evidence]
   , payload :: !EventPayload
   }
@@ -211,20 +215,45 @@ data SourceInput = SourceInput
   , payloadIdentity :: !Text
   , baseRevisions :: !(Map ScopeId ScopeRevision)
   , desiredRevisions :: !(Map ScopeId ScopeRevision)
+  , convergedBefore :: !(Map ScopeId ScopeRevision)
+  -- ^ The scopes' converged revisions in the head this release replaces.
   , operations :: !(Map OperationId (NonEmpty ResourceId))
   , journal :: ![JournalEvent]
+  , members :: !(Map ResourceId MemberView)
+  -- ^ The members some producer wants that this transaction operated.
   }
   deriving stock (Generic)
 
--- | A pure producer of a converging transaction's source items.
-newtype SourceProducer = SourceProducer (SourceInput -> [SourceItem])
+-- | One operated member a producer asked for: its native object bytes at
+-- the desired scope revision, and at the scope's revision converged before
+-- this release, if it had one there (EP-232).
+data MemberView = MemberView
+  { owner :: !ScopeId
+  , operation :: !OperationId
+  , desired :: !(Maybe ByteString)
+  , previous :: !(Maybe ByteString)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | A pure producer of a converging transaction's source items, and the
+-- operated members whose native bytes it reads.
+data SourceProducer = SourceProducer
+  { wants :: !(ResourceId -> Bool)
+  , produce :: !(SourceInput -> [SourceItem])
+  }
+  deriving stock (Generic)
+
+-- | A producer that reads no member bytes.
+sourceProducer :: (SourceInput -> [SourceItem]) -> SourceProducer
+sourceProducer = SourceProducer (const False)
 
 -- | Everything a converged transaction committed for lifecycle consumers.
+-- It holds no time of its own: a release that is retried writes the same
+-- bytes, and its events take their times from the committed convergence.
 data SourceFacts = SourceFacts
   { schemaVersion :: !Int
   , transaction :: !TransactionId
   , review :: !ContentDigest
-  , capturedAt :: !Text
   , events :: ![EventCandidate]
   , controls :: ![ControlFact]
   }
@@ -237,9 +266,9 @@ factsSchemaVersion = 1
 -- is none. Public candidates are kept in key order and controls in producer
 -- order; a key repeated with the same item is kept once, and a key repeated
 -- with a different item is refused.
-assembleFacts :: SourceInput -> Text -> [SourceProducer] -> Either Text (Maybe SourceFacts)
-assembleFacts input now producers = do
-  let items = concat [produce input | SourceProducer produce <- producers]
+assembleFacts :: SourceInput -> [SourceProducer] -> Either Text (Maybe SourceFacts)
+assembleFacts input producers = do
+  let items = concat [(producer ^. #produce) input | producer <- producers]
       candidates = [candidate | PublicCandidate candidate <- items]
       controlFacts = [control | Control control <- items]
   publicEvents <- unique (\candidate -> candidate ^. #key) candidates
@@ -247,7 +276,7 @@ assembleFacts input now producers = do
   pure $
     if null publicEvents && null controlOrder
       then Nothing
-      else Just (SourceFacts factsSchemaVersion (input ^. #transaction) (input ^. #review) now (sortOn (^. #key) publicEvents) controlOrder)
+      else Just (SourceFacts factsSchemaVersion (input ^. #transaction) (input ^. #review) (sortOn (^. #key) publicEvents) controlOrder)
   where
     unique :: (Eq a) => (a -> SourceKey) -> [a] -> Either Text [a]
     unique keyOf = go Map.empty []
@@ -373,7 +402,7 @@ instance FromJSON EventCandidate where
       AppDeployed -> AppDeployedPayload <$> parseJSON dataValue
       DatabaseBackupCompleted -> BackupCompletedPayload <$> parseJSON dataValue
       DatabaseBackupAccepted -> BackupAcceptedPayload <$> parseJSON dataValue
-    EventCandidate <$> o .: "key" <*> o .: "resource" <*> o .: "occurredAt" <*> o .: "evidence" <*> pure payloadValue
+    EventCandidate <$> o .: "key" <*> o .: "resource" <*> o .:? "occurredAt" <*> o .: "evidence" <*> pure payloadValue
 
 instance ToJSON ControlFact where
   toJSON control =
@@ -395,17 +424,16 @@ instance ToJSON SourceFacts where
       [ "version" .= (facts ^. #schemaVersion)
       , "transaction" .= (facts ^. #transaction)
       , "review" .= (facts ^. #review)
-      , "capturedAt" .= (facts ^. #capturedAt)
       , "events" .= (facts ^. #events)
       , "controls" .= (facts ^. #controls)
       ]
 
 instance FromJSON SourceFacts where
   parseJSON = withObject "source facts" $ \o -> do
-    exactKeys "source facts" ["version", "transaction", "review", "capturedAt", "events", "controls"] o
+    exactKeys "source facts" ["version", "transaction", "review", "events", "controls"] o
     version <- o .: "version"
     unless (version == factsSchemaVersion) (fail "unsupported source facts version")
-    SourceFacts version <$> o .: "transaction" <*> o .: "review" <*> o .: "capturedAt" <*> o .: "events" <*> o .: "controls"
+    SourceFacts version <$> o .: "transaction" <*> o .: "review" <*> o .: "events" <*> o .: "controls"
 
 exactKeys :: String -> [Key] -> Object -> Parser ()
 exactKeys label allowed o = unless (all (`elem` allowed) (KM.keys o)) (fail (label <> " has an unknown field"))

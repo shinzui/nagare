@@ -19,7 +19,6 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Contract.Sink (markExecuting)
 import Nagare.Dsl.Prelude
-import Nagare.Events.Source (SourceInput (..), assembleFacts)
 import Nagare.Inventory.Adapter (AdapterRegistry, PlannedOperation (plannedOperationId, plannedResources), registrySourceProducers)
 import Nagare.Inventory.Execute.Admission (admit, admitWithHistory)
 import Nagare.Inventory.Execute.Claims
@@ -39,6 +38,7 @@ import Nagare.Inventory.Execute.Journal
   , rollbackProvedOperation
   , transactionConverged
   )
+import Nagare.Inventory.Execute.Sources (builtinProducers, convergedSourceFacts)
 import Nagare.Inventory.Execute.Types
   ( AdmissionError (..)
   , ExecutablePlan (..)
@@ -159,38 +159,25 @@ executeWithJournal locked registry executable knownEvents = do
                           written <- convergedIncarnations locked registry transaction finalEvents document
                           -- ADR 27 §3: a reviewed rebind establishes the live object it names.
                           let bindings = Map.union (Map.map (Established . rebindLive) (reviewRebinds document)) written
-                          converged <- releaseConverged locked registry transaction document bindings (finalEvents <> [completion])
+                          converged <- releaseConverged locked registry transaction reviewed bindings (finalEvents <> [completion])
                           pure $ if converged then Converged transaction else fallbackResult transaction document
                 _ -> do
                   _ <- releaseClaim locked transaction Nothing
                   pure (fallbackWith "the head holds a data fence or could not be read, so convergence was not recorded" transaction document)
 
 -- | EP-231: release a converged transaction with the lifecycle source facts
--- its registered producers return. Facts that do not assemble stop the
--- release, so the transaction stays resumable and nothing is lost.
-releaseConverged :: LockedStore s -> AdapterRegistry -> TransactionId -> ReviewDocument -> Map ResourceId IncarnationBinding -> [JournalEvent] -> IO Bool
-releaseConverged locked registry transaction document bindings events = do
-  now <- timestamp
-  let input =
-        SourceInput
-          { transaction
-          , review = reviewDocumentDigest document
-          , payloadIdentity = reviewPayloadIdentity document
-          , baseRevisions = reviewBaseRevisions document
-          , desiredRevisions = reviewDesiredRevisions document
-          , operations =
-              Map.fromList
-                [ (plannedOperationId planned, plannedResources planned)
-                | operation <- reviewOperations document
-                , let planned = reviewPlannedOperation operation
-                ]
-          , journal = [event | event <- events, eventTransaction event == transaction]
-          }
-  case assembleFacts input now (registrySourceProducers registry) of
-    Left reason -> do
-      TIO.hPutStrLn stderr ("nagarectl: lifecycle source facts of " <> transactionIdText transaction <> " are invalid: " <> reason)
-      pure False
-    Right facts -> releaseClaimWith locked transaction (Just document) bindings facts (lastMaybe events)
+-- its producers return: the built-in ones (EP-232) and any the registry
+-- adds. Facts that cannot be built stop the release, so the transaction stays
+-- resumable and nothing is lost.
+releaseConverged :: LockedStore s -> AdapterRegistry -> TransactionId -> ReviewedPlan -> Map ResourceId IncarnationBinding -> [JournalEvent] -> IO Bool
+releaseConverged locked registry transaction reviewed bindings events =
+  releaseClaimWith
+    locked
+    transaction
+    (Just (reviewedDocument reviewed))
+    bindings
+    (convergedSourceFacts (lockedStore locked) (builtinProducers <> registrySourceProducers registry) transaction reviewed events)
+    (lastMaybe events)
   where
     lastMaybe = foldl (\_ event -> Just event) Nothing
 

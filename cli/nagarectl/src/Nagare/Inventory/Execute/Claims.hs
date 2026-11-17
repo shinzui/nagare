@@ -18,6 +18,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Events.Source (SourceFacts, encodeSourceFacts, factsDigest, factsKey)
 import Nagare.Inventory.Adapter (PlannedOperation (plannedResources))
@@ -78,6 +79,7 @@ import Nagare.Inventory.Store
   )
 import Nagare.Resource.Inventory (Declaration (Managed), declarationId, scopeBundles)
 import Nagare.Resource.Types (ResourceId, ScopeId)
+import System.IO (stderr)
 
 executorStillClaimed :: LockedStore s -> TransactionId -> IO Bool
 executorStillClaimed locked transaction = do
@@ -113,7 +115,7 @@ acquireResumeClaim store transaction observed headValue takeOver = do
     localClient = maybe (headClientIdentity headValue) id (storeClientIdentity store)
 
 releaseClaim :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> IO Bool
-releaseClaim locked transaction completedReview = releaseClaimWith locked transaction completedReview Map.empty Nothing Nothing
+releaseClaim locked transaction completedReview = releaseClaimWith locked transaction completedReview Map.empty (const (pure (Right Nothing))) Nothing
 
 -- | Release the claim; a converged review also records the incarnations it
 -- established or proved (F49). The members this review retained, collected or
@@ -125,9 +127,11 @@ releaseClaim locked transaction completedReview = releaseClaimWith locked transa
 -- EP-231: a converged release with lifecycle source facts first publishes the
 -- immutable facts object, then commits a convergence journal event naming it
 -- in the same head replacement ('commitConvergence'). Without facts the
--- release writes only the head, as before. @completion@ is the transaction's
--- last journal event, when the caller has it.
-releaseClaimWith :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> Map ResourceId IncarnationBinding -> Maybe SourceFacts -> Maybe JournalEvent -> IO Bool
+-- release writes only the head, as before. @sourceFacts@ builds the facts
+-- from the head this release replaces; facts that cannot be built stop the
+-- release, so the transaction stays resumable. @completion@ is the
+-- transaction's last journal event, when the caller has it.
+releaseClaimWith :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> Map ResourceId IncarnationBinding -> (HeadManifest -> IO (Either Text (Maybe SourceFacts))) -> Maybe JournalEvent -> IO Bool
 releaseClaimWith locked transaction completedReview bindings sourceFacts completion = do
   let converged = isJust completedReview
       -- A migrated member's record names its previous address; its new object
@@ -168,8 +172,12 @@ releaseClaimWith locked transaction completedReview bindings sourceFacts complet
                                 )
                             else headIncarnations headValue
                       }
-              case (completedReview, sourceFacts) of
-                (Just document, Just facts) -> do
+              built <- maybe (pure (Right Nothing)) (const (sourceFacts headValue)) completedReview
+              case (completedReview, built) of
+                (_, Left reason) -> do
+                  TIO.hPutStrLn stderr ("nagarectl: lifecycle source facts of " <> transactionIdText transaction <> " cannot be built: " <> reason)
+                  pure False
+                (Just document, Right (Just facts)) -> do
                   let digest = factsDigest facts
                   published <- publishIfAbsent store (factsKey digest) (encodeSourceFacts facts)
                   case published of

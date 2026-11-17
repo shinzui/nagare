@@ -32,7 +32,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Events.Source.Facts
 import Nagare.Inventory.Journal
   ( Convergence (convergedFacts, convergedReview)
-  , JournalEvent (eventConvergence, eventPreviousDigest, eventSequence, eventTransaction)
+  , JournalEvent (eventConvergence, eventPreviousDigest, eventSequence, eventTimestamp, eventTransaction)
   , TransactionId
   , decodeJournalEvent
   , journalEventDigest
@@ -67,6 +67,9 @@ data CommittedSource = CommittedSource
   , previous :: !(Maybe ContentDigest)
   -- ^ The digest of the journal event before it.
   , transaction :: !TransactionId
+  , convergedAt :: !Text
+  -- ^ The committed convergence event's time: its events' occurrence and
+  -- observation time unless a candidate names its own occurrence.
   , facts :: !SourceFacts
   }
   deriving stock (Eq, Show, Generic)
@@ -157,7 +160,7 @@ readSourceChain store from budget = do
       let review = lookup sequenceNumber [(eventSequence e, convergedReview c) | (e, c) <- committed]
       unless (decoded ^. #transaction == eventTransaction event) (Left (SourceFactsInvalid sequenceNumber "facts name another transaction"))
       unless (Just (decoded ^. #review) == review) (Left (SourceFactsInvalid sequenceNumber "facts name another review"))
-      pure (CommittedSource sequenceNumber (eventPreviousDigest event) (eventTransaction event) decoded)
+      pure (CommittedSource sequenceNumber (eventPreviousDigest event) (eventTransaction event) (eventTimestamp event) decoded)
 
 data Verdict = Passed | Committed !Convergence | Undecided
 

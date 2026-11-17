@@ -66,6 +66,8 @@ envelopeSchemaVersion :: Int
 envelopeSchemaVersion = 1
 
 -- | The envelope a candidate becomes when the feed publishes it.
+-- @observed@ is when its source was committed; a candidate without its own
+-- occurrence time occurred then too.
 envelopeFor :: ContextId -> Text -> Text -> EventCandidate -> Envelope
 envelopeFor context observed published candidate =
   Envelope
@@ -73,7 +75,7 @@ envelopeFor context observed published candidate =
     , eventId = eventIdFor context (candidate ^. #key)
     , context
     , resource = candidate ^. #resource
-    , occurredAt = candidate ^. #occurredAt
+    , occurredAt = fromMaybe observed (candidate ^. #occurredAt)
     , observedAt = observed
     , publishedAt = published
     , evidence = candidate ^. #evidence

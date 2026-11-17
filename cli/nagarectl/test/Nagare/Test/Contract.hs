@@ -270,7 +270,7 @@ eventListSample =
         EventCandidate
           { key = ok (mkSourceKey "app:tx-1:application:notes")
           , resource = ResourceRef (ok (mkScopeId Types.Application "notes")) Nothing (Just "personal") Nothing
-          , occurredAt = "2026-11-17T10:00:00Z"
+          , occurredAt = Just "2026-11-17T10:00:00Z"
           , evidence = [Evidence "review" review]
           , payload =
               AppDeployedPayload

@@ -125,7 +125,7 @@ seedFeed inventoryOps feed names = do
     let sequenceNumber = headSequence headValue
         transaction = ok (mkTransactionId ("tx-" <> Text.pack (show sequenceNumber)))
         review = contentDigest (TE.encodeUtf8 name)
-        facts = SourceFacts factsSchemaVersion transaction review "2026-11-17T00:00:00Z" [candidate name] []
+        facts = SourceFacts factsSchemaVersion transaction review [candidate name] []
     _ <- publishIfAbsent inventory (factsKey (factsDigest facts)) (encodeSourceFacts facts) >>= either (fail . show) pure
     let event = JournalEvent convergenceSchemaVersion sequenceNumber prior transaction Nothing (Completed review) "2026-11-17T00:00:00Z" "fixture" Nothing (Just (Convergence review (Just (factsDigest facts))))
     _ <- appendAtSequence inventory sequenceNumber (encodeJournalEvent event) >>= either (fail . show) pure
@@ -146,7 +146,7 @@ candidate name =
   EventCandidate
     { key = ok (mkSourceKey name)
     , resource = ResourceRef (ok (mkScopeId Application "notes")) Nothing Nothing Nothing
-    , occurredAt = "2026-11-17T00:00:00Z"
+    , occurredAt = Just "2026-11-17T00:00:00Z"
     , evidence = [Evidence "review" (contentDigest (TE.encodeUtf8 name))]
     , payload =
         AppDeployedPayload

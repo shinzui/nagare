@@ -22,6 +22,7 @@ import CertificateMigrationSpec (certificateMigrationTests)
 import Data.ByteString qualified as BS
 import DataFenceSpec (dataFenceTests)
 import DomainBindingSpec (domainBindingTests)
+import EventsDeploymentSpec (eventsDeploymentTests)
 import EventsSourceSpec (eventsSourceTests)
 import EventsStoreSpec (eventsStoreTests)
 import HostSpec (hostTests)
@@ -234,6 +235,7 @@ main = do
             , testGroup "inventory object store" [inventoryObjectOpsTests, inventoryStoreOnceTests, s3StoreTests, inventoryImmutableReadTests]
             , inventoryJournalHeadAdvanceTests
             , eventsSourceTests
+            , eventsDeploymentTests
             , eventsStoreTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests

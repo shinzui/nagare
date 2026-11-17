@@ -369,7 +369,7 @@ growingInventoryOn ops transactions = do
         let sequenceNumber = headSequence headValue
             transaction = ok (mkTransactionId ("tx-" <> T.pack (show sequenceNumber)))
             review = contentDigest (encodeUtf8Text (T.pack (show sequenceNumber)))
-            facts = SourceFacts factsSchemaVersion transaction review "2026-11-17T00:00:00Z" candidates []
+            facts = SourceFacts factsSchemaVersion transaction review candidates []
         _ <- publishIfAbsent store (factsKey (factsDigest facts)) (encodeSourceFacts facts) >>= either (assertFailure . show) pure
         let event = JournalEvent convergenceSchemaVersion sequenceNumber previous transaction Nothing (Completed review) "2026-11-17T00:00:00Z" "test" Nothing (Just (Convergence review (Just (factsDigest facts))))
         _ <- appendAtSequence store sequenceNumber (encodeJournalEvent event) >>= either (assertFailure . show) pure
@@ -387,7 +387,7 @@ candidateIn scopeName name =
   EventCandidate
     { key = sourceKey name
     , resource = ResourceRef (scopeNamed scopeName) Nothing Nothing Nothing
-    , occurredAt = "2026-11-17T00:00:00Z"
+    , occurredAt = Just "2026-11-17T00:00:00Z"
     , evidence = [Evidence name (contentDigest (encodeUtf8Text name))]
     , payload =
         AppDeployedPayload

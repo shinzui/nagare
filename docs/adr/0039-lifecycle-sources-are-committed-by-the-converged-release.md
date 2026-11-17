@@ -43,6 +43,11 @@ transaction can stop between them. Matching `Completed` would announce transacti
 5. Producers are pure functions of the converging transaction, registered on the adapter registry. Facts that do not
    assemble (one key naming two different facts) stop the release, so the transaction stays resumable.
 
+6. A producer names the members whose bytes it reads; the executor gives it, for each such member the transaction
+   operated, its native object bytes at the desired scope revision and at the revision converged before the release.
+   The built-in deployment producer (EP-232) announces `app.deployed` when a release log's current release differs from
+   the converged one, and calls it a rollback when the log's records are unchanged and only the current release moved.
+
 ## Consequences
 
 - No second chain, head field or tip is carried through copy, transfer, export and rebuild; facts objects are ordinary

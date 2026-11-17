@@ -42,8 +42,8 @@ After a changed production release successfully deploys, an operator or event co
 ## Progress
 
 
-- [ ] M1: A changed multi-workload application's verified final convergence yields one correctly identified deployment event; stopped and no-op transactions yield none.
-- [ ] M2: Standalone service and production site deployment/rollback entry points use the same producer, with restart and compatibility coverage.
+- [x] M1: A changed multi-workload application's verified final convergence yields one correctly identified deployment event; stopped and no-op transactions yield none. Evidence: `Events.Deployment` through the real planner, review publication, executor, journal and feed: a two-workload release is one event and its rerun none; a later release names the previous one; a workload change or a release-log pruning that keeps the current release is none; two subjects in one transaction are two events; a rollout that lost its acknowledgement announces nothing and its resume announces the release once under `deploymentKey`; no native or log bytes reach the envelope. Mutation record `EP232-deployment-ignores-converged-release`.
+- [x] M2: Standalone service and production site deployment/rollback entry points use the same producer, with restart and compatibility coverage. Evidence: a static site compiled by `compileStaticSiteScope` and rolled back by `compileStaticSiteRollbackScope` yields deploy, deploy and rollback events with the previous release; a standalone `service-*` scope yields a service event; a `site-preview-*` scope yields none. The producer is built into the executor, so `app deploy`, `site deploy`, `site rollback`, `inventory apply` and `resume` share it with no entry-point code. Mutation record `EP232-deployment-never-a-rollback`.
 
 
 ## Surprises & Discoveries
@@ -61,11 +61,17 @@ After a changed production release successfully deploys, an operator or event co
 
 2026-11-04: The producer contributes candidates to the transaction's facts object; EP-231's convergence journal event commits them. The module is `Nagare.Events.Deployment`.
 
+2026-11-17: A release is identified by the subject's release-history member, not by scope revisions, which change on every composition and on provenance alone. A producer now names the members it reads (`wants`), and the executor gives it, for each such member the transaction operated, its native object bytes at the desired revision and at the scope's revision converged before this release, both read from the observation evidence reviews publish. `app.deployed` is emitted when the desired log's current release differs from the converged one; so a stopped transaction that had accepted the release still announces it when a later run establishes it, and a verification rerun, a workload-only change or a release-log pruning announces nothing. A rollback is a log whose records are unchanged and whose current release moved, which is exactly what a reviewed rollback (`SelectRelease`) compiles to; no tag spelling is compared. The subject comes from the scope name (`application:*`, `standalone:service-*`, `standalone:site-*`; never `site-preview-*`).
+
+2026-11-17: Facts hold no time of their own. EP-231's `capturedAt` was the wall clock at one-second resolution, so a retried release wrote identical facts only by chance, and the Linux full gate's snapshot-versus-replay check saw one extra read-back GET (`0986f49e`, red). A candidate's `occurredAt` is now optional, and an event without one occurs and is observed at its committed convergence event's time, which the materializer reads; a retried release always publishes the same bytes.
+
+2026-11-17: The deployment producer is built into the executor rather than registered per command, so every apply, resume and recovery path commits it and no entry point can omit it. Rollback intent for applications and standalone services does not exist yet (no rollback command); their re-deploy of an older tag adds a record and is a deploy.
+
 
 ## Outcomes & Retrospective
 
 
-(To be filled during implementation and at completion.)
+Every converged release of an application, standalone service or production site now commits one `app.deployed` source fact naming its subject, release, previous release, deploy or rollback, scope revision, transaction, review and a readiness proof digest; EP-231's feed and readers expose it unchanged. No live cluster confirmation is claimed; EP-235 owns that. A per-subject compiler test for standalone services through `compileStandaloneServiceWithRelease` was not written; its release log is the application code path the application cases exercise.
 
 
 ## Context and Orientation

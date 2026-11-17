@@ -107,7 +107,7 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
       let (taken, resume, cut) = within (batch ^. #sources)
           checkpoint' = if cut then resume else batch ^. #checkpoint
           context = binding ^. #identity
-          candidates = [(source ^. #facts . #capturedAt, candidate) | source <- taken, candidate <- source ^. #facts . #events]
+          candidates = [(source ^. #convergedAt, candidate) | source <- taken, candidate <- source ^. #facts . #events]
           ordered = dedupe Set.empty [(eventIdFor context (candidate ^. #key), pair) | pair@(_, candidate) <- candidates]
           dedupe _ [] = []
           dedupe seen ((eventId, pair) : rest)
