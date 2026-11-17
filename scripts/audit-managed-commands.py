@@ -33,7 +33,7 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryPublications InventoryLegacyGuard InventoryExplain InventoryStoreStatus InventoryRebuildDecisions PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SiteList EventsList SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
-        "group": "Tunnel Host Kubeconfig Cluster Env Secret EnTenant Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache Delegation WithReviewSource",
+        "group": "Tunnel Host Kubeconfig Cluster Env Secret EnTenant Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache Delegation WithReviewSource EventsWebhook EventsDelivery EventsSubscription",
         "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck SitePackage Render",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init PlatformVersions EventsCollectBackups",
@@ -52,6 +52,10 @@ ROUTES = {
         "reviewed": "KubeconfigPlan",
     },
     "ClusterCommand": {"read": "ClusterGuard ClusterCertificatePolicy"},
+    # EP-234: a subscription is one reviewed standalone scope; inspection reads the store.
+    "EventsWebhookCommand": {"reviewed": "WebhookCreate WebhookUpdate WebhookDisable WebhookDelete"},
+    "EventsDeliveryCommand": {"reviewed": "DeliveryReplay", "read": "DeliveryList DeliveryInspect"},
+    "EventsSubscriptionCommand": {"read": "SubscriptionList SubscriptionInspect"},
     # EP-230: session-bound token minting, a fixed-port forward, and Attic pushes.
     "NixCacheCommand": {"bounded": "NixCacheToken NixCacheForward NixCachePush"},
     # EP-247: a delegation is one reviewed platform scope; show and history read the store.
@@ -209,6 +213,8 @@ DEFAULT_FAMILY = {
     "NixCacheCommand": "Nix cache producer token, forward, and push",
     "DelegationCommand": "Deployer delegation namespaces, quotas and record",
     "MoveCommand": "Context move onto the Cloudflare Tunnel or to a new base domain",
+    "EventsWebhookCommand": "Lifecycle event subscriptions and delivery replay",
+    "EventsDeliveryCommand": "Lifecycle event subscriptions and delivery replay",
 }
 
 FAMILY_ROUTES = {

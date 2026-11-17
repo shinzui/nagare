@@ -516,6 +516,7 @@ executable nagarectl
     Nagare.Cli.Commands.Environment
     Nagare.Cli.Commands.Events
     Nagare.Cli.Commands.EventsCollect
+    Nagare.Cli.Commands.EventsWebhook
     Nagare.Cli.Commands.Host
     Nagare.Cli.Commands.Image
     Nagare.Cli.Commands.Infrastructure

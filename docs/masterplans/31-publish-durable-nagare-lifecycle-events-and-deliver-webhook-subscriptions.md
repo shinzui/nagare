@@ -69,7 +69,7 @@ Relevant local decisions are [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-pro
 | 231 | Durable event feed and atomic source facts | [EP-231](../plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md) | None | None | Complete |
 | 232 | Successful application deployment events | [EP-232](../plans/232-record-successful-application-deployments-as-lifecycle-events.md) | EP-231 | None | Complete |
 | 233 | Verified database backup events and collection | [EP-233](../plans/233-observe-verified-database-backups-and-publish-lifecycle-events.md) | EP-231 | None | Complete |
-| 234 | Shared delivery core and first webhook adapter | [EP-234](../plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md) | EP-231 | EP-232 and EP-233 real producer fixtures | Not Started |
+| 234 | Shared delivery core and first webhook adapter | [EP-234](../plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md) | EP-231 | EP-232 and EP-233 real producer fixtures | In Progress |
 | 235 | Runtime installation and recovery proof | [EP-235](../plans/235-run-the-lifecycle-event-service-and-prove-restart-and-upgrade-recovery.md) | EP-232, EP-233, EP-234 | None | Not Started |
 
 Statuses are Not Started, In Progress, Complete, or Cancelled. Whole-child hard dependencies require completion of that child.

@@ -104,7 +104,7 @@ import Nagare.Cli.Options.Access
 import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
 import Nagare.Cli.Options.Cdn
 import Nagare.Cli.Options.Delegation (DelegationCommand)
-import Nagare.Cli.Options.Events (EventsCollectBackupsOpts, EventsListOpts)
+import Nagare.Cli.Options.Events (EventsCollectBackupsOpts, EventsDeliveryCommand, EventsListOpts, EventsSubscriptionCommand, EventsWebhookCommand)
 import Nagare.Cli.Options.Move (MoveCommand)
 import Nagare.Cli.Options.NixCache (NixCacheCommand)
 import Nagare.Cli.Options.Site
@@ -357,6 +357,9 @@ data Command
   | SiteList SiteListOpts
   | EventsList EventsListOpts
   | EventsCollectBackups EventsCollectBackupsOpts
+  | EventsWebhook EventsWebhookCommand
+  | EventsDelivery EventsDeliveryCommand
+  | EventsSubscription EventsSubscriptionCommand
   | SiteRollback SiteRollbackOpts String
   | SitePreviewDeploy SiteDeployOpts String
   | SitePreviewList SiteCommonOpts

@@ -47,9 +47,9 @@ An operator can register a receiver URL and selected lifecycle event types, insp
 ## Progress
 
 
-- [ ] M1: Transport-neutral reviewed subscriptions establish destination identity/type, exact filters, versioned policy and durable starting position; webhook endpoint/key validation is adapter-owned.
-- [ ] M2: One shared engine delivers identical events to a real HTTP receiver and a test-only non-HTTP adapter, with independent checkpoints, failure isolation and stable identity after lost acknowledgment.
-- [ ] M3: Bounded fan-out, finite retries, endpoint changes, pause/disable, key rotation and explicit replay work under adversarial state/transport tests.
+- [x] M1: Transport-neutral reviewed subscriptions establish destination identity/type, exact filters, versioned policy and durable starting position; webhook endpoint/key validation is adapter-owned. Evidence: `Events.Delivery` "a reviewed subscription scope converges with no provider member, and its control reaches the sender" (real `applyReviewed`), "events before a subscription's start and events it filters out are not delivered", the receiver-URL and address-policy cases; `nagarectl events webhook create|update|disable|delete --save-plan DIR`.
+- [x] M2: One shared engine delivers identical events to a real HTTP receiver and a test-only non-HTTP adapter, with independent checkpoints, failure isolation and stable identity after lost acknowledgment. Evidence: `Events.Delivery` "one event reaches a real HTTP receiver and a non-HTTP adapter with identical bytes and IDs, under separate deliveries", "a failing destination does not hold back another ...", "a response lost after the receiver processed it is retried with the same IDs, after a restart; the receiver deduplicates", "a worker that dies between its intent and its outcome ..."; `scripts/check-haskell-architecture.py` refuses a transport import in the shared core.
+- [x] M3: Bounded fan-out, finite retries, endpoint changes, pause/disable, key rotation and explicit replay work under adversarial state/transport tests. Evidence: `Events.Delivery` retry-limit and permanent-failure, webhook policy and backoff, disable/reactivate, endpoint-change boundary versus key rotation, replay idempotence and stale-revision refusal, overlapping workers, and ten-thousand-delivery bounded-read cases; `nagarectl events delivery replay SUBSCRIPTION --event EVENT_ID --save-plan DIR`.
 - [ ] M4: CLI and protected read-only HTTP inspection explain delivery state, and a documented receiver verifies signatures and deduplicates events.
 
 
@@ -68,6 +68,12 @@ An operator can register a receiver URL and selected lifecycle event types, insp
 
 2026-11-04: Inspection and replay are transport-neutral: `/v1/events/subscriptions`, `/v1/events/deliveries` and the CLI nouns `events subscription` and `events delivery`, with a `transport` discriminator; only `events webhook create|update|disable|delete` names the transport. Destination heads are constant-size over immutable nodes. Modules live under `Nagare.Events`.
 
+
+2026-11-17: A subscription's scope has no provider member, as a manual receipt record has none: the executor converges it with no operation, so no ConfigMap is added. Its record and last reviewed replay are scope overrides; the built-in `subscriptionProducer` turns each changed one into an `event-subscriptions` control fact.
+
+2026-11-17: Sender state is a small sender head (control checkpoint, known destinations) and one constant-size head per destination (applied record, cursor, last cancellation boundary, pending-work node, delivery log), with one record per delivery. Controls are applied to destination heads idempotently by revision number and delivery ID before the sender checkpoint advances, so the "one conditional update" of boundary, revisions and checkpoint is one head write per destination plus a checkpoint that can only lag. Whether a reviewed destination change cancels unsent work is the adapter's call (`AdapterFactory.redirects`): a webhook URL or allowed-host change does, a signing-key rotation does not.
+
+2026-11-17: The signing Secret is read when a destination is bound for a cycle, not at review: a missing or short key pauses that destination with its reason, and the review shows only the reference.
 
 ## Outcomes & Retrospective
 

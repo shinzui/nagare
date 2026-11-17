@@ -38,6 +38,7 @@ module Nagare.Events.Subscription
   , matchesEvent
   , subscriptionScope
   , acceptedSubscription
+  , parseScopeArg
   )
 where
 
@@ -215,6 +216,15 @@ acceptedSubscription snapshot subscription' = case Map.lookup (subscriptionScope
     record <- maybe (Left "the subscription scope holds no record") decodeSubscription (Map.lookup subscriptionOverride fields)
     replay <- traverse decodeReplay (Map.lookup replayOverride fields)
     pure (Just (record, replay))
+
+-- | @KIND:NAME@, for example @application:notes@.
+parseScopeArg :: Text -> Either Text ScopeId
+parseScopeArg text = case T.breakOn ":" text of
+  (kind, rest)
+    | Just name' <- T.stripPrefix ":" rest
+    , Just scopeKind <- lookup kind [("platform", Platform), ("application", Application), ("standalone", Standalone), ("publication", Publication)] ->
+        mkScopeId scopeKind name'
+  _ -> Left "a scope is KIND:NAME, for example application:notes"
 
 canonical :: Value -> ByteString
 canonical = either (error . T.unpack) id . canonicalValue
