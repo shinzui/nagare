@@ -1154,7 +1154,7 @@
   {
     "record": "EP232-deployment-ignores-converged-release",
     "suite": "nagarectl",
-    "pattern": "/Events.Deployment/&&/a new release of a two-workload application/",
+    "pattern": "/Events.Deployment/&&/pruning recorded releases that keeps the current one/",
     "expect": "test-fails"
   },
   {
