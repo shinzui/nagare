@@ -1194,6 +1194,12 @@
     "expect": "test-fails"
   },
   {
+    "record": "EP235-adapter-call-unbounded",
+    "suite": "nagarectl",
+    "pattern": "/Events.Delivery/&&/an adapter that hangs or throws/",
+    "expect": "test-fails"
+  },
+  {
     "record": "EP234-any-response-acknowledges",
     "suite": "nagarectl",
     "pattern": "/Events.Delivery/&&/the webhook policy classifies HTTP results/",
