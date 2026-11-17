@@ -476,6 +476,18 @@ publish() {
         }
         volume_args=(--volume "${inventory_mount}:/var/lib/nagare/inventory:ro@server:0")
       fi
+      # EP-235: a context with the lifecycle event worker mounts its lifecycle
+      # state directory, beside the store, writable.
+      lifecycle_mount="$(jq -r '.lifecycleMount // empty' "${archive}")"
+      if [ -n "${lifecycle_mount}" ]; then
+        [[ "${lifecycle_mount}" == /* && "${lifecycle_mount}" != *:* && "${lifecycle_mount}" != *@* ]] || {
+          echo "local lifecycle mount must be an absolute path without ':' or '@'" >&2; return 2;
+        }
+        [ -d "${lifecycle_mount}" ] || {
+          echo "local lifecycle mount ${lifecycle_mount} is not an existing directory" >&2; return 2;
+        }
+        volume_args+=(--volume "${lifecycle_mount}:/var/lib/nagare/lifecycle@server:0")
+      fi
       k3d cluster create "${destination}" \
         --image "$(jq -r .k3sImage "${archive}")" \
         --registry-use "$(jq -r .registryHost "${archive}")" \

@@ -95,6 +95,7 @@ import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
 import InventoryWorldConformanceSpec (inventoryWorldConformanceTests)
 import InventoryWorldFaultsSpec (inventoryWorldFaultsTests)
+import LifecycleCredentialSpec (lifecycleCredentialTests)
 import ManagedEnvScopeSpec (managedEnvScopeTests)
 import Nagare.Dsl.Prelude ()
 import Nagare.Test.Application (appTests, deploymentsTests)
@@ -241,6 +242,7 @@ main = do
             , eventsDeliveryTests
             , eventsDeploymentTests
             , eventsStoreTests
+            , lifecycleCredentialTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
             , testGroup "AppDatabase" [appDatabaseTests, appDatabaseCredentialTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appDatabaseTaskTests, appOwnedDatabaseTests]

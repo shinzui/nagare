@@ -781,6 +781,7 @@ test-suite nagarectl-test
     InventoryVolumeRestorePinSpec
     InventoryWorldConformanceSpec
     InventoryWorldFaultsSpec
+    LifecycleCredentialSpec
     LostVmSpec
     ManagedEnvScopeSpec
     Nagare.Test.Application

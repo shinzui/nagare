@@ -11,6 +11,7 @@ module Nagare.Inventory.Adapters.CredentialTemplate
   , materializeLocalObjectStoreCredentialWith
   , minioSourceData
   , generatedCredentialTemplate
+  , minioUserCredentialKind
   , databaseCredentialKind
   , AppDatabaseCredential (..)
   , appDatabaseCredentialKind
@@ -106,7 +107,19 @@ materializeCredentialWith readEscrowedKey native = case eitherDecodeStrict (TE.e
         Left reason -> pure (Left reason)
         Right Nothing -> case appDatabaseCredentialKind value of
           Left reason -> pure (Left reason)
-          Right Nothing -> pure (Right native)
+          Right Nothing -> case minioUserCredentialKind value of
+            Left reason -> pure (Left reason)
+            Right Nothing -> pure (Right native)
+            Right (Just user) -> do
+              generated <- generateAuthKey "AWS_SECRET_ACCESS_KEY"
+              pure $ do
+                entry <- generated
+                case value of
+                  Object root ->
+                    TE.decodeUtf8
+                      <$> canonicalValue
+                        (Object (KM.insert "data" (Object (KM.fromList [(Key.fromText "AWS_ACCESS_KEY_ID", String (b64encode user)), entry])) root))
+                  _ -> Left "object-store user credential template is malformed"
           Right (Just credential) -> do
             generated <- generateDatabasePassword
             pure (generated >>= fillAppDatabaseCredential value credential)
@@ -286,7 +299,31 @@ generatedCredentialTemplate native = do
   minio <- minioCredentialKind value
   signing <- backupSigningCredentialKind value
   appDatabase <- appDatabaseCredentialKind value
-  pure (isJust auth || isJust database || isJust minio || isJust signing || isJust appDatabase)
+  minioUser <- minioUserCredentialKind value
+  pure (isJust auth || isJust database || isJust minio || isJust signing || isJust appDatabase || isJust minioUser)
+
+-- | EP-235: a local object-store user's credential, a Secret in
+-- @nagare-system@ annotated @nagare.dev/minio-user-template: v1@ and
+-- @nagare.dev/minio-user: NAME@ with no data. At creation it is filled with
+-- the user name and a fresh secret; the scope's grant Job creates the user
+-- with them, so no review carries the secret.
+minioUserCredentialKind :: Value -> Either Text (Maybe Text)
+minioUserCredentialKind value@(Object root) | KM.lookup "kind" root == Just (String "Secret") = do
+  metadata <- metadataOf value
+  let annotations = case KM.lookup "annotations" metadata of
+        Just (Object fields) -> fields
+        _ -> KM.empty
+  case textAt "nagare.dev/minio-user-template" annotations of
+    Nothing -> Right Nothing
+    Just "v1" -> do
+      namespace <- fieldText "namespace" metadata
+      user <- maybe (Left "object-store user credential template names no user") Right (textAt "nagare.dev/minio-user" annotations)
+      unless
+        (namespace == "nagare-system" && not (KM.member "data" root) && not (KM.member "stringData" root) && not (T.null user) && T.all (\c -> (c >= 'a' && c <= 'z') || c == '-') user)
+        (Left "object-store user credential template has unexpected content")
+      Right (Just user)
+    Just _ -> Left "unsupported object-store user credential template"
+minioUserCredentialKind _ = Right Nothing
 
 backupSigningCredentialKind :: Value -> Either Text (Maybe ())
 backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just (String "Secret") = do
@@ -446,7 +483,12 @@ credentialDataMatches desired observed = case authCredentialKind desired of
 databaseDataMatches :: Value -> Value -> Bool
 databaseDataMatches desired observed = case databaseCredentialKind desired of
   Right Nothing -> case appDatabaseCredentialKind desired of
-    Right Nothing -> True
+    Right Nothing -> case minioUserCredentialKind desired of
+      Right (Just _) -> case observed of
+        Object root | Just (Object fields) <- KM.lookup "data" root -> validMinioData fields
+        _ -> False
+      Left _ -> False
+      Right Nothing -> True
     Left _ -> False
     Right (Just credential) ->
       let connection = ConnectionParts "example" "example" "example" "example"

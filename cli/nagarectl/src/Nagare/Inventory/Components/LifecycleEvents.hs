@@ -20,7 +20,8 @@ module Nagare.Inventory.Components.LifecycleEvents
 where
 
 import Control.Exception (IOException, try)
-import Data.Aeson (Value (..), encode)
+import Data.Aeson (ToJSON, Value (..), encode, toJSON)
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -58,6 +59,8 @@ data LifecycleStore
     LocalLifecycle
       { minioEndpoint :: !Text
       , backupBucket :: !Text
+      , clientImage :: !Text
+      -- ^ The object store's client image, which runs the grant Job.
       }
   | -- | The context's GCS inventory prefix and backup bucket through the
     -- worker's own service account, whose key Secret is a private member.
@@ -144,6 +147,9 @@ compileLifecycleEvents input = case validated of
     binding = address "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" Nothing "nagare-events-signing-keys"
     policy = address "networking.k8s.io/v1" "NetworkPolicy" (Just system) "nagare-events"
     secret = address "v1" "Secret" (Just system) "nagare-events-worker"
+    userSecret = address "v1" "Secret" (Just system) "nagare-events-minio"
+    userPolicy = address "v1" "ConfigMap" (Just system) "nagare-events-minio"
+    grantJob = address "batch/v1" "Job" (Just system) "nagare-events-minio-grant"
     (templatePath, cloud) = case input ^. #store of
       LocalLifecycle {} -> ("cluster/bootstrap/lifecycle-events/lifecycle-events-local.yaml.tmpl", False)
       CloudLifecycle {} -> ("cluster/bootstrap/lifecycle-events/lifecycle-events-cloud.yaml.tmpl", True)
@@ -165,10 +171,11 @@ compileLifecycleEvents input = case validated of
             , ("@SIGNING_SECRETS@", secretsJson)
             ]
       case input ^. #store of
-        LocalLifecycle endpoint bucket -> do
+        LocalLifecycle endpoint bucket client -> do
           unless ("http://" `T.isPrefixOf` endpoint && T.all safeChar endpoint) (Left "the local object store endpoint must be an http:// in-cluster address")
           _ <- checkName bucket
-          Right (common <> [("@MINIO_ENDPOINT@", endpoint), ("@BACKUP_BUCKET@", bucket)], [])
+          unless (immutableImage client) (Left "the object store client image must be an immutable reference")
+          Right (common <> [("@MINIO_ENDPOINT@", endpoint), ("@BACKUP_BUCKET@", bucket)], localUserObjects endpoint bucket client)
         CloudLifecycle url number bucket workerObject -> do
           unless (("gs://" `T.isPrefixOf` url) && T.all safeChar url && T.length url > 5) (Left "the lifecycle worker's store must be the context's gs:// inventory prefix")
           unless (not (T.null number) && T.all (`elem` ['0' .. '9']) number) (Left "a cloud lifecycle worker requires NAGARE_PROJECT_NUMBER, the project's numeric number")
@@ -210,7 +217,11 @@ compileLifecycleEvents input = case validated of
         , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
         , upstreamGenerated = generated
-        , upstreamAfter = Map.fromList [(binding, [role, account]), (deployment, [binding, policy] <> [secret | cloud])]
+        , upstreamAfter =
+            Map.fromList
+              ( [(binding, [role, account]), (deployment, [binding, policy] <> (if cloud then [secret] else [grantJob]))]
+                  <> [(grantJob, [userSecret, userPolicy]) | not cloud]
+              )
         , upstreamExternalAfter = Map.fromList [(deployment, [publication]) | publication <- maybe [] pure (input ^. #imagePublication)]
         , upstreamOrderDeployments = False
         , upstreamRegistryDelegations = Map.empty
@@ -219,6 +230,86 @@ compileLifecycleEvents input = case validated of
     recordSelection (location, value@(Object root'))
       | KM.lookup "kind" root' == Just (String "Deployment") = (location,) <$> annotateImageSelection (input ^. #image) value
     recordSelection object = Right object
+
+-- | A local context's read-only object-store user for the worker: its
+-- credential template (filled at creation, never reviewed), its policy —
+-- get, version reads and listing of the backup bucket, nothing else — and
+-- the Job that creates the user with that secret and attaches the policy.
+localUserObjects :: Text -> Text -> Text -> [(SourceLocation, Value)]
+localUserObjects endpoint bucket client =
+  [ (at "user-secret", obj ["apiVersion" .= ("v1" :: Text), "kind" .= ("Secret" :: Text), "type" .= ("Opaque" :: Text), "metadata" .= obj ["name" .= user, "namespace" .= system, "labels" .= labels, "annotations" .= obj ["nagare.dev/minio-user-template" .= ("v1" :: Text), "nagare.dev/minio-user" .= user]]])
+  , (at "user-policy", obj ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text), "metadata" .= obj ["name" .= user, "namespace" .= system, "labels" .= labels], "data" .= obj ["policy.json" .= policyText]])
+  ,
+    ( at "user-grant"
+    , obj
+        [ "apiVersion" .= ("batch/v1" :: Text)
+        , "kind" .= ("Job" :: Text)
+        , "metadata" .= obj ["name" .= (user <> "-grant"), "namespace" .= system, "labels" .= labels]
+        , "spec"
+            .= obj
+              [ "backoffLimit" .= (6 :: Int)
+              , "template"
+                  .= obj
+                    [ "metadata" .= obj ["labels" .= labels]
+                    , "spec"
+                        .= obj
+                          [ "restartPolicy" .= ("OnFailure" :: Text)
+                          , "automountServiceAccountToken" .= False
+                          , "securityContext" .= obj ["runAsNonRoot" .= True, "runAsUser" .= (65532 :: Int), "runAsGroup" .= (65532 :: Int), "seccompProfile" .= obj ["type" .= ("RuntimeDefault" :: Text)]]
+                          , "containers"
+                              .= [ obj
+                                     [ "name" .= ("mc" :: Text)
+                                     , "image" .= client
+                                     , "command" .= (["/bin/sh", "-c", script] :: [Text])
+                                     , "env"
+                                         .= [ obj ["name" .= ("HOME" :: Text), "value" .= ("/home/mc" :: Text)]
+                                            , obj ["name" .= ("MC_CONFIG_DIR" :: Text), "value" .= ("/home/mc/.mc" :: Text)]
+                                            , secretEnv "AWS_ACCESS_KEY_ID" "nagare-minio-credentials" "AWS_ACCESS_KEY_ID"
+                                            , secretEnv "AWS_SECRET_ACCESS_KEY" "nagare-minio-credentials" "AWS_SECRET_ACCESS_KEY"
+                                            , secretEnv "EVENTS_SECRET" user "AWS_SECRET_ACCESS_KEY"
+                                            ]
+                                     , "securityContext" .= obj ["allowPrivilegeEscalation" .= False, "readOnlyRootFilesystem" .= True, "capabilities" .= obj ["drop" .= (["ALL"] :: [Text])]]
+                                     , "volumeMounts" .= [obj ["name" .= ("home" :: Text), "mountPath" .= ("/home/mc" :: Text)], obj ["name" .= ("policy" :: Text), "mountPath" .= ("/policy" :: Text), "readOnly" .= True]]
+                                     ]
+                                 ]
+                          , "volumes" .= [obj ["name" .= ("home" :: Text), "emptyDir" .= obj []], obj ["name" .= ("policy" :: Text), "configMap" .= obj ["name" .= user]]]
+                          ]
+                    ]
+              ]
+        ]
+    )
+  ]
+  where
+    user = "nagare-events-minio" :: Text
+    system = "nagare-system" :: Text
+    obj :: [(Key.Key, Value)] -> Value
+    obj = Object . KM.fromList
+    (.=) :: (ToJSON v) => Text -> v -> (Key.Key, Value)
+    k .= v = (Key.fromText k, toJSON v)
+    at what = SourceLocation "lifecycle-events" what
+    labels = obj ["app.kubernetes.io/name" .= ("nagare-events" :: Text), "app.kubernetes.io/part-of" .= ("nagare-platform" :: Text)]
+    secretEnv :: Text -> Text -> Text -> Value
+    secretEnv name secretName key = obj ["name" .= name, "valueFrom" .= obj ["secretKeyRef" .= obj ["name" .= secretName, "key" .= key]]]
+    policyText =
+      TE.decodeUtf8 . LBS.toStrict . encode $
+        obj
+          [ "Version" .= ("2012-10-17" :: Text)
+          , "Statement"
+              .= [ obj ["Effect" .= ("Allow" :: Text), "Action" .= (["s3:GetObject", "s3:GetObjectVersion"] :: [Text]), "Resource" .= ["arn:aws:s3:::" <> bucket <> "/*"]]
+                 , obj ["Effect" .= ("Allow" :: Text), "Action" .= (["s3:ListBucket", "s3:ListBucketVersions"] :: [Text]), "Resource" .= ["arn:aws:s3:::" <> bucket]]
+                 ]
+          ]
+    alias = "until mc alias set root " <> endpoint <> " \"$AWS_ACCESS_KEY_ID\" \"$AWS_SECRET_ACCESS_KEY\" >/dev/null; do echo waiting for the object store; sleep 2; done"
+    script =
+      T.intercalate
+        "\n"
+        [ "set -eu"
+        , alias
+        , "mc admin policy create root " <> user <> " /policy/policy.json"
+        , "mc admin user add root " <> user <> " \"$EVENTS_SECRET\""
+        , "mc admin policy attach root " <> user <> " --user " <> user <> " >/dev/null 2>&1 || mc admin user info root " <> user <> " | grep -q 'PolicyName: " <> user <> "'"
+        , "echo granted " <> user
+        ]
 
 -- | The operator's worker key Secret: exactly @nagare-events-worker@ in
 -- @nagare-system@ with a @key.json@ entry and nothing else.
