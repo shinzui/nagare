@@ -42,6 +42,8 @@ module Nagare.Contract.Problem
   , authenticationUnavailable
   , upstreamUnavailable
   , upstreamTimeout
+  , eventsNotEnabled
+  , unknownEvent
   )
 where
 
@@ -164,6 +166,8 @@ problemCatalog =
   , authenticationUnavailable
   , upstreamUnavailable
   , upstreamTimeout
+  , eventsNotEnabled
+  , unknownEvent
   ]
 
 status400, status404, status405, status406, conflict, internal, unavailable :: Text -> Bool -> ProblemSpec
@@ -204,6 +208,12 @@ notFound = status404 "not_found" False
 methodNotAllowed = status405 "method_not_allowed" False
 notAcceptable = status406 "not_acceptable" False
 internalError = internal "internal_error" False
+
+-- EP-231: a context whose lifecycle feed was never enabled has no event
+-- history, which is not the same as an empty one.
+eventsNotEnabled, unknownEvent :: ProblemSpec
+eventsNotEnabled = status404 "events_not_enabled" False
+unknownEvent = status404 "unknown_event" False
 
 storeTimeout, storeInvalid, storeCredentialsUnavailable, serverBusy :: ProblemSpec
 storeTimeout = unavailable "store_timeout" True

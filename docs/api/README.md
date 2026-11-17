@@ -29,6 +29,7 @@ review `git diff docs/api/samples`.
 | `inventory-status` | `InventoryStatusReport` | read | `nagarectl inventory status --contract 1 [--scope KIND:NAME]` |
 | `publication-list` | `PublicationList` | read | `nagarectl inventory publications --contract 1` |
 | `site-list` | `SiteList` | read | `nagarectl site list --contract 1` |
+| `event-list` | `EventList` | read | `nagarectl events list --contract 1`; its items are `GET /v1/events` |
 | `delegation` | `DelegationDocument` | read | `nagarectl delegation show NAME --contract 1` |
 | `transaction-history` | `TransactionHistory` | read | `nagarectl inventory history [--limit N] --contract 1` |
 | (discovery) | `VersionInfo` | read | `nagarectl version --json` |
@@ -178,6 +179,8 @@ new review. The access gateway adds the optional extension members `error` and `
 | `authentication_unavailable` | 503 | true |
 | `upstream_unavailable` | 502 | true |
 | `upstream_timeout` | 504 | true |
+| `events_not_enabled` | 404 | false |
+| `unknown_event` | 404 | false |
 
 `unclassified` carries any CLI refusal not yet given its own code, with the CLI's existing message
 in `detail`. The admin API's own codes follow it: `server_busy` carries `Retry-After`, and every
@@ -196,6 +199,17 @@ restart for a consistent walk. Every 200 carries a strong `ETag` of its exact by
 `Cache-Control: private, no-cache`; send it back in `If-None-Match` for a bodyless 304. Its build
 routes, `/v1/platform/version` (the serving binary) and `/v1/platform/versions` (installed beside
 serving, see [Platform versions](#platform-versions)), carry no `Nagare-Head-Revision`.
+
+`/v1/events` and `/v1/events/{eventId}` read the context's lifecycle event feed, never the
+inventory (EP-231). They carry the feed's `Nagare-Events-Revision` instead of
+`Nagare-Head-Revision`; the two are not one snapshot. Events are oldest first and page forward
+only, so `last` and `before` are `invalid_page`. A cursor binds the context, the feed epoch, the
+filters (`type`, repeatable, and `scope` with optional `member`, all exact) and the publication
+bound its traversal began with, so a walk finishes while events arrive; `refresh=true` with
+`after` keeps the cursor's position and reads up to the current bound, which is how a tailing
+client polls. An event's `id` is stable across retries and restarts, and its position is feed
+metadata beside it, not part of the event. A context whose feed was never enabled answers
+`events_not_enabled`, never an empty list.
 
 ## Versioning
 

@@ -48,8 +48,8 @@ Operators can list a durable, versioned history of lifecycle events through `nag
 
 
 - [x] M1: A real inventory executor commits source reachability with final convergence; interrupted and lost-acknowledgment paths neither lose a successful fact nor announce an unsuccessful transaction. Evidence: 15779151 (landed 2026-11-17, fast gate green); `Events.Source` executor cases (facts upload lost, convergence write refused, head refused, head acknowledgement lost, persistent release failure with adoption) and the recovery model fast tier with I10 on all ten shards; mutation records `EP231-chain-counts-adopted-convergence` and `EP231-release-lost-acknowledgement-unsettled`; [ADR 39](../adr/0039-lifecycle-sources-are-committed-by-the-converged-release.md).
-- [ ] M2: Filesystem and conditional object-store materialization expose a deduplicated event prefix with resumable, bounded reads.
-- [ ] M3: CLI, protected HTTP reads, generated schemas and client decoding expose the same versioned event contract.
+- [x] M2: Filesystem and conditional object-store materialization expose a deduplicated event prefix with resumable, bounded reads. Evidence: 132a6e65 (landed with ff8257fd 2026-11-17, fast gate green, full gate green); `Events.Store` cases on the memory, filesystem and object-store interpreters, concurrent materializers, lost and refused head writes, failed segment upload, transient inventory read, budgets and cross-cycle deduplication; `Events.Read` asserts exactly four GETs (head, one node, two segments) for a late page of 10,000 events through a cold reader; mutation record `EP231-materialize-ignores-id-index`.
+- [x] M3: CLI, protected HTTP reads, generated schemas and client decoding expose the same versioned event contract. Evidence: `nagarectl --context fixture events list --first 1 --contract 1` over a seeded local fixture feed prints a contract-1 `event-list` holding `ev-4bff6e76b6c03829f65ff3832edef4ac` and leaves the feed head unchanged; an unenabled feed refuses `events_not_enabled` with exit 2; `just api-hurl` passes all seven files including `events.hurl`; the `events` and generated-client groups of `nagare-api-server-test` pass; `docs/api/openapi.json` and `docs/api/samples/event-list.json` are regenerated and checked.
 
 
 ## Surprises & Discoveries
@@ -77,11 +77,13 @@ Operators can list a durable, versioned history of lifecycle events through `nag
 
 2026-11-17: The feed layout is segments of 64 envelopes, a tail index node of up to 1024 segment digests and a node listing completed ones, so a late page of the 10,000-event fixture reads exactly the head, one node and two segments. Event IDs resolve through a persistent 16-way trie whose touched path is the only part a cycle reads and writes, so the ID index cost grows with the logarithm of the history rather than with buckets that grow with it. Every interpreter is an `ObjectOps` (the bucket's, an in-memory one, a filesystem one), so the feed has one code path; the feed store caches the content-addressed objects it read or wrote, which never change. The feed lives beside the inventory: a location ending in `/inventory` becomes `/lifecycle/v1`, any other gets `-lifecycle/v1` appended, which inventory listings of `root/` never reach.
 
+2026-11-17: Event reads share one module, `Nagare.Events.Query`, for the CLI and the admin API. A cursor is unpadded base64url of canonical JSON binding the context, feed epoch, a filter fingerprint, the pinned publication bound and the position, so it is also a well-formed Relay cursor. `refresh` is the tailing mode: it keeps a cursor's position and checks and takes the current bound. The admin API reads the feed head once per request, keys its representation cache by the feed revision and answers `Nagare-Events-Revision` through a snapshot type generalized over its revision header, so the existing routes' document is unchanged. Event lists page forward only; `last` and `before` are `invalid_page`.
+
 
 ## Outcomes & Retrospective
 
 
-(To be filled during implementation and at completion.)
+A converged release now commits its lifecycle source facts in the head write that clears its claim, and a context-bound feed materializes them into a deduplicated, bounded, resumable history that `nagarectl events list` and `GET /v1/events` serve with one contract. No producer is registered yet, so no store changes until EP-232 and EP-233 add theirs; EP-235 runs the materializer and installs the feed. What remains for the initiative: producers (EP-232, EP-233), delivery (EP-234) and the runtime and native acceptance (EP-235). The commit protocol is in ADR 39.
 
 
 ## Context and Orientation

@@ -102,7 +102,9 @@ import Nagare.Cli.Options.Access
   , TeamMemberOpts (..)
   )
 import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
+import Nagare.Cli.Options.Cdn
 import Nagare.Cli.Options.Delegation (DelegationCommand)
+import Nagare.Cli.Options.Events (EventsListOpts)
 import Nagare.Cli.Options.Move (MoveCommand)
 import Nagare.Cli.Options.NixCache (NixCacheCommand)
 import Nagare.Cli.Options.Site
@@ -353,6 +355,7 @@ data Command
   | SitePublish SitePublishOpts
   | SiteReleases SiteCommonOpts
   | SiteList SiteListOpts
+  | EventsList EventsListOpts
   | SiteRollback SiteRollbackOpts String
   | SitePreviewDeploy SiteDeployOpts String
   | SitePreviewList SiteCommonOpts
@@ -957,44 +960,4 @@ data TunnelCommand
   | TunnelRotate !Bool
   | TunnelStatus
   | TunnelEvict !String !Bool
-  deriving stock (Generic, Show)
-
-data CdnCommand
-  = CdnList CdnListOpts
-  | CdnStatus CdnStatusOpts
-  | CdnPurge CdnPurgeOpts
-  | CdnDisable CdnDisableOpts
-  deriving stock (Generic, Show)
-
-data CdnListOpts = CdnListOpts
-  { namespace :: !(Maybe String)
-  , allNamespaces :: !Bool
-  , baseDomain :: !(Maybe String)
-  }
-  deriving stock (Generic, Show)
-
-data CdnStatusOpts = CdnStatusOpts
-  { host :: !String
-  , namespace :: !(Maybe String)
-  , baseDomain :: !(Maybe String)
-  }
-  deriving stock (Generic, Show)
-
-data CdnPurgeOpts = CdnPurgeOpts
-  { host :: !String
-  , paths :: ![String]
-  , namespace :: !(Maybe String)
-  , dryRun :: !Bool
-  , savePlan :: !(Maybe FilePath)
-  , purgeId :: !(Maybe String)
-  , wholeZone :: !Bool
-  }
-  deriving stock (Generic, Show)
-
-data CdnDisableOpts = CdnDisableOpts
-  { host :: !String
-  , namespace :: !(Maybe String)
-  , dryRun :: !Bool
-  , savePlan :: !(Maybe FilePath)
-  }
   deriving stock (Generic, Show)

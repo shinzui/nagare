@@ -66,7 +66,7 @@ Relevant local decisions are [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-pro
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 231 | Durable event feed and atomic source facts | [EP-231](../plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md) | None | None | Not Started |
+| 231 | Durable event feed and atomic source facts | [EP-231](../plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md) | None | None | Complete |
 | 232 | Successful application deployment events | [EP-232](../plans/232-record-successful-application-deployments-as-lifecycle-events.md) | EP-231 | None | Not Started |
 | 233 | Verified database backup events and collection | [EP-233](../plans/233-observe-verified-database-backups-and-publish-lifecycle-events.md) | EP-231 | None | Not Started |
 | 234 | Shared delivery core and first webhook adapter | [EP-234](../plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md) | EP-231 | EP-232 and EP-233 real producer fixtures | Not Started |
@@ -107,6 +107,8 @@ Inventory-produced facts ride the existing journal, not a second chain. The jour
 
 ## Progress
 
+
+2026-11-17: EP-231 is complete: the convergence journal event and facts object (ADR 39), the context-bound event feed, `nagarectl events list` and `GET /v1/events`. EP-232, EP-233 and EP-234 are unblocked.
 
 2026-11-04: All five children are Not Started. EP-231 is ready; the others wait on it as the registry states. Completion requires EP-235's restart, duplicate-delivery, unattended-backup, credential-isolation and upgrade drills and the budget above measured natively. No implementation or native acceptance is claimed.
 

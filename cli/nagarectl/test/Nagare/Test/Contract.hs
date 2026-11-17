@@ -25,6 +25,7 @@ import Data.OpenApi (ToSchema)
 import Data.OpenApi.Schema.Validation (validateToJSON)
 import Data.Text qualified as Text
 import Nagare.Contract.Delegation
+import Nagare.Contract.Events qualified as Events
 import Nagare.Contract.Problem
 import Nagare.Contract.Project
 import Nagare.Contract.Rendered (RenderedConfiguration)
@@ -34,6 +35,9 @@ import Nagare.Contract.V1
 import Nagare.Contract.Versions
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
+import Nagare.Events.Envelope (envelopeFor)
+import Nagare.Events.Query (lifecycleEvent)
+import Nagare.Events.Source (AppDeployment (..), DeploymentAction (..), DeploymentSubject (..), EventCandidate (..), EventPayload (..), Evidence (..), ResourceRef (..), mkSourceKey)
 import Nagare.Inventory.Adapter (ReviewBarrier (..))
 import Nagare.Inventory.Artifact
   ( ArtifactDeclarationBundle (..)
@@ -187,6 +191,7 @@ samples =
   , Sample "nix-cache-push-result.json" nixCachePushSample
   , Sample "deploy-preview.json" deployPreviewSample
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
+  , Sample "event-list.json" eventListSample
   , Sample "problem.json" (problemFor unknownScope "application:nope is not an accepted scope")
   , Sample "platform-versions.json" platformVersionsSample
   , Sample "delegation.json" delegationSample
@@ -243,6 +248,44 @@ deployerCredentialsSample =
     }
 
 -- | EP-247 D6: a deployer's transaction with its source, then an operator's.
+-- | EP-231: one page of a feed, through the same conversion the CLI and
+-- the admin API use, so the sample is the envelope's own wire form.
+eventListSample :: Events.EventList
+eventListSample =
+  Events.EventList
+    ContractVersion1
+    DocumentName
+    "context-1"
+    "4b7a5f0c0d9d4f3f8a2f61e5c9d1c2b3a4f5e6d7c8b9a0f1e2d3c4b5a6978899"
+    [Events.LifecycleFeedEntry 0 (lifecycleEvent envelope)]
+    (Events.EventPageInfo False (Nullable (Just "eyJ2IjoxfQ")))
+  where
+    context = ok (mkContextId "context-1")
+    review = contentDigest "review"
+    envelope =
+      envelopeFor
+        context
+        "2026-11-17T10:00:05Z"
+        "2026-11-17T10:00:07Z"
+        EventCandidate
+          { key = ok (mkSourceKey "app:tx-1:application:notes")
+          , resource = ResourceRef (ok (mkScopeId Types.Application "notes")) Nothing (Just "personal") Nothing
+          , occurredAt = "2026-11-17T10:00:00Z"
+          , evidence = [Evidence "review" review]
+          , payload =
+              AppDeployedPayload
+                AppDeployment
+                  { subject = ApplicationSubject
+                  , action = DeployAction
+                  , release = "notes-20261117-1"
+                  , previousRelease = Just "notes-20261110-3"
+                  , scopeRevision = ScopeRevision (ok (mkScopeGeneration 4)) (contentDigest "notes revision 4")
+                  , transaction = ok (mkTransactionId "tx-1")
+                  , review
+                  , readiness = contentDigest "notes readiness"
+                  }
+          }
+
 transactionHistorySample :: TransactionHistory
 transactionHistorySample =
   TransactionHistory

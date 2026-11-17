@@ -15,6 +15,7 @@ import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Events.Envelope
 import Nagare.Events.Materialize
+import Nagare.Events.Query
 import Nagare.Events.Read
 import Nagare.Events.Source
 import Nagare.Events.Store
@@ -209,6 +210,43 @@ eventsStoreTests =
             fmap keyOf found @?= Just "i137"
             (missing, _) <- readEvent feed fixtureBinding (eventIdFor (fixtureBinding ^. #identity) (sourceKey "nope")) >>= either (assertFailure . show) pure
             missing @?= Nothing
+        , testCase "a cursor finishes its traversal at its pinned bound; refresh reads what arrived since" $ withMemory $ \feed -> do
+            (inventory, extend) <- growingInventory [[candidate "a"], [candidate "b"]]
+            _ <- enable feed
+            _ <- materialize inventory feed >>= either (assertFailure . show) pure
+            first' <- queryEvents feed fixtureBinding (eventQuery & #size .~ Just 1) >>= either (assertFailure . show) pure
+            map keyOf (first' ^. #entries) @?= ["a"]
+            extend [candidate "c"]
+            _ <- materialize inventory feed >>= either (assertFailure . show) pure
+            pinned <- queryEvents feed fixtureBinding (eventQuery & #after .~ Just (first' ^. #endCursor)) >>= either (assertFailure . show) pure
+            map keyOf (pinned ^. #entries) @?= ["b"]
+            pinned ^. #hasNext @?= False
+            stale <- queryEvents feed fixtureBinding (eventQuery & #after .~ Just (pinned ^. #endCursor)) >>= either (assertFailure . show) pure
+            stale ^. #entries @?= []
+            fresh <- queryEvents feed fixtureBinding (eventQuery & #after .~ Just (pinned ^. #endCursor) & #refresh .~ True) >>= either (assertFailure . show) pure
+            map keyOf (fresh ^. #entries) @?= ["c"]
+        , testCase "a cursor of another context, filter set or feed epoch, a malformed cursor and a bad size refuse" $ withMemory $ \feed -> do
+            inventory <- inventoryWith [[candidate "a"], [candidate "b"]]
+            _ <- enable feed
+            _ <- materialize inventory feed >>= either (assertFailure . show) pure
+            page <- queryEvents feed fixtureBinding (eventQuery & #size .~ Just 1) >>= either (assertFailure . show) pure
+            let cursor = page ^. #endCursor
+                refused query =
+                  queryEvents feed fixtureBinding query >>= \case
+                    Left (InvalidCursor _) -> pure ()
+                    other -> assertFailure ("expected an invalid cursor, got " <> show (fmap (^. #entries) other))
+            refused (eventQuery & #after .~ Just cursor & #kinds .~ Set.singleton DatabaseBackupCompleted)
+            refused (eventQuery & #after .~ Just "not-a-cursor")
+            other <- queryEvents feed (ContextBinding (ok (mkContextId "context-2")) (ok (mkName "project"))) (eventQuery & #after .~ Just cursor)
+            assertBool "another context" (isLeft other)
+            let reEpoched = encodeCursor (either (error . T.unpack) id (decodeCursor cursor) & #epoch .~ "epoch-2")
+            refused (eventQuery & #after .~ Just reEpoched)
+            for_ [0, 101] $ \size ->
+              queryEvents feed fixtureBinding (eventQuery & #size .~ Just size) >>= \case
+                Left (InvalidPage _) -> pure ()
+                _ -> assertFailure "a page size outside 1 to 100 is refused"
+            missing <- memoryObjectOps >>= newFeedStore >>= \empty -> queryEvents empty fixtureBinding eventQuery
+            fmap (^. #entries) missing @?= Left (QueryFeed FeedNotEnabled)
         , testCase "an unenabled feed is not an empty history" $ withMemory $ \feed -> do
             page <- readPage feed fixtureBinding readRequest
             fmap (^. #entries) page @?= Left FeedNotEnabled
@@ -376,6 +414,9 @@ ok = either (error . show) id
 
 isLeft :: Either a b -> Bool
 isLeft = either (const True) (const False)
+
+for_ :: (Monad m) => [a] -> (a -> m ()) -> m ()
+for_ items step = mapM_ step items
 
 isRight :: Either a b -> Bool
 isRight = not . isLeft

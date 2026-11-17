@@ -8,4 +8,5 @@ hurl --test --variables-file vars.env \
   inventory.hurl \
   sites.hurl \
   access.hurl \
+  events.hurl \
   errors.hurl

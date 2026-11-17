@@ -81,6 +81,9 @@ data ServiceStore = ServiceStore
   { store :: !InventoryStore
   , freshHead :: !(IO (Either StoreError (Maybe HeadManifest)))
   , freshObject :: !(FilePath -> IO (Either StoreError (Maybe BS.ByteString)))
+  , objectsAt :: !(Text -> Either StoreError ObjectOps)
+  -- ^ The same read-only session at another @gs://@ prefix of the same
+  -- bucket, such as the lifecycle feed beside the inventory (EP-231).
   }
   deriving stock (Generic)
 
@@ -110,6 +113,11 @@ openServiceStore config = do
             { store = inventory
             , freshHead = owned (readHead inventory)
             , freshObject = owned . readObject inventory
+            , objectsAt = \url -> case gogolLocation (projectText config) url of
+                Left reason -> Left (StoreConditionFailed reason)
+                Right (other, otherRoot)
+                  | other == bucket -> Right (readOnlyObjectOps env other otherRoot)
+                  | otherwise -> Left (StoreConditionFailed "another prefix must be in the inventory's own bucket")
             }
       where
         owned :: IO (Either StoreError a) -> IO (Either StoreError a)

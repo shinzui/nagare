@@ -14,6 +14,7 @@ where
 import Data.Aeson (Value)
 import Data.Proxy (Proxy (..))
 import Nagare.Api.Access.Routes (AccessRoutes)
+import Nagare.Api.Events.Routes (EventsRoutes)
 import Nagare.Api.Inventory.Routes (InventoryRoutes)
 import Nagare.Api.Platform.Routes (PlatformRoutes)
 import Nagare.Api.Response (Build, IfNoneMatch)
@@ -31,6 +32,7 @@ data AdminApi mode = AdminApi
   , inventory :: !(mode :- "v1" :> "inventory" :> NamedRoutes InventoryRoutes)
   , sites :: !(mode :- "v1" :> "sites" :> NamedRoutes SitesRoutes)
   , access :: !(mode :- "v1" :> "access" :> NamedRoutes AccessRoutes)
+  , events :: !(mode :- "v1" :> "events" :> NamedRoutes EventsRoutes)
   , openapi :: !(mode :- "v1" :> "openapi.json" :> IfNoneMatch :> Build OpenApiDocument)
   , health :: !(mode :- "health" :> NamedRoutes HealthApi)
   }

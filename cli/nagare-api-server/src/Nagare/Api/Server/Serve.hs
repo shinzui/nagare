@@ -12,6 +12,7 @@ module Nagare.Api.Server.Serve
   , newEnv
   , Plan (..)
   , serveState
+  , serveFeed
   , serveBuild
   , acceptedVector
   , headRevisionText
@@ -41,7 +42,9 @@ import Nagare.Api.Response
 import Nagare.Api.Server.Problems (storeProblem)
 import Nagare.Api.Server.Validators (entityTag, noneMatch, stateValidators)
 import Nagare.Contract.Prelude
-import Nagare.Contract.Problem (ProblemDetails, internalError, problemFor, storeTimeout)
+import Nagare.Contract.Problem (ProblemDetails, eventsNotEnabled, internalError, problemFor, storeInvalid, storeTimeout, storeUnavailable)
+import Nagare.Events.Query (feedRevision)
+import Nagare.Events.Store (FeedError (..), FeedHead, FeedStore, readFeedHead)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Recorded (RecordedHead, RecordedReader, readRecordedHead, recordedHeadManifest, recordedHeadRevision)
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
@@ -63,6 +66,9 @@ data Env = Env
   , representations :: !(MVar Representations)
   , representationLimit :: !Int
   , requests :: !(IORef (Map ThreadId RequestStats))
+  , feed :: !(Maybe FeedStore)
+  -- ^ The context's lifecycle feed, read-only, if the server reads one
+  -- (EP-231). Without it the event routes answer events_not_enabled.
   }
 
 -- | What one request's handler did, for its access log line: whether its
@@ -94,6 +100,7 @@ newEnv recordedReader buildIdentity contextBinding snapshotRead = do
       , representations = cached
       , representationLimit = 512
       , requests = inFlight
+      , feed = Nothing
       }
 
 -- | Start recording the current request thread's statistics. Warp serves a
@@ -147,6 +154,36 @@ serveState env match planFor = liftIO $ bounded env $ do
             | otherwise -> SnapshotOk (SnapshotBody (Encoded bytes) (stateValidators tag) revision)
             where
               revision = headRevisionText headValue
+
+-- | Serve one lifecycle event route (EP-231). The feed head is read once;
+-- @planFor@ validates the request against it, and the representation is
+-- cached under a key that names the feed revision. The revision header is
+-- the feed's own.
+serveFeed ::
+  (ToJSON a) =>
+  Env ->
+  Maybe Text ->
+  (FeedStore -> ContextBinding -> FeedHead -> Either ProblemDetails (Plan a)) ->
+  Handler (SnapshotResult a)
+serveFeed env match planFor = liftIO $ bounded env $ case feed env of
+  Nothing -> pure (snapshotProblem (problemFor eventsNotEnabled "this server reads no lifecycle feed for the context"))
+  Just store -> do
+    loaded <- readFeedHead store (binding env)
+    case loaded of
+      Left FeedNotEnabled -> pure (snapshotProblem (problemFor eventsNotEnabled "the context's lifecycle feed is not enabled; it has no event history yet"))
+      Left (FeedTransport reason) -> pure (snapshotProblem (problemFor storeUnavailable reason))
+      Left failure -> pure (snapshotProblem (problemFor storeInvalid (Text.pack (show failure))))
+      Right headValue -> case planFor store (binding env) headValue of
+        Left problem -> pure (snapshotProblem problem)
+        Right plan -> do
+          representation <- cachedOr env (key plan) (fmap (fmap encode) (construct plan))
+          pure $ case representation of
+            Left problem -> snapshotProblem problem
+            Right (tag, bytes)
+              | noneMatch match tag -> SnapshotNotModified (SnapshotUnchanged (stateValidators tag) revision)
+              | otherwise -> SnapshotOk (SnapshotBody (Encoded bytes) (stateValidators tag) revision)
+              where
+                revision = feedRevision headValue
 
 -- | Serve a representation of the serving build, which reads no store.
 serveBuild :: Text -> LBS.ByteString -> Maybe Text -> Handler (BuildResult a)

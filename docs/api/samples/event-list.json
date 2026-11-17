@@ -1,0 +1,52 @@
+{
+  "context": "context-1",
+  "contractVersion": 1,
+  "document": "event-list",
+  "events": [
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "action": "deploy",
+          "previousRelease": "notes-20261110-3",
+          "readiness": "dbbcea796b7a3b1c6ddcf9209a8c2a769f059fdb61d65f8826eb15ef2ae11fea",
+          "release": "notes-20261117-1",
+          "review": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+          "scopeRevision": {
+            "digest": "36d52e7bd6c6597e8a01704d1359737c9b98aeacb674c3d70821626806cab6be",
+            "generation": 4
+          },
+          "subject": "application",
+          "transaction": "tx-1"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-22af381704691beb604d3ec750134d0a",
+        "observedAt": "2026-11-17T10:00:05Z",
+        "occurredAt": "2026-11-17T10:00:00Z",
+        "publishedAt": "2026-11-17T10:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "app.deployed"
+      },
+      "position": 0
+    }
+  ],
+  "pageInfo": {
+    "endCursor": "eyJ2IjoxfQ",
+    "hasNextPage": false
+  },
+  "revision": "4b7a5f0c0d9d4f3f8a2f61e5c9d1c2b3a4f5e6d7c8b9a0f1e2d3c4b5a6978899"
+}

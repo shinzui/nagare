@@ -30,6 +30,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Nagare.Api.Access.Routes
+    Nagare.Api.Events.Routes
     Nagare.Api.Inventory.Routes
     Nagare.Api.OpenApi
     Nagare.Api.Page

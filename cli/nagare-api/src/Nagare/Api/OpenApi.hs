@@ -114,6 +114,8 @@ operationIds =
   , ("/v1/inventory/publications", "listInventoryPublications")
   , ("/v1/sites", "listSites")
   , ("/v1/access/grants", "listAccessGrants")
+  , ("/v1/events", "listEvents")
+  , ("/v1/events/{eventId}", "getEvent")
   , ("/v1/openapi.json", "getOpenApi")
   , ("/health/live", "getLiveness")
   , ("/health/ready", "getReadiness")

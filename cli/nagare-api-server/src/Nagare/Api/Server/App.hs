@@ -24,6 +24,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Time (getCurrentTime)
 import Nagare.Api.Access.Handler (accessServer)
+import Nagare.Api.Events.Handler (eventsServer)
 import Nagare.Api.Inventory.Handler (inventoryServer)
 import Nagare.Api.OpenApi (renderAdminOpenApi)
 import Nagare.Api.Platform.Handler (platformServer)
@@ -87,6 +88,7 @@ adminServer config env =
     , inventory = inventoryServer env (config ^. #context)
     , sites = sitesServer env (config ^. #context)
     , access = accessServer env (config ^. #context)
+    , events = eventsServer env
     , openapi = serveBuild (build env) renderAdminOpenApi
     , health = healthServer (pure Healthy) ready
     }

@@ -152,9 +152,11 @@ library
     Nagare.Events.Envelope
     Nagare.Events.Layout
     Nagare.Events.Materialize
+    Nagare.Events.Query
     Nagare.Events.Read
     Nagare.Events.Source
     Nagare.Events.Store
+    Nagare.Events.Target
     Nagare.Gcp.Adc
     Nagare.GhcEnv
     Nagare.Host.AgeKey
@@ -495,6 +497,7 @@ executable nagarectl
     Nagare.Cli.Commands.Deployment
     Nagare.Cli.Commands.Domains
     Nagare.Cli.Commands.Environment
+    Nagare.Cli.Commands.Events
     Nagare.Cli.Commands.Host
     Nagare.Cli.Commands.Image
     Nagare.Cli.Commands.Infrastructure
@@ -551,7 +554,9 @@ executable nagarectl
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase
+    Nagare.Cli.Options.Cdn
     Nagare.Cli.Options.Delegation
+    Nagare.Cli.Options.Events
     Nagare.Cli.Options.Move
     Nagare.Cli.Options.NixCache
     Nagare.Cli.Options.Site
@@ -564,6 +569,7 @@ executable nagarectl
     Nagare.Cli.Parser.Data
     Nagare.Cli.Parser.Delegation
     Nagare.Cli.Parser.Environment
+    Nagare.Cli.Parser.Events
     Nagare.Cli.Parser.Inventory
     Nagare.Cli.Parser.NixCache
     Nagare.Cli.Parser.Operations

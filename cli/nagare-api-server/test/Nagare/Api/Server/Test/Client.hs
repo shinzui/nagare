@@ -9,17 +9,21 @@ module Nagare.Api.Server.Test.Client
   )
 where
 
-import Data.Aeson (ToJSON, encode)
+import Data.Aeson (ToJSON, encode, object)
+import Data.Aeson qualified as Aeson
 import Data.Generics.Labels ()
 import Data.Time (UTCTime (..), fromGregorian)
 import Nagare.Api.Access.Routes qualified as Access
+import Nagare.Api.Events.Routes qualified as Events
 import Nagare.Api.Inventory.Routes qualified as Inventory
+import Nagare.Api.Page (PageSize (..))
 import Nagare.Api.Platform.Routes qualified as Platform
 import Nagare.Api.Response
 import Nagare.Api.Routes qualified as Root
 import Nagare.Api.Sites.Routes qualified as Sites
+import Nagare.Contract.Events
 import Nagare.Contract.Prelude
-import Nagare.Contract.Problem (ProblemDetails (..), problemFor, unknownScope)
+import Nagare.Contract.Problem (ProblemDetails (..), problemFor, unknownEvent, unknownScope)
 import Nagare.Contract.Schema (Nullable (..))
 import Nagare.Contract.V1
 import Network.HTTP.Client (defaultManagerSettings, newManager)
@@ -51,6 +55,15 @@ clientTests =
         case result of
           SnapshotOk value -> decodeEncoded (value ^. #body) @?= Right (Paged samplePage)
           other -> assertFailure ("expected 200, got " <> show other)
+    , testCase "decodes a Relay page of lifecycle events and an unknown event (EP-231)" $ withClient $ \run -> do
+        listed <- run (Events.list (Root.events client) (Just (PageSize 1)) Nothing Nothing Nothing False ["app.deployed"] Nothing Nothing Nothing)
+        case listed of
+          SnapshotOk value -> decodeEncoded (value ^. #body) @?= Right sampleEvents
+          other -> assertFailure ("expected 200, got " <> show other)
+        missing <- run (Events.event (Root.events client) "ev-00000000000000000000000000000000" Nothing)
+        case missing of
+          SnapshotNotFound problem -> problem ^. #code @?= "unknown_event"
+          other -> assertFailure ("expected 404, got " <> show other)
     , testCase "decodes a missing scope as a 404 problem" $ withClient $ \run -> do
         result <- run (Inventory.scope (Root.inventory client) "application:nope" Nothing)
         result @?= SnapshotNotFound missingScope
@@ -80,6 +93,11 @@ fixtureServer =
           }
     , Root.sites = Sites.SitesRoutes {Sites.sites = \_ _ _ _ _ _ match -> pure (conditional match (encoded (Paged samplePage)))}
     , Root.access = Access.AccessRoutes {Access.grants = \_ _ _ _ _ -> pure (conditional Nothing (encoded (Paged (Connection [] emptyPage) :: Paged Grant)))}
+    , Root.events =
+        Events.EventsRoutes
+          { Events.list = \_ _ _ _ _ _ _ _ _ -> pure (conditional Nothing (encoded sampleEvents))
+          , Events.event = \_ _ -> pure (SnapshotNotFound (problemFor unknownEvent "ev-00000000000000000000000000000000 is not a published event"))
+          }
     , Root.openapi = \_ -> pure (BuildNotModified (validatorsFor "openapi"))
     , Root.health = healthServer (pure Healthy) (pure (Unhealthy "store" (UTCTime (fromGregorian 2026 10 16) 0)))
     }
@@ -139,4 +157,28 @@ samplePage =
         , acceptedRevision = Revision 3 "a1"
         , convergedRevision = Nullable (Just (Revision 3 "a1"))
         , lastConverged = Nullable (Just (SiteService "docs" "personal" ["docs.example.com"]))
+        }
+
+-- | One lifecycle event page, as the feed serves it (EP-231).
+sampleEvents :: Paged LifecycleFeedEntry
+sampleEvents =
+  Paged
+    ( Connection
+        [Edge (LifecycleFeedEntry 0 event) cursor]
+        (PageInfo False False (Just cursor) (Just cursor))
+    )
+  where
+    cursor = encodeCursor (CursorPayload cursorVersion 1 [KvText "0"])
+    event =
+      LifecycleEvent
+        { schemaVersion = 1
+        , eventId = "ev-0123456789abcdef0123456789abcdef"
+        , eventType = "app.deployed"
+        , context = "fixture"
+        , resource = LifecycleResource (LifecycleScope "application" "notes") (Nullable Nothing) (Nullable (Just "personal")) (Nullable Nothing)
+        , occurredAt = "2026-11-17T10:00:00Z"
+        , observedAt = "2026-11-17T10:00:05Z"
+        , publishedAt = "2026-11-17T10:00:07Z"
+        , evidence = [LifecycleEvidence "review" "0000000000000000000000000000000000000000000000000000000000000000"]
+        , eventData = object ["release" Aeson..= ("notes-1" :: Text)]
         }

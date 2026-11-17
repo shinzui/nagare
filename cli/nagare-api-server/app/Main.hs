@@ -15,9 +15,11 @@ import Data.Generics.Labels ()
 import Data.String (fromString)
 import Data.Text qualified as Text
 import Nagare.Api.Server.App (AppConfig (..), adminApplication)
-import Nagare.Api.Server.Serve (newEnv)
+import Nagare.Api.Server.Serve (Env (..), newEnv)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Project (versionInfo)
+import Nagare.Events.Store (filesystemObjectOps, newFeedStore)
+import Nagare.Events.Target (feedLocation, readOnlyFeedOps)
 import Nagare.Inventory.Recorded (defaultRecordedReaderConfig, newRecordedReader)
 import Nagare.Inventory.Store (openFilesystemStoreReadOnly, readHead, readObject)
 import Nagare.Inventory.Store.Gogol (inventoryManagerSettings)
@@ -65,10 +67,12 @@ main = do
   Options contextName projectName storeSource address portNumber <-
     execParser (info (options <**> helper) (fullDesc <> progDesc "Serve one context's recorded inventory state, read-only."))
   binding <- either (die . Text.unpack) pure (ContextBinding <$> mkContextId contextName <*> mkName projectName)
-  (store, headAction, objectAction) <- case storeSource of
+  -- EP-231: the lifecycle feed beside the inventory, read-only.
+  (store, headAction, objectAction, feedOps) <- case storeSource of
     LocalStore directory -> do
       opened <- openFilesystemStoreReadOnly directory >>= either (die . show) pure
-      pure (opened, readHead opened, readObject opened)
+      feedDirectory <- filesystemObjectOps (Text.unpack (feedLocation (Text.pack directory)))
+      pure (opened, readHead opened, readObject opened, feedDirectory)
     CloudStore url number credentials cache -> do
       service <-
         openServiceStore
@@ -82,12 +86,14 @@ main = do
             , configureEnv = id
             }
           >>= either (die . show) pure
-      pure (service ^. #store, service ^. #freshHead, service ^. #freshObject)
+      feedPrefix <- either (die . show) pure ((service ^. #objectsAt) (feedLocation url))
+      pure (service ^. #store, service ^. #freshHead, service ^. #freshObject, feedPrefix)
   recordedReader <- newRecordedReader defaultRecordedReaderConfig store binding headAction
   let BuildVersion buildVersion buildRevision = currentBuildVersion
   -- The platform-versions snapshot, through the same session; in the cloud
   -- every read rechecks the bucket's owner like a head read (EP-236).
   let snapshotRead = first (Text.pack . show) <$> objectAction versionSnapshotKey
   env <- newEnv recordedReader (buildVersion <> maybe "" ("+" <>) buildRevision) binding snapshotRead
-  application <- adminApplication (AppConfig contextName (versionInfo currentBuildVersion Nothing) 32 (BS.hPutStr stdout)) env
+  feedStore <- newFeedStore (readOnlyFeedOps feedOps)
+  application <- adminApplication (AppConfig contextName (versionInfo currentBuildVersion Nothing) 32 (BS.hPutStr stdout)) env {feed = Just feedStore}
   runSettings (setHost (fromString address) (setPort portNumber defaultSettings)) application

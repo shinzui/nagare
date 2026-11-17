@@ -27,6 +27,7 @@ module Nagare.Api.Response
   , BuildResponses
   , BuildResult (..)
   , Snapshot
+  , EventsSnapshot
   , Build
   , IfNoneMatch
   )
@@ -55,6 +56,7 @@ import Data.SOP (I (..), NP (..), NS (..))
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Data.Typeable (Typeable, tyConName, typeRep, typeRepTyCon)
+import GHC.TypeLits (Symbol)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails (..), ProblemJSON)
 import Network.HTTP.Media ((//))
@@ -195,11 +197,15 @@ data SnapshotUnchanged = SnapshotUnchanged
   }
   deriving stock (Eq, Show, Generic)
 
-type SnapshotHeaders =
+type SnapshotHeaders = RevisionHeaders "Nagare-Head-Revision"
+
+-- | A snapshot's validators and the revision it was read at, under the
+-- revision header @name@: the inventory head's or the event feed's (EP-231).
+type RevisionHeaders (name :: Symbol) =
   '[ Header "ETag" Text
    , Header "Cache-Control" Text
    , Header "Vary" Text
-   , Header "Nagare-Head-Revision" Text
+   , Header name Text
    ]
 
 instance AsHeaders '[Text, Text, Text, Text] (Encoded a) (SnapshotBody a) where
@@ -210,9 +216,11 @@ instance AsHeaders '[Text, Text, Text, Text] () SnapshotUnchanged where
   toHeaders (SnapshotUnchanged (Validators tag cache varying) revision) = (I tag :* I cache :* I varying :* I revision :* Nil, ())
   fromHeaders (I tag :* I cache :* I varying :* I revision :* Nil, ()) = SnapshotUnchanged (Validators tag cache varying) revision
 
-type SnapshotResponses a =
-  '[ WithHeaders SnapshotHeaders (SnapshotBody a) (Respond 200 "The recorded representation" (Encoded a))
-   , WithHeaders SnapshotHeaders SnapshotUnchanged (RespondEmpty 304 "Not Modified")
+type SnapshotResponses a = RevisionResponses "Nagare-Head-Revision" a
+
+type RevisionResponses (name :: Symbol) a =
+  '[ WithHeaders (RevisionHeaders name) (SnapshotBody a) (Respond 200 "The recorded representation" (Encoded a))
+   , WithHeaders (RevisionHeaders name) SnapshotUnchanged (RespondEmpty 304 "Not Modified")
    , RespondAs ProblemJSON 400 "Bad Request" ProblemDetails
    , RespondAs ProblemJSON 404 "Not Found" ProblemDetails
    , RespondAs ProblemJSON 500 "Internal Server Error" ProblemDetails
@@ -229,7 +237,7 @@ data SnapshotResult a
   | SnapshotUnavailable !ProblemDetails
   deriving stock (Eq, Show)
 
-instance AsUnion (SnapshotResponses a) (SnapshotResult a) where
+instance AsUnion (RevisionResponses name a) (SnapshotResult a) where
   toUnion = \case
     SnapshotOk value -> Z (I value)
     SnapshotNotModified value -> S (Z (I value))
@@ -299,5 +307,9 @@ instance AsUnion (BuildResponses a) (BuildResult a) where
 type IfNoneMatch = Header "If-None-Match" Text
 
 type Snapshot a = MultiVerb 'GET '[PreEncodedJSON] (SnapshotResponses a) (SnapshotResult a)
+
+-- | A read of the lifecycle event feed: its own revision header, not the
+-- inventory head's (EP-231).
+type EventsSnapshot a = MultiVerb 'GET '[PreEncodedJSON] (RevisionResponses "Nagare-Events-Revision" a) (SnapshotResult a)
 
 type Build a = MultiVerb 'GET '[PreEncodedJSON] (BuildResponses a) (BuildResult a)
