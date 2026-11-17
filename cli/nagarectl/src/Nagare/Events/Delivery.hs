@@ -33,7 +33,7 @@ where
 
 import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.Exception (bracket_)
+import Control.Exception (SomeAsyncException, SomeException, bracket_, displayException, fromException, throwIO, try)
 import Control.Monad (mfilter)
 import Data.Generics.Labels ()
 import Data.List (nub, sortOn)
@@ -51,6 +51,7 @@ import Nagare.Events.Store
 import Nagare.Events.Subscription
 import Nagare.Inventory.Store (InventoryStore)
 import Nagare.Resource.Types
+import System.Timeout (timeout)
 
 data DeliveryEnv = DeliveryEnv
   { inventory :: !InventoryStore
@@ -495,7 +496,7 @@ attemptDelivery env adapter headValue feedValue entry = do
                 Left err -> pure (Unknown ("the event could not be read: " <> T.pack (show err)))
                 Right (Nothing, _) -> pure (Permanent "the event is not in the feed")
                 Right (Just event', _) ->
-                  (adapter ^. #publish)
+                  boundedPublish (env ^. #budget) (adapter ^. #publish) $
                     PublicationRequest
                       { destination = record ^. #destination
                       , revision = record ^. #revision
@@ -540,6 +541,20 @@ attemptDelivery env adapter headValue feedValue entry = do
     receiptOf = \case
       Acknowledged receipt' -> Just receipt'
       _ -> Nothing
+
+-- | An adapter call bounded by half the in-flight window, so a stuck
+-- adapter neither holds the cycle nor races the closer of its intent, and
+-- one that throws is an unknown outcome rather than a dead destination.
+-- Either way the attempt may have been received, so it is 'Unknown'.
+boundedPublish :: DeliveryBudget -> (PublicationRequest -> IO Outcome) -> PublicationRequest -> IO Outcome
+boundedPublish budget' publish' request = do
+  let seconds = max 1 (floor (budget' ^. #staleAfter / 2) :: Int)
+  result <- try @SomeException (timeout (seconds * 1000000) (publish' request))
+  case result of
+    Left err | Just (_ :: SomeAsyncException) <- fromException err -> throwIO err
+    Left err -> pure (Unknown ("the adapter failed: " <> T.pack (displayException err)))
+    Right Nothing -> pure (Unknown ("the adapter did not answer within " <> T.pack (show seconds) <> " s"))
+    Right (Just outcome') -> pure outcome'
 
 -- | One delivery cycle: the committed controls, then every destination, at
 -- most @concurrency@ at a time. A destination's failure is its own.

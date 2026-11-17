@@ -6,8 +6,9 @@
 -- faultable store and a virtual clock.
 module EventsDeliverySpec (eventsDeliveryTests) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently)
-import Control.Monad (foldM)
+import Control.Monad (foldM, forever)
 import Data.Aeson (object, toJSON, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -55,6 +56,7 @@ import Network.Socket qualified as NS
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp qualified as Warp
 import System.IO.Temp (withSystemTempDirectory)
+import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -104,6 +106,32 @@ eventsDeliveryTests =
         map (fmap (^. #acknowledged)) again @?= [Right 2, Right 0]
         after <- deliveriesOf world webId
         map (length . (^. #attempts)) after @?= [2, 2]
+    , testCase "an adapter that hangs or throws is an unknown attempt within half the in-flight window, and the webhook beside it is delivered (EP-235)" $ withReceiver $ \receiver -> do
+        world <- newWorld receiver
+        commit world [deploy "a"] [revisionOf (webhookSub receiver 1), revisionOf (recordingSub 1)]
+        let stuck = AdapterFactory (\_ -> pure (Right (Adapter "recording" recordingPolicy (\_ -> forever (threadDelay 1000000))))) (\_ _ -> False)
+            throwing = AdapterFactory (\_ -> pure (Right (Adapter "recording" recordingPolicy (\_ -> ioError (userError "adapter crashed"))))) (\_ _ -> False)
+            envWith factory =
+              envOf world
+                & #registry
+                .~ adapterRegistry [(webhookTransport, webhookFactory (\_ -> pure (Right signingSecret)) (\_ -> httpSend (AddressPolicy True) True <&> \real r -> real (r & #url . #host .~ "127.0.0.1")) (readIORef (world ^. #now))), ("recording", factory)]
+                & #budget
+                . #staleAfter
+                .~ 2
+        _ <- enableDelivery (envWith stuck) >>= either (assertFailure . show) pure
+        finished <- timeout 20000000 (deliverOnce (envWith stuck))
+        case finished of
+          Nothing -> assertFailure "a hung adapter held the cycle"
+          Just result -> do
+            outcomes <- either (assertFailure . show) (pure . snd) result
+            map (fmap (^. #acknowledged)) outcomes @?= [Right 1, Right 0]
+        hung <- deliveriesOf world recordingId
+        map (\r -> (r ^. #state, map (^. #outcome) (r ^. #attempts))) hung @?= [(Pending, [Just "unknown"])]
+        advance world 30
+        _ <- deliverOnce (envWith throwing) >>= either (assertFailure . show) pure
+        crashed <- deliveriesOf world recordingId
+        map (\r -> (r ^. #state, map (^. #outcome) (r ^. #attempts))) crashed @?= [(Pending, [Just "unknown", Just "unknown"])]
+        map (^. #detail) (concatMap (^. #attempts) crashed) @?= [Just "the adapter did not answer within 1 s", Just "the adapter failed: user error (adapter crashed)"]
     , testCase "a response lost after the receiver processed it is retried with the same IDs, after a restart; the receiver deduplicates" $ withReceiver $ \receiver -> do
         world <- newWorld receiver
         writeIORef (world ^. #loseResponses) True
