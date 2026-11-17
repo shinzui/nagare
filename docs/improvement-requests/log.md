@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-17
+* **Created**: Add IR-47 from mori://shinzui/mori/plans/302-migrate-the-shared-registry-from-legacy-tokens-to-shomei-and-en-with-a-team-pilot: let a context give the auth plane's Shomei an absolute https issuer with OIDC enabled, shared by Shomei and nagare-access, and publicly serve its discovery, signing-key, authorize and token endpoints, so native clients and services sign in with the intranet identity.
+
 ## 2026-11-13
 * **Update**: IR-46 records successful reviewed task suspension and the next app review restoring the original unsuspended CronJob.
 
