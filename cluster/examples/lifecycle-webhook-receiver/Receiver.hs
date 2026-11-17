@@ -2,6 +2,7 @@
 {- cabal:
 build-depends: base, bytestring, containers, crypton, http-types, time, wai, warp, directory
 -}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | A minimal receiver of Nagare lifecycle webhooks (EP-234), independent of
