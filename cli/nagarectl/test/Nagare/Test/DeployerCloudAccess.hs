@@ -80,7 +80,7 @@ deployerCloudAccessTests =
         catalog <- expectRight (decodeCloudCatalog catalogBytes)
         catalogDelegatedDeployers catalog @?= []
         instantiated <- expectRight (withDelegatedDeployers ["kotei"] catalog)
-        map (nameText . catalogNativeName) (selectedCloudCatalog False False False False instantiated)
+        map (nameText . catalogNativeName) (selectedCloudCatalog False False False False False instantiated)
           @?= ["nagare", "nagare-delegated-deployer-kotei", "nagare-delegated-deployer-kotei-store"]
         urn <- expectRight (cloudCatalogUrn (unsafe (mkName "intranet")) instantiated (last (catalogDelegatedDeployers instantiated)))
         urn @?= "urn:pulumi:intranet::nagare::nagare:env:NagareDelegatedDeployer$gcp:storage/bucketIAMMember:BucketIAMMember::nagare-delegated-deployer-kotei-store"

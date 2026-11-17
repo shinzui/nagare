@@ -600,6 +600,7 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
                 (isJust imageLink)
                 (profile ^. #cdnEnabled)
                 (profile ^. #adminApiEnabled)
+                (profile ^. #lifecycleEventsEnabled)
                 catalog
                 (InventoryDigest.contentDigest catalogBytes)
                 registrations

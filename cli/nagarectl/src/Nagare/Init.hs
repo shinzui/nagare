@@ -335,6 +335,8 @@ renderTargetEnv tp =
     , "export NAGARE_NIX_CACHE_ENABLED=" <> boolToken (tp ^. #nixCacheEnabled)
     , "export NAGARE_CDN_ENABLED=" <> boolToken (tp ^. #cdnEnabled)
     , "export NAGARE_ADMIN_API_ENABLED=" <> boolToken (tp ^. #adminApiEnabled)
+    , "export NAGARE_LIFECYCLE_EVENTS_ENABLED=" <> boolToken (tp ^. #lifecycleEventsEnabled)
+    , "export NAGARE_LIFECYCLE_DELIVERY=" <> boolToken (tp ^. #lifecycleDelivery)
     , "export NAGARE_PROJECT_NUMBER=" <> tp ^. #projectNumber
     , "export NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=" <> boolToken (tp ^. #externalDomainTlsEnabled)
     , "export NAGARE_NIX_CACHE_BUCKET=" <> tp ^. #nixCacheBucket
@@ -421,8 +423,12 @@ seedKeysFor tp posture retained =
     -- an existing stack previews unchanged. A context whose inventory is not
     -- at the default <project>-nagare-pulumi-state/nagare/<context>/inventory
     -- names its own bucket and prefix, which the reader's IAM condition grants.
-    <> ( if tp ^. #adminApiEnabled
-           then ("nagare:enableAdminApiReader", "true") : adminApiInventoryKeys (tp ^. #inventoryStoreUrl)
+    <> [("nagare:enableAdminApiReader", "true") | tp ^. #adminApiEnabled]
+    -- EP-235 M2: the lifecycle worker's account, granted the same inventory
+    -- location and the feed prefix beside it; absent otherwise.
+    <> [("nagare:enableLifecycleWorker", "true") | tp ^. #lifecycleEventsEnabled]
+    <> ( if tp ^. #adminApiEnabled || tp ^. #lifecycleEventsEnabled
+           then adminApiInventoryKeys (tp ^. #inventoryStoreUrl)
            else []
        )
 

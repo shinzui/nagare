@@ -518,6 +518,8 @@ data ContextCreateOpts = ContextCreateOpts
   , nixCacheEnabled :: !(Maybe String)
   , cdnEnabled :: !(Maybe String)
   , adminApiEnabled :: !(Maybe String)
+  , lifecycleEventsEnabled :: !(Maybe String)
+  , lifecycleDelivery :: !(Maybe String)
   , projectNumber :: !(Maybe String)
   , nixCacheBucket :: !(Maybe String)
   , instanceName :: !(Maybe String)

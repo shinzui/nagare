@@ -263,6 +263,11 @@ transitionTable =
     (platformScope 7 "admin-api" NotInLocalContext)
       { move = "planned in its stage when the context has it; the target payload's release image unless NAGARE_ADMIN_API_IMAGE overrides it, so a new image rolls the Deployment"
       }
+  , -- EP-235: opt in per context with NAGARE_LIFECYCLE_EVENTS_ENABLED=1; the
+    -- fixture's local context does not enable it.
+    (platformScope 7 "lifecycle-events" NotInLocalContext)
+      { move = "planned in its stage when the context has it; the target payload's admin API release image, so a new image rolls the worker Deployment; its feed and delivery state stay in the store"
+      }
   , -- EP-237: the target payload's releaseImages select the images; the
     -- recorded fixture's two releases ran the same exported images.
     (platformScope 7 "auth" Unchanged)

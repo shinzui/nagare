@@ -17,6 +17,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryAdminApiSpec (inventoryAdminApiTests)
 import InventoryCloudflareTunnelSpec (inventoryCloudflareTunnelTests)
+import InventoryLifecycleEventsSpec (inventoryLifecycleEventsTests)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -62,6 +63,7 @@ inventoryAuthTests =
     "auth inventory component"
     [ inventoryCloudflareTunnelTests
     , inventoryAdminApiTests
+    , inventoryLifecycleEventsTests
     , releaseImageSelectionTests
     , testCase "packaged auth manifests bind stable Secrets and revised Jobs" $ do
         (bundle, native) <- compileAuth fixture >>= expectRight

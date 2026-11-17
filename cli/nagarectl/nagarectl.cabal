@@ -748,6 +748,7 @@ test-suite nagarectl-test
     InventoryKubernetesSpec
     InventoryKubernetesTerminatingSpec
     InventoryLandedUpdateStopSpec
+    InventoryLifecycleEventsSpec
     InventoryLifecycleSpec
     InventoryMaintenanceSpec
     InventoryMigrationSpec

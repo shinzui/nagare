@@ -49,8 +49,16 @@ import Nagare.Inventory.Components.ControllerImage
 import Nagare.Inventory.Components.Foundation
   ( FoundationInput (FoundationInput)
   )
+import Nagare.Inventory.Components.LifecycleEvents
+  ( LifecycleEventsInput (..)
+  , LifecycleStore (..)
+  , compileLifecycleEvents
+  , lifecycleWorkerSecretFile
+  , signingSecretNames
+  )
 import Nagare.Inventory.Components.LocalObjectStore
-  ( compileLocalObjectStore
+  ( LocalMinioImages
+  , compileLocalObjectStore
   , readLocalRegistryDigest
   , selectLocalMinioImages
   )
@@ -265,7 +273,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
       (dieT . T.pack . show)
       pure
       ( traverse
-          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled] <> [CloudflaredImage | connectorMode]))
+          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled || profile ^. #lifecycleEventsEnabled] <> [CloudflaredImage | connectorMode]))
           (manifest ^. #releaseImages)
       )
   let releaseImagePublications = maybe Map.empty snd releaseImages
@@ -277,18 +285,22 @@ buildPlatformCandidate current active paths workspace snapshot = do
           , selection ^. #source == ReleaseSource
           ]
   backupBackend <- either dieT pure (storeBackendFor profile (profile ^. #backupBucket))
-  localStore <- case backupBackend of
-    MinioBackend store -> do
+  minioImages <- case backupBackend of
+    MinioBackend _ -> do
       serverImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
       clientImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MC_IMAGE"
-      images <-
-        selectLocalMinioImages readLocalRegistryDigest (profile ^. #targetPlatform) serverImage clientImage
-          >>= either dieT pure
+      Just
+        <$> ( selectLocalMinioImages readLocalRegistryDigest (profile ^. #targetPlatform) serverImage clientImage
+                >>= either dieT pure
+            )
+    GcsBackend {} -> pure Nothing
+  localStore <- case (backupBackend, minioImages) of
+    (MinioBackend store, Just images) ->
       Just
         <$> ( compileLocalObjectStore root foundation store images
                 >>= either (dieT . T.pack . show) pure
             )
-    GcsBackend {} -> pure Nothing
+    _ -> pure Nothing
   let authMode = if profile ^. #mode == Local then LocalAuth else CloudAuth
   -- EP-262: the operator's En tenants, each with its schema file's bytes. A
   -- tenant the accepted auth scope holds stays declared.
@@ -402,6 +414,21 @@ buildPlatformCandidate current active paths workspace snapshot = do
             (ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory base))
       else pure Nothing
   let (adminApiScopes, adminApiNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) adminApi
+  lifecycleEvents <-
+    if profile ^. #lifecycleEventsEnabled
+      then
+        Just
+          <$> compilePlatformLifecycleEvents
+            active
+            (manifest ^. #releaseImages)
+            (Map.lookup AdminApiImage releaseImagePublications)
+            root
+            foundation
+            backupBackend
+            minioImages
+            snapshot
+      else pure Nothing
+  let (lifecycleScopes, lifecycleNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) lifecycleEvents
   tunnel <-
     if connectorMode
       then
@@ -415,14 +442,14 @@ buildPlatformCandidate current active paths workspace snapshot = do
             metricsRelease
       else pure Nothing
   let (tunnelScopes, tunnelNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) tunnel
-      nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative, adminApiNative, tunnelNative]
+      nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative, adminApiNative, lifecycleNative, tunnelNative]
       native = Map.unions nativeMaps
   unless
     (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
   -- EP-246 D5: during a move to a new base, the admin API keeps its old route while grants name it.
   carriedAdminApiScopes <- traverse (withMovedRoutes active snapshot) adminApiScopes
-  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> carriedAdminApiScopes <> tunnelScopes of
+  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> carriedAdminApiScopes <> lifecycleScopes <> tunnelScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
   let kubeconfigEdges =
@@ -655,4 +682,55 @@ compilePlatformAdminApi active releaseImages publication root foundation declara
       , store = store
       }
     declarations
+    >>= either (dieT . T.pack . show) pure
+
+-- | The opt-in lifecycle event worker scope (EP-235). Its image is the admin
+-- API's: the worker is a second executable of the same package. A local
+-- context reads the in-cluster object store through a read-only user the
+-- store's client image grants; a cloud context reads its GCS inventory and
+-- backup bucket through the worker key Secret in its cluster-secrets
+-- directory, and one whose store is still on a workstation must migrate it
+-- first. The worker may read the signing Secrets of the accepted schedules
+-- and subscriptions, and sends only when the context enables delivery.
+compilePlatformLifecycleEvents ::
+  ActiveTarget ->
+  Maybe ReleaseImages ->
+  Maybe Resource.ResourceId ->
+  FilePath ->
+  FoundationInput ->
+  StoreBackend ->
+  Maybe LocalMinioImages ->
+  ResourceInventory.ScopeSnapshot ->
+  IO (ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
+compilePlatformLifecycleEvents active releaseImages publication root foundation backupBackend minioImages snapshot = do
+  let profile = active ^. #profile
+      context = contextNameText (active ^. #contextName)
+  image <- selectImage (contextImageRegistry profile) releaseImages AdminApiImage >>= either (dieT . renderImageSelectionError) pure
+  store <- case (profile ^. #mode, backupBackend, minioImages) of
+    (Local, MinioBackend ref, Just images) -> pure (LocalLifecycle (ref ^. #endpoint) (ref ^. #bucket) (images ^. #client))
+    (Local, _, _) -> dieT "the lifecycle event worker in a local context reads the in-cluster object store; set NAGARE_LOCAL_OBJECT_STORE"
+    (Cloud, _, _) -> do
+      unless
+        (effectiveInventoryStore profile == InventoryStoreGcs)
+        (dieT "the lifecycle event worker reads a cloud context's GCS inventory; migrate this context's workstation store with `nagarectl inventory store migrate` first")
+      worker <-
+        loadContextSecretObject root context "lifecycle worker key" lifecycleWorkerSecretFile
+          >>= either dieT pure
+      let url =
+            if T.null (profile ^. #inventoryStoreUrl)
+              then defaultGcsInventoryStoreUrl context profile
+              else profile ^. #inventoryStoreUrl
+      pure (CloudLifecycle url (profile ^. #projectNumber) (profile ^. #backupBucket) worker)
+  compileLifecycleEvents
+    LifecycleEventsInput
+      { root = root
+      , foundation = foundation
+      , context = context
+      , project = profile ^. #project
+      , image = image
+      , imagePublication = publication
+      , store = store
+      , delivery = profile ^. #lifecycleDelivery
+      , signingSecrets = signingSecretNames snapshot
+      }
     >>= either (dieT . T.pack . show) pure

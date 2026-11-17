@@ -159,6 +159,8 @@ contextEnvPairs o =
     , pair "NAGARE_NIX_CACHE_ENABLED" (o ^. #nixCacheEnabled)
     , pair "NAGARE_CDN_ENABLED" (o ^. #cdnEnabled)
     , pair "NAGARE_ADMIN_API_ENABLED" (o ^. #adminApiEnabled)
+    , pair "NAGARE_LIFECYCLE_EVENTS_ENABLED" (o ^. #lifecycleEventsEnabled)
+    , pair "NAGARE_LIFECYCLE_DELIVERY" (o ^. #lifecycleDelivery)
     , pair "NAGARE_PROJECT_NUMBER" (o ^. #projectNumber)
     , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
     , pair "NAGARE_INSTANCE_NAME" (o ^. #instanceName)

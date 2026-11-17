@@ -121,6 +121,8 @@ data CloudCatalog = CloudCatalog
   -- only with the image-enabled entries (F43).
   , catalogAdminApiReaderEnabled :: ![CloudCatalogEntry]
   -- ^ The admin API's dedicated read-only account and grants (EP-196, EP-198).
+  , catalogLifecycleWorkerEnabled :: ![CloudCatalogEntry]
+  -- ^ The lifecycle event worker's account and prefix-scoped grants (EP-235).
   , catalogDelegatedDeployerTemplate :: ![CloudCatalogTemplateEntry]
   -- ^ One delegated deployer's principal (EP-248 D6), with @{deployer}@ in
   -- its names; 'withDelegatedDeployers' instantiates it per delegation.
@@ -195,6 +197,7 @@ decodeCloudCatalog bytes = do
         <*> o .:? "imageEnabled" .!= []
         <*> o .:? "cdnEnabled" .!= []
         <*> o .:? "adminApiReaderEnabled" .!= []
+        <*> o .:? "lifecycleWorkerEnabled" .!= []
         <*> o .:? "delegatedDeployerEnabled" .!= []
         <*> pure []
 
@@ -206,6 +209,7 @@ catalogEntries catalog =
     <> catalogImageEnabled catalog
     <> catalogCdnEnabled catalog
     <> catalogAdminApiReaderEnabled catalog
+    <> catalogLifecycleWorkerEnabled catalog
     <> catalogDelegatedDeployers catalog
 
 -- | The Pulumi name of one delegated deployer's component, as
@@ -226,13 +230,14 @@ withDelegatedDeployers deployers catalog = do
     pure (CloudCatalogEntry key (templateNativeType entry) nativeName parent (templateLayer entry))
   pure catalog {catalogDelegatedDeployers = concat entries}
 
-selectedCloudCatalog :: Bool -> Bool -> Bool -> Bool -> CloudCatalog -> [CloudCatalogEntry]
-selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalog =
+selectedCloudCatalog :: Bool -> Bool -> Bool -> Bool -> Bool -> CloudCatalog -> [CloudCatalogEntry]
+selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled lifecycleEnabled catalog =
   catalogFoundationManaged catalog
     <> (if cacheEnabled then catalogNixCacheEnabled catalog else [])
     <> (if imageEnabled then catalogImageEnabled catalog else [])
     <> (if imageEnabled && cdnEnabled then catalogCdnEnabled catalog else [])
     <> (if adminApiEnabled then catalogAdminApiReaderEnabled catalog else [])
+    <> (if lifecycleEnabled then catalogLifecycleWorkerEnabled catalog else [])
     <> catalogDelegatedDeployers catalog
 
 -- | A tunnel context's perimeter (ADR 34): no internet-facing firewall rule, and no Cloud DNS zone or
@@ -300,11 +305,12 @@ cloudBookkeepingRegistrations ::
   Bool ->
   Bool ->
   Bool ->
+  Bool ->
   CloudCatalog ->
   ContentDigest ->
   [NativeRegistration] ->
   Either Text [NativeRegistration]
-cloudBookkeepingRegistrations stack cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalog digest managed = do
+cloudBookkeepingRegistrations stack cacheEnabled imageEnabled cdnEnabled adminApiEnabled lifecycleEnabled catalog digest managed = do
   owner <- mkScopeId Platform "cloud-bookkeeping"
   key <- mkLogicalKey "native-registration"
   let managedUrns = Set.fromList (map registrationPulumiUrn managed)
@@ -314,7 +320,7 @@ cloudBookkeepingRegistrations stack cacheEnabled imageEnabled cdnEnabled adminAp
       unless
         (registrationPulumiUrn registration == expected)
         (Left "reviewed cloud registration URN differs from the program catalog")
-  registrations <- forM (selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalog) $ \entry -> do
+  registrations <- forM (selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled lifecycleEnabled catalog) $ \entry -> do
     urn <- cloudCatalogUrn stack catalog entry
     pure $
       if Set.member urn managedUrns
@@ -337,7 +343,7 @@ cloudBookkeepingRegistrations stack cacheEnabled imageEnabled cdnEnabled adminAp
             catalogNativeType entry == registrationPulumiType registration
               && catalogNativeName entry == registrationPulumiName registration
         )
-        (selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled catalog)
+        (selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled lifecycleEnabled catalog)
 
 data RegistrationParityError
   = DuplicateDeclaredRegistration !ResourceId

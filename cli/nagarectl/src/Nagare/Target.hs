@@ -323,6 +323,13 @@ data TargetProfile = TargetProfile
   -- @admin.\<base domain>@ (EP-198). A cloud context also needs its reader
   -- credential and 'projectNumber'; a local one, a substrate that mounts the
   -- context's store.
+  , lifecycleEventsEnabled :: !Bool
+  -- ^ NAGARE_LIFECYCLE_EVENTS_ENABLED; opt in to the lifecycle event worker
+  -- (EP-235). A cloud context also needs its worker credential and
+  -- 'projectNumber'; a local one, a substrate that mounts the context's store.
+  , lifecycleDelivery :: !Bool
+  -- ^ NAGARE_LIFECYCLE_DELIVERY; whether the worker sends webhook deliveries.
+  -- Off by default, so a candidate or rehearsal context records but never sends.
   , projectNumber :: !Text
   -- ^ NAGARE_PROJECT_NUMBER; the project's numeric number, which the admin API
   -- compares with the state bucket's owner. Empty when the API is off.
@@ -504,6 +511,8 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_NIX_CACHE_ENABLED" (boolToken (tp ^. #nixCacheEnabled))
     , line "NAGARE_CDN_ENABLED" (boolToken (tp ^. #cdnEnabled))
     , line "NAGARE_ADMIN_API_ENABLED" (boolToken (tp ^. #adminApiEnabled))
+    , line "NAGARE_LIFECYCLE_EVENTS_ENABLED" (boolToken (tp ^. #lifecycleEventsEnabled))
+    , line "NAGARE_LIFECYCLE_DELIVERY" (boolToken (tp ^. #lifecycleDelivery))
     , line "NAGARE_PROJECT_NUMBER" (tp ^. #projectNumber)
     , line "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" (boolToken (tp ^. #externalDomainTlsEnabled))
     , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
@@ -692,6 +701,8 @@ profileFromContextMap ctx =
       nixCacheEnabled = mapRaw ctx "NAGARE_NIX_CACHE_ENABLED" == Just "1"
       cdnEnabled = mapRaw ctx "NAGARE_CDN_ENABLED" == Just "1"
       adminApiEnabled = mapRaw ctx "NAGARE_ADMIN_API_ENABLED" == Just "1"
+      lifecycleEventsEnabled = mapRaw ctx "NAGARE_LIFECYCLE_EVENTS_ENABLED" == Just "1"
+      lifecycleDelivery = mapRaw ctx "NAGARE_LIFECYCLE_DELIVERY" == Just "1"
       projectNumber = mapOr ctx "NAGARE_PROJECT_NUMBER" ""
       nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
@@ -730,6 +741,8 @@ profileFromContextMap ctx =
         , nixCacheEnabled = nixCacheEnabled
         , cdnEnabled = cdnEnabled
         , adminApiEnabled = adminApiEnabled
+        , lifecycleEventsEnabled = lifecycleEventsEnabled
+        , lifecycleDelivery = lifecycleDelivery
         , projectNumber = projectNumber
         , nixCacheBucket = nixCacheBucket
         , baseDomain = baseDomain
@@ -771,6 +784,8 @@ resolveProfileFrom ctx = do
   nixCacheEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_NIX_CACHE_ENABLED"
   cdnEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_CDN_ENABLED"
   adminApiEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_ADMIN_API_ENABLED"
+  lifecycleEventsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_LIFECYCLE_EVENTS_ENABLED"
+  lifecycleDelivery <- (== Just "1") <$> ctxRaw ctx "NAGARE_LIFECYCLE_DELIVERY"
   projectNumber <- ctxOr ctx "NAGARE_PROJECT_NUMBER" ""
   nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
@@ -812,6 +827,8 @@ resolveProfileFrom ctx = do
       , nixCacheEnabled = nixCacheEnabled
       , cdnEnabled = cdnEnabled
       , adminApiEnabled = adminApiEnabled
+      , lifecycleEventsEnabled = lifecycleEventsEnabled
+      , lifecycleDelivery = lifecycleDelivery
       , projectNumber = projectNumber
       , nixCacheBucket = nixCacheBucket
       , baseDomain = baseDomain
@@ -873,6 +890,10 @@ resolveActiveTarget arg = do
                 .~ (storedProfile ^. #cdnEnabled)
                 & #adminApiEnabled
                 .~ (storedProfile ^. #adminApiEnabled)
+                & #lifecycleEventsEnabled
+                .~ (storedProfile ^. #lifecycleEventsEnabled)
+                & #lifecycleDelivery
+                .~ (storedProfile ^. #lifecycleDelivery)
                 & #projectNumber
                 .~ (storedProfile ^. #projectNumber)
                 & #nixCacheBucket

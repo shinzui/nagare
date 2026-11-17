@@ -114,6 +114,18 @@ initTests =
         let custom = enabled & #inventoryStoreUrl .~ "gs://tan-ng-labs-intranet-cblovqm-state/inventory"
         lookup "nagare:stateBucket" (seedKeys custom) @?= Just "tan-ng-labs-intranet-cblovqm-state"
         lookup "nagare:adminApiInventoryPrefix" (seedKeys custom) @?= Just "inventory"
+    , testCase "seedKeys grants the lifecycle worker the context's own inventory location (EP-235)" $ do
+        let enabled = initProfile & #lifecycleEventsEnabled .~ True
+        lookup "nagare:enableLifecycleWorker" (seedKeys initProfile) @?= Nothing
+        lookup "nagare:enableLifecycleWorker" (seedKeys enabled) @?= Just "true"
+        lookup "nagare:enableAdminApiReader" (seedKeys enabled) @?= Nothing
+        let custom = enabled & #inventoryStoreUrl .~ "gs://tan-ng-labs-intranet-cblovqm-state/inventory"
+        lookup "nagare:stateBucket" (seedKeys custom) @?= Just "tan-ng-labs-intranet-cblovqm-state"
+        lookup "nagare:adminApiInventoryPrefix" (seedKeys custom) @?= Just "inventory"
+        let both = custom & #adminApiEnabled .~ True
+        length (filter ((== "nagare:stateBucket") . fst) (seedKeys both)) @?= 1
+        assertBool "the profile records the opt-ins" (T.isInfixOf "export NAGARE_LIFECYCLE_EVENTS_ENABLED=1" (renderTargetEnv enabled))
+        assertBool "delivery defaults off" (T.isInfixOf "export NAGARE_LIFECYCLE_DELIVERY=0" (renderTargetEnv enabled))
     , testCase "seedKeys covers the Pulumi keys incl. cache opt-in and pinned VM shape" $
         map fst (seedKeys initProfile)
           @?= [ "gcp:project"
