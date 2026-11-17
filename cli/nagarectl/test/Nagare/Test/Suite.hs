@@ -23,6 +23,7 @@ import Data.ByteString qualified as BS
 import DataFenceSpec (dataFenceTests)
 import DomainBindingSpec (domainBindingTests)
 import EventsBackupSpec (eventsBackupTests)
+import EventsDeliverySpec (eventsDeliveryTests)
 import EventsDeploymentSpec (eventsDeploymentTests)
 import EventsSourceSpec (eventsSourceTests)
 import EventsStoreSpec (eventsStoreTests)
@@ -237,6 +238,7 @@ main = do
             , inventoryJournalHeadAdvanceTests
             , eventsSourceTests
             , eventsBackupTests
+            , eventsDeliveryTests
             , eventsDeploymentTests
             , eventsStoreTests
             , inventoryIncarnationTests

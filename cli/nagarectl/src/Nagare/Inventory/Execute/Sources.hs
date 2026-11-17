@@ -22,6 +22,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Events.Backup (backupProducer)
 import Nagare.Events.Deployment (deploymentProducer)
 import Nagare.Events.Source (MemberView (..), ScopeView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
+import Nagare.Events.Subscription (subscriptionProducer)
 import Nagare.Inventory.Adapter (PlannedOperation (plannedOperationId, plannedResources))
 import Nagare.Inventory.Execute.Types (reviewDocumentDigest)
 import Nagare.Inventory.Journal (JournalEvent (eventTransaction), TransactionId)
@@ -39,7 +40,7 @@ import Nagare.Resource.Types
 -- | The producers every converged release runs, whichever command applied
 -- or resumed it, ahead of any the registry adds.
 builtinProducers :: [SourceProducer]
-builtinProducers = [deploymentProducer, backupProducer]
+builtinProducers = [deploymentProducer, backupProducer, subscriptionProducer]
 
 -- | The facts @producers@ return for a converged release that replaces
 -- @headValue@. A member whose earlier bytes cannot be read stops the

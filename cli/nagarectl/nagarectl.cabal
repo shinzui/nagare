@@ -153,6 +153,9 @@ library
     Nagare.Events.Backup
     Nagare.Events.BackupCollector
     Nagare.Events.BackupSources
+    Nagare.Events.Delivery
+    Nagare.Events.Delivery.Store
+    Nagare.Events.Delivery.Transport
     Nagare.Events.Deployment
     Nagare.Events.Envelope
     Nagare.Events.Layout
@@ -162,7 +165,12 @@ library
     Nagare.Events.Receipts
     Nagare.Events.Source
     Nagare.Events.Store
+    Nagare.Events.Subscription
     Nagare.Events.Target
+    Nagare.Events.Webhook.Policy
+    Nagare.Events.Webhook.Signature
+    Nagare.Events.Webhook.Subscription
+    Nagare.Events.Webhook.Transport
     Nagare.Gcp.Adc
     Nagare.GhcEnv
     Nagare.Host.AgeKey
@@ -450,6 +458,8 @@ library
     containers,
     cradle,
     crypton,
+    crypton-connection,
+    data-default,
     directory,
     effectful-core >=2.7.1.2 && <2.8,
     filepath,
@@ -462,6 +472,7 @@ library
     lens ^>=5.3,
     nagare-contract,
     nagare-dsl,
+    network,
     process,
     ram,
     tar,
@@ -675,6 +686,7 @@ test-suite nagarectl-test
     DataFenceSpec
     DomainBindingSpec
     EventsBackupSpec
+    EventsDeliverySpec
     EventsDeploymentSpec
     EventsSourceSpec
     EventsStoreSpec
@@ -896,6 +908,7 @@ test-suite nagarectl-test
     nagare-contract,
     nagare-dsl,
     nagarectl,
+    network,
     openapi-hs,
     process,
     tar,

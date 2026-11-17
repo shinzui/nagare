@@ -113,6 +113,11 @@ def check(root: Path, limits: dict[str, int]) -> list[str]:
             errors.append(f'{name}: domain tests import suite assembler')
         if area == 'src' and any(x.startswith('Nagare.Cli.') for x in imports):
             errors.append(f'{name}: library imports CLI workflows')
+        # ADR 33: the shared lifecycle delivery core names no transport.
+        if name in ('Nagare.Events.Subscription', 'Nagare.Events.Delivery') or name.startswith('Nagare.Events.Delivery.'):
+            for dependency in imports:
+                if dependency.startswith(('Nagare.Events.Webhook', 'Network.HTTP', 'Network.Connection', 'Network.Socket')):
+                    errors.append(f'{name}: shared delivery imports a transport {dependency}')
         if re.search(r'OPTIONS_GHC[^#]*-W(?:no-|warn=)(?:error=)?incomplete', source):
             errors.append(f'{name}: disables exhaustiveness errors')
     for relative in limits:
