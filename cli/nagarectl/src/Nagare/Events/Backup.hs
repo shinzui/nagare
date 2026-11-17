@@ -19,15 +19,20 @@ module Nagare.Events.Backup
   , BackupSchedule (..)
   , VerifiedRun (..)
   , scheduledCompletion
+  , backupProducer
+  , acceptedBackups
   )
 where
 
 import Data.Aeson (object, (.=))
 import Data.Generics.Labels ()
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Events.Envelope (eventIdFor, eventIdText)
 import Nagare.Events.Source
 import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation)
 import Nagare.Inventory.Digest (contentDigest)
@@ -136,3 +141,118 @@ scheduledCompletion schedule' verified =
     backup = backupIdFor ScheduledBackup (schedule' ^. #owner) run archive receipt
     completed = stamp <$> verified ^. #receiptTime
     stamp = T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+
+-- | @database.backup.accepted@ (EP-233 M3), and the completion it rests on:
+-- a converged transaction that newly records a backup as a recovery point.
+-- A scheduled run is accepted by its reviewed ingestion scope; a manual
+-- backup by its durable, Job-free receipt record, whose transaction is also
+-- where its exact versions are first verified, so that record announces its
+-- completion too. Each acceptance carries the completion under the same
+-- source key the collector uses, so whichever route the feed sees first
+-- publishes it, and the other is the same event. A later revision of the
+-- scope that keeps the backup's pins, a save-plan or an admission announces
+-- nothing; application-volume runs are not database backups.
+backupProducer :: SourceProducer
+backupProducer = SourceProducer (const False) ["scheduled.backup.id", "backup.record"] (concatMap pair . acceptedBackups)
+  where
+    pair (completion, acceptance) = [PublicCandidate completion, PublicCandidate acceptance]
+
+-- | Each newly accepted backup's completion and acceptance candidates.
+acceptedBackups :: SourceInput -> [(EventCandidate, EventCandidate)]
+acceptedBackups input =
+  [ found
+  | (receiptScope, view') <- Map.toAscList (input ^. #scopes)
+  , Just found <- [scheduledAcceptance input receiptScope view' <|> manualAcceptance input receiptScope view']
+  ]
+
+scheduledAcceptance :: SourceInput -> ScopeId -> ScopeView -> Maybe (EventCandidate, EventCandidate)
+scheduledAcceptance input receiptScope view' = do
+  let fields = view' ^. #desired
+      field key = Map.lookup key fields
+  run <- field "scheduled.backup.id"
+  guard (field "scheduled.backup.source.kind" /= Just "volume")
+  guard (newlyPinned view' ["scheduled.backup.id", "scheduled.backup.object.version", "scheduled.backup.receipt.version"])
+  owner <- field "scheduled.backup.source.scope" >>= parseScope
+  archive <- StoredVersion <$> field "scheduled.backup.object" <*> field "scheduled.backup.object.version"
+  receipt <- StoredVersion <$> field "scheduled.backup.receipt" <*> field "scheduled.backup.receipt.version"
+  sha <- field "scheduled.backup.object.sha256"
+  size <- field "scheduled.backup.object.length" >>= readInteger
+  receiptDigest <- field "scheduled.backup.receipt.digest" >>= either (const Nothing) Just . mkContentDigest
+  revision <- traverse (either (const Nothing) Just . mkContentDigest) (field "scheduled.backup.schedule.revision")
+  let source = sourceRef owner fields "scheduled.backup.source.statefulset"
+  pure (pairFor input receiptScope view' ScheduledBackup owner run archive receipt sha size revision (field "scheduled.backup.recovery.point") receiptDigest source)
+
+manualAcceptance :: SourceInput -> ScopeId -> ScopeView -> Maybe (EventCandidate, EventCandidate)
+manualAcceptance input receiptScope view' = do
+  let fields = view' ^. #desired
+      field key = Map.lookup key fields
+  guard (field "backup.record" == Just "verified-v1")
+  guard ((view' ^. #previous >>= Map.lookup "backup.record") /= Just "verified-v1")
+  run <- field "backup.id"
+  owner <- field "backup.source.scope" >>= parseScope
+  archive <- StoredVersion <$> field "backup.object" <*> field "backup.object.version"
+  receipt <- StoredVersion <$> field "backup.receipt" <*> field "backup.receipt.version"
+  sha <- field "backup.object.sha256"
+  size <- field "backup.object.length" >>= readInteger
+  receiptDigest <- field "backup.receipt.digest" >>= either (const Nothing) Just . mkContentDigest
+  let source = sourceRef owner fields "backup.source.statefulset"
+  pure (pairFor input receiptScope view' ManualBackup owner run archive receipt sha size Nothing Nothing receiptDigest source)
+
+pairFor :: SourceInput -> ScopeId -> ScopeView -> BackupOrigin -> ScopeId -> Text -> StoredVersion -> StoredVersion -> Text -> Integer -> Maybe ContentDigest -> Maybe Text -> ContentDigest -> ResourceRef -> (EventCandidate, EventCandidate)
+pairFor input receiptScope view' origin owner run archive receipt sha size revision point receiptDigest source =
+  ( EventCandidate
+      { key = completionKey backup
+      , resource = source
+      , occurredAt = Nothing
+      , evidence = [Evidence "receipt" receiptDigest]
+      , payload = BackupCompletedPayload (BackupCompletion backup origin run archive receipt sha size revision point Nothing)
+      }
+  , EventCandidate
+      { key = acceptanceKey backup
+      , resource = source
+      , occurredAt = Nothing
+      , evidence = [Evidence "review" (input ^. #review), Evidence "receipt" receiptDigest]
+      , payload =
+          BackupAcceptedPayload
+            BackupAcceptance
+              { backup
+              , completion = eventIdText (eventIdFor (input ^. #context) (completionKey backup))
+              , receiptScope
+              , receiptRevision = view' ^. #revision
+              , transaction = input ^. #transaction
+              , review = input ^. #review
+              , recoveryPoint = point
+              }
+      }
+  )
+  where
+    backup = backupIdFor origin owner run archive receipt
+
+-- | The backup's source: its owner scope and, when recorded, its StatefulSet
+-- and that StatefulSet's incarnation.
+sourceRef :: ScopeId -> Map Text Text -> Text -> ResourceRef
+sourceRef owner fields key =
+  ResourceRef
+    owner
+    (Map.lookup key fields >>= either (const Nothing) Just . mkResourceId)
+    Nothing
+    (Map.lookup (key <> ".uid") fields >>= either (const Nothing) Just . mkPhysicalIdentity)
+
+-- | Whether the scope's desired pins differ from those converged before.
+newlyPinned :: ScopeView -> [Text] -> Bool
+newlyPinned view' keys = case view' ^. #previous of
+  Nothing -> True
+  Just previous -> any (\key -> Map.lookup key previous /= Map.lookup key (view' ^. #desired)) keys
+
+parseScope :: Text -> Maybe ScopeId
+parseScope text = case T.breakOn ":" text of
+  (kind, rest)
+    | Just name <- T.stripPrefix ":" rest
+    , Just scopeKind <- lookup kind [("platform", Platform), ("application", Application), ("standalone", Standalone), ("publication", Publication)] ->
+        either (const Nothing) Just (mkScopeId scopeKind name)
+  _ -> Nothing
+
+readInteger :: Text -> Maybe Integer
+readInteger text = case reads (T.unpack text) of
+  [(n, "")] | n >= 0 -> Just n
+  _ -> Nothing

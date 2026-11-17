@@ -43,8 +43,8 @@ Consumers learn when Nagare has verified a database backup even when no operator
 
 
 - [x] M1: One unattended managed PostgreSQL scheduled receipt passes the real verifier and appears once as `database.backup.completed`, including after collector restart. Evidence: `cabal test nagarectl-test --test-options='-p /Events.Backup/'`, 14 cases, among them "one verified scheduled PostgreSQL run is one completion event, after a restart too", the baseline, failure-diagnostic, orphan-adoption, lost-acknowledgement, overlapping-collector, listing-cost and budget cases; `nagarectl events collect-backups --once [--activate]`.
-- [ ] M2: Scheduled Redis/ClickHouse and app-database producers, plus reviewed manual database backups, produce completion events under the same identity and verification rules.
-- [ ] M3: Reviewed backup acceptance emits a separate durable event; bounded collection, activation, delayed discovery and failure diagnostics are demonstrated.
+- [x] M2: Scheduled Redis/ClickHouse and app-database producers, plus reviewed manual database backups, produce completion events under the same identity and verification rules. Evidence: `Events.Backup` "Redis, ClickHouse and app-database runs verify under their own formats and key spaces" (real rendered CronJobs); "... a new manual record announces completion and acceptance"; "the collector resolves database and app-database schedules from recorded incarnations alone".
+- [x] M3: Reviewed backup acceptance emits a separate durable event; bounded collection, activation, delayed discovery and failure diagnostics are demonstrated. Evidence: `Events.Backup` "a reviewed scheduled ingestion is one acceptance, and completes the backup under the collector's key, in either order" (a real `applyReviewed` convergence through `Execute/Sources.hs`), the no-op revision, volume, bulk-ingestion and secrecy cases, and the M1 baseline, delayed-receipt, pending-diagnostic, budget and listing-cost cases; operator text in `docs/user/backups-and-disaster-recovery.md` "Backup lifecycle events".
 
 
 ## Surprises & Discoveries
@@ -69,10 +69,14 @@ Consumers learn when Nagare has verified a database backup even when no operator
 
 2026-11-17: Verified runs become an observation chain under the feed's `receipts/` prefix, committed by a collector head with journal-style publish-then-commit and orphan adoption; `FeedHead` gains a `receipts` checkpoint and the materializer consumes both chains. The baseline is the provider time of the newest receipt at activation (with the receipts tied at that time), not a stored set; a complete listing every cycle replaces a name cursor, so late receipts need no rescan window. The collector state is bounded: the 256 most recent backup IDs (covering observations not yet materialized) and the 256 oldest pending runs. Schedules resolve from accepted inventory and recorded incarnations only (`Nagare.Events.BackupSources`), so the collector observes no cluster except the signing Secret.
 
+2026-11-17: Acceptance and manual completion come from one built-in executor producer, `backupProducer`, over the overrides of the scopes a converged transaction changed (`SourceInput.scopes`, read only for scopes holding `scheduled.backup.id` or `backup.record`). A scheduled ingestion scope announces acceptance and carries the completion under the collector's source key, so either route publishes it once. A manual backup's exact versions are first verified by its `db manual-receipt` record, so that record announces both its completion and its acceptance; the backup Job's own transaction announces nothing, and manual key spaces are never listed by the collector. Application-volume ingestions announce nothing.
+
+2026-11-17: The discovery interval and its 30-second floor belong to the long-running loop, which is EP-235's; this plan ships the bounded cycle (`collectOnce`) and its budget (64 verifications, 256 MiB of archive bytes, four at a time per cycle by default). Archive reads are held in memory per object, so the byte budget also bounds a cycle's memory.
+
 ## Outcomes & Retrospective
 
 
-(To be filled during implementation and at completion.)
+Verified scheduled database and app-database backups (PostgreSQL, Redis, ClickHouse) become `database.backup.completed` events through a bounded, read-only collector whose observations are a committed chain beside the feed, and reviewed scheduled ingestions and manual receipt records become `database.backup.accepted` events through an executor producer; both name one normalized backup ID. Every case is proved against fake providers and the real verifier, executor and materializer. What remains is EP-235's: the continuous loop, its interval, in-cluster credentials for the signing Secrets and bucket, and native confirmation of the gogol and MinIO readers and the unattended latency. No ADR change: ADR 33 and ADR 39 already hold the boundaries this plan uses.
 
 
 ## Context and Orientation

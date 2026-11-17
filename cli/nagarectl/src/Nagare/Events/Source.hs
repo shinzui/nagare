@@ -41,6 +41,7 @@ module Nagare.Events.Source
   , SourceProducer (..)
   , sourceProducer
   , MemberView (..)
+  , ScopeView (..)
   , SourceFacts (..)
   , factsSchemaVersion
   , assembleFacts

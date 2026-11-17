@@ -125,7 +125,7 @@ eventsSourceTests =
             decodeSourceFacts bytes @?= Right facts
             assertBool "an unknown field is refused" (isLeft (decodeSourceFacts (either (error . T.unpack) id (canonicalValue (addField (toJSON facts))))))
         , testCase "producers' items assemble once per key and refuse a key naming two facts" $ do
-            let input = SourceInput tx1 (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] Map.empty
+            let input = SourceInput (fixtureBinding ^. #identity) tx1 (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] Map.empty Map.empty
                 producing items = sourceProducer (const items)
             assembleFacts input [] @?= Right Nothing
             fmap (fmap (^. #controls)) (assembleFacts input [producing [Control (control "a" 1)], producing [Control (control "a" 1)]]) @?= Right (Just [control "a" 1])

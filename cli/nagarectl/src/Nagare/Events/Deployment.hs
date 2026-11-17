@@ -35,7 +35,7 @@ import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Static.Release (StaticReleaseLog, extractReleaseLog)
 
 deploymentProducer :: SourceProducer
-deploymentProducer = SourceProducer isReleaseHistory deployments
+deploymentProducer = SourceProducer isReleaseHistory [] deployments
 
 -- | A release log member: @SCOPE/APP/release-history@ for an application
 -- or a standalone service, @SCOPE/release-history/configmap@ for a site.

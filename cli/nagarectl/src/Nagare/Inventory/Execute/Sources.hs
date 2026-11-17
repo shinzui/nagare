@@ -16,10 +16,12 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Events.Backup (backupProducer)
 import Nagare.Events.Deployment (deploymentProducer)
-import Nagare.Events.Source (MemberView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
+import Nagare.Events.Source (MemberView (..), ScopeView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
 import Nagare.Inventory.Adapter (PlannedOperation (plannedOperationId, plannedResources))
 import Nagare.Inventory.Execute.Types (reviewDocumentDigest)
 import Nagare.Inventory.Journal (JournalEvent (eventTransaction), TransactionId)
@@ -30,14 +32,14 @@ import Nagare.Inventory.Plan
   , reviewedDocument
   )
 import Nagare.Inventory.ScopeMember (decodeScopeMember)
-import Nagare.Inventory.Store (HeadManifest (headConverged), InventoryStore, ScopeRevision (revisionDigest), objectKeyFor, readObject, scopeKey)
-import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (..), scopeBundles)
+import Nagare.Inventory.Store (HeadManifest (headBinding, headConverged), InventoryStore, ScopeRevision (revisionDigest), objectKeyFor, readObject, scopeKey)
+import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (..), ScopeDeclaration, scopeBundles, scopeOverrides)
 import Nagare.Resource.Types
 
 -- | The producers every converged release runs, whichever command applied
 -- or resumed it, ahead of any the registry adds.
 builtinProducers :: [SourceProducer]
-builtinProducers = [deploymentProducer]
+builtinProducers = [deploymentProducer, backupProducer]
 
 -- | The facts @producers@ return for a converged release that replaces
 -- @headValue@. A member whose earlier bytes cannot be read stops the
@@ -54,12 +56,17 @@ convergedSourceFacts store producers transaction reviewed events headValue = do
         , wanted resource
         ]
       before = headConverged headValue
+      keys = concatMap (^. #scopeKeys) producers
+      changed = [(owner, revision) | not (null keys), (owner, revision) <- Map.toAscList (reviewDesiredRevisions document), Map.lookup owner before /= Just revision]
   views <- traverse (view (reviewDesiredRevisions document) before) operated
+  scopeViews <- traverse (scopeView keys before) changed
   pure $ do
     members <- Map.fromList <$> sequence views
+    scopes <- Map.fromList . catMaybes <$> sequence scopeViews
     let input =
           SourceInput
-            { transaction
+            { context = headBinding headValue ^. #identity
+            , transaction
             , review = reviewDocumentDigest document
             , payloadIdentity = reviewPayloadIdentity document
             , baseRevisions = reviewBaseRevisions document
@@ -73,9 +80,26 @@ convergedSourceFacts store producers transaction reviewed events headValue = do
                   ]
             , journal = [event | event <- events, eventTransaction event == transaction]
             , members
+            , scopes
             }
     assembleFacts input producers
   where
+    -- A changed scope whose desired overrides hold a key some producer
+    -- names, with its overrides converged before; any other is not read
+    -- further.
+    scopeView keys before (owner, revision) = do
+      desired <- declarationAt owner revision
+      case desired of
+        Left reason -> pure (Left reason)
+        Right declaration
+          | not (any (`Map.member` scopeOverrides declaration) keys) -> pure (Right Nothing)
+          | otherwise -> do
+              earlier <- maybe (pure (Right Nothing)) (fmap (fmap Just) . declarationAt owner) (Map.lookup owner before)
+              pure (fmap (\previous -> Just (owner, ScopeView revision (scopeOverrides declaration) (scopeOverrides <$> previous))) earlier)
+    declarationAt :: ScopeId -> ScopeRevision -> IO (Either Text ScopeDeclaration)
+    declarationAt owner revision = do
+      loaded <- readObject store (scopeKey (revisionDigest revision))
+      pure (first (\err -> "the converged scope " <> scopeIdText owner <> " cannot be read: " <> T.pack (show err)) (loaded >>= decodeScopeMember owner (revisionDigest revision)))
     view desiredRevisions before (operationId, resource) = case ownerOf resource of
       Left reason -> pure (Left reason)
       Right owner -> do

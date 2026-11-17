@@ -511,6 +511,29 @@ to load a dump into a new engine. Keep the escrow files, the age key and the
 context in the private operator repository (ADR 13). The procedure is
 [Total cluster loss](#total-cluster-loss-recover-the-data) below.
 
+## Backup lifecycle events
+
+The context's lifecycle feed (`nagarectl events list`) records two backup
+events. `database.backup.completed` means a managed database's or an app
+database's archive and its signed receipt were verified at exact provider
+versions; for a manual backup, its `db manual-receipt` record verified them.
+`database.backup.accepted` means a reviewed transaction (a scheduled-receipt
+ingestion or a manual receipt record) admitted that backup as a recovery
+point. Both name the same backup ID, and the acceptance names the
+completion's event ID; they may appear in either order. Neither grants
+restore, ingestion or prune authority, and observing a backup never accepts
+it.
+
+Scheduled completions are found by the backup collector, without anyone
+running the CLI, once collection is active. `nagarectl events
+collect-backups --once` runs one cycle by hand; `--activate` starts
+collection, treating the backups present at that moment as already seen.
+A run that fails verification (a bad signature, a source that is not the
+recorded incarnation, changed or missing bytes) is reported as pending with
+its reason and is never published. A backup deleted by someone else before
+the collector verified it has no completion event: the feed is not a record
+of arbitrary changes made outside Nagare.
+
 ## Total cluster loss: recover the data
 
 This is the drill for "the cluster is gone, is the data?". Run it before trusting

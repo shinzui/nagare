@@ -32,7 +32,6 @@ import Nagare.Events.Source (ResourceRef (..))
 import Nagare.Inventory.AppDatabase (AppDatabaseScheduleSource (..), appDatabaseScheduleSource)
 import Nagare.Inventory.Backup (ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob)
-import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Journal (JournalEvent, decodeJournalEvent)
 import Nagare.Inventory.Plan (InventoryHistory (..), historyReservations, loadInventoryHistoryAt)
 import Nagare.Inventory.ScheduleHistory (convergedScheduleRevisionsIn)
@@ -93,7 +92,7 @@ loadBackupSchedules store backend = do
               , objectPrefix
               , expectations
               , signing = found ^. #signing
-              , source = ResourceRef (found ^. #owner) (Just (found ^. #stateful)) (Just (found ^. #namespace)) (Just (found ^. #statefulUid))
+              , source = ResourceRef (found ^. #owner) (Just (found ^. #stateful)) Nothing (Just (found ^. #statefulUid))
               }
     expectationFor found = case found ^. #kind of
       DatabaseSchedule -> scheduledReceiptExpectationFromCronJob backend (found ^. #namespace) (found ^. #name) (found ^. #statefulUid) (found ^. #pvcUid)
@@ -130,7 +129,10 @@ resolveSchedules snapshot incarnations =
     signingRef namespace' schedule' member = SigningRef namespace' (schedule' <> "-signing") (member ^. #identity) <$> recorded "the signing Secret" member
     resolve status = do
       let namespace' = status ^. #namespace
-      (cluster, _) <- acceptedFoundationNamespace snapshot namespace'
+      -- The accepted CronJob's own address names the cluster its siblings are in.
+      cluster <- case [member ^. #address | scope' <- scopes, scopeId scope' == status ^. #source, bundle <- scopeBundles scope', Managed member <- declarations bundle, member ^. #identity == status ^. #schedule] of
+        [Kubernetes cluster' _ _ _ _] -> Right cluster'
+        _ -> Left "the schedule's CronJob is not one accepted Kubernetes member"
       let address api kind' name' = kubernetesAddress cluster api kind' (Just namespace') name'
       case status ^. #kind of
         DatabaseStatus database -> do

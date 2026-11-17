@@ -6,6 +6,7 @@
 -- virtual clock.
 module EventsBackupSpec (eventsBackupTests) where
 
+import AppDatabaseSpec (alpha, pgServer, scopeAndNative, snapshotWith)
 import Control.Concurrent.Async (concurrently)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -27,23 +28,32 @@ import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import InventoryObjectOpsSpec (fakeObjectOps)
-import InventoryTransactionSpec (fixtureBinding)
+import InventoryTransactionSpec (fixtureBinding, preparedFixtureFrom)
+import Nagare.Database.AppDatabase.Backup (AppDatabaseBackup (..), appDatabaseBackupKeyPrefix, renderInventoryAppDatabaseBackupCronJob)
 import Nagare.Database.Backup (renderInventoryDbBackupCronJob)
-import Nagare.Dsl.Database (Engine (Postgres))
+import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Events.Backup
 import Nagare.Events.BackupCollector
+import Nagare.Events.BackupSources (resolveSchedules)
+import Nagare.Events.Envelope (encodeEnvelope, eventIdFor, eventIdText)
 import Nagare.Events.Materialize
 import Nagare.Events.Read
 import Nagare.Events.Source
 import Nagare.Events.Store
+import Nagare.Inventory.Adapter (AdapterExecution (AdapterEffectCompleted), RecoveryDecision (RecoverySafeToRetry))
 import Nagare.Inventory.Backup (ScheduledReceiptExpectation, scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
+import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Execute (TransactionResult (Converged), applyReviewed)
+import Nagare.Inventory.Journal (mkTransactionId)
+import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), scheduledStatusSources)
 import Nagare.Inventory.ScheduledStore (StoredObject (..), VersionedObject (..), VersionedReader (..))
-import Nagare.Inventory.Store (InventoryStore, initializeStore, newObjectStore)
+import Nagare.Inventory.Store (InventoryStore, ScopeRevision (..), initializeStore, newObjectStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Inventory.Store.S3 (parseVersionListing)
+import Nagare.Resource.Inventory (Declaration (Managed), declarations, scopeBundles, snapshotScopes)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.DataFixtures (localMinioBackend)
@@ -135,6 +145,17 @@ eventsBackupTests =
         uploadRun world run1 (minutes 1) validRun {metadataEdit = const olderMetadata}
         outcome <- collect world
         outcome ^. #published @?= 1
+    , testCase "Redis, ClickHouse and app-database runs verify under their own formats and key spaces" $
+        for_ [redisVariant, clickhouseVariant, appDatabaseVariant] $ \v -> do
+          world <- newWorldFor v
+          activate world
+          uploadRun world run1 (minutes 1) validRun
+          -- A run under another schedule's key space is not this schedule's.
+          putObjectAt world ("databases/other/" <> run2 <> ".sql.gz.receipt.json") (receiptBytes run2 validRun) (minutes 2)
+          outcome <- collect world
+          (v ^. #label, outcome ^. #published, outcome ^. #failures) @?= (v ^. #label, 1, [])
+          archives <- map (fmap (^. #name) . completionArchive) <$> publishedEvents world
+          archives @?= [Just ("s3://nagare-backups/" <> variantArchiveKey v run1)]
     , testCase "a collector that dies between its observation and its head write is adopted; the event appears once" $ do
         world <- newWorld
         activate world
@@ -208,12 +229,75 @@ eventsBackupTests =
         world <- newWorld
         outcome <- collect' world
         outcome @?= Left CollectNotActive
+    , testCase "a published backup event carries no signing key, receipt body or credential" $ do
+        world <- newWorld
+        activate world
+        uploadRun world run1 (minutes 1) validRun
+        _ <- collect world
+        _ <- publishedEvents world
+        page <- readPage (world ^. #feed) fixtureBinding readRequest >>= either (assertFailure . show) pure
+        let bodies = map (encodeEnvelope . (^. #envelope)) (page ^. #entries)
+        length bodies @?= 1
+        for_ bodies $ \body -> for_ [TE.encodeUtf8 signingKeyHex, "hmac", "HMAC", "jobUid", "signing"] $ \needle ->
+          assertBool ("the event holds " <> show needle) (not (needle `BS.isInfixOf` body))
+    , testCase "the collector resolves database and app-database schedules from recorded incarnations alone" $ do
+        let (pgScope, _) = scopeAndNative pgServer (alpha Postgres)
+            accepted = snapshotWith [pgServer] [pgScope]
+            members = [m ^. #identity | (_, scope') <- Map.elems (snapshotScopes accepted), bundle <- scopeBundles scope', Managed m <- declarations bundle]
+            recorded = Map.fromList [(resource, ok (mkPhysicalIdentity ("uid-" <> T.pack (show n)))) | (n, resource) <- zip [1 :: Int ..] members]
+            expected = [status ^. #label | status <- scheduledStatusSources accepted, case status ^. #kind of VolumeStatus _ -> False; _ -> True]
+            resolved = resolveSchedules accepted recorded
+        map fst resolved @?= expected
+        length expected @?= 2
+        [(label', reason') | (label', Left reason') <- resolved] @?= []
+        assertBool "an unrecorded source resolves nothing" (all (isLeft . snd) (resolveSchedules accepted Map.empty))
     , testCase "a backup's identity holds no route, and manual and scheduled runs never collide" $ do
         let archive = StoredVersion "s3://b/a" "1"
             receipt = StoredVersion "s3://b/a.receipt.json" "2"
         backupIdFor ScheduledBackup ownerScope "r" archive receipt @?= backupIdFor ScheduledBackup ownerScope "r" archive receipt
         assertBool "origins are separate key spaces" (backupIdFor ScheduledBackup ownerScope "r" archive receipt /= backupIdFor ManualBackup ownerScope "r" archive receipt)
         assertBool "versions are identity" (backupIdFor ScheduledBackup ownerScope "r" archive receipt {version = "3"} /= backupIdFor ScheduledBackup ownerScope "r" archive receipt)
+    , testCase "a reviewed scheduled ingestion is one acceptance, and completes the backup under the collector's key, in either order" $ do
+        -- Collector first: its completion is published, the ingestion's is the same event.
+        world <- newWorld
+        activate world
+        uploadRun world run1 (minutes 1) validRun
+        _ <- collect world
+        _ <- publishedEvents world
+        ingested <- ingestedInventory
+        afterIngestion <- materializeWith world ingested
+        kindsOf afterIngestion @?= [DatabaseBackupCompleted, DatabaseBackupAccepted]
+        assertCrossReferenced afterIngestion
+        -- Ingestion first: the collector's later completion is the same event.
+        world' <- newWorld
+        activate world'
+        uploadRun world' run1 (minutes 1) validRun
+        ingested' <- ingestedInventory
+        _ <- materializeWith world' ingested'
+        _ <- collect world'
+        both <- materializeWith world' ingested'
+        -- Facts are key-ordered: here the acceptance is published first.
+        kindsOf both @?= [DatabaseBackupAccepted, DatabaseBackupCompleted]
+        assertCrossReferenced both
+    , testCase "a later revision keeping the pins, a volume run and a recorded manual receipt announce nothing; a new manual record announces completion and acceptance" $ do
+        let input scopes' = SourceInput (fixtureBinding ^. #identity) (ok (mkTransactionId "tx-1")) (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] Map.empty (Map.fromList scopes')
+            revision = ScopeRevision (ok (mkScopeGeneration 2)) (contentDigest "scope")
+            produced = (backupProducer ^. #produce) . input
+            receiptScope = ok (mkScopeId Platform "receipt-1")
+        produced [(receiptScope, ScopeView revision ingestionPins Nothing)] `lengthIs` 2
+        -- A bulk ingestion: one acceptance per newly accepted backup.
+        let secondRun = Map.insert "scheduled.backup.id" run2 (Map.insert "scheduled.backup.object.version" "v9" ingestionPins)
+        produced [(receiptScope, ScopeView revision ingestionPins Nothing), (ok (mkScopeId Platform "receipt-2"), ScopeView revision secondRun Nothing)] `lengthIs` 4
+        produced [(receiptScope, ScopeView revision ingestionPins (Just ingestionPins))] `lengthIs` 0
+        produced [(receiptScope, ScopeView revision (Map.insert "scheduled.backup.source.kind" "volume" ingestionPins) Nothing)] `lengthIs` 0
+        produced [(receiptScope, ScopeView revision manualRecord (Just (Map.delete "backup.record" manualRecord)))] `lengthIs` 2
+        produced [(receiptScope, ScopeView revision manualRecord (Just manualRecord))] `lengthIs` 0
+        case [candidate ^. #payload | PublicCandidate candidate <- produced [(receiptScope, ScopeView revision manualRecord Nothing)]] of
+          [BackupCompletedPayload completion, BackupAcceptedPayload acceptance] -> do
+            completion ^. #origin @?= ManualBackup
+            acceptance ^. #backup @?= completion ^. #backup
+            acceptance ^. #receiptScope @?= receiptScope
+          other -> assertFailure ("expected a manual completion and acceptance, got " <> show other)
     , testCase "an S3 version listing keeps only live versions and names its next page" $ do
         let page =
               "<ListVersionsResult><IsTruncated>true</IsTruncated><NextKeyMarker>databases/x/b</NextKeyMarker><NextVersionIdMarker>v9</NextVersionIdMarker>"
@@ -229,6 +313,68 @@ eventsBackupTests =
           Left reason -> assertFailure (T.unpack reason)
         assertBool "a page escaping its prefix refuses" (isLeft (parseVersionListing "other/" page))
         assertBool "a truncated page without markers refuses" (isLeft (parseVersionListing "databases/" "<ListVersionsResult><IsTruncated>true</IsTruncated></ListVersionsResult>"))
+    ]
+
+-- * Acceptance fixtures
+
+-- | An inventory whose one converged transaction is a reviewed ingestion of
+-- run1 at the versions the world uploads (the fixture's changed scope
+-- carries the ingestion pins).
+ingestedInventory :: IO InventoryStore
+ingestedInventory = do
+  ops' <- fakeObjectOps
+  store <- newObjectStore ops' fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+  (reviewed, registry) <- preparedFixtureFrom "test/fixtures/inventory/valid-backup-ingestion.json" "operator-cli" id store (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure RecoverySafeToRetry) (\_ r -> r)
+  applied <- applyReviewed store registry reviewed >>= either (assertFailure . show) pure
+  case applied of
+    Converged _ -> pure store
+    other -> assertFailure ("the ingestion did not converge: " <> show other)
+
+materializeWith :: World -> InventoryStore -> IO [EventPayload]
+materializeWith world store = do
+  _ <- materializeOnce store (world ^. #feed) fixtureBinding defaultBudget (pure "2026-11-17T01:00:00Z") >>= either (assertFailure . show) pure
+  page <- readPage (world ^. #feed) fixtureBinding readRequest >>= either (assertFailure . show) pure
+  pure [entry ^. #envelope . #payload | entry <- page ^. #entries]
+
+kindsOf :: [EventPayload] -> [EventKind]
+kindsOf = map payloadKind
+
+assertCrossReferenced :: [EventPayload] -> Assertion
+assertCrossReferenced payloads = case ([c | BackupCompletedPayload c <- payloads], [a | BackupAcceptedPayload a <- payloads]) of
+  ([completion], [acceptance]) -> do
+    completion ^. #backup @?= backupIdFor ScheduledBackup ownerScope run1 (StoredVersion (archiveAddress run1) "v1") (StoredVersion (receiptAddress run1) "v2")
+    acceptance ^. #backup @?= completion ^. #backup
+    acceptance ^. #completion @?= eventIdText (eventIdFor (fixtureBinding ^. #identity) (completionKey (completion ^. #backup)))
+  _ -> assertFailure ("expected one completion and one acceptance, got " <> show payloads)
+
+lengthIs :: [a] -> Int -> Assertion
+lengthIs items n = length items @?= n
+
+ingestionPins, manualRecord :: Map Text Text
+ingestionPins =
+  Map.fromList
+    [ ("scheduled.backup.id", run1)
+    , ("scheduled.backup.object", archiveAddress run1)
+    , ("scheduled.backup.object.version", "v1")
+    , ("scheduled.backup.object.length", "13")
+    , ("scheduled.backup.object.sha256", T.replicate 64 "a")
+    , ("scheduled.backup.receipt", receiptAddress run1)
+    , ("scheduled.backup.receipt.version", "v2")
+    , ("scheduled.backup.receipt.digest", T.replicate 64 "b")
+    , ("scheduled.backup.source.scope", "platform:database-mydb")
+    ]
+manualRecord =
+  Map.fromList
+    [ ("backup.record", "verified-v1")
+    , ("backup.id", "manual-1")
+    , ("backup.source.scope", "platform:database-mydb")
+    , ("backup.object", "s3://nagare-backups/manual-databases/personal/mydb/manual-1.sql.gz")
+    , ("backup.object.version", "m1")
+    , ("backup.object.length", "10")
+    , ("backup.object.sha256", T.replicate 64 "c")
+    , ("backup.receipt", "s3://nagare-backups/manual-databases/personal/mydb/manual-1.sql.gz.receipt.json")
+    , ("backup.receipt.version", "m2")
+    , ("backup.receipt.digest", T.replicate 64 "d")
     ]
 
 -- * The world
@@ -248,14 +394,18 @@ data World = World
   , feed :: !FeedStore
   , inventory :: !InventoryStore
   , schedules :: ![BackupSchedule]
+  , variant :: !Variant
   }
   deriving stock (Generic)
 
 newWorld :: IO World
-newWorld = newWorldWith [currentExpectation]
+newWorld = newWorldFor postgresVariant
 
 newWorldWith :: [ScheduledReceiptExpectation] -> IO World
-newWorldWith expectations = do
+newWorldWith expectations = newWorldFor (postgresVariant & #expectations .~ expectations)
+
+newWorldFor :: Variant -> IO World
+newWorldFor variant' = do
   bucket' <- newIORef Map.empty
   versions' <- newIORef 0
   lists' <- newIORef 0
@@ -271,7 +421,7 @@ newWorldWith expectations = do
   inventory' <- newObjectStore inventoryOps fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
   _ <- initializeStore inventory' fixtureBinding "client-a" >>= either (assertFailure . show) pure
   _ <- enableFeed feed' fixtureBinding "epoch-1" initialCheckpoint >>= either (assertFailure . show) pure
-  pure (World bucket' versions' lists' downloaded' listFault' secret' now' ops fault' feed' inventory' [scheduleWith expectations])
+  pure (World bucket' versions' lists' downloaded' listFault' secret' now' ops fault' feed' inventory' [scheduleFor variant'] variant')
 
 -- | The same stores, read by a new process: no in-memory state survives.
 restart :: World -> IO World
@@ -364,6 +514,11 @@ publishedEvents world = do
   page <- readPage (world ^. #feed) fixtureBinding readRequest >>= either (assertFailure . show) pure
   pure [entry ^. #envelope . #payload | entry <- page ^. #entries]
 
+completionArchive :: EventPayload -> Maybe StoredVersion
+completionArchive = \case
+  BackupCompletedPayload completion -> Just (completion ^. #archive)
+  _ -> Nothing
+
 completionRun :: EventPayload -> Maybe Text
 completionRun payload' = case payload' of
   BackupCompletedPayload completion -> Just (completion ^. #run)
@@ -385,14 +540,15 @@ validRun = RunSpec signingKeyHex claimIncarnation "archive bytes" "archive bytes
 
 uploadRun :: World -> Text -> UTCTime -> RunSpec -> IO ()
 uploadRun world run' at spec = do
-  putObjectAt world (archiveKey run') (spec ^. #archiveBytes) at
-  putObjectAt world (receiptKey run') (receiptBytes run' spec) (addUTCTime 1 at)
+  let v = world ^. #variant
+  putObjectAt world (variantArchiveKey v run') (spec ^. #archiveBytes) at
+  putObjectAt world (variantArchiveKey v run' <> ".receipt.json") (receiptBytesFor v run' spec) (addUTCTime 1 at)
 
 uploadArchiveOnly :: World -> Text -> UTCTime -> IO ()
-uploadArchiveOnly world run' = putObjectAt world (archiveKey run') (validRun ^. #archiveBytes)
+uploadArchiveOnly world run' = putObjectAt world (variantArchiveKey (world ^. #variant) run') (validRun ^. #archiveBytes)
 
 uploadReceiptFor :: World -> Text -> UTCTime -> IO ()
-uploadReceiptFor world run' = putObjectAt world (receiptKey run') (receiptBytes run' validRun)
+uploadReceiptFor world run' = putObjectAt world (variantArchiveKey (world ^. #variant) run' <> ".receipt.json") (receiptBytesFor (world ^. #variant) run' validRun)
 
 uploadReceiptOnly :: World -> Text -> UTCTime -> IO ()
 uploadReceiptOnly = uploadReceiptFor
@@ -401,16 +557,19 @@ runBytes :: Text -> Int
 runBytes run' = BS.length (receiptBytes run' validRun) + BS.length (validRun ^. #archiveBytes)
 
 receiptBytes :: Text -> RunSpec -> ByteString
-receiptBytes run' spec =
+receiptBytes = receiptBytesFor postgresVariant
+
+receiptBytesFor :: Variant -> Text -> RunSpec -> ByteString
+receiptBytesFor v run' spec =
   LBS.toStrict (Aeson.encode (Aeson.object ["version" Aeson..= (5 :: Int), "payload" Aeson..= payload, "hmacSha256" Aeson..= signature]))
   where
     payload =
       Aeson.object
         [ "sha256" Aeson..= digestText (contentDigest (spec ^. #signedArchive))
         , "jobUid" Aeson..= run'
-        , "object" Aeson..= archiveAddress run'
+        , "object" Aeson..= ("s3://nagare-backups/" <> variantArchiveKey v run')
         , "source" Aeson..= Aeson.object ["statefulSetUid" Aeson..= physicalIdentityText statefulIncarnation, "pvcUid" Aeson..= physicalIdentityText (spec ^. #pvc)]
-        , "backup" Aeson..= Aeson.Object ((spec ^. #metadataEdit) cronMetadata)
+        , "backup" Aeson..= Aeson.Object ((spec ^. #metadataEdit) (v ^. #metadata))
         , "recoveryPoint" Aeson..= ("2026-11-17T00:00:00Z" :: Text)
         ]
     key = BS.pack (hexBytes (T.unpack (spec ^. #signingHex)))
@@ -423,7 +582,7 @@ canonical :: Aeson.Value -> ByteString
 canonical = either (error . T.unpack) id . canonicalValue
 
 archiveKey, receiptKey, archiveAddress, receiptAddress :: Text -> Text
-archiveKey run' = "databases/mydb/" <> run' <> ".sql.gz"
+archiveKey = variantArchiveKey postgresVariant
 receiptKey run' = archiveKey run' <> ".receipt.json"
 archiveAddress run' = "s3://nagare-backups/" <> archiveKey run'
 receiptAddress run' = "s3://nagare-backups/" <> receiptKey run'
@@ -500,16 +659,47 @@ cronMetadata, olderMetadata :: KeyMap.KeyMap Aeson.Value
 cronMetadata = metadataOf (cronNative 7)
 olderMetadata = metadataOf (cronNative 5)
 
-scheduleWith :: [ScheduledReceiptExpectation] -> BackupSchedule
-scheduleWith expectations =
+-- | One accepted schedule's shape: its key space, archive format, the
+-- metadata its accepted CronJob signs into runs, and its expectations.
+data Variant = Variant
+  { kind :: !ScheduleKind
+  , label :: !Text
+  , keyPrefix :: !Text
+  , format :: !Text
+  , metadata :: !(KeyMap.KeyMap Aeson.Value)
+  , expectations :: ![ScheduledReceiptExpectation]
+  }
+  deriving stock (Generic)
+
+variantArchiveKey :: Variant -> Text -> Text
+variantArchiveKey v run' = v ^. #keyPrefix <> run' <> "." <> v ^. #format
+
+postgresVariant, redisVariant, clickhouseVariant, appDatabaseVariant :: Variant
+postgresVariant = Variant DatabaseSchedule "personal/mydb" "databases/mydb/" "sql.gz" cronMetadata [currentExpectation]
+redisVariant = engineVariant "cache" Redis "8" "rdb.gz"
+clickhouseVariant = engineVariant "events" ClickHouse "25" "zip.gz"
+appDatabaseVariant =
+  Variant AppDatabaseSchedule "personal/notes" (appDatabaseBackupKeyPrefix "personal" "notes") "dump.gz" (metadataOf native) [ok (scheduledAppDatabaseReceiptExpectationFromCronJob localMinioBackend "personal" "notes" statefulIncarnation claimIncarnation native)]
+  where
+    native = canonical (either (error . show) id (Yaml.decodeEither' (renderInventoryAppDatabaseBackupCronJob HourlyRecoveryPoint backup localMinioBackend 7) :: Either Yaml.ParseException Aeson.Value))
+    backup = AppDatabaseBackup "personal" "notes" "pg" Postgres "postgres:18" ["notes"] (T.replicate 64 "e") Nothing
+
+engineVariant :: Text -> Engine -> Text -> Text -> Variant
+engineVariant database engine version format' =
+  Variant DatabaseSchedule ("personal/" <> database) ("databases/" <> database <> "/") format' (metadataOf native) [ok (scheduledReceiptExpectationFromCronJob localMinioBackend "personal" database statefulIncarnation claimIncarnation native)]
+  where
+    native = canonical (either (error . show) id (Yaml.decodeEither' (renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" database engine version localMinioBackend 7) :: Either Yaml.ParseException Aeson.Value))
+
+scheduleFor :: Variant -> BackupSchedule
+scheduleFor v =
   BackupSchedule
-    { kind = DatabaseSchedule
-    , label = "personal/mydb"
+    { kind = v ^. #kind
+    , label = v ^. #label
     , owner = ownerScope
     , schedule = ok (mkResourceId "platform:database-mydb/mydb/cronjob")
-    , keyPrefix = "databases/mydb/"
-    , objectPrefix = "s3://nagare-backups/databases/mydb/"
-    , expectations
+    , keyPrefix = v ^. #keyPrefix
+    , objectPrefix = "s3://nagare-backups/" <> v ^. #keyPrefix
+    , expectations = v ^. #expectations
     , signing = SigningRef "personal" "nagare-dbbackup-mydb-signing" (ok (mkResourceId "platform:database-mydb/mydb/signing")) secretIncarnation
     , source = ResourceRef ownerScope Nothing (Just "personal") (Just statefulIncarnation)
     }

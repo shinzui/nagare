@@ -31,6 +31,7 @@ module Nagare.Events.Source.Facts
   , SourceProducer (..)
   , sourceProducer
   , MemberView (..)
+  , ScopeView (..)
   , SourceFacts (..)
   , factsSchemaVersion
   , assembleFacts
@@ -219,7 +220,8 @@ data SourceItem = PublicCandidate !EventCandidate | Control !ControlFact
 
 -- | What a producer sees of a converging transaction.
 data SourceInput = SourceInput
-  { transaction :: !TransactionId
+  { context :: !ContextId
+  , transaction :: !TransactionId
   , review :: !ContentDigest
   , payloadIdentity :: !Text
   , baseRevisions :: !(Map ScopeId ScopeRevision)
@@ -230,8 +232,20 @@ data SourceInput = SourceInput
   , journal :: ![JournalEvent]
   , members :: !(Map ResourceId MemberView)
   -- ^ The members some producer wants that this transaction operated.
+  , scopes :: !(Map ScopeId ScopeView)
+  -- ^ The scopes this transaction changed whose desired overrides hold a
+  -- key some producer names (EP-233).
   }
   deriving stock (Generic)
+
+-- | One changed scope's overrides at its desired revision, and at the
+-- revision converged before this release, if it had one.
+data ScopeView = ScopeView
+  { revision :: !ScopeRevision
+  , desired :: !(Map Text Text)
+  , previous :: !(Maybe (Map Text Text))
+  }
+  deriving stock (Eq, Show, Generic)
 
 -- | One operated member a producer asked for: its native object bytes at
 -- the desired scope revision, and at the scope's revision converged before
@@ -244,17 +258,19 @@ data MemberView = MemberView
   }
   deriving stock (Eq, Show, Generic)
 
--- | A pure producer of a converging transaction's source items, and the
--- operated members whose native bytes it reads.
+-- | A pure producer of a converging transaction's source items, the
+-- operated members whose native bytes it reads, and the override keys that
+-- make a changed scope one it reads.
 data SourceProducer = SourceProducer
   { wants :: !(ResourceId -> Bool)
+  , scopeKeys :: ![Text]
   , produce :: !(SourceInput -> [SourceItem])
   }
   deriving stock (Generic)
 
--- | A producer that reads no member bytes.
+-- | A producer that reads no member bytes and no scope.
 sourceProducer :: (SourceInput -> [SourceItem]) -> SourceProducer
-sourceProducer = SourceProducer (const False)
+sourceProducer = SourceProducer (const False) []
 
 -- | Everything a converged transaction committed for lifecycle consumers.
 -- It holds no time of its own: a release that is retried writes the same

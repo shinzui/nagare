@@ -1,4 +1,4 @@
-module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, modelScope, preparedFixtureHead, preparedFixtureRecording, preparedFixtureWith, preparedFixtureWithRegistry, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
+module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, modelScope, preparedFixtureFrom, preparedFixtureHead, preparedFixtureRecording, preparedFixtureWith, preparedFixtureWithRegistry, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
@@ -3236,8 +3236,12 @@ preparedFixtureRecording recorded = preparedFixtureHead "operator-cli" (\seeded 
 -- | The fixture with the review's payload identity and a head adjustment
 -- written before the review is prepared (EP-172).
 preparedFixtureHead :: Text -> (HeadManifest -> HeadManifest) -> InventoryStore -> (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> (Map.Map ScopeId ScopeRevision -> AdapterRegistry -> AdapterRegistry) -> IO (ReviewedPlan, AdapterRegistry)
-preparedFixtureHead payloadIdentity adjust store execution recovery customize = do
-  bytes <- BS.readFile "test/fixtures/inventory/valid.json"
+preparedFixtureHead = preparedFixtureFrom "test/fixtures/inventory/valid.json"
+
+-- | 'preparedFixtureHead' over another candidate fixture file.
+preparedFixtureFrom :: FilePath -> Text -> (HeadManifest -> HeadManifest) -> InventoryStore -> (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> (Map.Map ScopeId ScopeRevision -> AdapterRegistry -> AdapterRegistry) -> IO (ReviewedPlan, AdapterRegistry)
+preparedFixtureFrom path payloadIdentity adjust store execution recovery customize = do
+  bytes <- BS.readFile path
   let CandidateInput snapshot changes = ok (decodeCandidateInput bytes)
       candidate = ok (composeInventory snapshot changes)
   _ <- initializeStore store (inventoryBinding (candidateInventory candidate)) "client-test" >>= expectRight
