@@ -69,7 +69,7 @@ Relevant local decisions are [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-pro
 | 231 | Durable event feed and atomic source facts | [EP-231](../plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md) | None | None | Complete |
 | 232 | Successful application deployment events | [EP-232](../plans/232-record-successful-application-deployments-as-lifecycle-events.md) | EP-231 | None | Complete |
 | 233 | Verified database backup events and collection | [EP-233](../plans/233-observe-verified-database-backups-and-publish-lifecycle-events.md) | EP-231 | None | Complete |
-| 234 | Shared delivery core and first webhook adapter | [EP-234](../plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md) | EP-231 | EP-232 and EP-233 real producer fixtures | In Progress |
+| 234 | Shared delivery core and first webhook adapter | [EP-234](../plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md) | EP-231 | EP-232 and EP-233 real producer fixtures | Complete |
 | 235 | Runtime installation and recovery proof | [EP-235](../plans/235-run-the-lifecycle-event-service-and-prove-restart-and-upgrade-recovery.md) | EP-232, EP-233, EP-234 | None | Not Started |
 
 Statuses are Not Started, In Progress, Complete, or Cancelled. Whole-child hard dependencies require completion of that child.
@@ -107,6 +107,8 @@ Inventory-produced facts ride the existing journal, not a second chain. The jour
 
 ## Progress
 
+
+2026-11-17: EP-234 is complete: reviewed webhook subscriptions, a transport-neutral delivery engine with a signed webhook adapter, replay, and CLI and admin API inspection; ADR 33 is amended with the delivered semantics. EP-235 is unblocked.
 
 2026-11-17: EP-233 is complete: a bounded read-only collector publishes `database.backup.completed` for verified scheduled database and app-database runs, and the executor's backup producer publishes `database.backup.accepted` for reviewed ingestions and manual receipt records, under one backup ID.
 

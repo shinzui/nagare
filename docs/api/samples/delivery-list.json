@@ -1,0 +1,50 @@
+{
+  "context": "context-1",
+  "contractVersion": 1,
+  "deliveries": [
+    {
+      "attempts": [
+        {
+          "detail": "the receiver did not answer in time",
+          "finishedAt": "2026-11-17T10:00:18Z",
+          "number": 1,
+          "outcome": "unknown",
+          "receipt": null,
+          "startedAt": "2026-11-17T10:00:08Z"
+        },
+        {
+          "detail": null,
+          "finishedAt": "2026-11-17T10:00:31Z",
+          "number": 2,
+          "outcome": "acknowledged",
+          "receipt": {
+            "details": {
+              "status": 204
+            },
+            "kind": "http",
+            "version": 1
+          },
+          "startedAt": "2026-11-17T10:00:30Z"
+        }
+      ],
+      "cycle": "initial",
+      "deliveryId": "dl-0f7d4f21b53824c5dfeb4ee3f84edbc7",
+      "destination": "webhook:deploys",
+      "eventId": "ev-4bff6e76b6c03829f65ff3832edef4ac",
+      "nextAttempt": null,
+      "policy": "webhook/1",
+      "position": 42,
+      "reason": null,
+      "revision": 2,
+      "state": "acknowledged",
+      "subscription": "deploys",
+      "transport": "webhook"
+    }
+  ],
+  "document": "delivery-list",
+  "pageInfo": {
+    "endCursor": "ZGVsaXZlcnk6MA",
+    "hasNextPage": false
+  },
+  "subscription": "deploys"
+}

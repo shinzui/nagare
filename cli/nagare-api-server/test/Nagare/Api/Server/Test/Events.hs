@@ -14,22 +14,27 @@ import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime (..), fromGregorian)
 import Nagare.Api.Response (Paged (..))
 import Nagare.Api.Server.App (AppConfig (..), adminApplication)
 import Nagare.Api.Server.Serve (Env (..), newEnv)
 import Nagare.Api.Server.Test.Fixture (fixture, fixtureBinding, store)
+import Nagare.Contract.Delivery (Delivery, DeliverySubscription)
 import Nagare.Contract.Events (LifecycleEvent (..), LifecycleFeedEntry (..))
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails (..))
 import Nagare.Contract.V1 (VersionInfo (..), contractVersions)
+import Nagare.Events.Delivery.Store
 import Nagare.Events.Envelope (eventIdFor, eventIdText)
 import Nagare.Events.Materialize (defaultBudget, enableFeed, materializeOnce)
 import Nagare.Events.Source
 import Nagare.Events.Store (FeedStore, memoryObjectOps, newFeedStore)
+import Nagare.Events.Subscription
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Journal
+import Nagare.Inventory.Journal hiding (Pending)
 import Nagare.Inventory.Recorded (defaultRecordedReaderConfig, newRecordedReader)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps (ObjectOps)
@@ -82,6 +87,27 @@ eventsTests =
         (entry ^. #position, entry ^. #event . #eventId) @?= (1, idOf "b")
         missing <- get server ("/v1/events/" <> TE.encodeUtf8 (idOf "zzz")) []
         (statusOf missing,) <$> problemCode missing >>= (@?= (404, "unknown_event"))
+    , testCase "delivery routes: not enabled, then the sender's subscriptions, a delivery page and one delivery (EP-234)" $ do
+        withEvents (Just ["a"]) $ \server -> do
+          response <- get server "/v1/events/subscriptions" []
+          (statusOf response,) <$> problemCode response >>= (@?= (404, "delivery_not_enabled"))
+        withEventsSeeded (Just ["a"]) seedDelivery $ \server -> do
+          listed <- get server "/v1/events/subscriptions" []
+          statusOf listed @?= 200
+          documents <- decodeBody @[DeliverySubscription] listed
+          map (\d -> (d ^. #subscription, d ^. #transport, d ^. #deliveries)) documents @?= [("deploys", "recording", 1)]
+          page <- get server "/v1/events/deliveries?subscription=deploys" []
+          statusOf page @?= 200
+          Paged (Connection edges _) <- decodeBody @(Paged Delivery) page
+          map (\(Edge d _) -> (d ^. #eventId, d ^. #state)) edges @?= [(idOf "a", "pending")]
+          one <- get server ("/v1/events/deliveries/" <> TE.encodeUtf8 (deliveryIdText seededDelivery)) []
+          statusOf one @?= 200
+          missing <- get server "/v1/events/deliveries/dl-00000000000000000000000000000000" []
+          (statusOf missing,) <$> problemCode missing >>= (@?= (404, "unknown_delivery"))
+          other <- get server "/v1/events/deliveries?subscription=nope" []
+          (statusOf other,) <$> problemCode other >>= (@?= (404, "unknown_subscription"))
+          event <- get server ("/v1/events/" <> TE.encodeUtf8 (idOf "a")) []
+          statusOf event @?= 200
     , testCase "a context without a feed answers events_not_enabled, not an empty list" $ withEvents Nothing $ \server -> do
         response <- get server "/v1/events" []
         (statusOf response,) <$> problemCode response >>= (@?= (404, "events_not_enabled"))
@@ -96,7 +122,11 @@ data EventsServer = EventsServer
 
 -- | An admin API whose feed holds one event per key, or no feed at all.
 withEvents :: Maybe [Text] -> (EventsServer -> IO ()) -> IO ()
-withEvents keys action = do
+withEvents keys = withEventsSeeded keys (\_ -> pure ())
+
+-- | As 'withEvents', with more lifecycle state seeded beside the feed.
+withEventsSeeded :: Maybe [Text] -> (FeedStore -> IO ()) -> (EventsServer -> IO ()) -> IO ()
+withEventsSeeded keys more action = do
   recorded <- fixture 1
   reader <- newRecordedReader defaultRecordedReaderConfig (store recorded) fixtureBinding (readHead (store recorded))
   env <- newEnv reader "test-build" fixtureBinding (pure (Right Nothing))
@@ -111,6 +141,7 @@ withEvents keys action = do
       store' <- newFeedStore ops
       inventoryOps <- memoryObjectOps
       seedFeed inventoryOps store' names
+      more store'
       pure store'
 
 -- | Commit one converged transaction per key into a fresh inventory store
@@ -136,6 +167,22 @@ seedFeed inventoryOps feed names = do
   void (materializeOnce inventory feed fixtureBinding defaultBudget (pure "2026-11-17T00:00:00Z") >>= either (fail . show) pure)
   where
     for_ items step = mapM_ step items
+
+-- | A sender that applies one recording subscription with one pending
+-- delivery of event "a".
+seedDelivery :: FeedStore -> IO ()
+seedDelivery feed = do
+  let sid = ok (mkSubscriptionId "deploys")
+      record = Subscription 1 sid 1 Active (SubscriptionFilter (Set.fromList [AppDeployed]) Nothing Nothing) 0 (PolicyRef "recording" 1) (DestinationSpec "recording:deploys" "recording" 1 (toJSON ([] :: [Text])))
+      at = UTCTime (fromGregorian 2026 11 17) 0
+      eventId = eventIdFor (fixtureBinding ^. #identity) (ok (mkSourceKey "a"))
+  pointer <- appendLog feed emptyLog [seededDelivery] >>= either (fail . show) pure
+  _ <- createJson feed senderKey (SenderHead 1 fixtureBinding 0 initialCheckpoint [sid]) >>= either (fail . show) pure
+  _ <- createJson feed (destinationKey sid) (DestinationHead 1 fixtureBinding sid 0 record 1 Nothing Nothing pointer Nothing Nothing) >>= either (fail . show) pure
+  void (createJson feed (recordKey sid seededDelivery) (DeliveryRecord 1 seededDelivery sid "recording:deploys" "recording" 1 "recording/1" eventId 0 "initial" Pending [] at (Just at) Nothing) >>= either (fail . show) pure)
+
+seededDelivery :: DeliveryId
+seededDelivery = deliveryIdFor (ok (mkSubscriptionId "deploys")) "recording:deploys" (eventIdFor (fixtureBinding ^. #identity) (ok (mkSourceKey "a"))) "initial"
 
 -- | The keys the black-box suite's feed holds.
 seededKeys :: [Text]

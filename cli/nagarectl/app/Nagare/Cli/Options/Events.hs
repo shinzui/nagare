@@ -7,6 +7,8 @@ module Nagare.Cli.Options.Events
   , WebhookUpdateOpts (..)
   , EventsDeliveryCommand (..)
   , EventsSubscriptionCommand (..)
+  , deliveryContract
+  , subscriptionContract
   )
 where
 
@@ -75,7 +77,7 @@ data WebhookUpdateOpts = WebhookUpdateOpts
 -- | @events delivery@: transport-neutral delivery inspection and replay.
 data EventsDeliveryCommand
   = DeliveryReplay !String !String !FilePath
-  | DeliveryList !String !(Maybe Integer) !(Maybe Int) !(Maybe Int)
+  | DeliveryList !String !(Maybe String) !(Maybe Int) !(Maybe Int)
   | DeliveryInspect !String !(Maybe Int)
   deriving stock (Generic, Show)
 
@@ -84,3 +86,15 @@ data EventsSubscriptionCommand
   = SubscriptionList !(Maybe Int)
   | SubscriptionInspect !String !(Maybe Int)
   deriving stock (Generic, Show)
+
+-- | The contract version a read command asked for; a replay review has none.
+deliveryContract :: EventsDeliveryCommand -> Maybe Int
+deliveryContract = \case
+  DeliveryReplay {} -> Nothing
+  DeliveryList _ _ _ contract -> contract
+  DeliveryInspect _ contract -> contract
+
+subscriptionContract :: EventsSubscriptionCommand -> Maybe Int
+subscriptionContract = \case
+  SubscriptionList contract -> contract
+  SubscriptionInspect _ contract -> contract

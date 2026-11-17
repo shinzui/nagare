@@ -9,6 +9,7 @@ where
 import Data.Generics.Labels ()
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Api.Events.DeliveryHandler (deliveriesHandler, deliveryHandler, subscriptionsHandler)
 import Nagare.Api.Events.Routes (EventsRoutes (..))
 import Nagare.Api.Page (PageSize (..))
 import Nagare.Api.Response (Paged (..))
@@ -37,6 +38,9 @@ eventsServer env =
               { key = Text.intercalate "|" ["events", Text.pack (show query), feedRevision headValue]
               , construct = fmap (fmap paged) (first refusal <$> queryEventsAt store binding headValue query)
               }
+    , subscriptions = subscriptionsHandler env
+    , deliveries = deliveriesHandler env
+    , delivery = deliveryHandler env
     , event = \eventIdText match ->
         serveFeed env match $ \store _ headValue ->
           Right

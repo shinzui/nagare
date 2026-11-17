@@ -115,7 +115,7 @@ deliveryCmd =
   info
     ( EventsDelivery
         <$> hsubparser
-          ( command "list" (info (DeliveryList <$> strArgument (metavar "SUBSCRIPTION") <*> optional (option auto (long "after" <> metavar "N" <> help "Continue after this delivery number")) <*> optional (option auto (long "first" <> metavar "N" <> help "Deliveries per page, 1 to 100 (default 50)")) <*> contractOpt <**> helper) (progDesc "List a subscription's deliveries, oldest first"))
+          ( command "list" (info (DeliveryList <$> strArgument (metavar "SUBSCRIPTION") <*> optional (strOption (long "after" <> metavar "CURSOR" <> help "Continue after this cursor, the previous page's endCursor")) <*> optional (option auto (long "first" <> metavar "N" <> help "Deliveries per page, 1 to 100 (default 50)")) <*> contractOpt <**> helper) (progDesc "List a subscription's deliveries, oldest first"))
               <> command "inspect" (info (DeliveryInspect <$> strArgument (metavar "DELIVERY_ID") <*> contractOpt <**> helper) (progDesc "Show one delivery and its attempts"))
               <> command "replay" (info (DeliveryReplay <$> strArgument (metavar "SUBSCRIPTION") <*> strOption (long "event" <> metavar "EVENT_ID" <> help "The retained event to send again") <*> savePlanOpt <**> helper) (progDesc "Review a new delivery cycle of one event under the subscription's current revision"))
           )

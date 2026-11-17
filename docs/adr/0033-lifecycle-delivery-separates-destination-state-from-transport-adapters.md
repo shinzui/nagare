@@ -17,7 +17,7 @@ related:
 ## Status
 
 
-Accepted design direction on 2026-10-31, when the operator requested that the lifecycle-event plans explicitly preserve future Kafka publication. Amended on 2026-11-04 during the MasterPlan 31 review: the module namespace is `Nagare.Events`, because `Nagare.Inventory.Lifecycle` already names operator lifecycle proposals, and the inspection surface is transport-neutral. Implementation and acceptance are Not Started; this record does not claim an installed event service or Kafka adapter.
+Accepted design direction on 2026-10-31, when the operator requested that the lifecycle-event plans explicitly preserve future Kafka publication. Amended on 2026-11-04 during the MasterPlan 31 review: the module namespace is `Nagare.Events`, because `Nagare.Inventory.Lifecycle` already names operator lifecycle proposals, and the inspection surface is transport-neutral. Amended on 2026-11-17 by EP-234's implementation with the delivered wire and retry semantics below. This record does not claim an installed event service (EP-235) or a Kafka adapter.
 
 
 ## Context
@@ -52,3 +52,11 @@ EP-231 explicitly preserves transport-neutral identity, canonical event bytes, r
 A later Kafka implementation adds a typed configuration variant, adapter/policy, credentials, conformance coverage and real broker fidelity tests. Kafka client selection, topic management, broker provisioning and a production Kafka endpoint are outside MasterPlan 31. A webhook-only implementation whose delivery core imports HTTP protocol policy fails this architecture even if the feed itself is reusable.
 
 A versioned typed extension is preferred to duplicating delivery engines, sending directly from producers or replacing the authoritative event feed with Kafka. Existing event/HTTP behavior and webhook-first implementation order remain intact.
+
+
+## Amendment, 2026-11-17: the delivered semantics (EP-234)
+
+
+The shared engine is `Nagare.Events.Delivery`, with its state in `Nagare.Events.Delivery.Store` and the adapter contract in `Nagare.Events.Delivery.Transport`; `scripts/check-haskell-architecture.py` refuses an import of `Nagare.Events.Webhook`, `Network.HTTP`, `Network.Connection` or `Network.Socket` from them. A subscription is one standalone inventory scope with no provider member; its record and last reviewed replay are scope overrides, and every converged change of either is an `event-subscriptions` control fact. The sender applies controls in journal order, idempotently by revision and delivery ID, before its checkpoint advances. Whether a reviewed destination change cancels the old revision's unsent work is the adapter's decision (`AdapterFactory.redirects`): a webhook URL or allowed-host change does; a signing-key rotation does not. A cancellation records its boundary, the feed count when the control was applied.
+
+A delivery's ID derives from subscription, destination, event and cycle (`initial` or a reviewed replay's). It is recorded before anything is sent; an attempt's intent, under a fresh token, is recorded before the external call, and its outcome after it only while the record still holds that token. An intent with no outcome older than two minutes is closed as unknown and retried. The webhook adapter signs HMAC-SHA256 over `v1`, timestamp, event ID and delivery ID, each LF-terminated, then the raw body, as `v1;kid=ID;sig=HEX` entries; acknowledges only 2xx; retries 408, 429 and 5xx honouring `Retry-After`, connection refusals and timeouts; treats other 3xx and 4xx as permanent; and allows ten attempts within 24 hours from ten seconds doubling to an hour with a quarter of jitter. It connects only to policy-checked resolved addresses and verifies TLS for the URL's host. The test-only recording adapter in `EventsDeliverySpec` proves the seam: the same engine delivers identical event bytes and IDs to it and to a real HTTP receiver, from independent cursors, with failure isolation.

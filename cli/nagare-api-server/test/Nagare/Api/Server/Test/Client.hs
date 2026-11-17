@@ -21,9 +21,10 @@ import Nagare.Api.Platform.Routes qualified as Platform
 import Nagare.Api.Response
 import Nagare.Api.Routes qualified as Root
 import Nagare.Api.Sites.Routes qualified as Sites
+import Nagare.Contract.Delivery (Delivery, DeliverySubscription)
 import Nagare.Contract.Events
 import Nagare.Contract.Prelude
-import Nagare.Contract.Problem (ProblemDetails (..), problemFor, unknownEvent, unknownScope)
+import Nagare.Contract.Problem (ProblemDetails (..), problemFor, unknownDelivery, unknownEvent, unknownScope)
 import Nagare.Contract.Schema (Nullable (..))
 import Nagare.Contract.V1
 import Network.HTTP.Client (defaultManagerSettings, newManager)
@@ -60,6 +61,14 @@ clientTests =
         case listed of
           SnapshotOk value -> decodeEncoded (value ^. #body) @?= Right sampleEvents
           other -> assertFailure ("expected 200, got " <> show other)
+        noDelivery <- run (Events.delivery (Root.events client) "dl-00000000000000000000000000000000" Nothing)
+        case noDelivery of
+          SnapshotNotFound problem -> problem ^. #code @?= "unknown_delivery"
+          _ -> assertFailure "expected unknown_delivery"
+        listedDeliveries <- run (Events.deliveries (Root.events client) Nothing Nothing Nothing Nothing "deploys" Nothing)
+        case listedDeliveries of
+          SnapshotOk _ -> pure ()
+          _ -> assertFailure "expected a page of deliveries (EP-234)"
         missing <- run (Events.event (Root.events client) "ev-00000000000000000000000000000000" Nothing)
         case missing of
           SnapshotNotFound problem -> problem ^. #code @?= "unknown_event"
@@ -96,6 +105,9 @@ fixtureServer =
     , Root.events =
         Events.EventsRoutes
           { Events.list = \_ _ _ _ _ _ _ _ _ -> pure (conditional Nothing (encoded sampleEvents))
+          , Events.subscriptions = \_ -> pure (conditional Nothing (encoded ([] :: [DeliverySubscription])))
+          , Events.deliveries = \_ _ _ _ _ _ -> pure (conditional Nothing (encoded (Paged (Connection [] emptyPage) :: Paged Delivery)))
+          , Events.delivery = \_ _ -> pure (SnapshotNotFound (problemFor unknownDelivery "dl-00000000000000000000000000000000 is not a delivery of this context"))
           , Events.event = \_ _ -> pure (SnapshotNotFound (problemFor unknownEvent "ev-00000000000000000000000000000000 is not a published event"))
           }
     , Root.openapi = \_ -> pure (BuildNotModified (validatorsFor "openapi"))

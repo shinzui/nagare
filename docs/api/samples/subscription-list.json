@@ -1,0 +1,25 @@
+{
+  "context": "context-1",
+  "contractVersion": 1,
+  "document": "subscription-list",
+  "subscriptions": [
+    {
+      "deliveries": 1,
+      "destination": "webhook:deploys",
+      "matchedTo": 43,
+      "member": null,
+      "paused": null,
+      "policy": "webhook/1",
+      "refusedReplay": null,
+      "revision": 2,
+      "scope": null,
+      "startAfter": 41,
+      "status": "active",
+      "subscription": "deploys",
+      "transport": "webhook",
+      "types": [
+        "app.deployed"
+      ]
+    }
+  ]
+}

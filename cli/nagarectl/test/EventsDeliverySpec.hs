@@ -301,7 +301,8 @@ eventsDeliveryTests =
         key <- either (assertFailure . T.unpack) pure (mkKeyId "k1")
         let signing = [SigningKey key "0123456789abcdef0123456789abcdef"]
             header = signatureHeader signing 1700000000 "ev-00000000000000000000000000000001" "dl-00000000000000000000000000000002" "{\"a\":1}"
-        assertBool "one v1 entry" ("v1;kid=k1;sig=" `T.isPrefixOf` header && T.length header == T.length "v1;kid=k1;sig=" + 64)
+        -- The published vector, computed independently (Python hmac) in docs/user/lifecycle-events.md.
+        header @?= "v1;kid=k1;sig=e864a4d1937ac9e4c08f2978561fad6a7a1257cd29725f8be27260b69b89a48e"
         verifyRequest signing 1700000100 (SignedHeaders "ev-00000000000000000000000000000001" "dl-00000000000000000000000000000002" 1700000000 header) "{\"a\":1}" @?= Verified key
         verifyRequest signing 1700000400 (SignedHeaders "ev-00000000000000000000000000000001" "dl-00000000000000000000000000000002" 1700000000 header) "{\"a\":1}" @?= Stale
         verifyRequest signing 1700000000 (SignedHeaders "ev-00000000000000000000000000000001" "dl-00000000000000000000000000000002" 1700000000 header) "{\"a\":2}" @?= Forged

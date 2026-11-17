@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-11-17
+* **Add**: DOC-45: lifecycle events and webhooks — subscriptions, the v1 signing protocol with a published vector, receiver deduplication, retry semantics, inspection and replay.
+* **Update**: DOC-5: describe the backup completion and acceptance events and `events collect-backups`.
+
 ## 2026-11-14
 * **Update**: DOC-21: explicitly bind SELECT-only readers to accepted ClickHouse scratch restores, without enrolling scratch databases.
 * **Update**: DOC-21: document unreleased explicit SELECT-only reader metadata and names-only definer inspection; retain separate scratch reader declarations.

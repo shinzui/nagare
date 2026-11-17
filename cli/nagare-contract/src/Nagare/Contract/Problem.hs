@@ -44,6 +44,9 @@ module Nagare.Contract.Problem
   , upstreamTimeout
   , eventsNotEnabled
   , unknownEvent
+  , deliveryNotEnabled
+  , unknownSubscription
+  , unknownDelivery
   )
 where
 
@@ -168,6 +171,9 @@ problemCatalog =
   , upstreamTimeout
   , eventsNotEnabled
   , unknownEvent
+  , deliveryNotEnabled
+  , unknownSubscription
+  , unknownDelivery
   ]
 
 status400, status404, status405, status406, conflict, internal, unavailable :: Text -> Bool -> ProblemSpec
@@ -214,6 +220,13 @@ internalError = internal "internal_error" False
 eventsNotEnabled, unknownEvent :: ProblemSpec
 eventsNotEnabled = status404 "events_not_enabled" False
 unknownEvent = status404 "unknown_event" False
+
+-- EP-234: a context whose lifecycle delivery was never enabled has no
+-- subscriptions applied, which is not the same as none.
+deliveryNotEnabled, unknownSubscription, unknownDelivery :: ProblemSpec
+deliveryNotEnabled = status404 "delivery_not_enabled" False
+unknownSubscription = status404 "unknown_subscription" False
+unknownDelivery = status404 "unknown_delivery" False
 
 storeTimeout, storeInvalid, storeCredentialsUnavailable, serverBusy :: ProblemSpec
 storeTimeout = unavailable "store_timeout" True

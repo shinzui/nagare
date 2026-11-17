@@ -31,6 +31,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Nagare.Api.Access.Handler
+    Nagare.Api.Events.DeliveryHandler
     Nagare.Api.Events.Handler
     Nagare.Api.Inventory.Handler
     Nagare.Api.Platform.Handler

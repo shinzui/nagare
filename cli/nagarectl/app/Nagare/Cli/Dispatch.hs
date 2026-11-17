@@ -91,6 +91,7 @@ import Nagare.Cli.Inventory.Workflow
   , runInventoryRetire
   )
 import Nagare.Cli.Options (Command (..), ContextCommand (ContextMove), InfraCommand (..))
+import Nagare.Cli.Options.Events (deliveryContract, subscriptionContract)
 import Nagare.Cli.Platform.Upgrade
   ( runPlatformUpgrade
   , runPlatformUpgradeRecoverPulumi
@@ -141,8 +142,8 @@ dispatch (mctx, cmd0) = case cmd0 of
   EventsList eopts -> withReadContract (eopts ^. #contract) (runEventsList mctx eopts)
   EventsCollectBackups copts -> runEventsCollectBackups mctx copts
   EventsWebhook wcmd -> runEventsWebhook mctx wcmd
-  EventsDelivery dcmd -> runEventsDelivery mctx dcmd
-  EventsSubscription scmd -> runEventsSubscription mctx scmd
+  EventsDelivery dcmd -> withReadContract (deliveryContract dcmd) (runEventsDelivery mctx dcmd)
+  EventsSubscription scmd -> withReadContract (subscriptionContract scmd) (runEventsSubscription mctx scmd)
   SiteRollback copts rid -> runSiteRollback mctx copts (T.pack rid)
   SitePreviewDeploy sopts pname -> runPreviewDeploy mctx sopts (T.pack pname)
   SitePreviewList copts -> runPreviewList copts

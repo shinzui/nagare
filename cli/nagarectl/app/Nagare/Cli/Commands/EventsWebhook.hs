@@ -21,12 +21,16 @@ import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Options.Events
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
+import Nagare.Contract.Delivery qualified as Contract
+import Nagare.Contract.Schema (ContractVersion (ContractVersion1), DocumentName (DocumentName), fromNullable)
+import Nagare.Contract.Sink (emitDocument)
 import Nagare.Dsl.Prelude
+import Nagare.Events.Delivery.Inspect
 import Nagare.Events.Delivery.Store
 import Nagare.Events.Envelope (mkEventId)
 import Nagare.Events.Read (readEvent)
 import Nagare.Events.Source (EventKind, eventKindText, parseEventKind)
-import Nagare.Events.Store (FeedError (FeedNotEnabled), FeedStore, readFeedHead)
+import Nagare.Events.Store (FeedError (FeedNotEnabled), readFeedHead)
 import Nagare.Events.Subscription
 import Nagare.Events.Target (openTargetFeedReadOnly, targetBinding)
 import Nagare.Events.Webhook.Policy (webhookPolicy)
@@ -111,34 +115,50 @@ runEventsDelivery mctx = \case
     when (isNothing (fst found)) (dieT ("nagarectl: events delivery replay: the feed holds no event " <> T.pack eventText))
     stamp <- T.pack . formatTime defaultTimeLocale "%Y%m%dt%H%M%S" <$> getCurrentTime
     saveReview active snapshot record (Just (Replay (record ^. #subscription) (record ^. #revision) event ("replay-" <> stamp))) output
-  DeliveryList name' after first' _ -> do
+  DeliveryList name' after first' contract -> do
     active <- activeTarget mctx
-    subscription' <- refuse (mkSubscriptionId (T.pack name'))
-    (feed, headValue) <- destinationOf active subscription'
-    let size = maybe 50 (max 1 . min 100) first'
-        from = maybe 0 (+ 1) after
-    page <- readLog feed (headValue ^. #history) from size >>= either (dieT . T.pack . show) pure
-    records <- traverse (\(n, delivery') -> (,) n <$> recordOf feed subscription' delivery') page
-    TIO.putStr (T.unlines [T.intercalate "  " [T.pack (show n), deliveryIdText (r ^. #delivery), deliveryStateText (r ^. #state), r ^. #transport, "revision " <> T.pack (show (r ^. #revision)), r ^. #deliveryCycle, T.pack (show (length (r ^. #attempts))) <> " attempts"] | (n, Just r) <- records])
-    when (from + fromIntegral size < headValue ^. #history . #count) (TIO.putStrLn ("more: --after " <> T.pack (show (from + fromIntegral size - 1))))
-  DeliveryInspect deliveryText _ -> do
-    active <- activeTarget mctx
-    delivery' <- refuse (mkDeliveryId (T.pack deliveryText))
     feed <- openTargetFeedReadOnly active >>= either dieT pure
-    sender <- observeSender feed >>= either (dieT . T.pack . show) pure
-    found <- traverse (\s -> recordOf feed s delivery') (maybe [] (^. #destinations) (sender ^. #value))
-    case [r | Just r <- found] of
-      record : _ -> TIO.putStr (renderRecord record)
-      [] -> dieT ("nagarectl: events delivery inspect: no delivery " <> T.pack deliveryText)
+    binding <- refuse (targetBinding active)
+    afterN <- traverse (refuse . parseDeliveryCursor . T.pack) after
+    page <- deliveryPage feed (T.pack name') afterN (maybe 50 (max 1 . min 100) first') >>= either (dieT . inspectRefusal) pure
+    let (documents, info) = page
+    if isJust contract
+      then emitDocument (Contract.DeliveryList ContractVersion1 DocumentName (contextIdText (binding ^. #identity)) (T.pack name') documents info)
+      else do
+        TIO.putStr (T.unlines [T.intercalate "  " [d ^. #deliveryId, d ^. #state, d ^. #transport, "revision " <> T.pack (show (d ^. #revision)), d ^. #cycle, T.pack (show (length (d ^. #attempts))) <> " attempts"] | d <- documents])
+        when (info ^. #hasNextPage) (TIO.putStrLn ("more: --after " <> fromMaybe "" (fromNullable (info ^. #endCursor))))
+  DeliveryInspect deliveryText contract -> do
+    active <- activeTarget mctx
+    feed <- openTargetFeedReadOnly active >>= either dieT pure
+    binding <- refuse (targetBinding active)
+    found <- findDelivery feed (T.pack deliveryText) >>= either (dieT . inspectRefusal) pure
+    document <- maybe (dieT ("nagarectl: events delivery inspect: no delivery " <> T.pack deliveryText)) pure found
+    if isJust contract
+      then emitDocument (Contract.DeliveryDocument ContractVersion1 DocumentName (contextIdText (binding ^. #identity)) document)
+      else TIO.putStr (renderDelivery document)
 
 runEventsSubscription :: Maybe String -> EventsSubscriptionCommand -> IO ()
 runEventsSubscription mctx = \case
-  SubscriptionList _ -> do
+  SubscriptionList (Just _) -> do
+    active <- activeTarget mctx
+    feed <- openTargetFeedReadOnly active >>= either dieT pure
+    binding <- refuse (targetBinding active)
+    (_, documents) <- subscriptionsOf feed >>= either (dieT . inspectRefusal) pure
+    emitDocument (Contract.SubscriptionList ContractVersion1 DocumentName (contextIdText (binding ^. #identity)) documents)
+  SubscriptionList Nothing -> do
     active <- activeTarget mctx
     snapshot <- Inventory.loadTargetSnapshotReadOnly active
     let records = [record | (_, scope') <- Map.elems (ResourceInventory.snapshotScopes snapshot), Just text <- [Map.lookup subscriptionOverride (ResourceInventory.scopeOverrides scope')], Right record <- [decodeSubscription text]]
     TIO.putStr (T.unlines [T.intercalate "  " [subscriptionIdText (r ^. #subscription), statusText (r ^. #status), r ^. #destination . #transport, "revision " <> T.pack (show (r ^. #revision))] | r <- records])
-  SubscriptionInspect name' _ -> do
+  SubscriptionInspect name' (Just _) -> do
+    active <- activeTarget mctx
+    feed <- openTargetFeedReadOnly active >>= either dieT pure
+    binding <- refuse (targetBinding active)
+    subscription' <- refuse (mkSubscriptionId (T.pack name'))
+    observed <- observeDestination feed subscription' >>= either (dieT . T.pack . show) pure
+    headValue <- maybe (dieT ("nagarectl: events subscription inspect: the sender has not applied " <> T.pack name')) pure (observed ^. #value)
+    emitDocument (Contract.SubscriptionList ContractVersion1 DocumentName (contextIdText (binding ^. #identity)) [subscriptionDocument headValue])
+  SubscriptionInspect name' Nothing -> do
     active <- activeTarget mctx
     (_, record, _) <- accepted active name'
     feed <- openTargetFeedReadOnly active >>= either dieT pure
@@ -219,27 +239,22 @@ feedCount active = do
     Left FeedNotEnabled -> pure 0
     Left err -> dieT ("nagarectl: events: the feed cannot be read: " <> T.pack (show err))
 
-destinationOf :: ActiveTarget -> SubscriptionId -> IO (FeedStore, DestinationHead)
-destinationOf active subscription' = do
-  feed <- openTargetFeedReadOnly active >>= either dieT pure
-  observed <- observeDestination feed subscription' >>= either (dieT . T.pack . show) pure
-  maybe (dieT ("nagarectl: events: the sender has not applied subscription " <> subscriptionIdText subscription' <> " yet")) (pure . (,) feed) (observed ^. #value)
+inspectRefusal :: InspectError -> Text
+inspectRefusal = \case
+  DeliveryOff -> "nagarectl: events: the context's lifecycle delivery is not enabled; no subscription is applied yet"
+  NoSubscription name' -> "nagarectl: events: the sender applies no subscription " <> name'
+  InspectFeed err -> "nagarectl: events: the lifecycle state cannot be read: " <> T.pack (show err)
 
-recordOf :: FeedStore -> SubscriptionId -> DeliveryId -> IO (Maybe DeliveryRecord)
-recordOf feed subscription' delivery' = do
-  observed <- observeRecordAt feed (recordKey subscription' delivery')
-  pure (either (const Nothing) (^. #value) observed)
-
-renderRecord :: DeliveryRecord -> Text
-renderRecord r =
+renderDelivery :: Contract.Delivery -> Text
+renderDelivery d =
   T.unlines $
-    [ "delivery " <> deliveryIdText (r ^. #delivery) <> ", " <> deliveryStateText (r ^. #state)
-    , "subscription " <> subscriptionIdText (r ^. #subscription) <> ", revision " <> T.pack (show (r ^. #revision)) <> ", transport " <> r ^. #transport <> ", policy " <> r ^. #policy
-    , "event " <> T.pack (show (r ^. #event)) <> " at position " <> T.pack (show (r ^. #position)) <> ", cycle " <> r ^. #deliveryCycle
+    [ "delivery " <> d ^. #deliveryId <> ", " <> d ^. #state
+    , "subscription " <> d ^. #subscription <> ", revision " <> T.pack (show (d ^. #revision)) <> ", transport " <> d ^. #transport <> ", policy " <> d ^. #policy
+    , "event " <> d ^. #eventId <> " at position " <> T.pack (show (d ^. #position)) <> ", cycle " <> d ^. #cycle
     ]
-      <> ["reason: " <> why | Just why <- [r ^. #reason]]
-      <> ["next attempt " <> T.pack (show at) | Just at <- [r ^. #nextAttempt]]
-      <> ["attempt " <> T.pack (show (a ^. #number)) <> " " <> T.pack (show (a ^. #startedAt)) <> " " <> fromMaybe "no outcome" (a ^. #outcome) <> maybe "" (": " <>) (a ^. #detail) | a <- r ^. #attempts]
+      <> ["reason: " <> why | Just why <- [fromNullable (d ^. #reason)]]
+      <> ["next attempt " <> at | Just at <- [fromNullable (d ^. #nextAttempt)]]
+      <> ["attempt " <> T.pack (show (a ^. #number)) <> " " <> a ^. #startedAt <> " " <> fromMaybe "no outcome" (fromNullable (a ^. #outcome)) <> maybe "" (": " <>) (fromNullable (a ^. #detail)) | a <- d ^. #attempts]
 
 statusText :: SubscriptionStatus -> Text
 statusText = \case

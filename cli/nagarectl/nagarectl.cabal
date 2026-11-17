@@ -154,6 +154,7 @@ library
     Nagare.Events.BackupCollector
     Nagare.Events.BackupSources
     Nagare.Events.Delivery
+    Nagare.Events.Delivery.Inspect
     Nagare.Events.Delivery.Store
     Nagare.Events.Delivery.Transport
     Nagare.Events.Deployment

@@ -50,7 +50,7 @@ An operator can register a receiver URL and selected lifecycle event types, insp
 - [x] M1: Transport-neutral reviewed subscriptions establish destination identity/type, exact filters, versioned policy and durable starting position; webhook endpoint/key validation is adapter-owned. Evidence: `Events.Delivery` "a reviewed subscription scope converges with no provider member, and its control reaches the sender" (real `applyReviewed`), "events before a subscription's start and events it filters out are not delivered", the receiver-URL and address-policy cases; `nagarectl events webhook create|update|disable|delete --save-plan DIR`.
 - [x] M2: One shared engine delivers identical events to a real HTTP receiver and a test-only non-HTTP adapter, with independent checkpoints, failure isolation and stable identity after lost acknowledgment. Evidence: `Events.Delivery` "one event reaches a real HTTP receiver and a non-HTTP adapter with identical bytes and IDs, under separate deliveries", "a failing destination does not hold back another ...", "a response lost after the receiver processed it is retried with the same IDs, after a restart; the receiver deduplicates", "a worker that dies between its intent and its outcome ..."; `scripts/check-haskell-architecture.py` refuses a transport import in the shared core.
 - [x] M3: Bounded fan-out, finite retries, endpoint changes, pause/disable, key rotation and explicit replay work under adversarial state/transport tests. Evidence: `Events.Delivery` retry-limit and permanent-failure, webhook policy and backoff, disable/reactivate, endpoint-change boundary versus key rotation, replay idempotence and stale-revision refusal, overlapping workers, and ten-thousand-delivery bounded-read cases; `nagarectl events delivery replay SUBSCRIPTION --event EVENT_ID --save-plan DIR`.
-- [ ] M4: CLI and protected read-only HTTP inspection explain delivery state, and a documented receiver verifies signatures and deduplicates events.
+- [x] M4: CLI and protected read-only HTTP inspection explain delivery state, and a documented receiver verifies signatures and deduplicates events. Evidence: `nagare-api-server-test` "delivery routes: not enabled, then the sender's subscriptions, a delivery page and one delivery (EP-234)" and the client and operation-ID tests; `just api-hurl` (events.hurl); contract samples `subscription-list.json`, `delivery-list.json`, `delivery.json` in `docs/api/samples`; `docs/user/lifecycle-events.md` with the signing vector computed independently (Python `hmac`) and pinned by `Events.Delivery`; `cluster/examples/lifecycle-webhook-receiver/Receiver.hs`, type-checked against the project's packages.
 
 
 ## Surprises & Discoveries
@@ -75,10 +75,14 @@ An operator can register a receiver URL and selected lifecycle event types, insp
 
 2026-11-17: The signing Secret is read when a destination is bound for a cycle, not at review: a missing or short key pauses that destination with its reason, and the review shows only the reference.
 
+2026-11-17: The delivery routes are not served from the representation cache: delivery records change with every attempt without a head the cache could key on, so each request reads the heads, one log index and the page's records. Their revision header names the sender's state.
+
+2026-11-17: The receiver example is a cabal script; the protocol's behavioural proof is the `Events.Delivery` suite's real Warp receiver and the published vector, computed outside Haskell. Building the example is not part of a gate.
+
 ## Outcomes & Retrospective
 
 
-(To be filled during implementation and at completion.)
+Reviewed webhook subscriptions deliver signed, at-least-once POSTs of lifecycle events through a transport-neutral engine with durable records, attempt tokens, bounded retries, revision boundaries, rotation and replay, and the CLI and admin API inspect the same state; a test-only recording adapter proves a second transport needs no engine change. What remains is EP-235's: the long-running worker that runs `deliverOnce` with its interval, the in-cluster credentials for signing Secrets, and native confirmation. ADR 33 holds the delivered semantics.
 
 
 ## Context and Orientation

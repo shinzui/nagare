@@ -13,6 +13,7 @@ module Nagare.Api.Server.Serve
   , Plan (..)
   , serveState
   , serveFeed
+  , serveDelivery
   , serveBuild
   , acceptedVector
   , headRevisionText
@@ -42,7 +43,7 @@ import Nagare.Api.Response
 import Nagare.Api.Server.Problems (storeProblem)
 import Nagare.Api.Server.Validators (entityTag, noneMatch, stateValidators)
 import Nagare.Contract.Prelude
-import Nagare.Contract.Problem (ProblemDetails, eventsNotEnabled, internalError, problemFor, storeInvalid, storeTimeout, storeUnavailable)
+import Nagare.Contract.Problem (ProblemDetails, deliveryNotEnabled, eventsNotEnabled, internalError, problemFor, storeInvalid, storeTimeout, storeUnavailable)
 import Nagare.Events.Query (feedRevision)
 import Nagare.Events.Store (FeedError (..), FeedHead, FeedStore, readFeedHead)
 import Nagare.Inventory.Digest (contentDigest)
@@ -184,6 +185,28 @@ serveFeed env match planFor = liftIO $ bounded env $ case feed env of
               | otherwise -> SnapshotOk (SnapshotBody (Encoded bytes) (stateValidators tag) revision)
               where
                 revision = feedRevision headValue
+
+-- | Serve one lifecycle delivery route (EP-234). Delivery state changes with
+-- every attempt, so its representation is built for each request, never
+-- cached; the revision header names the sender's state it was read at.
+serveDelivery ::
+  (ToJSON a) =>
+  Env ->
+  Maybe Text ->
+  (FeedStore -> IO (Either ProblemDetails (Text, a))) ->
+  Handler (SnapshotResult a)
+serveDelivery env match construct' = liftIO $ bounded env $ case feed env of
+  Nothing -> pure (snapshotProblem (problemFor deliveryNotEnabled "this server reads no lifecycle state for the context"))
+  Just store -> do
+    built <- construct' store
+    pure $ case built of
+      Left problem -> snapshotProblem problem
+      Right (revision, value) ->
+        let bytes = encode value
+            tag = entityTag (build env) bytes
+         in if noneMatch match tag
+              then SnapshotNotModified (SnapshotUnchanged (stateValidators tag) revision)
+              else SnapshotOk (SnapshotBody (Encoded bytes) (stateValidators tag) revision)
 
 -- | Serve a representation of the serving build, which reads no store.
 serveBuild :: Text -> LBS.ByteString -> Maybe Text -> Handler (BuildResult a)

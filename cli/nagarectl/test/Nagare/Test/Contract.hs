@@ -11,6 +11,7 @@ where
 
 import Control.Exception (try)
 import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecode, eitherDecodeStrict, toJSON)
+import Data.Aeson qualified as Aeson
 import Data.Aeson.Encode.Pretty (Config (..), Indent (..), defConfig, encodePretty')
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -23,8 +24,10 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.OpenApi (ToSchema)
 import Data.OpenApi.Schema.Validation (validateToJSON)
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Contract.Delegation
+import Nagare.Contract.Delivery qualified as DeliveryDocs
 import Nagare.Contract.Events qualified as Events
 import Nagare.Contract.Problem
 import Nagare.Contract.Project
@@ -35,9 +38,13 @@ import Nagare.Contract.V1
 import Nagare.Contract.Versions
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
-import Nagare.Events.Envelope (envelopeFor)
+import Nagare.Events.Delivery.Inspect (deliveryCursor, deliveryDocument, subscriptionDocument)
+import Nagare.Events.Delivery.Store qualified as DeliveryStore
+import Nagare.Events.Delivery.Transport qualified as DeliveryTransport
+import Nagare.Events.Envelope (envelopeFor, mkEventId)
 import Nagare.Events.Query (lifecycleEvent)
-import Nagare.Events.Source (AppDeployment (..), DeploymentAction (..), DeploymentSubject (..), EventCandidate (..), EventPayload (..), Evidence (..), ResourceRef (..), mkSourceKey)
+import Nagare.Events.Source (AppDeployment (..), DeploymentAction (..), DeploymentSubject (..), EventCandidate (..), EventKind (AppDeployed), EventPayload (..), Evidence (..), ResourceRef (..), mkSourceKey)
+import Nagare.Events.Subscription qualified as Subscription
 import Nagare.Inventory.Adapter (ReviewBarrier (..))
 import Nagare.Inventory.Artifact
   ( ArtifactDeclarationBundle (..)
@@ -192,6 +199,9 @@ samples =
   , Sample "deploy-preview.json" deployPreviewSample
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "event-list.json" eventListSample
+  , Sample "subscription-list.json" subscriptionListSample
+  , Sample "delivery-list.json" deliveryListSample
+  , Sample "delivery.json" deliverySample
   , Sample "problem.json" (problemFor unknownScope "application:nope is not an accepted scope")
   , Sample "platform-versions.json" platformVersionsSample
   , Sample "delegation.json" delegationSample
@@ -248,6 +258,53 @@ deployerCredentialsSample =
     }
 
 -- | EP-247 D6: a deployer's transaction with its source, then an operator's.
+-- | EP-234: the sender's view of one webhook subscription, through the same
+-- conversion the CLI and the admin API use.
+subscriptionListSample :: DeliveryDocs.SubscriptionList
+subscriptionListSample = DeliveryDocs.SubscriptionList ContractVersion1 DocumentName "context-1" [subscriptionDocument sampleDestination]
+
+deliveryListSample :: DeliveryDocs.DeliveryList
+deliveryListSample = DeliveryDocs.DeliveryList ContractVersion1 DocumentName "context-1" "deploys" [deliveryDocument sampleDelivery] (DeliveryDocs.DeliveryPageInfo False (Nullable (Just (deliveryCursor 0))))
+
+deliverySample :: DeliveryDocs.DeliveryDocument
+deliverySample = DeliveryDocs.DeliveryDocument ContractVersion1 DocumentName "context-1" (deliveryDocument sampleDelivery)
+
+sampleSubscription :: Subscription.Subscription
+sampleSubscription =
+  Subscription.Subscription
+    1
+    (ok (Subscription.mkSubscriptionId "deploys"))
+    2
+    Subscription.Active
+    (Subscription.SubscriptionFilter (Set.fromList [AppDeployed]) Nothing Nothing)
+    41
+    (Subscription.PolicyRef "webhook" 1)
+    (Subscription.DestinationSpec "webhook:deploys" "webhook" 1 (Aeson.object ["url" Aeson..= ("https://hooks.example.test/events" :: Text), "allowHosts" Aeson..= ([] :: [Text]), "signing" Aeson..= ([] :: [Text])]))
+
+sampleDestination :: DeliveryStore.DestinationHead
+sampleDestination = DeliveryStore.DestinationHead 1 (ContextBinding (ok (mkContextId "context-1")) (ok (mkName "project"))) (ok (Subscription.mkSubscriptionId "deploys")) 7 sampleSubscription 43 Nothing Nothing (DeliveryStore.LogPointer 1 Nothing Nothing) Nothing Nothing
+
+sampleDelivery :: DeliveryStore.DeliveryRecord
+sampleDelivery =
+  DeliveryStore.DeliveryRecord
+    1
+    (DeliveryStore.deliveryIdFor (ok (Subscription.mkSubscriptionId "deploys")) "webhook:deploys" (ok (mkEventId "ev-4bff6e76b6c03829f65ff3832edef4ac")) "initial")
+    (ok (Subscription.mkSubscriptionId "deploys"))
+    "webhook:deploys"
+    "webhook"
+    2
+    "webhook/1"
+    (ok (mkEventId "ev-4bff6e76b6c03829f65ff3832edef4ac"))
+    42
+    "initial"
+    DeliveryStore.Delivered
+    [ DeliveryStore.Attempt 1 "token-1" (read "2026-11-17 10:00:08 UTC") (Just "unknown") (Just "the receiver did not answer in time") Nothing (Just (read "2026-11-17 10:00:18 UTC"))
+    , DeliveryStore.Attempt 2 "token-2" (read "2026-11-17 10:00:30 UTC") (Just "acknowledged") Nothing (Just (DeliveryTransport.Receipt "http" 1 (Aeson.object ["status" Aeson..= (204 :: Int)]))) (Just (read "2026-11-17 10:00:31 UTC"))
+    ]
+    (read "2026-11-17 10:00:08 UTC")
+    Nothing
+    Nothing
+
 -- | EP-231: one page of a feed, through the same conversion the CLI and
 -- the admin API use, so the sample is the envelope's own wire form.
 eventListSample :: Events.EventList

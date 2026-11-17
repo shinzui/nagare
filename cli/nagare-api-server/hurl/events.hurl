@@ -46,3 +46,15 @@ GET {{base_url}}/v1/events?last=1
 HTTP 400
 [Asserts]
 jsonpath "$.code" == "invalid_page"
+
+# EP-234: the fixture's sender was never enabled; delivery inspection says so.
+GET {{base_url}}/v1/events/subscriptions
+HTTP 404
+[Asserts]
+header "Content-Type" contains "application/problem+json"
+jsonpath "$.code" == "delivery_not_enabled"
+
+GET {{base_url}}/v1/events/deliveries?subscription=deploys
+HTTP 404
+[Asserts]
+jsonpath "$.code" == "delivery_not_enabled"
