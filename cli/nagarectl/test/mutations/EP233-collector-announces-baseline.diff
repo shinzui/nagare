@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/BackupCollector.hs
++++ b/cli/nagarectl/src/Nagare/Events/BackupCollector.hs
+@@ -269,7 +269,7 @@ collectOnce store binding ops budget schedules = do
+             Just through'
+               | modified > through' -> True
+               | modified == through' -> address ops (versionedKey (candidate ^. #receipt)) `notElem` baselineValue ^. #at
+-              | otherwise -> False
++              | otherwise -> True
+     backupOf candidate = do
+       archive' <- candidate ^. #archive
+       pure (backupIdFor ScheduledBackup (candidate ^. #schedule . #owner) (candidate ^. #run) (stored archive') (stored (candidate ^. #receipt)))

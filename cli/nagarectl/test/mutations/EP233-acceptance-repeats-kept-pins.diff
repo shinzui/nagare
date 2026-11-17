@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/Backup.hs
++++ b/cli/nagarectl/src/Nagare/Events/Backup.hs
+@@ -242,7 +242,7 @@ sourceRef owner fields key =
+ newlyPinned :: ScopeView -> [Text] -> Bool
+ newlyPinned view' keys = case view' ^. #previous of
+   Nothing -> True
+-  Just previous -> any (\key -> Map.lookup key previous /= Map.lookup key (view' ^. #desired)) keys
++  Just _ -> True
+ 
+ parseScope :: Text -> Maybe ScopeId
+ parseScope text = case T.breakOn ":" text of

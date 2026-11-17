@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/Materialize.hs
++++ b/cli/nagarectl/src/Nagare/Events/Materialize.hs
+@@ -113,7 +113,7 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
+             | source <- batch ^. #sources
+             ]
+               <> [ Unit (observation ^. #observedAt) (observation ^. #events) Nothing (Just (SourceCheckpoint (after ^. #next - 1) (observation ^. #previous)))
+-                 | (after, observation) <- receiptBatch ^. #observations
++                 | (after, observation) <- take 0 (receiptBatch ^. #observations)
+                  ]
+           (taken, cutAt) = within units
+           (journal', receipts') = case cutAt of

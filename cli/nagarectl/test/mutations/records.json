@@ -1162,5 +1162,29 @@
     "suite": "nagarectl",
     "pattern": "/Events.Deployment/&&/a later release names the previous one/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP233-collector-announces-baseline",
+    "suite": "nagarectl",
+    "pattern": "/Events.Backup/&&/runs present at activation are the baseline/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP233-collector-trusts-any-signing-secret",
+    "suite": "nagarectl",
+    "pattern": "/Events.Backup/&&/a signing Secret that is not the recorded incarnation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP233-acceptance-repeats-kept-pins",
+    "suite": "nagarectl",
+    "pattern": "/Events.Backup/&&/a later revision keeping the pins/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP233-materializer-drops-receipts",
+    "suite": "nagarectl",
+    "pattern": "/Events.Backup/&&/one verified scheduled PostgreSQL run is one completion event/",
+    "expect": "test-fails"
   }
 ]

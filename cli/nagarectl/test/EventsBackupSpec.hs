@@ -90,6 +90,7 @@ eventsBackupTests =
         length stillOne @?= 1
     , testCase "runs present at activation are the baseline; later receipts, even for an earlier archive, are announced" $ do
         world <- newWorld
+        uploadRun world run4 (minutes 0) validRun
         uploadRun world run1 (minutes 1) validRun
         uploadArchiveOnly world run2 (minutes 2)
         activate world
