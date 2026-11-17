@@ -9,6 +9,7 @@ where
 import Control.Concurrent.MVar (newEmptyMVar, readMVar, tryPutMVar)
 import Data.Aeson (object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
+import Data.Containers.ListUtils (nubOrd)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.Map.Strict qualified as Map
@@ -84,6 +85,28 @@ workerTests =
         assertBool "the source loop succeeded" (isJust (sourceLoop ^. #lastSuccess))
         metrics <- TE.decodeUtf8 . LBS.toStrict <$> renderMetrics status
         assertBool (Text.unpack metrics) ("nagare_events_cycle_failing{loop=\"receipts\"} 1" `Text.isInfixOf` metrics && "nagare_events_cycle_failing{loop=\"source\"} 0" `Text.isInfixOf` metrics)
+    , testCase "a stopped worker catches up on restart: each deployment once, under stable IDs, and delivered once" $ do
+        world <- newWorld
+        commit world [] [revisionOf recordingSub]
+        config <- configOf world Nothing
+        activate config >>= either (assertFailure . Text.unpack) pure
+        commit world [deploy "a"] []
+        _ <- sourceCycle config >>= either (assertFailure . Text.unpack) pure
+        _ <- deliveryCycle config >>= either (assertFailure . Text.unpack) pure
+        -- Stopped: two more deployments converge meanwhile.
+        commit world [deploy "b"] []
+        commit world [deploy "c"] []
+        restarted <- configOf world Nothing
+        activate restarted >>= either (assertFailure . Text.unpack) pure
+        caught <- sourceCycle restarted >>= either (assertFailure . Text.unpack) pure
+        Map.lookup "feed_events" caught @?= Just 3
+        again <- sourceCycle restarted >>= either (assertFailure . Text.unpack) pure
+        Map.lookup "feed_events" again @?= Just 3
+        _ <- deliveryCycle restarted >>= either (assertFailure . Text.unpack) pure
+        _ <- deliveryCycle restarted >>= either (assertFailure . Text.unpack) pure
+        published <- readIORef (world ^. #published)
+        map (^. #eventId) published @?= nubOrd (map (^. #eventId) published)
+        length published @?= 3
     , testCase "activation enables the feed at the journal's tip: earlier history is not announced" $ do
         world <- newWorld
         commit world [deploy "old"] []
