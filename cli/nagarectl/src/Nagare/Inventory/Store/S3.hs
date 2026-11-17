@@ -23,8 +23,7 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Crypto.Hash (Digest, SHA256, hash)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
-import Data.ByteArray (convert)
-import Data.ByteArray.Encoding (Base (Base16), convertToBase)
+import Data.ByteArray.Encoding (Base (Base16), convertFromBase, convertToBase)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -116,11 +115,15 @@ signedHeaders credentials region now method host path query extra payload =
         <> ", Signature="
         <> signature
 
+-- | A crypton digest's byte-array class comes from @ram@ in crypton 1.1 and
+-- from @memory@ before it, so its bytes are taken from its lowercase hex
+-- rendering, which both versions print alike.
 hexSha256 :: ByteString -> ByteString
-hexSha256 bytes = convertToBase Base16 (hash bytes :: Digest SHA256)
+hexSha256 bytes = BC.pack (show (hash bytes :: Digest SHA256))
 
 hmacSha256 :: ByteString -> ByteString -> ByteString
-hmacSha256 key message = convert (hmacGetDigest (hmac key message :: HMAC SHA256))
+hmacSha256 key message =
+  either (error . ("crypton digest is not hex: " <>)) id (convertFromBase Base16 (BC.pack (show (hmacGetDigest (hmac key message :: HMAC SHA256)))))
 
 -- | RFC 3986 unreserved characters pass; @/@ passes in a path.
 encode :: Bool -> Text -> ByteString
