@@ -23,6 +23,24 @@ An event's `id` never changes across retries, restarts or replays. Read them
 with `nagarectl events list` or `GET /v1/events`. Backup events are described
 in [Backups and disaster recovery](backups-and-disaster-recovery.md#backup-lifecycle-events).
 
+## Run the worker
+
+A context's events are published, its backups collected and its webhooks sent by the lifecycle
+worker, `nagare-events`, which the context opts in to:
+
+```bash
+nagarectl context create <context> --force --enable-lifecycle-events --save-plan ./ctx
+nagarectl context apply ./ctx --yes
+```
+
+It runs in `nagare-system` with no inventory authority: it reads the inventory and backups and
+writes only its own state beside the inventory. It sends nothing until the context also sets
+`--enable-lifecycle-delivery`. A cloud context first needs the worker's key, as
+[the worker key runbook](../runbooks/lifecycle-worker-key.md) describes; a local context must have
+been created with the worker enabled, because its state directory is mounted when the cluster is.
+`inventory export` and `inventory restore` carry the lifecycle state with the history. Its probes are
+`/health/live` and `/health/ready`, and `/metrics` reports each loop.
+
 ## Subscribe a receiver
 
 A subscription is a reviewed change of the context, like any other:

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-17
+* **Update**: DOC-45: run the lifecycle worker (`--enable-lifecycle-events`, `--enable-lifecycle-delivery`), and what export and restore carry.
 * **Add**: DOC-45: lifecycle events and webhooks — subscriptions, the v1 signing protocol with a published vector, receiver deduplication, retry semantics, inspection and replay.
 * **Update**: DOC-5: describe the backup completion and acceptance events and `events collect-backups`.
 

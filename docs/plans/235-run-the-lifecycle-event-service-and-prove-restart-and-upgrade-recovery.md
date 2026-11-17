@@ -48,7 +48,14 @@ A context can run lifecycle event collection and webhook delivery continuously w
 
 
 - [x] M1: A packaged Haskell worker runs bounded source materialization, receipt collection and delivery loops against filesystem and object-store configurations with correct capability separation. Evidence: `nagare-api-server-test` `Events.Worker` (one cycle of each loop with no inventory write, failure isolation with readiness and metrics, activation at the journal tip); `cabal build exe:nagare-events`, `nagare-events --help`; the binary is in the `nagare-admin-api` release image and the `nagare-api-server-build` gate step.
-- [ ] M2: Reviewed context enable/disable, deployment, read-only API access, secret delivery and persistent state survive upgrade and documented recovery.
+- [x] M2: Reviewed context enable/disable, deployment, read-only API access, secret delivery and persistent state survive upgrade and documented recovery.
+  Evidence: ecd460b5 (Pulumi account, predefined prefix-scoped roles, off by default), e9da56b6
+  (`platform:lifecycle-events` scope: signing-Secret RBAC by name, NetworkPolicy, local and cloud
+  templates), 7e447032 (local read-only MinIO user from a create-time credential template, writable
+  lifecycle mount), f076774c (lifecycle state in `inventory export`/`restore`, roundtrip test),
+  2e3d1d0b (`--enable-lifecycle-events`/`--enable-lifecycle-delivery`, catalog section, platform
+  stage, transition-table row, `InventoryLifecycleEventsSpec`), the worker-key runbook and DOC-45
+  "Run the worker". Native upgrade survival is confirmed in M3.
 - [ ] M3: Gated offline coverage and disposable native deployment/backup/receiver drills prove catch-up, duplicate handling, credential isolation and latency reporting.
 
 
@@ -59,6 +66,10 @@ A context can run lifecycle event collection and webhook delivery continuously w
 
 
 ## Decision Log
+
+- 2026-11-17: `platform status` does not classify the worker's image: it observes one workload per
+  release image key, and the worker shares the admin API image. The scope compiles the release
+  digest, so an upgrade still rolls it. Recorded for the operator's deferral decision.
 
 
 2026-10-31: Install one context-local worker without another messaging engine or inventory reconciler. The service receives no apply/resume/close authority and uses bounded independent queues so receipt verification cannot starve delivery.
