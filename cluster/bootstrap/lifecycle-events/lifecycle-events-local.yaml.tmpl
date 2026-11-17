@@ -1,0 +1,191 @@
+# The lifecycle event worker in a local context (EP-235). nagarectl
+# substitutes @IMAGE@, @CONTEXT@, @PROJECT@, @MINIO_ENDPOINT@, @BACKUP_BUCKET@,
+# @DELIVERY@ and @SIGNING_SECRETS@, then reviews these objects as scope
+# platform:lifecycle-events. The worker reads the inventory the node mounts
+# read-only at /var/lib/nagare/inventory and writes only the lifecycle state
+# the node mounts writable at /var/lib/nagare/lifecycle, both from the
+# workstation. Their files belong to the workstation user, so the pod runs as
+# root with every capability dropped except DAC_READ_SEARCH and DAC_OVERRIDE.
+# It reads backups as the read-only MinIO user local bootstrap created, and
+# only the signing Secrets the ClusterRole names.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nagare-events
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nagare-events-signing-keys
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: @SIGNING_SECRETS@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nagare-events-signing-keys
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nagare-events-signing-keys
+subjects:
+  - kind: ServiceAccount
+    name: nagare-events
+    namespace: nagare-system
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nagare-events
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-events
+  policyTypes: [Ingress]
+  # Only the metrics scraper reaches the probe port; the kubelet's probes
+  # are not subject to NetworkPolicy. Nothing serves a control endpoint.
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8086
+          protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nagare-events
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-events
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nagare-events
+        app.kubernetes.io/part-of: nagare-platform
+    spec:
+      serviceAccountName: nagare-events
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nagare-events
+          image: "@IMAGE@"
+          command: ["nagare-events"]
+          args:
+            - --context
+            - "@CONTEXT@"
+            - --project
+            - "@PROJECT@"
+            - --store-dir
+            - /var/lib/nagare/inventory
+            - --backup-minio
+            - "@MINIO_ENDPOINT@"
+            - --backup-bucket
+            - "@BACKUP_BUCKET@"
+            - --delivery
+            - "@DELIVERY@"
+            - --activate
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8086"
+          env:
+            - name: TMPDIR
+              value: /tmp
+            - name: HOME
+              value: /tmp
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-events-minio
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-events-minio
+                  key: AWS_SECRET_ACCESS_KEY
+          ports:
+            - name: probes
+              containerPort: 8086
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - DAC_READ_SEARCH
+                - DAC_OVERRIDE
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: probes
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: probes
+            periodSeconds: 30
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: inventory
+              mountPath: /var/lib/nagare/inventory
+              readOnly: true
+            - name: lifecycle
+              mountPath: /var/lib/nagare/lifecycle
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        # Directory, not DirectoryOrCreate: a substrate without the mounts
+        # fails the pod instead of writing state nobody else reads.
+        - name: inventory
+          hostPath:
+            path: /var/lib/nagare/inventory
+            type: Directory
+        - name: lifecycle
+          hostPath:
+            path: /var/lib/nagare/lifecycle
+            type: Directory

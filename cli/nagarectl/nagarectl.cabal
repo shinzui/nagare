@@ -254,6 +254,7 @@ library
     Nagare.Inventory.Components.CloudflareZone
     Nagare.Inventory.Components.ControllerImage
     Nagare.Inventory.Components.Foundation
+    Nagare.Inventory.Components.LifecycleEvents
     Nagare.Inventory.Components.LocalObjectStore
     Nagare.Inventory.Components.Observability
     Nagare.Inventory.Components.ObservabilityExtras

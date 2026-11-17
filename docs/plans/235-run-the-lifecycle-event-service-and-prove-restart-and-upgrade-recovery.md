@@ -74,6 +74,8 @@ A context can run lifecycle event collection and webhook delivery continuously w
 
 2026-11-17: A stop request (SIGTERM, SIGINT) lets each loop finish its cycle in progress and starts no new one, so a shutdown never leaves an attempt between its intent and its outcome.
 
+2026-11-17 (operator): A local context's lifecycle state lives on the workstation beside its inventory, mounted writable into the node by a second k3d volume at cluster creation; an existing local context needs a reviewed cluster rebuild before it can run the worker. The worker reads signing Secrets through a ClusterRole whose resourceNames list exactly the accepted schedules' and subscriptions' signing Secrets, compiled into the lifecycle scope, so adding a database or subscription re-reviews that scope. In local mode the worker reads backups as a dedicated MinIO user with a read-only policy on the backup bucket, created at local bootstrap.
+
 ## Outcomes & Retrospective
 
 

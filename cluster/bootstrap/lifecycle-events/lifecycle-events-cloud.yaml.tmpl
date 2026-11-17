@@ -1,0 +1,182 @@
+# The lifecycle event worker in a cloud context (EP-235). nagarectl
+# substitutes @IMAGE@, @CONTEXT@, @PROJECT@, @STORE_URL@, @PROJECT_NUMBER@,
+# @BACKUP_BUCKET@, @DELIVERY@, @WORKER_DIGEST@ and @SIGNING_SECRETS@, then
+# reviews these objects as scope platform:lifecycle-events. The worker's own
+# service account, whose IAM reads the inventory prefix and the backup bucket
+# and writes only the lifecycle prefix beside the inventory, is the
+# operator's nagare-events-worker Secret, bound as a private member. It reads
+# only the signing Secrets the ClusterRole names.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nagare-events
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nagare-events-signing-keys
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: @SIGNING_SECRETS@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nagare-events-signing-keys
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nagare-events-signing-keys
+subjects:
+  - kind: ServiceAccount
+    name: nagare-events
+    namespace: nagare-system
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nagare-events
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-events
+  policyTypes: [Ingress]
+  # Only the metrics scraper reaches the probe port; the kubelet's probes
+  # are not subject to NetworkPolicy. Nothing serves a control endpoint.
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8086
+          protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nagare-events
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-events
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-events
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nagare-events
+        app.kubernetes.io/part-of: nagare-platform
+      annotations:
+        # The worker reads its key once; a changed key rolls the pod.
+        nagare.dev/worker-key-digest: "@WORKER_DIGEST@"
+    spec:
+      serviceAccountName: nagare-events
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nagare-events
+          image: "@IMAGE@"
+          command: ["nagare-events"]
+          args:
+            - --context
+            - "@CONTEXT@"
+            - --project
+            - "@PROJECT@"
+            - --store-url
+            - "@STORE_URL@"
+            - --project-number
+            - "@PROJECT_NUMBER@"
+            - --credentials
+            - /var/run/nagare/key.json
+            - --cache-dir
+            - /var/cache/nagare
+            - --backup-gcs
+            - "@BACKUP_BUCKET@"
+            - --delivery
+            - "@DELIVERY@"
+            - --activate
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8086"
+          env:
+            - name: TMPDIR
+              value: /tmp
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: probes
+              containerPort: 8086
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: probes
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: probes
+            periodSeconds: 30
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/nagare
+            - name: key
+              mountPath: /var/run/nagare
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: key
+          secret:
+            secretName: nagare-events-worker
+            defaultMode: 0440
