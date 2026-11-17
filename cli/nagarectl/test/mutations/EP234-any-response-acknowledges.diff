@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/Webhook/Policy.hs
++++ b/cli/nagarectl/src/Nagare/Events/Webhook/Policy.hs
+@@ -55,7 +55,7 @@ data HttpResult
+ classify :: UTCTime -> HttpResult -> Outcome
+ classify now = \case
+   Responded status headers _
+-    | status >= 200 && status < 300 -> Acknowledged (Receipt "http" 1 (object ["status" .= status]))
++    | status >= 200 && status < 600 -> Acknowledged (Receipt "http" 1 (object ["status" .= status]))
+     | status == 408 || status == 429 || (status >= 500 && status < 600) ->
+         Retryable (lookup "retry-after" headers >>= parseRetryAfter now) ("the receiver answered " <> T.pack (show status))
+     | otherwise -> Permanent ("the receiver answered " <> T.pack (show status))

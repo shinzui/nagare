@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/Delivery.hs
++++ b/cli/nagarectl/src/Nagare/Events/Delivery.hs
+@@ -168,7 +168,7 @@ applyControl env = \case
+ 
+ applyRevision :: DeliveryEnv -> Subscription -> IO (Either DeliveryError ())
+ applyRevision env record = withHead env (record ^. #subscription) True $ \current now -> case current of
+-  Nothing -> pure (Right (Just (DestinationHead 1 (env ^. #binding) (record ^. #subscription) 0 record (record ^. #startAfter) Nothing Nothing emptyLog Nothing Nothing)))
++  Nothing -> pure (Right (Just (DestinationHead 1 (env ^. #binding) (record ^. #subscription) 0 record 0 Nothing Nothing emptyLog Nothing Nothing)))
+   Just headValue
+     | headValue ^. #record . #revision >= record ^. #revision -> pure (Right Nothing)
+     | otherwise -> do

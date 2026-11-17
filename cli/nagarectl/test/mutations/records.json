@@ -1186,5 +1186,23 @@
     "suite": "nagarectl",
     "pattern": "/Events.Backup/&&/one verified scheduled PostgreSQL run is one completion event/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP234-key-rotation-cancels-unsent-work",
+    "suite": "nagarectl",
+    "pattern": "/Events.Delivery/&&/a changed endpoint cancels the old revision/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP234-any-response-acknowledges",
+    "suite": "nagarectl",
+    "pattern": "/Events.Delivery/&&/the webhook policy classifies HTTP results/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP234-subscription-sends-earlier-history",
+    "suite": "nagarectl",
+    "pattern": "/Events.Delivery/&&/events before a subscription's start/",
+    "expect": "test-fails"
   }
 ]
