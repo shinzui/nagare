@@ -9,6 +9,7 @@
 -- authorizes nothing.
 module Nagare.Inventory.ScheduleHistory
   ( convergedScheduleRevisions
+  , convergedScheduleRevisionsIn
   , convergedReviews
   )
 where
@@ -36,9 +37,14 @@ convergedScheduleRevisions store headValue cron = do
   raw <- readJournalPrefix store (headSequence headValue)
   case first (T.pack . show) raw >>= traverse decodeJournalEvent of
     Left err -> pure (Left ("the journal cannot be read for the schedule's revisions: " <> err))
-    Right events -> do
-      revisions <- traverse revisionIn (convergedReviews events)
-      pure (nub . catMaybes <$> sequence revisions)
+    Right events -> convergedScheduleRevisionsIn store events cron
+
+-- | As 'convergedScheduleRevisions', over journal events already read, so a
+-- caller resolving several schedules reads the journal once (EP-233).
+convergedScheduleRevisionsIn :: InventoryStore -> [JournalEvent] -> ManagedResource -> IO (Either Text [ByteString])
+convergedScheduleRevisionsIn store events cron = do
+  revisions <- traverse revisionIn (convergedReviews events)
+  pure (nub . catMaybes <$> sequence revisions)
   where
     owner = cron ^. #owner
 

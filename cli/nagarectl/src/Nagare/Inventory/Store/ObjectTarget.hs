@@ -15,6 +15,7 @@ module Nagare.Inventory.Store.ObjectTarget
   , readCredentialFile
   , objectStoreOps
   , ForwardSpec (..)
+  , kubectlForward
   , forwardedReach
   , withObjectStoreForwards
   )

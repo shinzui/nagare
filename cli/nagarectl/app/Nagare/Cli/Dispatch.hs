@@ -30,6 +30,7 @@ import Nagare.Cli.Commands.Deployment (runDeploy)
 import Nagare.Cli.Commands.Domains (runDomains)
 import Nagare.Cli.Commands.Environment (runEnTenant, runEnv, runSecret)
 import Nagare.Cli.Commands.Events (runEventsList)
+import Nagare.Cli.Commands.EventsCollect (runEventsCollectBackups)
 import Nagare.Cli.Commands.Host (runCluster, runHost, runKubeconfig)
 import Nagare.Cli.Commands.Image (runAppImagePlan)
 import Nagare.Cli.Commands.Infrastructure
@@ -137,6 +138,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   SiteReleases copts -> runSiteReleases copts
   SiteList lopts -> withReadContract (lopts ^. #contract) (runSiteList mctx lopts)
   EventsList eopts -> withReadContract (eopts ^. #contract) (runEventsList mctx eopts)
+  EventsCollectBackups copts -> runEventsCollectBackups mctx copts
   SiteRollback copts rid -> runSiteRollback mctx copts (T.pack rid)
   SitePreviewDeploy sopts pname -> runPreviewDeploy mctx sopts (T.pack pname)
   SitePreviewList copts -> runPreviewList copts

@@ -114,8 +114,9 @@ data FeedError
 
 -- | The feed head: constant size whatever the history's length. It names
 -- the visible event count, the tail index node and the node listing every
--- completed one, the event-ID index root, and the source checkpoint the
--- visible events were materialized up to.
+-- completed one, the event-ID index root, and the source checkpoints the
+-- visible events were materialized up to: the inventory journal's and the
+-- backup collector's observation chain's (EP-233).
 data FeedHead = FeedHead
   { schemaVersion :: !Int
   , binding :: !ContextBinding
@@ -126,6 +127,7 @@ data FeedHead = FeedHead
   , completed :: !(Maybe ContentDigest)
   , ids :: !(Maybe ContentDigest)
   , journal :: !SourceCheckpoint
+  , receipts :: !SourceCheckpoint
   }
   deriving stock (Eq, Show, Generic)
 
@@ -262,14 +264,15 @@ instance ToJSON FeedHead where
       , "completed" .= (headValue ^. #completed)
       , "ids" .= (headValue ^. #ids)
       , "journal" .= (headValue ^. #journal)
+      , "receipts" .= (headValue ^. #receipts)
       ]
 
 instance FromJSON FeedHead where
   parseJSON = withObject "feed head" $ \o -> do
-    unless (all (`elem` ["version", "binding", "epoch", "generation", "count", "tail", "completed", "ids", "journal"]) (KM.keys o)) (fail "the feed head has an unknown field")
+    unless (all (`elem` ["version", "binding", "epoch", "generation", "count", "tail", "completed", "ids", "journal", "receipts"]) (KM.keys o)) (fail "the feed head has an unknown field")
     version <- o .: "version"
     unless (version == feedHeadVersion) (fail "unsupported lifecycle feed version")
-    headValue <- FeedHead version <$> o .: "binding" <*> o .: "epoch" <*> o .: "generation" <*> o .: "count" <*> o .: "tail" <*> o .: "completed" <*> o .: "ids" <*> o .: "journal"
+    headValue <- FeedHead version <$> o .: "binding" <*> o .: "epoch" <*> o .: "generation" <*> o .: "count" <*> o .: "tail" <*> o .: "completed" <*> o .: "ids" <*> o .: "journal" <*> o .: "receipts"
     unless (headValue ^. #count >= 0 && headValue ^. #generation >= 0) (fail "feed head counters must not be negative")
     pure headValue
 

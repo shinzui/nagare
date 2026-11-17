@@ -2,7 +2,8 @@
 
 -- | Materializing committed lifecycle sources into the event feed (EP-231
 -- M2). One cycle reads the inventory head once, the journal suffix after the
--- feed's checkpoint and the facts it names; publishes the new envelopes'
+-- feed's checkpoint and the facts it names, and the backup collector's head
+-- and the observations after the feed's receipt checkpoint (EP-233); publishes the new envelopes'
 -- segments and index nodes; then advances the feed head and its checkpoint in
 -- one conditional write, so a crash can never acknowledge a source without
 -- making its events visible. A source already published, by any route, is
@@ -24,6 +25,7 @@ import Data.Set qualified as Set
 import Nagare.Dsl.Prelude
 import Nagare.Events.Envelope
 import Nagare.Events.Layout
+import Nagare.Events.Receipts (readReceiptChain)
 import Nagare.Events.Source
 import Nagare.Events.Store
 import Nagare.Inventory.Store (InventoryStore)
@@ -66,7 +68,7 @@ data MaterializeError
 enableFeed :: FeedStore -> ContextBinding -> Text -> SourceCheckpoint -> IO (Either FeedError FeedHead)
 enableFeed store binding epoch from = attempt (3 :: Int)
   where
-    initial = FeedHead feedHeadVersion binding epoch 0 0 Nothing Nothing Nothing from
+    initial = FeedHead feedHeadVersion binding epoch 0 0 Nothing Nothing Nothing from initialCheckpoint
     attempt remaining = do
       observed <- observeFeed store binding
       case observed of
@@ -100,21 +102,36 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
         Left err -> pure (Left (MaterializeFeed err))
         Right (observed, headValue) -> do
           chain <- readSourceChain inventory (headValue ^. #journal) (budget ^. #journal)
-          case chain of
-            Left err -> pure (Left (MaterializeSource err))
-            Right batch -> publish observed headValue batch
-    publish observed headValue batch = do
-      let (taken, resume, cut) = within (batch ^. #sources)
-          checkpoint' = if cut then resume else batch ^. #checkpoint
+          receiptChain <- readReceiptChain store binding (headValue ^. #receipts) (budget ^. #journal)
+          case (chain, receiptChain) of
+            (Left err, _) -> pure (Left (MaterializeSource err))
+            (_, Left err) -> pure (Left (MaterializeFeed err))
+            (Right batch, Right receiptBatch) -> publish observed headValue batch receiptBatch
+    publish observed headValue batch receiptBatch = do
+      let units =
+            [ Unit (source ^. #convergedAt) (source ^. #facts . #events) (Just (SourceCheckpoint (source ^. #journalSequence) (source ^. #previous))) Nothing
+            | source <- batch ^. #sources
+            ]
+              <> [ Unit (observation ^. #observedAt) (observation ^. #events) Nothing (Just (SourceCheckpoint (after ^. #next - 1) (observation ^. #previous)))
+                 | (after, observation) <- receiptBatch ^. #observations
+                 ]
+          (taken, cutAt) = within units
+          (journal', receipts') = case cutAt of
+            Nothing -> (batch ^. #checkpoint, receiptBatch ^. #checkpoint)
+            Just unit -> case (unit ^. #journalBefore, unit ^. #receiptsBefore) of
+              (Just before, _) -> (before, headValue ^. #receipts)
+              (_, Just before) -> (batch ^. #checkpoint, before)
+              _ -> (headValue ^. #journal, headValue ^. #receipts)
+          cutJournal = maybe False (isJust . (^. #journalBefore)) cutAt
           context = binding ^. #identity
-          candidates = [(source ^. #convergedAt, candidate) | source <- taken, candidate <- source ^. #facts . #events]
+          candidates = [(unit ^. #observedAt, candidate) | unit <- taken, candidate <- unit ^. #candidates]
           ordered = dedupe Set.empty [(eventIdFor context (candidate ^. #key), pair) | pair@(_, candidate) <- candidates]
           dedupe _ [] = []
           dedupe seen ((eventId, pair) : rest)
             | Set.member eventId seen = dedupe seen rest
             | otherwise = (eventId, pair) : dedupe (Set.insert eventId seen) rest
           idle = MaterializeOutcome 0 0 (headValue ^. #journal) (headValue ^. #count) False (batch ^. #waiting) False
-      if null candidates && checkpoint' == headValue ^. #journal
+      if null candidates && journal' == headValue ^. #journal && receipts' == headValue ^. #receipts
         then pure (Right (Just idle))
         else do
           known <- lookupIds store (headValue ^. #ids) (map fst ordered)
@@ -140,7 +157,8 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
                               , tail = tailDigest
                               , completed = completedDigest
                               , ids = root
-                              , journal = checkpoint'
+                              , journal = journal'
+                              , receipts = receipts'
                               }
                       replaced <- replaceFeedHead store observed replacement
                       pure $ case replaced of
@@ -152,25 +170,37 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
                                 ( MaterializeOutcome
                                     (length envelopes)
                                     (length candidates - length envelopes)
-                                    checkpoint'
+                                    journal'
                                     (replacement ^. #count)
                                     True
-                                    (batch ^. #waiting && not cut)
-                                    cut
+                                    (batch ^. #waiting && not cutJournal)
+                                    (isJust cutAt)
                                 )
                             )
-    -- Take whole sources while they fit the event and byte budgets; the
-    -- first always fits, so a cycle always progresses.
-    within sources = go [] (0 :: Int) (0 :: Int) sources
+    -- Take whole units while they fit the event and byte budgets; the
+    -- first always fits, so a cycle always progresses. The unit a cycle
+    -- stops at names the checkpoint before it.
+    within units = go [] (0 :: Int) (0 :: Int) units
       where
-        go kept _ _ [] = (reverse kept, initialCheckpoint, False)
-        go kept eventsSoFar bytesSoFar (source : rest) =
-          let candidates = source ^. #facts . #events
+        go kept _ _ [] = (reverse kept, Nothing)
+        go kept eventsSoFar bytesSoFar (unit : rest) =
+          let candidates = unit ^. #candidates
               size = sum [BS.length (encodeLayout candidate) | candidate <- candidates]
               fits = null kept || (eventsSoFar + length candidates <= budget ^. #events && bytesSoFar + size <= budget ^. #bytes)
            in if fits
-                then go (source : kept) (eventsSoFar + length candidates) (bytesSoFar + size) rest
-                else (reverse kept, SourceCheckpoint (source ^. #journalSequence) (source ^. #previous), True)
+                then go (unit : kept) (eventsSoFar + length candidates) (bytesSoFar + size) rest
+                else (reverse kept, Just unit)
+
+-- | One committed source a cycle may take: a journal convergence or a
+-- collector observation, its observation time, its candidates and the
+-- checkpoint of the chain it belongs to before it.
+data Unit = Unit
+  { observedAt :: !Text
+  , candidates :: ![EventCandidate]
+  , journalBefore :: !(Maybe SourceCheckpoint)
+  , receiptsBefore :: !(Maybe SourceCheckpoint)
+  }
+  deriving stock (Generic)
 
 -- | Publish the segments and index nodes that hold the feed plus
 -- @envelopes@, returning the new tail node and completed list digests.

@@ -16,6 +16,8 @@ module Nagare.Inventory.Store.S3
   , ensureBucket
   , signedHeaders
   , listedKeys
+  , s3VersionedReader
+  , parseVersionListing
   )
 where
 
@@ -36,7 +38,9 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
+import Data.Time.Format (parseTimeM)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.ScheduledStore (StoredObject (..), VersionedObject (..), VersionedReader (..))
 import Nagare.Inventory.Store.ObjectOps
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types (Method, methodGet, methodPut, statusCode)
@@ -286,4 +290,86 @@ listedKeys body
         | otherwise -> before : splitOn needle (BS.drop (BS.length needle) rest)
     decodeXml raw = do
       text <- first (const "object store listing is not UTF-8") (TE.decodeUtf8' raw)
+      pure (T.replace "&amp;" "&" (T.replace "&lt;" "<" (T.replace "&gt;" ">" (T.replace "&quot;" "\"" (T.replace "&apos;" "'" text)))))
+
+-- | In-process reads of a versioned backup bucket (EP-233): the live
+-- versions under a prefix through paginated ListObjectVersions, and an
+-- exact-version GET whose @x-amz-version-id@ must name the version asked
+-- for. A failed or partial answer is an error, never an empty listing.
+s3VersionedReader :: S3Transport -> Text -> VersionedReader
+s3VersionedReader request bucket = VersionedReader list readAt
+  where
+    list prefix = go (0 :: Int) Nothing []
+      where
+        go pages marker acc
+          | pages >= 10000 = pure (Left "object store version listing has too many pages")
+          | otherwise = do
+              response <-
+                request
+                  methodGet
+                  ("/" <> bucket)
+                  ([("versions", ""), ("prefix", prefix)] <> concat [[("key-marker", k), ("version-id-marker", v)] | Just (k, v) <- [marker]])
+                  []
+                  ""
+              case response of
+                Left reason -> pure (Left reason)
+                Right (S3Response 200 _ body) -> case parseVersionListing prefix body of
+                  Left reason -> pure (Left reason)
+                  Right (entries, next) -> maybe (pure (Right (acc <> entries))) (\m -> go (pages + 1) (Just m) (acc <> entries)) next
+                Right (S3Response status _ _) -> pure (Left ("object store version listing answered " <> T.pack (show status)))
+    readAt key version path = do
+      response <- request methodGet ("/" <> bucket <> "/" <> key) [("versionId", version)] [] ""
+      case response of
+        Left reason -> pure (Left reason)
+        Right (S3Response 200 headers body)
+          | lookup "x-amz-version-id" headers == Just (TE.encodeUtf8 version) -> do
+              written <- try (BS.writeFile path body)
+              pure $ case written of
+                Left (_ :: SomeException) -> Left "an object version could not be written to scratch"
+                Right () -> Right (StoredObject version (toInteger (BS.length body)))
+          | otherwise -> pure (Left "object store answered another object version")
+        Right (S3Response status _ _) -> pure (Left ("object store version read answered " <> T.pack (show status)))
+
+-- | The live versions of one ListObjectVersions page under @prefix@, and the
+-- markers of the next page. A key whose latest entry is a delete marker is
+-- not live.
+parseVersionListing :: Text -> ByteString -> Either Text ([VersionedObject], Maybe (Text, Text))
+parseVersionListing prefix body
+  | not ("<ListVersionsResult" `BS.isInfixOf` body) = Left "object store version listing is not a ListVersionsResult"
+  | otherwise = do
+      versions <- traverse version (chunks "Version")
+      let live = [entry | (True, entry) <- versions]
+      next <- case (field "IsTruncated" body, field "NextKeyMarker" body, field "NextVersionIdMarker" body) of
+        (Just "false", _, _) -> Right Nothing
+        (Just "true", Just k, Just v) -> Just <$> ((,) <$> decodeXml k <*> decodeXml v)
+        _ -> Left "a truncated object store version listing has no markers"
+      pure (live, next)
+  where
+    version chunk = do
+      key <- required "Key" chunk >>= decodeXml
+      versionId <- required "VersionId" chunk >>= decodeXml
+      latest <- required "IsLatest" chunk
+      sizeText <- required "Size" chunk
+      modifiedText <- required "LastModified" chunk >>= decodeXml
+      size <- case reads (BC.unpack sizeText) of
+        [(n, "")] | n >= (0 :: Integer) -> Right n
+        _ -> Left "object store version listing has an invalid size"
+      modified <- maybe (Left "object store version listing has an invalid modification time") Right (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" (T.unpack modifiedText))
+      unless (prefix `T.isPrefixOf` key && not (T.null versionId) && versionId /= "null") (Left "object store version listing escaped its prefix or has no version")
+      pure (latest == "true", VersionedObject key versionId size modified)
+    required tag chunk = maybe (Left ("object store version listing lacks " <> tag)) Right (field tag chunk)
+    field tag chunk = case BS.breakSubstring ("<" <> TE.encodeUtf8 tag <> ">") chunk of
+      (_, rest)
+        | BS.null rest -> Nothing
+        | otherwise -> Just (fst (BS.breakSubstring ("</" <> TE.encodeUtf8 tag <> ">") (BS.drop (T.length tag + 2) rest)))
+    chunks tag =
+      [ fst (BS.breakSubstring ("</" <> tag <> ">") chunk)
+      | chunk <- drop 1 (splitOn ("<" <> tag <> ">") body)
+      ]
+    splitOn needle haystack = case BS.breakSubstring needle haystack of
+      (before, rest)
+        | BS.null rest -> [before]
+        | otherwise -> before : splitOn needle (BS.drop (BS.length needle) rest)
+    decodeXml raw = do
+      text <- first (const "object store version listing is not UTF-8") (TE.decodeUtf8' raw)
       pure (T.replace "&amp;" "&" (T.replace "&lt;" "<" (T.replace "&gt;" ">" (T.replace "&quot;" "\"" (T.replace "&apos;" "'" text)))))

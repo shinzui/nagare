@@ -1,5 +1,5 @@
 -- | One shared transport/ownership boundary for ordinary commands and migration.
-module Nagare.Inventory.Store.Remote (remoteObjectOps, withCommandRemoteStores, BucketDiscovery (..), remoteDiscoveryOps, probeRemoteBucket, provenOwnership) where
+module Nagare.Inventory.Store.Remote (remoteObjectOps, withCommandRemoteStores, BucketDiscovery (..), remoteDiscoveryOps, probeRemoteBucket, provenOwnership, remoteBackupReader) where
 
 import Control.Concurrent.Async (concurrently)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
@@ -18,6 +18,7 @@ import Gogol qualified as G
 import Gogol.Env qualified as Env
 import Gogol.Storage qualified as S
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.ScheduledStore (VersionedReader)
 import Nagare.Inventory.Store.Counters (tracePhase)
 import Nagare.Inventory.Store.GcloudAuth
 import Nagare.Inventory.Store.Gogol
@@ -145,6 +146,22 @@ openRemoteObjectOps project url = do
       Just bucket -> do
         numbers <- cachedProjectNumbers
         provenOwnership numbers ownershipReadPause capture bucket project
+
+-- | In-process reads of a backup bucket (EP-233), opened only after the
+-- bucket is proved to belong to the project, as the inventory's is.
+remoteBackupReader :: T.Text -> T.Text -> IO (Either T.Text VersionedReader)
+remoteBackupReader project bucket = do
+  session <- newGcloudSession project
+  case session of
+    Left reason -> pure (Left reason)
+    Right auth -> case endpointOverride (sessionStorageEndpoint auth) of
+      Left reason -> pure (Left reason)
+      Right configureEnv -> do
+        numbers <- cachedProjectNumbers
+        owned <- provenOwnership numbers ownershipReadPause (sessionCapture auth) bucket project
+        case owned of
+          Left reason -> pure (Left reason)
+          Right () -> Right <$> newGogolVersionedReaderWithToken (sessionToken auth) configureEnv bucket (quotaProjectFor project (sessionAccount auth))
 
 -- | EP-221: the bucket's owning project number and the project's own number
 -- are independent reads, so both run at once, each with its own retries.

@@ -19,6 +19,7 @@ module Nagare.Events.Source.Chain
   , SourceBatch (..)
   , SourceChainError (..)
   , readSourceChain
+  , tipCheckpoint
   , ControlStep (..)
   , consumeControls
   )
@@ -46,6 +47,7 @@ import Nagare.Inventory.Store
   , readHead
   , readImmutableObjects
   , readImmutableObjectsEach
+  , readObject
   )
 import Nagare.Resource.Types (ContentDigest)
 
@@ -161,6 +163,26 @@ readSourceChain store from budget = do
       unless (decoded ^. #transaction == eventTransaction event) (Left (SourceFactsInvalid sequenceNumber "facts name another transaction"))
       unless (Just (decoded ^. #review) == review) (Left (SourceFactsInvalid sequenceNumber "facts name another review"))
       pure (CommittedSource sequenceNumber (eventPreviousDigest event) (eventTransaction event) (eventTimestamp event) decoded)
+
+-- | The checkpoint at the journal's current tip: a consumer starting here
+-- reads only what is committed after now (EP-233 activation).
+tipCheckpoint :: InventoryStore -> IO (Either SourceChainError SourceCheckpoint)
+tipCheckpoint store = do
+  loadedHead <- readHead store
+  case loadedHead of
+    Left err -> pure (Left (SourceStoreError err))
+    Right Nothing -> pure (Left SourceUninitialized)
+    Right (Just headValue)
+      | headSequence headValue == 0 -> pure (Right initialCheckpoint)
+      | otherwise -> do
+          let lastSequence = headSequence headValue - 1
+          loaded <- readObject store (journalKey lastSequence)
+          pure $ case loaded of
+            Left err -> Left (SourceStoreError err)
+            Right Nothing -> Left (SourceChainBroken lastSequence "the journal tip is missing")
+            Right (Just bytes) -> case decodeJournalEvent bytes of
+              Left err -> Left (SourceChainBroken lastSequence err)
+              Right event -> Right (SourceCheckpoint (headSequence headValue) (Just (journalEventDigest event)))
 
 data Verdict = Passed | Committed !Convergence | Undecided
 

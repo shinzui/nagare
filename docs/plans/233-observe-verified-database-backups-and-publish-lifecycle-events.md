@@ -42,7 +42,7 @@ Consumers learn when Nagare has verified a database backup even when no operator
 ## Progress
 
 
-- [ ] M1: One unattended managed PostgreSQL scheduled receipt passes the real verifier and appears once as `database.backup.completed`, including after collector restart.
+- [x] M1: One unattended managed PostgreSQL scheduled receipt passes the real verifier and appears once as `database.backup.completed`, including after collector restart. Evidence: `cabal test nagarectl-test --test-options='-p /Events.Backup/'`, 14 cases, among them "one verified scheduled PostgreSQL run is one completion event, after a restart too", the baseline, failure-diagnostic, orphan-adoption, lost-acknowledgement, overlapping-collector, listing-cost and budget cases; `nagarectl events collect-backups --once [--activate]`.
 - [ ] M2: Scheduled Redis/ClickHouse and app-database producers, plus reviewed manual database backups, produce completion events under the same identity and verification rules.
 - [ ] M3: Reviewed backup acceptance emits a separate durable event; bounded collection, activation, delayed discovery and failure diagnostics are demonstrated.
 
@@ -62,6 +62,12 @@ Consumers learn when Nagare has verified a database backup even when no operator
 
 2026-11-04: Discover receipts in process, with one listing of the shared backup prefix per five-minute cycle, through gogol for GCS and an in-cluster MinIO reader for local mode; the existing `gcloud` and `curl` subprocess paths stay operator tools. Archive bytes are verified once per exact version within a budget. The modules are `Nagare.Events.Backup` and `Nagare.Events.BackupCollector`.
 
+
+2026-11-17: The local-mode reader is the existing in-process SigV4 transport of `Store/S3.hs` (ListObjectVersions plus `versionId` GETs), and GCS uses gogol through `Store/Gogol.hs` after the same bucket-ownership proof as the inventory. No package is added. Both implement `VersionedReader` in `ScheduledStore.hs`; the verifier reads each exact listed version once (`inspectScheduledReceiptAt`), the receipt before the archive.
+
+2026-11-17: Database and app-database runs have no common prefix, so a cycle lists each key-space root (`databases/`, `app-databases/`) once: a constant two listings, independent of the schedule count.
+
+2026-11-17: Verified runs become an observation chain under the feed's `receipts/` prefix, committed by a collector head with journal-style publish-then-commit and orphan adoption; `FeedHead` gains a `receipts` checkpoint and the materializer consumes both chains. The baseline is the provider time of the newest receipt at activation (with the receipts tied at that time), not a stored set; a complete listing every cycle replaces a name cursor, so late receipts need no rescan window. The collector state is bounded: the 256 most recent backup IDs (covering observations not yet materialized) and the 256 oldest pending runs. Schedules resolve from accepted inventory and recorded incarnations only (`Nagare.Events.BackupSources`), so the collector observes no cluster except the signing Secret.
 
 ## Outcomes & Retrospective
 

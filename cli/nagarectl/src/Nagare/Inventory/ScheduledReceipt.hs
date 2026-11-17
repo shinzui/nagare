@@ -4,6 +4,7 @@
 module Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
   , inspectScheduledReceipt
+  , inspectScheduledReceiptAt
   , verifyAcceptedScheduledReceipt
   , verifyAcceptedScheduledReceiptPoint
   , classifyScheduledListingKeys
@@ -170,6 +171,61 @@ inspectScheduledReceipt reader expectation backupId signingKey =
                                     , scheduledReceiptLength = receiptLength
                                     , scheduledReceiptDigest = contentDigest receiptBytes
                                     }
+
+-- | Verify one run at the exact receipt and archive versions a listing
+-- named (EP-233): each version is read once, by a reader whose response
+-- names the version it returned, and checked exactly as
+-- 'inspectScheduledReceipt' checks it. The receipt is authenticated before
+-- the archive is downloaded, so an unauthenticated receipt costs no archive
+-- bytes.
+inspectScheduledReceiptAt ::
+  (Text -> Text -> FilePath -> IO (Either Text StoredObject)) ->
+  ScheduledReceiptExpectation ->
+  Text ->
+  Text ->
+  Text ->
+  Text ->
+  IO (Either Text ScheduledReceiptEvidence)
+inspectScheduledReceiptAt readAt expectation backupId signingKey receiptVersion objectVersion =
+  withSystemTempDirectory "nagare-scheduled-receipt" $ \scratch -> do
+    let objectAddress = scheduledObjectPrefix expectation <> backupId <> "." <> scheduledFormat expectation
+        receiptAddress = objectAddress <> ".receipt.json"
+        receiptFile = scratch <> "/receipt"
+        objectFile = scratch <> "/object"
+    receiptRead <- readAt receiptAddress receiptVersion receiptFile
+    case receiptRead of
+      Left reason -> pure (Left reason)
+      Right receiptInfo -> do
+        receiptBytes <- BS.readFile receiptFile
+        let receiptLength = toInteger (BS.length receiptBytes)
+        if storedVersion receiptInfo /= receiptVersion || storedLength receiptInfo /= receiptLength
+          then pure (Left "scheduled receipt version or length differs from the listing")
+          else case parseScheduledBackupReceipt expectation receiptAddress signingKey receiptBytes of
+            Left reason -> pure (Left reason)
+            Right checked
+              | scheduledObjectAddress checked /= objectAddress -> pure (Left "scheduled receipt addresses another backup object")
+              | otherwise -> do
+                  objectRead <- readAt objectAddress objectVersion objectFile
+                  case objectRead of
+                    Left reason -> pure (Left reason)
+                    Right objectInfo -> do
+                      objectLength <- getFileSize objectFile
+                      objectHash <- sha256File objectFile
+                      pure $
+                        if storedVersion objectInfo /= objectVersion
+                          || storedLength objectInfo /= objectLength
+                          || objectHash /= scheduledSha256 checked
+                          then Left "scheduled backup version, length, or checksum changed"
+                          else
+                            Right
+                              ScheduledReceiptEvidence
+                                { scheduledReceipt = checked
+                                , scheduledObjectVersion = objectVersion
+                                , scheduledReceiptVersion = receiptVersion
+                                , scheduledObjectLength = objectLength
+                                , scheduledReceiptLength = receiptLength
+                                , scheduledReceiptDigest = contentDigest receiptBytes
+                                }
 
 -- | Accepted history already bound the signing and source proof at ingestion.
 -- Recheck its exact current provider versions and bytes without requiring an

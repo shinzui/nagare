@@ -17,6 +17,8 @@ module Nagare.Inventory.Store.Gogol
   , GogolDiscoveryOps (..)
   , newGogolDiscoveryWithToken
   , quotaProjectFor
+  , gogolVersionedReader
+  , newGogolVersionedReaderWithToken
   )
 where
 
@@ -45,6 +47,7 @@ import Gogol.Storage.Objects.Get qualified as Get
 import Gogol.Storage.Objects.Insert qualified as Insert
 import Gogol.Storage.Objects.List qualified as List
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.ScheduledStore (StoredObject (..), VersionedObject (..), VersionedReader (..))
 import Nagare.Inventory.Store.Counters (ObjectClass (..), WireRequest (..), objectClass, traceWire)
 import Nagare.Inventory.Store.ObjectOps
 import Network.HTTP.Client qualified as HTTP
@@ -410,3 +413,56 @@ validateGogolLocation project url = () <$ location project url
 -- | The bucket and object prefix of a validated @gs://@ store URL.
 gogolLocation :: Text -> Text -> Either Text (Text, Text)
 gogolLocation = location
+
+-- | In-process reads of one backup bucket (EP-233): every live generation
+-- under a bucket-relative prefix, through a complete paginated listing, and
+-- a media download of one exact generation. Listing requests are traced as
+-- the bucket's; no subprocess runs.
+gogolVersionedReader :: IO StorageEnv -> Text -> Maybe Text -> VersionedReader
+gogolVersionedReader environment bucket quota = VersionedReader list readAt
+  where
+    sdk :: (StorageEnv -> IO a) -> IO (Either Failure a)
+    sdk action = attempt (environment >>= action . Env.configure (G.serviceTimeout ?~ 20))
+    list prefix = pages Set.empty [] Nothing
+      where
+        pages tokens acc token = do
+          result <-
+            traced ListingRequest BucketObjects (const Nothing) . sdk $ \env ->
+              G.runResourceT $
+                G.send env ((S.newStorageObjectsList bucket) {List.prefix = Just prefix, List.pageToken = token, List.userProject = quota})
+          case result of
+            Left _ -> pure (Left "backup object listing failed")
+            Right response -> case traverse entry (fromMaybe [] response.items) of
+              Left reason -> pure (Left reason)
+              Right entries -> case response.nextPageToken of
+                Nothing -> pure (Right (acc <> entries))
+                Just next
+                  | T.null next || Set.member next tokens || Set.size tokens >= 10000 -> pure (Left "backup object listing has an invalid continuation")
+                  | otherwise -> pages (Set.insert next tokens) (acc <> entries) (Just next)
+        entry object = do
+          name <- maybe (Left "backup object listing omitted a name") Right object.name
+          unless (prefix `T.isPrefixOf` name && object.bucket == Just bucket) (Left "backup object listing escaped its prefix")
+          gen <- maybe (Left "backup object generation is missing") Right object.generation
+          size <- maybe (Left "backup object size is missing") Right object.size
+          updated <- maybe (Left "backup object update time is missing") Right object.updated
+          unless (gen > 0) (Left "backup object generation is invalid")
+          pure (VersionedObject name (T.pack (show gen)) (toInteger size) (G.unDateTime updated))
+    readAt key version path = case reads (T.unpack version) of
+      [(gen, "")] | gen > (0 :: Int64) -> do
+        result <-
+          traced MediaRequest BucketObjects bodySize . sdk $ \env ->
+            G.runResourceT $
+              G.download env ((S.newStorageObjectsGet bucket (encodePart key)) {Get.generation = Just gen, Get.userProject = quota}) >>= G.sinkLBS
+        case result of
+          Left _ -> pure (Left "backup object generation could not be downloaded")
+          Right bytes -> do
+            LBS.writeFile path bytes
+            pure (Right (StoredObject version (toInteger (LBS.length bytes))))
+      _ -> pure (Left "backup object generation is invalid")
+
+-- | 'gogolVersionedReader' over a command-local token source, as
+-- 'newGogolObjectOpsWithToken' builds its environment.
+newGogolVersionedReaderWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> Maybe Text -> IO VersionedReader
+newGogolVersionedReaderWithToken token configureEnv bucket quota = do
+  environment <- tokenEnvironment token configureEnv
+  pure (gogolVersionedReader environment bucket quota)

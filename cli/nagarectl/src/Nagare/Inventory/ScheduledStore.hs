@@ -5,6 +5,8 @@ module Nagare.Inventory.ScheduledStore
   ( StoredObject (..)
   , ListedObject (..)
   , ObjectReader (..)
+  , VersionedObject (..)
+  , VersionedReader (..)
   , withLocalObjectStore
   , withOfflineObjectStore
   , parseOfflineObjectStore
@@ -66,6 +68,23 @@ data ObjectReader = ObjectReader
   , listObjectKeys :: !(Text -> IO (Either Text [Text]))
   , listObjectEntries :: !(Text -> IO (Either Text [ListedObject]))
   , listObjectVersions :: !(Text -> IO (Either Text [(Text, Text)]))
+  }
+
+-- | One live object version, as an in-process listing reports it (EP-233).
+data VersionedObject = VersionedObject
+  { versionedKey :: !Text
+  , versionedVersion :: !Text
+  , versionedSize :: !Integer
+  , versionedModified :: !UTCTime
+  }
+  deriving stock (Eq, Show)
+
+-- | In-process reads of one backup bucket (EP-233): a complete listing of
+-- the live versions under a bucket-relative prefix, and a read of one exact
+-- version whose response names the version it returned. No subprocess runs.
+data VersionedReader = VersionedReader
+  { listLiveVersions :: !(Text -> IO (Either Text [VersionedObject]))
+  , readVersionToFile :: !(Text -> Text -> FilePath -> IO (Either Text StoredObject))
   }
 
 -- | The callback must consume files before returning; the port-forward and

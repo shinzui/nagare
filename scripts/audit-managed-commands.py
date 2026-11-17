@@ -36,7 +36,7 @@ ROUTES = {
         "group": "Tunnel Host Kubeconfig Cluster Env Secret EnTenant Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache Delegation WithReviewSource",
         "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck SitePackage Render",
-        "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init PlatformVersions",
+        "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init PlatformVersions EventsCollectBackups",
         "retired": "PlatformStamp",
         "excluded": "PlatformAdopt PlatformRepin PlatformUpgrade PlatformUpgradeRollback PlatformUpgradeRecoverPulumi",
         "release": "ReleasePublish ReleaseCleanupStarter",

@@ -56,6 +56,7 @@ module Nagare.Events.Source
   , SourceBatch (..)
   , SourceChainError (..)
   , readSourceChain
+  , tipCheckpoint
   , ControlStep (..)
   , consumeControls
   )

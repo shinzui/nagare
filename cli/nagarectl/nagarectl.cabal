@@ -150,12 +150,16 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
+    Nagare.Events.Backup
+    Nagare.Events.BackupCollector
+    Nagare.Events.BackupSources
     Nagare.Events.Deployment
     Nagare.Events.Envelope
     Nagare.Events.Layout
     Nagare.Events.Materialize
     Nagare.Events.Query
     Nagare.Events.Read
+    Nagare.Events.Receipts
     Nagare.Events.Source
     Nagare.Events.Store
     Nagare.Events.Target
@@ -500,6 +504,7 @@ executable nagarectl
     Nagare.Cli.Commands.Domains
     Nagare.Cli.Commands.Environment
     Nagare.Cli.Commands.Events
+    Nagare.Cli.Commands.EventsCollect
     Nagare.Cli.Commands.Host
     Nagare.Cli.Commands.Image
     Nagare.Cli.Commands.Infrastructure
@@ -669,6 +674,7 @@ test-suite nagarectl-test
     ContextReviewSpec
     DataFenceSpec
     DomainBindingSpec
+    EventsBackupSpec
     EventsDeploymentSpec
     EventsSourceSpec
     EventsStoreSpec

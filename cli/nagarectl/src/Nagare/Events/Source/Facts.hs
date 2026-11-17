@@ -133,29 +133,38 @@ data StoredVersion = StoredVersion
   { name :: !Text
   , version :: !Text
   }
-  deriving stock (Eq, Show, Generic)
+  deriving stock (Eq, Ord, Show, Generic)
 
 -- | @database.backup.completed@: an archive and its authenticated receipt
--- were verified at exact versions (EP-233 produces it).
+-- were verified at exact versions (EP-233 produces it). @backup@ is the
+-- normalized backup ID completion and acceptance share; @recoveryPoint@ is
+-- the signed dump time, when the receipt carries one, and @completedAt@ the
+-- provider's time for the receipt version, when known. Neither is the other.
 data BackupCompletion = BackupCompletion
   { backup :: !Text
   , origin :: !BackupOrigin
   , run :: !Text
   , archive :: !StoredVersion
   , receipt :: !StoredVersion
-  , recoveryPoint :: !Text
+  , sha256 :: !Text
+  , archiveBytes :: !Integer
+  , scheduleRevision :: !(Maybe ContentDigest)
+  , recoveryPoint :: !(Maybe Text)
   , completedAt :: !(Maybe Text)
   }
   deriving stock (Eq, Show, Generic)
 
 -- | @database.backup.accepted@: a reviewed transaction admitted the backup as
 -- a recovery point (EP-233 produces it). It grants no restore authority.
+-- @completion@ is the ID of the backup's completion event in this context.
 data BackupAcceptance = BackupAcceptance
   { backup :: !Text
+  , completion :: !Text
+  , receiptScope :: !ScopeId
   , receiptRevision :: !ScopeRevision
   , transaction :: !TransactionId
   , review :: !ContentDigest
-  , recoveryPoint :: !Text
+  , recoveryPoint :: !(Maybe Text)
   }
   deriving stock (Eq, Show, Generic)
 
