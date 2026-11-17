@@ -209,5 +209,5 @@ chainedEvents count = take count (go 0 Nothing)
   where
     transaction = either (error . T.unpack) id (mkTransactionId ("tx-" <> digestText (contentDigest "journal-cache")))
     go sequenceNumber previous =
-      let event = JournalEvent 1 sequenceNumber previous transaction Nothing Pending "2026-10-22T00:00:00Z" ("event " <> T.pack (show sequenceNumber)) Nothing
+      let event = JournalEvent 1 sequenceNumber previous transaction Nothing Pending "2026-10-22T00:00:00Z" ("event " <> T.pack (show sequenceNumber)) Nothing Nothing
        in event : go (sequenceNumber + 1) (Just (journalEventDigest event))

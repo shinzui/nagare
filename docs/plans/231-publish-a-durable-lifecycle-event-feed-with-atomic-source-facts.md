@@ -69,6 +69,12 @@ Operators can list a durable, versioned history of lifecycle events through `nag
 
 2026-11-04: Reuse the inventory journal as the source chain. `appendEventAt` and `commitHead` already publish an immutable, digest-linked event and advance its tip, `headSequence`, in one conditional head replacement; `releaseClaimWith` is the only head replacement that appends nothing. One typed convergence event in that replacement supersedes the second chain and head field decided on 2026-10-31. Pages follow `Nagare.Api.Page`: 50 by default, 100 at most. Modules live under `Nagare.Events`, because `Nagare.Inventory.Lifecycle` already names operator lifecycle proposals.
 
+2026-11-17: A converged transaction with no facts appends no convergence event; its release writes only the head, as before. This follows the MasterPlan's budget ("a transaction without facts adds no store write") over this plan's earlier sentence; consumers advance past every non-convergence event anyway, so nothing needs the marker.
+
+2026-11-17: A failed release head write leaves its convergence event as an uncommitted orphan, which a later append by the same transaction adopts as ordinary history (`appendEventAt`). Instead of a separate chain, consumers apply one rule ([ADR 39](../adr/0039-lifecycle-sources-are-committed-by-the-converged-release.md)): while a transaction is active only its own events are appended, so a convergence event is a committed source exactly when the next event belongs to another transaction, or it is the last event and its transaction is inactive. A re-release reuses its own orphan. The head reaches wire version 2 at the first committed convergence event, including an adopted one; no transition step rewrites a version 1 store.
+
+2026-11-17: Producers are pure `SourceProducer`s registered on the adapter registry (`withSourceProducer`); the executor gives them the transaction, review, payload identity, base and desired revisions, operations and the transaction's journal. Facts objects are content-addressed `facts/<digest>.json` members, so export, migration and rebuild copy them with every other member. The three payload types are defined here from the MasterPlan and its children's text; EP-232 and EP-233 may refine their fields before the first producer ships, since nothing produces them yet.
+
 
 ## Outcomes & Retrospective
 

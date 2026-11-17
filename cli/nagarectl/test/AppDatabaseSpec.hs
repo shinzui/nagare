@@ -403,7 +403,7 @@ appDatabaseTests =
               assertBool "a run naming an undeclared database is refused" (isLeft (compileAppDatabaseRestoreScope (restoreRequest & #run .~ IngestedRun foreign') native))
         , testCase "only a converged transaction's review authorizes a schedule revision (EP-207)" $ do
             let tx name = known (mkTransactionId ("tx-" <> name))
-                event n transaction operation state = JournalEvent 1 n Nothing (tx transaction) operation state "t" "" Nothing
+                event n transaction operation state = JournalEvent 1 n Nothing (tx transaction) operation state "t" "" Nothing Nothing
                 operation' = Just (known (mkOperationId "op-1"))
                 events =
                   [ event 1 "a" Nothing Pending

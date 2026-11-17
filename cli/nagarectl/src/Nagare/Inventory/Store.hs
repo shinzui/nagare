@@ -928,7 +928,7 @@ readJournalCached ops counters root count = do
 immutableKeyDigest :: FilePath -> Maybe ContentDigest
 immutableKeyDigest key = case splitDirectories key of
   [category, filename]
-    | category `elem` ["scopes", "reviews", "native", "objects"]
+    | category `elem` ["scopes", "reviews", "native", "objects", "facts"]
     , takeExtension filename == ".json" ->
         either (const Nothing) Just (mkContentDigest (T.pack (dropExtension filename)))
   _ -> Nothing

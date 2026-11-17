@@ -1,0 +1,11 @@
+--- a/cli/nagarectl/src/Nagare/Events/Source/Chain.hs
++++ b/cli/nagarectl/src/Nagare/Events/Source/Chain.hs
+@@ -134,7 +134,7 @@
+             Nothing -> Passed
+             Just convergence
+               | Just after <- Map.lookup (eventSequence event + 1) following ->
+-                  if eventTransaction after == eventTransaction event then Passed else Committed convergence
++                  Committed convergence
+               | eventSequence event + 1 == tip
+               , headActiveTransaction headValue /= Just (transactionIdText (eventTransaction event)) ->
+                   Committed convergence

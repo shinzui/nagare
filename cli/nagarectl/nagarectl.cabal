@@ -35,6 +35,8 @@ library
   import: common
   hs-source-dirs: src
   other-modules:
+    Nagare.Events.Source.Chain
+    Nagare.Events.Source.Facts
     Nagare.Inventory.Application.Bindings
     Nagare.Inventory.Application.Compile
     Nagare.Inventory.Application.Database
@@ -147,6 +149,7 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
+    Nagare.Events.Source
     Nagare.Gcp.Adc
     Nagare.GhcEnv
     Nagare.Host.AgeKey
@@ -653,6 +656,7 @@ test-suite nagarectl-test
     ContextReviewSpec
     DataFenceSpec
     DomainBindingSpec
+    EventsSourceSpec
     HostSpec
     ImageStatusSpec
     InventoryAccessSessionSpec

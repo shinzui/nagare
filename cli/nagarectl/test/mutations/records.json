@@ -1132,5 +1132,17 @@
     "suite": "nagarectl",
     "pattern": "/AppDatabase world/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP231-chain-counts-adopted-convergence",
+    "suite": "nagarectl",
+    "pattern": "/Events.Source/&&/a persistent release failure leaves an orphan/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP231-release-lost-acknowledgement-unsettled",
+    "suite": "nagarectl",
+    "pattern": "/Events.Source/&&/a release head write whose acknowledgement was lost/",
+    "expect": "test-fails"
   }
 ]

@@ -4,6 +4,7 @@
 module Nagare.Inventory.Execute.Journal
   ( appendEvent
   , appendEventWith
+  , commitConvergence
   , readJournal
   , retryPause
   , readJournalAtHead
@@ -20,18 +21,21 @@ import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Execute.Types (timestamp)
 import Nagare.Inventory.Journal
-  ( JournalEvent
-      ( JournalEvent
-      , eventDetail
-      , eventOperation
-      , eventPreviousDigest
-      , eventSequence
-      , eventState
-      , eventTransaction
-      )
+  ( Convergence (convergedReview)
+  , JournalEvent
+    ( JournalEvent
+    , eventConvergence
+    , eventDetail
+    , eventOperation
+    , eventPreviousDigest
+    , eventSequence
+    , eventState
+    , eventTransaction
+    )
   , OperationId
   , OperationState (Completed, OperatorResolved)
   , TransactionId
+  , convergenceSchemaVersion
   , decodeJournalEvent
   , encodeJournalEvent
   , journalEventDigest
@@ -41,7 +45,7 @@ import Nagare.Inventory.Journal
   )
 import Nagare.Inventory.Store
   ( ExecutorClaim (claimClientIdentity, claimTransaction)
-  , HeadManifest (headExecutorClaim, headGeneration, headSequence)
+  , HeadManifest (headExecutorClaim, headGeneration, headSchemaVersion, headSequence)
   , InventoryStore
   , LockedStore
   , ObservedHead
@@ -114,7 +118,7 @@ appendEventAt orphanBudget physical locked transaction operation state detail = 
             Left err -> pure (Left err)
             Right prior -> do
               now <- timestamp
-              let event = JournalEvent 1 (headSequence headValue) prior transaction operation state now detail physical
+              let event = JournalEvent 1 (headSequence headValue) prior transaction operation state now detail physical Nothing
                   key = journalKey (headSequence headValue)
               published <- appendAtObservedHead store headValue (encodeJournalEvent event)
               case published of
@@ -173,7 +177,7 @@ appendEventAt orphanBudget physical locked transaction operation state detail = 
 -- the store's original error.
 commitHead :: InventoryStore -> ObservedHead -> HeadManifest -> JournalEvent -> Int -> IO (Either StoreError JournalEvent)
 commitHead store observed headValue event retries = do
-  let replacement = headValue {headGeneration = headGeneration headValue + 1, headSequence = headSequence headValue + 1}
+  let replacement = (advancedOver event headValue) {headGeneration = headGeneration headValue + 1, headSequence = headSequence headValue + 1}
   replaced <- replaceObservedHead observed replacement
   case replaced of
     Right () -> pure (Right event)
@@ -192,6 +196,84 @@ commitHead store observed headValue event retries = do
 -- backend sets its own pause (the recovery model's) waits that way instead.
 retryPause :: InventoryStore -> Int -> IO ()
 retryPause store retries = fromMaybe threadDelay (storeRetryPause store) (250000 * (4 - retries))
+
+-- | A head that commits a convergence event has wire version 2, which a
+-- version 1 CLI refuses at head read (EP-231). An adopted orphan raises it too.
+advancedOver :: JournalEvent -> HeadManifest -> HeadManifest
+advancedOver event headValue
+  | isJust (eventConvergence event) = headValue {headSchemaVersion = max convergenceSchemaVersion (headSchemaVersion headValue)}
+  | otherwise = headValue
+
+-- | EP-231: commit a converged release. Publish its convergence event at the
+-- head's next sequence, then replace the head with @released@ advanced over
+-- it, so the event and the cleared claim land in one conditional write. A
+-- convergence event this transaction already published there, whose release
+-- did not land, is committed instead of a new one. An unknown or refused head
+-- write is settled like 'commitHead': reread, and retry while the head is
+-- unchanged. @known@ is the event at the previous sequence, when the caller
+-- has it, which spares a read.
+commitConvergence :: InventoryStore -> ObservedHead -> HeadManifest -> HeadManifest -> TransactionId -> Convergence -> Maybe JournalEvent -> IO (Either StoreError JournalEvent)
+commitConvergence store observed headValue released transaction convergence known = do
+  previous <- case known of
+    Just event | eventSequence event + 1 == headSequence headValue -> pure (Right (Just (journalEventDigest event)))
+    _ -> previousDigest store (headSequence headValue)
+  case previous of
+    Left err -> pure (Left err)
+    Right prior -> do
+      now <- timestamp
+      let fresh =
+            JournalEvent
+              convergenceSchemaVersion
+              (headSequence headValue)
+              prior
+              transaction
+              Nothing
+              (Completed (convergedReview convergence))
+              now
+              "transaction released converged"
+              Nothing
+              (Just convergence)
+          key = journalKey (headSequence headValue)
+      published <- appendAtObservedHead store headValue (encodeJournalEvent fresh)
+      chosen <- case published of
+        Right _ -> pure (Right fresh)
+        Left (StoreObjectConflict _) -> do
+          existing <- readObject store key
+          pure $ case existing of
+            Left err -> Left err
+            Right Nothing -> Left (StoreInvalidObject key "conflicting journal event is missing")
+            Right (Just bytes) -> case decodeJournalEvent bytes of
+              Left err -> Left (StoreInvalidObject key err)
+              Right old
+                | eventPreviousDigest old == prior
+                , eventTransaction old == transaction
+                , fmap convergedReview (eventConvergence old) == Just (convergedReview convergence) ->
+                    Right old
+                | otherwise -> Left (StoreObjectConflict key)
+        Left err -> pure (Left err)
+      case chosen of
+        Left err -> pure (Left err)
+        Right event -> settle observed event releaseRetries
+  where
+    releaseRetries = 3 :: Int
+    replacement event =
+      (advancedOver event released)
+        { headGeneration = headGeneration headValue + 1
+        , headSequence = headSequence headValue + 1
+        }
+    settle current event retries = do
+      replaced <- replaceObservedHead current (replacement event)
+      case replaced of
+        Right () -> pure (Right event)
+        Left err -> do
+          reread <- observeHead store
+          case reread of
+            Right now
+              | observedHeadManifest now == Just (replacement event) -> pure (Right event)
+              | observedHeadManifest now == Just headValue && retries > 0 -> do
+                  retryPause store retries
+                  settle now event (retries - 1)
+            _ -> pure (Left err)
 
 previousDigest :: InventoryStore -> Integer -> IO (Either StoreError (Maybe ContentDigest))
 previousDigest _ 0 = pure (Right Nothing)

@@ -51,7 +51,7 @@ data TransitionRefusal
 
 -- | The inventory store's current head wire version (`version` in head.json).
 inventorySchemaVersion :: Int
-inventorySchemaVersion = 1
+inventorySchemaVersion = 2
 
 -- | Refuse or accept moving a context pinned to @pin@, whose store head has
 -- wire version @headVersion@, to this payload. Pure: the caller reads the pin
@@ -234,7 +234,7 @@ transitionTable =
       JournalWire
       "journal/<sequence>.json in the inventory store"
       0
-      "nothing: the target reads the source's events and appends at the same wire version"
+      "nothing is rewritten: the target reads the source's version 1 events; a converged release with lifecycle facts appends a version 2 convergence event and raises the head to wire version 2, which a source CLI refuses at head read (EP-231)"
       "a release that changes the journal wire ships a reviewed migration step with a model scenario, or does not ship the change"
       "none needed"
       Unchanged

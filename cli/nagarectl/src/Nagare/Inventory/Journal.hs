@@ -11,6 +11,8 @@ module Nagare.Inventory.Journal
   , FailureClass (..)
   , OperationState (..)
   , JournalEvent (..)
+  , Convergence (..)
+  , convergenceSchemaVersion
   , encodeJournalEvent
   , decodeJournalEvent
   , journalEventDigest
@@ -85,8 +87,25 @@ data JournalEvent = JournalEvent
   -- ^ ADR 27: the identity the provider returned for the object this
   -- operation wrote, when it returned one. Omitted from the encoding when
   -- absent, so events written before this field keep their bytes and digests.
+  , eventConvergence :: !(Maybe Convergence)
+  -- ^ EP-231: present only on the event a converged release commits in the
+  -- same head replacement that clears its claim. Such an event has schema
+  -- version 2 and every other event version 1, so no earlier bytes change.
   }
   deriving stock (Eq, Show, Generic)
+
+-- | What a converged release committed: its review and, when the
+-- transaction produced lifecycle source facts, the digest of the immutable
+-- facts object published before the release.
+data Convergence = Convergence
+  { convergedReview :: !ContentDigest
+  , convergedFacts :: !(Maybe ContentDigest)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The schema version of a convergence event.
+convergenceSchemaVersion :: Int
+convergenceSchemaVersion = 2
 
 instance ToJSON TransactionId where toJSON = String . transactionIdText
 
@@ -119,10 +138,19 @@ instance ToJSON JournalEvent where
       , "detail" .= eventDetail event
       ]
         <> ["physical" .= physical | Just physical <- [eventPhysical event]]
+        <> ["convergence" .= convergence | Just convergence <- [eventConvergence event]]
+
+instance ToJSON Convergence where
+  toJSON convergence = object ["review" .= convergedReview convergence, "facts" .= convergedFacts convergence]
+
+instance FromJSON Convergence where
+  parseJSON = withObject "Convergence" $ \objectValue -> do
+    unless (all (`elem` ["review", "facts"]) (KM.keys objectValue)) (fail "convergence has an unknown field")
+    Convergence <$> objectValue .: "review" <*> objectValue .: "facts"
 
 instance FromJSON JournalEvent where
   parseJSON = withObject "JournalEvent" $ \objectValue -> do
-    let allowed = ["version", "sequence", "previousDigest", "transaction", "operation", "state", "timestamp", "detail", "physical"]
+    let allowed = ["version", "sequence", "previousDigest", "transaction", "operation", "state", "timestamp", "detail", "physical", "convergence"]
     unless (all (`elem` allowed) (KM.keys objectValue)) (fail "journal event has an unknown field")
     event <-
       JournalEvent
@@ -135,7 +163,12 @@ instance FromJSON JournalEvent where
         <*> objectValue .: "timestamp"
         <*> objectValue .: "detail"
         <*> objectValue .:? "physical"
-    unless (eventSchemaVersion event == 1) (fail "unsupported journal schema version")
+        <*> objectValue .:? "convergence"
+    case eventConvergence event of
+      Nothing -> unless (eventSchemaVersion event == 1) (fail "unsupported journal schema version")
+      Just convergence -> do
+        unless (eventSchemaVersion event == convergenceSchemaVersion) (fail "a convergence event must have journal schema version 2")
+        unless (isNothing (eventOperation event) && eventState event == Completed (convergedReview convergence)) (fail "a convergence event completes its transaction's review")
     unless (eventSequence event >= 0) (fail "journal sequence must not be negative")
     pure event
 

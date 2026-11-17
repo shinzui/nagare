@@ -19,16 +19,21 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Nagare.Dsl.Prelude
+import Nagare.Events.Source (SourceFacts, encodeSourceFacts, factsDigest, factsKey)
 import Nagare.Inventory.Adapter (PlannedOperation (plannedResources))
 import Nagare.Inventory.Execute.Incarnations (IncarnationBinding, bindIncarnations)
+import Nagare.Inventory.Execute.Journal (commitConvergence)
 import Nagare.Inventory.Execute.Types
   ( AdmissionError (..)
   , failure
+  , reviewDocumentDigest
   , showText
   , timestamp
   )
 import Nagare.Inventory.Journal
-  ( TransactionId
+  ( Convergence (Convergence)
+  , JournalEvent
+  , TransactionId
   , transactionIdText
   )
 import Nagare.Inventory.Plan
@@ -63,6 +68,7 @@ import Nagare.Inventory.Store
   , lockedStore
   , observeHead
   , observedHeadManifest
+  , publishIfAbsent
   , readHead
   , readObject
   , replaceObservedHead
@@ -107,7 +113,7 @@ acquireResumeClaim store transaction observed headValue takeOver = do
     localClient = maybe (headClientIdentity headValue) id (storeClientIdentity store)
 
 releaseClaim :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> IO Bool
-releaseClaim locked transaction completedReview = releaseClaimWith locked transaction completedReview Map.empty
+releaseClaim locked transaction completedReview = releaseClaimWith locked transaction completedReview Map.empty Nothing Nothing
 
 -- | Release the claim; a converged review also records the incarnations it
 -- established or proved (F49). The members this review retained, collected or
@@ -115,8 +121,14 @@ releaseClaim locked transaction completedReview = releaseClaimWith locked transa
 -- bound as the member's new object (F52). Members an earlier review retained
 -- keep their records: a rename retains its source under the renamed members'
 -- own resource IDs.
-releaseClaimWith :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> Map ResourceId IncarnationBinding -> IO Bool
-releaseClaimWith locked transaction completedReview bindings = do
+--
+-- EP-231: a converged release with lifecycle source facts first publishes the
+-- immutable facts object, then commits a convergence journal event naming it
+-- in the same head replacement ('commitConvergence'). Without facts the
+-- release writes only the head, as before. @completion@ is the transaction's
+-- last journal event, when the caller has it.
+releaseClaimWith :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> Map ResourceId IncarnationBinding -> Maybe SourceFacts -> Maybe JournalEvent -> IO Bool
+releaseClaimWith locked transaction completedReview bindings sourceFacts completion = do
   let converged = isJust completedReview
       -- A migrated member's record names its previous address; its new object
       -- is bound from the convergence observation, or stays unrecorded (F52).
@@ -156,7 +168,23 @@ releaseClaimWith locked transaction completedReview bindings = do
                                 )
                             else headIncarnations headValue
                       }
-              isRight <$> replaceObservedHead observed replacement
+              case (completedReview, sourceFacts) of
+                (Just document, Just facts) -> do
+                  let digest = factsDigest facts
+                  published <- publishIfAbsent store (factsKey digest) (encodeSourceFacts facts)
+                  case published of
+                    Left _ -> pure False
+                    Right _ ->
+                      isRight
+                        <$> commitConvergence
+                          store
+                          observed
+                          headValue
+                          replacement
+                          transaction
+                          (Convergence (reviewDocumentDigest document) (Just digest))
+                          completion
+                _ -> isRight <$> replaceObservedHead observed replacement
     _ -> pure False
 
 -- F130: a scope left accepted but unconverged (a close keeps a stopped

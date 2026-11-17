@@ -22,6 +22,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Events.Source (SourceBatch)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Plan
@@ -51,9 +52,36 @@ storeConsistent run = do
       | isJust (headActiveTransaction value) -> pure (Left "I5: the scenario ended with an active transaction")
       | otherwise -> do
           raw <- inspectJournal run (headSequence value)
+          sources <- inspectSources run
           pure $ case raw >>= first (StoreInvalidObject "journal") . traverse decodeJournalEvent of
             Left err -> Left ("I5: the published journal is unreadable: " <> T.pack (show err))
-            Right events -> first (\err -> "I5: the journal chain is invalid: " <> err) (() <$ validateJournal events)
+            Right events -> do
+              _ <- first (\err -> "I5: the journal chain is invalid: " <> err) (validateJournal events)
+              batch <- first (\err -> "I10: the lifecycle sources are unreadable: " <> T.pack (show err)) sources
+              sourcesMatchReleases events batch
+
+-- | I10 (EP-231): with every transaction ended, a transaction that was not
+-- closed was released converged, and only such a release commits a source.
+-- So each released transaction has exactly one committed lifecycle source and
+-- a closed one has none.
+sourcesMatchReleases :: [JournalEvent] -> SourceBatch -> Either Text ()
+sourcesMatchReleases events batch =
+  case [transaction | transaction <- transactions, Map.findWithDefault 0 transaction counts /= expected transaction] of
+    [] -> Right ()
+    transaction : _ ->
+      Left
+        ( "I10: transaction "
+            <> transactionIdText transaction
+            <> " has "
+            <> T.pack (show (Map.findWithDefault 0 transaction counts))
+            <> " committed lifecycle source(s), expected "
+            <> T.pack (show (expected transaction))
+        )
+  where
+    transactions = Set.toList (Set.fromList (map eventTransaction events))
+    counts = Map.fromListWith (+) [(source ^. #transaction, 1 :: Int) | source <- batch ^. #sources]
+    closed = Set.fromList [eventTransaction event | event <- events, isNothing (eventOperation event), OperatorResolved _ <- [eventState event]]
+    expected transaction = if Set.member transaction closed then 0 else 1
 
 -- | I9 (EP-181, from RES-4 G3): a run that takes every step of its scenario,
 -- and whose final step reviews a spec the scenario does not mark unready, ends

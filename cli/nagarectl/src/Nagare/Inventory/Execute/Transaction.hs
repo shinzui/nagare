@@ -13,11 +13,14 @@ where
 import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Nagare.Contract.Sink (markExecuting)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (AdapterRegistry)
+import Nagare.Events.Source (SourceInput (..), assembleFacts)
+import Nagare.Inventory.Adapter (AdapterRegistry, PlannedOperation (plannedOperationId, plannedResources), registrySourceProducers)
 import Nagare.Inventory.Execute.Admission (admit, admitWithHistory)
 import Nagare.Inventory.Execute.Claims
   ( acquireResumeClaim
@@ -51,7 +54,7 @@ import Nagare.Inventory.Execute.Types
   )
 import Nagare.Inventory.Journal
   ( FailureClass (KnownNoEffect)
-  , JournalEvent
+  , JournalEvent (eventTransaction)
   , OperationState (Completed, Pending)
   , TransactionId
   , operationStates
@@ -67,10 +70,14 @@ import Nagare.Inventory.Plan
     )
   , ReviewDocument
     ( reviewBarriers
+    , reviewBaseRevisions
     , reviewCollections
+    , reviewDesiredRevisions
     , reviewOperations
+    , reviewPayloadIdentity
     , reviewRebinds
     )
+  , ReviewOperation (reviewPlannedOperation)
   , ReviewedPlan
   , loadPublishedReview
   , reviewedDocument
@@ -106,7 +113,8 @@ import Nagare.Inventory.Store
   , replaceObservedHead
   , withProcessLock
   )
-import Nagare.Resource.Types (mkContentDigest)
+import Nagare.Resource.Types (ResourceId, mkContentDigest)
+import System.IO (stderr)
 
 execute :: LockedStore s -> AdapterRegistry -> ExecutablePlan s -> IO TransactionResult
 execute locked registry executable = executeWithJournal locked registry executable Nothing
@@ -142,7 +150,7 @@ executeWithJournal locked registry executable knownEvents = do
                   completed <- appendEvent locked transaction Nothing (Completed (reviewDocumentDigest document)) "transaction converged"
                   case completed of
                     Left _ -> ambiguousFallback transaction document
-                    Right _ -> do
+                    Right completion -> do
                       finalized <- finalizeCollections locked transaction document
                       if not finalized
                         then pure (fallbackResult transaction document)
@@ -151,11 +159,40 @@ executeWithJournal locked registry executable knownEvents = do
                           written <- convergedIncarnations locked registry transaction finalEvents document
                           -- ADR 27 §3: a reviewed rebind establishes the live object it names.
                           let bindings = Map.union (Map.map (Established . rebindLive) (reviewRebinds document)) written
-                          converged <- releaseClaimWith locked transaction (Just document) bindings
+                          converged <- releaseConverged locked registry transaction document bindings (finalEvents <> [completion])
                           pure $ if converged then Converged transaction else fallbackResult transaction document
                 _ -> do
                   _ <- releaseClaim locked transaction Nothing
                   pure (fallbackWith "the head holds a data fence or could not be read, so convergence was not recorded" transaction document)
+
+-- | EP-231: release a converged transaction with the lifecycle source facts
+-- its registered producers return. Facts that do not assemble stop the
+-- release, so the transaction stays resumable and nothing is lost.
+releaseConverged :: LockedStore s -> AdapterRegistry -> TransactionId -> ReviewDocument -> Map ResourceId IncarnationBinding -> [JournalEvent] -> IO Bool
+releaseConverged locked registry transaction document bindings events = do
+  now <- timestamp
+  let input =
+        SourceInput
+          { transaction
+          , review = reviewDocumentDigest document
+          , payloadIdentity = reviewPayloadIdentity document
+          , baseRevisions = reviewBaseRevisions document
+          , desiredRevisions = reviewDesiredRevisions document
+          , operations =
+              Map.fromList
+                [ (plannedOperationId planned, plannedResources planned)
+                | operation <- reviewOperations document
+                , let planned = reviewPlannedOperation operation
+                ]
+          , journal = [event | event <- events, eventTransaction event == transaction]
+          }
+  case assembleFacts input now (registrySourceProducers registry) of
+    Left reason -> do
+      TIO.hPutStrLn stderr ("nagarectl: lifecycle source facts of " <> transactionIdText transaction <> " are invalid: " <> reason)
+      pure False
+    Right facts -> releaseClaimWith locked transaction (Just document) bindings facts (lastMaybe events)
+  where
+    lastMaybe = foldl (\_ event -> Just event) Nothing
 
 finalizeCollections :: LockedStore s -> TransactionId -> ReviewDocument -> IO Bool
 finalizeCollections locked transaction document

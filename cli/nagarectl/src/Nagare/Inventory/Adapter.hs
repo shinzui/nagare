@@ -45,6 +45,8 @@ module Nagare.Inventory.Adapter
   , withPreparationGuard
   , lookupAdapterFences
   , lookupAdapterFenceByCapability
+  , withSourceProducer
+  , registrySourceProducers
   , observeWithRegistry
   )
 where
@@ -59,6 +61,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Events.Source (SourceProducer)
 import Nagare.Inventory.DataFence (DataFenceControls)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Store (DataFenceRecord)
@@ -428,23 +431,24 @@ data AdapterRegistry
       (Map Executor (Map Text AdapterFence))
       (Map Text AdapterRecovery)
       (Map Executor (PlannedOperation -> Maybe Text))
+      [SourceProducer]
 
 mkAdapterRegistry :: [Adapter] -> Either Text AdapterRegistry
 mkAdapterRegistry adapters
-  | length adapters == Map.size registry = Right (AdapterRegistry registry Map.empty Map.empty Map.empty)
+  | length adapters == Map.size registry = Right (AdapterRegistry registry Map.empty Map.empty Map.empty [])
   | otherwise = Left "adapter registry contains duplicate executors"
   where
     registry = Map.fromList [(adapterExecutor adapter, adapter) | adapter <- adapters]
 
 emptyAdapterRegistry :: AdapterRegistry
-emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty Map.empty Map.empty
+emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty Map.empty Map.empty []
 
 withAdapterFence ::
   AdapterRegistry ->
   Executor ->
   AdapterFence ->
   Either Text AdapterRegistry
-withAdapterFence (AdapterRegistry adapters fences recoveries overlaps) executor fence
+withAdapterFence (AdapterRegistry adapters fences recoveries overlaps producers) executor fence
   | Map.notMember executor adapters = Left "data fence has no registered adapter"
   | T.null (fenceCapability fence) = Left "data fence capability identity is empty"
   | Map.member (fenceCapability fence) (Map.findWithDefault Map.empty executor fences) =
@@ -461,18 +465,19 @@ withAdapterFence (AdapterRegistry adapters fences recoveries overlaps) executor 
             )
             recoveries
             overlaps
+            producers
         )
 
 withAdapterRecovery :: AdapterRegistry -> AdapterRecovery -> Either Text AdapterRegistry
-withAdapterRecovery (AdapterRegistry adapters fences recoveries overlaps) capability
+withAdapterRecovery (AdapterRegistry adapters fences recoveries overlaps producers) capability
   | T.null key = Left "adapter recovery capability identity is empty"
   | Map.member key recoveries = Left "adapter recovery capability is duplicated"
-  | otherwise = Right (AdapterRegistry adapters fences (Map.insert key capability recoveries) overlaps)
+  | otherwise = Right (AdapterRegistry adapters fences (Map.insert key capability recoveries) overlaps producers)
   where
     key = recoveryCapability capability
 
 lookupAdapterRecovery :: AdapterRegistry -> Text -> Maybe AdapterRecovery
-lookupAdapterRecovery (AdapterRegistry _ _ recoveries _) key = Map.lookup key recoveries
+lookupAdapterRecovery (AdapterRegistry _ _ recoveries _ _) key = Map.lookup key recoveries
 
 -- | EP-228 M2: an executor's promise that some of its effects may await
 -- readiness while other independent effects of the same transaction do. It
@@ -480,16 +485,16 @@ lookupAdapterRecovery (AdapterRegistry _ _ recoveries _) key = Map.lookup key re
 -- differ may overlap. Every other operation, and every executor without the
 -- promise, runs alone.
 withOverlapCapability :: Executor -> (PlannedOperation -> Maybe Text) -> AdapterRegistry -> Either Text AdapterRegistry
-withOverlapCapability executor eligible (AdapterRegistry adapters fences recoveries overlaps)
+withOverlapCapability executor eligible (AdapterRegistry adapters fences recoveries overlaps producers)
   | Map.notMember executor adapters = Left "an overlap capability has no registered adapter"
-  | otherwise = Right (AdapterRegistry adapters fences recoveries (Map.insert executor eligible overlaps))
+  | otherwise = Right (AdapterRegistry adapters fences recoveries (Map.insert executor eligible overlaps) producers)
 
 -- | The address an operation may overlap on, or 'Nothing' when it runs alone.
 overlapAddress :: AdapterRegistry -> PlannedOperation -> Maybe Text
-overlapAddress (AdapterRegistry _ _ _ overlaps) operation = Map.lookup (plannedExecutor operation) overlaps >>= ($ operation)
+overlapAddress (AdapterRegistry _ _ _ overlaps _) operation = Map.lookup (plannedExecutor operation) overlaps >>= ($ operation)
 
 lookupAdapter :: AdapterRegistry -> Executor -> Either Text Adapter
-lookupAdapter (AdapterRegistry registry _ _ _) executor =
+lookupAdapter (AdapterRegistry registry _ _ _ _) executor =
   maybe (Left ("no adapter registered for " <> showText executor)) Right (Map.lookup executor registry)
   where
     showText = T.pack . show
@@ -497,15 +502,15 @@ lookupAdapter (AdapterRegistry registry _ _ _) executor =
 -- | Wrap one executor's adapter in place; its fences and recovery
 -- capabilities stay registered unchanged.
 wrapRegisteredAdapter :: Executor -> (Adapter -> Adapter) -> AdapterRegistry -> Either Text AdapterRegistry
-wrapRegisteredAdapter executor wrap (AdapterRegistry adapters fences recoveries overlaps)
-  | Map.member executor adapters = Right (AdapterRegistry (Map.adjust wrap executor adapters) fences recoveries overlaps)
+wrapRegisteredAdapter executor wrap (AdapterRegistry adapters fences recoveries overlaps producers)
+  | Map.member executor adapters = Right (AdapterRegistry (Map.adjust wrap executor adapters) fences recoveries overlaps producers)
   | otherwise = Left ("no adapter registered for " <> T.pack (show executor))
 
 -- | Narrow a command's review before any native plan is prepared or published.
 -- Provider capabilities, recovery handlers and fences remain unchanged.
 withPreparationGuard :: (PlannedOperation -> Either Text ()) -> AdapterRegistry -> AdapterRegistry
-withPreparationGuard check (AdapterRegistry adapters fences recoveries overlaps) =
-  AdapterRegistry (Map.map guarded adapters) fences recoveries overlaps
+withPreparationGuard check (AdapterRegistry adapters fences recoveries overlaps producers) =
+  AdapterRegistry (Map.map guarded adapters) fences recoveries overlaps producers
   where
     guarded adapter =
       adapter
@@ -515,7 +520,7 @@ withPreparationGuard check (AdapterRegistry adapters fences recoveries overlaps)
         }
 
 lookupAdapterFences :: AdapterRegistry -> Executor -> [AdapterFence]
-lookupAdapterFences (AdapterRegistry _ fences _ _) executor =
+lookupAdapterFences (AdapterRegistry _ fences _ _ _) executor =
   maybe [] Map.elems (Map.lookup executor fences)
 
 lookupAdapterFenceByCapability ::
@@ -523,8 +528,17 @@ lookupAdapterFenceByCapability ::
   Executor ->
   Text ->
   Maybe AdapterFence
-lookupAdapterFenceByCapability (AdapterRegistry _ fences _ _) executor capability =
+lookupAdapterFenceByCapability (AdapterRegistry _ fences _ _ _) executor capability =
   Map.lookup executor fences >>= Map.lookup capability
+
+-- | EP-231: register a lifecycle source producer. At convergence the
+-- executor commits what every registered producer returns.
+withSourceProducer :: SourceProducer -> AdapterRegistry -> AdapterRegistry
+withSourceProducer producer (AdapterRegistry adapters fences recoveries overlaps producers) =
+  AdapterRegistry adapters fences recoveries overlaps (producers <> [producer])
+
+registrySourceProducers :: AdapterRegistry -> [SourceProducer]
+registrySourceProducers (AdapterRegistry _ _ _ _ producers) = producers
 
 observeWithRegistry :: AdapterRegistry -> Map Executor [ResourceId] -> IO (Either Text ObservationSet)
 observeWithRegistry registry requests = do

@@ -28,12 +28,14 @@ module Nagare.Test.Model.Run
   , inspectHistory
   , inspectIncarnations
   , orFail
+  , inspectSources
   , registryFor
   , reviewRegistryFor
   )
 where
 
 import Control.Exception (Exception, throwIO, try)
+import Data.Aeson (Value (Null))
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -42,7 +44,19 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry)
+import Nagare.Events.Source
+  ( ControlFact (ControlFact)
+  , SourceBatch
+  , SourceChainError
+  , SourceItem (Control)
+  , SourceProducer (SourceProducer)
+  , initialCheckpoint
+  , mkControlChannel
+  , mkSourceKey
+  , readSourceChain
+  )
+import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry, withSourceProducer)
+import Nagare.Inventory.Journal (transactionIdText)
 import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle, loadInventoryHistory, reviewBundleDocument, reviewCollections, reviewRetentions)
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
@@ -222,6 +236,23 @@ inspectHistory run = let InspectStore store = runInspect run in loadInventoryHis
 inspectIncarnations :: Run -> HeadManifest -> IO (Either Text (Map.Map ResourceId PhysicalIdentity))
 inspectIncarnations run headValue = let InspectStore store = runInspect run in Status.statusIncarnations store headValue
 
+-- | Every committed lifecycle source, read as a consumer reads them (EP-231).
+inspectSources :: Run -> IO (Either SourceChainError SourceBatch)
+inspectSources run = let InspectStore store = runInspect run in readSourceChain store initialCheckpoint 100000
+
+-- | EP-231: every converging transaction commits one source fact, so the
+-- model's faults reach the facts object and the convergence event.
+modelSourceProducer :: SourceProducer
+modelSourceProducer = SourceProducer $ \input ->
+  [ Control
+      ( ControlFact
+          (ok (mkSourceKey ("model:" <> transactionIdText (input ^. #transaction))))
+          (ok (mkControlChannel "model"))
+          1
+          Null
+      )
+  ]
+
 -- | A model read that cannot fail unless the harness itself is wrong.
 orFail :: (Show e) => String -> Either e a -> IO a
 orFail context = either (\err -> assertFailure (context <> ": " <> show err) >> pure (error "unreachable")) pure
@@ -231,7 +262,7 @@ registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
   adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)
-  pure (ok (mkAdapterRegistry [adapter]))
+  pure (withSourceProducer modelSourceProducer (ok (mkAdapterRegistry [adapter])))
 
 -- | As `inventory apply` builds it for one saved review, through the
 -- function the command calls. The command loads a retiring member's accepted
@@ -244,4 +275,4 @@ reviewRegistryFor run bundle = do
   retiring <- Status.acceptedKubernetesNative "a reviewed retirement" (Map.keysSet (reviewRetentions document) <> Map.keysSet (reviewCollections document)) store >>= orFail "retiring native"
   members <- Status.kubernetesMembersForReview store bundle retiring >>= orFail "review members"
   adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) members (runWorld run) (runAdversary run)
-  pure (ok (mkAdapterRegistry [adapter]))
+  pure (withSourceProducer modelSourceProducer (ok (mkAdapterRegistry [adapter])))

@@ -126,8 +126,9 @@ compatibilityTests =
         checkTransition manifest Nothing 1 @?= Left UnpinnedContext
     , testCase "a head wire version this payload does not read refuses" $ do
         manifest <- decoded current
-        checkTransition manifest (Just "0.4.0") 2 @?= Left (UnsupportedStoreVersion 2 1 1)
-        checkTransition manifest (Just "0.4.0") 0 @?= Left (UnsupportedStoreVersion 0 1 1)
+        checkTransition manifest (Just "0.4.0") 2 @?= Right (TransitionPair "0.4.0" (manifest ^. #platformVersion))
+        checkTransition manifest (Just "0.4.0") 3 @?= Left (UnsupportedStoreVersion 3 1 2)
+        checkTransition manifest (Just "0.4.0") 0 @?= Left (UnsupportedStoreVersion 0 1 2)
     , testCase "a transition review's payload identity names the source release and the target payload" $ do
         transitionReviewIdentity "0.4.0" "payload-t" @?= "nagare-transition:0.4.0->payload-t"
         parseTransitionReviewIdentity "nagare-transition:0.4.0->payload-t" @?= Just ("0.4.0", "payload-t")

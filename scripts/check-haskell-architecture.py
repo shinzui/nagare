@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ('nagare-dsl', 'nagarectl', 'nagare-access', 'nagare-contract', 'nagare-api', 'nagare-api-server', 'nagare-harness')
 EXHAUSTIVENESS = ('-Werror=incomplete-patterns', '-Werror=incomplete-uni-patterns')
 PRIVATE = ('Nagare.Inventory.Application.', 'Nagare.Inventory.Plan.',
-           'Nagare.Inventory.Execute.', 'Nagare.Dsl.Load.')
+           'Nagare.Inventory.Execute.', 'Nagare.Dsl.Load.', 'Nagare.Events.Source.')
 OPAQUE = {
     'Nagare.Inventory.Application': ('DatabaseBinding',),
     'Nagare.Inventory.Plan': ('InventoryHistory', 'ObservationRequirements',

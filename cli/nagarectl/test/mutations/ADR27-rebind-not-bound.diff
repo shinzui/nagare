@@ -8,6 +8,6 @@ index 43d463ff..fb81cded 100644
                            -- ADR 27 §3: a reviewed rebind establishes the live object it names.
 -                          let bindings = Map.union (Map.map (Established . rebindLive) (reviewRebinds document)) written
 +                          let bindings = Map.union (Map.map (Established . rebindLive) (Map.filter (const False) (reviewRebinds document))) written
-                           converged <- releaseClaimWith locked transaction (Just document) bindings
+                           converged <- releaseConverged locked registry transaction document bindings (finalEvents <> [completion])
                            pure $ if converged then Converged transaction else fallbackResult transaction document
                  _ -> do

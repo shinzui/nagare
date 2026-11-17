@@ -178,6 +178,7 @@ inventoryStatusTests =
                 "2026-09-23T00:00:00Z"
                 detail
                 Nothing
+                Nothing
             admitted = event 0 Nothing Pending "private admission detail"
             intent = event 1 (Just (journalEventDigest admitted)) IntentRecorded "private command output"
             failed =
