@@ -217,6 +217,7 @@ FAMILY_ROUTES = {
     "InventoryCollect": "Retained stateless Kubernetes collection",
     "InventoryStoreMaterializeNative InventoryStoreMigrate InventoryExport InventoryRestore": "Inventory history export, restore, and store migration",
     "PlatformVersions": "Platform-versions observation snapshot",
+    "EventsCollectBackups": "Lifecycle backup completion collection",
     "PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit": "Bootstrap release marker",
     "Deploy": "Standalone web Service with accepted databases and no CDN effects",
     "SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete": "Static/server site deploy, rollback, and preview lifecycle",
