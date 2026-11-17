@@ -3,6 +3,7 @@ import * as gcp from "@pulumi/gcp";
 import { NagarePerimeter } from "./src/components/NagarePerimeter";
 import { NagareNixCache } from "./src/components/NagareNixCache";
 import { NagareAdminApiReader } from "./src/components/NagareAdminApiReader";
+import { NagareLifecycleWorker } from "./src/components/NagareLifecycleWorker";
 import { NagareDelegatedDeployer, delegatedRepositoryId, parseDelegatedDeployers } from "./src/components/NagareDelegatedDeployer";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
@@ -39,6 +40,11 @@ const enableAdminApiReaderCfg = cfg.getBoolean("enableAdminApiReader") ?? false;
 const adminApiReaderAccountIdCfg = cfg.get("adminApiReaderAccountId") ?? "nagare-admin-api";
 const stateBucketCfg = cfg.get("stateBucket") ?? `${gcpProject}-nagare-pulumi-state`;
 const adminApiInventoryPrefixCfg = cfg.get("adminApiInventoryPrefix") ?? `nagare/${pulumi.getStack()}/inventory`;
+// EP-235 M2: the lifecycle event worker's identity. Default false, so an
+// existing stack previews unchanged until the worker is enabled. It reads the
+// inventory the admin API reader reads and writes the feed beside it.
+const enableLifecycleWorkerCfg = cfg.getBoolean("enableLifecycleWorker") ?? false;
+const lifecycleWorkerAccountIdCfg = cfg.get("lifecycleWorkerAccountId") ?? "nagare-events";
 // EP-248 D6: one cloud principal per accepted, active delegation. nagarectl
 // derives this list from the accepted head; absent, so an existing stack
 // previews unchanged. The deployers write the same inventory the admin API
@@ -155,6 +161,18 @@ const adminApiReader = enableAdminApiReaderCfg && shouldDeclareResource("nagare:
     stateBucket: stateBucketCfg,
     inventoryPrefix: adminApiInventoryPrefixCfg,
 }, { dependsOn: apiServices }) : undefined;
+
+// Constructed only when enabled, as the reader is. No stack output, as the
+// delegated deployers have none: nagarectl derives the email from the account
+// ID, and a new output would change every existing stack's preview.
+if (enableLifecycleWorkerCfg && shouldDeclareResource("nagare:env:NagareLifecycleWorker", "nagare-lifecycle-worker")) new NagareLifecycleWorker("nagare-lifecycle-worker", {
+    enabled: enableLifecycleWorkerCfg,
+    gcpProject,
+    accountId: lifecycleWorkerAccountIdCfg,
+    stateBucket: stateBucketCfg,
+    inventoryPrefix: adminApiInventoryPrefixCfg,
+    backupBucket: perimeter.backupBucket,
+}, { dependsOn: apiServices });
 
 const delegatedRepositories = delegatedDeployersCfg.map((deployer) => delegatedRepositoryId(gcpProject, region, artifactRegistryIdCfg, deployer));
 if (new Set(delegatedRepositories).size !== delegatedRepositories.length) {

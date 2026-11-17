@@ -22,6 +22,7 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("retained")) config["nagare:retainedDnsName"] = "apps.example.com";
     if (variant.includes("retained") && !variant.includes("tunnel")) config["nagare:baseDomain"] = "new.example.org";
     if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
+    if (variant.includes("lifecycle-worker")) config["nagare:enableLifecycleWorker"] = "true";
     if (variant.includes("delegated-deployer")) {
         config["nagare:delegatedDeployers"] = JSON.stringify([
             { name: "example", accountId: "nagare-deployer-example", imageRepository: "us-west1-docker.pkg.dev/example-project/example-images" },
@@ -69,13 +70,14 @@ async function observeProgram(variant: string): Promise<void> {
             };
         },
     }, "nagare", "dev", true);
+    let outputs: string[] = [];
     await pulumi.runtime.runInPulumiStack(async () => {
-        await import("../index");
+        outputs = Object.keys(await import("../index")).sort();
         return {};
     });
     await pulumi.runtime.disconnect();
     observed.sort((left, right) => `${left.pulumiType}\0${left.pulumiName}`.localeCompare(`${right.pulumiType}\0${right.pulumiName}`));
-    process.stdout.write(`${JSON.stringify(observed)}\n`);
+    process.stdout.write(`${JSON.stringify(process.env.NAGARE_TEST_OUTPUTS ? outputs : observed)}\n`);
 }
 
 function runVariant(variant: string, declarations?: string): Registration[] {
@@ -84,6 +86,13 @@ function runVariant(variant: string, declarations?: string): Registration[] {
     const result = spawnSync(process.execPath, [__filename, variant], { encoding: "utf8", env });
     if (result.status !== 0) throw new Error(`resource program fixture ${variant} failed: ${result.stderr}${result.stdout}`);
     return JSON.parse(result.stdout.trim()) as Registration[];
+}
+
+// The program's stack output names: the module's exports.
+function runOutputs(variant: string): string[] {
+    const result = spawnSync(process.execPath, [__filename, variant], { encoding: "utf8", env: { ...process.env, NAGARE_TEST_OUTPUTS: "1" } });
+    if (result.status !== 0) throw new Error(`resource program fixture ${variant} failed: ${result.stderr}${result.stdout}`);
+    return JSON.parse(result.stdout.trim()) as string[];
 }
 
 function canonicalJson(value: unknown): string {
@@ -164,6 +173,7 @@ async function main(): Promise<void> {
     const foundationManagedImage = runVariant("foundation-managed-image");
     const foundationManagedAdminApi = runVariant("foundation-managed-admin-api");
     const foundationManagedDeployer = runVariant("foundation-managed-delegated-deployer");
+    const foundationManagedLifecycleWorker = runVariant("foundation-managed-lifecycle-worker");
     // ADR 34: a tunnel context keeps only the IAP SSH rule and declares no Cloud DNS.
     const tunnel = runVariant("foundation-managed-image-tunnel");
     const tunnelNames = names(tunnel);
@@ -218,6 +228,7 @@ async function main(): Promise<void> {
     verifyGuardedVariant("foundation-managed-image", foundationManagedImage);
     verifyGuardedVariant("foundation-managed-admin-api", foundationManagedAdminApi);
     verifyGuardedVariant("foundation-managed-delegated-deployer", foundationManagedDeployer);
+    verifyGuardedVariant("foundation-managed-lifecycle-worker", foundationManagedLifecycleWorker);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
@@ -234,6 +245,7 @@ async function main(): Promise<void> {
         cdnEnabled: CatalogEntry[];
         adminApiReaderEnabled: CatalogEntry[];
         delegatedDeployerEnabled: CatalogEntry[];
+        lifecycleWorkerEnabled: CatalogEntry[];
     };
     assert(catalog.version === 1, "cloud resource catalog version changed");
     const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
@@ -287,7 +299,24 @@ async function main(): Promise<void> {
     const deployerFloor = Math.min(...deployerEntries.map((entry) => entry.layer));
     assert(deployerFloor > Math.max(...otherLayers, ...catalog.adminApiReaderEnabled.map((entry) => entry.layer)),
         "a delegated deployer layer is not above every other catalog layer");
-    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled, deployerEntries);
+    // EP-235 M2: the lifecycle worker is exactly what enableLifecycleWorker adds, and an
+    // existing context enables it later, so its layers sit above every other section's.
+    const lifecycleWorkerNames = catalog.foundationManaged.concat(catalog.lifecycleWorkerEnabled).map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeLifecycleWorkerNames = foundationManagedLifecycleWorker.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(lifecycleWorkerNames) === JSON.stringify(nativeLifecycleWorkerNames),
+        "reviewed cloud lifecycle worker catalog differs from registrations in the actual Pulumi program");
+    const lifecycleWorkerFloor = Math.min(...catalog.lifecycleWorkerEnabled.map((entry) => entry.layer));
+    assert(lifecycleWorkerFloor > Math.max(...otherLayers, ...catalog.adminApiReaderEnabled.map((entry) => entry.layer), ...deployerEntries.map((entry) => entry.layer)),
+        "a lifecycle worker layer is not above every other catalog layer");
+    // Disabled, the worker leaves the program as it was: no registration and,
+    // enabled or not, no stack output, so an existing stack's preview is unchanged.
+    for (const [label, registrations] of Object.entries({ base, foundationManaged, foundationManagedAdminApi, foundationManagedDeployer })) {
+        assert(!registrations.some(({ pulumiName }) => pulumiName.startsWith("nagare-lifecycle-worker")), `${label} declares the disabled lifecycle worker`);
+    }
+    const baseOutputs = runOutputs("foundation-managed");
+    assert(JSON.stringify(runOutputs("foundation-managed-lifecycle-worker")) === JSON.stringify(baseOutputs), "the lifecycle worker changes the stack outputs");
+    assert(!baseOutputs.some((output) => output.toLowerCase().includes("lifecycle")), "the program exports a lifecycle worker output");
+    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled, deployerEntries, catalog.lifecycleWorkerEnabled);
     const byKey = new Map(allEntries.map((entry) => [entry.key ?? entry.name, entry]));
     assert(byKey.size === allEntries.length, "cloud catalog has duplicate logical keys");
     for (const entry of allEntries) {

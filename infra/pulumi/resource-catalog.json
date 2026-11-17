@@ -65,5 +65,14 @@
     {"type": "gcp:artifactregistry/repositoryIamMember:RepositoryIamMember", "name": "nagare-delegated-deployer-{deployer}-repository-writer", "parent": "nagare-delegated-deployer-{deployer}", "layer": 17},
     {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-delegated-deployer-{deployer}-store-bucket", "parent": "nagare-delegated-deployer-{deployer}", "layer": 17},
     {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-delegated-deployer-{deployer}-store", "parent": "nagare-delegated-deployer-{deployer}", "layer": 17}
+  ],
+  "lifecycleWorkerEnabled": [
+    {"type": "nagare:env:NagareLifecycleWorker", "name": "nagare-lifecycle-worker", "parent": null, "layer": 18},
+    {"type": "gcp:serviceaccount/account:Account", "name": "nagare-lifecycle-worker-sa", "parent": "nagare-lifecycle-worker", "layer": 19},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-inventory", "parent": "nagare-lifecycle-worker", "layer": 20},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-inventory-bucket", "parent": "nagare-lifecycle-worker", "layer": 20},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-feed", "parent": "nagare-lifecycle-worker", "layer": 20},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-backups", "parent": "nagare-lifecycle-worker", "layer": 20},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-backups-bucket", "parent": "nagare-lifecycle-worker", "layer": 20}
   ]
 }
