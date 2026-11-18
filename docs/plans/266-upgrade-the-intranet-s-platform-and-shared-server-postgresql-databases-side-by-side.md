@@ -44,26 +44,31 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
 
 ## Progress
 
-- [ ] M1, desk-check (no code). For each kind, write a table of the procedure's six steps:
-  backup and prove, declare the new instance, fence and copy, verify, switch the binding, retire
-  the old. Name the existing command that does each step, or mark the step missing and name the
-  module that would carry it. Check every claim against the CLI help and the scope compiler.
-  Include whether the rebuild path's dump-and-restore (`inventory rebuild` with a recovery point,
-  then `db restore-rebuilt` and `db app-database restore-rebuilt`) can serve as the copy step
-  without retiring the old instance first. Pass: the table is in this plan, and each missing step
-  has one owner module.
-- [ ] M2, only for steps M1 marks missing: the code, with interpreter tests that prove each failure
-  returns to the old instance (ADR 25). Pass: `just haskell-style-check` and `just gate-fast` green
-  on the committed revision, then `just land`.
-- [ ] M3, local rehearsal on the warm drill context, resumable at each step. Seed rows into
-  `en-db`, one En tenant database and two app databases on one shared server, all at major N.
-  Then:
-  - Upgrade each kind to N+1 side by side. Fingerprints match, the switch-over is reviewed, and the
-    old instance is retired only after a post-switch backup restores.
-  - Fail 1: the copy fails, and the old instance takes writes again.
-  - Fail 2: the new instance is rejected after the switch, and a reviewed switch back loses no
-    acknowledged row.
-  - The intranet's sign-in works on the switched `en-db` and `shomei-db`.
+- [x] (2026-11-18) M1, desk-check. The table is below, under "M1 desk-check". Every claim
+  carries a file:line citation. A shared server with app databases needs no code: each step is an
+  existing command, and the copy is the same manual `pg_dump | psql` as the standalone procedure.
+  The platform databases (`en-db`, `shomei-db`, `en-<name>-db`) need code, for two reasons.
+  Their names, Secrets and Service hosts are fixed, so a second instance cannot sit beside the
+  first. And nothing keeps their accepted version (F156).
+- [ ] M2: fix F156. A platform database keeps the PostgreSQL version it was accepted at, as
+  `docs/user/managed-databases.md` promises for every database, so a payload default bump never
+  plans an in-place major change. Interpreter test: an accepted `en-db` at 18 with a payload
+  default of 19 plans no change, and a new context gets the default. Pass: `just gate-commit`,
+  then `just gate-fast` on the committed revision and `just land`.
+- [ ] M2b, only if the operator chooses D5 option (a) in the MasterPlan: a reviewed side-by-side
+  instance for a platform database. With options (b) or (c), this box is voided.
+- [ ] M3, local rehearsal on the warm drill context, resumable at each step (`NAGARE_DRILL_ROOT`
+  kept, `NAGARE_DRILL_FROM=N`). Seed rows into two app databases on one shared PostgreSQL server at
+  17. Then:
+  - Upgrade side by side to 18. Back up and prove the scratch restore. Create the new server
+    (`db create SERVER-18 --version 18`). Declare `<name>-v2` on it in the app's Config. Quiesce
+    the old app databases. Copy as the server administrator. Compare fingerprints. Switch each
+    workload's `appDatabaseBinding` with a reviewed deploy. Back up and restore the new app
+    databases. Retire the old ones only after that restore.
+  - Fail 1: the copy fails, and `db app-database resume` reopens the old one for writes.
+  - Fail 2: the new database is rejected after the switch, and a reviewed deploy of the old
+    binding plus `resume` loses no acknowledged row.
+  - The platform-database part follows D5.
 
   Pass: the drill log is under `docs/audits/`, and every assertion holds.
 - [ ] M4: `docs/user/managed-databases.md` covers each kind, and the drill log path is handed to
@@ -72,7 +77,13 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
 
 ## Surprises & Discoveries
 
-(None yet.)
+- F156: the platform databases take their PostgreSQL version from the payload default on every
+  plan (`cli/nagarectl/src/Nagare/Inventory/Components/PackagedAuth.hs:101`,
+  `defaultEngineVersion Postgres`, which is `"18"` at `cli/nagare-dsl/src/Nagare/Dsl/Database.hs:162`).
+  No accepted-version read exists on that path. A release that moves the default would have every
+  context's platform plan refused by F86 (`cli/nagarectl/app/Nagare/Cli/Inventory/Planning.hs:304-318`).
+  The refusal is safe, but no transition could converge. This contradicts the guide's "a database
+  keeps the version it was created with". It changed the plan: M2 fixes it first.
 
 
 ## Decision Log
@@ -81,6 +92,24 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
   procedure is the same for any pair of majors.
   Rationale: the intranet runs 18; the drill needs two majors, not the newest.
   Date: 2026-11-17
+
+
+## M1 desk-check
+
+The six steps are: (1) back up and prove, (2) declare the new instance, (3) fence and copy, (4)
+verify, (5) switch the binding, (6) retire the old.
+
+| Step | Shared server with app databases | Platform `en-db`, `shomei-db`, `en-<name>-db` |
+|---|---|---|
+| 1 | `db app-database backup`, `backup-receipts`, `restore --restore-id` (scratch) | `db backup en-db -n nagare-system`, `db restore` (scratch) |
+| 2 | `db create SERVER-18 --version 18`. Declare a new app database on it, `<name>-v2`; nothing forbids a second app database for one app (scope `appdb-<key>`, `cli/nagarectl/src/Nagare/Inventory/AppDatabase.hs:79`). An in-place `server` change is refused as `migration-review-required` (`cli/nagare-dsl/src/Nagare/Resource/Inventory.hs:924-926`, `cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs:834-835`). | Missing. Names are fixed as `<service>-db` (`cli/nagarectl/src/Nagare/Inventory/Components/Auth.hs:111`), and En and Shomei reach them by fixed hosts and Secrets (`cluster/bootstrap/en/service.yaml`, `cluster/bootstrap/shomei/service.yaml`, `cli/nagarectl/src/Nagare/Inventory/Components/AuthTenants.hs:128-143`). |
+| 3 | Fence: `db app-database quiesce` closes the logins, drains sessions and suspends the schedule (`Inventory/AppDatabase.hs:520-547`). Copy: manual `pg_dump \| psql` as the server administrator. Restores are bound to the same app database and server (`cli/nagarectl/src/Nagare/Inventory/AppDatabaseRestore.hs:282-284`), so no command copies between two app databases. | A platform writer can be held absent (F144's mechanism, `cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs`). There is nowhere to copy to. |
+| 4 | Manual fingerprints, as in the standalone procedure. | Same. |
+| 5 | Change the workload's `appDatabaseBinding` and run a reviewed deploy. The Secret is `<appdatabase>-runtime` (`cli/nagare-dsl/src/Nagare/Dsl/AppDatabase.hs:835-836`), and the host comes from the accepted users' server (`cli/nagarectl/src/Nagare/Inventory/Application/Bindings.hs:592-651`). A typed `Application` cannot bind an app database (`Inventory/Application/Compile.hs:149-152`). | Missing: the fixed hosts above. |
+| 6 | `db app-database retire`, then the old server's retirement. | Missing. |
+| Fail | Copy fails: `db app-database resume` (`Inventory/AppDatabase.hs:552-563`). Rejected after the switch: deploy the old binding, then `resume`. | Missing. |
+
+D5's options for the platform databases are in the MasterPlan's Decision Log.
 
 
 ## Outcomes & Retrospective

@@ -127,7 +127,7 @@ shared server, which EP-266 must carry). No cross-repository ADR applies.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-265 | Show the intranet's backups, escrow and freshness on the release it runs | docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md | None | None | Complete (2026-11-18) |
-| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | Not Started (scope awaits D3) |
+| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | In Progress (M1 done; M2 F156; M3 waits for the warm drill context; platform part awaits D5) |
 | EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | In Progress (waits on EP-266 and nagare-fix) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -155,8 +155,9 @@ the wording names the gate that exists. It completes last.
 ## Progress
 
 EP-265 is complete. On v0.21.0 the intranet's databases are hourly, fresh, on the pinned backup
-image and escrow-verified (`mori://tan/tan-ng-labs` `0ffaffd`). EP-267 is in progress. EP-266
-waits for nagare-fix's warm drill context for M3; M1, the desk-check, can start now.
+image and escrow-verified (`mori://tan/tan-ng-labs` `0ffaffd`). EP-267 is in progress. EP-266's
+desk-check is done: app databases on a shared server need no code, and the platform databases
+need a decision (D5). Its M2 fixes F156, and M3 waits for nagare-fix's warm drill context.
 
 
 ## Surprises & Discoveries
@@ -220,6 +221,23 @@ waits for nagare-fix's warm drill context for M3; M1, the desk-check, can start 
   Rationale: nagare-fix, 2026-11-18.
   Date: 2026-11-18
 
+- Decision: D5, open for the operator: how a platform database (`en-db`, `shomei-db`,
+  `en-<name>-db`) moves to a new PostgreSQL major. EP-266's desk-check found that app databases on
+  a shared server need no code, but the platform databases have fixed names and hosts.
+  - (a) A reviewed second instance beside the old one, with En and Shomei rebound. This is true
+    side by side. It touches the auth components, the bootstrap manifests, and the backup,
+    restore, escrow and rebuild paths keyed on those names. Largest.
+  - (b) The same name, reincarnated through the proven rebuild-and-restore path (`ep245`), with
+    writers held absent and the old volume retained. If the new one fails, the same backup is
+    restored at the old major. Smaller, but "return to the old instance" becomes a restore.
+  - (c) Hold the platform part until a new major is wanted on the intranet. EP-266 M2 (F156)
+    keeps every release from forcing one.
+
+  Recommended: (c). These databases hold accounts, passkeys and grants, and nothing forces a move
+  off 18 once F156 is fixed. EP-266 M2 and M3 do not depend on D5 and go ahead.
+  Rationale: the smallest step that keeps upgrades safe; the box's data-loss guarantee holds under
+  all three.
+  Date: 2026-11-18
 
 ## Outcomes & Retrospective
 
