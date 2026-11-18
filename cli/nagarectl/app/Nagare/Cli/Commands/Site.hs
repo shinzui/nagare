@@ -12,6 +12,7 @@ import Control.Exception (IOException, try)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
@@ -45,8 +46,11 @@ import Nagare.Cli.Runtime.Target
   , resolveBaseDomain
   , resolvePlatformWorkspace
   )
+import Nagare.Contract.Project (deployPreview)
+import Nagare.Contract.Sink (emitDocument)
 import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Cdn.Types (Cdn)
+import Nagare.Dsl.Config (encodeServerSite, encodeStaticSite)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite)
@@ -64,7 +68,7 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedAppNamespace)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
-import Nagare.Inventory.Site (SiteReleaseAction (..), acceptedSiteReleaseLog, acceptedSiteSource, compileServerSiteScopeWith, compileStaticSiteScopeWith, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (SiteReleaseAction (..), acceptedSiteReleaseLog, acceptedSiteSource, compileServerSiteScopeWith, compileStaticSiteScopeWith, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, recordReviewedSiteInputs, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
@@ -104,6 +108,9 @@ runSiteDeploy mctx sopts = do
   when
     (isNothing (sopts ^. #imageResource))
     (dieT "reviewed site deployment requires --image-resource")
+  when
+    (isJust (sopts ^. #contract) && not (sopts ^. #dryRun) && isNothing (sopts ^. #savePlan))
+    (dieT "--contract requires --dry-run or --save-plan; a live deploy has no contract document")
   bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
   tp <- activeProfile mctx
   esite <- loadSiteInput (sopts ^. #rendered) (sopts ^. #ghcEnv) (sopts ^. #file)
@@ -120,6 +127,7 @@ runSiteDeploy mctx sopts = do
             mctx
             tp
             sopts
+            (encodeStaticSite s)
             (s & #image %~ const qimg)
             bd
             (sopts ^. #savePlan)
@@ -131,15 +139,16 @@ runSiteDeploy mctx sopts = do
             mctx
             tp
             sopts
+            (encodeServerSite s)
             (s & #image %~ const qimg)
             bd
             (sopts ^. #savePlan)
 
 -- | Deploy an already-loaded, image-qualified static site and return its
 -- production URL: the second half of @site publish@, with no second config load.
-deployLoadedStaticSite :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> IO Text
-deployLoadedStaticSite mctx tp options site bd = do
-  runStaticSiteDeployPlan mctx tp options site bd Nothing
+deployLoadedStaticSite :: Maybe String -> TargetProfile -> SiteDeployOpts -> LBS.ByteString -> StaticSite -> Text -> IO Text
+deployLoadedStaticSite mctx tp options config site bd = do
+  runStaticSiteDeployPlan mctx tp options config site bd Nothing
   tag <- reviewedSiteTag options
   pure (staticSiteUrl tp options site tag bd)
 
@@ -147,8 +156,8 @@ staticSiteUrl :: TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Text -
 staticSiteUrl tp options site tag bd = productionManifests (siteDeployInputs tp options site tag bd) ^. #url
 
 runStaticSiteDeployPlan ::
-  Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Maybe FilePath -> IO ()
-runStaticSiteDeployPlan mctx tp options site bd output = do
+  Maybe String -> TargetProfile -> SiteDeployOpts -> LBS.ByteString -> StaticSite -> Text -> Maybe FilePath -> IO ()
+runStaticSiteDeployPlan mctx tp options config site bd output = do
   unless
     (null (options ^. #siteVolumeRecovery))
     (dieT "static sites have no volume recovery inputs")
@@ -161,6 +170,7 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
   runReviewedSiteDeployPlan
     mctx
     options
+    config
     (siteNameText (site ^. #name))
     (namespaceText (site ^. #namespace))
     (imageRefText (site ^. #image))
@@ -176,8 +186,8 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
     output
 
 runServerSiteDeployPlan ::
-  Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> Maybe FilePath -> IO ()
-runServerSiteDeployPlan mctx tp options original bd output = do
+  Maybe String -> TargetProfile -> SiteDeployOpts -> LBS.ByteString -> ServerSite -> Text -> Maybe FilePath -> IO ()
+runServerSiteDeployPlan mctx tp options config original bd output = do
   tag <- reviewedSiteTag options
   recovery <-
     either
@@ -206,6 +216,7 @@ runServerSiteDeployPlan mctx tp options original bd output = do
   runReviewedSiteDeployPlan
     mctx
     options
+    config
     (siteNameText (site ^. #name))
     (namespaceText (site ^. #namespace))
     (imageRefText (site ^. #image))
@@ -234,6 +245,7 @@ runServerSiteDeployPlan mctx tp options original bd output = do
 runReviewedSiteDeployPlan ::
   Maybe String ->
   SiteDeployOpts ->
+  LBS.ByteString ->
   Text ->
   Text ->
   Text ->
@@ -262,7 +274,7 @@ runReviewedSiteDeployPlan ::
   (Text -> ByteString -> Either Text (StaticReleaseLog, StaticRelease)) ->
   Maybe FilePath ->
   IO ()
-runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent accessIntent bindBuildInputs compile importLegacy output = do
+runReviewedSiteDeployPlan mctx options config siteName ns imageName url tag cdnIntent accessIntent bindBuildInputs compile importLegacy output = do
   unless
     (null (options ^. #sitePreviewEnvResources))
     (dieT "production site review has no preview environment resources")
@@ -369,11 +381,14 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent a
         (dieT "inline site import requires candidate '.' in its adoption proposal")
       pure (oldLog, oldRelease, Just proposal)
     _ -> dieT "site import options are incomplete"
-  (scope, native) <-
+  (compiled, native) <-
     either
       (dieT . T.pack . show)
       pure
       (compile cdnBinding accessBinding buildSecrets envSecrets tlsSecrets cluster namespaceId imageId prior release source)
+  -- EP-263: the scope records its configuration digest and reviewed inputs.
+  let inputs = Map.fromList ([("tag", tag), ("imageResource", Resource.resourceIdText imageId)] <> [("baseDomain", T.pack domain) | Just domain <- [options ^. #baseDomain]])
+  scope <- either (dieT . T.pack . show) pure (recordReviewedSiteInputs config inputs compiled)
   carriedScope <- withMovedRoutes active snapshot scope
   candidate <-
     either
@@ -381,7 +396,10 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent a
       pure
       (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
   if options ^. #dryRun
-    then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+    then
+      if isJust (options ^. #contract)
+        then emitDocument (deployPreview carriedScope [])
+        else BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
     else case (adoption, output) of
       (Nothing, Nothing) ->
         Inventory.convergeInventoryCandidateWith

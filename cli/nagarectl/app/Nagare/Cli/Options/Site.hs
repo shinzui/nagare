@@ -35,6 +35,9 @@ data SiteDeployOpts = SiteDeployOpts
   , sitePreviewAdoptionInput :: !(Maybe FilePath)
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
+  , contract :: !(Maybe Int)
+  -- ^ EP-263: print the contract's @deploy-preview@ or @saved-review@ document.
+  -- Only @site deploy@ parses it; a preview deploy and @site publish@ set none.
   }
   deriving stock (Generic, Show)
 

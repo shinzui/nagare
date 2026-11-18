@@ -78,11 +78,18 @@ raised for
   cases in `ContractCommands.hs` pass (`-p /EP-263/`), the stamp-only review has zero
   operations, and `just gate-commit` is green. The refusal case uses a deployer with no accepted
   delegation, which refuses every scope.
-- [ ] M2: `site deploy` accepts `--contract`. Accepted when the built executable prints one
+- [x] M2: `site deploy` accepts `--contract`. Accepted when the built executable prints one
   `deploy-preview` for `--dry-run --contract 1` and one `saved-review` for
   `--save-plan DIR --contract 1`, refuses `--contract 2` and a contract run with neither flag
   with a `refused` outcome and exit 2, prints today's output without `--contract`, and
   `site preview deploy` does not accept the flag.
+  Done 2026-11-18 with the built executable: `site deploy --help` lists `--contract` and
+  `site preview deploy` rejects it; `--contract 2` prints a `refused` outcome with
+  `unsupported_contract_version`, exit 2; `--contract 1` with neither flag prints a `refused`
+  outcome, exit 2; without `--contract` the command fails as before on an invalid document. The
+  preview commands moved to `Nagare.Cli.Commands.SitePreview` to keep `Commands.Site` under the
+  1000-line module limit. The uncontracted `--dry-run` now prints the stamped scope, the one a
+  review accepts.
 - [ ] M3: the public contract describes the site producers. Accepted when
   `docs/api/openapi.json` and `docs/api/samples/` are regenerated with a site preview sample
   and pass their checks, `docs/api/README.md`, `docs/user/static-hosting.md` and

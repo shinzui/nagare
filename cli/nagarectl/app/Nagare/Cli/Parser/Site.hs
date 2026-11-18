@@ -52,8 +52,8 @@ import Options.Applicative
   , (<**>)
   )
 
-siteDeployOptsParser :: FilePath -> Parser SiteDeployOpts
-siteDeployOptsParser defaultFile =
+siteDeployOptsParser :: Parser (Maybe Int) -> FilePath -> Parser SiteDeployOpts
+siteDeployOptsParser contract defaultFile =
   configInputOpt defaultFile (pure SiteDeployOpts)
     <*> tagOpt
     <*> baseDomainOpt
@@ -88,6 +88,7 @@ siteDeployOptsParser defaultFile =
     <*> optional (strOption (long "preview-adoption-input" <> metavar "FILE" <> help "Exact-incarnation adoption proposal for an existing direct preview"))
     <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy site release ConfigMap JSON for exact adoption"))
     <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal"))
+    <*> contract
 
 siteProjectDirOpt :: Parser FilePath
 siteProjectDirOpt =
@@ -191,7 +192,7 @@ siteSubparser =
 siteDeployCmd :: ParserInfo Command
 siteDeployCmd =
   info
-    (withReviewSource True (SiteDeploy <$> siteDeployOptsParser defaultConfigFile) <**> helper)
+    (withReviewSource True (SiteDeploy <$> siteDeployOptsParser contractOpt defaultConfigFile) <**> helper)
     (fullDesc <> progDesc "Deploy or inspect a reviewed static or server site using an accepted image")
 
 sitePackageCmd :: ParserInfo Command
@@ -256,7 +257,7 @@ previewSubparser =
 previewDeployCmd :: ParserInfo Command
 previewDeployCmd =
   info
-    (withReviewSource True (SitePreviewDeploy <$> siteDeployOptsParser defaultConfigFile <*> previewNameOpt) <**> helper)
+    (withReviewSource True (SitePreviewDeploy <$> siteDeployOptsParser (pure Nothing) defaultConfigFile <*> previewNameOpt) <**> helper)
     (fullDesc <> progDesc "Deploy a preview of the site under a derived name and domain")
 
 previewListCmd :: ParserInfo Command

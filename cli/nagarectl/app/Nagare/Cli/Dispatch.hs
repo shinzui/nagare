@@ -132,7 +132,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Kubeconfig kcmd -> runKubeconfig mctx kcmd
   Cluster ccmd -> runCluster mctx ccmd
   Deploy dopts -> runDeploy mctx dopts
-  SiteDeploy sopts -> runSiteDeploy mctx sopts
+  SiteDeploy sopts -> withContract (sopts ^. #contract) (runSiteDeploy mctx sopts)
   SitePackage popts -> runSitePackage mctx popts
   SitePublish popts -> withContract (popts ^. #contract) (runSitePublish mctx popts (runAppImagePlan mctx) (deployLoadedStaticSite mctx) staticSiteUrl)
   SiteReleases copts -> runSiteReleases copts

@@ -12,6 +12,7 @@ import Control.Exception (try)
 import Control.Monad (forM_, void)
 import Data.Bifunctor (first)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -26,6 +27,7 @@ import Nagare.Cli.Runtime.Target (activeProfile, activeTarget, resolveBaseDomain
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
 import Nagare.Contract.Sink (contractSinkSet, emitDocument, withoutDocuments)
 import Nagare.Contract.V1 (SitePublishResult (..))
+import Nagare.Dsl.Config (encodeStaticSite)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude hiding (Context)
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
@@ -120,7 +122,7 @@ runSitePublish ::
   Maybe String ->
   SitePublishOpts ->
   (AppImagePlanOpts -> IO ()) ->
-  (TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> IO Text) ->
+  (TargetProfile -> SiteDeployOpts -> LBS.ByteString -> StaticSite -> Text -> IO Text) ->
   (TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Text -> Text) ->
   IO ()
 runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
@@ -163,6 +165,7 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
           , sitePreviewAdoptionInput = Nothing
           , legacyReleaseImport = Nothing
           , releaseAdoptionInput = Nothing
+          , contract = Nothing
           }
       urlFor tagText = staticSiteUrl profile (deployOptions tagText "" "") site tagText baseDomain
   prepared <- tracePhase "publish.output" (prepareOutputFor (options ^. #projectDir) (options ^. #outputDir) (options ^. #build) site)
@@ -185,7 +188,7 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
                 Left e -> pure (Left e)
                 Right resource ->
                   tryExit
-                    (deployLoadedStaticSite profile (deployOptions (receipt ^. #tag) (receipt ^. #source) resource) site baseDomain)
+                    (deployLoadedStaticSite profile (deployOptions (receipt ^. #tag) (receipt ^. #source) resource) (encodeStaticSite site0) site baseDomain)
           }
   if options ^. #resume
     then do
