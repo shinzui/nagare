@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-18
+* **Update**: IR-45 completed by ExecPlan 263, on master, unreleased: site deploy --contract 1 prints a deploy-preview for --dry-run and a saved-review for --save-plan, the site scope records its configuration digest and reviewed inputs, confirmed natively under a delegated deployer on a disposable local context; mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer adopts it.
 * **Update**: IR-46 completed by ExecPlan 269, landed on master at 1790e63f (code 112380c0), unreleased: a release-only Task trigger whose CronJob is accepted suspended with a never-firing schedule, reviewed as hookTrigger/TASK on the application scope, confirmed natively on a disposable local context; mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application qualifies that revision.
 * **Update**: IR-46 links ExecPlan 269 (docs/plans/269-declare-release-only-migration-hooks-that-no-schedule-can-run.md), which plans its four acceptance criteria; nothing is implemented yet.
 

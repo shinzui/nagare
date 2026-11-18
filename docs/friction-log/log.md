@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-11-18
+
+* **Update**: FRIC-17 accepted: Accepted: a known environment requirement, reported in docs/audits/ep263-local-confirmation-2026-11-18.md.
+
+* **Addition**: FRIC-17 records detour tooling friction with mori://shinzui/nagare: Artifact transport exits 0 without publishing under bash 3.2
+
 ## 2026-11-12
 
 * **Update**: FRIC-16 accepted: Status set to accepted.

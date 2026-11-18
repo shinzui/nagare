@@ -7,7 +7,9 @@ generated:
   by: process:codex
   at: "2026-11-12T22:40:00Z"
 requestId: IR-45
-status: proposed
+status: completed
+completedAt: "2026-11-18T19:45:00Z"
+resolution: "ExecPlan 263 landed on master (code db88471e), unreleased. site deploy accepts --contract 1 with --dry-run, printing one deploy-preview whose application is the site's standalone:site-NAME scope with its configuration digest and reviewed inputs (tag, imageResource, optional baseDomain), and with --save-plan DIR, printing one saved-review; inventory apply --contract 1 applies the directory it names, and the accepted scope carries the same digest and inputs. Every production site deploy and site publish now records them on the scope. Refusals are one refused transaction-outcome with exit 2; a live deploy refuses --contract; site preview deploy does not take it. Effect-interpreter tests cover AC-1, AC-2, AC-4 and the client of AC-5; the schemas, a site sample and the guides are updated. A native run on a disposable local context under the deployer ci confirmed AC-1 to AC-4 from a rendered site whose program and build command fail if run (docs/audits/ep263-local-confirmation-2026-11-18.md). Kotei owns its adoption."
 targetPlan: docs/plans/263-print-versioned-preview-and-saved-review-documents-from-site-deploy.md
 origin: mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer
 acceptanceCriteria:
@@ -111,3 +113,9 @@ hosted workflow. Kotei's baseline server/worker/migration hosting is separately
 tracked by [IR-44](scope-app-secrets-to-the-workloads-that-reference-them.md) and
 `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application`;
 this site request must not hold up that baseline work.
+
+ExecPlan 263 ([docs/plans/263-print-versioned-preview-and-saved-review-documents-from-site-deploy.md](../plans/263-print-versioned-preview-and-saved-review-documents-from-site-deploy.md))
+implemented this request; its native confirmation is
+[docs/audits/ep263-local-confirmation-2026-11-18.md](../audits/ep263-local-confirmation-2026-11-18.md). It is on
+master and not yet in a release; to qualify it, Kotei pins that revision. See
+[Deploying a rendered site](../user/static-hosting.md#deploying-a-rendered-site).

@@ -99,11 +99,17 @@ raised for
   stamped `standalone:site-docs` scope; the `/Contract/` tests (97) and the nagare-api-server
   test "docs/api/openapi.json equals the generated document" pass. The client test is M1's
   agreement case, which reads only the decoded `DeployPreview` and `SavedReview`.
-- [ ] M4: confirmed on a disposable local context under a bounded deployer. Accepted when the
+- [x] M4: confirmed on a disposable local context under a bounded deployer. Accepted when the
   three commands above succeed from a rendered document whose config program and build command
   would fail if run, the transaction history shows the supplied source repository, commit and
   run, a site outside the delegation is refused with nothing published, and the transcript is
   linked from IR-45.
+  Done 2026-11-18 at `db88471e` (green fast gate, packaged 0.23.0) on the warm local context
+  `ep235`, run `r5`: [docs/audits/ep263-local-confirmation-2026-11-18.md](../audits/ep263-local-confirmation-2026-11-18.md).
+  Every document validated against `docs/api/openapi.json`; the accepted scope carries the
+  preview's digest and inputs plus `delegation.deployer: ci`; the rogue site was refused
+  `admission_refused`, exit 2, store unchanged. The deployer ran as `NAGARE_DEPLOYER=ci` on the
+  context's own store rather than in a separate home. IR-45 is completed.
 
 
 ## Surprises & Discoveries
@@ -167,7 +173,17 @@ raised for
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+`nagarectl site deploy --contract 1` now prints one `deploy-preview` for `--dry-run` and one
+`saved-review` for `--save-plan`, and every production site deploy records the configuration
+digest and reviewed inputs on the site's scope. Interpreter tests prove the preview, its agreement
+with the accepted scope, a stamp-only review with no member operation and a deployer refusal, and
+a native run under the delegated deployer `ci` confirmed IR-45 AC-1 to AC-4; IR-45 is completed.
+`Commands.Site` was split (`Commands.SitePreview`, `Application.Site`) to stay under the module
+limit. The run left two findings outside this plan, recorded in the audit: the artifact transport
+exits 0 without publishing under bash 3.2 (FRIC-17, accepted), and `inventory store status`
+refuses head schema 2. Kotei's adoption remains with
+`mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer`.
+No ADR changes: the digest and override meanings are the contract's existing ones.
 
 
 ## Context and Orientation

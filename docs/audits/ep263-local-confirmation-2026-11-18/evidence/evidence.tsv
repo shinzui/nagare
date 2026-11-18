@@ -1,0 +1,19 @@
+candidate	nagarectl 0.23.0 (db88471ed368ff104adb17fbbe0e65bb10249bf1)
+server	https://0.0.0.0:49668
+delegation	{"name":"ci","state":"active","revision":null,"namespaces":["team-a"]}
+rendered.build	{"command":"sh -c 'echo EP-263: the build command ran >&2; exit 97'","kind":"BuildCommand","outputDirectory":"public"}
+deployer.program	nagarectl: nagare: a deployer context never runs a config program (~/.local/state/nagare/drills/ep263/runs/r5/deployer/docs/nagare/Config.hs); render it in the build with `nagarectl app|worker|site render` and deploy with --rendered
+image	publication:app-image-ep263-docs-d1/ep263-docs-d1/oci-image
+schema.DeployPreview	preview.json valid
+preview	{"document":"deploy-preview","application":{"configDigest":"61f979adb76cabf21790ce560a98f3120c9025bb962af7a96b00f4f62245dc2b","overrides":{"imageResource":"publication:app-image-ep263-docs-d1/ep263-docs-d1/oci-image","tag":"d1"},"scope":"standalone:site-docs"},"hooks":[]}
+schema.SavedReview	saved.json valid
+saved	{"document":"saved-review","review":{"directory":"~/.local/state/nagare/drills/ep263/runs/r5/review","sha256":"9158451c7581b80917fe82a363a4b8722926ccfa3256e65799c03f51a79f4b51"},"scopes":["standalone:site-docs"]}
+schema.TransactionOutcome	outcome.json valid
+outcome	{"outcome":"converged","transaction":"tx-9158451c7581b80917fe82a363a4b8722926ccfa3256e65799c03f51a79f4b51"}
+accepted	{"configDigest":"61f979adb76cabf21790ce560a98f3120c9025bb962af7a96b00f4f62245dc2b","overrides":{"delegation.deployer":"ci","imageResource":"publication:app-image-ep263-docs-d1/ep263-docs-d1/oci-image","tag":"d1"}}
+serving	http://docs.team-a.svc.cluster.local k3d-registry.localhost:5000/tan-nb-exp/nagare/team-a/docs:d1
+history	{"transaction":"tx-9158451c7581b80917fe82a363a4b8722926ccfa3256e65799c03f51a79f4b51","actor":{"kind":"deployer","name":"ci"},"scopes":["standalone:site-docs"],"source":{"repository":"https://forge.example.test/team-a/site","revision":"5ca1ab1e","run":"https://ci.example.test/runs/ep263-r5"},"state":"converged"}
+schema.TransactionOutcome	rogue.json.out valid
+rogue	exit 2 {"outcome":"refused","code":"admission_refused","detail":"delegation-bounds: delegation ci refuses standalone:site-rogue/rogue.127-0-0-1.sslip.io/domain-mapping (hostname): hostname rogue.127-0-0-1.sslip.io is outside the delegation\ndelegation-bounds: delegation ci refuses rogue.127-0-0-1.sslip.io (hostname): hostname rogue.127-0-0-1.sslip.io is outside the delegation"}
+rogue.store	before tx-9158451c7581b80917fe82a363a4b8722926ccfa3256e65799c03f51a79f4b51 87a4b4fe6f87c8fe after tx-9158451c7581b80917fe82a363a4b8722926ccfa3256e65799c03f51a79f4b51 87a4b4fe6f87c8fe
+plain	{"scope":{"kind":"Standalone","name":"site-docs"},"configDigest":"61f979adb76cabf21790ce560a98f3120c9025bb962af7a96b00f4f62245dc2b","overrides":{"imageResource":"publication:app-image-ep263-docs-d1/ep263-docs-d1/oci-image","tag":"d1"},"version":1,"document":null}
