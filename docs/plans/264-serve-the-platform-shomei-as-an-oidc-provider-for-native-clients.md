@@ -148,6 +148,20 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   and `revoke`, requests only the `openid` scope, and keeps the in-cluster JWKS fetch as
   its own work.
   Date: 2026-11-17
+- Decision: `nagarectl context move` refuses a context that sets `NAGARE_AUTH_ISSUER`,
+  naming the issuer and what moving it would break. Carrying a URL issuer across a
+  base-domain move is not part of this plan.
+  Rationale: [ExecPlan 246](246-move-a-context-to-a-new-base-domain-and-carry-its-routes-grants-and-sign-in.md)
+  moves a context's base domain on the stated premise that Shomei's issuer does not follow
+  the domain. That holds only for the opaque `nagare-shomei`. With a URL issuer the portal
+  host, and so the issuer, changes with the base domain: every token's `iss` changes and
+  every consumer binding on the exact issuer stops matching. Without this refusal the move
+  would flip the base and leave a platform plan that refuses on the host mismatch. The
+  labs operator repository plans such a move (`mori://tan/tan-ng-labs`, its plan 14 to
+  re-home the intranet onto `topagentnetworklabs.com` through a Cloudflare tunnel,
+  artifact-level URI pending), so the order of that move and the labs issuer is the
+  operator's decision before M5.
+  Date: 2026-11-17
 
 
 ## Outcomes & Retrospective
@@ -262,6 +276,12 @@ inspects a reviewed object's bytes to add behavior for one workload:
   [--scope S]…` and `shomei-admin service-accounts create --display-name TEXT [--scope S]…`
   print the `client_id` (and the secret once). They need `DATABASE_URL`, which the Shomei
   Deployment already sets, so they run with `kubectl exec deploy/shomei`.
+- `POST /oauth/token` is rate-limited, and the limiter attributes a request to the
+  connection's remote address (`shomei-servant/src/Shomei/OAuth/Api.hs`, `RateLimited` and
+  `RemoteHost` on `TokenRoute`). At this pin Shomei has no trusted-proxy setting, so every
+  token request the enforcer forwards counts against the enforcer Pod's one address, as
+  sign-ins already do. The limits are in `RateLimitConfig`
+  (`shomei-core/src/Shomei/Config.hs`).
 - Other routes on the same port, which must stay private: `/v1/auth/*` (including an
   always-open `signup`), `/v1/admin/*`, `/oauth/userinfo`, `/oauth/introspect`,
   `/oauth/revoke`, `/health/*`, `/openapi.json`, `/metrics`.
@@ -295,6 +315,18 @@ The client requests the scope `openid` only, and its guide registers the redirec
 `at+jwt`, exact `iss` and `aud`, `exp`, `iat` and a non-empty `sid`, and binds the exact
 `(issuer, subject)` pair to a Mori principal, so the issuer must be final before any
 intranet identity is bound.
+
+**Base-domain moves.** `nagarectl context move` (ExecPlan 246, `Nagare.Context.BaseMove`
+under `cli/nagarectl`, guide `docs/user/moving-to-a-new-base-domain.md`) moves a context to
+a new base domain and lists its refusals by name. Its compiled-scope test in
+`InventoryAuthSpec` asserts both issuer variables are byte-identical across a move.
+
+**Labs today** (read on 2026-11-17 from the running `mori-registry` Pod in namespace
+`personal`, with no object created): the Pod resolves `auth.labs.topagentnetwork.net`,
+reaches it over the public address, verifies its Let's Encrypt certificate against the
+image's trust store, and gets `200` from `/healthz` with no redirect. Labs serves directly,
+not through a Cloudflare tunnel. An in-cluster consumer can therefore fetch the public JWKS
+on labs as it stands; the result must be read again after any move behind a tunnel.
 
 **Relevant ADRs.**
 [ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md):
@@ -355,7 +387,9 @@ When the setting is present, read the registered portal host from the snapshot's
 `ShomeiSettingsSpec` declaration and refuse to plan unless it equals the issuer's host,
 with a message that tells the operator to deploy the auth portal on that host first. In the
 portal registration path (where a second or out-of-domain portal is refused), refuse a
-portal host that differs from a set issuer's host.
+portal host that differs from a set issuer's host. Add a named refusal to
+`nagarectl context move list` and the move itself for a context that sets the issuer, and
+say so in `docs/user/moving-to-a-new-base-domain.md`.
 
 In `cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs`, extend `summary` so that an
 operation on the Shomei Deployment whose reviewed `SHOMEI_ISSUER` is an `https://` URL ends
@@ -417,7 +451,9 @@ defect found here is first reproduced in an interpreter test.
 `docs/user/access.md` gains a section "Sign in native clients and services" covering the
 setting, the four public endpoints, what is deliberately not served, the single audience
 `nagare-access` and what a consumer must therefore check itself, the session effect of
-changing the issuer, and the two `shomei-admin` commands run through
+changing the issuer, that the issuer is in practice permanent once a consumer has bound
+identities to it (Mori binds the exact `(issuer, subject)` pair, so a later change of the
+portal host orphans every binding and each must be made again), and the two `shomei-admin` commands run through
 `kubectl -n nagare-system exec deploy/shomei`. `docs/user/auth-portal.md` states that the
 enforcer answers the four paths on the portal host before the portal sees them, that a
 custom portal must return `return_to` unchanged, and that the portal host and the issuer
@@ -525,7 +561,8 @@ Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": ["nagare-access"]}`
     are each refused at context parsing, and an empty value is unset;
   - a platform plan with the setting and no registered portal, or a portal on another host,
     is refused before any operation is proposed; a portal deploy on a host other than the
-    issuer's is refused;
+    issuer's is refused; `context move list --base-domain NEW` on a context with the
+    setting is refused by name, and without the setting behaves as before;
   - the Shomei Deployment's summary names the issuer and the session effect when the
     setting is present, and is unchanged when it is not.
 - **M2** (`nagare-access-test`, against a real Shomei):
@@ -549,7 +586,15 @@ Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": ["nagare-access"]}`
   - `GET /v1/admin/users`, `POST /v1/auth/signup`, `GET /oauth/userinfo`,
     `POST /oauth/introspect`, `GET /metrics`, `GET /openapi.json` and `POST /oauth/authorize`
     on the issuer host are forwarded to the portal upstream, never to Shomei;
-  - with the issuer `nagare-shomei`, all four paths go to the portal as before.
+  - with the issuer `nagare-shomei`, all four paths go to the portal as before;
+  - a rate-limit case: read the limits that apply to `/oauth/token` from Shomei's
+    `RateLimitConfig`, then drive the real Shomei through the enforcer with the load the
+    first consumer makes (one `client_credentials` grant every 270 seconds and one refresh
+    per signed-in teammate every 15 minutes, for twenty teammates) plus ten failed grants
+    from another client, and assert the valid grants still succeed. If one client's
+    failures can lock out the others, stop and record it in the Decision Log for the
+    operator: the remedy is a Shomei with a trusted-proxy setting, which means moving the
+    pin, and is not decided here.
 - **M3** (local context): the Concrete Steps outputs appear. Additionally: the token from
   the code exchange verifies against `$ISS/.well-known/jwks.json` fetched from the
   workstation; `curl "$ISS/v1/admin/users"` and `curl "$ISS/metrics"` are answered by the
@@ -583,7 +628,9 @@ If the apply is interrupted, resume the same review.
 
 Moving back is the same reviewed change with the variable unset; it has the same session
 effect and turns OIDC off, so every client configured with the URL issuer stops working.
-Tokens are not portable across the move in either direction.
+Tokens are not portable across the move in either direction, and neither are a
+consumer's identity bindings: a consumer that bound `(issuer, subject)` pairs must bind
+them again under the new issuer. Choose the portal host before the first binding.
 
 The registered loopback redirect is matched byte for byte, so a client that picks a
 different port needs its own registered URI. Any guard that refuses on labs stops the work
