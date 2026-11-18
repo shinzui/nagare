@@ -21,6 +21,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesRuntime (identified)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), compileManualBackupScope)
 import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..))
+import Nagare.Inventory.Bootstrap (withLeadingDependencies)
 import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (..), acquireDataFence)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
@@ -141,6 +142,10 @@ inventoryIncarnationTests =
         Status.generatedMemberChanged accepted (member & #dependencies .~ [OrderedAfter (databaseMember "kubeconfig")]) @?= False
         Status.generatedMemberChanged accepted (member & #spec .~ NativeObject (contentDigest "other")) @?= True
         Status.generatedMemberChanged Map.empty member @?= True
+        let edge = OrderedAfter (databaseMember "kubeconfig")
+            ordered = withLeadingDependencies [edge] member
+        ordered ^. #dependencies @?= [edge]
+        withLeadingDependencies [edge] ordered @?= ordered
     , testCase "a restore pins only the recorded incarnation of its target (ADR 27, N6)" $ do
         let stateful = databaseMember "statefulset"
             pvc = databaseMember "pvc"

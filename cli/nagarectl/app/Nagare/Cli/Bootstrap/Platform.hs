@@ -32,6 +32,7 @@ import Nagare.Inventory.Bootstrap
   , compileBootstrapStamp
   , compileBootstrapWithAuthAndScopes
   , composePlatformChanges
+  , withLeadingDependencies
   )
 import Nagare.Inventory.Components.AdminApi
 import Nagare.Inventory.Components.Auth
@@ -467,7 +468,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
          in [ResourceReference.OrderedAfter (Resource.mintResourceId owner key role)]
       orderCluster resource
         | resource ^. #executor `elem` [ResourceInventory.KubernetesExecutor, ResourceInventory.HelmExecutor] =
-            resource {ResourceInventory.dependencies = kubeconfigEdges <> resource ^. #dependencies}
+            withLeadingDependencies kubeconfigEdges resource
         | otherwise = resource
       orderClusterDeclaration = \case
         ResourceInventory.Managed resource -> ResourceInventory.Managed (orderCluster resource)

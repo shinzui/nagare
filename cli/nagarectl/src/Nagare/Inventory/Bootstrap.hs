@@ -16,6 +16,7 @@ module Nagare.Inventory.Bootstrap
   , bootstrapMarkerValue
   , verifyBootstrapStampPayload
   , composePlatformChanges
+  , withLeadingDependencies
   )
 where
 
@@ -223,6 +224,11 @@ bootstrapPreservedScopeVectorDigest snapshot candidate = do
               (Map.lookup owner (candidateGenerations candidate))
   revisions <- Map.traverseWithKey desiredRevision scopes
   pure (bootstrapScopeVectorDigest revisions)
+
+-- | The member ordered after @edges@ first, each once: a member carried from its accepted
+-- declaration already holds them, and adding them again grew its scope on every plan (EP-246).
+withLeadingDependencies :: [Dependency] -> ManagedResource -> ManagedResource
+withLeadingDependencies edges resource = resource & #dependencies .~ (edges <> filter (`notElem` edges) (resource ^. #dependencies))
 
 -- | EP-225: the changes whose deployment meaning differs from the accepted
 -- scope. A scope compiled from another workspace that means what the accepted
