@@ -539,11 +539,10 @@ land rev:
     git push origin "$target:refs/heads/master"
     log="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/post-land-$target.log"
     mkdir -p "$(dirname "$log")"
-    # The release gate's mutation sweep runs right after the full gate, so a
-    # survivor shows at land time and the candidate finds the sweep done
-    # (operator, 2026-11-14).
-    nohup bash -c 'just gate-post-land "$1" && just gate-release "$1"' _ "$target" >"$log" 2>&1 &
-    echo "land: $target is on master; its post-land check and mutation sweep run in the background, log $log"
+    # A land runs the full gate only; the mutation sweep is per release, in
+    # `just gate-release` (operator, 2026-11-17).
+    nohup just gate-post-land "$target" >"$log" 2>&1 &
+    echo "land: $target is on master; its post-land check runs in the background, log $log"
 
 # Check that a revision may land: a green fast or full record, and no red full
 # gate on the newest landed commit that finished one.

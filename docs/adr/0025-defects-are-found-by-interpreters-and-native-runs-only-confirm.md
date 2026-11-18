@@ -270,3 +270,17 @@ defect first appears in the release rehearsal (`just release-rehearse`: the Helm
 transition-guard paths) or in the intranet's own upgrade (the host stage and Pulumi); F121–F124 were
 all found that way. The host-transport world is reopened when an intranet upgrade finds a host-stage
 defect, and the Pulumi world when MasterPlan 25 reopens.
+
+
+## Amendment (2026-11-17): the proof is sized to the risk
+
+Decided by the operator on 2026-11-17, after EP-235 M3 spent about half of a three-hour native drill
+rebuilding its context and about twelve minutes of gate per commit. The strict path of this ADR
+stays for a change that can lose data, break a release upgrade, or change cloud IAM or the GCP
+guardrail: rule 3's regression that fails on the pre-fix source, shown by a recorded mutation,
+and re-recorded traces for a new in-line kind. For any other change a unit test is the proof, with
+a native confirmation only when native behaviour changes. A new Kubernetes kind needs recorded
+traces only when the adapter gains a destructive or data-bearing action for it (retire, replace,
+migrate); an in-place update of a plain object needs a unit test. The mutation sweep runs per
+release, in `just gate-release`, not after each land, so a survivor no longer blocks the next
+land; a red full gate still does.

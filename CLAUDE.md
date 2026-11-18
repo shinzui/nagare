@@ -137,14 +137,24 @@ which defer to the user's scope:
 - **Never answer a mistake with a new check, script, rule, runbook item or plan.** Fix it in one
   line and keep working. Prefer removing a step to adding one.
 - **No time estimates.** Report what is done and what is next.
+- **Size the ceremony to the risk** (operator, 2026-11-17). The heavy path is only for a change
+  that can lose data, break a release upgrade, or change cloud IAM or the GCP guardrail: an
+  ExecPlan, a mutation record for each fix, recorded Kubernetes API traces for a new kind, and a
+  deferral-ledger entry for each finding it leaves open. Every other change needs a unit test,
+  plus a native confirmation only when native behaviour changes. An ExecPlan is required only for
+  multi-day or data-risk work. A new Kubernetes kind needs recorded traces only when the adapter
+  gains a destructive or data-bearing action for it (retire, replace, migrate); an in-place update
+  of a plain object needs a unit test ([ADR 25](docs/adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md),
+  2026-11-17 amendment). Everything that guards data loss and the GCP guardrail's fail-closed
+  behaviour stays exactly as strict.
 - **Per Haskell commit:** `just gate-commit`: the style check, then a build and the tests of only
   the touched packages, in nagarectl's suite only the test groups the change reaches (operator,
-  2026-11-17). **Per landing:**
-  `just gate-fast` with no uncommitted changes, then `just land`, which starts the full gate and
-  then the release gate's mutation sweep on the landed commit in the background; a red one blocks the next land until a fully gated fix
-  lands (operator decision, 2026-10-11). **Per release only:** `just gate-release REV`
-  on the candidate (its green full gate, then `just mutation-sweep`). The deep tier is not part of
-  a release (operator, 2026-10-12). A docs-only commit carries its gated ancestor's record forward.
+  2026-11-17). **Per landing:** `just gate-fast` with no uncommitted changes, then `just land`,
+  which starts the full gate on the landed commit in the background; a red full gate blocks the
+  next land until a fully gated fix lands (operator decision, 2026-10-11). **Per release only:**
+  `just gate-release REV` on the candidate: its green full gate, then the mutation sweep, which a
+  land no longer runs (operator, 2026-11-17). The deep tier is not part of a release (operator,
+  2026-10-12). A docs-only commit carries its gated ancestor's record forward.
 - **Releases after v0.5.0 prove three things:** the full gate is green, the EP-172 upgrade
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud
@@ -152,7 +162,8 @@ which defer to the user's scope:
 - **A session working a plan owns it to the end** (operator, 2026-11-14): it writes the plan's
   absolute path to `~/.local/state/nagare/plan-owners/$CLAUDE_CODE_SESSION_ID`, and the Stop hook in
   `.claude/settings.json` keeps it from ending a turn while the plan's Progress list has unchecked
-  items, unless it is waiting on a background task, a refusing guard or an operator answer.
+  items, unless it is waiting on a refusing guard or an operator answer; it stays silent while a
+  background task of the session is pending (operator, 2026-11-17).
 - **Held plans are not worked on.** MasterPlan 25 is held, and so is MasterPlan 26's EP-173
   M3–M4, behind a trigger (its Decision Log, 2026-10-14). MasterPlan 26 is closed; its EP-168,
   EP-170, EP-171 and EP-173 M5 are cancelled, not held.
