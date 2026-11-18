@@ -88,9 +88,36 @@ Ordinary scheduled tasks render the same bytes as before.
   its own module rather than `WorkloadControlsInventorySpec.hs` because it needs the compiled
   fixture of `ManagedEnvScopeSpec.hs`. The retry compares the hook scope's digest and declaration:
   every accepted review advances a scope's generation.
-- [ ] M4. User documentation describes the release-only trigger, and one native confirmation on a
+- [x] M4. User documentation describes the release-only trigger, and one native confirmation on a
   disposable local context shows the transition and the repeat deploy. Evidence: transcript in this
-  plan.
+  plan. Done 2026-11-18. Docs in 112380c0 (`docs/user/scheduled-tasks.md` "Release-only tasks",
+  `deploying-apps.md`, `config-reference.md`); `CHANGELOG.md` only links each release's notes, so
+  the entry goes into the next release's notes. The native run used packaged nagarectl 112380c0,
+  which has a green `just gate-fast` record. It ran on the idle disposable `mode=local` context
+  `ep235` (k3d on the `nagare-c4-amd64` daemon, left over from the EP-268 drill) with the script
+  `~/.local/state/nagare/drills/ep269/confirm.sh`. That script is the Concrete Steps sequence plus
+  a reviewed `secret sync` of the maintenance key and the busybox image of the secret-scope
+  smoke. Observed output:
+
+  ```text
+  candidate: nagarectl 0.22.0 (112380c0e77729391dd2d725cf2f2d406817ee15)
+  server: https://0.0.0.0:49668
+  step1.jobs: nagare-task-migrate-hook-867127b5296b=3ba47216-7078-4cd1-ab87-6b714df82cf3
+  step1.cronjob: 68f1ea40-678c-444d-bc7e-e52ee2e2cf40 false 0 0 1 1 *
+  step1.refs: cronjob=MAINTENANCE_URL job=MAINTENANCE_URL service=- worker=-
+  step2.preview: release-only
+  step2.saved-override: release-only
+  step2.operations: UpdateResource application:ep269/migrate/cronjob;
+  step2.cronjob: 68f1ea40-678c-444d-bc7e-e52ee2e2cf40 true 0 0 31 2 *
+  step2.task-list:  migrate ep269 suspended never never 0
+  step3.operations:
+  step3.jobs: nagare-task-migrate-hook-867127b5296b=3ba47216-7078-4cd1-ab87-6b714df82cf3
+  step3.cronjob: 68f1ea40-678c-444d-bc7e-e52ee2e2cf40 true 0 0 31 2 *
+  PASS
+  ```
+
+  The hook Job logged `maintenance key present`. Kubernetes admitted the 31 February schedule, so
+  that Decision Log entry stands.
 - [ ] M5. IR-46 is marked implemented with the landed revision, and Kotei is told which revision to
   qualify.
 
