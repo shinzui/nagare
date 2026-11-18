@@ -38,6 +38,10 @@ Install the optional auth plane as described in
 `nagarectl` refuses a second portal or an out-of-domain portal before changing the
 backend map. Public and `requireLogin` apps remain unaffected.
 
+When the context sets `NAGARE_AUTH_ISSUER` ([Sign in native clients and
+services](access.md#sign-in-native-clients-and-services)), the portal host and the issuer's
+host must be the same: a plan that deploys the portal on any other host is refused.
+
 ## Deploy the reference portal
 
 The copyable implementation is in `cluster/examples/auth-portal`. It uses only the
@@ -302,6 +306,14 @@ and headers. Everything under `/_nagare/` remains reserved for the enforcer.
 | `POST /account/passkeys/begin`, `/complete`, and `/<id>/delete` | Manage the signed-in user's passkeys. |
 | `GET /errors/403` and `/errors/503` | Return small `text/html` pages for the enforcer to embed. |
 | `GET /healthz` | Return 200 for the Knative readiness probe. |
+
+With `NAGARE_AUTH_ISSUER` set, the enforcer answers four paths on the portal host before
+the portal sees them: `GET /.well-known/openid-configuration`, `GET /.well-known/jwks.json`,
+`GET /oauth/authorize` and `POST /oauth/token`. A portal must not serve them. An anonymous
+authorization request reaches the portal as `GET /login?return_to=<issuer>/oauth/authorize?…`;
+return that `return_to` unchanged as `returnTo` in the hand-off below, byte for byte, so the
+browser comes back to the authorization request and on to the client. The reference portal
+already does.
 
 The portal calls Shomei from its server side. Shomei is not a browser CORS API. On an
 authenticated portal request, `nagare-access` supplies:

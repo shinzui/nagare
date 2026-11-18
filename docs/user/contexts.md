@@ -59,6 +59,7 @@ The core fields are:
 | Local object store | `NAGARE_LOCAL_OBJECT_STORE` |
 | Backup recovery point | `NAGARE_BACKUP_RECOVERY_POINT` (`hourly`, the default, or `daily` — see [Backups](backups-and-disaster-recovery.md#managed-databases-backed-up-by-default)) |
 | En tenants | `NAGARE_EN_TENANTS` and one `NAGARE_EN_TENANT_<NAME>_SCHEMA` per tenant (see [En tenants](#en-tenants)) |
+| Auth issuer | `NAGARE_AUTH_ISSUER`, the auth portal's `https://HOST` origin; unset keeps Shomei's opaque issuer and OIDC off (see [Sign in native clients and services](access.md#sign-in-native-clients-and-services)) |
 
 ## En tenants
 

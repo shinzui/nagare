@@ -226,6 +226,96 @@ Read [Operator-owned authentication portal](auth-portal.md) before implementing 
 restyling a portal. It defines the fixed paths, response handoff header, CSRF boundary,
 token handling, Shomei synchronization, and safe removal procedure.
 
+## Sign in native clients and services
+
+A command-line tool or a separate service can sign a person in with their intranet
+identity, or get a token of its own, from the context's Shomei acting as an OpenID
+Connect (OIDC) provider. This is off until the operator sets one context variable to the
+`https` origin of the context's auth portal:
+
+```bash
+export NAGARE_AUTH_ISSUER=https://auth.apps.example.com
+```
+
+The value is exactly `https://HOST`: no port, path, trailing slash, query or user info.
+`HOST` must be the registered portal's host; deploy the portal first, then set the
+variable, then save and review the platform plan. The plan refuses the setting until the
+accepted inventory has the portal on that host, and a portal deploy on any other host is
+refused while it is set. Its review names the new issuer on the Shomei Deployment's
+operation.
+
+Shomei and `nagare-access` then use that URL as the token issuer, Shomei turns OIDC on, and
+the portal host publicly serves exactly four Shomei endpoints, answered by the enforcer
+before the portal sees the request:
+
+| Endpoint | Use |
+| --- | --- |
+| `GET /.well-known/openid-configuration` | discovery; `issuer` is the setting, PKCE is `S256` |
+| `GET /.well-known/jwks.json` | the public keys that sign every token |
+| `GET /oauth/authorize` | the authorization-code flow with PKCE, for a browser |
+| `POST /oauth/token` | code exchange, refresh, and `client_credentials` |
+
+Nothing else of Shomei is public. `userinfo`, `introspect` and `revoke` are named in the
+discovery document but are not served, and neither are Shomei's account, admin, health or
+metrics routes; every other path on the portal host is the portal's.
+
+The authorization endpoint uses the browser's intranet session: a signed-in browser is sent
+straight back to the client's redirect URI with a code, and an anonymous one is sent to the
+portal's `/login`, which returns it there. There is no consent page, and no site grant is
+consulted: any signed-in user can authorize any registered client. The token endpoint takes
+no cookie, `Origin` or CSRF token; a confidential client or service account authenticates
+with HTTP Basic, and a public client sends its bare `client_id`.
+
+**One audience.** Every token, a browser's included, carries `aud` `nagare-access`, and an
+access token minted for a native client also opens protected sites as a bearer token, under
+the same site grants. A consumer therefore checks more than the signature: the exact `iss`
+and `aud`, `exp`, and its own permission for the token's `sub` (Mori, for example, decides
+permission in its own En tenant). `aud` is the string `"nagare-access"`.
+
+**Register a client.** Run Shomei's admin tool inside its Pod. A public client for a
+command-line tool that listens on a loopback port:
+
+```bash
+kubectl -n nagare-system exec deploy/shomei -- \
+  env LC_ALL=C.UTF-8 shomei-admin oauth-clients create --display-name cli --type public \
+    --redirect-uri http://127.0.0.1:18090/callback --scope openid
+```
+
+It prints `client_id: oauthclient_…` and no secret. The redirect URI is matched byte for
+byte, port included, so a client that picks a different port needs its own registered URI.
+A service account, for a publisher or another machine client:
+
+```bash
+kubectl -n nagare-system exec deploy/shomei -- \
+  env LC_ALL=C.UTF-8 shomei-admin service-accounts create --display-name publisher
+```
+
+It prints `client_id: svcacct_…` and a secret, once. The account gets 300-second tokens with
+`grant_type=client_credentials` and no refresh token:
+
+```bash
+curl -s -u "$CLIENT_ID:$SECRET" https://auth.apps.example.com/oauth/token \
+  -d grant_type=client_credentials | jq '{token_type, expires_in}'
+```
+
+**Changing the issuer signs browsers in again.** Applying the setting, or removing it,
+changes the issuer of every token. Tokens minted under the old issuer are refused, so a
+signed-in browser renews its session with its refresh token, which still works, and may be
+asked to sign in once if it renews while Shomei and the enforcer roll. Removing the setting
+also turns OIDC off, and every client configured with the URL issuer stops working.
+
+**The issuer is in practice permanent.** A consumer that binds identities binds the exact
+pair of issuer and subject; Mori does. A later change of the portal host, and so of the
+issuer, orphans every binding, and each must be made again. Choose the portal host before
+the first client binds an identity. For the same reason `nagarectl context move` refuses a
+context that sets the issuer ([Moving to a new base domain](moving-to-a-new-base-domain.md)).
+
+The portal origin needs a publicly trusted certificate, since native clients use the system
+trust store. Whether a Pod inside the cluster can reach the public key set at the portal
+origin depends on the context's network; a consumer that cannot needs its own route to the
+key set. The decision
+and its boundaries are in [ADR 40](../adr/0040-the-auth-portal-origin-serves-shomei-s-oidc-endpoints-through-the-enforcer.md).
+
 ## Manage grants
 
 Grant a shomei user access to one protected host:
