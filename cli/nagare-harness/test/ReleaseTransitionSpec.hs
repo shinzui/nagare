@@ -25,6 +25,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
+import Nagare.Contract.ReleaseImages (overrideVariable, releaseImageKeys)
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
 import Nagare.Contract.V1 (Outcome (..), TransactionOutcome (..), VersionInfo (..))
 import Nagare.Harness.Prelude hiding ((.=))
@@ -221,10 +222,7 @@ releaseTransitionTests =
     "ReleaseTransition (EP-229)"
     [ testGroup
         "review decisions"
-        [ testCase "a source that names its images seeds only the object store's pins (v0.22.0 rehearsal)" $ do
-            [variable | (_, _, variable) <- seededPins True] @?= ["NAGARE_LOCAL_MINIO_IMAGE", "NAGARE_LOCAL_MC_IMAGE"]
-            seededPins False @?= pinnedImages
-        , testCase "the v0.11.1 intranet reviews count 2, 211 and 0 operations, re-accepting 1, 6 and 0 scopes" $ do
+        [ testCase "the v0.11.1 intranet reviews count 2, 211 and 0 operations, re-accepting 1, 6 and 0 scopes" $ do
             counts <- forM [1, 2, 3] $ \n -> eitherDecodeFileStrict (fixtureReview n) >>= either fail (either fail pure . parseEither reviewCounts)
             map (operationCount AllOperations) counts @?= [2, 211, 0]
             map (^. #reaccepted) counts @?= [1, 6, 0]
@@ -731,7 +729,7 @@ rehearseWorld root' carriesHelm = do
   pure $ \command -> case (command ^. #program, command ^. #arguments) of
     ("git", ["rev-parse", "--show-toplevel"]) -> ok (T.pack (root' </> "repo") <> "\n")
     ("git", ["-C", _, "rev-parse", "--verify", _]) -> ok (rev <> "\n")
-    ("git", ["-C", _, "show", _]) -> ok "{}"
+    ("git", ["-C", _, "show", _]) -> ok (encodeText (object ["releaseImages" .= fixtureImages]))
     ("nix", "build" : rest)
       | "nixpkgs#bash" `elem` rest -> ok (T.pack (unlines [tool "bash", tool "kubectl", tool "no-bin"]))
       | "nixpkgs#kubernetes-helm" `elem` rest -> ok "/nix/store/helm\n"
@@ -801,13 +799,17 @@ rehearseTests =
           transitionRehearse runtime (RehearseOptions rev "9.8.6" Nothing)
           length <$> recorded world >>= (@?= 2)
           refused (transitionRehearse runtime (RehearseOptions rev "9.8.5" Nothing)) >>= assertMentions "does not record a move from 9.8.5"
-    , testCase "a tool PATH that carries a helm is refused before the drill" $
+    , testCase "a tool PATH that carries a helm, or a source that names no service images, is refused before the drill" $
         withSystemTempDirectory "rehearse" $ \raw -> do
           root' <- canonicalizePath raw
           (runtime, world) <- fake [("HOME", root'), ("NAGARE_RELEASE_REHEARSAL_RECORD", root' </> "r.json")] =<< rehearseWorld root' True
           refused (transitionRehearse runtime (RehearseOptions rev "9.8.6" (Just (root' </> "work")))) >>= assertMentions "carries a helm"
           calls' <- recorded world
           filter ((== "/harness/bin/nagare-harness") . (^. #program)) calls' @?= []
+          respond <- rehearseWorld (root' </> "bare") False
+          (bare, bareWorld) <- fake [("HOME", root'), ("NAGARE_RELEASE_REHEARSAL_RECORD", root' </> "r.json")] (\c -> if "v9.8.6:release.json" `elem` c ^. #arguments then pure (0, "{}") else respond c)
+          refused (transitionRehearse bare (RehearseOptions rev "9.8.6" (Just (root' </> "bare")))) >>= assertMentions "v9.8.6 names no service images"
+          filter ((== "/harness/bin/nagare-harness") . (^. #program)) <$> recorded bareWorld >>= (@?= [])
     ]
 
 -- * transition drill (scripts/transition-rehearsal.sh)
@@ -962,6 +964,7 @@ drillTests =
           map (\call -> "KUBECONFIG" `elem` call ^. #names) seeded @?= [True]
           images <- lines <$> readFile (rootDir </> "images.env")
           sort (map (takeWhile (/= '=')) images) @?= sort [variable | (_, _, variable) <- pinnedImages]
+          [image | image <- images, takeWhile (/= '=') image `elem` map (T.unpack . overrideVariable) releaseImageKeys] @?= []
           record <- eitherDecodeFileStrict @Value (rootDir </> "evidence/transition-rehearsal.json") >>= either fail pure
           let field = fieldAt record
           field ["bootstrap", "reviews"] @?= Just (Aeson.Number 1)

@@ -121,13 +121,12 @@ rehearseIn runtime index repo rev prev work record checkRecord = do
   let wrapper = work </> "bin/source-nagarectl"
   BS.writeFile wrapper (TE.encodeUtf8 (T.pack ("#!/bin/sh\nPATH=" <> sourceHelm <> "/bin:$PATH exec " <> sourceCli <> "/bin/nagarectl \"$@\"\n")))
   getPermissions wrapper >>= setPermissions wrapper . setOwnerExecutable True
-  -- EP-237: the drill moves the workloads off their pins only when the
-  -- candidate names its own images.
-  candidateRelease <- capture runtime ("no release.json at " <> rev) (invocation "git" ["-C", repo, "show", T.unpack rev <> ":release.json"])
-  candidateImages <- either refuse pure (readReleaseImages candidateRelease)
-  -- A source that names its images bootstraps on them too (0.21.0 and later).
-  sourceRelease <- capture runtime ("no release.json at v" <> prev) (invocation "git" ["-C", repo, "show", "v" <> T.unpack prev <> ":release.json"])
-  sourceImages <- either refuse pure (readReleaseImages sourceRelease)
+  -- EP-237: both releases run the service images they name; the drill pins
+  -- none of them, so a release that names none cannot be rehearsed.
+  forM_ [("the candidate " <> rev, T.unpack rev), ("v" <> prev, "v" <> T.unpack prev)] $ \(release', ref) -> do
+    bytes <- capture runtime ("no release.json at " <> release') (invocation "git" ["-C", repo, "show", ref <> ":release.json"])
+    images <- either refuse pure (readReleaseImages bytes)
+    when (isNothing images) (refuse (release' <> " names no service images in release.json; a rehearsal needs releases from 0.21.0 on"))
   -- the drill, from an empty environment (no direnv context, payload
   -- root or kubeconfig)
   let user = fromMaybe "" (lookupVariable runtime "USER")
@@ -146,8 +145,6 @@ rehearseIn runtime index repo rev prev work record checkRecord = do
           , ("NAGARE_REHEARSAL_ROOT", work </> "run")
           , ("NAGARE_REHEARSAL_RESET", "1")
           ]
-            <> [("NAGARE_REHEARSAL_TARGET_IMAGES", "1") | isJust candidateImages]
-            <> [("NAGARE_REHEARSAL_SOURCE_IMAGES", "1") | isJust sourceImages]
         )
       & #stdoutTo
       .~ Tee (work </> "rehearsal.log")

@@ -83,7 +83,10 @@ in the rehearsal's work directory) that names every step, reviewed stage and app
    drill, `nagare-harness transition drill` ([`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh)),
    on the Colima profile `nagare-mp23` from an empty environment whose PATH has no Helm and no
    Python. The candidate's stages are decided from `platform transition plan --summary` and the
-   `--contract 1` outcome of each apply. The record goes into the run directory.
+   `--contract 1` outcome of each apply. The record goes into the run directory. Both releases run
+   the service images their `release.json` names (0.21.0 and later); the drill pins only the local
+   object store's. The rehearsal runs from the candidate's worktree, so a harness fix it needs must
+   be in the candidate revision.
 4. **aarch64-darwin attachments.** [`scripts/release-native.sh`](../../scripts/release-native.sh):
    `check-release.sh`'s built checks, the native output identities, and the clone-free rehearsal.
 5. **x86_64-linux attachments.** The x86 outputs are built on the builder into a file cache under

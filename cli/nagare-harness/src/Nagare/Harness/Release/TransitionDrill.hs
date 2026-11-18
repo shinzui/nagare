@@ -19,7 +19,6 @@ module Nagare.Harness.Release.TransitionDrill
   , drillEnvironment
   , pushedDigest
   , pinnedImages
-  , seededPins
   )
 where
 
@@ -38,7 +37,6 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
-import Nagare.Contract.ReleaseImages (ReleaseImageKey (..), overrideVariable)
 import Nagare.Harness.Prelude hiding ((.=))
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
@@ -93,24 +91,16 @@ namespace = "personal"
 database :: String
 database = "rehearsal"
 
--- | The images the platform stages pin, copied once the registry exists.
+-- | The images the drill pins, copied once the registry exists: only the
+-- local object store's, which no release names. Both releases run the
+-- service images their release.json names (EP-237; the rehearsal refuses a
+-- release that names none), so a pin here can never stand in for one: the
+-- v0.22.0 rehearsal's pinned En 9577009 predated tenant mode and crash-looped
+-- the 0.21.0 source.
 pinnedImages :: [(String, String, String)]
 pinnedImages =
-  [ ("en", "9577009", "NAGARE_AUTH_EN_IMAGE")
-  , ("shomei", "9577009", "NAGARE_AUTH_SHOMEI_IMAGE")
-  , ("nagare-access", "9577009", "NAGARE_AUTH_ACCESS_IMAGE")
-  , ("nagare-minio", "release-2025-09-07-arm64", "NAGARE_LOCAL_MINIO_IMAGE")
+  [ ("nagare-minio", "release-2025-09-07-arm64", "NAGARE_LOCAL_MINIO_IMAGE")
   , ("nagare-mc", "release-2025-08-13-arm64", "NAGARE_LOCAL_MC_IMAGE")
-  ]
-
--- | The pins a source bootstrap seeds. A source that names its own service
--- images (EP-237, every release since 0.21.0) runs them, as the candidate
--- does; only the object store's images are pinned then.
-seededPins :: Bool -> [(String, String, String)]
-seededPins sourceImages =
-  [ pin
-  | pin@(_, _, variable) <- pinnedImages
-  , not (sourceImages && variable `elem` map (T.unpack . overrideVariable) [EnImage, ShomeiImage, AccessImage])
   ]
 
 -- | The ambient shell may carry a context, a payload root and a kubeconfig;
@@ -140,9 +130,6 @@ say' drill message = do
 
 setVariable :: Drill -> String -> String -> IO ()
 setVariable drill name value = modifyIORef' (drill ^. #environment) (\entries -> [entry | entry@(key, _) <- entries, key /= name] <> [(name, value)])
-
-unsetVariable :: Drill -> String -> IO ()
-unsetVariable drill name = modifyIORef' (drill ^. #environment) (filter ((/= name) . fst))
 
 -- | An invocation with the drill's current environment.
 command :: Drill -> FilePath -> [String] -> IO Invocation
@@ -244,11 +231,7 @@ runDrill drill dockerHost sentinel = do
   _ <- psql ("CREATE TABLE IF NOT EXISTS transition_sentinel(v text); TRUNCATE transition_sentinel; INSERT INTO transition_sentinel VALUES ('" <> T.unpack sentinel <> "');")
   seeded <- psql "SELECT v FROM transition_sentinel;"
   say' drill ("seeded: " <> seeded)
-  -- 6. the transition on the candidate, then the pin. A candidate that names
-  -- its own service images (EP-237) moves the workloads off the source's pins.
-  when (optional' "NAGARE_REHEARSAL_TARGET_IMAGES" == Just "1") $ do
-    forM_ [EnImage, ShomeiImage, AccessImage] (unsetVariable drill . T.unpack . overrideVariable)
-    say' drill "the candidate names its images: the auth pins are dropped"
+  -- 6. the transition on the candidate, then the pin
   moved <- reviewedLoop drill (Loop "transition" Target ["transition", "plan"] ["inventory", "apply"] AllOperations)
   lastLine drill "transition commit failed" =<< nagarectl drill Target ["platform", "transition", "commit", "--yes"]
   -- 7. read back on the candidate
@@ -509,9 +492,7 @@ seedImages :: Drill -> String -> IO ()
 seedImages drill forwardPort = do
   let runtime' = drill ^. #runtime
       quiet i = i & #stdoutTo .~ Discard & #stderrTo .~ Discard
-  let sourceImages = lookupVariable runtime' "NAGARE_REHEARSAL_SOURCE_IMAGES" == Just "1"
-  when sourceImages (say' drill "the source names its images: only the object store's images are pinned")
-  pins <- forM (seededPins sourceImages) $ \(repository, tag', variable) -> do
+  pins <- forM pinnedImages $ \(repository, tag', variable) -> do
     let local = "k3d-registry.localhost:5000/" <> repository <> ":" <> tag'
         pushed = "localhost:5000/" <> repository <> ":" <> tag'
     held <- run' drill . quiet =<< command drill "docker" ["image", "inspect", local]
