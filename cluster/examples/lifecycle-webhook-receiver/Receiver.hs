@@ -31,9 +31,12 @@ import Network.Wai (Application, requestHeaders, responseLBS, strictRequestBody)
 import Network.Wai.Handler.Warp (run)
 import System.Directory (doesFileExist)
 import System.Environment (getEnv, lookupEnv)
+import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 
 main :: IO ()
 main = do
+  -- One line per request, visible as it happens when stdout is a file or a pipe.
+  hSetBuffering stdout LineBuffering
   key <- BC.pack <$> getEnv "NAGARE_WEBHOOK_KEY"
   port <- maybe 8080 read <$> lookupEnv "PORT"
   let store = "processed-events.txt"
