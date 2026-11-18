@@ -106,6 +106,21 @@ initTests =
         assertBool "local mode" (T.isInfixOf "export NAGARE_MODE=local" out)
         assertBool "local registry" (T.isInfixOf "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000" out)
         assertBool "local object store" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups" out)
+    , testCase "a written profile reads back with every field, including a move's retained name and the actors (EP-246)" $ do
+        let profile =
+              initProfile
+                & #ingress
+                .~ IngressCloudflareTunnel
+                & #baseDomain
+                .~ "topagentnetworklabs.com"
+                & #retainedDnsName
+                .~ "labs.topagentnetwork.net"
+                & #deployer
+                .~ Just "kotei"
+                & #operatorName
+                .~ Just "an operator"
+        profileFromContextMap (parseContextEnv (renderTargetEnv profile)) @?= profile
+        profileFromContextMap (parseContextEnv (renderTargetEnv initProfile)) @?= initProfile
     , testCase "seedKeys grants the admin API reader the context's own inventory location" $ do
         let enabled = initProfile & #adminApiEnabled .~ True
         lookup "nagare:enableAdminApiReader" (seedKeys initProfile) @?= Nothing

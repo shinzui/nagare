@@ -360,6 +360,9 @@ renderTargetEnv tp =
     , "export NAGARE_INVENTORY_STORE_URL=" <> tp ^. #inventoryStoreUrl
     , "export NAGARE_BACKUP_RECOVERY_POINT=" <> recoveryPointObjectiveText (tp ^. #backupRecoveryPoint)
     ]
+      <> ["export NAGARE_RETAINED_DNS_NAME=" <> shellQuote (tp ^. #retainedDnsName) | not (T.null (tp ^. #retainedDnsName))]
+      <> maybe [] (\deployer -> ["export NAGARE_DEPLOYER=" <> shellQuote deployer]) (tp ^. #deployer)
+      <> maybe [] (\operator -> ["export NAGARE_OPERATOR=" <> shellQuote operator]) (tp ^. #operatorName)
       <> maybe [] (\member -> ["export NAGARE_PULUMI_BACKEND_MEMBER=" <> shellQuote member]) (tp ^. #pulumiBackendMember)
       <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
       <> maybe [] (\issuer -> ["export " <> authIssuerVariable <> "=" <> authIssuerText issuer]) (tp ^. #authIssuer)
