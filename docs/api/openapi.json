@@ -616,7 +616,7 @@
         "type": "object"
       },
       "DeployPreview": {
-        "description": "scopeDocuments are the canonical scope documents as opaque audit data; their bundles are outside the contract.",
+        "description": "application is the deployment's primary scope: the application's scope for app deploy, and the site's scope (standalone:site-NAME) for site deploy, whose hooks are empty. scopeDocuments are the canonical scope documents as opaque audit data; their bundles are outside the contract.",
         "properties": {
           "application": {
             "$ref": "#/components/schemas/PreviewScope"
@@ -1646,7 +1646,7 @@
         "type": "object"
       },
       "PreviewScope": {
-        "description": "configDigest is the SHA-256 of the canonical JSON of the typed configuration only; the tag, image resource, base domain, CDN fields, namespace request and hook effects are in overrides.",
+        "description": "configDigest is the SHA-256 of the canonical JSON of the typed configuration only; the tag, image resource, base domain, CDN fields, namespace request and hook effects are in overrides. For a site the overrides are tag, imageResource and, when given, baseDomain.",
         "properties": {
           "configDigest": {
             "type": [

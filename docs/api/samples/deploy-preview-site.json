@@ -1,0 +1,28 @@
+{
+  "application": {
+    "configDigest": "a46ac924f010137bfcc4b9d86379645b3766d040b641a58876f89cf5f0cb93da",
+    "overrides": {
+      "imageResource": "publication:app-image-docs/docs/oci-image",
+      "tag": "d1"
+    },
+    "scope": "standalone:site-docs"
+  },
+  "contractVersion": 1,
+  "document": "deploy-preview",
+  "hooks": [],
+  "scopeDocuments": [
+    {
+      "bundles": [],
+      "configDigest": "a46ac924f010137bfcc4b9d86379645b3766d040b641a58876f89cf5f0cb93da",
+      "overrides": {
+        "imageResource": "publication:app-image-docs/docs/oci-image",
+        "tag": "d1"
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "site-docs"
+      },
+      "version": 1
+    }
+  ]
+}

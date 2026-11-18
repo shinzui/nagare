@@ -35,12 +35,12 @@ review `git diff docs/api/samples`.
 | (discovery) | `VersionInfo` | read | `nagarectl version --json` |
 | `platform-versions` | `PlatformVersions` | read | `nagarectl platform versions --contract 1` and `GET /v1/platform/versions` |
 | `transaction-outcome` | `TransactionOutcome` | operation | `nagarectl inventory apply|resume … --contract 1` |
-| `saved-review` | `SavedReview` | operation | `nagarectl app deploy --save-plan DIR --contract 1` |
+| `saved-review` | `SavedReview` | operation | `nagarectl app deploy --save-plan DIR --contract 1` and `nagarectl site deploy --save-plan DIR --contract 1` |
 | `image-publication-result` | `ImagePublicationResult` | operation | `nagarectl app image-plan … --contract 1` |
 | `site-publish-result` | `SitePublishResult` | operation | `nagarectl site publish … --contract 1` |
 | `nix-cache-endpoint` | `NixCacheEndpoint` | operation | `nagarectl nix-cache forward --contract 1` |
 | `nix-cache-push-result` | `NixCachePushResult` | operation | `nagarectl nix-cache push … --contract 1` |
-| `deploy-preview` | `DeployPreview` | operation | `nagarectl app deploy --dry-run --contract 1` |
+| `deploy-preview` | `DeployPreview` | operation | `nagarectl app deploy --dry-run --contract 1` and `nagarectl site deploy --dry-run --contract 1` |
 | `rendered-application` | `RenderedConfiguration` | input | `nagarectl app render`; consumed by `app check|deploy --rendered` |
 | `rendered-worker` | `RenderedConfiguration` | input | `nagarectl worker render`; consumed by `worker deploy --rendered` |
 | `rendered-site` | `RenderedConfiguration` | input | `nagarectl site render`; consumed by `site deploy|preview deploy --rendered` |
@@ -52,6 +52,18 @@ of those bytes, never of a re-serialized value. `nagarectl` refuses an unknown m
 or `document`, a `contractVersion` other than 1, a digest mismatch and a document whose `nagareVersion`
 is a newer minor version than its own. The `config` string's own schema is the DSL's, versioned by
 `nagareVersion`. Decoding a document runs nothing and reads no path it names.
+
+**A deployment's preview and saved review** let a client apply what it inspected (EP-263).
+`deploy-preview.application` is the deployment's primary scope: the application's for `app deploy`,
+and for `site deploy` the site's `standalone:site-NAME`, with `hooks` empty
+([sample](samples/deploy-preview-site.json)). Its `configDigest` is the SHA-256 of the canonical JSON
+of the typed configuration as decoded, before the context qualifies the image, so one rendered
+document has one digest in every context. Its `overrides` are the public command inputs the scope
+records; a site's are `tag`, `imageResource` and, when it was given, `baseDomain`. The
+`saved-review` of the same deploy lists that scope in `scopes`, and after `inventory apply` the
+accepted scope carries the same digest and inputs. Under a deployer the accepted scope also carries
+`delegation.deployer`, which planning adds after the preview. `--contract` on either deploy needs
+`--dry-run` or `--save-plan`; a live deploy has no contract document.
 
 The item types `ScopeState`, `Finding` and `Publication` are shared by the CLI documents and the
 admin API's paginated responses, so an item has one shape everywhere.

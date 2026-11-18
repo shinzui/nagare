@@ -213,6 +213,8 @@ data DeployPreview = DeployPreview
   { contractVersion :: !ContractVersion
   , document :: !(DocumentName "deploy-preview")
   , application :: !PreviewScope
+  -- ^ The deployment's primary scope: an application's, or for
+  -- @site deploy@ the site's @standalone:site-NAME@ (EP-263).
   , hooks :: ![PreviewScope]
   , scopeDocuments :: ![Value]
   -- ^ The canonical scope documents, as opaque audit data. Their @bundles@
@@ -507,7 +509,7 @@ instance ToSchema PreviewScope where
     recordSchema proxy
       <&> schema
       . description
-      ?~ "configDigest is the SHA-256 of the canonical JSON of the typed configuration only; the tag, image resource, base domain, CDN fields, namespace request and hook effects are in overrides."
+      ?~ "configDigest is the SHA-256 of the canonical JSON of the typed configuration only; the tag, image resource, base domain, CDN fields, namespace request and hook effects are in overrides. For a site the overrides are tag, imageResource and, when given, baseDomain."
 
 instance ToJSON DeployPreview where toJSON = genericToJSON recordOptions
 
@@ -518,7 +520,7 @@ instance ToSchema DeployPreview where
     recordSchema proxy
       <&> schema
       . description
-      ?~ "scopeDocuments are the canonical scope documents as opaque audit data; their bundles are outside the contract."
+      ?~ "application is the deployment's primary scope: the application's scope for app deploy, and the site's scope (standalone:site-NAME) for site deploy, whose hooks are empty. scopeDocuments are the canonical scope documents as opaque audit data; their bundles are outside the contract."
 
 instance ToJSON ScopeState where toJSON = genericToJSON recordOptions
 

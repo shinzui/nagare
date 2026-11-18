@@ -36,8 +36,10 @@ import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable
 import Nagare.Contract.Sink (clearContractSink, markExecuting, refuseWith, setContractSinkTo, transactionExitCode, transactionOutcome)
 import Nagare.Contract.V1
 import Nagare.Contract.Versions
+import Nagare.Dsl.Config (encodeStaticSite)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Static.Types (StaticBuild (NoBuild), mkFilePathText, mkSiteName)
 import Nagare.Events.Delivery.Inspect (deliveryCursor, deliveryDocument, subscriptionDocument)
 import Nagare.Events.Delivery.Store qualified as DeliveryStore
 import Nagare.Events.Delivery.Transport qualified as DeliveryTransport
@@ -58,6 +60,7 @@ import Nagare.Inventory.Command (applyInventoryWithFactory, renderTransactionRes
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..))
 import Nagare.Inventory.Journal (FailureClass (..), mkOperationId, mkTransactionId, transactionIdText)
+import Nagare.Inventory.Site (recordReviewedSiteInputs)
 import Nagare.Inventory.Site.Recorded qualified as Recorded
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
 import Nagare.Platform.Versions
@@ -68,6 +71,7 @@ import Nagare.Resource.Types qualified as Types
 import Nagare.Target (ActiveTarget (..), mkContextName)
 import Nagare.Test.ContractCommands (contractCommandTests)
 import Nagare.Test.Support.Profiles (initProfile)
+import Nagare.Test.Support.Site (baseSite)
 import Nagare.Version (BuildVersion (..))
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -197,6 +201,7 @@ samples =
   , Sample "nix-cache-endpoint.json" nixCacheEndpointSample
   , Sample "nix-cache-push-result.json" nixCachePushSample
   , Sample "deploy-preview.json" deployPreviewSample
+  , Sample "deploy-preview-site.json" deployPreviewSiteSample
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "event-list.json" eventListSample
   , Sample "subscription-list.json" subscriptionListSample
@@ -610,6 +615,16 @@ sitePublishSample =
     , failure = Nullable Nothing
     , resume = Nullable Nothing
     }
+
+-- | EP-263: @site deploy --dry-run --contract 1@ reports the site's scope as
+-- the deployment's primary scope, from the scope the deploy stamps.
+deployPreviewSiteSample :: DeployPreview
+deployPreviewSiteSample =
+  deployPreview (ok (mkScopeDeclaration owner [] >>= recordReviewedSiteInputs (encodeStaticSite site) inputs)) []
+  where
+    owner = ok (mkScopeId Types.Standalone "site-docs")
+    site = baseSite (NoBuild (ok (mkFilePathText "dist"))) & #name .~ ok (mkSiteName "docs")
+    inputs = Map.fromList [("imageResource", "publication:app-image-docs/docs/oci-image"), ("tag", "d1")]
 
 deployPreviewSample :: DeployPreview
 deployPreviewSample =

@@ -90,11 +90,15 @@ raised for
   preview commands moved to `Nagare.Cli.Commands.SitePreview` to keep `Commands.Site` under the
   1000-line module limit. The uncontracted `--dry-run` now prints the stamped scope, the one a
   review accepts.
-- [ ] M3: the public contract describes the site producers. Accepted when
+- [x] M3: the public contract describes the site producers. Accepted when
   `docs/api/openapi.json` and `docs/api/samples/` are regenerated with a site preview sample
   and pass their checks, `docs/api/README.md`, `docs/user/static-hosting.md` and
   `docs/user/reference.md` name the two site commands, and a test decodes both documents with
   the public types and applies the review using only their fields.
+  Done 2026-11-18: `docs/api/samples/deploy-preview-site.json` is built by `deployPreview` from a
+  stamped `standalone:site-docs` scope; the `/Contract/` tests (97) and the nagare-api-server
+  test "docs/api/openapi.json equals the generated document" pass. The client test is M1's
+  agreement case, which reads only the decoded `DeployPreview` and `SavedReview`.
 - [ ] M4: confirmed on a disposable local context under a bounded deployer. Accepted when the
   three commands above succeed from a rendered document whose config program and build command
   would fail if run, the transaction history shows the supplied source repository, commit and

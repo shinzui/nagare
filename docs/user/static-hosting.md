@@ -343,6 +343,28 @@ as `site publish` ([ADR 32](../adr/0032-static-publication-is-a-local-package-th
 only the configuration arrives as data. `site preview deploy --rendered` works the same way. See
 [Deploying from a rendered configuration](deploying-apps.md#deploying-from-a-rendered-configuration).
 
+A deployer that compares what it inspected with what it applies adds `--contract 1`
+([docs/api/README.md](../api/README.md)):
+
+```bash
+nagarectl site deploy --rendered rendered.json --skip-build \
+  --tag TAG --image-resource RESOURCE --dry-run --contract 1
+nagarectl site deploy --rendered rendered.json --skip-build \
+  --tag TAG --image-resource RESOURCE --save-plan REVIEW_DIR --contract 1
+nagarectl inventory apply REVIEW_DIR --yes --contract 1
+```
+
+The first prints a `deploy-preview` document: the site's scope `standalone:site-NAME` in
+`application`, its `configDigest` and its reviewed inputs `tag`, `imageResource` and, when given,
+`baseDomain`. The second prints a `saved-review` document with the review's `sha256`, its absolute
+`directory` and the `scopes` it changes; a client checks that they name the previewed scope. The
+third applies the review and prints a `transaction-outcome`. Each prints exactly one document on
+stdout; a refusal is a `transaction-outcome` whose `outcome` is `refused`, with exit status 2.
+`--contract` needs `--dry-run` or `--save-plan`, and `site preview deploy` does not take it.
+Every production site deploy, including `site publish`, records the digest and inputs on the
+accepted scope, so the first deploy after an upgrade records a new scope revision with no member
+change.
+
 ## Releases and rollback
 
 Every successful production deploy records a **release** — image tag, timestamp,
