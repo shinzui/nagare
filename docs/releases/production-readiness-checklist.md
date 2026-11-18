@@ -18,10 +18,11 @@ drill log. Nothing is ticked on an estimate.
   ledger, with the operator's approval, unless it risks losing data; only then is it fixed in place.
 - **Drills decide.** Each goal ends in an end-to-end drill the operator can watch pass. It is
   rehearsed locally (k3d) first, then run on the cloud VM.
-- **Gates sized to the step (operator, 2026-10-10).** Every change lands through `just land` with a
-  green `just gate` record. The mutation sweep and the deep tier run once per release, not per
-  change; the deep tier is monitoring and each of its classes is triaged into a fix or the ledger
-  (ADR 25, 2026-10-07 amendment). A release after v0.5.0 proves the full gate, the EP-172 upgrade
+- **Gates sized to the step (operator, 2026-10-10; revised 2026-10-11, 2026-10-12 and
+  2026-11-17).** A Haskell commit passes `just gate-commit`, the touched packages' build and tests. A
+  land needs a `just gate-fast` record, and `just land` then runs the full gate on the landed
+  commit; a red one blocks the next land. The mutation sweep runs once per release in
+  `just gate-release`. The deep tier is not part of a release (2026-10-12). A release after v0.5.0 proves the full gate, the EP-172 upgrade
   rehearsal on a disposable local context, and the deploy-and-login check on the upgraded real
   intranet; the per-release local and cloud evidence chain is not re-run.
 - **A release counts when the intranet runs on it.** The operator's requirement of 2026-10-10:
@@ -158,11 +159,16 @@ no host activation ([diff stat](https://github.com/shinzui/nagare/blob/0c00498fc
 
 ## 5. Keep developing safely
 
-- [x] Master moves only through `just land` with a green full-gate record for the exact commit, or,
-      for a commit that changes only inert documentation, the record of its nearest gated ancestor
-      carried forward (operator, 2026-10-09; [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
+- [x] Master moves only through `just land`: a `just gate-fast` record for the exact commit before
+      it lands, and a full gate on the landed commit after, whose red record blocks the next land.
+      A commit that changes only inert documentation carries its nearest gated ancestor's record
+      forward (operator, 2026-10-09, 2026-10-11 and 2026-11-17;
+      [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md); `land` in
+      the `justfile`; `f28d7eb2`'s post-land record is green, 2026-11-18).
 - [x] Heavy runs go to the remote builder (`just test-remote`, `just mutation-sweep`).
-- [x] A mutation sweep proves every recorded guard is observed by a test.
-- [x] The deep tier runs per release as monitoring; its classes are triaged.
+- [x] A mutation sweep proves every recorded guard is observed by a test. It runs once per release,
+      in `just gate-release`, and no longer at land time (operator, 2026-11-17).
+- [-] The deep tier runs per release as monitoring; its classes are triaged. Superseded: the deep
+      tier is not part of a release (operator, 2026-10-12).
 - [x] The builder probe runs first in the full gate (landed in the step-3d batch, `8824f469`; its
-      gate record lists `builder-probe-x86_64-linux` as the first step).
+      gate record lists `builder-probe-x86_64-linux` as the first step, as `f28d7eb2`'s still does).

@@ -50,11 +50,12 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
   The platform databases (`en-db`, `shomei-db`, `en-<name>-db`) need code, for two reasons.
   Their names, Secrets and Service hosts are fixed, so a second instance cannot sit beside the
   first. And nothing keeps their accepted version (F156).
-- [ ] M2: fix F156. A platform database keeps the PostgreSQL version it was accepted at, as
-  `docs/user/managed-databases.md` promises for every database, so a payload default bump never
-  plans an in-place major change. Interpreter test: an accepted `en-db` at 18 with a payload
-  default of 19 plans no change, and a new context gets the default. Pass: `just gate-commit`,
-  then `just gate-fast` on the committed revision and `just land`.
+- [ ] M2: fix F156. The platform databases use `platformPostgresVersion` (18,
+  `cli/nagarectl/src/Nagare/Inventory/Database.hs`), not the payload default, so a default bump
+  never plans an in-place major change. Test: "F156: every platform database, a tenant's included,
+  is at the platform PostgreSQL version" (`cli/nagarectl/test/InventoryAuthTenantsSpec.hs`).
+  2026-11-18: committed as `031581ff`, and `just gate-commit` is green. Pass: `just gate-fast`,
+  then `just land`.
 - [ ] M2b, only if the operator chooses D5 option (a) in the MasterPlan: a reviewed side-by-side
   instance for a platform database. With options (b) or (c), this box is voided.
 - [ ] M3, local rehearsal on the warm drill context, resumable at each step (`NAGARE_DRILL_ROOT`
@@ -88,6 +89,11 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
 
 ## Decision Log
 
+- Decision: F156 is fixed with a platform constant, not by reading each accepted StatefulSet's
+  image back.
+  Rationale: the read would add store reads to every platform plan (MasterPlan 29's cost). A fixed
+  platform major already keeps the guide's promise, and moving it waits for D5 anyway.
+  Date: 2026-11-18
 - Decision: Rehearse 17 → 18 if no newer PostgreSQL major is packaged, as `mp23-c3l` did. The
   procedure is the same for any pair of majors.
   Rationale: the intranet runs 18; the drill needs two majors, not the newest.

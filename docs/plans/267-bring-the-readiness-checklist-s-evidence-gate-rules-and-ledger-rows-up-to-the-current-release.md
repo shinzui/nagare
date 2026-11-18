@@ -46,11 +46,14 @@ runs, or says which drill context and candidate it rests on. Docs only.
   already requires healthy, verified recovery points before the host stage, so no new step).
   Section 4 links the drill log of
   `docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md`.
-- [ ] Section 5 names today's gate once nagare-fix's process change lands. That change brings
-  `just gate-commit`, moves the mutation sweep from `just land` to `just gate-release`, and
-  rewrites CLAUDE.md's "Plans, evidence and gates". The deep-tier box is marked superseded by the
-  operator's decision of 2026-10-12. Pass: each box links a current gate record, or names the
-  operator decision that retired it.
+- [x] (2026-11-18) Section 5 and the rules section name today's gate, as nagare-fix landed it
+  (`b38e3a79`, `f28d7eb2`):
+  - `just gate-commit` per Haskell commit;
+  - `just gate-fast`, then `just land` with the post-land full gate, where a red record blocks the
+    next land (`f28d7eb2`'s record is green);
+  - the mutation sweep only in `just gate-release`.
+
+  The deep-tier box is `[-]`, superseded by the operator's decision of 2026-10-12.
 - [x] (2026-11-18) The checklist's rules section links the intranet's v0.21.0 upgrade
   (`mori://tan/tan-ng-labs` `56decf3`) and the operator's last recorded sign-in (v0.19.2).
 
