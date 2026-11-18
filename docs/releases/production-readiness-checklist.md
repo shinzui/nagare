@@ -156,7 +156,8 @@ no host activation ([diff stat](https://github.com/shinzui/nagare/blob/0c00498fc
       local context, both failures returning to the old database with every row, 2026-11-18,
       [EP-266](../plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md),
       [drill](../audits/ep266-pg-major-upgrade-drill-2026-11-18.txt). Nagare's own databases stay at the platform version
-      (F156); how they move is MasterPlan 36's decision D5.)
+      (F156); their move is the held [EP-268](../plans/268-move-nagare-s-own-postgresql-databases-to-a-new-major-version.md),
+      started when a new major is wanted.)
 - [x] **Drill:** a failed upgrade returns to the old instance with no data loss. (Fail 1, the copy
       fails: the old instance is unfenced and takes writes again. Fail 2, the new instance is rejected
       after switch-over: a reviewed switch back returns to the old instance, and the new one never

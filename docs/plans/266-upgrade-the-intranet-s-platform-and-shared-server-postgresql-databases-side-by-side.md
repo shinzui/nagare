@@ -56,8 +56,8 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
   is at the platform PostgreSQL version" (`cli/nagarectl/test/InventoryAuthTenantsSpec.hs`).
   2026-11-18: landed as `8e0a2981`, with `just gate-commit` green and a green `just gate-fast` on
   the landed tip `b561a622`. It ships in the release after v0.22.0.
-- [ ] M2b, only if the operator chooses D5 option (a) in the MasterPlan: a reviewed side-by-side
-  instance for a platform database. With options (b) or (c), this box is voided.
+- [-] M2b, voided: the operator chose D5 (c) on 2026-11-18. The platform databases' move is the
+  held [EP-268](268-move-nagare-s-own-postgresql-databases-to-a-new-major-version.md).
 - [x] (2026-11-18) M3: `scripts/local-postgres-major-upgrade-drill.sh` passed on the warm
   `ep235` context (nagare-c4-amd64), run `s1118030645`
   ([evidence](../audits/ep266-pg-major-upgrade-drill-2026-11-18.txt)):
@@ -70,7 +70,7 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
   - fail 2: switched and rejected, then the old binding redeployed and resumed with every row,
     and `ub-pg-v2` took no write.
 
-  The platform-database part waits for D5.
+  The platform-database part moved to EP-268.
 - [x] (2026-11-18) M4: `docs/user/managed-databases.md` has "Upgrade app databases on a shared
   server" and says the platform databases stay at the platform version (F156). The drill log is
   handed to EP-267.
@@ -120,7 +120,11 @@ D5's options for the platform databases are in the MasterPlan's Decision Log.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+App databases, standalone and on a shared server, move to a new PostgreSQL major side by side,
+drilled locally with both failures ending on the old database with every row. F156 is fixed, so no
+release forces a platform database's major. The platform databases (`en-db`, `shomei-db`,
+`en-<name>-db`) have no procedure. They moved to the held EP-268 by MasterPlan 36's decision D5.
+No ADR.
 
 
 ## Context and Orientation

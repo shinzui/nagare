@@ -65,8 +65,8 @@ longer matches an operator decision.
 | 3. Drill: node upgrade under load | Done | `83124396` on `mp23-c3m`. The F95 regression runs in every full gate (`host-switch-identity` in `nix/checks/platform.nix` runs `test-host-switch-session-loss.sh`). |
 | 3. Drill: failed node upgrade reverts | Done | `83124396` and `3b59bcb7`. F91 (status refuses after a closed failed host upgrade until the lock is restored) stays deferred. |
 | 4. Fresh, verified backup before a database upgrade | Done for app-bound standalone databases | `s4pre` on `mp23-c3l`. |
-| 4. Drill: PostgreSQL major upgrade side by side | Done for app databases (2026-11-18, EP-266); Nagare's own databases await D5 | Shown for an app-bound standalone database, by the procedure in `docs/user/managed-databases.md` ("Upgrade PostgreSQL to a new major version"). That procedure moves the binding with an application deploy. It does not cover the intranet's other PostgreSQL stores: `en-db` and `shomei-db` (bound by the platform), `en-<name>-db`, and shared servers carrying app databases (ADR 30, ADR 37). EP-266, decision D3. |
-| 4. Drill: failed database upgrade returns to the old instance | Done for app databases (2026-11-18, EP-266); Nagare's own databases await D5 | The same scope as the row above. EP-266. |
+| 4. Drill: PostgreSQL major upgrade side by side | Done for app databases (2026-11-18, EP-266); Nagare's own databases held in [EP-268](../plans/268-move-nagare-s-own-postgresql-databases-to-a-new-major-version.md) (D5) | Shown for an app-bound standalone database, by the procedure in `docs/user/managed-databases.md` ("Upgrade PostgreSQL to a new major version"). That procedure moves the binding with an application deploy. It does not cover the intranet's other PostgreSQL stores: `en-db` and `shomei-db` (bound by the platform), `en-<name>-db`, and shared servers carrying app databases (ADR 30, ADR 37). EP-266, decision D3. |
+| 4. Drill: failed database upgrade returns to the old instance | Done for app databases (2026-11-18, EP-266); Nagare's own databases held in [EP-268](../plans/268-move-nagare-s-own-postgresql-databases-to-a-new-major-version.md) (D5) | The same scope as the row above. EP-266. |
 | 5. Master moves only through `just land` with a full-gate record | Done (2026-11-18, reworded by EP-267) | Since 2026-10-11, `just land` needs a `gate-fast` record and runs the full gate and the selective sweep after landing; a red record blocks the next land (CLAUDE.md). nagare-fix is changing the per-commit gate again now. EP-267. |
 | 5. Heavy runs on the remote builder | Done | `just test-remote`, `just mutation-sweep`. |
 | 5. Mutation sweep proves every guard observed | Done | It now runs selectively at land time. |
@@ -127,7 +127,7 @@ shared server, which EP-266 must carry). No cross-repository ADR applies.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-265 | Show the intranet's backups, escrow and freshness on the release it runs | docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md | None | None | Complete (2026-11-18) |
-| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | In Progress (M1–M4 done; M2b awaits D5) |
+| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | Complete (2026-11-18; M2b voided by D5, moved to EP-268) |
 | EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | Complete (2026-11-18) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -156,9 +156,8 @@ the wording names the gate that exists. It completes last.
 
 EP-265 and EP-267 are complete. EP-266 has its desk-check, its shared-server drill (PASS,
 2026-11-18) and its guide section. F156 landed as `8e0a2981` (master `b561a622`) and ships after v0.22.0.
-Only decision D5 for Nagare's own databases (M2b) remains.
-Every checklist box is now Done on current evidence, Superseded, or, for Nagare's own databases in
-section 4, waiting on D5.
+All three plans are complete. Every checklist box is Done on current evidence or Superseded. Section
+4's platform-database part is held in [EP-268](../plans/268-move-nagare-s-own-postgresql-databases-to-a-new-major-version.md) (D5 (c), 2026-11-18).
 
 
 ## Surprises & Discoveries
@@ -222,7 +221,8 @@ section 4, waiting on D5.
   Rationale: nagare-fix, 2026-11-18.
   Date: 2026-11-18
 
-- Decision: D5, open for the operator: how a platform database (`en-db`, `shomei-db`,
+- Decision: D5, decided (c) by the operator on 2026-11-18, and the work moved to the held
+  [EP-268](../plans/268-move-nagare-s-own-postgresql-databases-to-a-new-major-version.md). The question was how a platform database (`en-db`, `shomei-db`,
   `en-<name>-db`) moves to a new PostgreSQL major. EP-266's desk-check found that app databases on
   a shared server need no code, but the platform databases have fixed names and hosts.
   - (a) A reviewed second instance beside the old one, with En and Shomei rebound. This is true
@@ -242,4 +242,9 @@ section 4, waiting on D5.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Every readiness box now rests on evidence from the current release or is superseded. The intranet's
+backups, escrow and freshness are shown on the release it runs (EP-265). App databases move to a new
+PostgreSQL major side by side, and no release forces a platform database's major (EP-266, F156).
+The checklist's evidence, gate rules and ledger rows are current (EP-267). What remains is moving
+Nagare's own databases to a new major. That is held in [EP-268](../plans/268-move-nagare-s-own-postgresql-databases-to-a-new-major-version.md) until a new major is wanted. No
+ADR.
