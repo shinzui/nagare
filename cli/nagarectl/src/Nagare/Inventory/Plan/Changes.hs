@@ -773,9 +773,16 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         [ operation
         | bundle <- scopeBundles declaration
         , operation <- bundle ^. #operations
-        , any (`Set.member` selectedIds) (NE.toList (operation ^. #affects))
+        , any (selects (scopeId declaration) operation) (NE.toList (operation ^. #affects))
         , not (operationIsProven operation)
         ]
+    -- A hook runs only for a review that selects its own Job, not the data every
+    -- release's hook shares, which would re-plan a closed release's hook (BUG-10).
+    selects owner operation resourceId =
+      Set.member resourceId selectedIds
+        && ( operation ^. #operationKind /= PreDeployHook
+               || [owner] == [resource ^. #owner | Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
+           )
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
       let digest = contentDigest (canonicalBytes (toJSON operation))
@@ -820,14 +827,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     classifyDesired (resourceId, resource, Just (Managed old), observation)
       | Set.member resourceId hookJobIds
       , old ^. #spec /= resource ^. #spec =
-          (
-            [ PlanError
-                "job-revision-required"
-                "a reviewed Job changed under the same identity; use a new release or run ID"
-                [resourceId]
-            ]
-          , Nothing
-          )
+          ([PlanError "job-revision-required" "a reviewed Job changed under the same identity; use a new release or run ID" [resourceId]], Nothing)
       | requiresMigration old resource
       , decisionIs ApproveMigration resourceId =
           ([], Nothing)

@@ -9,6 +9,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-18T22:05:46Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-18T22:18:57Z
+      mode: "implement"
+      note: "M1 and M2 implemented: regression test and PreDeployHook selection by its own Job"
 ---
 
 # Plan application reviews after a failed release hook is closed
@@ -49,14 +55,28 @@ fix and passes after it.
 
 ## Progress
 
-- [ ] M1. A model-world regression test reproduces BUG-10: after a failed hook with a declared
+- [x] M1. A model-world regression test reproduces BUG-10: after a failed hook with a declared
   effect is closed, saving a review for a corrected tag, for the prior tag and for a second hook
   owner each fails with `PrepareRefused … must name exactly one bound Job`. Evidence: the failing
   test output, recorded here.
-- [ ] M2. The planner no longer seeds a closed release's hook operation into a review that did not
+  2026-11-18: "a closed failed hook does not block later reviews (BUG-10)" in
+  `cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs`, run against the unchanged planner with each
+  follow-up alone (`v3`, `v1` again, application `other` at `v1`), failed all three times with
+  the closed `v2` hook's operation:
+
+  ```text
+  PrepareRefused (OperationId "op-e0c95448efe920350ae30a5d") "Kubernetes declared operation must name exactly one bound Job" :| []
+  ```
+- [x] M2. The planner no longer seeds a closed release's hook operation into a review that did not
   select that hook's Job. The M1 test passes for all three follow-up reviews, the failed Job is
   retained, the prior release's converged revision is unchanged until the successor converges, and
   `just gate-commit` is green.
+  2026-11-18: `scopeDeclared` in `cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs` selects a
+  `PreDeployHook` operation only through a selected member its own scope owns. The group reports
+  five passing tests; the new one asserts converged `v3`, `v1` and `other` reviews with no
+  operation on a `v2` hook member, the `v2` Job live with its uid, the `v2` hook scope accepted
+  and unconverged, and the Application's converged revision unchanged from close until `v3`.
+  `just gate-commit` green (44 s); full `cabal test nagarectl-test` green (all 10 shards).
 - [ ] M3. The fix is landed (`just gate-fast`, `just land`), BUG-10 is marked `fixed` with the
   landed revision, and the revision Kotei must qualify is recorded in the bug report and reported
   to the operator.
@@ -64,7 +84,12 @@ fix and passes after it.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- A Job the fake API server fails stops its transaction as `StoppedAmbiguous` ("Kubernetes Job did
+  not prove readiness"), not `StoppedFailed`, as in Kotei's report ("Apply returned ambiguous").
+  The test accepts either, and close handles both.
+- `just gate-commit` selected no test for this group: the script turned `(` and `)` into `.`,
+  but a tasty `/…/` pattern is a substring match, not a regular expression. Fixed in the same
+  commit (`scripts/gate-commit.sh`); FRIC-18.
 
 
 ## Decision Log
@@ -94,6 +119,18 @@ fix and passes after it.
   which is what "its hook effects stay unaccepted" requires. If the M1 test or the full suite
   shows that this leftover scope blocks another command, record it in the deferral ledger with the
   operator's approval instead of widening this plan.
+  Date: 2026-11-18
+
+- Decision: The second hook owner is the same fixture compiled as application `other`, with its
+  service, worker and task renamed, not a hand-built standalone scope.
+  Rationale: It takes a few lines in the test's `releaseOf` helper and goes through
+  `compileApplicationDeployment`, which is the path Kotei's fresh application took.
+  Date: 2026-11-18
+
+- Decision: Shorten the `job-revision-required` refusal in `Changes.hs` to one line to keep the
+  file inside its 1000-line allowance.
+  Rationale: The plan forbids raising the allowance; that refusal sits on the same hook path and
+  matches its one-line neighbours.
   Date: 2026-11-18
 
 - Decision: No native run in this plan.

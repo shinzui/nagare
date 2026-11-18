@@ -5,7 +5,8 @@
 -- API server, where a CronJob's schedule ticks as status writes.
 module ReleaseOnlyHookWorldSpec (releaseOnlyHookWorldTests) where
 
-import Data.Aeson (Value (Bool, Object))
+import AppDatabaseSpec (known, testCluster)
+import Data.Aeson (Value (Bool, Object), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -17,21 +18,26 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import InventoryTransactionSpec (fixtureBinding)
 import ManagedEnvScopeSpec (input, scopedApp)
+import Nagare.App.Deploy (RolloutEnv (..))
 import Nagare.Dsl.Application qualified as DslApp
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Task (TaskTrigger (..), scheduledTask)
 import Nagare.Dsl.Types qualified as Dsl
-import Nagare.Inventory.Adapter (OperationAction (..), PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
+import Nagare.Inventory.Adapter (AdapterRegistry, OperationAction (..), PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
 import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, hookTriggerOverrides)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed)
+import Nagare.Inventory.Execute (CloseInput (..), TransactionResult (..), applyReviewed, closeTransaction)
 import Nagare.Inventory.Journal (OperationId)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status (kubernetesMembersForReview)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Public))
 import Nagare.Resource.Reference (Dependency (..), SomeRef (..), refProducer)
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.World.Adversary (Adversary, newAdversary)
 import Nagare.Test.World.ApiServer (ObjectKey (..), Outcome (Failed), Stored, churnOnce)
 import Nagare.Test.World.Kubernetes (KubeWorld, effectiveWrites, newKubeWorld, worldKubernetesAdapter)
@@ -46,6 +52,7 @@ releaseOnlyHookWorldTests =
     , testCase "an identical accepted retry keeps the first completion proof and runs the hook once" retryKeepsProof
     , testCase "the scheduled-to-release-only review updates the CronJob in place, suspended" transitionUpdatesInPlace
     , testCase "after the transition the release-only CronJob never ticks and the scheduled one does" onlyScheduledTicks
+    , testCase "a closed failed hook does not block later reviews (BUG-10)" closedHookUnblocksReviews
     ]
 
 -- | The EP-261 fixture with an ordinary scheduled service task beside the
@@ -104,7 +111,11 @@ newRun = do
 -- | Load accepted history, prepare a fresh review of the compiled scopes, and
 -- apply it, as @app deploy --save-plan@ then @inventory apply@ do.
 deploy :: Run -> ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString)) -> IO (ChangeProposal, TransactionResult)
-deploy run compiledScopes = do
+deploy run compiledScopes = (\(proposal', _, _, result) -> (proposal', result)) <$> deployReviewed run compiledScopes
+
+-- | 'deploy', also returning the review and the registry that applied it.
+deployReviewed :: Run -> ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString)) -> IO (ChangeProposal, ReviewedPlan, AdapterRegistry, TransactionResult)
+deployReviewed run compiledScopes = do
   let (scopes, members) = forWorld compiledScopes
   history <- loadInventoryHistory (store run) >>= expectRight
   let base = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
@@ -121,8 +132,9 @@ deploy run compiledScopes = do
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot reviewBundle)
   reviewMembers <- kubernetesMembersForReview (store run) reviewBundle Map.empty >>= expectRight
   executor <- worldKubernetesAdapter (fixtureBinding ^. #identity) reviewMembers (world run) (adversary run)
-  result <- applyReviewed (store run) (ok (mkAdapterRegistry [executor])) reviewed >>= expectRight
-  pure (proposal', result)
+  let executing = ok (mkAdapterRegistry [executor])
+  result <- applyReviewed (store run) executing reviewed >>= expectRight
+  pure (proposal', reviewed, executing, result)
 
 converged :: TransactionResult -> Assertion
 converged = \case
@@ -231,6 +243,118 @@ onlyScheduledTicks = do
   fmap (^. #status) (Map.lookup hookCronKey ticked) @?= fmap (^. #status) (Map.lookup hookCronKey untick)
   fmap (^. #resourceVersion) (Map.lookup hookCronKey ticked) @?= fmap (^. #resourceVersion) (Map.lookup hookCronKey untick)
   assertBool "the scheduled CronJob did not tick" (fmap (^. #status) (Map.lookup reportCronKey ticked) /= fmap (^. #status) (Map.lookup reportCronKey untick))
+
+-- | A plain object outside the Application, in its own converged scope: the
+-- data every release's hook declares it changes, as Kotei's hooks name their
+-- PostgreSQL volume.
+sharedScopeId :: ScopeId
+sharedScopeId = known (mkScopeId Standalone "shared-data")
+
+sharedData :: ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
+sharedData = ([ok (mkScopeDeclaration sharedScopeId [ResourceBundle [Managed (fst bound)] [] [] [] [] []])], Map.singleton sharedId bound)
+  where
+    bound = ok (bindKubernetesObject member)
+    value =
+      object
+        [ "apiVersion" .= ("v1" :: Text)
+        , "kind" .= ("ConfigMap" :: Text)
+        , "metadata" .= object ["name" .= ("shared-data" :: Text), "namespace" .= ("personal" :: Text)]
+        , "data" .= object ["schema" .= ("1" :: Text)]
+        ]
+    member =
+      KubernetesInput
+        { resourceId = sharedId
+        , ownerScope = sharedScopeId
+        , clusterId = testCluster
+        , inputObject = value
+        , objectDigest = contentDigest (ok (canonicalValue value))
+        , lifecyclePolicy = DeleteWhenUnreferenced
+        , inputDataPolicy = Stateless
+        , inputSensitivity = Public
+        , sourceLocation = SourceLocation "test" "shared-data"
+        }
+
+sharedId :: ResourceId
+sharedId = mintResourceId sharedScopeId (known (mkLogicalKey "data")) (known (mkName "configmap"))
+
+-- | A release-only Application named @name@ at @tag@ whose every hook declares
+-- that it changes the shared data. The shared object is bound for observation
+-- but its scope is not part of the deploy.
+releaseOf :: Text -> Text -> IO ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
+releaseOf name tag =
+  fmap (_2 %~ (`Map.union` snd sharedData)) . either (assertFailure . show) pure $
+    compileApplicationDeployment
+      base
+        { scopeRollout = (scopeRollout base) {appName = name, imageTag = tag, effectiveTag = tag, taggedAppImage = "registry.example.com/scoped:" <> tag}
+        , scopeRelease = scopeRelease base & _2 %~ ((#releaseId .~ tag) . (#siteName .~ (name <> "-web")) . (#imageTag .~ tag))
+        , scopeHookEffects = Map.fromList [(hook, [sharedId]) | hook <- hooks]
+        , scopeInputOverrides =
+            Map.fromList [("tag", tag)]
+              <> Map.fromList [("hook/" <> hook, resourceIdText sharedId) | hook <- hooks]
+              <> scopeInputOverrides base
+              <> hookTriggerOverrides app
+        }
+  where
+    app = renamed (scopedApp Dsl.NoManagedEnv & #tasks %~ map (#trigger .~ ReleaseOnly))
+    base = input app
+    hooks = [Dsl.serviceNameText (hook ^. #name) | hook <- app ^. #tasks]
+    named suffix = known (Dsl.mkServiceName (name <> suffix))
+    renamed fixture
+      | name == "scoped" = fixture
+      | otherwise =
+          fixture
+            & #name
+            .~ named ""
+            & #service
+            %~ fmap (#name .~ named "-web")
+            & #workers
+            %~ map (#name .~ named "-worker")
+            & #tasks
+            %~ map ((#name .~ named "-migrate") . (#app .~ Just (named "")))
+
+reviewDigestFor :: ReviewedPlan -> ContentDigest
+reviewDigestFor = contentDigest . encodeReviewDocument . reviewedDocument
+
+-- | BUG-10: release v2's hook fails and is closed. Its scope keeps the desired
+-- revision (the Job is an effect), so its operation is never proven; a later
+-- review whose hook names the same data must not plan it again.
+closedHookUnblocksReviews :: Assertion
+closedHookUnblocksReviews = do
+  run <- newRun
+  converged . snd =<< deploy run sharedData
+  v1 <- releaseOf "scoped" "v1"
+  converged . snd =<< deploy run v1
+  appScope <- case fst v1 of
+    scope : _ -> pure (scopeId scope)
+    [] -> assertFailure "the release compiled no scope" >> error "unreachable"
+  let convergedRevision = Map.lookup appScope . historyConverged <$> (loadInventoryHistory (store run) >>= expectRight)
+  servingV1 <- convergedRevision
+  jobsV1 <- live run "job"
+  v2 <- releaseOf "scoped" "v2"
+  let v2Members = Set.fromList [declarationId declaration | scope <- drop 1 (fst v2), bundle <- scopeBundles scope, declaration <- declarations bundle]
+      v2HookScopes = Set.fromList (map scopeId (drop 1 (fst v2)))
+  modifyIORef' (world run) (#server . #outcomes %~ Map.union (Map.fromList [(digestText (contentDigest bytes), Failed) | (identity, (_, bytes)) <- Map.toList (snd v2), Set.member identity v2Members]))
+  (_, reviewed, registry', result) <- deployReviewed run v2
+  transaction <- case result of
+    StoppedFailed tx _ _ -> pure tx
+    StoppedAmbiguous tx _ _ -> pure tx
+    other -> assertFailure ("the failed hook did not stop its transaction: " <> show other) >> error "unreachable"
+  _ <- closeTransaction (store run) registry' (CloseInput transaction (reviewDigestFor reviewed) False Nothing) >>= expectRight
+  readHead (store run) >>= expectRight >>= (@?= Just Nothing) . fmap headActiveTransaction
+  convergedRevision >>= (@?= servingV1)
+  failedJob <- Map.difference <$> live run "job" <*> pure jobsV1
+  Map.size failedJob @?= 1
+  -- The corrected release, the rollback, and another application.
+  followUps <- sequence [releaseOf "scoped" "v3", releaseOf "scoped" "v1", releaseOf "other" "v1"]
+  iforM_ followUps $ \position next -> do
+    (proposal', result') <- deploy run next
+    converged result'
+    operationsOn v2Members proposal' @?= []
+    when (position == (0 :: Int)) (convergedRevision >>= \revision -> assertBool "the corrected release did not converge the Application" (revision /= servingV1))
+  Map.map (^. #uid) . (`Map.intersection` failedJob) <$> live run "job" >>= (@?= Map.map (^. #uid) failedJob)
+  history <- loadInventoryHistory (store run) >>= expectRight
+  Map.keysSet (Map.restrictKeys (historyAccepted history) v2HookScopes) @?= v2HookScopes
+  Map.keysSet (Map.restrictKeys (historyConverged history) v2HookScopes) @?= Set.empty
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id

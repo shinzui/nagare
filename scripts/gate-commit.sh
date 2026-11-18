@@ -78,7 +78,7 @@ for path in selected:
         print("all"); sys.exit()
     groups.update(found)
 if groups:
-    print(" || ".join("/" + re.sub(r"[^A-Za-z0-9 _-]", ".", g) + "/" for g in sorted(groups)))
+    print(" || ".join("/" + g.split("/")[0] + "/" for g in sorted(groups)))
 PY
 }
 
