@@ -5,7 +5,7 @@
   "minimumInventorySchemaVersion": 1,
   "minimumUpgradeTransactionSchemaVersion": 1,
   "payloadId": "source-development",
-  "platformVersion": "0.22.0",
+  "platformVersion": "0.23.0",
   "sourceRevision": null,
   "supportedSystems": [
     "x86_64-linux",
@@ -44,7 +44,8 @@
     "0.19.1",
     "0.19.2",
     "0.20.0",
-    "0.21.0"
+    "0.21.0",
+    "0.22.0"
   ],
   "releaseImages": {
     "images": {
@@ -72,10 +73,10 @@
         "storePath": "/nix/store/iklpfrrwi60bnj0bk3vailk03im1fsyh-nagare-nagare-access-oci"
       },
       "nagare-admin-api": {
-        "digest": "sha256:1a5f7dfc5a4c43ff2335aeaf3523ee133807602468c751142eea0dc1155c237b",
+        "digest": "sha256:025cd5bc6c56347e9cf021c1b1a082eb249971deb6cdd3911b5997109d9fad69",
         "platform": "linux/amd64",
         "sources": {},
-        "storePath": "/nix/store/km0d57f85fg4c421z9fhimi3amp8cylb-nagare-nagare-admin-api-oci"
+        "storePath": "/nix/store/jqmcvlzzyqsscq2bp66kdgw8jggq45b3-nagare-nagare-admin-api-oci"
       },
       "shomei": {
         "digest": "sha256:16d2a1a58cfc8e5f7b944cd9bc7fe8f0ab6defd1d153f29f5bfed71ab05fa47c",
