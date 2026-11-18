@@ -19,6 +19,7 @@ import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
 import Nagare.Harness.RouteCheck
+import Nagare.Harness.Scope
 import Nagare.Harness.Slot (runningRevisions, withRunMarker, withSlot)
 import Nagare.Harness.Step
 import Nagare.Harness.Verify
@@ -89,8 +90,25 @@ tests =
         eitherDecode entry @?= Right [MutationRecord "G7-x" NagareDsl "/a || b/" TestFails]
         assertBool "an unknown suite decoded" (isLeft (eitherDecode "[{\"record\":\"x\",\"suite\":\"other\",\"pattern\":\"/x/\",\"expect\":\"test-fails\"}]" :: Either String [MutationRecord]))
     , testCase "the fast gate runs the static checks, which take seconds, then both builds and the record patterns, before both suites" $
-        map (^. #name) (fastSteps "nagare-harness")
+        map (^. #name) (fastSteps "nagare-harness" payloadSuites)
           @?= ["haskell-style-check", "architecture-and-command-audit", "registry-credential-delegation", "mutation-records", "nagarectl-build", "nagare-dsl-build", "nagare-api-server-build", "mutation-patterns", "nagarectl-test", "nagare-dsl-test", "nagare-api-server-test"]
+    , testCase "a harness change runs the static checks and the harness suite only; a change to nagarectl alone skips nagare-dsl's tests" $ do
+        map (^. #name) (fastSteps "nagare-harness" [HarnessSuite])
+          @?= ["haskell-style-check", "architecture-and-command-audit", "registry-credential-delegation", "mutation-records", "nagare-harness-build", "nagare-harness-test"]
+        map (^. #name) (fastSteps "nagare-harness" [NagarectlSuite, ApiServerSuite])
+          @?= ["haskell-style-check", "architecture-and-command-audit", "registry-credential-delegation", "mutation-records", "nagarectl-build", "nagare-dsl-build", "nagare-api-server-build", "mutation-patterns", "nagarectl-test", "nagare-api-server-test"]
+    , testCase "a change reaches the suites of the packages that build on it; any other path reaches the payload suites unless it is inert documentation" $ do
+        let inert = all ("docs/plans/" `T.isPrefixOf`)
+            reached = suitesReached inert
+        reached ["cli/nagare-harness/src/Nagare/Harness/Gate.hs", "docs/plans/1-x.md"] @?= [HarnessSuite]
+        reached ["cli/nagare-dsl/src/Nagare/Dsl.hs"] @?= [NagarectlSuite, NagareDslSuite, ApiServerSuite]
+        reached ["cli/nagare-contract/src/X.hs"] @?= [NagarectlSuite, ApiServerSuite, HarnessSuite]
+        reached ["cli/nagare-api/src/X.hs"] @?= [ApiServerSuite]
+        reached ["cli/nagare-access/Dockerfile"] @?= [NagarectlSuite, ApiServerSuite]
+        reached ["docs/plans/1-x.md"] @?= []
+        reached ["scripts/x.sh", "cli/nagare-harness/x.hs"] @?= [NagarectlSuite, NagareDslSuite, ApiServerSuite, HarnessSuite]
+        reached ["cli/fourmolu.yaml"] @?= payloadSuites
+        everySuite @?= payloadSuites <> [HarnessSuite]
     , testCase "the full gate builds both suites for the record patterns and runs each suite once, in the flake check (EP-184 M2)" $
         map (^. #name) (fullCheckPlan "nagare-harness" ^. #suite) @?= ["nagarectl-build", "nagare-dsl-build", "nagare-api-server-build", "mutation-patterns"]
     , testGroup

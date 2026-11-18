@@ -46,6 +46,7 @@ library
     Nagare.Harness.Release.RunIndex
     Nagare.Harness.Release.TransitionDrill
     Nagare.Harness.RouteCheck
+    Nagare.Harness.Scope
     Nagare.Harness.Slot
     Nagare.Harness.Step
     Nagare.Harness.TransitionCost

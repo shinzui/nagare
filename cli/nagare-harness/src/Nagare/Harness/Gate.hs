@@ -1,6 +1,7 @@
 -- | The local gate (EP-174). The fast gate is the style check, the
--- architecture check, the mutation records and both Haskell suites, built
--- incrementally and run serially, stopping at the first failure. On a tree
+-- architecture check, the mutation records and the Haskell suites the change
+-- reaches ("Nagare.Harness.Scope"), built incrementally and run serially,
+-- stopping at the first failure. On a tree
 -- with no uncommitted changes it writes a fast record, which is what
 -- @just land@ needs; the full gate then runs on the landed commit in the
 -- background, and a release needs a full record.
@@ -51,6 +52,7 @@ import Nagare.Harness.FlakeCheck
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
+import Nagare.Harness.Scope (Suite (..), payloadSuites, suitesReached)
 import Nagare.Harness.Slot (Slot (..), runningRevisions, withRunMarker, withSlot)
 import Nagare.Harness.Step
 import Nagare.Harness.Verify (VerifyTarget (..), landedGateBlock, verifyFastRecord, verifyRecord)
@@ -90,8 +92,22 @@ data GateRun = GateRun
 -- pattern selects a test of its built suite, once both suites are built and
 -- before they run. A record that applies to nothing or names no test proves
 -- nothing (F76).
-fastSteps :: FilePath -> [Step]
-fastSteps self = staticSteps self <> suiteSteps self
+--
+-- Only the suites the change reaches are built and run ("Nagare.Harness.Scope");
+-- nagare-dsl's is built with nagarectl's, since the record patterns read both.
+fastSteps :: FilePath -> [Suite] -> [Step]
+fastSteps self suites =
+  staticSteps self
+    <> [step | records, step <- [nagarectlBuild, dslBuild]]
+    <> [apiServerBuild | reached ApiServerSuite]
+    <> [patternsStep self | records]
+    <> [nagarectlTest | reached NagarectlSuite]
+    <> [dslTest | reached NagareDslSuite]
+    <> [apiServerTest | reached ApiServerSuite]
+    <> [step | reached HarnessSuite, step <- harnessSteps]
+  where
+    reached = (`elem` suites)
+    records = reached NagarectlSuite || reached NagareDslSuite
 
 -- | The static checks: seconds each.
 staticSteps :: FilePath -> [Step]
@@ -103,25 +119,29 @@ staticSteps self =
   , harnessStep self "mutation-records" ["mutations", "check"]
   ]
 
--- | The suite builds, the record patterns, and the suites: minutes.
-suiteSteps :: FilePath -> [Step]
-suiteSteps self = buildSteps self <> testSteps
-
 -- | The suite builds and the record patterns, which need the built suites.
 buildSteps :: FilePath -> [Step]
-buildSteps self =
-  [ Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
-  , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
-  , Step "nagare-api-server-build" "cli/nagarectl" "cabal" ["build", "nagare-api-server-test", "exe:nagare-events"]
-  , harnessStep self "mutation-patterns" ["mutations", "patterns"]
-  ]
+buildSteps self = [nagarectlBuild, dslBuild, apiServerBuild, patternsStep self]
+
+nagarectlBuild, dslBuild, apiServerBuild :: Step
+nagarectlBuild = Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
+dslBuild = Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
+apiServerBuild = Step "nagare-api-server-build" "cli/nagarectl" "cabal" ["build", "nagare-api-server-test", "exe:nagare-events"]
+
+patternsStep :: FilePath -> Step
+patternsStep self = harnessStep self "mutation-patterns" ["mutations", "patterns"]
 
 -- | The suites; nagarectl's runs one process per core ("Nagare.Test.Shards").
-testSteps :: [Step]
-testSteps =
-  [ Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
-  , Step "nagare-dsl-test" "cli/nagare-dsl" "cabal" ["test", "nagare-dsl-test"]
-  , Step "nagare-api-server-test" "cli/nagarectl" "cabal" ["test", "nagare-api-server-test"]
+nagarectlTest, dslTest, apiServerTest :: Step
+nagarectlTest = Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
+dslTest = Step "nagare-dsl-test" "cli/nagare-dsl" "cabal" ["test", "nagare-dsl-test"]
+apiServerTest = Step "nagare-api-server-test" "cli/nagarectl" "cabal" ["test", "nagare-api-server-test"]
+
+-- | The harness suite, for a change to the harness or a package it uses.
+harnessSteps :: [Step]
+harnessSteps =
+  [ Step "nagare-harness-build" "cli/nagare-harness" "cabal" ["build", "nagare-harness-test"]
+  , Step "nagare-harness-test" "cli/nagare-harness" "cabal" ["test", "nagare-harness-test"]
   ]
 
 harnessStep :: FilePath -> Text -> [String] -> Step
@@ -172,7 +192,9 @@ runFastGate run = do
   let workdir = run ^. #root
   say <- newSay
   before <- trackedChanges workdir
-  let steps = fastSteps (run ^. #harness)
+  headId <- captureLine workdir "git" ["rev-parse", "HEAD"]
+  suites <- suitesSinceGated workdir headId
+  let steps = fastSteps (run ^. #harness) suites
   results <- runSteps (reportResult say) workdir (run ^. #logDir) steps
   let green = all stepSucceeded results && length results == length steps
   putStrLn (if green then "gate: fast gate green" else "gate: fast gate RED")
@@ -187,6 +209,37 @@ runFastGate run = do
   pure results
   where
     trackedChanges workdir = captureLine workdir "git" ["status", "--porcelain", "--untracked-files=no"]
+
+-- | The suites the change since the nearest ancestor with a green record of
+-- its own (fast or full, within 500 commits) reaches. With no such ancestor,
+-- the suites the fast gate always ran.
+suitesSinceGated :: FilePath -> Text -> IO [Suite]
+suitesSinceGated workdir commitId = do
+  (_, listed, _) <- capture workdir "git" ["rev-list", "--max-count=500", T.unpack commitId <> "^@"]
+  base <- firstGated (T.lines listed)
+  case base of
+    Nothing -> do
+      putStrLn ("gate: no gated ancestor; suites " <> names payloadSuites)
+      pure payloadSuites
+    Just gatedId -> do
+      (_, diffed, _) <- capture workdir "git" ["diff", "-z", "--name-only", "--no-renames", T.unpack gatedId, T.unpack commitId]
+      let changed = filter (not . T.null) (T.splitOn "\0" diffed)
+          outside = filter (not . ("cli/" `T.isPrefixOf`)) changed
+      verdict <- documentationVerdict workdir gatedId commitId outside
+      let suites = suitesReached (const (isRight verdict)) changed
+      putStrLn ("gate: " <> show (length changed) <> " paths changed since gated " <> T.unpack gatedId <> "; suites " <> names suites)
+      pure suites
+  where
+    names suites = if null suites then "none" else unwords (map show suites)
+    firstGated = \case
+      [] -> pure Nothing
+      candidate : rest -> do
+        fast <- verifyOwnFastRecord workdir candidate
+        full <- verifyOwnRecord workdir candidate
+        case (fast, full) of
+          (Right (Just _), _) -> pure (Just candidate)
+          (_, Right (Just _)) -> pure (Just candidate)
+          _ -> firstGated rest
 
 -- | Run a command in @workdir@ and capture its output.
 capture :: FilePath -> FilePath -> [String] -> IO (ExitCode, Text, Text)
@@ -590,15 +643,9 @@ carryForwardWith workdir verifyOwn siblings commitId = do
     Left refusal -> maybe (Left refusal) Right <$> (firstSibling . filter (`notElem` (commitId : T.lines listed)) =<< siblings)
   where
     verdictFrom gatedId systems = do
-      changed <- changedPaths [] gatedId
-      removed <- removedFrom gatedId
-      named <- forM (nubOrd (concatMap referenceNeedles changed)) $ \needle -> (needle,) <$> namingFile needle
-      let namedBy needle = join (lookup needle named)
-      pure ((gatedId,,systems) <$> carryForwardVerdict removed namedBy changed)
-    changedPaths filters gatedId = do
-      (_, diffed, _) <- capture workdir "git" (["diff", "-z", "--name-only", "--no-renames"] <> filters <> [T.unpack gatedId, T.unpack commitId])
-      pure (filter (not . T.null) (T.splitOn "\0" diffed))
-    removedFrom gatedId = (\deleted -> (`elem` deleted)) <$> changedPaths ["--diff-filter=D"] gatedId
+      changed <- changedPaths workdir [] gatedId commitId
+      fmap (gatedId,,systems) <$> documentationVerdict workdir gatedId commitId changed
+    removedFrom gatedId = removedBetween workdir gatedId commitId
     -- A recently gated commit that is not an ancestor, such as this commit
     -- before a rebase. Paths that are not inert on their face skip the
     -- naming search.
@@ -609,7 +656,7 @@ carryForwardWith workdir verifyOwn siblings commitId = do
         own <- if exists == ExitSuccess then verifyOwn candidate else pure (Right Nothing)
         case own of
           Right (Just systems) -> do
-            changed <- changedPaths [] candidate
+            changed <- changedPaths workdir [] candidate commitId
             removed <- removedFrom candidate
             if isRight (carryForwardVerdict removed (const Nothing) changed)
               then verdictFrom candidate systems >>= either (const (firstSibling rest)) (pure . Just)
@@ -622,12 +669,31 @@ carryForwardWith workdir verifyOwn siblings commitId = do
         case own of
           Right (Just systems) -> pure (Just (candidate, systems))
           _ -> firstGreen rest
+
+-- | The paths that differ between two commits.
+changedPaths :: FilePath -> [String] -> Text -> Text -> IO [Text]
+changedPaths workdir filters from to = do
+  (_, diffed, _) <- capture workdir "git" (["diff", "-z", "--name-only", "--no-renames"] <> filters <> [T.unpack from, T.unpack to])
+  pure (filter (not . T.null) (T.splitOn "\0" diffed))
+
+removedBetween :: FilePath -> Text -> Text -> IO (Text -> Bool)
+removedBetween workdir from to = (\deleted -> (`elem` deleted)) <$> changedPaths workdir ["--diff-filter=D"] from to
+
+-- | 'carryForwardVerdict' on some of the paths that differ between two
+-- commits, with the naming search in the later commit's tree.
+documentationVerdict :: FilePath -> Text -> Text -> [Text] -> IO (Either Text Int)
+documentationVerdict workdir from to changed = do
+  removed <- removedBetween workdir from to
+  named <- forM (nubOrd (concatMap referenceNeedles changed)) $ \needle -> (needle,) <$> namingFile needle
+  let namedBy needle = join (lookup needle named)
+  pure (carryForwardVerdict removed namedBy changed)
+  where
     -- The first non-Markdown file outside docs/ in the commit's tree that
     -- names the needle; the mori.dhall registry manifest is read by no check.
     namingFile needle = do
-      (_, found, _) <- capture workdir "git" ["grep", "-l", "-I", "-F", "-e", T.unpack needle, T.unpack commitId, "--", ".", ":(exclude)docs", ":(exclude)mori.dhall", ":(exclude,glob)**/*.md"]
+      (_, found, _) <- capture workdir "git" ["grep", "-l", "-I", "-F", "-e", T.unpack needle, T.unpack to, "--", ".", ":(exclude)docs", ":(exclude)mori.dhall", ":(exclude,glob)**/*.md"]
       pure $ case T.lines found of
-        hit : _ -> Just (fromMaybe hit (T.stripPrefix (commitId <> ":") hit))
+        hit : _ -> Just (fromMaybe hit (T.stripPrefix (to <> ":") hit))
         [] -> Nothing
 
 -- | Whether a landed revision needs a full gate of its own. It does not when
