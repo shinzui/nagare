@@ -127,7 +127,7 @@ shared server, which EP-266 must carry). No cross-repository ADR applies.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-265 | Show the intranet's backups, escrow and freshness on the release it runs | docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md | None | None | Complete (2026-11-18) |
-| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | In Progress (M1, M3 and M4 done; M2 F156 waits to land; M2b awaits D5) |
+| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | In Progress (M1–M4 done; M2b awaits D5) |
 | EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | Complete (2026-11-18) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -155,8 +155,8 @@ the wording names the gate that exists. It completes last.
 ## Progress
 
 EP-265 and EP-267 are complete. EP-266 has its desk-check, its shared-server drill (PASS,
-2026-11-18) and its guide section. Two things remain: landing F156 (`8e0a2981`), which waits for
-nagare-3's v0.22.0 prepare commit to land first, and decision D5 for Nagare's own databases (M2b).
+2026-11-18) and its guide section. F156 landed as `8e0a2981` (master `b561a622`) and ships after v0.22.0.
+Only decision D5 for Nagare's own databases (M2b) remains.
 Every checklist box is now Done on current evidence, Superseded, or, for Nagare's own databases in
 section 4, waiting on D5.
 

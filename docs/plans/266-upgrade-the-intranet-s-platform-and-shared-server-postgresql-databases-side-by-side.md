@@ -50,12 +50,12 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
   The platform databases (`en-db`, `shomei-db`, `en-<name>-db`) need code, for two reasons.
   Their names, Secrets and Service hosts are fixed, so a second instance cannot sit beside the
   first. And nothing keeps their accepted version (F156).
-- [ ] M2: fix F156. The platform databases use `platformPostgresVersion` (18,
+- [x] (2026-11-18) M2: fix F156. The platform databases use `platformPostgresVersion` (18,
   `cli/nagarectl/src/Nagare/Inventory/Database.hs`), not the payload default, so a default bump
   never plans an in-place major change. Test: "F156: every platform database, a tenant's included,
   is at the platform PostgreSQL version" (`cli/nagarectl/test/InventoryAuthTenantsSpec.hs`).
-  2026-11-18: committed as `8e0a2981` (rebased onto v0.22.0), and `just gate-commit` is green. Pass: `just gate-fast`,
-  then `just land`.
+  2026-11-18: landed as `8e0a2981`, with `just gate-commit` green and a green `just gate-fast` on
+  the landed tip `b561a622`. It ships in the release after v0.22.0.
 - [ ] M2b, only if the operator chooses D5 option (a) in the MasterPlan: a reviewed side-by-side
   instance for a platform database. With options (b) or (c), this box is voided.
 - [x] (2026-11-18) M3: `scripts/local-postgres-major-upgrade-drill.sh` passed on the warm
