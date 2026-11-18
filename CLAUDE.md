@@ -164,6 +164,8 @@ which defer to the user's scope:
   `.claude/settings.json` keeps it from ending a turn while the plan's Progress list has unchecked
   items, unless it is waiting on a refusing guard or an operator answer; it stays silent while a
   background task of the session is pending (operator, 2026-11-17).
+- **No new MasterPlan until [the readiness checklist](docs/releases/production-readiness-checklist.md)
+  is ticked** (operator, 2026-11-17), except MasterPlan 36, the production-readiness MasterPlan.
 - **Held plans are not worked on.** MasterPlan 25 is held, and so is MasterPlan 26's EP-173
   M3–M4, behind a trigger (its Decision Log, 2026-10-14). MasterPlan 26 is closed; its EP-168,
   EP-170, EP-171 and EP-173 M5 are cancelled, not held.
