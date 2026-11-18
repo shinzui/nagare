@@ -15,6 +15,7 @@ import Data.ByteString (ByteString)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List (sort)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
@@ -22,15 +23,17 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Secret (b64encode)
+import Nagare.Dsl.Database (engineVersionText)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.CredentialTemplate (materializeCredential)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
-import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth), EnTenant (..), compileAuthComponent)
+import Nagare.Inventory.Components.Auth (AuthInput, AuthMode (CloudAuth), EnTenant (..), compileAuthComponent)
 import Nagare.Inventory.Components.AuthTenants (retiredEnTenants, tenantKeyBinding)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputsWithTenants)
-import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget), platformPostgresVersion)
 import Nagare.Platform.ReleaseImages (explicitSelection)
+import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (LifecyclePolicy (Protect))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -127,6 +130,11 @@ inventoryAuthTenantsTests =
         assertBool "one variable for both keys was accepted" (isLeft' (tenantKeyBinding (tenant "demo") demoKeys (Just "K") (Just "K")))
         assertBool "another tenant's Secret was accepted" (isLeft' (tenantKeyBinding (tenant "demo") (secret "nagare-en-tenant-other-keys" "nagare-system") Nothing (Just "K")))
         assertBool "a Secret outside nagare-system was accepted" (isLeft' (tenantKeyBinding (tenant "demo") (secret "nagare-en-tenant-demo-keys" "personal") Nothing (Just "K")))
+    , testCase "F156: every platform database, a tenant's included, is at the platform PostgreSQL version" $ do
+        (_, databases) <- either (assertFailure . show) pure (packagedInputs [EnTenant (tenant "demo") demoSchema])
+        map (\(service, direct, _) -> (service, engineVersionText (directDatabase direct ^. #version))) databases
+          @?= [("shomei", "18"), ("en", "18"), ("en-demo", "18")]
+        engineVersionText platformPostgresVersion @?= "18"
     , testCase "a tenant the accepted auth scope holds and the context dropped is refused" $ do
         (accepted, _) <- compiled [EnTenant (tenant "demo") demoSchema, EnTenant (tenant "team-a") demoSchema]
         retiredEnTenants accepted [tenant "demo", tenant "team-a"] @?= []
@@ -142,17 +150,18 @@ tenant = either (error . T.unpack) id . mkEnTenantName
 
 compiled :: [EnTenant] -> IO (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
 compiled tenants = do
-  (auth, databases) <-
-    either (assertFailure . show) pure $
-      packagedAuthInputsWithTenants
-        "../.."
-        foundation
-        CloudAuth
-        "example.test"
-        images
-        (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
-        tenants
+  (auth, databases) <- either (assertFailure . show) pure (packagedInputs tenants)
   compileAuthComponent auth databases >>= either (assertFailure . show) pure
+
+packagedInputs :: [EnTenant] -> Either (NonEmpty InventoryError) (AuthInput, [(Text, DatabaseDirectInput, DatabaseBackupTarget)])
+packagedInputs =
+  packagedAuthInputsWithTenants
+    "../.."
+    foundation
+    CloudAuth
+    "example.test"
+    images
+    (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
   where
     foundation = FoundationInput (known (mkScopeId Platform "foundation")) cluster "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
     cluster = mintResourceId (known (mkScopeId Platform "cluster")) (known (mkLogicalKey "cluster")) (known (mkName "cluster"))

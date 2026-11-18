@@ -13,13 +13,13 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Database (Database (..), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
+import Nagare.Dsl.Database (Database (..), Engine (Postgres), mkDatabaseName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.AuthTenants (enTenantService)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
-import Nagare.Inventory.Database (DatabaseBackupTarget)
+import Nagare.Inventory.Database (DatabaseBackupTarget, platformPostgresVersion)
 import Nagare.Platform.ReleaseImages (ImageSelection)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -98,7 +98,7 @@ packagedAuthInputsWithTenants root foundation mode domain images backend tenants
               name
               Nothing
               Postgres
-              (defaultEngineVersion Postgres)
+              platformPostgresVersion
               namespace
               size
               Nothing

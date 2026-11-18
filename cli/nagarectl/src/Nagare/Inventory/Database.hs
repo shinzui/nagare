@@ -4,6 +4,7 @@
 module Nagare.Inventory.Database
   ( DatabaseBackupTarget (DatabaseBackupTarget)
   , compileDatabaseForBackend
+  , platformPostgresVersion
   )
 where
 
@@ -18,7 +19,7 @@ import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Database.Backup (renderInventoryDbBackupCronJob)
-import Nagare.Dsl.Database (Database (..), engineVersionText)
+import Nagare.Dsl.Database (Database (..), Engine (Postgres), EngineVersion, engineVersionText, mkEngineVersion)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (RetentionPolicy (..), databaseNameText, namespaceText)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
@@ -138,3 +139,11 @@ bindDatabaseMembers input (bundle, native) = do
         & #sources
         .~ [directSourceLocation input]
     single err = err :| []
+
+-- | F156: the PostgreSQL version of Nagare's own databases, Shomei's, En's,
+-- each En tenant's and the Nix cache's. It is not 'defaultEngineVersion', so a
+-- new default for operator databases never plans an in-place major change of
+-- an accepted platform database, which F86 refuses. Moving it needs a reviewed
+-- side-by-side path first (MasterPlan 36, decision D5).
+platformPostgresVersion :: EngineVersion
+platformPostgresVersion = either (error . T.unpack) id (mkEngineVersion Postgres "18")

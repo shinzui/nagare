@@ -18,7 +18,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
-import Nagare.Dsl.Database (Database (..), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
+import Nagare.Dsl.Database (Database (..), Engine (Postgres), mkDatabaseName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Artifact
@@ -26,7 +26,7 @@ import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Components.ControllerImage (inspectArchive)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
-import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget), platformPostgresVersion)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -120,7 +120,7 @@ compilePackagedCacheWithVerifiedImage root foundation project registryPrefix bac
           (knownDatabase "nix-cache-db")
           Nothing
           Postgres
-          (defaultEngineVersion Postgres)
+          platformPostgresVersion
           (knownNamespace "nagare-system")
           (knownQuantity "5Gi")
           (Just (Dsl.Resources (Just (knownQuantity "500m")) (Just (knownQuantity "1Gi")) Nothing Nothing))
