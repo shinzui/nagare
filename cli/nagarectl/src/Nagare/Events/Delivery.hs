@@ -264,8 +264,9 @@ addPending env headValue added logged = do
           pure ((\digest pointer -> Just (headValue & #pending .~ digest & #history .~ pointer)) <$> node <*> logged')
 
 -- | The delivery of an event in a cycle, created when absent. Its pending
--- entry is returned while the delivery is still pending, so a control or
--- scan reapplied after a crash adds it once and never re-adds finished work.
+-- entry is returned while the delivery is unfinished, pending or in flight
+-- under another worker that may yet die, so a control or scan reapplied
+-- after a crash adds it once and never re-adds finished work.
 ensureDelivery :: DeliveryEnv -> DestinationHead -> UTCTime -> Text -> EventId -> Integer -> IO (Either DeliveryError (Maybe PendingEntry))
 ensureDelivery env headValue now cycle' event position' = do
   let record = headValue ^. #record
@@ -298,7 +299,7 @@ ensureDelivery env headValue now cycle' event position' = do
       pure $ case existing of
         Left err -> Left (DeliveryFeed err)
         Right observed -> case observed ^. #value of
-          Just found | found ^. #state == Pending -> Right (Just (PendingEntry delivery' (fromMaybe now (found ^. #nextAttempt))))
+          Just found | found ^. #state == Pending || isInFlight (found ^. #state) -> Right (Just (PendingEntry delivery' (fromMaybe now (found ^. #nextAttempt))))
           _ -> Right Nothing
 
 -- | Cancel a pending delivery that has not been sent; one in flight is kept
@@ -363,7 +364,7 @@ deliverDestination env subscription' = do
           scanned <- scanFeed headValue feedValue pending' now
           case scanned of
             Left err -> pure (Left err)
-            Right (cursor', added) -> do
+            Right (cursor', added, matched) -> do
               let candidates = sortOn (^. #due) (pending' <> [entry | entry <- added, entry ^. #delivery `notElem` map (^. #delivery) pending'])
                   due = take (env ^. #budget . #sends) [entry | entry <- candidates, entry ^. #due <= now]
               results <- traverse (attemptOne adapter headValue feedValue) due
@@ -373,7 +374,7 @@ deliverDestination env subscription' = do
                   let finished = Set.fromList [entry ^. #delivery | (entry, Done _) <- zip due outcomes]
                       moved = Map.fromList [(entry ^. #delivery, at) | (entry, Later at) <- zip due outcomes]
                       remaining' = [maybe entry (\at -> entry & #due .~ at) (Map.lookup (entry ^. #delivery) moved) | entry <- candidates, Set.notMember (entry ^. #delivery) finished]
-                  recorded <- recordProgress cursor' added remaining' finished moved
+                  recorded <- recordProgress cursor' matched remaining' finished moved
                   pure $ do
                     () <- recorded
                     pure
@@ -385,9 +386,11 @@ deliverDestination env subscription' = do
                         , pendingCount = length remaining'
                         , diagnostic = Nothing
                         }
-    -- Match at most a budget of positions, while pending work is below its bound.
+    -- Match at most a budget of positions, while pending work is below its
+    -- bound. Every eligible delivery in the scanned range is returned with
+    -- its position for the log, whoever created or finished it.
     scanFeed headValue feedValue pending' now
-      | headValue ^. #cursor >= feedValue ^. #count || length pending' >= env ^. #budget . #pendingBound = pure (Right (headValue ^. #cursor, []))
+      | headValue ^. #cursor >= feedValue ^. #count || length pending' >= env ^. #budget . #pendingBound = pure (Right (headValue ^. #cursor, [], []))
       | otherwise = do
           let selects = headValue ^. #record . #selects
               request =
@@ -407,9 +410,11 @@ deliverDestination env subscription' = do
               pure $ do
                 added <- sequence made
                 let cursor' = if found ^. #more then maybe (headValue ^. #cursor) (+ 1) (found ^. #scannedTo) else found ^. #upper
-                pure (max (headValue ^. #cursor) cursor', [entry | Just entry <- added])
+                    record = headValue ^. #record
+                    matched = [(entry ^. #position, deliveryIdFor (record ^. #subscription) (record ^. #destination . #identity) (entry ^. #envelope . #eventId) "initial") | entry <- eligible]
+                pure (max (headValue ^. #cursor) cursor', [entry | Just entry <- added], matched)
     attemptOne adapter headValue feedValue entry = attemptDelivery env adapter headValue feedValue entry
-    recordProgress cursor' added remaining' finished moved =
+    recordProgress cursor' matched remaining' finished moved =
       withHead env subscription' False $ \fresh _ -> case fresh of
         Nothing -> pure (Right Nothing)
         Just headValue -> do
@@ -419,10 +424,13 @@ deliverDestination env subscription' = do
             Right freshPending -> do
               -- Another worker's head: keep its pending work, drop what this
               -- cycle finished, take this cycle's reschedules and matches.
+              -- The log takes the matches its cursor has not passed, so a
+              -- range is logged once, by the worker that moves the cursor
+              -- over it, even when another worker created or sent them.
               let already = Set.fromList (map (^. #delivery) freshPending)
                   ours = [entry | entry <- remaining', Set.notMember (entry ^. #delivery) already]
                   merged = [maybe entry (\at -> entry & #due .~ at) (Map.lookup (entry ^. #delivery) moved) | entry <- freshPending, Set.notMember (entry ^. #delivery) finished] <> ours
-                  logged = if headValue ^. #cursor >= cursor' then [] else [entry ^. #delivery | entry <- added, Set.notMember (entry ^. #delivery) already]
+                  logged = [delivery' | (position', delivery') <- matched, position' >= headValue ^. #cursor, position' < cursor']
               node <- pendingNode env merged
               pointer <- first DeliveryFeed <$> appendLog (env ^. #feed) (headValue ^. #history) logged
               pure $ do

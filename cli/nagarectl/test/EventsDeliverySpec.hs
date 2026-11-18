@@ -7,7 +7,8 @@
 module EventsDeliverySpec (eventsDeliveryTests) where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.Async (async, cancel, concurrently, wait)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (foldM, forever)
 import Data.Aeson (object, toJSON, (.=))
 import Data.Aeson qualified as Aeson
@@ -309,6 +310,55 @@ eventsDeliveryTests =
         length recorded @?= 1
         records <- deliveriesOf world recordingId
         map (\r -> (r ^. #state, length (r ^. #attempts))) records @?= [(Delivered, 1)]
+    , testCase "a worker that moves the cursor past a delivery another worker sent logs it, and the sender's later head write does not lose it" $ withReceiver $ \receiver -> do
+        world <- newWorld receiver
+        commit world [deploy "a"] [revisionOf (recordingSub 1)]
+        let env = envOf world
+        _ <- enableDelivery env >>= either (assertFailure . show) pure
+        _ <- applyControls env >>= either (assertFailure . show) pure
+        -- The first worker delivers, then its head write waits until the
+        -- second worker has scanned past the delivered event.
+        held <- newEmptyMVar
+        release <- newEmptyMVar
+        armed <- newIORef True
+        let ObjectName headKey = destinationKey recordingId
+            base = world ^. #ops
+            gated =
+              base
+                { putObject = \condition name@(ObjectName key) bytes -> do
+                    hold <- if key == headKey then atomicModifyIORef' armed (False,) else pure False
+                    when hold (putMVar held () >> takeMVar release)
+                    putObject base condition name bytes
+                }
+        firstFeed <- newFeedStore gated
+        firstWorker <- async (deliverDestination (env & #feed .~ firstFeed) recordingId)
+        takeMVar held
+        second <- deliverDestination env recordingId
+        putMVar release ()
+        first' <- wait firstWorker
+        assertBool "both workers finish" (isRight' first' && isRight' second)
+        recorded <- readIORef (world ^. #recorded)
+        length recorded @?= 1
+        records <- deliveriesOf world recordingId
+        map (\r -> (r ^. #state, length (r ^. #attempts))) records @?= [(Delivered, 1)]
+    , testCase "a worker that scans past a delivery in flight keeps it pending, so it is retried when the sending worker dies" $ withReceiver $ \receiver -> do
+        world <- newWorld receiver
+        commit world [deploy "a"] [revisionOf (recordingSub 1)]
+        let env = envOf world
+        _ <- enableDelivery env >>= either (assertFailure . show) pure
+        _ <- applyControls env >>= either (assertFailure . show) pure
+        entered <- newEmptyMVar
+        let hanging = AdapterFactory (\_ -> pure (Right (Adapter "recording" recordingPolicy (\_ -> putMVar entered () >> forever (threadDelay 1000000))))) (\_ _ -> False)
+            dying = env & #registry .~ adapterRegistry [("recording", hanging)]
+        firstWorker <- async (deliverDestination dying recordingId)
+        takeMVar entered
+        second <- deliverDestination env recordingId
+        assertBool "the second worker finishes" (isRight' second)
+        cancel firstWorker
+        advance world 300
+        _ <- deliverDestination env recordingId >>= either (assertFailure . show) pure
+        records <- deliveriesOf world recordingId
+        map (\r -> (r ^. #state, map (^. #outcome) (r ^. #attempts))) records @?= [(Delivered, [Just "unknown", Just "acknowledged"])]
     , testCase "with ten thousand logged deliveries a page of fifty reads the index and at most two segments, and the head does not grow" $ do
         ops' <- fakeObjectOps
         feed' <- newFeedStore ops'
