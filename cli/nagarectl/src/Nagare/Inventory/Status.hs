@@ -20,6 +20,7 @@ module Nagare.Inventory.Status
   , assessCollections
   , loadAcceptedNative
   , loadAcceptedNativeSelected
+  , generatedMemberChanged
   , loadKubernetesMembers
   , loadRebindNative
   , loadAbsenceNative
@@ -479,7 +480,16 @@ loadKubernetesMembers workspace store history members = do
     generated = filter (not . fromFile) members
     wanted = Set.fromList (map (^. #identity) generated)
     acceptedMembers = Map.fromList [(member ^. #identity, member) | Managed member <- historyDeclarations history]
-    changed member = Map.lookup (member ^. #identity) acceptedMembers /= Just member
+    changed = generatedMemberChanged acceptedMembers
+
+-- | Whether a member differs from its accepted declaration in anything but its dependencies.
+-- Composition adds dependencies an older acceptance predates (a carried route gains the
+-- kubeconfig's), which order work without changing the member's native bytes.
+generatedMemberChanged :: Map ResourceId ManagedResource -> ManagedResource -> Bool
+generatedMemberChanged accepted member =
+  fmap withoutDependencies (Map.lookup (member ^. #identity) accepted) /= Just (withoutDependencies member)
+  where
+    withoutDependencies = #dependencies .~ []
 
 -- | Native bytes for the Kubernetes members a reviewed rebind records (ADR 27
 -- §3; F80). A rebind changes no object, so its review carries no native

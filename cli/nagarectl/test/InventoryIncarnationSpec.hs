@@ -34,6 +34,7 @@ import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -120,6 +121,26 @@ inventoryIncarnationTests =
         assertBool "a replaced PVC was backed up" (attempt (Map.insert (databaseMember "pvc") (uid "uid-accepted-pvc") live))
         assertBool "an unrecorded source was backed up" (attempt Map.empty)
         assertBool "the recorded source was refused for its identity" (not (attempt live))
+    , testCase "a carried member that only gained a dependency is unchanged; a changed spec is not (EP-246)" $ do
+        let member =
+              ManagedResource
+                { identity = databaseMember "route"
+                , owner = databaseOwner
+                , executor = KubernetesExecutor
+                , address = Kubernetes (databaseMember "cluster") "serving.knative.dev" (expectOk (mkName "domainmapping")) Nothing (expectOk (mkName "admin.old.example"))
+                , aliases = []
+                , spec = NativeObject (contentDigest "route")
+                , lifecycle = Retain
+                , dataPolicy = Stateless
+                , sensitivity = Private
+                , dependencies = []
+                , delegations = []
+                , source = SourceLocation "admin-api" "domain-mapping"
+                }
+            accepted = Map.singleton (member ^. #identity) member
+        Status.generatedMemberChanged accepted (member & #dependencies .~ [OrderedAfter (databaseMember "kubeconfig")]) @?= False
+        Status.generatedMemberChanged accepted (member & #spec .~ NativeObject (contentDigest "other")) @?= True
+        Status.generatedMemberChanged Map.empty member @?= True
     , testCase "a restore pins only the recorded incarnation of its target (ADR 27, N6)" $ do
         let stateful = databaseMember "statefulset"
             pvc = databaseMember "pvc"
