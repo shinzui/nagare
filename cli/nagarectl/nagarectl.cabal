@@ -501,6 +501,7 @@ executable nagarectl
     Nagare.Cli.Application.Cdn
     Nagare.Cli.Application.Config
     Nagare.Cli.Application.Inputs
+    Nagare.Cli.Application.Site
     Nagare.Cli.Bootstrap.Cloud
     Nagare.Cli.Bootstrap.CloudflareZone
     Nagare.Cli.Bootstrap.Foundation
@@ -537,6 +538,7 @@ executable nagarectl
     Nagare.Cli.Commands.Release
     Nagare.Cli.Commands.Site
     Nagare.Cli.Commands.SiteList
+    Nagare.Cli.Commands.SitePreview
     Nagare.Cli.Commands.SitePublish
     Nagare.Cli.Commands.Storage
     Nagare.Cli.Commands.Task

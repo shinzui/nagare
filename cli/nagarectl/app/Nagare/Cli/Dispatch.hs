@@ -58,15 +58,13 @@ import Nagare.Cli.Commands.Platform
 import Nagare.Cli.Commands.Release (runReleasePublish)
 import Nagare.Cli.Commands.Site
   ( deployLoadedStaticSite
-  , runPreviewDelete
-  , runPreviewDeploy
-  , runPreviewList
   , runSiteDeploy
   , runSiteReleases
   , runSiteRollback
   , staticSiteUrl
   )
 import Nagare.Cli.Commands.SiteList (runSiteList)
+import Nagare.Cli.Commands.SitePreview (runPreviewDelete, runPreviewDeploy, runPreviewList)
 import Nagare.Cli.Commands.SitePublish (runSitePackage, runSitePublish)
 import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
