@@ -90,14 +90,39 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   Done 2026-11-18: the eleven cases of `test/OidcProviderSpec.hs` pass against a real Shomei
   with the platform's OIDC settings and its rate limiter, and the whole suite passes (247
   tests). `parseReturnTarget` accepts Shomei's `return_to` unchanged, so it was not widened.
-- [ ] M3: Confirmed on a disposable `mode=local` context (AC-2 to AC-5): public discovery,
+- [x] M3: Confirmed on a disposable `mode=local` context (AC-2 to AC-5): public discovery,
   anonymous redirect to `/login`, signed-in authorization to a loopback redirect, code
   exchange, signature check against the public JWKS, service-account token, and the move
   from `nagare-shomei` to the URL issuer with a signed-in session.
-- [ ] M4: The access, auth-portal and contexts guides document the setting, the endpoints,
+  Done 2026-11-18 by `scripts/oidc-issuer-drill.sh` on a disposable `ep264` context that
+  `NAGARE_DRILL_BOOTSTRAP_ONLY=1 scripts/site-access-drill.sh` bootstrapped with the
+  packaged nagarectl `2cbfef8d` and the en, shomei and nagare-access images built from it
+  (`ep264-eb9e9388`). Without the setting the converged platform planned 0 operations.
+  With it the review named `Shomei issuer https://auth.127-0-0-1.sslip.io with OIDC
+  enabled` on exactly one operation; both workloads carried the issuer; discovery answered
+  200 with the issuer, the two exact endpoint URLs and `S256`; `/v1/admin/users`,
+  `/metrics` and `/oauth/userinfo` were the portal's 404. An anonymous authorize went to
+  `<issuer>/login?return_to=…`; the reference portal signed the user in and handed the
+  session back to that exact authorization request; the signed-in authorize answered 302 to
+  the loopback URI with `state` and `iss`; the code exchange and a refresh answered 200; the
+  code-flow and service-account tokens verified against the key set fetched from the
+  workstation (`typ` `at+jwt`, exact `iss`, `aud` `"nagare-access"`, a `sid`). An access
+  token minted before the move was refused (401); the cookie jar from before the move
+  reached the protected site with 200 after 0 new sign-ins and authorized a client. Moving
+  back (setting unset) restored `nagare-shomei` with OIDC off. From a Pod in `personal`,
+  the public key set did not answer (`000`): locally the portal name resolves to the Pod's
+  own loopback, so this says nothing about labs, where the 2026-11-17 read reached it.
+
+- [x] M4: The access, auth-portal and contexts guides document the setting, the endpoints,
   the single audience, and registering a public client and a service account (AC-6), and an
   ADR records the routing decision. Acceptance: a reader follows the guides on a fresh
   local context to the M3 results without opening source.
+  Done 2026-11-18: `docs/user/access.md` "Sign in native clients and services",
+  `docs/user/auth-portal.md`, `docs/user/contexts.md` and ADR 40. The M3 drill follows the
+  guides' commands (the setting, `shomei-admin oauth-clients create` and `service-accounts
+  create` through `kubectl exec deploy/shomei`, the `client_credentials` request) and reaches
+  the M3 results.
+
 - [ ] M5: Released, and the labs intranet context runs with its URL issuer. Acceptance: the
   release proves the three release facts; on labs, after the reviewed issuer move, the
   deploy-and-login check passes, the public discovery document reports the issuer, and
