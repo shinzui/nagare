@@ -188,11 +188,13 @@ converge_platform database
 expect "worker may read the new schedule's signing Secret" "$(K auth can-i get secret/nagare-dbbackup-drill-pg-signing -n "$NS" --as "$SA")" yes
 record "backup schedule" "$(K -n "$NS" get cronjob -l nagare.dev/database=drill-pg -o jsonpath='{.items[0].spec.schedule}' 2>/dev/null || true)"
 t0="$(now)"
-await_count database.backup.completed "/databases/drill-pg/" 1 "scheduled backup completion" "$t0" 1800
+await_count database.backup.completed '"database-drill-pg"' 1 "scheduled backup completion" "$t0" 1800
+COMPLETION="$(grep '"type":"database.backup.completed"' "$RX/receiver.log" | grep '"database-drill-pg"' | head -1 | sed 's/^processed \([^:]*\): .*/\1/')"
+record "backup completion event" "$COMPLETION"
 N db backup-receipts drill-pg -n "$NS" --all --save-plan "$RV/ingest" > "$RV/ingest.log" 2>&1 || fail "ingest: $(tail -3 "$RV/ingest.log")"
 t0="$(now)"; review_apply "$RV/ingest"
-await_count database.backup.accepted "" 1 "backup acceptance" "$t0"
-expect "acceptances of other databases" "$(( $(count database.backup.accepted) - $(count database.backup.accepted "/databases/drill-pg/") ))" 0
+await_count database.backup.accepted '"database-drill-pg"' 1 "backup acceptance" "$t0"
+expect "the acceptance names the completion event" "$(count database.backup.accepted "\"completion\":\"$COMPLETION\"")" 1
 
 # --- 6. catch-up: a release while the worker is stopped arrives once after it starts ---
 K -n nagare-system scale deploy/nagare-events --replicas=0 >/dev/null
