@@ -284,7 +284,7 @@ reuseFastRecord covering plan = case covering of
 
 -- | The green fast record that covers a commit's tree, as landing accepts it:
 -- the commit's own, or one carried forward from a fast-gated commit over
--- inert documentation.
+-- inert documentation, such as the commit before a rebase.
 coveringFastRecord :: FilePath -> Text -> IO (Maybe FastRecord)
 coveringFastRecord workdir commitId = do
   own <- verifyOwnFastRecord workdir commitId
@@ -292,7 +292,7 @@ coveringFastRecord workdir commitId = do
     Right (Just _) -> either (const Nothing) id <$> readFastRecord commitId
     Left _ -> pure Nothing
     Right Nothing -> do
-      carried <- carryForwardWith workdir (verifyOwnFastRecord workdir) (pure []) commitId
+      carried <- carryForwardWith workdir (verifyOwnFastRecord workdir) (recentFastRecordCommits 50) commitId
       case carried of
         Right (ancestor, _, _) -> either (const Nothing) id <$> readFastRecord ancestor
         Left _ -> pure Nothing
@@ -657,8 +657,10 @@ coveredRevision workdir revision = do
 -- | Whether @just land@ may push a revision. A green full record (its own or
 -- carried forward) always may: that is how a fix lands. Otherwise the newest
 -- finished full gate of a commit already on @base@ must not be red, and the
--- revision needs a green fast record, its own or carried forward from a
--- fast-gated ancestor over inert documentation.
+-- revision needs a green fast record, its own or carried forward over inert
+-- documentation from a fast-gated ancestor or from a recently fast-gated
+-- commit, such as this one before a rebase over another session's
+-- documentation (2026-11-17: two 12-minute reruns).
 landableRevision :: FilePath -> Text -> Text -> IO (Either Text Text)
 landableRevision workdir base revision = do
   full <- verifyRevision workdir revision
@@ -679,7 +681,7 @@ landableRevision workdir base revision = do
                 Right (Just _) -> pure (Right ("fast gate: " <> commitId <> " green"))
                 Left refusal -> pure (Left refusal)
                 Right Nothing -> do
-                  carried <- carryForwardWith workdir (verifyOwnFastRecord workdir) (pure []) commitId
+                  carried <- carryForwardWith workdir (verifyOwnFastRecord workdir) (recentFastRecordCommits 50) commitId
                   pure $ case carried of
                     Right (ancestor, paths, _) ->
                       Right ("fast gate: " <> commitId <> " carried forward from " <> ancestor <> " over " <> T.pack (show paths) <> " inert paths")

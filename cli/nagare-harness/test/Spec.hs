@@ -492,6 +492,25 @@ landableRoundTrip =
         assertBool "code over a running gate was covered" . isLeft =<< coveredRevision repo codeOverRunning
       running <- runningRevisions
       assertBool "a finished gate still counted as running" (gating `notElem` running)
+      -- A fast-gated commit rebased over another session's documentation keeps
+      -- its record, and the full gate reuses it; rebased over code it does not.
+      git ["branch", "-f", "landed", T.unpack next]
+      git ["reset", "-q", "--hard", T.unpack next]
+      write "src/Main.hs" "-- gated before a rebase"
+      gated <- commitAll "gated before a rebase"
+      fastFor gated True
+      let rebasedOver path message = do
+            git ["reset", "-q", "--hard", T.unpack next]
+            write path "landed meanwhile"
+            _ <- commitAll message
+            write "src/Main.hs" "-- gated before a rebase"
+            commitAll "gated before a rebase"
+      overDocs <- rebasedOver "docs/plans/3-plan.md" "documentation landed meanwhile"
+      rebasedVerdict <- landable overDocs
+      assertBool ("a fast-gated commit rebased over documentation refused: " <> show rebasedVerdict) (isRight rebasedVerdict)
+      fmap (^. #commit) <$> coveringFastRecord repo overDocs >>= (@?= Just gated)
+      overCode <- rebasedOver "src/Other.hs" "code landed meanwhile"
+      assertBool "a fast-gated commit rebased over code landed" . isLeft =<< landable overCode
 
 -- | Two commits gated in turn through slots of a throwaway repository: the
 -- second run reuses slot 1's worktree, keeps its build output, drops other

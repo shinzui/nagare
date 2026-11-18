@@ -10,6 +10,7 @@ module Nagare.Harness.Record
   , SystemRealisation (..)
   , readFastRecord
   , readRecord
+  , recentFastRecordCommits
   , recentRecordCommits
   , recordPath
   , writeFastRecord
@@ -120,8 +121,15 @@ readFastRecord commitId = do
 
 -- | The commits of the @limit@ most recently written records, newest first.
 recentRecordCommits :: Int -> IO [Text]
-recentRecordCommits limit = do
-  base <- takeDirectory <$> recordPath "x"
+recentRecordCommits limit = recentIn limit . takeDirectory =<< recordPath "x"
+
+-- | The commits of the @limit@ most recently written fast records, newest
+-- first.
+recentFastRecordCommits :: Int -> IO [Text]
+recentFastRecordCommits limit = recentIn limit . takeDirectory =<< fastRecordPath "x"
+
+recentIn :: Int -> FilePath -> IO [Text]
+recentIn limit base = do
   present <- doesDirectoryExist base
   if not present
     then pure []
