@@ -127,17 +127,32 @@ expect "worker may read the signing Secret" "$(K auth can-i get secret/drill-web
 expect "worker may not read another Secret" "$(K auth can-i get secret/nagare-minio-credentials -n nagare-system --as "$SA" || true)" no
 expect "worker may not list Secrets" "$(K auth can-i list secrets -n "$NS" --as "$SA" || true)" no
 
-received() { grep -c "^processed " "$RX/receiver.log" || true; }
-await_received() { # count label started
+# The platform's own databases back up on the same schedule, so events are
+# counted by type and, for backups, by the drill's database.
+count() { # type [substring of the body]
+  python3 -I - "$RX/receiver.log" "$1" "${2:-}" <<'PY'
+import json, sys
+n = 0
+for line in open(sys.argv[1]):
+    if not line.startswith("processed "): continue
+    body = line.split(": ", 1)[1]
+    try: event = json.loads(body)
+    except ValueError: continue
+    if event.get("type") == sys.argv[2] and sys.argv[3] in body: n += 1
+print(n)
+PY
+}
+deploys() { count app.deployed; }
+await_count() { # type substring wanted label started [timeout]
   local n
-  for n in $(seq 1 "${4:-180}"); do
-    if [ "$(received)" -ge "$1" ]; then record "$2 seconds to the receiver" "$(( $(now) - $3 ))"; return 0; fi
+  for n in $(seq 1 "${6:-180}"); do
+    if [ "$(count "$1" "$2")" -ge "$3" ]; then record "$4 seconds to the receiver" "$(( $(now) - $5 ))"; return 0; fi
     sleep 1
   done
-  fail "$2: the receiver has $(received) events, wanted $1; proxy: $(tail -3 "$RX/proxy.log" 2>/dev/null)"
+  fail "$4: the receiver has $(count "$1" "$2") $1 events, wanted $3; proxy: $(tail -3 "$RX/proxy.log" 2>/dev/null)"
 }
-last_event() { grep "^processed " "$RX/receiver.log" | tail -1 | sed 's/^processed \([^:]*\): .*/\1/'; }
-last_type() { grep "^processed " "$RX/receiver.log" | tail -1 | sed 's/^processed [^:]*: //' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["type"])'; }
+await_deploys() { await_count app.deployed "" "$@"; }
+last_deploy() { grep "^processed " "$RX/receiver.log" | grep '"type":"app.deployed"' | tail -1 | sed 's/^processed \([^:]*\): .*/\1/'; }
 
 # --- 4. a reviewed site release reaches the receiver once; a no-op redeploy announces nothing ---
 eval "$(N context env | grep -E '^export (NAGARE_REGISTRY_HOST|CLOUDSDK_CORE_PROJECT|NAGARE_ARTIFACT_REGISTRY_ID)=')"
@@ -158,53 +173,54 @@ deploy_image() { # tag
     > "$RV/deploy-$1.log" 2>&1 || fail "deploy $1: $(tail -3 "$RV/deploy-$1.log")"
 }
 t0="$(now)"; release d1
-await_received 1 "release d1" "$t0"
-expect "release d1 event type" "$(last_type)" app.deployed
-D1="$(last_event)"; record "release d1 event" "$D1"
+await_deploys 1 "release d1" "$t0"
+D1="$(last_deploy)"; record "release d1 event" "$D1"
 t0="$(now)"; deploy_image d1
 sleep 75
-expect "events after a no-op redeploy" "$(received)" 1
+expect "deployment events after a no-op redeploy" "$(deploys)" 1
 
 # --- 5. an unattended scheduled PostgreSQL backup completes, then its ingestion is accepted ---
 N db create postgres drill-pg -n "$NS" --recovery-backup postgres-backup --recovery-key-version v1 > "$RV/db.log" 2>&1 || fail "db create: $(tail -3 "$RV/db.log")"
 K -n "$NS" rollout status statefulset/drill-pg --timeout=300s >/dev/null
+# The worker may read only the signing Secrets the platform scope names; a new
+# schedule's is named at the platform's next plan and apply.
+converge_platform database
+expect "worker may read the new schedule's signing Secret" "$(K auth can-i get secret/nagare-dbbackup-drill-pg-signing -n "$NS" --as "$SA")" yes
 record "backup schedule" "$(K -n "$NS" get cronjob -l nagare.dev/database=drill-pg -o jsonpath='{.items[0].spec.schedule}' 2>/dev/null || true)"
 t0="$(now)"
-await_received 2 "scheduled backup completion" "$t0" 1800
-expect "backup event type" "$(last_type)" database.backup.completed
+await_count database.backup.completed "/databases/drill-pg/" 1 "scheduled backup completion" "$t0" 1800
 N db backup-receipts drill-pg -n "$NS" --all --save-plan "$RV/ingest" > "$RV/ingest.log" 2>&1 || fail "ingest: $(tail -3 "$RV/ingest.log")"
 t0="$(now)"; review_apply "$RV/ingest"
-await_received 3 "backup acceptance" "$t0"
-expect "acceptance event type" "$(last_type)" database.backup.accepted
+await_count database.backup.accepted "" 1 "backup acceptance" "$t0"
+expect "acceptances of other databases" "$(( $(count database.backup.accepted) - $(count database.backup.accepted "/databases/drill-pg/") ))" 0
 
 # --- 6. catch-up: a release while the worker is stopped arrives once after it starts ---
 K -n nagare-system scale deploy/nagare-events --replicas=0 >/dev/null
 K -n nagare-system wait pod -l app.kubernetes.io/name=nagare-events --for=delete --timeout=120s >/dev/null 2>&1 || true
 release d2
 sleep 30
-expect "events while the worker is stopped" "$(received)" 3
+expect "deployment events while the worker is stopped" "$(deploys)" 1
 t0="$(now)"; K -n nagare-system scale deploy/nagare-events --replicas=1 >/dev/null
-await_received 4 "catch-up after restart" "$t0"
-expect "catch-up event type" "$(last_type)" app.deployed
+await_deploys 2 "catch-up after restart" "$t0"
 
 # --- 7. a receiver outage retries; the release itself converges meanwhile ---
 echo 500 > "$RX/mode"
 release d3
 record "release d3 converged during the outage" yes
 sleep 60
-expect "events during the outage" "$(received)" 4
+expect "deployment events during the outage" "$(deploys)" 2
 record "attempts refused during the outage" "$(grep -c $'\t500\t' "$RX/proxy.log" || true)"
 t0="$(now)"; echo pass > "$RX/mode"
-await_received 5 "delivery after the outage" "$t0" 3700
+await_deploys 3 "delivery after the outage" "$t0" 3700
 
 # --- 8. a lost acknowledgement: processed once, delivered again, deduplicated ---
 echo drop > "$RX/mode"
 release d4
-await_received 6 "release d4 first attempt" "$(now)"
+await_deploys 4 "release d4 first attempt" "$(now)"
 echo pass > "$RX/mode"
 for _ in $(seq 1 600); do grep -q "^duplicate " "$RX/receiver.log" && break; sleep 1; done
 expect "duplicate deliveries deduplicated by the receiver" "$(grep -c "^duplicate " "$RX/receiver.log" || true)" 1
-expect "processed events after the duplicate" "$(received)" 6
+expect "deployment events processed after the duplicate" "$(deploys)" 4
 
 # --- 9. a restart with queued work keeps it ---
 echo 500 > "$RX/mode"
@@ -213,7 +229,7 @@ sleep 45
 K -n nagare-system delete pod -l app.kubernetes.io/name=nagare-events --wait=true >/dev/null
 K -n nagare-system rollout status deploy/nagare-events --timeout=300s >/dev/null
 t0="$(now)"; echo pass > "$RX/mode"
-await_received 7 "queued delivery after the restart" "$t0" 3700
+await_deploys 5 "queued delivery after the restart" "$t0" 3700
 N events delivery list "$SUB" --contract 1 > "$EV/deliveries.json"
 python3 -I - "$EV/deliveries.json" <<'PY' | while IFS=$'\t' read -r k v; do record "$k" "$v"; done
 import json, sys, collections

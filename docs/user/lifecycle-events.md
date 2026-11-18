@@ -38,6 +38,10 @@ writes only its own state beside the inventory. It sends nothing until the conte
 `--enable-lifecycle-delivery`. A cloud context first needs the worker's key, as
 [the worker key runbook](../runbooks/lifecycle-worker-key.md) describes; a local context must have
 been created with the worker enabled, because its state directory is mounted when the cluster is.
+The worker may read only the signing Secrets of the schedules and subscriptions the platform
+was last planned with, so after you add a database, an app database or a webhook subscription,
+run `nagarectl platform bootstrap plan` and apply it; until then that schedule's backups are
+announced only when their receipts are ingested, and that subscription sends nothing.
 `inventory export` and `inventory restore` carry the lifecycle state with the history. Its probes are
 `/health/live` and `/health/ready`, and `/metrics` reports each loop.
 
