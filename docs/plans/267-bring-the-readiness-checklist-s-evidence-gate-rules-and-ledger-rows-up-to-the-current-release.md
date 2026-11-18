@@ -42,10 +42,10 @@ runs, or says which drill context and candidate it rests on. Docs only.
     `context apply`.
 - [x] (2026-11-18) Section 2 links EP-265's intranet record on the objective, escrow and one-hour
   boxes, and the `ep245` and `ep246` VM-loss drills on the drill box.
-- [ ] Section 3's backup box states D2's outcome (done 2026-11-18: the operator runbook's step 2
-  already requires healthy, verified recovery points before the host stage, so no new step).
-  Section 4 links the drill log of
-  `docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md`.
+- [x] (2026-11-18) Section 3's backup box states D2's outcome: the operator runbook's step 2
+  already requires healthy, verified recovery points before the host stage. Section 4 links EP-266's
+  shared-server drill (`docs/audits/ep266-pg-major-upgrade-drill-2026-11-18.txt`) and names F156
+  and D5 for Nagare's own databases.
 - [x] (2026-11-18) Section 5 and the rules section name today's gate, as nagare-fix landed it
   (`b38e3a79`, `f28d7eb2`):
   - `just gate-commit` per Haskell commit;
@@ -70,7 +70,12 @@ runs, or says which drill context and candidate it rests on. Docs only.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Every box in the checklist now either links evidence on the intranet's v0.21.0 or a current gate
+record, or names the candidate it rests on, or is marked superseded by an operator decision. The
+ledger rows that bear on the goal are current: F48 and F127 are Closed, F135 is Verifying, and F145
+and F156 are recorded. What remains is outside this plan: decision D5 for Nagare's own databases,
+and the Verifying rows that close when the intranet next meets their checks. Nothing moves to an
+ADR.
 
 
 ## Context and Orientation

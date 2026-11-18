@@ -151,7 +151,12 @@ no host activation ([diff stat](https://github.com/shinzui/nagare/blob/0c00498fc
       new one is proven, and retired only after that (EP-126's core). (PostgreSQL 17.11 → 18.6 beside
       the old instance, fenced copy with matching fingerprints, reviewed switch-over, `s4post` backup
       restored 11:11, then retain-only retirement of the old instance, 12:12 rows; an in-place major
-      change is refused at planning, F86; [drill](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section4-3b59bcb7).)
+      change is refused at planning, F86; [drill](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section4-3b59bcb7).
+      App databases on a shared server, as the intranet's are: PostgreSQL 17 → 18 side by side on a
+      local context, both failures returning to the old database with every row, 2026-11-18,
+      [EP-266](../plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md),
+      [drill](../audits/ep266-pg-major-upgrade-drill-2026-11-18.txt). Nagare's own databases stay at the platform version
+      (F156); how they move is MasterPlan 36's decision D5.)
 - [x] **Drill:** a failed upgrade returns to the old instance with no data loss. (Fail 1, the copy
       fails: the old instance is unfenced and takes writes again. Fail 2, the new instance is rejected
       after switch-over: a reviewed switch back returns to the old instance, and the new one never

@@ -54,26 +54,26 @@ operator holds it, this plan stays Not Started until a new major is wanted on th
   `cli/nagarectl/src/Nagare/Inventory/Database.hs`), not the payload default, so a default bump
   never plans an in-place major change. Test: "F156: every platform database, a tenant's included,
   is at the platform PostgreSQL version" (`cli/nagarectl/test/InventoryAuthTenantsSpec.hs`).
-  2026-11-18: committed as `031581ff`, and `just gate-commit` is green. Pass: `just gate-fast`,
+  2026-11-18: committed as `8e0a2981` (rebased onto v0.22.0), and `just gate-commit` is green. Pass: `just gate-fast`,
   then `just land`.
 - [ ] M2b, only if the operator chooses D5 option (a) in the MasterPlan: a reviewed side-by-side
   instance for a platform database. With options (b) or (c), this box is voided.
-- [ ] M3, local rehearsal on the warm drill context, resumable at each step (`NAGARE_DRILL_ROOT`
-  kept, `NAGARE_DRILL_FROM=N`). Seed rows into two app databases on one shared PostgreSQL server at
-  17. Then:
-  - Upgrade side by side to 18. Back up and prove the scratch restore. Create the new server
-    (`db create SERVER-18 --version 18`). Declare `<name>-v2` on it in the app's Config. Quiesce
-    the old app databases. Copy as the server administrator. Compare fingerprints. Switch each
-    workload's `appDatabaseBinding` with a reviewed deploy. Back up and restore the new app
-    databases. Retire the old ones only after that restore.
-  - Fail 1: the copy fails, and `db app-database resume` reopens the old one for writes.
-  - Fail 2: the new database is rejected after the switch, and a reviewed deploy of the old
-    binding plus `resume` loses no acknowledged row.
-  - The platform-database part follows D5.
+- [x] (2026-11-18) M3: `scripts/local-postgres-major-upgrade-drill.sh` passed on the warm
+  `ep235` context (nagare-c4-amd64), run `s1118030645`
+  ([evidence](../audits/ep266-pg-major-upgrade-drill-2026-11-18.txt)):
+  - fresh backups of `ua-pg` and `ub-pg` restored equal;
+  - `upg-18` beside `upg-17`, with the in-place move to 18 refused (F86);
+  - `ua-pg` fenced and copied with equal fingerprints, the probe switched by review and writing
+    to 18;
+  - `ua-pg-v2`'s own backup restored equal before `ua-pg` retired, its data kept;
+  - fail 1: the copy failed in one transaction, and `ub-pg` resumed with every row;
+  - fail 2: switched and rejected, then the old binding redeployed and resumed with every row,
+    and `ub-pg-v2` took no write.
 
-  Pass: the drill log is under `docs/audits/`, and every assertion holds.
-- [ ] M4: `docs/user/managed-databases.md` covers each kind, and the drill log path is handed to
-  `docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md`.
+  The platform-database part waits for D5.
+- [x] (2026-11-18) M4: `docs/user/managed-databases.md` has "Upgrade app databases on a shared
+  server" and says the platform databases stay at the platform version (F156). The drill log is
+  handed to EP-267.
 
 
 ## Surprises & Discoveries

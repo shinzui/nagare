@@ -1,0 +1,15 @@
+# EP-266 M3: side-by-side PostgreSQL 17 -> 18 of app databases on a shared server, local warm context ep235 (nagare-c4-amd64), 2026-11-18.
+# nagarectl packaged at 9a7be652 (F156, before its rebase onto v0.22.0 landed it as 8e0a2981). Script: scripts/local-postgres-major-upgrade-drill.sh. Run s1118030645.
+# The run resumed three times on its root after drill fixes (registry forward port, EP-259 binding, backup ID length); each step's line below is from the final script.
+03:06:45 drill: run s1118030645, from step 1, state /Users/shinzui/.local/state/nagare/releases/x86-work/ep235-drill6/pg-major-upgrade/drill/runs/s1118030645
+03:12:44 drill: run s1118030645, from step 1, state /Users/shinzui/.local/state/nagare/releases/x86-work/ep235-drill6/pg-major-upgrade/drill/runs/s1118030645
+03:14:06 drill: run s1118030645, from step 1, state /Users/shinzui/.local/state/nagare/releases/x86-work/ep235-drill6/pg-major-upgrade/drill/runs/s1118030645
+03:14:37 pg-major-upgrade drill: 1: upg-17 at 17 with ua-pg and ub-pg, each probe bound, 200 rows each written by the runtime users
+03:14:54 drill: run s1118030645, from step 2, state /Users/shinzui/.local/state/nagare/releases/x86-work/ep235-drill6/pg-major-upgrade/drill/runs/s1118030645
+03:18:22 pg-major-upgrade drill: 2: fresh backups of ua-pg and ub-pg, ingested and restored into scratch, equal to their sources
+03:19:38 pg-major-upgrade drill: 3: upg-18 at 18 with ua-pg-v2 and ub-pg-v2 beside the old ones; an in-place 17 -> 18 is refused (F86)
+03:19:56 pg-major-upgrade drill: 4: ua-pg fenced, copied into ua-pg-v2 with equal fingerprints, ua-probe switched by review and writing to 18
+03:21:31 pg-major-upgrade drill: 5: ua-pg-v2's backup restored equal; only then ua-pg retired, its data kept and its schedule suspended
+03:21:50 pg-major-upgrade drill: 6: fail 1: the copy failed in one transaction, ub-pg-v2 stayed empty, ub-pg resumed and took a write; nothing lost
+03:22:23 pg-major-upgrade drill: 7: fail 2: ub switched to 18 and rejected; a reviewed deploy of the old binding and a resume returned to ub-pg with every row
+03:22:23 pg-major-upgrade drill: PASS

@@ -466,6 +466,46 @@ database as in step 1. Keep `OLD` declared and read-only until you are satisfied
    review retains every member of `OLD`, bound to its observed incarnation, and deletes nothing.
    Deletion is a separate reviewed collection.
 
+### Upgrade app databases on a shared server
+
+An app database belongs to its server (see [Sharing one server between apps](#sharing-one-server-between-apps)),
+and a declaration that moves it to another server is refused (`migration-review-required`).
+Upgrade the server's major version by moving each app database to a new one beside the old one:
+
+1. **Back up and prove.** `db app-database backup NAME --backup-id ID`, ingest the run with
+   `db app-database backup-receipts NAME --backup-id JOB_UID`, and restore it into scratch with
+   `db app-database restore NAME --backup-id JOB_UID --restore-id ID`. Compare the scratch
+   database with its source.
+2. **Declare the new server and new app databases.** `nagarectl db create postgres SERVER-18
+   --version 18`, then add `NAME-v2` on `SERVER-18` to the config that declares `NAME`. Keep `NAME`
+   declared, and apply both through `db app-database plan --config FILE`.
+3. **Fence and copy.** `db app-database quiesce NAME --users runtime` closes the runtime logins and
+   ends their sessions. Then copy as the old server's administrator, loading into the new app
+   database as its migration user in one transaction:
+
+   ```bash
+   K -n personal exec SERVER-17-0 -- sh -c 'pg_dump -U "$POSTGRES_USER" -d DB --no-owner --no-privileges' \
+     | K -n personal exec -i SERVER-18-0 -- env PGPASSWORD="$MIGRATION_PASSWORD" \
+         psql -h SERVER-18 -U "$MIGRATION_USER" -d DB -v ON_ERROR_STOP=1 --single-transaction -q
+   ```
+
+   The migration credentials are in Secret `NAME-v2-migration`.
+4. **Verify.** Compare row counts or a hash of each table in both databases.
+5. **Switch.** Change the workload's `appDatabases` to `[appDatabaseBinding NAME-v2]` and deploy it
+   through review. The runtime Secret and host follow the binding.
+6. **Prove, then retire.** Back up and restore `NAME-v2` as in step 1. Only then run
+   `db app-database retire NAME` and remove `NAME` from the config. Its data stays on the old server.
+
+If the copy fails, nothing reached the new database, because the load is one transaction. Run
+`db app-database resume NAME`, and the application writes to the old one again. If the new
+database is rejected after the switch, deploy the old binding through review and resume `NAME`. The
+old database holds every acknowledged row, as long as nothing wrote to the new one. The drill
+`scripts/local-postgres-major-upgrade-drill.sh` runs both failures
+([evidence](../audits/ep266-pg-major-upgrade-drill-2026-11-18.txt)).
+
+Nagare's own databases (`en-db`, `shomei-db`, `en-<name>-db`) stay at the platform's PostgreSQL
+version, and a release never moves them in place (F156). How they move to a new major is still open.
+
 ## Connecting an app to a database
 
 Add the database's name to your app's `databases` list in its `Config.hs`:

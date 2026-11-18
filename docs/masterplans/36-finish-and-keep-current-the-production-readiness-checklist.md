@@ -65,12 +65,12 @@ longer matches an operator decision.
 | 3. Drill: node upgrade under load | Done | `83124396` on `mp23-c3m`. The F95 regression runs in every full gate (`host-switch-identity` in `nix/checks/platform.nix` runs `test-host-switch-session-loss.sh`). |
 | 3. Drill: failed node upgrade reverts | Done | `83124396` and `3b59bcb7`. F91 (status refuses after a closed failed host upgrade until the lock is restored) stays deferred. |
 | 4. Fresh, verified backup before a database upgrade | Done for app-bound standalone databases | `s4pre` on `mp23-c3l`. |
-| 4. Drill: PostgreSQL major upgrade side by side | Partly done | Shown for an app-bound standalone database, by the procedure in `docs/user/managed-databases.md` ("Upgrade PostgreSQL to a new major version"). That procedure moves the binding with an application deploy. It does not cover the intranet's other PostgreSQL stores: `en-db` and `shomei-db` (bound by the platform), `en-<name>-db`, and shared servers carrying app databases (ADR 30, ADR 37). EP-266, decision D3. |
-| 4. Drill: failed database upgrade returns to the old instance | Partly done | The same scope as the row above. EP-266. |
-| 5. Master moves only through `just land` with a full-gate record | Stale | Since 2026-10-11, `just land` needs a `gate-fast` record and runs the full gate and the selective sweep after landing; a red record blocks the next land (CLAUDE.md). nagare-fix is changing the per-commit gate again now. EP-267. |
+| 4. Drill: PostgreSQL major upgrade side by side | Done for app databases (2026-11-18, EP-266); Nagare's own databases await D5 | Shown for an app-bound standalone database, by the procedure in `docs/user/managed-databases.md` ("Upgrade PostgreSQL to a new major version"). That procedure moves the binding with an application deploy. It does not cover the intranet's other PostgreSQL stores: `en-db` and `shomei-db` (bound by the platform), `en-<name>-db`, and shared servers carrying app databases (ADR 30, ADR 37). EP-266, decision D3. |
+| 4. Drill: failed database upgrade returns to the old instance | Done for app databases (2026-11-18, EP-266); Nagare's own databases await D5 | The same scope as the row above. EP-266. |
+| 5. Master moves only through `just land` with a full-gate record | Done (2026-11-18, reworded by EP-267) | Since 2026-10-11, `just land` needs a `gate-fast` record and runs the full gate and the selective sweep after landing; a red record blocks the next land (CLAUDE.md). nagare-fix is changing the per-commit gate again now. EP-267. |
 | 5. Heavy runs on the remote builder | Done | `just test-remote`, `just mutation-sweep`. |
 | 5. Mutation sweep proves every guard observed | Done | It now runs selectively at land time. |
-| 5. Deep tier per release as monitoring | Stale | Operator, 2026-10-12: the deep tier is not part of a release. EP-267. |
+| 5. Deep tier per release as monitoring | Superseded (`[-]`, EP-267) | Operator, 2026-10-12: the deep tier is not part of a release. EP-267. |
 | 5. Builder probe first in the full gate | Done | `8824f469`. |
 | Goal: deploy and log in; the intranet runs the release | Done for v0.21.0 | Live 2026-11-14; operator sign-in confirmed on v0.19.2. The evidence is in `mori://tan/tan-ng-labs`, and the checklist does not link it. EP-267. |
 
@@ -127,8 +127,8 @@ shared server, which EP-266 must carry). No cross-repository ADR applies.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-265 | Show the intranet's backups, escrow and freshness on the release it runs | docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md | None | None | Complete (2026-11-18) |
-| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | In Progress (M1 done; M2 F156; M3 waits for the warm drill context; platform part awaits D5) |
-| EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | In Progress (waits on EP-266 and nagare-fix) |
+| EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | In Progress (M1, M3 and M4 done; M2 F156 waits to land; M2b awaits D5) |
+| EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | Complete (2026-11-18) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -154,10 +154,11 @@ the wording names the gate that exists. It completes last.
 
 ## Progress
 
-EP-265 is complete. On v0.21.0 the intranet's databases are hourly, fresh, on the pinned backup
-image and escrow-verified (`mori://tan/tan-ng-labs` `0ffaffd`). EP-267 is in progress. EP-266's
-desk-check is done: app databases on a shared server need no code, and the platform databases
-need a decision (D5). Its M2 fixes F156, and M3 waits for nagare-fix's warm drill context.
+EP-265 and EP-267 are complete. EP-266 has its desk-check, its shared-server drill (PASS,
+2026-11-18) and its guide section. Two things remain: landing F156 (`8e0a2981`), which waits for
+nagare-3's v0.22.0 prepare commit to land first, and decision D5 for Nagare's own databases (M2b).
+Every checklist box is now Done on current evidence, Superseded, or, for Nagare's own databases in
+section 4, waiting on D5.
 
 
 ## Surprises & Discoveries
