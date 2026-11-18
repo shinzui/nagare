@@ -35,32 +35,33 @@ Needs the operator's go-ahead before any step, because it reads the intranet (de
 
 ## Progress
 
-- [ ] Inventory: the list of every intranet store that holds data, with its kind and namespace. It
-  comes from `nagarectl server status` and the context's En tenant list (`NAGARE_EN_TENANTS`). It
-  covers `en-db`, `shomei-db`, each `en-<name>-db`, each standalone database, each shared server
-  and app database, and any PVC that holds application data. Pass: the list is in the record. Any
-  PVC holding application data outside a schedule is reported to the operator as a data-loss risk,
-  because volumes are outside the objective by decision D2 (ADR 28).
-- [ ] Freshness: `server status` and `doctor` on the intranet show `objective=hourly`, and every
-  database's recovery point is graded healthy and younger than one hour. Pass: both outputs are
-  saved, and `doctor` exits 0, or every non-OK row is explained.
-- [ ] Schedule image: every `nagare-dbbackup-*` and `nagare-appdb-*` CronJob names the pinned
-  `google/cloud-sdk` digest (F143), not the tag. Pass: a `kubectl get cronjob` listing with the
-  image of each schedule. A schedule still on the tag gets its own database review (F143's row).
-  That is a reviewed apply, so it needs the operator's go-ahead.
-- [ ] Escrow: each database in the inventory has an escrow file under
-  `cluster-secrets/<context>/backup-signing/` in the operator root. `shomei-db` also has its
-  key-encryption key file. Each escrow verifies that database's newest scheduled backup with
-  `db verify-escrowed-backup` or `db app-database verify-escrowed-backup`. A missing escrow is
-  created with `db escrow-signing-key` or `db app-database escrow-signing-key`, then verified.
-  Pass: one verify output per database, each naming its recovery point.
-- [ ] The record is committed to `mori://tan/tan-ng-labs`, and its commit and path are handed to
-  `docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md`.
+Evidence for every item: `mori://tan/tan-ng-labs` commit `0ffaffd`, `docs/evidence/2026-11-18-data-protection/`.
+
+- [x] (2026-11-18) Inventory: there are eight active databases. The platform has `en-db`, `en-mori-db`
+  (the only declared En tenant) and `shomei-db`. The servers are `labs-postgres` and
+  `labs-clickhouse`. The app databases are `kansoku-pg`, `kansoku-ch` and `mori-registry-pg`. Two
+  retired isolation probes have suspended schedules. There are no application PVCs; the only
+  non-database PVCs hold logs, metrics and traces (`pvcs.txt`). No data sits outside the objective.
+- [x] (2026-11-18) Freshness: `server status` exits 0, and `doctor` exits 0 with 0 failed and 3
+  warnings. Every active database is `healthy; objective=hourly`, aged 60–940 s. The warnings:
+  - `kansoku-pg` and `kansoku-ch` each have one accepted point past policy;
+  - `backup litestream` is UNKNOWN, which is expected because no Litestream app runs.
+- [x] (2026-11-18) Schedule image: every active `nagare-dbbackup-*` and `nagare-appdb-*` CronJob names
+  `google/cloud-sdk:slim@sha256:c70885ba…`. Only the two suspended probes name the tag
+  (`cronjobs.txt`). F143 holds on the intranet.
+- [x] (2026-11-18) Escrow: `en-mori-db` and `mori-registry-pg` had no escrow, and both were escrowed.
+  Every active database's escrow then verified its newest scheduled backup (02:30 UTC runs) with
+  only the key file and the bucket, 8 of 8 exit 0 (`verify.txt`). `shomei-db`'s key-encryption key
+  file is present.
+- [x] (2026-11-18) The record is committed to `mori://tan/tan-ng-labs` (`0ffaffd`) and handed to EP-267.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Two databases created after the last escrow pass had no escrow: the En tenant `en-mori-db`
+  (v0.21.0, 2026-11-14) and the app database `mori-registry-pg`. Losing the cluster would have left
+  their backups unverifiable through review. This is F145's "no check enforces it", seen again.
+  Both are escrowed and verified. Evidence: `verify.txt`.
 
 
 ## Decision Log
@@ -72,7 +73,13 @@ Needs the operator's go-ahead before any step, because it reads the intranet (de
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+On v0.21.0 the intranet meets section 2's objective, escrow and one-hour boxes. Every active
+database is hourly, fresh and on the pinned backup image. Every escrow verifies the newest backup
+from the bucket alone. No application data is outside a schedule. Two databases were unescrowed
+until this check. That argues for the enforcement left open in MasterPlan 36's decision D4. Left
+for the operator: F132's first prune of `kansoku-pg` and `kansoku-ch`. It needs their pending runs
+ingested first (`db app-database backup-receipts NAME --all`), and the prune itself is a reviewed
+deletion of backup objects. Nothing moves to an ADR.
 
 
 ## Context and Orientation

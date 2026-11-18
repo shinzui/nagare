@@ -38,7 +38,7 @@ the held MasterPlan 25 and MasterPlan 26's EP-173 M3–M4. The per-release evide
 retired: a release proves a green full gate, the EP-172 upgrade rehearsal and the intranet's
 deploy-and-login, and nothing here re-runs C2–C5.
 
-### Box-by-box state (2026-11-17)
+### Box-by-box state (2026-11-17; updated 2026-11-18 where marked)
 
 "Done" means the linked evidence still proves the box on today's code. "Partly done" means it holds
 on a drill context, but no evidence shows it on the intranet. "Stale" means the box's wording no
@@ -54,14 +54,14 @@ longer matches an operator decision.
 | 1. Step-3d fix batch | Done | `8824f469`. |
 | 1. Step 5: independent verification, candidate, C2, C3–C5 | Done, one-time | v0.5.0's proofs, retired for later releases by the three-proof rule. Each release since binds a `transition-rehearsal.json`, the latest under `docs/release-evidence/af1141b4f6a949f3afd5da788f9c354a4013c9ab/`. |
 | 1. Known limits F77, F78 | Deferred | Runbooks exist; operator-error cases outside review. |
-| 2. `hourly` objective | Partly done | Shown on `mp23-c3j`; `hourly` is the default (`docs/user/contexts.md`). No intranet `server status` on v0.21.0 is linked. EP-265. |
-| 2. Every signing key escrowed | Partly done | Shown on `mp23-c3j`. The intranet had no escrow until 2026-11-03 (F145). By 2026-11-04 it had escrowed `en-db`, `shomei-db` and Shomei's key-encryption key (F146), `labs-postgres`, `labs-clickhouse`, `kansoku-pg` and `kansoku-ch`. v0.21.0 added En tenant databases `en-<name>-db` (EP-262), with no record that they are escrowed. Nothing checks for a missing escrow (F145). EP-265. |
-| 2. Every store off-cluster within one hour | Partly done | Shown on `mp23-c3j`; for app databases, F132 graded `kansoku-pg` and `kansoku-ch` healthy on 0.7.1. Nothing shows the intranet's schedules on the pinned `cloud-sdk` digest after F143. EP-265. |
+| 2. `hourly` objective | Done (2026-11-18, EP-265) | Shown on `mp23-c3j`; `hourly` is the default (`docs/user/contexts.md`). No intranet `server status` on v0.21.0 is linked. EP-265. |
+| 2. Every signing key escrowed | Done (2026-11-18, EP-265) | Shown on `mp23-c3j`. The intranet had no escrow until 2026-11-03 (F145). By 2026-11-04 it had escrowed `en-db`, `shomei-db` and Shomei's key-encryption key (F146), `labs-postgres`, `labs-clickhouse`, `kansoku-pg` and `kansoku-ch`. v0.21.0 added En tenant databases `en-<name>-db` (EP-262), with no record that they are escrowed. Nothing checks for a missing escrow (F145). EP-265. |
+| 2. Every store off-cluster within one hour | Done (2026-11-18, EP-265) | Shown on `mp23-c3j`; for app databases, F132 graded `kansoku-pg` and `kansoku-ch` healthy on 0.7.1. Nothing shows the intranet's schedules on the pinned `cloud-sdk` digest after F143. EP-265. |
 | 2. Deterioration visible, breach unhealthy | Done | Pinned by tests in every full gate; app-database schedules graded since 0.7.1 (F132). |
 | 2. Retrievable with cluster and operator root gone | Done | `mp23-c3j`; repeated with escrow and bucket only on `ep245` and `ep246`. On the intranet it depends on the escrow row above. |
 | 2. Corrupt and incomplete uploads refused | Done | Pinned by tests in every full gate. |
 | 2. Drill: destroy, restore, verify, time | Done | `mp23-c3j` (data only). VM-loss rebuilds with live service followed: [`ep245`](../audits/ep245-vm-loss-drill-2026-11-04.txt) (v0.16.2, platform databases, 85 min, no hand fixes) and [`ep246`](../audits/ep246-app-database-vm-loss-drill-2026-11-04.txt) (app databases, 89 min). F149 stays deferred, and the runbook names its workaround (`docs/runbooks/disaster-recovery.md`, "take a manual snapshot"). The checklist links neither drill. EP-267. |
-| 3. Fresh, proven backup before a node upgrade | Partly done | Shown on `mp23-c3m` and `mp23-c3l`. `docs/runbooks/releases.md` has no backup step. Whether the intranet's own runbook in `mori://tan/tan-ng-labs` has one is not linked. EP-265, decision D2. |
+| 3. Fresh, proven backup before a node upgrade | Done (2026-11-18, D2: the operator runbook's step 2) | Shown on `mp23-c3m` and `mp23-c3l`. `docs/runbooks/releases.md` has no backup step. Whether the intranet's own runbook in `mori://tan/tan-ng-labs` has one is not linked. EP-265, decision D2. |
 | 3. Drill: node upgrade under load | Done | `83124396` on `mp23-c3m`. The F95 regression runs in every full gate (`host-switch-identity` in `nix/checks/platform.nix` runs `test-host-switch-session-loss.sh`). |
 | 3. Drill: failed node upgrade reverts | Done | `83124396` and `3b59bcb7`. F91 (status refuses after a closed failed host upgrade until the lock is restored) stays deferred. |
 | 4. Fresh, verified backup before a database upgrade | Done for app-bound standalone databases | `s4pre` on `mp23-c3l`. |
@@ -126,9 +126,9 @@ shared server, which EP-266 must carry). No cross-repository ADR applies.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-265 | Show the intranet's backups, escrow and freshness on the release it runs | docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md | None | None | Not Started (needs the operator's go-ahead to read labs, D1) |
+| EP-265 | Show the intranet's backups, escrow and freshness on the release it runs | docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md | None | None | Complete (2026-11-18) |
 | EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | Not Started (scope awaits D3) |
-| EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | Not Started |
+| EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | In Progress (waits on EP-266 and nagare-fix) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -154,7 +154,9 @@ the wording names the gate that exists. It completes last.
 
 ## Progress
 
-No child plan has started. Open operator decisions D1–D4 are in the Decision Log.
+EP-265 is complete. On v0.21.0 the intranet's databases are hourly, fresh, on the pinned backup
+image and escrow-verified (`mori://tan/tan-ng-labs` `0ffaffd`). EP-267 is in progress. EP-266
+waits for nagare-fix's warm drill context for M3; M1, the desk-check, can start now.
 
 
 ## Surprises & Discoveries
@@ -199,6 +201,24 @@ No child plan has started. Open operator decisions D1–D4 are in the Decision L
   step.
   Rationale: never add a check in answer to a past mistake (CLAUDE.md), unless data is at risk.
   Date: 2026-11-17
+
+
+- Decision: The operator approved D1–D4 as recommended ("go ahead", 2026-11-17). D1: EP-265 runs.
+  D2: the read-only pre-upgrade check. D3: EP-266 now, local only. D4: escrow enforcement stays
+  deferred.
+  Rationale: the operator's answer to the plan's summary.
+  Date: 2026-11-17
+- Decision: Reopen D4 for the operator. EP-265 found two databases with no escrow, `en-mori-db`
+  and `mori-registry-pg`, both created within two weeks of the last escrow pass. That contradicts
+  D4's premise that a new database is rare. Both are escrowed now; enforcement stays deferred until
+  the operator answers.
+  Rationale: an unescrowed key leaves backups unverifiable after a cluster loss (F145, P1).
+  Date: 2026-11-18
+- Decision: Reword section 5 only after nagare-fix's process change lands in full. That change
+  moves the mutation sweep from `just land` to `just gate-release` and rewrites CLAUDE.md's
+  "Plans, evidence and gates", not only the per-commit gate.
+  Rationale: nagare-fix, 2026-11-18.
+  Date: 2026-11-18
 
 
 ## Outcomes & Retrospective

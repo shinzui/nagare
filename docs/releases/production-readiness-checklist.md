@@ -26,6 +26,9 @@ drill log. Nothing is ticked on an estimate.
   intranet; the per-release local and cloud evidence chain is not re-run.
 - **A release counts when the intranet runs on it.** The operator's requirement of 2026-10-10:
   developers can deploy and log in, and the operator can change and upgrade without losing data.
+  The intranet runs v0.21.0 (2026-11-14, `mori://tan/tan-ng-labs` `56decf3`: platform status exact,
+  every accepted scope converged, protected-hello redirects to login); the operator's last recorded
+  sign-in is on v0.19.2 (2026-11-12).
 
 What comes after this list is ranked in [priorities after v0.6.3](priorities-after-v0.6.3.md).
 
@@ -72,12 +75,16 @@ What comes after this list is ranked in [priorities after v0.6.3](priorities-aft
 
 - [x] The context uses the `hourly` recovery-point objective (`mp23-c3j`; `server status` shows
       `objective=hourly`; [drill](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/)).
+      Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `0ffaffd`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): all eight active databases report `objective=hourly`.
 - [x] Every signing key is escrowed (all five accepted databases on `mp23-c3j`: en-db, shomei-db,
-      rbk-pg, scenario-ch, scenario-pg).
+      rbk-pg, scenario-ch, scenario-pg). Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `0ffaffd`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): every
+      active database's escrow verified its newest backup with only the key and the bucket, after
+      `en-mori-db` and `mori-registry-pg` were escrowed there (F145).
 - [x] Every authoritative store is backed up off-cluster within one hour of the latest usable
       recovery point, measured including upload, verification and retry delays (all five databases
       healthy in `server status`, ages 215–1063 s, backups in GCS; volumes are outside the objective by
-      decision D2).
+      decision D2). Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `0ffaffd`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): ages 60–940 s, every schedule on the pinned backup image (F143),
+      and no application volume.
 - [x] Freshness deterioration is visible before a breach, and a breach is reported unhealthy.
       (Grading observed natively on `mp23-c3j`; warning and breach grades pinned by tests in candidate
       `3ae20f8c`'s green gate run, [gate](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/gate-3ae20f8c.json), [tests](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/test-evidence-section2-3ae20f8c.txt).)
@@ -92,14 +99,21 @@ What comes after this list is ranked in [priorities after v0.6.3](priorities-aft
       off-cluster backups by the documented procedure; verify the content matches; record the time
       taken. (`mp23-c3j`, 2026-10-08: VM, data disk and snapshots deleted; newest post-seed backup verified
       with escrow and GCS only, restored into PostgreSQL 18, 4/4 rows matched, recovery 20 s;
-      [evidence](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/). Rebuild in place with live service is the next MasterPlan.)
+      [evidence](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/). Rebuild in place with live service followed: [`ep245`](../audits/ep245-vm-loss-drill-2026-11-04.txt),
+      v0.16.2, platform databases, 85 min to sign-in with no hand fixes, and
+      [`ep246`](../audits/ep246-app-database-vm-loss-drill-2026-11-04.txt), app databases, 89 min; F149 stays
+      deferred, with the workaround in [disaster recovery](../runbooks/disaster-recovery.md).)
 
 ## 3. Upgrade a node without worry
 
 - [x] A fresh backup is taken and proven restorable before any node upgrade. (Before each upgrade on
       `mp23-c3m`, all three databases were backed up and scenario-pg was restored into a scratch database
       equal to its source: backups `s3pre` before A and B, and `s3prec` before C; the same on `mp23-c3l` for `3b59bcb7`;
-      [drills](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section3-83124396), [earlier](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section3-3b59bcb7).)
+      [drills](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section3-83124396), [earlier](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section3-3b59bcb7).
+      On the intranet, step 2 of every upgrade (`mori://tan/tan-ng-labs`, `docs/runbooks/operations.md`,
+      "Host changes and upgrades") requires healthy, verified recovery-point rows before the transition's
+      host stage. Restoring from such receipts was shown on `ep245` and `ep246`, and their escrow on the
+      intranet by EP-265; MasterPlan 36, decision D2.)
 - [x] **Drill:** with workloads running, upgrade NixOS and k3s on the node through the self-reverting
       activation (`just host-switch`'s safe switch, driven by a reviewed `inventory apply`); the
       ledger, application data and databases survive; status and doctor are clean afterwards.

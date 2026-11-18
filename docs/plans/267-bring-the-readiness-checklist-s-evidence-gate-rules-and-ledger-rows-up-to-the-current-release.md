@@ -29,30 +29,30 @@ runs, or says which drill context and candidate it rests on. Docs only.
 
 ## Progress
 
-- [ ] Ledger rows, which need no other plan:
-  - F135 moves from Open to Verifying, citing fix `d125e9b9` (in v0.16.0) and the next check, a
-    Chrome sign-in through the built-in login form.
-  - F48's owner, EP-168, is cancelled, so the row moves to the deferral ledger.
-  - Each Verifying row among F113, F114, F123, F126–F128 and F130 whose next check an intranet
-    upgrade since has met is closed, citing the commit in `mori://tan/tan-ng-labs`. The others stay
-    Verifying.
-
-  Pass: the register rows are edited in `docs/audits/mp23-findings.md`.
-- [ ] Section 2 links the newer drills `docs/audits/ep245-vm-loss-drill-2026-11-04.txt` and
-  `docs/audits/ep246-app-database-vm-loss-drill-2026-11-04.txt`. Once
-  `docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md` is
-  complete, the objective, escrow and one-hour boxes link its intranet record.
-- [ ] Section 3's backup box states decision D2's outcome, from
-  `docs/masterplans/36-finish-and-keep-current-the-production-readiness-checklist.md`. Section 4
-  links the drill log of
-  `docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md`,
-  or states the hold D3 chose.
-- [ ] Section 5 names today's gate: the per-commit gate nagare-fix lands, then `just land` with its
-  post-land full gate and selective sweep, where a red record blocks the next land. The deep-tier
-  box is marked superseded by the operator's decision of 2026-10-12. Pass: each box links a current
-  gate record, or names the operator decision that retired it.
-- [ ] The checklist links the intranet's deploy-and-login evidence for the release it runs, by
-  `mori://tan/tan-ng-labs` and commit.
+- [x] (2026-11-18) Ledger rows in `docs/audits/mp23-findings.md`:
+  - F135 is Verifying, with fix `d125e9b9` (v0.16.0) and its next check, a Chrome sign-in through
+    the built-in form.
+  - F48 is Closed as obsolete: its runner and assembler were removed in `7863cd95`, and the
+    intranet's `platform version` row checks the running payload.
+  - F127 is Closed: the 0.21.0 transition converged through the agenix symlink
+    (`mori://tan/tan-ng-labs` `56decf3`).
+  - F145 records EP-265's two missing escrows.
+  - F113, F114, F123, F126, F128 and F130 stay Verifying, because no intranet run since has met
+    their next check. F126's tenant change edited `intranet.env` directly, not through
+    `context apply`.
+- [x] (2026-11-18) Section 2 links EP-265's intranet record on the objective, escrow and one-hour
+  boxes, and the `ep245` and `ep246` VM-loss drills on the drill box.
+- [ ] Section 3's backup box states D2's outcome (done 2026-11-18: the operator runbook's step 2
+  already requires healthy, verified recovery points before the host stage, so no new step).
+  Section 4 links the drill log of
+  `docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md`.
+- [ ] Section 5 names today's gate once nagare-fix's process change lands. That change brings
+  `just gate-commit`, moves the mutation sweep from `just land` to `just gate-release`, and
+  rewrites CLAUDE.md's "Plans, evidence and gates". The deep-tier box is marked superseded by the
+  operator's decision of 2026-10-12. Pass: each box links a current gate record, or names the
+  operator decision that retired it.
+- [x] (2026-11-18) The checklist's rules section links the intranet's v0.21.0 upgrade
+  (`mori://tan/tan-ng-labs` `56decf3`) and the operator's last recorded sign-in (v0.19.2).
 
 
 ## Surprises & Discoveries
