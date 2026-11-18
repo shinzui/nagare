@@ -333,6 +333,16 @@ api-hurl:
     done
     ../nagare-api-server/hurl/run.sh
 
+# The per-commit gate (operator decision, 2026-11-17): the style check, then a
+# build and the tests of only the Haskell packages the change touches, in this
+# checkout's warm builds; in nagarectl's suite, only the test groups the change
+# reaches. The change is the uncommitted one or, with a clean tree, HEAD's (or
+# REV's) own commit. It writes no record: `just gate-fast` still gates a landing.
+# Gate a change's touched Haskell packages before committing it.
+[group('test')]
+gate-commit rev="":
+    scripts/gate-commit.sh {{rev}}
+
 # The landing gate (operator decision, 2026-10-11). The style check, the
 # architecture check and the mutation records' manifest first (seconds), then
 # both Haskell suites, built incrementally and run serially; logs go to

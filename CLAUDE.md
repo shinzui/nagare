@@ -137,7 +137,9 @@ which defer to the user's scope:
 - **Never answer a mistake with a new check, script, rule, runbook item or plan.** Fix it in one
   line and keep working. Prefer removing a step to adding one.
 - **No time estimates.** Report what is done and what is next.
-- **Per Haskell commit:** `just haskell-style-check`, then `just gate-fast`. **Per landing:**
+- **Per Haskell commit:** `just gate-commit`: the style check, then a build and the tests of only
+  the touched packages, in nagarectl's suite only the test groups the change reaches (operator,
+  2026-11-17). **Per landing:**
   `just gate-fast` with no uncommitted changes, then `just land`, which starts the full gate and
   then the release gate's mutation sweep on the landed commit in the background; a red one blocks the next land until a fully gated fix
   lands (operator decision, 2026-10-11). **Per release only:** `just gate-release REV`
