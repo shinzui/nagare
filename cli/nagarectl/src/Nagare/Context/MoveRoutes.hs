@@ -37,7 +37,7 @@ carryOldRoutes accepted redeployed = case accepted of
             [Managed m | m <- mappings before, isMappingOf (m ^. #address) host]
             []
             []
-            [c | c <- contributions before, backendHost c == Just host]
+            [c | c <- contributions before, backendHost c == Just host, not (isPortal c)]
             []
             []
         | host <- Set.toList (routedHosts before)
@@ -48,6 +48,10 @@ carryOldRoutes accepted redeployed = case accepted of
     mappings scope = [m | bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations, isMapping (m ^. #address)]
     routedHosts scope =
       Set.fromList ([h | Just h <- map backendHost (contributions scope)] <> [n | m <- mappings scope, Kubernetes _ _ _ _ n <- [m ^. #address]])
+    -- A context has one portal: the old portal's mapping is carried, its registration is not.
+    isPortal = \case
+      RegisterBackend {role = PortalBackend} -> True
+      _ -> False
     backendHost = \case
       RegisterBackend {host = h} -> Just h
       _ -> Nothing

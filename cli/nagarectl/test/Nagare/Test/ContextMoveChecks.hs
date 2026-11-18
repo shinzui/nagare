@@ -184,6 +184,10 @@ contextMoveChecksTests =
         -- The carried routes are the accepted ones, byte for byte.
         let oldRoutes scope = [m | m <- members scope, m ^. #address `elem` [kube "domainmapping" (Just "apps") h | h <- ["docs.old.example", "auth.old.example"]]]
         oldRoutes carried @?= oldRoutes accepted
+        -- The old portal's mapping is carried, its portal registration is not: a context has one portal.
+        let asPortal scope = ok (mkScopeDeclaration (scopeId scope) [b & #contributions %~ map (\c -> c {role = PortalBackend}) | b <- scopeBundles scope])
+        portal <- either (assertFailure . T.unpack) pure (carryOldRoutes (Just (asPortal (routeScope [("auth.old.example", True)]))) (asPortal (routeScope [("auth.new.example", True)])))
+        (hostsOf portal, mappingsOf portal) @?= (["auth.new.example"], ["auth.new.example", "auth.old.example"])
         carryOldRoutes Nothing redeployed @?= Right redeployed
         carryOldRoutes (Just redeployed) redeployed @?= Right redeployed
     ]
