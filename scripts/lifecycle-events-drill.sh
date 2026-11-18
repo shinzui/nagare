@@ -116,6 +116,7 @@ PY
 PIDS+=($!)
 for _ in $(seq 1 600); do curl -s -m 2 -o /dev/null "http://127.0.0.1:$RECEIVER_PORT/" && break; sleep 1; done
 curl -s -m 2 -o /dev/null "http://127.0.0.1:$RECEIVER_PORT/" || fail "the example receiver did not start: $(tail -3 "$RX/receiver.log")"
+K -n "$NS" delete pod lifecycle-drill-probe --ignore-not-found --wait=true >/dev/null
 K -n "$NS" run lifecycle-drill-probe --image="$CURL_IMAGE" --restart=Never --command -- sleep 3600 >/dev/null
 K -n "$NS" wait pod/lifecycle-drill-probe --for=condition=Ready --timeout=180s >/dev/null
 expect "receiver reachable from the cluster" "$(K -n "$NS" exec lifecycle-drill-probe -- curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST "http://$HOST_ADDR:$PROXY_PORT/hook")" 400
@@ -151,7 +152,10 @@ last_deploy() { grep "^processed " "$RX/receiver.log" | grep '"type":"app.deploy
 eval "$(N context env | grep -E '^export (NAGARE_REGISTRY_HOST|CLOUDSDK_CORE_PROJECT|NAGARE_ARTIFACT_REGISTRY_ID)=')"
 destination="$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/$SITE"
 PUBLIC="$ROOT/site/public"; mkdir -p "$PUBLIC"; cp -R "$EXAMPLE/public/." "$PUBLIC/"
-release() { # tag
+release() { # tag; a release whose deploy converged on this root is not repeated
+  if grep -q '^converged tx-' "$RV/deploy-$1.log" 2>/dev/null; then
+    IMAGE="$(sed -n 's/^Image resource: //p' "$RV/image-$1.log" | tail -1)"; return 0
+  fi
   printf '<!-- %s -->\n' "$1" >> "$PUBLIC/index.html"
   N site package -f "$EXAMPLE/nagare/Config.hs" -C "$EXAMPLE" --ghc-env "$NAGARE_DRILL_GHC_ENV" --output-dir "$PUBLIC" \
     --archive "$ROOT/site/$1.tar" --tag "$1" > "$ROOT/site/$1.package"
