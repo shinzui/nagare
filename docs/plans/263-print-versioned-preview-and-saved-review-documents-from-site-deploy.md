@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-13T00:24:30Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-18T18:57:26Z
+      mode: "update"
+      note: "Rebase orientation on 08d1fa2e: moved-route carry in the site driver, gate-commit, IR-45 targetPlan"
 ---
 
 # Print versioned preview and saved-review documents from site deploy
@@ -130,6 +136,13 @@ raised for
   Rationale: Both follow from recording the inputs and both make recorded state more complete.
   M1 proves the first needs no member operation.
   Date: 2026-11-12
+- Decision: The contract preview is built from the scope after the moved-route carry, the one
+  the candidate is composed from. The output without `--contract` still prints the scope before
+  the carry.
+  Rationale: A client compares the preview with the saved review, and the review holds the
+  carried scope. The two differ only on a context that is moving its base domain. The human
+  output is left alone because IR-45 asks for it to be preserved.
+  Date: 2026-11-18
 
 
 ## Outcomes & Retrospective
@@ -182,7 +195,7 @@ A *local context* is a k3d cluster with loopback substitutes for every cloud ser
 ([docs/user/local-development.md](../user/local-development.md)); the GCP guardrail steps aside
 there by design.
 
-What the code does today, checked at commit `11c09286`:
+What the code does today, checked at commit `08d1fa2e` (v0.23.0):
 
 - `siteDeployOptsParser` in `cli/nagarectl/app/Nagare/Cli/Parser/Site.hs` has no `--contract`
   option, and `SiteDeployOpts` in `cli/nagarectl/app/Nagare/Cli/Options/Site.hs` has no field
@@ -196,6 +209,11 @@ What the code does today, checked at commit `11c09286`:
   call it, and `site publish` reaches it through `deployLoadedStaticSite`. On `--dry-run` it
   prints `ResourceWire.encodeCanonicalScope scope`. On `--save-plan` it calls
   `Inventory.planInventoryCandidateWith`.
+- Between compiling the scope and composing the candidate, the driver calls `withMovedRoutes`
+  (`cli/nagarectl/app/Nagare/Cli/Move/Carry.hs`). On a cloud context that is moving to a new
+  base domain it returns the scope with the routes its old hostnames were granted; otherwise,
+  and always on a local context, it returns the scope unchanged. The candidate is composed from
+  that carried scope, while today's `--dry-run` prints the scope before the carry.
 - `planInventoryCandidateWith` ends in `writePlannedReview` in
   `cli/nagarectl/src/Nagare/Inventory/Command.hs`, which already prints a `saved-review`
   document when the contract sink is set. So the save-plan half of the request needs the sink
@@ -274,9 +292,10 @@ Set the field to `Nothing` where `runSitePublish` builds the record. In `dispatc
 
 In `runSiteDeploy`, refuse a contract run that has neither `--dry-run` nor `--save-plan`,
 before the context is resolved, with the application's wording. In
-`runReviewedSiteDeployPlan`, stamp the compiled scope with M1's function before composing the
-candidate, and on `--dry-run` print `deployPreview scope []` with `emitDocument` when the
-contract was requested and the canonical scope otherwise. The stamp needs the configuration as
+`runReviewedSiteDeployPlan`, stamp the compiled scope with M1's function before the
+`withMovedRoutes` call, so the carried scope in the candidate has the stamp. On `--dry-run`
+print `deployPreview carriedScope []` with `emitDocument` when the contract was requested, and
+the canonical scope as today otherwise. The stamp needs the configuration as
 decoded, which the driver's callers hold before they qualify the image: pass the encoded bytes
 down from `runSiteDeploy`, and from `runSitePublish` (its `site0`) through
 `deployLoadedStaticSite`. The save-plan branch needs no change.
@@ -323,9 +342,9 @@ Then run the save-plan command for the confirmation's out-of-delegation site and
 `refused` outcome, exit 2 and no new review in the store. Run one `site deploy --dry-run`
 without `--contract` and confirm it prints the canonical scope as before.
 
-Write the transcript to `docs/audits/` as that confirmation did, link it from IR-45, and set
-IR-45's status as its profile (`docs/improvement-requests/profile.dhall`) and IR-44's closing
-commit `85b7b492` show. Kotei's adoption is not part of acceptance.
+Write the transcript to `docs/audits/` as that confirmation did, link it from IR-45, and close
+IR-45 as IR-46 was closed in commit `b51915fb`: `status: completed`, `completedAt` and a
+one-line `resolution`. IR-45's `targetPlan` already names this plan. Kotei's adoption is not part of acceptance.
 
 
 ## Concrete Steps
@@ -338,8 +357,7 @@ cabal build exe:nagarectl --project-dir=cli/nagarectl
 cabal run --project-dir=cli/nagarectl nagare-api-openapi
 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /Contract/ --accept'
 git diff docs/api
-just haskell-style-check
-just gate-fast
+just gate-commit
 ```
 
 The checks of M2 that need no context, with the built executable:
@@ -376,8 +394,9 @@ A successful preview in M4 has this shape (values differ):
 Under a deployer the accepted scope's overrides also hold `delegation.deployer`, which planning
 adds after the preview; compare the other keys.
 
-Per Haskell commit run `just haskell-style-check` then `just gate-fast`; land with
-`just land HEAD` (rules in `CLAUDE.md`). Commits follow Conventional Commits and carry the plan
+Per Haskell commit run `just gate-commit`. To land, run `just gate-fast` with no uncommitted
+changes and then `just land HEAD` (rules in `CLAUDE.md`). Neither gate compiles the modules
+under `cli/nagarectl/app`, so build `exe:nagarectl` before each commit that touches them. Commits follow Conventional Commits and carry the plan
 trailer:
 
 ```text

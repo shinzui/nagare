@@ -8,6 +8,7 @@ generated:
   at: "2026-11-12T22:40:00Z"
 requestId: IR-45
 status: proposed
+targetPlan: docs/plans/263-print-versioned-preview-and-saved-review-documents-from-site-deploy.md
 origin: mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer
 acceptanceCriteria:
   - id: AC-1
