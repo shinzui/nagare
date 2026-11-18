@@ -345,7 +345,10 @@ gate-commit rev="":
 
 # The landing gate (operator decision, 2026-10-11). The style check, the
 # architecture check and the mutation records' manifest first (seconds), then
-# both Haskell suites, built incrementally and run serially; logs go to
+# the Haskell suites the change since the nearest ancestor with a green record
+# of its own reaches (Nagare.Harness.Scope: a harness change runs only the
+# harness suite, a docs change none), built incrementally and run serially;
+# the full gate after `just land` still runs every suite; logs go to
 # ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/. EP-200: it gates the
 # committed revision in a gate slot (a kept worktree only gates use), so other
 # sessions' edits and builds cannot reach it; uncommitted changes are not gated.
