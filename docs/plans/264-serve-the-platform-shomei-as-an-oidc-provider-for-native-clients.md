@@ -123,13 +123,23 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   create` through `kubectl exec deploy/shomei`, the `client_credentials` request) and reaches
   the M3 results.
 
-- [ ] M5: Released, and the labs intranet context runs with its URL issuer. Acceptance: the
+- [x] M5: Released, and the labs intranet context runs with its URL issuer. Acceptance: the
   release proves the three release facts; on labs, after the reviewed issuer move, the
   deploy-and-login check passes, the public discovery document reports the issuer, and
   IR-47's status is updated. Needs the operator's go-ahead before any labs mutation.
-  Handoff 2026-11-18: M1 to M4 are on master at `455fa72d`, whose full gate and mutation
-  sweep (202 killed) are green. The main Mac's session prepares, runs and publishes v0.22.0;
-  this plan's owner then proposes the labs issuer move as one bounded sequence.
+  Done 2026-11-18: v0.22.0 (`26d63a3d`) was released from the main Mac. Its release record
+  shows the full gate green and the transition rehearsal passing (`14f1163c`), and the
+  intranet runs it (`mori://tan/tan-ng-labs` `d49515e`, `643c559`). On the operator's
+  go-ahead, `mori://tan/tan-ng-labs` `c4c1bf7` set the issuer. The plan without it had 0
+  operations. Review `35940818` updated the Shomei Deployment, the `nagare-access` Service and
+  the version stamp in place, and its summary named the issuer and the session effect. The
+  next plan had 0 operations, and `nagarectl platform status` reported `Compatibility: exact`
+  on 0.22.0. Shomei rolled out 1/1 with no errors, and `nagare-access` revision 14 is Ready.
+  The protected site answers 302 to `/login?return_to=…` and `/login` answers 200. Public
+  discovery, fetched with the system trust store, reports issuer
+  `https://auth.labs.topagentnetwork.net`, both endpoint URLs and `S256`. `/admin/users`,
+  `/metrics` and `/oauth/userinfo` answer 404. A curl Pod in `personal` fetched the key set,
+  200 with `kid` `msJ5vhpW…`, and was deleted. IR-47 is completed.
 
 
 ## Surprises & Discoveries
@@ -253,7 +263,17 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Achieved: a context's Shomei is now an OIDC provider at its portal origin. One setting,
+`NAGARE_AUTH_ISSUER`, renders the issuer into Shomei and `nagare-access`, turns OIDC on, and
+leaves the packaged bytes unchanged when unset. The enforcer forwards exactly four Shomei
+routes on the portal host, resolving the browser's own session at authorize. The intranet
+runs it at `https://auth.labs.topagentnetwork.net` on v0.22.0, with public and in-cluster
+discovery and key set confirmed. Remaining: Mori's plan 302 M2 and M3 consume the issuer,
+and their acceptance is recorded there. Every token request reaches Shomei from the
+enforcer's address, so one client sending more than 60 requests a minute exhausts the shared
+token bucket. The fix, the enforcer sending `X-Forwarded-For` with `SHOMEI_TRUSTED_PROXIES`
+set, is undecided and recorded in ADR 40's consequences. No friction entries were recorded
+under this plan. The architecture is in ADR 40, which needs no further change.
 
 
 ## Context and Orientation
