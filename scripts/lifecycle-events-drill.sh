@@ -27,6 +27,10 @@ HOST_ADDR="${NAGARE_DRILL_HOST_ADDRESS:-192.168.5.2}"
 PROXY_PORT="${NAGARE_DRILL_PROXY_PORT:-18890}"
 RECEIVER_PORT=$((PROXY_PORT + 1))
 CURL_IMAGE=curlimages/curl:8.10.1
+# NAGARE_DRILL_FROM=N resumes at step N on the same root: the receiver keeps its key and log,
+# and the IDs later steps need are read back from that log.
+FROM="${NAGARE_DRILL_FROM:-1}"
+step_on() { [ "$FROM" -le "$1" ]; }
 
 for v in $(env | sed -n "s/^\(NAGARE_[A-Z_]*\|CLOUDSDK_[A-Z_]*\|PULUMI_[A-Z_]*\|KUBECONFIG\|SOPS_AGE_KEY_FILE\)=.*/\1/p"); do
   case "$v" in NAGARE_DRILL_*) ;; *) unset "$v" ;; esac
@@ -39,7 +43,7 @@ export KUBECONFIG="$XDG_CONFIG_HOME/nagare/kubeconfigs/$CTX.yaml"
 KUBE="$(kubectl config current-context)"
 EV="$ROOT/evidence"; RV="$ROOT/reviews/lifecycle"; RX="$ROOT/receiver"
 mkdir -p "$EV" "$RV" "$RX"
-: > "$EV/lifecycle-drill.tsv"
+[ "$FROM" -gt 1 ] || : > "$EV/lifecycle-drill.tsv"
 log() { printf '%s lifecycle drill: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 fail() { echo "lifecycle drill: FAIL: $*" >&2; exit 1; }
 N() { "$NAGARE_DRILL_NAGARECTL" --context "$CTX" "$@"; }
@@ -78,7 +82,8 @@ metrics() { # label
 metrics idle
 
 # --- 2. the example receiver behind a fault proxy, reachable from the cluster ---
-KEY="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+[ -s "$RX/key" ] || (umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$RX/key")
+KEY="$(cat "$RX/key")"
 RECEIVER_SRC="$REPO/cluster/examples/lifecycle-webhook-receiver/Receiver.hs"
 cabal build -v0 "$RECEIVER_SRC" || fail "the example receiver does not build"
 RECEIVER_BIN="$(cabal list-bin -v0 "$RECEIVER_SRC")"
@@ -115,18 +120,7 @@ K -n "$NS" run lifecycle-drill-probe --image="$CURL_IMAGE" --restart=Never --com
 K -n "$NS" wait pod/lifecycle-drill-probe --for=condition=Ready --timeout=180s >/dev/null
 expect "receiver reachable from the cluster" "$(K -n "$NS" exec lifecycle-drill-probe -- curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST "http://$HOST_ADDR:$PROXY_PORT/hook")" 400
 
-# --- 3. the signing Secret and the reviewed subscription; the worker may read only it ---
-K -n "$NS" create secret generic drill-webhook --from-literal=key="$KEY" --dry-run=client -o yaml | K apply -f - >/dev/null
-N events webhook create "$SUB" --url "http://$HOST_ADDR:$PROXY_PORT/hook" --allow-host "$HOST_ADDR" \
-  --type app.deployed --type database.backup.completed --type database.backup.accepted \
-  --signing-secret "$NS/drill-webhook" --signing-key key --save-plan "$RV/subscribe" > "$RV/subscribe.log"
-review_apply "$RV/subscribe"
-converge_platform subscribe
 SA=system:serviceaccount:nagare-system:nagare-events
-expect "worker may read the signing Secret" "$(K auth can-i get secret/drill-webhook -n "$NS" --as "$SA")" yes
-expect "worker may not read another Secret" "$(K auth can-i get secret/nagare-minio-credentials -n nagare-system --as "$SA" || true)" no
-expect "worker may not list Secrets" "$(K auth can-i list secrets -n "$NS" --as "$SA" || true)" no
-
 # The platform's own databases back up on the same schedule, so events are
 # counted by type and, for backups, by the drill's database.
 count() { # type [substring of the body]
@@ -154,7 +148,6 @@ await_count() { # type substring wanted label started [timeout]
 await_deploys() { await_count app.deployed "" "$@"; }
 last_deploy() { grep "^processed " "$RX/receiver.log" | grep '"type":"app.deployed"' | tail -1 | sed 's/^processed \([^:]*\): .*/\1/'; }
 
-# --- 4. a reviewed site release reaches the receiver once; a no-op redeploy announces nothing ---
 eval "$(N context env | grep -E '^export (NAGARE_REGISTRY_HOST|CLOUDSDK_CORE_PROJECT|NAGARE_ARTIFACT_REGISTRY_ID)=')"
 destination="$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/$SITE"
 PUBLIC="$ROOT/site/public"; mkdir -p "$PUBLIC"; cp -R "$EXAMPLE/public/." "$PUBLIC/"
@@ -172,14 +165,32 @@ deploy_image() { # tag
   N site deploy -f "$EXAMPLE/nagare/Config.hs" --ghc-env "$NAGARE_DRILL_GHC_ENV" -C "$EXAMPLE" --skip-build --tag "$1" --image-resource "$IMAGE" \
     > "$RV/deploy-$1.log" 2>&1 || fail "deploy $1: $(tail -3 "$RV/deploy-$1.log")"
 }
+
+# --- 3. the signing Secret and the reviewed subscription; the worker may read only it ---
+if step_on 3; then
+K -n "$NS" create secret generic drill-webhook --from-literal=key="$KEY" --dry-run=client -o yaml | K apply -f - >/dev/null
+N events webhook create "$SUB" --url "http://$HOST_ADDR:$PROXY_PORT/hook" --allow-host "$HOST_ADDR" \
+  --type app.deployed --type database.backup.completed --type database.backup.accepted \
+  --signing-secret "$NS/drill-webhook" --signing-key key --save-plan "$RV/subscribe" > "$RV/subscribe.log"
+review_apply "$RV/subscribe"
+converge_platform subscribe
+expect "worker may read the signing Secret" "$(K auth can-i get secret/drill-webhook -n "$NS" --as "$SA")" yes
+expect "worker may not read another Secret" "$(K auth can-i get secret/nagare-minio-credentials -n nagare-system --as "$SA" || true)" no
+expect "worker may not list Secrets" "$(K auth can-i list secrets -n "$NS" --as "$SA" || true)" no
+fi
+
+# --- 4. a reviewed site release reaches the receiver once; a no-op redeploy announces nothing ---
+if step_on 4; then
 t0="$(now)"; release d1
 await_deploys 1 "release d1" "$t0"
 D1="$(last_deploy)"; record "release d1 event" "$D1"
 t0="$(now)"; deploy_image d1
 sleep 75
 expect "deployment events after a no-op redeploy" "$(deploys)" 1
+fi
 
 # --- 5. an unattended scheduled PostgreSQL backup completes, then its ingestion is accepted ---
+if step_on 5; then
 N db create postgres drill-pg -n "$NS" --recovery-backup postgres-backup --recovery-key-version v1 > "$RV/db.log" 2>&1 || fail "db create: $(tail -3 "$RV/db.log")"
 K -n "$NS" rollout status statefulset/drill-pg --timeout=300s >/dev/null
 # The worker may read only the signing Secrets the platform scope names; a new
@@ -195,8 +206,10 @@ N db backup-receipts drill-pg -n "$NS" --all --save-plan "$RV/ingest" > "$RV/ing
 t0="$(now)"; review_apply "$RV/ingest"
 await_count database.backup.accepted '"database-drill-pg"' 1 "backup acceptance" "$t0"
 expect "the acceptance names the completion event" "$(count database.backup.accepted "\"completion\":\"$COMPLETION\"")" 1
+fi
 
 # --- 6. catch-up: a release while the worker is stopped arrives once after it starts ---
+if step_on 6; then
 K -n nagare-system scale deploy/nagare-events --replicas=0 >/dev/null
 K -n nagare-system wait pod -l app.kubernetes.io/name=nagare-events --for=delete --timeout=120s >/dev/null 2>&1 || true
 release d2
@@ -204,8 +217,10 @@ sleep 30
 expect "deployment events while the worker is stopped" "$(deploys)" 1
 t0="$(now)"; K -n nagare-system scale deploy/nagare-events --replicas=1 >/dev/null
 await_deploys 2 "catch-up after restart" "$t0"
+fi
 
 # --- 7. a receiver outage retries; the release itself converges meanwhile ---
+if step_on 7; then
 echo 500 > "$RX/mode"
 release d3
 record "release d3 converged during the outage" yes
@@ -214,8 +229,10 @@ expect "deployment events during the outage" "$(deploys)" 2
 record "attempts refused during the outage" "$(grep -c $'\t500\t' "$RX/proxy.log" || true)"
 t0="$(now)"; echo pass > "$RX/mode"
 await_deploys 3 "delivery after the outage" "$t0" 3700
+fi
 
 # --- 8. a lost acknowledgement: processed once, delivered again, deduplicated ---
+if step_on 8; then
 echo drop > "$RX/mode"
 release d4
 await_deploys 4 "release d4 first attempt" "$(now)"
@@ -223,8 +240,10 @@ echo pass > "$RX/mode"
 for _ in $(seq 1 600); do grep -q "^duplicate " "$RX/receiver.log" && break; sleep 1; done
 expect "duplicate deliveries deduplicated by the receiver" "$(grep -c "^duplicate " "$RX/receiver.log" || true)" 1
 expect "deployment events processed after the duplicate" "$(deploys)" 4
+fi
 
 # --- 9. a restart with queued work keeps it ---
+if step_on 9; then
 echo 500 > "$RX/mode"
 release d5
 sleep 45
@@ -241,14 +260,18 @@ states = collections.Counter(i.get("state") for i in items)
 print("delivery states\t" + ",".join(f"{k}={v}" for k, v in sorted(states.items())))
 print("distinct events delivered\t" + str(len({i.get("event") or i.get("eventId") for i in items})))
 PY
+fi
 
 # --- 10. a reviewed replay sends the original event ID again; nothing is deployed ---
+if step_on 10; then
+D1="${D1:-$(grep "^processed " "$RX/receiver.log" | grep '"type":"app.deployed"' | head -1 | sed 's/^processed \([^:]*\): .*/\1/')}"
 before_revision="$(K -n "$NS" get ksvc "$SITE" -o jsonpath='{.status.latestReadyRevisionName}')"
 N events delivery replay "$SUB" --event "$D1" --save-plan "$RV/replay" > "$RV/replay.log" 2>&1 || fail "replay: $(tail -3 "$RV/replay.log")"
 review_apply "$RV/replay"
 for _ in $(seq 1 180); do [ "$(grep -c "^duplicate $D1" "$RX/receiver.log" || true)" -ge 1 ] && break; sleep 1; done
 expect "replay arrived under the original event ID" "$(grep -c "^duplicate $D1" "$RX/receiver.log" || true)" 1
 expect "site revision unchanged by the replay" "$(K -n "$NS" get ksvc "$SITE" -o jsonpath='{.status.latestReadyRevisionName}')" "$before_revision"
+fi
 
 # --- 11. the worker's credentials refuse writes ---
 expect "inventory mount is read-only to the worker" \
