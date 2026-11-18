@@ -6,13 +6,18 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-18T22:18:50Z"
 frictionId: FRIC-18
-status: logged
+status: "resolved"
 impact: detour
 kind: tooling
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare"
 plan: "docs/plans/270-plan-application-reviews-after-a-failed-release-hook-is-closed.md"
 workaround: "Fixed in the same commit: keep the name verbatim and cut only at '/'"
+resolution: "Fixed in a20a5203: scripts/gate-commit.sh keeps the group name verbatim and cuts only at '/'."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-18T22:30:51Z"
+    change: "Status set to resolved."
 ---
 # gate-commit selects no test for a group name with parentheses
 

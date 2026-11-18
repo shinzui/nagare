@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-18
+* **Update**: Mark BUG-10 `fixed` in `unreleased` by commit `a20a5203` (ExecPlan 270): a pre-deploy hook's operation is planned only for a review that selects its own Job, so a closed release's hook no longer enters reviews through the data every hook shares.
 * **Addition**: Record BUG-10 from mori://shinzui/kotei/okf/friction-log/concepts/FRIC-80. Closing a terminal application migration hook leaves subsequent app reviews unable to bind the closed release Job.
 
 ## 2026-10-28

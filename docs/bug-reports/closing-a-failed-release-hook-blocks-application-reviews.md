@@ -6,7 +6,22 @@ generated:
   by: process:codex
   at: "2026-11-18T22:00:00Z"
 bugId: BUG-10
-status: reported
+status: fixed
+resolution: >-
+  Fixed on master by commit a20a5203. The planner's scopeDeclared
+  (cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs) walked every scope and
+  planned each unproven declared operation that named any selected member, so
+  the data a closed release's hook declared, shared with every later hook,
+  re-planned that hook in an unrelated review, whose Job the review never
+  bound. A PreDeployHook operation is now planned only through a selected
+  member its own scope owns (its Job). Close and the adapter are unchanged. The
+  model-world test "a closed failed hook does not block later reviews (BUG-10)"
+  in cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs fails without the fix with
+  the reported PrepareRefused for all three follow-ups (corrected release,
+  rollback, another application) and with it converges each, keeps the failed
+  Job and leaves the prior converged revision unchanged until the successor
+  converges. Kotei confirms natively by rerunning its rehearsal on kotei-mp26
+  against a20a5203; a context holding a closed hook scope needs no repair.
 severity: unusable
 origin: mori://shinzui/kotei/okf/friction-log/concepts/FRIC-80
 affects: mori://shinzui/nagare/packages/nagarectl

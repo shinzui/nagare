@@ -2,6 +2,9 @@
 
 ## 2026-11-18
 
+* **Update**: FRIC-18 resolved: Status set to resolved.
+
+
 * **Addition**: FRIC-18 records detour tooling friction with mori://shinzui/nagare: gate-commit selects no test for a group name with parentheses
 
 

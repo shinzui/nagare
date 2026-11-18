@@ -77,9 +77,14 @@ fix and passes after it.
   operation on a `v2` hook member, the `v2` Job live with its uid, the `v2` hook scope accepted
   and unconverged, and the Application's converged revision unchanged from close until `v3`.
   `just gate-commit` green (44 s); full `cabal test nagarectl-test` green (all 10 shards).
-- [ ] M3. The fix is landed (`just gate-fast`, `just land`), BUG-10 is marked `fixed` with the
+- [x] M3. The fix is landed (`just gate-fast`, `just land`), BUG-10 is marked `fixed` with the
   landed revision, and the revision Kotei must qualify is recorded in the bug report and reported
   to the operator.
+  2026-11-18: `just gate-fast` green on `a20a5203` (fast record
+  `~/.local/state/nagare/gates/fast/a20a52034dfd940d0da9343f116ce7837bcc3c9a.json`), `just land
+  a20a5203` pushed it to master. BUG-10 is `fixed` with a `resolution` naming `a20a5203`, which is
+  the revision Kotei qualifies for `mori://shinzui/kotei/okf/friction-log/concepts/FRIC-80`; no
+  `fixedVersion` until a release carries it.
 
 
 ## Surprises & Discoveries
@@ -143,7 +148,16 @@ fix and passes after it.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+After a failed release hook is closed, a corrected release, a rollback and another application
+whose hooks declare the same data now plan, prepare and converge: the planner selects a
+`PreDeployHook` operation only through its own Job, so the closed release's hook stays in history,
+accepted and unconverged, and never enters an unrelated review. Proved by a model-world test that
+fails with Kotei's exact refusal without the fix; landed in `a20a5203`. What remains is outside
+this plan: Kotei's native rerun on `kotei-mp26` against `a20a5203`, and the operator's choice of
+whether to cut a patch release. Other declared-operation kinds still select through any affected
+member; they were not audited and are left as they are. FRIC-18 (gate-commit's test pattern for
+group names with parentheses) was resolved in the same commit. No ADR changes: ADR 26's close
+semantics stand, and the fix is planner selection, not architecture.
 
 
 ## Context and Orientation
