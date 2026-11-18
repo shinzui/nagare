@@ -71,17 +71,29 @@ loadKubernetesSources workspace declarations = do
                               , inputSensitivity = declaration ^. #sensitivity
                               , sourceLocation = location
                               }
+                      let differs =
+                            [part | (part, same) <- [("address", address recompiled == address declaration), ("spec", spec recompiled == spec declaration), ("bytes", bound == native)], not same]
                       unless
-                        (address recompiled == address declaration && spec recompiled == spec declaration && bound == native)
-                        (Left "packaged Kubernetes source differs from the typed declaration")
+                        (null differs)
+                        ( Left
+                            ( "packaged Kubernetes source differs from the typed declaration of "
+                                <> resourceIdText (declaration ^. #identity)
+                                <> " ("
+                                <> T.intercalate ", " differs
+                                <> ")"
+                            )
+                        )
                       pure (declaration ^. #identity, (declaration, bound))
       _ -> pure (Left "Kubernetes source loader received a non-Kubernetes resource")
 
 -- | Whether a declaration names a document of a packaged manifest within the
--- workspace; generated members (applications', databases') do not.
+-- workspace; generated members (applications', databases') do not, and nor does
+-- a member rendered from a @.tmpl@ template (the issuer, the tunnel, the admin
+-- API), whose file holds placeholders, not the declared document. Such a member
+-- is planned from its accepted bytes, as when a move retires the issuer.
 hasPackagedSource :: ManagedResource -> Bool
 hasPackagedSource declaration =
-  not (T.null suffix) && not (null sourceFile) && isRelative sourceFile
+  not (T.null suffix) && not (null sourceFile) && isRelative sourceFile && not (".tmpl" `T.isSuffixOf` file location)
   where
     location = declaration ^. #source
     sourceFile = T.unpack (file location)
