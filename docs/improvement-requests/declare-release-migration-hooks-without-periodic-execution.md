@@ -109,3 +109,9 @@ migration/provisioning stages, retained-content handoff and upgrade/recovery
 rehearsals. This request does not implement Kotei hosting or reopen IR-44's
 accepted secret isolation. Static-site contract work remains independent in
 `mori://shinzui/nagare/okf/improvement-requests/concepts/IR-45`.
+
+## Implementation plan
+
+ExecPlan 269 ([docs/plans/269-declare-release-only-migration-hooks-that-no-schedule-can-run.md](../plans/269-declare-release-only-migration-hooks-that-no-schedule-can-run.md))
+plans AC-1 to AC-4 with a release-only task trigger that keeps the CronJob accepted suspended.
+Nothing is implemented yet.

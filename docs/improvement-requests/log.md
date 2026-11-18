@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-18
+* **Update**: IR-46 links ExecPlan 269 (docs/plans/269-declare-release-only-migration-hooks-that-no-schedule-can-run.md), which plans its four acceptance criteria; nothing is implemented yet.
+
 ## 2026-11-17
 * **Created**: Add IR-47 from mori://shinzui/mori/plans/302-migrate-the-shared-registry-from-legacy-tokens-to-shomei-and-en-with-a-team-pilot: let a context give the auth plane's Shomei an absolute https issuer with OIDC enabled, shared by Shomei and nagare-access, and publicly serve its discovery, signing-key, authorize and token endpoints, so native clients and services sign in with the intranet identity.
 
