@@ -70,7 +70,7 @@ Relevant local decisions are [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-pro
 | 232 | Successful application deployment events | [EP-232](../plans/232-record-successful-application-deployments-as-lifecycle-events.md) | EP-231 | None | Complete |
 | 233 | Verified database backup events and collection | [EP-233](../plans/233-observe-verified-database-backups-and-publish-lifecycle-events.md) | EP-231 | None | Complete |
 | 234 | Shared delivery core and first webhook adapter | [EP-234](../plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md) | EP-231 | EP-232 and EP-233 real producer fixtures | Complete |
-| 235 | Runtime installation and recovery proof | [EP-235](../plans/235-run-the-lifecycle-event-service-and-prove-restart-and-upgrade-recovery.md) | EP-232, EP-233, EP-234 | None | Not Started |
+| 235 | Runtime installation and recovery proof | [EP-235](../plans/235-run-the-lifecycle-event-service-and-prove-restart-and-upgrade-recovery.md) | EP-232, EP-233, EP-234 | None | Complete |
 
 Statuses are Not Started, In Progress, Complete, or Cancelled. Whole-child hard dependencies require completion of that child.
 
@@ -107,6 +107,12 @@ Inventory-produced facts ride the existing journal, not a second chain. The jour
 
 ## Progress
 
+
+2026-11-18: EP-235 is complete and so is this MasterPlan: the `nagare-events` worker runs as
+`platform:lifecycle-events`, opted into per context, and a disposable local context proves
+deployment and backup events reaching a signed receiver through restart, outage, duplicate and
+replay ([evidence](../audits/mp31-lifecycle-events/README.md)). Cloud denials and a release
+transition with queued work are deferred (F154, F155).
 
 2026-11-17: EP-234 is complete: reviewed webhook subscriptions, a transport-neutral delivery engine with a signed webhook adapter, replay, and CLI and admin API inspection; ADR 33 is amended with the delivered semantics. EP-235 is unblocked.
 
@@ -159,4 +165,9 @@ Scheduled backup receipts can be verified before reviewed ingestion and remain u
 ## Outcomes & Retrospective
 
 
-(To be filled during implementation and at completion.)
+2026-11-18: Nagare publishes a durable, context-bound feed of `app.deployed`,
+`database.backup.completed` and `database.backup.accepted` events and delivers reviewed webhook
+subscriptions with signed, retried, replayable attempts, served read-only by the CLI and the admin
+API. The worker is off by default and proven natively on a local context; cloud enablement waits on
+F154 and F155. The cost was dominated by native verification, not code: each drill failure meant a
+fresh platform bootstrap. ADR 33 and ADR 39 hold the architecture.

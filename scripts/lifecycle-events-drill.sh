@@ -88,7 +88,7 @@ RECEIVER_SRC="$REPO/cluster/examples/lifecycle-webhook-receiver/Receiver.hs"
 cabal build -v0 "$RECEIVER_SRC" || fail "the example receiver does not build"
 RECEIVER_BIN="$(cabal list-bin -v0 "$RECEIVER_SRC")"
 # exec, so the PID kept for cleanup is the receiver's own.
-( cd "$RX" && NAGARE_WEBHOOK_KEY="$KEY" PORT="$RECEIVER_PORT" exec "$RECEIVER_BIN" > "$RX/receiver.log" 2>&1 ) &
+( cd "$RX" && NAGARE_WEBHOOK_KEY="$KEY" PORT="$RECEIVER_PORT" exec "$RECEIVER_BIN" >> "$RX/receiver.log" 2>&1 ) &
 PIDS+=($!)
 echo pass > "$RX/mode"
 python3 -I - "$PROXY_PORT" "$RECEIVER_PORT" "$RX/mode" "$RX/proxy.log" <<'PY' &
@@ -268,7 +268,7 @@ fi
 
 # --- 10. a reviewed replay sends the original event ID again; nothing is deployed ---
 if step_on 10; then
-D1="${D1:-$(grep "^processed " "$RX/receiver.log" | grep '"type":"app.deployed"' | head -1 | sed 's/^processed \([^:]*\): .*/\1/')}"
+D1="${D1:-$(sed -n 's/^release d1 event\t//p' "$EV/lifecycle-drill.tsv" | tail -1)}"
 before_revision="$(K -n "$NS" get ksvc "$SITE" -o jsonpath='{.status.latestReadyRevisionName}')"
 N events delivery replay "$SUB" --event "$D1" --save-plan "$RV/replay" > "$RV/replay.log" 2>&1 || fail "replay: $(tail -3 "$RV/replay.log")"
 review_apply "$RV/replay"

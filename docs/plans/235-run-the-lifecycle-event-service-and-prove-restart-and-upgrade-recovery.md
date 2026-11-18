@@ -56,7 +56,13 @@ A context can run lifecycle event collection and webhook delivery continuously w
   2e3d1d0b (`--enable-lifecycle-events`/`--enable-lifecycle-delivery`, catalog section, platform
   stage, transition-table row, `InventoryLifecycleEventsSpec`), the worker-key runbook and DOC-45
   "Run the worker". Native upgrade survival is confirmed in M3.
-- [ ] M3: Gated offline coverage and disposable native deployment/backup/receiver drills prove catch-up, duplicate handling, credential isolation and latency reporting.
+- [x] M3: Gated offline coverage and disposable native deployment/backup/receiver drills prove catch-up, duplicate handling, credential isolation and latency reporting.
+  Evidence: offline, the bounded adapter call (e457768c, mutation record EP235-adapter-call-unbounded),
+  restart catch-up and grant-ordering tests; natively, [the local drill](../audits/mp31-lifecycle-events/README.md)
+  on `ep235` at `25bca345`: release, no-op, unattended backup and acceptance, catch-up, outage,
+  lost acknowledgement, restart with queued work, replay, Secret and object-store denials, final
+  replan 0 operations. Cloud denials (F154) and a release transition with queued work (F155) are
+  deferred by the operator.
 
 
 ## Surprises & Discoveries
@@ -67,6 +73,8 @@ A context can run lifecycle event collection and webhook delivery continuously w
 
 ## Decision Log
 
+- 2026-11-17: Operator: finish locally; cloud credential denials (F154) and a release transition
+  with queued work (F155) go to the deferral ledger.
 - 2026-11-17: The native drill continues the existing disposable local orchestrator
   (`scripts/site-access-drill.sh` with `NAGARE_DRILL_LIFECYCLE=1`, then a continuation script like
   `scripts/admin-api-drill.sh`) instead of a new harness scenario: it adds no orchestration step.
@@ -95,7 +103,14 @@ A context can run lifecycle event collection and webhook delivery continuously w
 ## Outcomes & Retrospective
 
 
-(To be filled during implementation and at completion.)
+2026-11-18: The lifecycle worker runs as a reviewed platform scope, off by default, and a local
+context proves the whole path natively: deployments and unattended backups reach a signed webhook
+receiver once, through stops, outages, lost acknowledgements, restarts and replays, with the worker
+unable to write the inventory or backups. Remaining: the cloud credential denials (F154) and a
+release transition with queued deliveries (F155), deferred. The native run found two product
+defects the offline suite missed (scope ordering across platform stages, ClusterRole updates) and
+three in the example receiver, which no gate builds; most of its time went to rebuilding the drill
+context after drill-script failures. Nothing moves to an ADR.
 
 
 ## Context and Orientation
