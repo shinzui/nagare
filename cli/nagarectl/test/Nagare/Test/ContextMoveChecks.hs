@@ -18,7 +18,7 @@ import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
-import Nagare.Context.MoveRoutes (carryGrantedRoutes)
+import Nagare.Context.MoveRoutes (carryOldRoutes)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
@@ -173,20 +173,19 @@ contextMoveChecksTests =
               ]
         map blocksMove changes @?= [False, True, True]
         hostChanges "example.com" (appScope [service "apps" "site"]) @?= [DefaultRenamed "site.apps.example.com" "site-apps.example.com"]
-    , testCase "a redeploy during a base move keeps each protected route a grant still names, and nothing else (EP-246 D5)" $ do
-        let host = ok . mkName
-            accepted = routeScope [("docs.old.example", True), ("public.old.example", False)]
-            redeployed = routeScope [("docs.new.example", True)]
+    , testCase "a redeploy during a base move keeps every route it dropped until retirement, granted or not (EP-246 D5)" $ do
+        let accepted = routeScope [("docs.old.example", True), ("auth.old.example", False)]
+            redeployed = routeScope [("docs.new.example", True), ("auth.new.example", False)]
             hostsOf scope = sort [nameText h | b <- scopeBundles scope, RegisterBackend {host = h} <- b ^. #contributions]
             mappingsOf scope = sort [nameText n | m <- members scope, Kubernetes _ _ k _ n <- [m ^. #address], nameText k == "domainmapping"]
-        carried <- either (assertFailure . T.unpack) pure (carryGrantedRoutes (Set.fromList [host "docs.old.example"]) (Just accepted) redeployed)
-        (hostsOf carried, mappingsOf carried) @?= (["docs.new.example", "docs.old.example"], ["docs.new.example", "docs.old.example"])
-        -- The carried route is the accepted one, byte for byte.
-        let oldRoute scope = [m | m <- members scope, m ^. #address == kube "domainmapping" (Just "apps") "docs.old.example"]
-        oldRoute carried @?= oldRoute accepted
-        carryGrantedRoutes Set.empty (Just accepted) redeployed @?= Right redeployed
-        carryGrantedRoutes (Set.fromList [host "docs.old.example"]) Nothing redeployed @?= Right redeployed
-        carryGrantedRoutes (Set.fromList [host "docs.new.example"]) (Just redeployed) redeployed @?= Right redeployed
+        carried <- either (assertFailure . T.unpack) pure (carryOldRoutes (Just accepted) redeployed)
+        (hostsOf carried, mappingsOf carried)
+          @?= (["docs.new.example", "docs.old.example"], ["auth.new.example", "auth.old.example", "docs.new.example", "docs.old.example"])
+        -- The carried routes are the accepted ones, byte for byte.
+        let oldRoutes scope = [m | m <- members scope, m ^. #address `elem` [kube "domainmapping" (Just "apps") h | h <- ["docs.old.example", "auth.old.example"]]]
+        oldRoutes carried @?= oldRoutes accepted
+        carryOldRoutes Nothing redeployed @?= Right redeployed
+        carryOldRoutes (Just redeployed) redeployed @?= Right redeployed
     ]
 
 now :: UTCTime

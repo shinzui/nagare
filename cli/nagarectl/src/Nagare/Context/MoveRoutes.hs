@@ -1,12 +1,12 @@
 -- | The route half of EP-246 D5. A site redeployed from its config on the new base declares its new
 -- names, and a grant binds to the exact accepted protected route of its host (ADR 29), so a redeploy
 -- that dropped an old protected route would orphan its grants. While a base move is open, or the
--- context still keeps its old base, the redeployed scope carries every accepted protected route an
--- accepted grant still names: the same DomainMapping and the same backend registration, unchanged.
--- Only retirement, which revokes and then retires those grants, lets a later deploy drop them.
+-- context still keeps its old base, the redeployed scope carries every accepted route it dropped,
+-- granted or not (the auth portal's has no grant): the same DomainMapping and the same backend
+-- registration, unchanged. Only retirement, which revokes and retires the grants and then the routes,
+-- lets a later deploy drop them.
 module Nagare.Context.MoveRoutes
-  ( carryGrantedRoutes
-  , grantedHosts
+  ( carryOldRoutes
   )
 where
 
@@ -17,17 +17,9 @@ import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 
--- | Hosts an accepted direct or team grant names, present or revoked: either binds its route.
-grantedHosts :: [Declaration] -> Set.Set Name
-grantedHosts declarations =
-  Set.fromList
-    ( [host | Managed r <- declarations, AccessTuple _ host _ <- [r ^. #address]]
-        <> [host | Managed r <- declarations, TeamAccessTuple _ host _ <- [r ^. #address]]
-    )
-
--- | The redeployed scope with each accepted protected route it dropped and a grant still names.
-carryGrantedRoutes :: Set.Set Name -> Maybe ScopeDeclaration -> ScopeDeclaration -> Either Text ScopeDeclaration
-carryGrantedRoutes granted accepted redeployed = case accepted of
+-- | The redeployed scope with each accepted route it dropped.
+carryOldRoutes :: Maybe ScopeDeclaration -> ScopeDeclaration -> Either Text ScopeDeclaration
+carryOldRoutes accepted redeployed = case accepted of
   Nothing -> Right redeployed
   Just before
     | null carried -> Right redeployed
@@ -39,7 +31,7 @@ carryGrantedRoutes granted accepted redeployed = case accepted of
               <$> mkScopeDeclaration (scopeId redeployed) (scopeBundles redeployed <> carried)
           )
     where
-      kept = registeredHosts redeployed
+      kept = routedHosts redeployed
       carried =
         [ ResourceBundle
             [Managed m | m <- mappings before, isMappingOf (m ^. #address) host]
@@ -48,14 +40,14 @@ carryGrantedRoutes granted accepted redeployed = case accepted of
             [c | c <- contributions before, backendHost c == Just host]
             []
             []
-        | host <- Set.toList (registeredHosts before)
-        , host `Set.member` granted
+        | host <- Set.toList (routedHosts before)
         , host `Set.notMember` kept
         ]
   where
     contributions scope = concatMap (^. #contributions) (scopeBundles scope)
     mappings scope = [m | bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations, isMapping (m ^. #address)]
-    registeredHosts scope = Set.fromList [h | Just h <- map backendHost (contributions scope)]
+    routedHosts scope =
+      Set.fromList ([h | Just h <- map backendHost (contributions scope)] <> [n | m <- mappings scope, Kubernetes _ _ _ _ n <- [m ^. #address]])
     backendHost = \case
       RegisterBackend {host = h} -> Just h
       _ -> Nothing

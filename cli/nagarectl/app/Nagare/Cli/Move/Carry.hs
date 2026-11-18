@@ -8,12 +8,12 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Context.BaseFlip (baseMoveKind)
-import Nagare.Context.MoveRoutes (carryGrantedRoutes, grantedHosts)
+import Nagare.Context.MoveRoutes (carryOldRoutes)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command (openTargetStoreReadOnly)
 import Nagare.Inventory.Store (HeadManifest (..), readHead)
 import Nagare.Inventory.Store.Manifest (MoveMarker (..))
-import Nagare.Resource.Inventory (ScopeDeclaration, ScopeSnapshot, composeSnapshot, inventoryDeclarations, scopeId, snapshotScopes)
+import Nagare.Resource.Inventory (ScopeDeclaration, ScopeSnapshot, scopeId, snapshotScopes)
 import Nagare.Target (ActiveTarget, Mode (Local))
 
 withMovedRoutes :: ActiveTarget -> ScopeSnapshot -> ScopeDeclaration -> IO ScopeDeclaration
@@ -22,9 +22,8 @@ withMovedRoutes active snapshot scope = do
   if not carrying
     then pure scope
     else do
-      declarations <- either (dieT . T.pack . show) (pure . inventoryDeclarations) (composeSnapshot snapshot)
       let accepted = snd <$> Map.lookup (scopeId scope) (snapshotScopes snapshot)
-      either dieT pure (carryGrantedRoutes (grantedHosts declarations) accepted scope)
+      either dieT pure (carryOldRoutes accepted scope)
 
 baseMoveCarrying :: ActiveTarget -> IO Bool
 baseMoveCarrying active
