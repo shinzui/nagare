@@ -96,6 +96,7 @@ import Nagare.Inventory.BackupFreshness
   , recoveryPointObjectiveText
   )
 import Nagare.Target.Acme
+import Nagare.Target.AuthIssuer (AuthIssuer, authIssuerText, authIssuerVariable, parseAuthIssuer)
 import Nagare.Target.ContextFile (parseContextEnv, shellQuote)
 import Nagare.Target.EnTenants (EnTenantDeclaration, parseEnTenantDeclarations, renderEnTenantDeclarations)
 import Nagare.Target.Kinds
@@ -413,6 +414,10 @@ data TargetProfile = TargetProfile
   , enTenants :: ![EnTenantDeclaration]
   -- ^ NAGARE_EN_TENANTS and each NAGARE_EN_TENANT_<NAME>_SCHEMA (EP-262): the
   -- operator's En tenants beside @nagare@, read from the context file only.
+  , authIssuer :: !(Maybe AuthIssuer)
+  -- ^ NAGARE_AUTH_ISSUER (EP-264): the auth portal's @https@ origin, which
+  -- Shomei and the enforcer use as the token issuer, with OIDC enabled.
+  -- 'Nothing' keeps @nagare-shomei@ and OIDC off.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -546,6 +551,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_PULUMI_STACK" (penv ^. #stack)
     ]
     <> T.unlines [line variable value | (variable, value) <- renderEnTenantDeclarations (tp ^. #enTenants)]
+    <> T.unlines [line authIssuerVariable (authIssuerText issuer) | Just issuer <- [tp ^. #authIssuer]]
   where
     ctx = contextNameText name
     line k v = "export " <> k <> "=" <> shellQuote v
@@ -730,6 +736,7 @@ profileFromContextMap ctx =
       deployer = T.pack <$> mapRaw ctx "NAGARE_DEPLOYER"
       operatorName = T.pack <$> mapRaw ctx "NAGARE_OPERATOR"
       enTenants = either (error . T.unpack) id (parseEnTenantDeclarations ctx)
+      authIssuer = either (error . T.unpack) id (parseAuthIssuer ctx)
    in TargetProfile
         { project = project
         , region = region
@@ -770,6 +777,7 @@ profileFromContextMap ctx =
         , deployer = deployer
         , operatorName = operatorName
         , enTenants = enTenants
+        , authIssuer = authIssuer
         }
 
 resolveProfileFrom :: Map String Text -> IO TargetProfile
@@ -813,6 +821,7 @@ resolveProfileFrom ctx = do
   deployer <- fmap T.pack <$> ctxRaw ctx "NAGARE_DEPLOYER"
   operatorName <- fmap T.pack <$> ctxRaw ctx "NAGARE_OPERATOR"
   enTenants <- either (ioError . userError . T.unpack) pure (parseEnTenantDeclarations ctx)
+  authIssuer <- either (ioError . userError . T.unpack) pure (parseAuthIssuer ctx)
   either (ioError . userError . T.unpack) (const (pure ())) (actorFromNames deployer operatorName)
   when (mode == Cloud && inventoryStore == InventoryStoreObject) (ioError (userError "NAGARE_INVENTORY_STORE=object is only for a local context"))
   pure
@@ -856,6 +865,7 @@ resolveProfileFrom ctx = do
       , deployer = deployer
       , operatorName = operatorName
       , enTenants = enTenants
+      , authIssuer = authIssuer
       }
 
 -- | Resolve the active context into a context name plus fully-derived

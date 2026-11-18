@@ -4,6 +4,8 @@ module Nagare.Inventory.BackendMap
   , compileContributedBackendMaps
   , renderShomeiSettingsNative
   , compileContributedShomeiSettings
+  , composedPortalHost
+  , issuerPortalRefusal
   )
 where
 
@@ -23,6 +25,51 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types (Name, ProviderAddress (..), ResourceId, nameText)
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Target.AuthIssuer (AuthIssuer, authIssuerHost, authIssuerText, authIssuerVariable)
+
+-- | EP-264: the auth portal host the composed Shomei settings name, the one
+-- registered portal of the context.
+composedPortalHost :: [Declaration] -> Maybe Text
+composedPortalHost declarations =
+  case [nameText host | Managed resource <- declarations, ShomeiSettingsSpec _ (Just host) <- [resource ^. #spec]] of
+    host : _ -> Just host
+    [] -> Nothing
+
+-- | EP-264: why a context's issuer and its portal disagree. The issuer's host
+-- is the portal's, so its login URL is @<issuer>/login@. A portal on another
+-- host is always refused; no portal at all is refused when the caller
+-- requires one (the platform plan, which would turn OIDC on).
+issuerPortalRefusal :: Bool -> Maybe AuthIssuer -> [Declaration] -> Maybe Text
+issuerPortalRefusal requirePortal issuer declarations = do
+  configured <- issuer
+  let host = authIssuerHost configured
+      declared = authIssuerVariable <> "=" <> authIssuerText configured
+  case composedPortalHost declarations of
+    Just portal
+      | portal == host -> Nothing
+      | otherwise ->
+          Just
+            ( "the auth portal is on "
+                <> portal
+                <> " but "
+                <> declared
+                <> " names "
+                <> host
+                <> "; the issuer is the portal's origin, so deploy the portal on "
+                <> host
+                <> " or change the issuer before any client binds identities to it"
+            )
+    Nothing
+      | requirePortal ->
+          Just
+            ( declared
+                <> " needs the auth portal on "
+                <> host
+                <> ", and this context registers none; deploy the auth portal on "
+                <> host
+                <> " first (docs/user/auth-portal.md), then plan the platform"
+            )
+      | otherwise -> Nothing
 
 renderBackendMapNative :: [BackendEntry] -> Either Text ByteString
 renderBackendMapNative entries = canonicalValue =<< renderBackendMapObject entries

@@ -58,6 +58,11 @@ two names that would become one, and a name that would spell a platform host. It
 differ from the reviewed ones: settle them with `nagarectl access grant` or `revoke` first, because the move carries only what the
 ledger declares.
 
+A context that sets `NAGARE_AUTH_ISSUER` is refused outright, by name, by both `context move list` and the move itself. Its Shomei
+issues tokens under the auth portal's URL ([access.md](access.md#sign-in-native-clients-and-services)), and the portal host moves with
+the base, so every token's issuer would change and every native client or service bound to the exact issuer would stop matching.
+Moving such a context is not supported.
+
 ## Run the move
 
 ```bash

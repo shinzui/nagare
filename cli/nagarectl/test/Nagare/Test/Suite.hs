@@ -34,6 +34,7 @@ import InventoryActionPublicationSpec (inventoryActionPublicationTests)
 import InventoryApplicationSpec (inventoryApplicationTests)
 import InventoryApplicationUpdateRecoverySpec
 import InventoryArtifactSpec (inventoryArtifactTests)
+import InventoryAuthIssuerSpec (inventoryAuthIssuerTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryAuthTenantsSpec (inventoryAuthTenantsTests)
 import InventoryCacheSpec (inventoryCacheTests)
@@ -260,6 +261,7 @@ main = do
             , inventoryKubernetesReadinessTests
             , inventoryEnTenantsTests
             , inventoryAuthTenantsTests
+            , inventoryAuthIssuerTests
             , inventoryCloseTests
             , inventoryTransferScriptTests
             , inventoryRefusedPreflightRecoveryTests

@@ -23,6 +23,7 @@ import Nagare.Cluster.GcsJob
   )
 import Nagare.Contract.ReleaseImages (ReleaseImageKey (..), ReleaseImages, releaseImageKeyText)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.BackendMap (issuerPortalRefusal)
 import Nagare.Inventory.Bootstrap
   ( BootstrapInput (BootstrapInput)
   , bootstrapMarkerValue
@@ -122,6 +123,7 @@ import Nagare.Target
   , registryPrefix
   , storeBackendFor
   )
+import Nagare.Target.AuthIssuer (authIssuerText)
 import Nagare.Target.EnTenants (readEnTenantSchema)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
@@ -326,10 +328,16 @@ buildPlatformCandidate current active paths workspace snapshot = do
           (DatabaseBackupTarget backupBackend (profile ^. #backupRecoveryPoint))
           enTenants
       )
+  -- EP-264: the issuer is the registered portal's origin, so the plan that
+  -- turns OIDC on is refused until the accepted inventory has that portal.
+  forM_ (profile ^. #authIssuer) $ \_ -> do
+    accepted <- either (dieT . T.pack . show) (pure . ResourceInventory.inventoryDeclarations) (ResourceInventory.composeSnapshot snapshot)
+    forM_ (issuerPortalRefusal True (profile ^. #authIssuer) accepted) dieT
   let rawAuth =
         packagedAuth
           { authProxiedCacheControl =
               if connectorMode then Just "private, no-store, no-transform" else Nothing
+          , authIssuer = authIssuerText <$> profile ^. #authIssuer
           }
   localPrerequisites <- case localStore of
     Nothing -> pure []

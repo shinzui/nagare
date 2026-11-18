@@ -501,6 +501,7 @@ fixtureProfile =
     , deployer = Nothing
     , operatorName = Nothing
     , enTenants = []
+    , authIssuer = Nothing
     }
 
 writeExecutable :: FilePath -> [String] -> IO ()

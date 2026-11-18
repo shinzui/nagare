@@ -907,6 +907,7 @@ fixture =
     CloudAuth
     Nothing
     []
+    Nothing
   where
     images =
       Map.fromList

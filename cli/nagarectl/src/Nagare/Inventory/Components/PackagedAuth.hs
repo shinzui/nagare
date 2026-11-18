@@ -83,6 +83,7 @@ packagedAuthInputsWithTenants root foundation mode domain images backend tenants
               mode
               Nothing
               tenants
+              Nothing
        in Right (auth, [(service, direct, backend) | (service, direct, _) <- inputs])
   where
     owner = known (mkScopeId Platform "auth")

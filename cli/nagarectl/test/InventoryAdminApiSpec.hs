@@ -186,6 +186,7 @@ authScope = do
         , authMode = CloudAuth
         , authProxiedCacheControl = Nothing
         , authEnTenants = []
+        , authIssuer = Nothing
         }
       >>= expectRight
   expectRight (mkScopeDeclaration fixtureOwner [bundle])

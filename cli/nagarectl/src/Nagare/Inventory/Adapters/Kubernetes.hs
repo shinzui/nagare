@@ -37,6 +37,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesProof
 import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), decodePodReplacement, isStatefulSet, noPodOps, preparePodReplacement, recoverReplacement, settleReplacement, stillStuck)
+import Nagare.Inventory.Adapters.ShomeiIssuer (shomeiIssuerClause)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Backup
   ( BackupReceiptExpectation (..)
@@ -742,6 +743,7 @@ summary mutation =
     <> "; native digest "
     <> digestText (mutationNativeDigest mutation)
     <> maybe "" (\takeover -> "; takes over fields from " <> T.intercalate ", " (mapMaybe managerName (takeoverManagers takeover))) (mutationTakeover mutation)
+    <> shomeiIssuerClause (TE.encodeUtf8 (mutationNativeJson mutation))
   where
     managerName (Object entry) | Just (String manager) <- KM.lookup "manager" entry = Just manager
     managerName _ = Nothing

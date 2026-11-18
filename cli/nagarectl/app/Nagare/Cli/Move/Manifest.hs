@@ -39,6 +39,7 @@ collectManifest :: ActiveTarget -> Text -> IO (Either [Text] MoveManifest)
 collectManifest active new = do
   let profile = active ^. #profile
       old = profile ^. #baseDomain
+  forM_ (issuerMoveRefusal (profile ^. #authIssuer)) $ \refusal -> dieT (T.unlines ["The move to " <> new <> " cannot start:", "  " <> refusal])
   unless (profile ^. #mode == Cloud) (dieT "a context move needs a cloud context")
   unless (profile ^. #ingress == IngressDirect) (dieT "a move to a new base domain starts from a direct context")
   snapshot <- Inventory.loadTargetSnapshotReadOnly active

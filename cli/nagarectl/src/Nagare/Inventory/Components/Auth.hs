@@ -68,6 +68,10 @@ data AuthInput = AuthInput
   -- context's revision is unchanged.
   , authEnTenants :: ![EnTenant]
   -- ^ EP-262: the operator's En tenants beside @nagare@, in declaration order.
+  , authIssuer :: !(Maybe Text)
+  -- ^ EP-264: the validated @https@ issuer of @NAGARE_AUTH_ISSUER@. Shomei and
+  -- the enforcer then both use it, Shomei with OIDC on and its login URL at
+  -- the portal. 'Nothing' touches neither workload.
   }
 
 -- | The two auth databases and workloads share one complete owner scope.
@@ -295,7 +299,8 @@ compileAuth input = do
           rendered <- renderTemplateValue value
           withShomei <- addShomeiEnv rendered
           withSettings <- addEnforcerEnv withShomei
-          revised <- reviseJob withSettings
+          withIssuer <- maybe (Right withSettings) (`applyIssuer` withSettings) (authIssuer input)
+          revised <- reviseJob withIssuer
           recorded <- recordSelection revised
           pure [(location, recorded)]
     renderTemplateValue (String value)
@@ -413,6 +418,55 @@ compileAuth input = do
         _ -> Left "the enforcer has no env array"
       _ -> Left "the enforcer has no container"
     appendEnforcerEnv _ _ = Left "the enforcer's containers are not a list"
+    -- EP-264: one issuer for both workloads. Each value is replaced where the
+    -- packaged manifest declares it, so the entries keep their order.
+    applyIssuer issuer value@(Object root) = case (KM.lookup "kind" root, KM.lookup "metadata" root) of
+      (Just (String "Deployment"), Just (Object metadata))
+        | KM.lookup "name" metadata == Just (String "shomei") ->
+            updateAt
+              ["spec", "template", "spec", "containers"]
+              ( firstContainerEnv "shomei" $ \items -> do
+                  replaced <- replaceEnvValue "SHOMEI_ISSUER" issuer items
+                  pure
+                    ( replaced
+                        <> V.fromList
+                          [ object ["name" .= ("SHOMEI_OIDC_ENABLED" :: Text), "value" .= ("true" :: Text)]
+                          , object ["name" .= ("SHOMEI_OAUTH_LOGIN_URL" :: Text), "value" .= (issuer <> "/login")]
+                          ]
+                    )
+              )
+              value
+      (Just (String "Service"), Just (Object metadata))
+        | KM.lookup "name" metadata == Just (String "nagare-access") ->
+            updateAt
+              ["spec", "template", "spec", "containers"]
+              (firstContainerEnv "nagare-access" (replaceEnvValue "NAGARE_ACCESS_SHOMEI_ISSUER" issuer))
+              value
+      _ -> Right value
+    applyIssuer _ value = Right value
+    firstContainerEnv workload change (Array containers) = case V.uncons containers of
+      Just (Object container, rest) -> case KM.lookup "env" container of
+        Just (Array items) -> do
+          updated <- change items
+          pure (Array (V.cons (Object (KM.insert "env" (Array updated) container)) rest))
+        _ -> Left (workload <> " has no env array")
+      _ -> Left (workload <> " has no container")
+    firstContainerEnv workload _ _ = Left (workload <> "'s containers are not a list")
+    replaceEnvValue name new items =
+      case [() | Object entry <- V.toList items, KM.lookup "name" entry == Just (String name)] of
+        [()] ->
+          Right
+            ( V.map
+                ( \case
+                    Object entry
+                      | KM.lookup "name" entry == Just (String name) ->
+                          Object (KM.insert "value" (String new) (KM.delete "valueFrom" entry))
+                    other -> other
+                )
+                items
+            )
+        [] -> Left ("the packaged auth manifest declares no " <> name)
+        _ -> Left ("the packaged auth manifest declares " <> name <> " twice")
     appendShomeiEnv (Array containers) = case V.uncons containers of
       Just (Object container, rest) -> do
         unless

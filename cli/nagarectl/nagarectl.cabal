@@ -222,6 +222,7 @@ library
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Adapters.RestoreScratch
+    Nagare.Inventory.Adapters.ShomeiIssuer
     Nagare.Inventory.AppDatabase
     Nagare.Inventory.AppDatabaseBackup
     Nagare.Inventory.AppDatabaseEvidence
@@ -441,6 +442,7 @@ library
     Nagare.Storage.Snapshot
     Nagare.Target
     Nagare.Target.Acme
+    Nagare.Target.AuthIssuer
     Nagare.Target.ContextFile
     Nagare.Target.EnTenants
     Nagare.Target.Kinds
@@ -707,6 +709,7 @@ test-suite nagarectl-test
     InventoryApplicationSpec
     InventoryApplicationUpdateRecoverySpec
     InventoryArtifactSpec
+    InventoryAuthIssuerSpec
     InventoryAuthSpec
     InventoryAuthTenantsSpec
     InventoryCacheSpec

@@ -76,6 +76,7 @@ import Nagare.Target
   , resolveTargetProfile
   , shellQuote
   )
+import Nagare.Target.AuthIssuer (authIssuerText, authIssuerVariable)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -361,6 +362,7 @@ renderTargetEnv tp =
     ]
       <> maybe [] (\member -> ["export NAGARE_PULUMI_BACKEND_MEMBER=" <> shellQuote member]) (tp ^. #pulumiBackendMember)
       <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
+      <> maybe [] (\issuer -> ["export " <> authIssuerVariable <> "=" <> authIssuerText issuer]) (tp ^. #authIssuer)
   where
     modeToken Cloud = "cloud"
     modeToken Local = "local"

@@ -18,6 +18,7 @@ module Nagare.Context.BaseMove
   , grantDrift
   , renderManifest
   , hostKindToken
+  , issuerMoveRefusal
   )
 where
 
@@ -31,6 +32,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Access (teamKeyText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
+import Nagare.Target.AuthIssuer (AuthIssuer, authIssuerText, authIssuerVariable)
 
 data HostKind = ApexHost | AuthPortalHost | AdminApiHost | HooksHost | CustomHost | DefaultHost | PreviewHost
   deriving stock (Eq, Ord, Show, Enum, Bounded)
@@ -129,6 +131,21 @@ instance ToJSON MoveManifest where
 instance FromJSON MoveManifest where
   parseJSON = withObject "MoveManifest" $ \o ->
     MoveManifest <$> o .: "oldBase" <*> o .: "newBase" <*> o .: "hosts" <*> o .: "oauthClients" <*> o .: "passkeyHolders"
+
+-- | EP-264: a context whose Shomei issues tokens under its portal's URL does
+-- not move. The portal host, and with it the issuer, would follow the base, so
+-- every token's @iss@ would change and every client bound to the exact issuer
+-- would stop matching it.
+issuerMoveRefusal :: Maybe AuthIssuer -> Maybe Text
+issuerMoveRefusal issuer = do
+  configured <- issuer
+  pure
+    ( "the context sets "
+        <> authIssuerVariable
+        <> "="
+        <> authIssuerText configured
+        <> "; a move would change the portal host and so the issuer, which every native client and service binds exactly, so moving such a context is not supported"
+    )
 
 -- | What the accepted declarations say about hostnames.
 data HostFacts = HostFacts

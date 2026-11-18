@@ -65,6 +65,7 @@ initProfile =
     , deployer = Nothing
     , operatorName = Nothing
     , enTenants = []
+    , authIssuer = Nothing
     }
 
 -- ---------------------------------------------------------------------------
@@ -117,6 +118,7 @@ tnbProfile =
     , deployer = Nothing
     , operatorName = Nothing
     , enTenants = []
+    , authIssuer = Nothing
     }
 
 -- | The default scheduled backup target used by database compiler fixtures.

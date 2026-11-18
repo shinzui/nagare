@@ -89,6 +89,7 @@ import Nagare.Events.Store (filesystemObjectOps)
 import Nagare.Events.Target (feedLocation, openTargetLifecycle)
 import Nagare.Inventory.Actor (currentReviewSource)
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.BackendMap (issuerPortalRefusal)
 import Nagare.Inventory.Command.Open
 import Nagare.Inventory.DelegatedPlanning (attributeReview, delegatedCandidate, profileActor)
 import Nagare.Inventory.Digest
@@ -913,6 +914,8 @@ validateTarget target candidate = do
       expectedProject = target ^. #profile . #project
   unless (nameText (binding ^. #project) == expectedProject) $
     dieText ("inventory candidate targets project " <> nameText (binding ^. #project) <> ", active context targets " <> expectedProject)
+  -- EP-264: a portal deploy on a host other than the issuer's is refused.
+  forM_ (issuerPortalRefusal False (target ^. #profile . #authIssuer) (inventoryDeclarations (candidateInventory candidate))) dieText
 
 validateReviewTarget :: ActiveTarget -> ContextBinding -> IO ()
 validateReviewTarget target binding = do
