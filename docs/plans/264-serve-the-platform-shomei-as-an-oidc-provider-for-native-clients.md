@@ -238,6 +238,11 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   operator-approved sequence.
   Rationale: Operator decision, 2026-11-18. M1 to M4 landed at `902521a0`.
   Date: 2026-11-18
+- Decision: The labs issuer is `https://auth.labs.topagentnetwork.net`, the current portal
+  host, set after labs runs v0.22.0. The base-domain move of `mori://tan/tan-ng-labs` plan 14
+  (artifact-level URI pending) is then refused for that context.
+  Rationale: Operator decision, 2026-11-18, before any Mori identity is bound.
+  Date: 2026-11-18
 - Decision: On a context behind an edge, the four endpoints' responses get the same
   `Cache-Control` tightening as every other response the enforcer proxies.
   Rationale: The plan first passed Shomei's headers through unchanged, which on a tunnel
