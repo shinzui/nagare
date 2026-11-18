@@ -21,7 +21,10 @@
 #     scripts/local-secret-scope-smoke.sh
 # The context's kubeconfig is $XDG_CONFIG_HOME/nagare/kubeconfigs/NAME.yaml. Reviews, configs
 # and the image archive live under NAGARE_SMOKE_ROOT (default
-# $XDG_STATE_HOME/nagare/secret-scope-smoke/NAME), so a rerun reuses the publication.
+# $XDG_STATE_HOME/nagare/secret-scope-smoke/NAME), so a rerun reuses the publication. A run
+# that stopped continues on a rerun (scripts/lib/drill.sh): its reviews already applied are not
+# planned again, and NAGARE_DRILL_FROM=N resumes at step N (1 to 4); after a PASS the next
+# invocation is a new run.
 set -euo pipefail
 
 CTX="${NAGARE_SMOKE_CONTEXT:?name a mode=local context in NAGARE_SMOKE_CONTEXT}"
@@ -29,14 +32,18 @@ NAGARECTL="${NAGARECTL:-$(command -v nagarectl)}"
 PREVIOUS="${NAGARECTL_PREVIOUS:-}"
 NS=personal
 ROOT="${NAGARE_SMOKE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/nagare/secret-scope-smoke/$CTX}"
-RUN="s$(date -u +%m%d%H%M%S)"
-REVIEWS="$ROOT/runs/$RUN"
-mkdir -p "$REVIEWS" "$ROOT/config" "$ROOT/images" "$ROOT/build"
+mkdir -p "$ROOT/config" "$ROOT/images" "$ROOT/build"
 
 log() { printf '%s secret-scope smoke: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 fail() { echo "secret-scope smoke: FAIL: $*" >&2; exit 1; }
 n() { "$NAGARECTL" --context "$CTX" "$@"; }
-apply() { n inventory apply "$1" --yes > "$1.apply.log" 2>&1 || { tail -5 "$1.apply.log" >&2; fail "apply $1"; }; }
+N() { n "$@"; }
+# shellcheck source=scripts/lib/drill.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/drill.sh"
+drill_init "$ROOT/drill"
+RUN="$DRILL_RUN"
+REVIEWS="$DRILL_RUN_DIR/reviews"
+apply() { drill_apply "$1"; }
 
 # --- 0. the context is local and its kubeconfig reaches a loopback cluster ---
 ctx_env="$(n context env)"
@@ -56,11 +63,10 @@ publish() { # local image, repository; prints the accepted image resource
   key="${repo}-${digest:0:12}"
   archive="$ROOT/images/$key.tar"
   [ -s "$archive" ] || docker save "$image" -o "$archive"
-  out="$(n app image-plan --archive "$archive" \
+  drill_reviewed "$REVIEWS/image-$repo" n app image-plan --archive "$archive" \
     --destination "${NAGARE_REGISTRY_HOST}/${CLOUDSDK_CORE_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/${repo}:${digest:0:12}" \
-    --key "$key" --save-plan "$REVIEWS/image-$repo")"
-  apply "$REVIEWS/image-$repo" >&2
-  printf '%s\n' "$out" | sed -n 's/^Image resource: //p' | tail -1
+    --key "$key"
+  sed -n 's/^Image resource: //p' "$REVIEWS/image-$repo.out" | tail -1
 }
 cat > "$ROOT/build/Dockerfile" <<'EOF'
 FROM busybox:1.37
@@ -141,10 +147,12 @@ main = either (ioError . userError . Text.unpack) emitApplication \$ do
       }
 EOF
 }
-deploy() { # nagarectl, app, review name, extra arguments
+deploy() { # nagarectl, app, review name, extra arguments; a review applied on this run is kept
   local ctl="$1" app="$2" review="$REVIEWS/$3"; shift 3
+  [ ! -f "$review.applied" ] || return 0
+  [ ! -e "$review" ] || mv "$review" "$review.unapplied-$(date -u +%Y%m%dT%H%M%S)"
   "$ctl" --context "$CTX" app deploy -f "$ROOT/config/$app/Config.hs" --tag "$TAG" --image-resource "$IMAGE" \
-    --hook-no-data-effects "$app-migrate" --save-plan "$review" "$@" > "$review.plan.log" 2>&1 \
+    --hook-no-data-effects "$app-migrate" --save-plan "$review" "$@" >> "$review.plan.log" 2>&1 \
     || { tail -5 "$review.plan.log" >&2; fail "plan $review"; }
 }
 # The names and envFrom sources of one workload's own container, from its live Pod. Knative
@@ -171,11 +179,13 @@ STORE=application:secret-scoped-runtime/runtime-secret/secret
 # shellcheck disable=SC2016  # the hook's shell expands these, in its Pod
 config scoped scoped-web scoped-worker yes '[ x$MIGRATION_URL = xmigration-value ] && [ -z ${WEB_TOKEN:-}${WORKER_TOKEN:-}${SHARED_KEY:-} ] && echo hook read only MIGRATION_URL'
 printf 'WEB_TOKEN=web-value\nWORKER_TOKEN=worker-value\nSHARED_KEY=shared-value\nMIGRATION_URL=migration-value\n' > "$REVIEWS/scoped.env"
-n secret sync scoped -f "$ROOT/config/scoped/Config.hs" --file "$REVIEWS/scoped.env" --version "$RUN" --save-plan "$REVIEWS/secret-scoped" >/dev/null
-apply "$REVIEWS/secret-scoped"
+if step_on 1; then
+drill_reviewed "$REVIEWS/secret-scoped" n secret sync scoped -f "$ROOT/config/scoped/Config.hs" --file "$REVIEWS/scoped.env" --version "$RUN"
 log "four keys written to nagare-secret-scoped-runtime by a reviewed secret sync"
+fi
 
 # --- 2. every workload of `scoped` opts out (AC-1, AC-2) ---
+if step_on 2; then
 deploy "$NAGARECTL" scoped app-scoped --env-secret-resource "$STORE"
 # The review saves every scope; the Application's own names its members' dependencies.
 python3 -I -c '
@@ -216,15 +226,20 @@ expect "AC-2 web SHARED_KEY" "$(value_in "$web_pod" user-container SHARED_KEY)" 
 expect "AC-2 web WORKER_TOKEN" "$(value_in "$web_pod" user-container WORKER_TOKEN)" ""
 expect "AC-2 web MIGRATION_URL" "$(value_in "$web_pod" user-container MIGRATION_URL)" ""
 log "AC-2: each workload reads its own keys of the one runtime Secret and no other; the review names only $STORE"
+fi
 
 # --- 3. a workload that does not opt out is unchanged from the previous release (AC-3) ---
 operations() { python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["operations"]))' "$1/review.json"; }
-if [ -n "$PREVIOUS" ]; then
+if ! step_on 3; then :
+elif [ -n "$PREVIOUS" ]; then
   config plain plain "" no 'echo plain hook'
   # The previous release brings plain to this tag; on a rerun that is already a no-op.
   deploy "$PREVIOUS" plain app-plain-previous
-  "$PREVIOUS" --context "$CTX" inventory apply "$REVIEWS/app-plain-previous" --yes > "$REVIEWS/app-plain-previous.apply.log" 2>&1 \
-    || { tail -5 "$REVIEWS/app-plain-previous.apply.log" >&2; fail "apply plain with the previous nagarectl"; }
+  if [ ! -f "$REVIEWS/app-plain-previous.applied" ]; then
+    "$PREVIOUS" --context "$CTX" inventory apply "$REVIEWS/app-plain-previous" --yes >> "$REVIEWS/app-plain-previous.apply.log" 2>&1 \
+      || { tail -5 "$REVIEWS/app-plain-previous.apply.log" >&2; fail "apply plain with the previous nagarectl"; }
+    : > "$REVIEWS/app-plain-previous.applied"
+  fi
   kubectl -n "$NS" wait --for=condition=Ready ksvc/plain --timeout=300s >/dev/null
   deploy "$NAGARECTL" plain app-plain
   expect "AC-3 operations" "$(operations "$REVIEWS/app-plain")" 0
@@ -235,8 +250,8 @@ fi
 
 # --- 4. an Application's service and worker inherit the Application's store (AC-4) ---
 config shared shared-web shared-worker no 'echo shared hook'
-printf 'inherited-%s' "$RUN" | n secret set shared -f "$ROOT/config/shared/Config.hs" INHERITED_KEY --version "$RUN" --save-plan "$REVIEWS/secret-shared" >/dev/null
-apply "$REVIEWS/secret-shared"
+if step_on 4; then
+printf 'inherited-%s' "$RUN" | drill_reviewed "$REVIEWS/secret-shared" n secret set shared -f "$ROOT/config/shared/Config.hs" INHERITED_KEY --version "$RUN"
 deploy "$NAGARECTL" shared app-shared
 apply "$REVIEWS/app-shared"
 kubectl -n "$NS" wait --for=condition=Ready ksvc/shared-web --timeout=300s >/dev/null
@@ -251,5 +266,7 @@ expect "AC-4 worker INHERITED_KEY" "$(value_in deployment/shared-worker shared-w
 web_store="$(pod_env serving.knative.dev/service=shared-web user-container)"
 case "$web_store" in *"|nagare-env-shared-runtime nagare-secret-shared-runtime") ;; *) fail "AC-4 web store: got '$web_store'" ;; esac
 log "AC-4: secret set shared reaches shared-worker; shared-web and shared-worker name the Application's store"
+fi
 
+drill_passed
 echo "secret-scope smoke: PASS"

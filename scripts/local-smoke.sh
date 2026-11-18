@@ -13,6 +13,11 @@
 # packaged launcher supplies nagarectl; a contributor dev shell supplies the
 # same toolchain. If the local cluster is down the script stands it up (just
 # local-up + local-bootstrap + local-minio, all EP-82/EP-84).
+#
+# A run keeps its ID, sentinel and reviews under NAGARE_SMOKE_ROOT (default
+# $XDG_STATE_HOME/nagare/local-smoke), so a run that stopped continues on a rerun
+# (scripts/lib/drill.sh): a review it applied is not planned again, and
+# NAGARE_DRILL_FROM=N resumes at step N (3 to 5). After an OK the next run is new.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,7 +46,6 @@ SMOKE_APP="uploads-volume"
 SMOKE_VOL="uploads"
 SMOKE_NS="personal"
 APP_DIR="${NAGARE_REPO_ROOT}/cluster/examples/${SMOKE_APP}"
-SENTINEL="smoke-sentinel-$$.txt"
 # shellcheck source=scripts/lib/smoke-readback.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/smoke-readback.sh"
 CONFIG="${APP_DIR}/nagare/Config.hs"
@@ -66,12 +70,17 @@ else
   exit 1
 fi
 nagarectl() { "${NAGARECTL_BIN}" "$@"; }
+N() { nagarectl "$@"; }
+fail() { echo "local smoke: $*" >&2; exit 1; }
+# shellcheck source=scripts/lib/drill.sh
+source "${SCRIPT_DIR}/lib/drill.sh"
+drill_init "${NAGARE_SMOKE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/nagare/local-smoke}"
 
 SMOKE_DB="smokedb"
 PF_PID=""
-SMOKE_RUN_ID="s$(date -u +%y%m%d%H%M%S)$$"
-SMOKE_RUN_ID="${SMOKE_RUN_ID:0:20}"
-REVIEW_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nagare-local-smoke.XXXXXX")"
+SMOKE_RUN_ID="${DRILL_RUN}"
+SENTINEL="smoke-sentinel-${SMOKE_RUN_ID}.txt"
+REVIEW_ROOT="${DRILL_RUN_DIR}/reviews"
 
 cleanup() {
   # Preserve accepted reviews and their private journals for exact recovery.
@@ -82,9 +91,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-review_apply() {
-  nagarectl inventory apply "$1" --yes
-}
+review_apply() { drill_apply "$1"; }
 
 # --- Step 1 (vs. cloud Step 1+2): ensure the LOCAL cluster is up. NO VM, NO IAP.
 echo "== step 1: ensure the local k3d cluster + registry + MinIO are up =="
@@ -104,7 +111,11 @@ fi
 
 # --- Step 2 (vs. cloud Step 3): deploy on the local cluster ---
 echo "== step 2: review image publication and deploy ${SMOKE_APP} =="
-image_out="$(nagarectl app image-plan \
+# A build archive is never replaced: an attempt whose review was not applied sets its own aside.
+if [ ! -f "${REVIEW_ROOT}/image-review.applied" ] && [ -e "${REVIEW_ROOT}/image.tar" ]; then
+  mv "${REVIEW_ROOT}/image.tar" "${REVIEW_ROOT}/image.tar.unpublished-$(date -u +%Y%m%dT%H%M%S)"
+fi
+image_out="$(drill_saved nagarectl app image-plan \
   --archive "${REVIEW_ROOT}/image.tar" \
   --build-dockerfile "${APP_DIR}/Dockerfile" --build-context "${APP_DIR}" \
   --destination "${NAGARE_REGISTRY_HOST}/${TARGET_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/${SMOKE_APP}:${SMOKE_RUN_ID}" \
@@ -113,8 +124,10 @@ echo "${image_out}"
 IMAGE_RESOURCE="$(printf '%s\n' "${image_out}" | sed -n 's/^Image resource: //p' | tail -1)"
 [ -n "${IMAGE_RESOURCE}" ] || { echo "local smoke: image review did not name a resource" >&2; exit 1; }
 review_apply "${REVIEW_ROOT}/image-review"
-deploy_out="$( cd "${APP_DIR}" && nagarectl deploy --file nagare/Config.hs \
-  --tag "${SMOKE_RUN_ID}" --image-resource "${IMAGE_RESOURCE}" )"
+deploy_app() { ( cd "${APP_DIR}" && nagarectl deploy --file nagare/Config.hs \
+  --tag "${SMOKE_RUN_ID}" --image-resource "${IMAGE_RESOURCE}" ); }
+# Deployed once per run; a rerun reads the first deploy's output back.
+deploy_out="$(drill_kept deploy deploy_app)"
 echo "${deploy_out}"
 URL="$(printf '%s\n' "${deploy_out}" | sed -n 's/^Deployed: //p' | head -1)"
 URL="${URL:-https://${SMOKE_APP}.${SMOKE_NS}.${NAGARE_BASE_DOMAIN}}"
@@ -141,31 +154,34 @@ for _ in $(seq 1 30); do curl -sS -o /dev/null "${BASE}/" >/dev/null 2>&1 && bre
 curlapp() { curl -sS -H "Host: ${APP_HOST}" "$@"; }
 
 # --- Step 3 (vs. cloud Step 4): sentinel + snapshot + restore via MinIO ---
+if step_on 3; then
 echo "== step 3a: write a sentinel into the volume =="
-curlapp -X POST --data "smoke ok $$" "${BASE}/upload/${SENTINEL}" >/dev/null
+curlapp -X POST --data "smoke ok ${SMOKE_RUN_ID}" "${BASE}/upload/${SENTINEL}" >/dev/null
 got="$(curlapp "${BASE}/files/${SENTINEL}")"
-[ "${got}" = "smoke ok $$" ] || { echo "local smoke: volume sentinel readback differed: ${got}" >&2; exit 1; }
+[ "${got}" = "smoke ok ${SMOKE_RUN_ID}" ] || { echo "local smoke: volume sentinel readback differed: ${got}" >&2; exit 1; }
 echo "  read back: ${got}"
 
 echo "== step 3b: snapshot the volume to local MinIO =="
 SNAP_ID="${SMOKE_RUN_ID}"
-nagarectl storage snapshot "${SMOKE_APP}" "${SMOKE_VOL}" --config "${CONFIG}" \
+drill_saved nagarectl storage snapshot "${SMOKE_APP}" "${SMOKE_VOL}" --config "${CONFIG}" \
   --snapshot-id "${SNAP_ID}" --save-plan "${REVIEW_ROOT}/volume-backup"
 review_apply "${REVIEW_ROOT}/volume-backup"
 echo "  accepted volume snapshot: ${SNAP_ID}"
 
 echo "== step 3c: clobber live data, then restore the accepted archive to scratch =="
 curlapp -X POST --data "" "${BASE}/upload/${SENTINEL}" >/dev/null   # clobber the live copy
-nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" --config "${CONFIG}" \
+drill_saved nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" --config "${CONFIG}" \
   --restore-id "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/volume-restore"
 review_apply "${REVIEW_ROOT}/volume-restore"
 verify_restored_sentinel "${SMOKE_NS}" "nagare-volrestore-${SMOKE_APP}-${SMOKE_VOL}-${SMOKE_RUN_ID}" \
-  "${SENTINEL}" "smoke ok $$"
+  "${SENTINEL}" "smoke ok ${SMOKE_RUN_ID}"
 live="$(curlapp "${BASE}/files/${SENTINEL}")"
 [ -z "${live}" ] || { echo "local smoke: restore changed the live volume: ${live}" >&2; exit 1; }
 echo "  RESTORE OK: scratch PVC holds the sentinel; the live copy kept its clobbered value"
+fi
 
 # --- Step 4 (vs. cloud Step 5): verify HTTP 200 — plain loopback, no gateway IP ---
+if step_on 4; then
 echo "== step 4: verify HTTP 200 =="
 code="$(curlapp -o /dev/null -w '%{http_code}' "${BASE}/")"
 if [ "${code}" = "200" ]; then
@@ -174,10 +190,12 @@ else
   echo "  expected 200, got ${code}" >&2
   exit 1
 fi
+fi
 
 # --- Step 5 (EP-101): managed-DB backup -> restore round-trip via MinIO ---
+if step_on 5; then
 echo "== step 5: managed-DB create -> backup -> restore -> assert row count =="
-nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}" \
+drill_once db-create nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}" \
   --recovery-backup postgres-backup --recovery-key-version v1
 
 # Read the managed identity once. The password is passed only as the psql
@@ -202,16 +220,16 @@ psql_in_pod() {
 }
 
 echo "== step 5a: write a sentinel row =="
-psql_in_pod "${PGDB}" "CREATE TABLE IF NOT EXISTS smoke_sentinel(v text); TRUNCATE smoke_sentinel; INSERT INTO smoke_sentinel VALUES ('smoke $$');"
+psql_in_pod "${PGDB}" "CREATE TABLE IF NOT EXISTS smoke_sentinel(v text); TRUNCATE smoke_sentinel; INSERT INTO smoke_sentinel VALUES ('smoke ${SMOKE_RUN_ID}');"
 
 echo "== step 5b: back up to MinIO =="
-nagarectl db backup "${SMOKE_DB}" -n "${SMOKE_NS}" \
+drill_saved nagarectl db backup "${SMOKE_DB}" -n "${SMOKE_NS}" \
   --backup-id "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/db-backup"
 review_apply "${REVIEW_ROOT}/db-backup"
 
 echo "== step 5c: clobber the live table, restore into the scratch target =="
 psql_in_pod "${PGDB}" "TRUNCATE smoke_sentinel;"
-nagarectl db restore "${SMOKE_DB}" "${SMOKE_RUN_ID}" -n "${SMOKE_NS}" \
+drill_saved nagarectl db restore "${SMOKE_DB}" "${SMOKE_RUN_ID}" -n "${SMOKE_NS}" \
   --restore-id "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/db-restore"
 review_apply "${REVIEW_ROOT}/db-restore"
 
@@ -223,6 +241,8 @@ else
   echo "  DB RESTORE FAILED: expected 1 row in ${PGDB}_restore_${SMOKE_RUN_ID}, got '${db_count}'" >&2
   exit 1
 fi
+fi
 
 # --- Step 6: the trap closes this invocation's port-forward ---
+drill_passed
 echo "local smoke: OK"

@@ -7,12 +7,17 @@
 # the gateway, stops the server to see the gateway's answer, and replans to zero operations.
 # Every step stops at its first unexpected answer. The record is evidence/admin-api-drill.json;
 # it names revisions, images and observations, never a secret.
+#
+# NAGARE_DRILL_FROM=N resumes at step N (1 to 8) on the same root (scripts/lib/drill.sh): the
+# drill's person, its service account and its reviews are read back from the root, and a grant
+# or revoke already applied there is not planned again.
 set -euo pipefail
 
 : "${DOCKER_HOST:?the disposable Docker daemon socket, never the shared cp3 daemon}"
 : "${NAGARE_DRILL_NAGARECTL:?the candidate nagarectl}"
 : "${NAGARE_DRILL_ROOT:?the bootstrapped drill root}"
 ROOT="$NAGARE_DRILL_ROOT"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CTX="${NAGARE_DRILL_CONTEXT:-site-access}"
 BASE=127-0-0-1.sslip.io
 HOST="admin.$BASE"
@@ -31,17 +36,20 @@ export NAGARE_LOCAL_REGISTRY_FORWARD="127.0.0.1:${NAGARE_DRILL_FORWARD_PORT:-152
 export KUBECONFIG="$XDG_CONFIG_HOME/nagare/kubeconfigs/$CTX.yaml"
 KUBE="$(kubectl config current-context)"
 EV="$ROOT/evidence"
-: > "$EV/admin-observations.tsv"
 log() { printf '%s admin drill: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+fail() { echo "admin drill: FAIL: $*" >&2; exit 1; }
 N() { "$NAGARE_DRILL_NAGARECTL" --context "$CTX" "$@"; }
 K() { kubectl --context "$KUBE" "$@"; }
+# shellcheck source=scripts/lib/drill.sh
+. "$REPO/scripts/lib/drill.sh"
+drill_init "$ROOT/drill/admin-api"
+RV="$DRILL_RUN_DIR/reviews"
+drill_require_daemon_mount "$ROOT"
+[ "$DRILL_FROM" -gt 1 ] || : > "$EV/admin-observations.tsv"
 record() { printf '%s\t%s\n' "$1" "$2" >> "$EV/admin-observations.tsv"; log "$1: $2"; }
 expect() { # label got wanted
-  [ "$2" = "$3" ] || { echo "admin drill: $1: got $2, wanted $3" >&2; exit 1; }
+  [ "$2" = "$3" ] || fail "$1: got $2, wanted $3"
   record "$1" "$2"
-}
-review_apply() { # dir
-  N inventory apply "$1" --yes > "$1.apply.log" 2>&1 || { echo "apply of $1 failed: $(tail -3 "$1.apply.log")" >&2; exit 1; }
 }
 PIDS=()
 cleanup() { for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done; K -n personal delete pod admin-drill-probe admin-drill-lookalike --ignore-not-found >/dev/null 2>&1 || true; K -n nagare-system delete pod admin-drill-neighbour --ignore-not-found >/dev/null 2>&1 || true; }
@@ -51,6 +59,7 @@ log "root $ROOT; candidate $(printf '%s' "$candidate" | python3 -I -c 'import js
 
 # --- 1. the reviewed scope converged and its pod runs the pinned image on the mounted store ---
 K -n nagare-system rollout status deploy/nagare-admin-api --timeout=300s >/dev/null
+if step_on 1; then
 expect "admin API image" "$(K -n nagare-system get deploy nagare-admin-api -o jsonpath='{.spec.template.spec.containers[0].image}')" "$NAGARE_ADMIN_API_IMAGE"
 expect "admin API pod ready" "$(K -n nagare-system get pod -l app.kubernetes.io/name=nagare-admin-api -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')" "True"
 record "admin API pod user" "$(K -n nagare-system get pod -l app.kubernetes.io/name=nagare-admin-api -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
@@ -58,6 +67,7 @@ expect "admin route target" "$(K -n nagare-system get domainmapping "$HOST" -o j
 python3 -I -c 'import json,sys; m=json.loads(json.load(sys.stdin)["data"]["backends.json"]); e=m[sys.argv[1]]; assert e["apiPrefix"]=="/v1" and e["timeoutSeconds"]==15, e; print(json.dumps(e, sort_keys=True))' "$HOST" \
   < <(K -n nagare-system get configmap nagare-access-backends -o json) > "$EV/admin-backend-entry.json"
 record "backend entry" "$(cat "$EV/admin-backend-entry.json")"
+fi
 
 # --- 2. the gateway over the local CA ---
 K -n cert-manager get secret nagare-local-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > "$ROOT/ca.pem"
@@ -73,9 +83,10 @@ header() { sed -n "s/^$1: *\\(.*\\)$/\\1/Ip" "$ROOT/headers" | tr -d '\r' | tail
 code() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("code"))' "$ROOT/body" 2>/dev/null || echo none; }
 for n in $(seq 1 600); do
   [ "$(get /v1/platform/version)" = 401 ] && { record "seconds until the admin route answered" "$n"; break; }
-  [ "$n" != 600 ] || { echo "admin.$BASE did not answer 401 within 600 s: $(get /v1/platform/version)" >&2; exit 1; }
+  [ "$n" != 600 ] || fail "admin.$BASE did not answer 401 within 600 s: $(get /v1/platform/version)"
   sleep 1
 done
+if step_on 2; then
 expect "anonymous /v1 without Accept" "$(get /v1/platform/version)" "401"
 expect "anonymous problem code" "$(code)" "unauthenticated"
 expect "anonymous problem media type" "$(header Content-Type)" "application/problem+json"
@@ -83,29 +94,34 @@ expect "anonymous challenge" "$(header WWW-Authenticate)" "Bearer"
 expect "anonymous /v1 with Accept */*" "$(get /v1/inventory/head -H 'Accept: */*')" "401"
 expect "anonymous UI document" "$(get / -H 'Accept: text/html')" "302"
 expect "raw identity header, anonymous" "$(get /v1/inventory/head -H 'X-Forwarded-User: user_forged')" "401"
+fi
 
 # --- 3. a signed-in person: refused without the grant, served with it ---
-secret="$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
-email="admin-drill-$(printf '%s' "$secret" | tr 'A-Z' 'a-z' | head -c 10)@example.test"
-password="Dr-$secret"
-user="$(printf '%s\n' "$password" | K -n nagare-system exec -i deploy/shomei -- env LC_ALL=C.UTF-8 shomei-admin users create --email "$email" --display-name "admin API drill" --email-verified | sed -n 's/^created user \(user_[A-Za-z0-9_-]*\).*/\1/p')"
-[ -n "$user" ] || { echo "shomei-admin created no user" >&2; exit 1; }
-unset secret
+# The person, its address and password are kept under the root, so a rerun signs in as it.
+email="$(drill_kept email sh -c 'printf "admin-drill-%s@example.test\n" "$(head -c 8 /dev/urandom | od -An -tx1 | tr -d " \n")"')"
+password="$(drill_kept password sh -c 'printf "Dr-%s\n" "$(head -c 18 /dev/urandom | base64 | tr -d "/+=")"')"
+create_user() {
+  printf '%s\n' "$password" | K -n nagare-system exec -i deploy/shomei -- env LC_ALL=C.UTF-8 shomei-admin users create --email "$email" --display-name "admin API drill" --email-verified | sed -n 's/^created user \(user_[A-Za-z0-9_-]*\).*/\1/p'
+}
+user="$(drill_kept user create_user)"
 get "/_nagare/login?rd=%2F" > /dev/null
 csrf="$(sed -n 's/^[Ss]et-[Cc]ookie: __Host-nagare_csrf=\([^;]*\).*/\1/p' "$ROOT/headers" | tail -1)"
 token="$(sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' "$ROOT/body" | head -1)"
-[ -n "$csrf" ] && [ "$csrf" = "$token" ] || { echo "no matching CSRF cookie and form token" >&2; exit 1; }
+[ -n "$csrf" ] && [ "$csrf" = "$token" ] || fail "no matching CSRF cookie and form token"
 expect "login" "$(get /_nagare/login -X POST -H "Cookie: __Host-nagare_csrf=$csrf" --data-urlencode "csrf=$token" --data-urlencode "rd=/" --data-urlencode "email=$email" --data-urlencode "password=$password")" "302"
 unset password
 session="$(sed -n 's/^[Ss]et-[Cc]ookie: nagare_session=\([^;]*\).*/\1/p' "$ROOT/headers" | tail -1)"
-[ -n "$session" ] || { echo "login set no session cookie" >&2; exit 1; }
+[ -n "$session" ] || fail "login set no session cookie"
 : > "$ROOT/headers"
 as_user() { get "$1" -H "Cookie: nagare_session=$session" "${@:2}"; }
-expect "signed in, no grant" "$(as_user /v1/inventory/head)" "403"
-expect "ungranted problem code" "$(code)" "forbidden"
 export NAGARE_EN_API_KEY="$(K -n nagare-system get secret nagare-en-api-keys -o jsonpath='{.data.read-write}' | base64 -d)"
-grant() { N access grant --host "$HOST" --user "$1" --save-plan "$ROOT/reviews/admin-grant-$2" > /dev/null; review_apply "$ROOT/reviews/admin-grant-$2"; }
-revoke() { N access revoke --host "$HOST" --user "$1" --save-plan "$ROOT/reviews/admin-revoke-$2" > /dev/null; review_apply "$ROOT/reviews/admin-revoke-$2"; }
+grant() { drill_reviewed "$RV/admin-grant-$2" N access grant --host "$HOST" --user "$1"; }
+revoke() { drill_reviewed "$RV/admin-revoke-$2" N access revoke --host "$HOST" --user "$1"; }
+if step_on 3; then
+if [ ! -f "$RV/admin-grant-person.applied" ]; then
+  expect "signed in, no grant" "$(as_user /v1/inventory/head)" "403"
+  expect "ungranted problem code" "$(code)" "forbidden"
+fi
 grant "$user" person
 for _ in $(seq 1 90); do [ "$(as_user /v1/inventory/head)" = 200 ] && break; sleep 1; done
 expect "granted person, head" "$(as_user /v1/inventory/head)" "200"
@@ -117,29 +133,34 @@ expect "granted person, sites" "$(as_user /v1/sites)" "200"
 expect "granted person, version" "$(as_user /v1/platform/version)" "200"
 expect "granted person, unknown route" "$(as_user /v1/nope)" "404"
 expect "granted person, POST" "$(as_user /v1/inventory/head -X POST)" "405"
+fi
 
 # --- 4. a Shomei service account through the bearer path ---
-created="$(K -n nagare-system exec deploy/shomei -- env LC_ALL=C.UTF-8 shomei-admin service-accounts create --display-name "admin API drill")"
+# Its client credentials are kept under the root, so a rerun mints a token for the same account.
+created="$(drill_kept service-account K -n nagare-system exec deploy/shomei -- env LC_ALL=C.UTF-8 shomei-admin service-accounts create --display-name "admin API drill")"
 client_id="$(printf '%s\n' "$created" | sed -n 's/^client_id: *\([^ ]*\).*/\1/p')"
 client_secret="$(printf '%s\n' "$created" | sed -n 's/^client_secret: *\([^ ]*\).*/\1/p')"
 unset created
-[ -n "$client_id" ] && [ -n "$client_secret" ] || { echo "shomei-admin service-accounts create printed no client credentials" >&2; exit 1; }
+[ -n "$client_id" ] && [ -n "$client_secret" ] || fail "shomei-admin service-accounts create printed no client credentials"
 K -n nagare-system port-forward svc/shomei "$SHOMEI_PORT:80" >/dev/null 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 30); do nc -z 127.0.0.1 "$SHOMEI_PORT" 2>/dev/null && break; sleep 1; done
 bearer="$(curl -sS --max-time 20 -u "$client_id:$client_secret" -d grant_type=client_credentials "http://127.0.0.1:$SHOMEI_PORT/oauth/token" | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
 unset client_secret
 machine="$(printf '%s' "$bearer" | python3 -I -c 'import base64,json,sys; p=sys.stdin.read().split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4)))["sub"])')"
-record "service account subject" "$machine"
 as_machine() { get "$1" -H "Authorization: Bearer $bearer" "${@:2}"; }
-expect "service account, no grant" "$(as_machine /v1/inventory/head)" "403"
+if step_on 4; then
+record "service account subject" "$machine"
+[ -f "$RV/admin-grant-machine.applied" ] || expect "service account, no grant" "$(as_machine /v1/inventory/head)" "403"
 expect "invalid bearer" "$(get /v1/inventory/head -H 'Authorization: Bearer not.a.token')" "401"
 grant "$machine" machine
 for _ in $(seq 1 90); do [ "$(as_machine /v1/inventory/head)" = 200 ] && break; sleep 1; done
 expect "granted service account, head" "$(as_machine /v1/inventory/head)" "200"
 expect "granted service account, grants" "$(as_machine /v1/access/grants)" "200"
+fi
 
 # --- 5. no path around the gateway: application and platform pods, a look-alike label ---
+if step_on 5; then
 pod_ip="$(K -n nagare-system get pod -l app.kubernetes.io/name=nagare-admin-api -o jsonpath='{.items[0].status.podIP}')"
 probe() { # namespace pod [labels] -- url...
   local ns="$1" name="$2" labels="$3"; shift 3
@@ -163,8 +184,10 @@ expect "platform pod to the API Service" "$(reach nagare-system admin-drill-neig
 expect "platform pod to the API Pod IP" "$(reach nagare-system admin-drill-neighbour "http://$pod_ip:8085/v1/inventory/head")" "000"
 expect "look-alike label in another namespace" "$(reach personal admin-drill-lookalike "http://$pod_ip:8085/v1/inventory/head")" "000"
 expect "kubelet readiness still passes" "$(K -n nagare-system get pod -l app.kubernetes.io/name=nagare-admin-api -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')" "True"
+fi
 
 # --- 6. warm latency through the gateway: 100 requests at concurrency 8 per route ---
+if step_on 6; then
 for route in /v1/inventory/head /v1/sites /v1/inventory/scopes; do
   seq 1 100 | xargs -P 8 -I{} curl -sS -o /dev/null -w '%{http_code} %{time_total}\n' --max-time 30 --cacert "$ROOT/ca.pem" \
     --connect-to "$HOST:443:127.0.0.1:$INGRESS_PORT" -H "Cookie: nagare_session=$session" "https://$HOST$route" > "$EV/latency-${route//\//_}.txt"
@@ -176,19 +199,22 @@ t=sorted(float(s) for _,s in rows)
 print("p50 %.3f s, p95 %.3f s, max %.3f s" % (t[49], t[94], t[-1]))
 ' "$EV/latency-${route//\//_}.txt")"
 done
+fi
 
 # --- 7. the server stops: the gateway answers a problem promptly; it returns, unchanged ---
+if step_on 7; then
 K -n nagare-system scale deploy/nagare-admin-api --replicas=0 >/dev/null
 K -n nagare-system wait pod -l app.kubernetes.io/name=nagare-admin-api --for=delete --timeout=120s >/dev/null 2>&1 || true
 started=$(date +%s)
 expect "server stopped" "$(as_user /v1/inventory/head)" "502"
 expect "server stopped, problem code" "$(code)" "upstream_unavailable"
-grep -qiE 'ConnectionFailure|HttpException|svc\.cluster\.local' "$ROOT/body" && { echo "the gateway's problem names its client exception" >&2; exit 1; }
+! grep -qiE 'ConnectionFailure|HttpException|svc\.cluster\.local' "$ROOT/body" || fail "the gateway's problem names its client exception"
 record "seconds to the stopped-server answer" "$(( $(date +%s) - started ))"
 K -n nagare-system scale deploy/nagare-admin-api --replicas=1 >/dev/null
 K -n nagare-system rollout status deploy/nagare-admin-api --timeout=300s >/dev/null
 for _ in $(seq 1 60); do [ "$(as_user /v1/inventory/head)" = 200 ] && break; sleep 1; done
 expect "server returned" "$(as_user /v1/inventory/head)" "200"
+fi
 
 # --- 8. revocation reaches the gateway after its decision TTL; a replan has no operations ---
 revoke "$user" person
@@ -196,8 +222,8 @@ for _ in $(seq 1 90); do [ "$(as_user /v1/inventory/head)" = 403 ] && break; sle
 expect "revoked person" "$(as_user /v1/inventory/head)" "403"
 revoke "$machine" machine
 unset NAGARE_EN_API_KEY session bearer
-review="$ROOT/reviews/admin-replan"
-N platform bootstrap plan --out "$review" > "$review.plan.log" 2>&1 || { echo "replan refused: $(tail -2 "$review.plan.log")" >&2; exit 1; }
+review="$RV/admin-replan-$(date -u +%Y%m%dT%H%M%S)"
+N platform bootstrap plan --out "$review" > "$review.plan.log" 2>&1 || fail "replan refused: $(tail -2 "$review.plan.log")"
 expect "replan operations" "$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["operations"]))' "$review/review.json")" "0"
 N inventory status --json > "$EV/admin-inventory.json"
 
@@ -215,4 +241,5 @@ record = {
 }
 json.dump(record, open(f"{ev}/admin-api-drill.json", "w"), indent=2, sort_keys=True)
 PY
+drill_passed
 log "admin API drill OK: record in $EV/admin-api-drill.json"

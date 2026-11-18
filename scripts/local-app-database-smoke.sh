@@ -33,21 +33,30 @@
 #   NAGARE_SMOKE_CONTEXT=NAME [NAGARECTL=/path/to/nagarectl] scripts/local-app-database-smoke.sh
 # The context's kubeconfig is $XDG_CONFIG_HOME/nagare/kubeconfigs/NAME.yaml. Reviews, the probe
 # configs and the image archives live under NAGARE_SMOKE_ROOT (default
-# $XDG_STATE_HOME/nagare/app-database-smoke/NAME), so a rerun reuses the publications.
+# $XDG_STATE_HOME/nagare/app-database-smoke/NAME), so a rerun reuses the publications. A run
+# that stopped continues on a rerun (scripts/lib/drill.sh): a review it applied is not planned
+# again, and NAGARE_DRILL_FROM names the step to resume at (1, 2, 3, 4, 5, 5a, 5b, 5c, 5d, 6,
+# 7, 7b, 8, 8a or 8b); after a PASS the next invocation is a new run.
 set -euo pipefail
 
 CTX="${NAGARE_SMOKE_CONTEXT:?name a mode=local context in NAGARE_SMOKE_CONTEXT}"
 NAGARECTL="${NAGARECTL:-$(command -v nagarectl)}"
 NS=personal
 ROOT="${NAGARE_SMOKE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/nagare/app-database-smoke/$CTX}"
-RUN="s$(date -u +%m%d%H%M%S)"
-REVIEWS="$ROOT/runs/$RUN"
-mkdir -p "$REVIEWS" "$ROOT/config" "$ROOT/images"
+mkdir -p "$ROOT/config" "$ROOT/images"
 
 log() { printf '%s app-database smoke: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 fail() { echo "app-database smoke: FAIL: $*" >&2; exit 1; }
-n() { "$NAGARECTL" --context "$CTX" "$@"; }
-apply() { n inventory apply "$1" --yes > "$1.apply.log" 2>&1 || { tail -5 "$1.apply.log" >&2; fail "apply $1"; }; }
+N() { "$NAGARECTL" --context "$CTX" "$@"; }
+# Every command that saves a review runs once per review on this run.
+n() { drill_saved N "$@"; }
+DRILL_STEPS="1 2 3 4 5 5a 5b 5c 5d 6 7 7b 8 8a 8b"
+# shellcheck source=scripts/lib/drill.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/drill.sh"
+drill_init "$ROOT/drill"
+RUN="$DRILL_RUN"
+REVIEWS="$DRILL_RUN_DIR/reviews"
+apply() { drill_apply "$1"; }
 
 # --- 0. the context is local and its kubeconfig reaches a loopback cluster ---
 ctx_env="$(n context env)"
@@ -176,7 +185,8 @@ appdb_config "$ROOT/config/AppDatabases.hs" none
 appdb_config "$ROOT/config/AppDatabasesDeclared.hs" declared
 appdb_config "$ROOT/config/AppDatabasesRemoved.hs" removed
 appdb_config "$ROOT/config/AppDatabasesRetired.hs" retired
-# A rerun starts with every app database open: an interrupted earlier run may have left one quiesced.
+if step_on 2; then
+# A new run starts with every app database open: an interrupted earlier run may have left one quiesced.
 for app in $(n db app-database list -n "$NS" 2>/dev/null | awk -F'\t' '$6 == "quiesced" {print $1}'); do
   n db app-database resume "$app" -n "$NS" --save-plan "$REVIEWS/rerun-resume-$app" >/dev/null
   apply "$REVIEWS/rerun-resume-$app"
@@ -193,8 +203,10 @@ if ! n db app-database plan --config "$ROOT/config/AppDatabases.hs" | grep -qx '
   n db app-database plan --config "$ROOT/config/AppDatabases.hs" --save-plan "$REVIEWS/app-databases"
   apply "$REVIEWS/app-databases"
 fi
+fi
 
 # --- 3. converged ---
+if step_on 3; then
 replan="$(n db app-database plan --config "$ROOT/config/AppDatabases.hs" 2>"$REVIEWS/replan.notes")"
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan has operations"; }
 log "AC-1/AC-4: four app databases on one server per engine; re-plan: no operations"
@@ -202,6 +214,7 @@ log "AC-1/AC-4: four app databases on one server per engine; re-plan: no operati
 grep -q 'pending: public.rv' "$REVIEWS/replan.notes" || { cat "$REVIEWS/replan.notes" >&2; fail "IR-33 AC-5: the plan names no pending view for alpha-pg's reader"; }
 log "IR-33 AC-5: alpha-pg's reader converged with its view pending; no operation planned for it"
 [ "$(kubectl -n "$NS" get statefulset -o name | grep -c 'smoke-')" = 2 ] || fail "expected exactly the two server StatefulSets"
+fi
 
 # --- 4. probe Workers on the servers' own images, published through review ---
 publish() { # local image, repository; prints the accepted image resource
@@ -212,7 +225,7 @@ publish() { # local image, repository; prints the accepted image resource
   [ -s "$archive" ] || docker save "$image" -o "$archive"
   out="$(n app image-plan --archive "$archive" \
     --destination "${NAGARE_REGISTRY_HOST}/${CLOUDSDK_CORE_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/${repo}:${digest:0:12}" \
-    --key "$key" --save-plan "$REVIEWS/image-$repo")"
+    --key "$key" --save-plan "$REVIEWS/image-$repo")" || fail "plan the image $repo"
   apply "$REVIEWS/image-$repo" >&2
   printf '%s\n' "$out" | sed -n 's/^Image resource: //p' | tail -1
 }
@@ -253,6 +266,7 @@ EOF
   apply "$REVIEWS/worker-$1"
 }
 PG_TAG="$(tag_of postgres:18)"; CH_TAG="$(tag_of clickhouse/clickhouse-server:26.8)"
+if step_on 4; then
 probe alpha-pg-probe alpha-pg "$PG_IMAGE" appdb-probe-pg "$PG_TAG"
 probe beta-pg-probe beta-pg "$PG_IMAGE" appdb-probe-pg "$PG_TAG"
 probe alpha-ch-probe alpha-ch "$CH_IMAGE" appdb-probe-ch "$CH_TAG"
@@ -279,6 +293,7 @@ print(" ".join(sorted(refs)))' "$(probe_of "$w")")"
   [ "$refs" = "$w-runtime" ] || fail "probe $(probe_of "$w") references Secrets [$refs], not only $w-runtime"
 done
 log "AC-2: each probe references only its own <appdb>-runtime Secret"
+fi
 
 # --- 5. own-database access and every cross-app denial ---
 in_probe() { kubectl -n "$NS" exec "deployment/$(probe_of "$1")" -- sh -c "$2" sh "${@:3}"; }
@@ -291,7 +306,9 @@ ch_as() { kubectl -n "$NS" exec smoke-ch-0 -- clickhouse-client --user "$(secret
 ch_admin() { kubectl -n "$NS" exec smoke-ch-0 -- clickhouse-client --user "$CH_ADMIN" --password "$CH_ADMIN_PW" --query "$1"; }
 refused() { local label="$1"; shift; if "$@" >/dev/null 2>&1; then fail "AC-3: $label was allowed"; fi; }
 expect() { [ "$2" = "$3" ] || fail "$1: expected '$3', got '$2'"; }
+code_of() { grep -oE 'Code: [0-9]+' <<<"$1" | head -1; }
 
+if step_on 5; then
 for app in alpha beta; do
   pg_as "$app-pg-migration" "$app" "CREATE TABLE IF NOT EXISTS t(v text); TRUNCATE t;" >/dev/null
   pg_rt "$app-pg" "INSERT INTO t VALUES ('$app')" >/dev/null
@@ -328,6 +345,7 @@ refused "alpha-pg runtime creates a role" pg_rt alpha-pg 'CREATE ROLE smoke_intr
 refused "alpha-pg runtime grants a role" pg_rt alpha-pg 'GRANT pg_read_all_data TO CURRENT_USER'
 refused "alpha-pg runtime controls the server" pg_rt alpha-pg 'SELECT pg_reload_conf()'
 log "AC-3: own read and write for all four; eighteen cross-app, DDL and control denials hold"
+fi
 
 # --- 5a. EP-205: a maintenance window on alpha, beta untouched, servers not restarted ---
 pg_admin() { kubectl -n "$NS" exec smoke-pg-0 -- sh -c 'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -tAc "$1"' sh "$1"; }
@@ -336,15 +354,18 @@ spec_of() { kubectl -n "$NS" get cronjob "$1" -o json | python3 -I -c 'import js
 CH_MIG_USER="$(secret alpha-ch-migration CLICKHOUSE_USER)"
 CH_RT_USER="$(secret alpha-ch-runtime CLICKHOUSE_USER)"
 PG_RT_USER="$(secret alpha-pg-runtime POSTGRES_USER)"
+if step_on 5a; then
 ch_as alpha-ch-migration "CREATE TABLE IF NOT EXISTS alpha.src (k UInt64) ENGINE = MergeTree ORDER BY k"
 ch_as alpha-ch-migration "CREATE TABLE IF NOT EXISTS alpha.agg (n UInt64) ENGINE = SummingMergeTree ORDER BY tuple()"
 ch_as alpha-ch-migration "CREATE MATERIALIZED VIEW IF NOT EXISTS alpha.mv TO alpha.agg DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT count() AS n FROM alpha.src"
 ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.dv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT count() AS c FROM alpha.t"
 # The app's own databases and server-wide grants; the window's scratch restore adds its own.
 grants_q="SELECT user_name, access_type, database, table, column, is_partial_revoke, grant_option FROM system.grants WHERE user_name IN ('$CH_RT_USER', '$CH_MIG_USER') AND (database IS NULL OR database IN ('alpha', 'alpha_ledger', 'system')) ORDER BY ALL FORMAT TSV"
-grants_before="$(ch_admin "$grants_q" | sha256sum)"
-ch_pod="$(pod_identity smoke-ch-0)"; pg_pod="$(pod_identity smoke-pg-0)"; ch_uuid="$(ch_admin 'SELECT serverUUID()')"
-cron_ch="$(spec_of nagare-appdb-alpha-ch)"; cron_pg="$(spec_of nagare-appdb-alpha-pg)"
+# The baselines are read once per run, before the window: a resumed run compares with them.
+grants_digest() { ch_admin "$grants_q" | sha256sum; }
+grants_before="$(drill_kept grants-before grants_digest)"
+ch_pod="$(drill_kept ch-pod pod_identity smoke-ch-0)"; pg_pod="$(drill_kept pg-pod pod_identity smoke-pg-0)"; ch_uuid="$(drill_kept ch-uuid ch_admin 'SELECT serverUUID()')"
+cron_ch="$(drill_kept cron-ch spec_of nagare-appdb-alpha-ch)"; cron_pg="$(drill_kept cron-pg spec_of nagare-appdb-alpha-pg)"
 long_ch='SELECT sleepEachRow(1) FROM numbers(600) SETTINGS max_block_size = 1 FORMAT Null'
 for app in alpha beta; do
   (ch_rt "$app-ch" "$long_ch" >/dev/null 2>&1 || true) &
@@ -394,7 +415,7 @@ for app in alpha-ch alpha-pg; do
 done
 expect "IR-31 AC-4: alpha-ch schedule as accepted" "$(spec_of nagare-appdb-alpha-ch)" "$cron_ch"
 expect "IR-31 AC-4: alpha-pg schedule as accepted" "$(spec_of nagare-appdb-alpha-pg)" "$cron_pg"
-expect "IR-31 AC-2: alpha's grants after resume" "$(ch_admin "$grants_q" | sha256sum)" "$grants_before"
+expect "IR-31 AC-2: alpha's grants after resume" "$(grants_digest)" "$grants_before"
 ch_as alpha-ch-migration "INSERT INTO alpha.src VALUES (1)"
 [ "$(ch_rt alpha-ch 'SELECT c FROM alpha.dv')" -ge 1 ] || fail "IR-31 AC-2: alpha's definer view does not read after resume"
 [ "$(ch_rt alpha-ch 'SELECT sum(n) FROM alpha.agg')" -ge 1 ] || fail "IR-31 AC-2: alpha's materialized view does not read after resume"
@@ -417,8 +438,10 @@ ch_admin "KILL QUERY WHERE user = '$(secret beta-ch-runtime CLICKHOUSE_USER)' SY
 pg_admin "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = '$(secret beta-pg-runtime POSTGRES_USER)'" >/dev/null
 wait
 log "IR-31: alpha quiesced and drained on both engines while beta ran; on-demand backups ingested and restored; resumed with schedules as accepted; servers not restarted"
+fi
 
 # --- 5b. EP-204: reviewed exceptions and limits ---
+if step_on 5b; then
 plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs" --save-plan "$REVIEWS/access-declared")"
 for needle in "exceptions system-parts, system-storage-policies, arbitrary-temporary-tables" "maxMemoryBytes 268435456" "connectionLimit 3" "tolerates grants to pg_monitor" "createIn pgmq" "migration member of runtime" "runtime CREATE TABLE, DROP TABLE" "owners alpha-pg-owner"; do
   { grep -qF "$needle" <<<"$plan_out" || grep -rqF "$needle" "$REVIEWS/access-declared"; } || { echo "$plan_out" >&2; fail "IR-30 AC-1: the reviewed plan does not name '$needle'"; }
@@ -428,7 +451,6 @@ replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesDeclared.hs"
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan with declared access has operations"; }
 # IR-35 AC-1: schema pgmq is the app's migration's; until it exists it is pending, not planned.
 grep -q 'pending: schema pgmq' "$REVIEWS/declared.notes" || { cat "$REVIEWS/declared.notes" >&2; fail "IR-35 AC-1: the plan names no pending schema pgmq"; }
-code_of() { grep -oE 'Code: [0-9]+' <<<"$1" | head -1; }
 # IR-30 AC-2: the declared system tables, own rows only, and Join temporary tables; no source engine.
 [ "$(ch_rt alpha-ch "SELECT count() FROM system.parts WHERE database = 'alpha'")" -gt 0 ] || fail "IR-30 AC-2: alpha-ch runtime sees no parts of its own tables"
 expect "IR-30 AC-2: alpha-ch runtime sees beta's parts" "$(ch_rt alpha-ch "SELECT count() FROM system.parts WHERE database = 'beta'")" "0"
@@ -493,26 +515,9 @@ refused "the removed system.storage_policies exception" ch_rt alpha-ch 'SELECT c
 replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs")"
 grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "the re-plan after the removal has operations"; }
 log "EP-204: alpha-ch exceptions and ceilings hold, beta unaffected; alpha-pg connection limit and pg_monitor grants hold; removal revoked"
+fi
 
 # --- 5c. EP-206: read-only readers ---
-# The app's migrations create the views the readers declare.
-pg_as alpha-pg-migration alpha "CREATE OR REPLACE VIEW rv AS SELECT v FROM t" >/dev/null
-ch_as alpha-ch-migration "INSERT INTO alpha.src VALUES (1)"
-ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.rv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT k FROM alpha.src"
-ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.rpv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT k FROM alpha.src WHERE k = {x:UInt64}"
-# IR-33 AC-5: the plan after the migration grants the view, then nothing is left.
-plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" --save-plan "$REVIEWS/readers" 2>&1)" || { echo "$plan_out" >&2; fail "IR-33 AC-5: plan after the migration"; }
-grep -q 'update app-database user alpha_pg_reader_dash' "$REVIEWS/readers/review.json" || { echo "$plan_out" >&2; fail "IR-33 AC-5: the view created by the migration is not granted by review"; }
-apply "$REVIEWS/readers"
-replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>&1)"
-{ grep -qx 'no operations' <<<"$replan" && ! grep -q pending <<<"$replan"; } || { echo "$replan" >&2; fail "IR-33 AC-5: the re-plan after the migration is not empty"; }
-# IR-33 AC-9: a SECURITY DEFINER function PUBLIC may run refuses the plan until the app revokes it.
-pg_as alpha-pg-migration alpha "CREATE FUNCTION add_row(x integer) RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'" >/dev/null
-if out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>&1)"; then fail "IR-33 AC-9: a definer function PUBLIC may run was planned"; fi
-grep -q 'app-database-reader-definer-function.*add_row(x integer)' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-9: the definer refusal does not name add_row"; }
-pg_as alpha-pg-migration alpha "REVOKE EXECUTE ON FUNCTION add_row(integer) FROM PUBLIC" >/dev/null
-replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>/dev/null)"
-grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-33 AC-9: the plan after the app's revoke is not empty"; }
 reader_probe() { # worker, app database whose reader it binds (or none), image resource, published repository, published tag
   mkdir -p "$ROOT/config/$1"
   local bound=""
@@ -540,6 +545,31 @@ main = either (ioError . userError) emitWorker \$ do
 EOF
   n worker deploy -f "$ROOT/config/$1/Config.hs" --tag probe --image-resource "$3" --save-plan "$REVIEWS/worker-$1-$2" 2>&1
 }
+secret_refs() { kubectl -n "$NS" get deployment "$1" -o json | python3 -I -c '
+import json, sys
+d = json.load(sys.stdin)
+refs = {(e.get("valueFrom") or {}).get("secretKeyRef", {}).get("name") for c in d["spec"]["template"]["spec"]["containers"] for e in c.get("env", [])}
+refs.discard(None); refs.discard("nagare-secret-" + sys.argv[1] + "-runtime")
+print(" ".join(sorted(refs)))' "$1"; }
+if step_on 5c; then
+# The app's migrations create the views the readers declare.
+pg_as alpha-pg-migration alpha "CREATE OR REPLACE VIEW rv AS SELECT v FROM t" >/dev/null
+ch_as alpha-ch-migration "INSERT INTO alpha.src VALUES (1)"
+ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.rv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT k FROM alpha.src"
+ch_as alpha-ch-migration "CREATE VIEW IF NOT EXISTS alpha.rpv DEFINER = $CH_MIG_USER SQL SECURITY DEFINER AS SELECT k FROM alpha.src WHERE k = {x:UInt64}"
+# IR-33 AC-5: the plan after the migration grants the view, then nothing is left.
+plan_out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" --save-plan "$REVIEWS/readers" 2>&1)" || { echo "$plan_out" >&2; fail "IR-33 AC-5: plan after the migration"; }
+grep -q 'update app-database user alpha_pg_reader_dash' "$REVIEWS/readers/review.json" || { echo "$plan_out" >&2; fail "IR-33 AC-5: the view created by the migration is not granted by review"; }
+apply "$REVIEWS/readers"
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>&1)"
+{ grep -qx 'no operations' <<<"$replan" && ! grep -q pending <<<"$replan"; } || { echo "$replan" >&2; fail "IR-33 AC-5: the re-plan after the migration is not empty"; }
+# IR-33 AC-9: a SECURITY DEFINER function PUBLIC may run refuses the plan until the app revokes it.
+pg_as alpha-pg-migration alpha "CREATE FUNCTION add_row(x integer) RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'" >/dev/null
+if out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>&1)"; then fail "IR-33 AC-9: a definer function PUBLIC may run was planned"; fi
+grep -q 'app-database-reader-definer-function.*add_row(x integer)' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-9: the definer refusal does not name add_row"; }
+pg_as alpha-pg-migration alpha "REVOKE EXECUTE ON FUNCTION add_row(integer) FROM PUBLIC" >/dev/null
+replan="$(n db app-database plan --config "$ROOT/config/AppDatabasesRemoved.hs" 2>/dev/null)"
+grep -qx 'no operations' <<<"$replan" || { echo "$replan" >&2; fail "IR-33 AC-9: the plan after the app's revoke is not empty"; }
 reader_probe gamma-pg-probe alpha-pg "$PG_IMAGE" appdb-probe-pg "$PG_TAG" >/dev/null || fail "IR-33 AC-6: plan gamma-pg-probe"
 apply "$REVIEWS/worker-gamma-pg-probe-alpha-pg"
 reader_probe gamma-ch-probe alpha-ch "$CH_IMAGE" appdb-probe-ch "$CH_TAG" >/dev/null || fail "IR-33 AC-6: plan gamma-ch-probe"
@@ -548,12 +578,6 @@ apply "$REVIEWS/worker-gamma-ch-probe-alpha-ch"
 if out="$(reader_probe delta-pg-probe alpha-pg "$PG_IMAGE" appdb-probe-pg "$PG_TAG")"; then fail "IR-33 AC-6: a non-consumer bound alpha-pg's reader"; fi
 grep -q 'app-database-reader-not-a-consumer' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-6: the non-consumer refusal has the wrong code"; }
 for w in gamma-pg gamma-ch; do kubectl -n "$NS" rollout status "deployment/$w-probe" --timeout=300s >/dev/null; done
-secret_refs() { kubectl -n "$NS" get deployment "$1" -o json | python3 -I -c '
-import json, sys
-d = json.load(sys.stdin)
-refs = {(e.get("valueFrom") or {}).get("secretKeyRef", {}).get("name") for c in d["spec"]["template"]["spec"]["containers"] for e in c.get("env", [])}
-refs.discard(None); refs.discard("nagare-secret-" + sys.argv[1] + "-runtime")
-print(" ".join(sorted(refs)))' "$1"; }
 expect "IR-33 AC-6: gamma-pg-probe's Secrets" "$(secret_refs gamma-pg-probe)" "alpha-pg-reader-dash"
 expect "IR-33 AC-6: gamma-ch-probe's Secrets" "$(secret_refs gamma-ch-probe)" "alpha-ch-reader-dash"
 # IR-33 AC-2/AC-3 on PostgreSQL: the declared view only; grants are the boundary, whatever the session sets.
@@ -583,7 +607,7 @@ for setting in "max_threads = 8" "max_result_rows = 0" "max_execution_time = 60"
   expect "IR-33 AC-3: alpha-ch reader SET $setting" "$(code_of "$out")" "Code: 452"
 done
 # IR-33 AC-7: rotating alpha-pg's reader changes its Secret only; its consumer reads after a restart.
-old_reader_pw="$(secret alpha-pg-reader-dash POSTGRES_PASSWORD)"; alpha_rt="$(digest_of alpha-pg-runtime)"
+old_reader_pw="$(drill_kept old-reader-pw secret alpha-pg-reader-dash POSTGRES_PASSWORD)"; alpha_rt="$(drill_kept alpha-rt digest_of alpha-pg-runtime)"
 n db app-database rotate alpha-pg -n "$NS" --user reader-dash --save-plan "$REVIEWS/rotate-reader" >/dev/null
 apply "$REVIEWS/rotate-reader"
 [ "$(secret alpha-pg-reader-dash POSTGRES_PASSWORD)" != "$old_reader_pw" ] || fail "IR-33 AC-7: the reader rotation left its password unchanged"
@@ -594,8 +618,10 @@ kubectl -n "$NS" rollout status deployment/gamma-pg-probe --timeout=300s >/dev/n
 for _ in $(seq 1 30); do pg_rt gamma-pg 'SELECT 1' >/dev/null 2>&1 && break; sleep 2; done
 expect "alpha-pg reader after its rotation" "$(pg_rt gamma-pg 'SELECT count(*) FROM rv')" "1"
 log "IR-33: readers read only their views under their ceilings from consumer probes; a non-consumer was refused; a definer function refused until revoked; the reader rotated alone"
+fi
 
 # --- 5d. EP-208: privileges inside the app's own databases ---
+if step_on 5d; then
 # IR-35 AC-1/AC-2: the runtime creates its queue in pgmq, owns it, and the migration user alters it.
 pg_rt alpha-pg "CREATE TABLE IF NOT EXISTS pgmq.q_smoke (msg_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, message jsonb); TRUNCATE pgmq.q_smoke; INSERT INTO pgmq.q_smoke (message) VALUES ('{}')" >/dev/null
 expect "IR-35 AC-1: alpha-pg runtime CREATE on pgmq" "$(pg_as alpha-pg-migration alpha "SELECT has_schema_privilege('$PG_RT_USER', 'pgmq', 'CREATE')")" "t"
@@ -618,10 +644,12 @@ expect "IR-35 AC-5: alpha-pg-owner's Secrets" "$(secret_refs alpha-pg-owner)" "a
 expect "IR-35 AC-5: alpha-pg-probe's Secrets" "$(secret_refs alpha-pg-probe)" "alpha-pg-runtime"
 expect "IR-35 AC-5: alpha-pg-owner connects as" "$(kubectl -n "$NS" exec deployment/alpha-pg-owner -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT current_user"')" "$(secret alpha-pg-migration POSTGRES_USER)"
 log "IR-35: alpha-pg runtime created its pgmq queue under declared CREATE; migration altered it; owner probe holds the migration Secret; alpha-ch runtime created and dropped its own table, beta refused"
+fi
 
 # --- 6. rotate alpha-pg's runtime user, retire beta-ch ---
-old_pw="$(secret alpha-pg-runtime POSTGRES_PASSWORD)"; old_user="$(secret alpha-pg-runtime POSTGRES_USER)"
-beta_pg="$(digest_of beta-pg-runtime)"; alpha_mig="$(digest_of alpha-pg-migration)"
+if step_on 6; then
+old_pw="$(drill_kept old-runtime-pw secret alpha-pg-runtime POSTGRES_PASSWORD)"; old_user="$(drill_kept old-runtime-user secret alpha-pg-runtime POSTGRES_USER)"
+beta_pg="$(drill_kept beta-pg digest_of beta-pg-runtime)"; alpha_mig="$(drill_kept alpha-mig digest_of alpha-pg-migration)"
 n db app-database rotate alpha-pg -n "$NS" --user runtime --save-plan "$REVIEWS/rotate" >/dev/null
 apply "$REVIEWS/rotate"
 [ "$(secret alpha-pg-runtime POSTGRES_PASSWORD)" != "$old_pw" ] || fail "rotation left the runtime password unchanged"
@@ -653,11 +681,13 @@ expect "beta-ch data kept after retirement" "$(ch_admin 'SELECT count() FROM bet
 expect "alpha-ch read after beta-ch retirement" "$(ch_rt alpha-ch 'SELECT groupArray(v)[1] FROM alpha.t')" "alpha"
 expect "retired beta-ch schedule suspended (F131)" "$(kubectl -n "$NS" get cronjob nagare-appdb-beta-ch -o jsonpath='{.spec.suspend}')" "true"
 log "AC-4: rotation changed only alpha-pg runtime; beta-ch retired with its data kept and its schedule suspended; alpha unaffected"
+fi
 
 # --- 7. one scheduled run of each alpha backup, ingested, restored into scratch ---
+if step_on 7; then
 for app in alpha-pg alpha-ch; do
   job="nagare-appdb-$app-$RUN"
-  kubectl -n "$NS" create job "$job" --from="cronjob/nagare-appdb-$app" >/dev/null
+  kubectl -n "$NS" get job "$job" >/dev/null 2>&1 || kubectl -n "$NS" create job "$job" --from="cronjob/nagare-appdb-$app" >/dev/null
   kubectl -n "$NS" wait --for=condition=complete "job/$job" --timeout=600s >/dev/null \
     || { kubectl -n "$NS" logs "job/$job" --all-containers --tail=20 >&2 || true; fail "backup run $job did not complete"; }
   uid="$(kubectl -n "$NS" get job "$job" -o jsonpath='{.metadata.uid}')"
@@ -682,10 +712,15 @@ log "IR-35: scratch restore kept the runtime-owned queue and its row"
 refused "alpha-pg reader on alpha's scratch" pg_rt gamma-pg 'SELECT count(*) FROM rv' "alpha_restore_$RUN"
 out="$(ch_rt gamma-ch "SELECT count() FROM alpha_restore_$RUN.rv" 2>&1 || true)"
 expect "IR-33 AC-8: alpha-ch reader on alpha's scratch" "$(code_of "$out")" "Code: 497"
+fi
 
 # --- 7b. EP-206: retire alpha-pg's reader ---
-if out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRetired.hs" 2>&1)"; then fail "IR-33 AC-7: a reader still bound was retired"; fi
-grep -q 'app-database-reader-in-use' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-7: retiring a bound reader has the wrong refusal"; }
+if step_on 7b; then
+# While gamma-pg-probe binds it, the reader is not retired.
+if [ ! -f "$REVIEWS/worker-gamma-pg-probe-none.applied" ]; then
+  if out="$(n db app-database plan --config "$ROOT/config/AppDatabasesRetired.hs" 2>&1)"; then fail "IR-33 AC-7: a reader still bound was retired"; fi
+  grep -q 'app-database-reader-in-use' <<<"$out" || { echo "$out" >&2; fail "IR-33 AC-7: retiring a bound reader has the wrong refusal"; }
+fi
 reader_probe gamma-pg-probe none "$PG_IMAGE" appdb-probe-pg "$PG_TAG" >/dev/null || fail "unbind gamma-pg-probe"
 apply "$REVIEWS/worker-gamma-pg-probe-none"
 n db app-database plan --config "$ROOT/config/AppDatabasesRetired.hs" --save-plan "$REVIEWS/reader-retired" >/dev/null 2>&1
@@ -697,14 +732,9 @@ kubectl -n "$NS" get secret alpha-pg-reader-dash >/dev/null || fail "IR-33 AC-7:
 expect "alpha-ch reader after alpha-pg's reader retired" "$(ch_rt gamma-ch 'SELECT count() > 0 FROM alpha.rv')" "1"
 expect "alpha-pg runtime after its reader retired" "$(pg_rt alpha-pg "SELECT string_agg(v, '|') FROM t")" "alpha"
 log "IR-33 AC-7/AC-8: no reader reaches a scratch restore; alpha-pg's reader retired by declaration, refused while bound, its Secret kept"
+fi
 
 # --- 8. status grades every app database; nothing of alpha-pg is past policy (F132) ---
-status="$(n server status --skip-vm 2>&1)" || { echo "$status" >&2; fail "server status"; }
-for app in alpha-pg alpha-ch beta-pg beta-ch; do
-  grep -Eq "recovery point +$NS/$app: " <<<"$status" || { echo "$status" >&2; fail "server status has no recovery point for $NS/$app"; }
-  grep -Eq "retention +$NS/$app: " <<<"$status" || { echo "$status" >&2; fail "server status has no retention row for $NS/$app"; }
-done
-grep -Eq "^ +OK +recovery point +$NS/beta-ch: retired; schedule suspended" <<<"$status" || { echo "$status" >&2; fail "retired beta-ch is not graded retired"; }
 # The schedule's own runs since the app databases were created are ingested first: a
 # prune refuses while an older run is not ingested, or while one runs (every 15 minutes).
 ingest_scheduled() { # app database
@@ -715,12 +745,20 @@ ingest_scheduled() { # app database
     grep -q "no verified scheduled run awaits ingestion" <<<"$ingest" || { echo "$ingest" >&2; fail "ingest $1's scheduled runs"; }
   fi
 }
+if step_on 8; then
+status="$(n server status --skip-vm 2>&1)" || { echo "$status" >&2; fail "server status"; }
+for app in alpha-pg alpha-ch beta-pg beta-ch; do
+  grep -Eq "recovery point +$NS/$app: " <<<"$status" || { echo "$status" >&2; fail "server status has no recovery point for $NS/$app"; }
+  grep -Eq "retention +$NS/$app: " <<<"$status" || { echo "$status" >&2; fail "server status has no retention row for $NS/$app"; }
+done
+grep -Eq "^ +OK +recovery point +$NS/beta-ch: retired; schedule suspended" <<<"$status" || { echo "$status" >&2; fail "retired beta-ch is not graded retired"; }
 ingest_scheduled alpha-pg
 if prune="$(n db app-database prune-scheduled-backups alpha-pg -n "$NS" --save-plan "$REVIEWS/prune-alpha-pg" 2>&1)"; then
   fail "a prune of alpha-pg's fresh runs was reviewed"
 fi
 grep -q "no accepted scheduled backup is past the retention policy" <<<"$prune" || { echo "$prune" >&2; fail "alpha-pg prune review"; }
 log "F132: status grades all four app databases' recovery points, beta-ch retired; alpha-pg has no runs past policy"
+fi
 
 # --- 8a. EP-207: a run taken before its schedule changed ---
 # A fresh app database per run, planned from its own config, so the four above are untouched.
@@ -761,14 +799,16 @@ zeta_config "$ROOT/config/Zeta.hs" "\"$Z\" :| []"
 zeta_config "$ROOT/config/ZetaWider.hs" "\"$Z\" :| [\"${Z}_extra\"]"
 scheduled_run() { # app database; prints the completed run's Job UID
   local job="nagare-appdb-$1-$2"
-  kubectl -n "$NS" create job "$job" --from="cronjob/nagare-appdb-$1" >/dev/null
+  kubectl -n "$NS" get job "$job" >/dev/null 2>&1 || kubectl -n "$NS" create job "$job" --from="cronjob/nagare-appdb-$1" >/dev/null
   kubectl -n "$NS" wait --for=condition=complete "job/$job" --timeout=600s >/dev/null \
     || { kubectl -n "$NS" logs "job/$job" --all-containers --tail=20 >&2 || true; fail "backup run $job did not complete"; }
   kubectl -n "$NS" get job "$job" -o jsonpath='{.metadata.uid}'
 }
+if step_on 8a; then
 n db app-database plan --config "$ROOT/config/Zeta.hs" --save-plan "$REVIEWS/zeta" >/dev/null 2>&1 || fail "plan $ZETA"
 apply "$REVIEWS/zeta"
-ch_as "$ZETA-migration" "CREATE TABLE $Z.t (v String) ENGINE = MergeTree ORDER BY v"
+ch_as "$ZETA-migration" "CREATE TABLE IF NOT EXISTS $Z.t (v String) ENGINE = MergeTree ORDER BY v"
+ch_as "$ZETA-migration" "TRUNCATE TABLE $Z.t"
 ch_as "$ZETA-migration" "INSERT INTO $Z.t VALUES ('before')"
 before_run="$(scheduled_run "$ZETA" before)"
 # The schedule changes: a logical database is added after the run.
@@ -794,14 +834,16 @@ grep -q "no accepted scheduled backup is past the retention policy" <<<"$prune" 
 n db app-database retire "$ZETA" -n "$NS" --save-plan "$REVIEWS/zeta-retire" >/dev/null
 apply "$REVIEWS/zeta-retire"
 log "EP-207: a run taken before a logical database was added ingested, restored only its own database and kept prune open; $ZETA retired"
+fi
 
 # --- 8b. BUG-7: a reviewed restart keeps the migration FILE grant write-only ---
+if step_on 8b; then
 # Without enable_read_write_grants the server would print and store the legacy FILE ON *.*.
 grep -qx "GRANT WRITE ON FILE TO $CH_MIG_USER" <<<"$(ch_admin "SHOW GRANTS FOR $CH_MIG_USER")" \
   || { ch_admin "SHOW GRANTS FOR $CH_MIG_USER" >&2; fail "BUG-7: enable_read_write_grants is not live on smoke-ch"; }
 migrations="'$CH_MIG_USER'"
 if kubectl -n "$NS" get secret beta-ch-migration >/dev/null 2>&1; then migrations="$migrations, '$(secret beta-ch-migration CLICKHOUSE_USER)'"; fi
-pod_before="$(kubectl -n "$NS" get pod smoke-ch-0 -o jsonpath='{.metadata.uid}')"
+pod_before="$(drill_kept ch-pod-before-restart kubectl -n "$NS" get pod smoke-ch-0 -o jsonpath='{.metadata.uid}')"
 n db restart smoke-ch -n "$NS" --save-plan "$REVIEWS/restart-smoke-ch" > "$REVIEWS/restart-smoke-ch.plan.log" 2>&1 \
   || { tail -3 "$REVIEWS/restart-smoke-ch.plan.log" >&2; fail "BUG-7: plan the restart of smoke-ch"; }
 apply "$REVIEWS/restart-smoke-ch"
@@ -818,5 +860,7 @@ if read_out="$(ch_as alpha-ch-migration "SELECT * FROM file('bug7.csv', 'CSV', '
 fi
 grep -q 'READ ON FILE' <<<"$read_out" || { echo "$read_out" >&2; fail "BUG-7: the file read was refused for another reason"; }
 log "BUG-7: a reviewed restart of smoke-ch leaves the migration grant write-only; re-plan: no operations"
+fi
 
+drill_passed
 echo "app-database smoke: PASS"

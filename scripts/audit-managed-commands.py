@@ -143,10 +143,11 @@ AUTHORIZED_RECOVERY_ONLY = {"DbCommand.DbRecoverScheduledPrune", "StorageCommand
 # and library callers cannot disappear from the review unnoticed.
 ENTRYPOINTS = {
     "cli/nagarectl/nagared/Main.hs": ("reviewedSiteArgs", "submitReviewedSite"),
-    "scripts/local-smoke.sh": ("nagarectl app image-plan", "--image-resource", "nagarectl storage snapshot", "--snapshot-id", "nagarectl storage restore", "--restore-id", "nagarectl inventory apply", "verify_restored_sentinel"),
+    "scripts/local-smoke.sh": ("nagarectl app image-plan", "--image-resource", "nagarectl storage snapshot", "--snapshot-id", "nagarectl storage restore", "--restore-id", "drill_apply", "verify_restored_sentinel"),
     "scripts/live-smoke.sh": ("nagarectl app image-plan", "--image-resource", "nagarectl storage snapshot", "--snapshot-id", "nagarectl storage restore", "--restore-id", "nagarectl inventory apply", "verify_restored_sentinel"),
     "scripts/local-secret-scope-smoke.sh": ("secret sync", "app image-plan", "--image-resource", "app deploy", "--env-secret-resource", "secret set", "inventory apply", "secret-scope smoke: PASS"),
-    "scripts/local-app-database-smoke.sh": ("db app-database plan", "app image-plan", "--image-resource", "worker deploy", "db app-database restore", "--restore-id", "inventory apply", "app-database smoke: PASS"),
+    "scripts/local-app-database-smoke.sh": ("db app-database plan", "app image-plan", "--image-resource", "worker deploy", "db app-database restore", "--restore-id", "drill_apply", "app-database smoke: PASS"),
+    "scripts/lib/drill.sh": ("inventory apply", "inventory resume", "--save-plan"),
     "scripts/lib/smoke-readback.sh": ("NAGARE_VOLUME_RESTORE_FILE", "NAGARE_VOLUME_RESTORE_MANIFEST", "logs \"job/${job}\" -c restore"),
     "scripts/run-reviewed-bootstrap.sh": ("platform bootstrap plan", "platform bootstrap apply"),
     # EP-229: the transition drill and the intranet move are nagare-harness commands; their
