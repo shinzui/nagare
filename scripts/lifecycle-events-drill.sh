@@ -162,7 +162,7 @@ release() { # tag
   printf '<!-- %s -->\n' "$1" >> "$PUBLIC/index.html"
   N site package -f "$EXAMPLE/nagare/Config.hs" -C "$EXAMPLE" --ghc-env "$NAGARE_DRILL_GHC_ENV" --output-dir "$PUBLIC" \
     --archive "$ROOT/site/$1.tar" --tag "$1" > "$ROOT/site/$1.package"
-  N app image-plan --archive "$ROOT/site/$1.tar" --destination "$destination:$1" --key "$SITE" --save-plan "$RV/image-$1" > "$RV/image-$1.log"
+  N app image-plan --archive "$ROOT/site/$1.tar" --destination "$destination:$1" --key "$SITE-$1" --save-plan "$RV/image-$1" > "$RV/image-$1.log"
   review_apply "$RV/image-$1"
   IMAGE="$(sed -n 's/^Image resource: //p' "$RV/image-$1.log" | tail -1)"
   [ -n "$IMAGE" ] || fail "image review $1 named no resource"
