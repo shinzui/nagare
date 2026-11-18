@@ -167,6 +167,7 @@ kindTable =
   , inLine ("networking.k8s.io", "networkpolicy") updatable NoReadiness
   , inLine ("rbac.authorization.k8s.io", "role") updatable NoReadiness
   , inLine ("rbac.authorization.k8s.io", "rolebinding") fixed NoReadiness
+  , inLine ("rbac.authorization.k8s.io", "clusterrole") updatable NoReadiness
   , -- Platform bootstrap kinds are not in release line (b).
     platform ("apiextensions.k8s.io", "customresourcedefinition") CanBeUnready
   , platform ("cert-manager.io", "certificate") CanBeUnready
@@ -240,6 +241,7 @@ validatedSemantics =
   , (("networking.k8s.io", "networkpolicy"), (plain False) {generationRule = SpecOnly})
   , (("rbac.authorization.k8s.io", "role"), plain False)
   , (("rbac.authorization.k8s.io", "rolebinding"), plain False)
+  , (("rbac.authorization.k8s.io", "clusterrole"), plain False)
   ]
   where
     plain statusSubresource = KindSemantics NoGeneration False statusSubresource NoReadinessModel NoChurn Immediate
@@ -289,5 +291,6 @@ kindFixture row = case kubernetesKind row of
       , (("", "resourcequota"), ("v1", "ResourceQuota", True, const ["spec" .= object ["hard" .= object ["pods" .= ("10" :: Text)]]]))
       , (("networking.k8s.io", "networkpolicy"), ("v1", "NetworkPolicy", True, const ["spec" .= object ["podSelector" .= object [], "policyTypes" .= ["Ingress" :: Text]]]))
       , (("rbac.authorization.k8s.io", "role"), ("v1", "Role", True, const ["rules" .= [object ["apiGroups" .= ["" :: Text], "resources" .= ["configmaps" :: Text], "verbs" .= ["get" :: Text]]]]))
+      , (("rbac.authorization.k8s.io", "clusterrole"), ("v1", "ClusterRole", False, const ["rules" .= [object ["apiGroups" .= ["" :: Text], "resources" .= ["secrets" :: Text], "resourceNames" .= ["model-key" :: Text], "verbs" .= ["get" :: Text]]]]))
       , (("rbac.authorization.k8s.io", "rolebinding"), ("v1", "RoleBinding", True, const ["roleRef" .= object ["apiGroup" .= ("rbac.authorization.k8s.io" :: Text), "kind" .= ("Role" :: Text), "name" .= ("model-extra" :: Text)], "subjects" .= [object ["kind" .= ("ServiceAccount" :: Text), "name" .= ("default" :: Text), "namespace" .= ("personal" :: Text)]]]))
       ]

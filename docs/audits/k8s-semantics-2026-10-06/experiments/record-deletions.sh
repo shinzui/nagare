@@ -24,7 +24,7 @@ while IFS='|' read -r kind resource name ns path propagation; do
   [ -z "$kind" ] && continue
   log "$kind"
   args=(); [ "$ns" != - ] && args=(-n "$ns")
-  group=$(case $kind in deployment|statefulset) echo apps;; cronjob|job) echo batch;; networkpolicy) echo networking.k8s.io;; role|rolebinding) echo rbac.authorization.k8s.io;; ksvc|domainmapping) echo serving.knative.dev;; *) echo "";; esac)
+  group=$(case $kind in deployment|statefulset) echo apps;; cronjob|job) echo batch;; networkpolicy) echo networking.k8s.io;; role|rolebinding|clusterrole) echo rbac.authorization.k8s.io;; ksvc|domainmapping) echo serving.knative.dev;; *) echo "";; esac)
   target=$(jq -cn --arg g "$group" --arg k "$([ "$kind" = ksvc ] && echo service || echo "$kind")" --arg n "$name" --arg ns "$ns" '{group:$g, kind:$k, name:$n, namespace:(if $ns == "-" then null else $ns end)}')
   # Observe first, so a replay can map the UID and resourceVersion the delete
   # carries as its preconditions.
@@ -44,6 +44,7 @@ secret|secret|e1|$NS|/api/v1/namespaces/$NS/secrets/e1|Background
 serviceaccount|serviceaccount|e1|$NS|/api/v1/namespaces/$NS/serviceaccounts/e1|Orphan
 rolebinding|rolebinding|e1|$NS|/apis/rbac.authorization.k8s.io/v1/namespaces/$NS/rolebindings/e1|Orphan
 role|role|e1|$NS|/apis/rbac.authorization.k8s.io/v1/namespaces/$NS/roles/e1|Orphan
+clusterrole|clusterrole|e1|-|/apis/rbac.authorization.k8s.io/v1/clusterroles/e1|Background
 networkpolicy|networkpolicy|e1|$NS|/apis/networking.k8s.io/v1/namespaces/$NS/networkpolicies/e1|Background
 service|service|e1|$NS|/api/v1/namespaces/$NS/services/e1|Orphan
 resourcequota|resourcequota|e1|$NS|/api/v1/namespaces/$NS/resourcequotas/e1|Background

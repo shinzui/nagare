@@ -177,6 +177,7 @@ plurals =
   , ("serviceaccount", "serviceaccounts")
   , ("role", "roles")
   , ("rolebinding", "rolebindings")
+  , ("clusterrole", "clusterroles")
   , ("networkpolicy", "networkpolicies")
   , ("service", "services")
   , ("resourcequota", "resourcequotas")

@@ -84,7 +84,7 @@ apply_json() { kubectl apply --server-side --field-manager="${2:-exp}" -f <(echo
 target() { jq -cn --arg g "$1" --arg k "$2" --arg n "$3" --arg ns "$4" '{group:$g, kind:$k, name:$n, namespace:(if $ns == "-" then null else $ns end)}'; }
 # apply-action manifest manager force [outcome]
 apply_action() { jq -cn --argjson m "$1" --arg mg "${2:-exp}" --argjson f "${3:-false}" --arg o "${4:-}" '{op:"apply",manifest:$m,manager:$mg,force:$f} + (if $o == "" then {} else {outcome:$o} end)'; }
-group_of() { case $1 in deployment|statefulset) echo apps;; cronjob|job) echo batch;; networkpolicy) echo networking.k8s.io;; role|rolebinding) echo rbac.authorization.k8s.io;; ksvc|domainmapping) echo serving.knative.dev;; *) echo "";; esac; }
+group_of() { case $1 in deployment|statefulset) echo apps;; cronjob|job) echo batch;; networkpolicy) echo networking.k8s.io;; role|rolebinding|clusterrole) echo rbac.authorization.k8s.io;; ksvc|domainmapping) echo serving.knative.dev;; *) echo "";; esac; }
 kind_of() { [ "$1" = ksvc ] && echo service || echo "$1"; }
 
 # ---------------------------------------------------------------- setup
@@ -119,6 +119,7 @@ manifest() { # kind variant name
   resourcequota) jq -cn --arg v "1$2" --arg n "$n" '{apiVersion:"v1",kind:"ResourceQuota",metadata:{name:$n,namespace:"trace"},spec:{hard:{pods:$v}}}';;
   networkpolicy) jq -cn --arg v "v$2" --arg n "$n" '{apiVersion:"networking.k8s.io/v1",kind:"NetworkPolicy",metadata:{name:$n,namespace:"trace"},spec:{podSelector:{matchLabels:{v:$v}},policyTypes:["Ingress"]}}';;
   role) jq -cn --argjson verbs "$([ "$2" = 1 ] && echo '["get"]' || echo '["get","list"]')" --arg n "$n" '{apiVersion:"rbac.authorization.k8s.io/v1",kind:"Role",metadata:{name:$n,namespace:"trace"},rules:[{apiGroups:[""],resources:["configmaps"],verbs:$verbs}]}';;
+  clusterrole) jq -cn --argjson names "$([ "$2" = 1 ] && echo '["k1"]' || echo '["k1","k2"]')" --arg n "$n" '{apiVersion:"rbac.authorization.k8s.io/v1",kind:"ClusterRole",metadata:{name:$n},rules:[{apiGroups:[""],resources:["secrets"],resourceNames:$names,verbs:["get"]}]}';;
   rolebinding) jq -cn --argjson extra "$([ "$2" = 1 ] && echo '[]' || echo '[{"kind":"ServiceAccount","name":"default","namespace":"trace"}]')" --arg n "$n" '{apiVersion:"rbac.authorization.k8s.io/v1",kind:"RoleBinding",metadata:{name:$n,namespace:"trace"},roleRef:{apiGroup:"rbac.authorization.k8s.io",kind:"Role",name:"e1"},subjects:([{kind:"ServiceAccount",name:"e1",namespace:"trace"}] + $extra)}';;
   service) jq -cn --argjson p "8$2" --arg n "$n" '{apiVersion:"v1",kind:"Service",metadata:{name:$n,namespace:"trace"},spec:{selector:{app:"e1"},ports:[{port:$p,targetPort:8080}]}}';;
   persistentvolumeclaim) jq -cn --arg s "1$2Mi" --arg n "$n" '{apiVersion:"v1",kind:"PersistentVolumeClaim",metadata:{name:$n,namespace:"trace"},spec:{accessModes:["ReadWriteOnce"],resources:{requests:{storage:$s}}}}';;
@@ -132,7 +133,7 @@ manifest() { # kind variant name
 }
 resource_of() { case $1 in ksvc) echo services.serving.knative.dev;; domainmapping) echo domainmappings.serving.knative.dev;; *) echo "$1";; esac; }
 name_of() { case $1 in namespace) echo trace-ns;; domainmapping) echo e1.127-0-0-1.sslip.io;; *) echo e1;; esac; }
-ns_of() { [ "$1" = namespace ] && echo - || echo $NS; }
+ns_of() { case $1 in namespace|clusterrole) echo -;; *) echo $NS;; esac; }
 status_patch() {
   case $1 in
   deployment|statefulset) echo '{"status":{"collisionCount":7}}';;
@@ -150,7 +151,7 @@ status_patch() {
 for t in dm-target-a dm-target-b; do apply_json "$(manifest ksvc 1 $t)"; step E1 ksvc "domain mapping target $t" "$(apply_action "$(manifest ksvc 1 $t)")" "$(observe services.serving.knative.dev $t)"; done
 kubectl wait --for=condition=ready services.serving.knative.dev/dm-target-a services.serving.knative.dev/dm-target-b -n $NS --timeout=180s >/dev/null
 
-kinds=(configmap secret serviceaccount role rolebinding networkpolicy service resourcequota namespace persistentvolumeclaim deployment statefulset cronjob job ksvc domainmapping)
+kinds=(configmap secret serviceaccount role rolebinding clusterrole networkpolicy service resourcequota namespace persistentvolumeclaim deployment statefulset cronjob job ksvc domainmapping)
 for k in "${kinds[@]}"; do
   log "E1 $k"
   r=$(resource_of $k); n=$(name_of $k); ns=$(ns_of $k)

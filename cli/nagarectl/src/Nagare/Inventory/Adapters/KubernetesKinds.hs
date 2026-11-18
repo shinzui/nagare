@@ -26,6 +26,9 @@ supportedUpdateKinds =
   , ("networking.k8s.io", "networkpolicy")
   , -- EP-248: revoking a delegation empties its deployer's Roles in place.
     ("rbac.authorization.k8s.io", "role")
+  , -- EP-235: the lifecycle worker's ClusterRole names exactly the signing
+    -- Secrets of accepted schedules and subscriptions, recompiled in place.
+    ("rbac.authorization.k8s.io", "clusterrole")
   ]
 
 -- | The (API group, kind) pairs whose stuck pod the adapter replaces through
