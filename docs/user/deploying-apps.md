@@ -149,7 +149,11 @@ history. Changing the hook or its effects under the same tag refuses; choose a
 new tag. A hook may bind an app database through its `appDatabases`; when the app database names
 the hook in `owners` it receives the migration credential, or an app-owned database's owner
 credential, and the Application's service and workers never reference it (see
-[managed databases](managed-databases.md)). One-off `task run` is a separate operational action. With hooks,
+[managed databases](managed-databases.md)). A hook declared `trigger = ReleaseOnly` runs only as
+this pre-deploy Job: its CronJob is accepted suspended with a schedule that never fires, and the
+application scope records `hookTrigger/TASK: release-only` in its overrides (see
+[release-only tasks](scheduled-tasks.md#release-only-tasks)). Changing a scheduled hook to
+release-only under the same tag updates only its CronJob. One-off `task run` is a separate operational action. With hooks,
 `--dry-run --json` prints an object containing `application` and `hooks` scopes.
 
 For a single Service config, the reviewed route uses an independent Service

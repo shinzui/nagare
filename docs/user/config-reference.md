@@ -655,6 +655,9 @@ When `nagarectl` loads a config, each failure becomes a precise `LoadError`
 - [Running workers](workers.md) — the `Worker` config (a headless `apps/v1`
   Deployment), its fields, and its optional exec/TCP/HTTP `liveness` probe.
 - [Scheduled tasks](scheduled-tasks.md) — the `Task` config (a Kubernetes CronJob).
+  Its `trigger` is `OnSchedule` with a cron `Schedule`, or `ReleaseOnly` for an
+  `Application` pre-deploy hook whose CronJob stays suspended; `releaseHook name app
+  command` builds one.
 - [Bounded one-shot jobs](one-shot-jobs.md) — the finite `Job` config, hardened
   renderer, and deadline-based concurrency quota.
 - [App lifecycle](app-lifecycle.md) — day-2 `app`/`deployments` commands using the

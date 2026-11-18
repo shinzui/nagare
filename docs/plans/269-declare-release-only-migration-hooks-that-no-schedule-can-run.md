@@ -21,6 +21,11 @@ provenance:
       at: 2026-11-18T13:10:09Z
       mode: "update"
       note: "Specify exact override and saved bundle checks, repository-wide compatibility coverage, modeled ticks and observable native retry."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-18T13:39:13Z
+      mode: "implement"
+      note: "M1-M2 implemented: typed trigger, suspended CronJob, hookTrigger override and placement refusals"
 ---
 
 # Declare release-only migration hooks that no schedule can run
@@ -62,16 +67,27 @@ Ordinary scheduled tasks render the same bytes as before.
 
 ## Progress
 
-- [ ] M1. A task declares its trigger in the typed model; a release-only task round-trips through
+- [x] M1. A task declares its trigger in the typed model; a release-only task round-trips through
   the config program, `app render` and `--rendered`, and renders a suspended CronJob, while every
-  existing scheduled golden and config digest is unchanged. Evidence: `nagare-dsl` tests.
-- [ ] M2. `app deploy` accepts a release-only hook, shows it in the preview and saved review, keeps
+  existing scheduled golden and config digest is unchanged. Evidence: `nagare-dsl` tests. Done 2026-11-18 in be2c945e: `nagare-dsl-test` 548/548, new golden
+  `task-release-only.cronjob.yaml`, existing goldens untouched, and
+  `multi-app-scheduled-task.application.json` (the encoder's bytes at 608a5b45) still matches.
+  Task tests moved to `cli/nagare-dsl/test/TaskSpec.hs` because `Spec.hs` passed the 1240-line limit.
+- [x] M2. `app deploy` accepts a release-only hook, shows it in the preview and saved review, keeps
   the hook Job and its proof identical across the scheduled-to-release-only change, and refuses a
   release-only task anywhere but the aggregate `tasks` list. Evidence: `nagarectl-test` compile and
-  contract tests.
-- [ ] M3. The effect interpreter shows a failed hook blocking the serving workloads, an identical
+  contract tests. Done 2026-11-18 in 9f788170: `cli/nagarectl/test/ReleaseOnlyHookSpec.hs` (7 tests)
+  and the saved-review test in `Nagare/Test/ContractCommands.hs`; `just gate-commit` ran the full
+  `nagarectl-test` green.
+- [x] M3. The effect interpreter shows a failed hook blocking the serving workloads, an identical
   retry keeping the first proof with one execution, zero schedule runs for the release-only
   CronJob, and an ordinary scheduled task still ticking. Evidence: `nagarectl-test` world tests.
+  Done 2026-11-18: `cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs` drives the compiled
+  Application's Kubernetes members (foundation externals dropped) through the production adapter
+  over the model world; 4 tests green under `just gate-commit` (full `nagarectl-test`). It lives in
+  its own module rather than `WorkloadControlsInventorySpec.hs` because it needs the compiled
+  fixture of `ManagedEnvScopeSpec.hs`. The retry compares the hook scope's digest and declaration:
+  every accepted review advances a scope's generation.
 - [ ] M4. User documentation describes the release-only trigger, and one native confirmation on a
   disposable local context shows the transition and the repeat deploy. Evidence: transcript in this
   plan.

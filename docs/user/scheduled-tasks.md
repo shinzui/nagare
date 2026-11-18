@@ -82,9 +82,11 @@ nagarectl task logs notes heartbeat
 ## Concepts
 
 - A **scheduled task** is a named unit of work Nagare runs on a cron schedule,
-  declared as a typed `Task` (name, namespace, schedule, image, command/args, env,
+  declared as a typed `Task` (name, namespace, trigger, image, command/args, env,
   resources, timeout, concurrency/restart/backoff policy, history limits, and an
-  optional app reference).
+  optional app reference). Its `trigger` is `OnSchedule` with a cron schedule, or
+  `ReleaseOnly` for a pre-deploy hook that no schedule runs (see
+  "Release-only tasks" below).
 - A **CronJob** is the Kubernetes object that, on a cron schedule, creates a
   **Job**, which runs a **Pod** to completion. Nagare names it `nagare-task-<name>`.
 - A **one-off run** is a single Job derived from the accepted CronJob's saved
@@ -110,8 +112,9 @@ nagarectl task logs notes heartbeat
 > - **Single-node, single-completion.** Each task is one Job that runs one pod to
 >   completion. No fan-out, no parallelism, no multi-node scheduling — this is the
 >   deliberate single-node design the whole PaaS accepts.
-> - **Cron-only plus manual `task run`.** Tasks fire on their cron schedule or when
->   you run `nagarectl task run`. There are no event or webhook triggers.
+> - **Cron, release, or manual `task run`.** Tasks fire on their cron schedule, as
+>   an application's pre-deploy hook, or when you run `nagarectl task run`. There
+>   are no event or webhook triggers.
 > - **`task run` is not a shell.** It runs a *declared* task once; it is not an
 >   interactive session. New interactive database sessions are deferred.
 
@@ -143,10 +146,10 @@ import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task
-  ( Task (..), ConcurrencyPolicy (..), RestartPolicy (..), mkSchedule, mkTask )
+  ( Task (..), TaskTrigger (..), ConcurrencyPolicy (..), RestartPolicy (..), mkSchedule, mkTask )
 import Nagare.Dsl.Types
-  ( Deployment (..), EnvVar (EnvLiteral), mkEnvName, mkImageRef, mkNamespace
-  , mkServiceName, runtimeScoped )
+  ( Deployment (..), EnvVar (EnvLiteral), ManagedEnv (..), mkEnvName, mkImageRef
+  , mkNamespace, mkServiceName, runtimeScoped )
 
 deployment :: Either String Deployment
 deployment = first show $ do
@@ -157,22 +160,26 @@ deployment = first show $ do
   img   <- mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"
   dry   <- mkEnvName "DRY_RUN"
   task  <- mkTask Task
-    { taskName        = n
-    , taskNamespace   = ns
-    , taskSchedule    = sched
-    , taskImage       = Just img          -- an explicit image (Nothing = inherit the app's)
-    , taskApp         = Nothing
-    , taskCommand     = ["python", "manage.py", "cleanup"]
-    , taskArgs        = []
-    , taskEnv         = Map.fromList [(dry, runtimeScoped (EnvLiteral "false"))]
-    , taskResources   = Nothing
-    , taskTimeoutSeconds = Just 600          -- kill a run after 10 minutes
-    , taskConcurrencyPolicy = Forbid
-    , taskRestartPolicy     = Never
-    , taskBackoffLimit      = 0
-    , taskSuccessfulJobsHistoryLimit = 3
-    , taskFailedJobsHistoryLimit     = 1
-    , taskStartingDeadlineSeconds    = Nothing
+    { name             = n
+    , logicalKey       = Nothing
+    , namespace        = ns
+    , trigger          = OnSchedule sched
+    , image            = Just img          -- an explicit image (Nothing = inherit the app's)
+    , app              = Nothing
+    , command          = ["python", "manage.py", "cleanup"]
+    , args             = []
+    , env              = Map.fromList [(dry, runtimeScoped (EnvLiteral "false"))]
+    , resources        = Nothing
+    , timeoutSeconds   = Just 600          -- kill a run after 10 minutes
+    , concurrencyPolicy = Forbid
+    , restartPolicy    = Never
+    , backoffLimit     = 0
+    , successfulJobsHistoryLimit = 3
+    , failedJobsHistoryLimit     = 1
+    , startingDeadlineSeconds    = Nothing
+    , serviceAccount   = Nothing
+    , managedEnv       = InheritManagedEnv
+    , appDatabases     = []
     }
   pure dep {tasks = [task]}
 
@@ -181,12 +188,56 @@ main = either (ioError . userError) emitDeployment deployment
 ```
 
 Only `Runtime`-scoped inline env renders into the container (build-only vars are
-dropped, exactly as for an app). `taskImage = Nothing` means "inherit the app's
-image" and is only valid when `taskApp = Just _`. The image is always **tagged at
+dropped, exactly as for an app). `image = Nothing` means "inherit the app's
+image" and is only valid when `app = Just _`. The image is always **tagged at
 deploy time**: an explicit task image becomes `<repo>:<deploy-tag>` (the same
 release tag the app gets this run), and an inheriting task gets the app's resolved
 `<repo>:<tag>` verbatim — so task images are as reproducible as app images, and a
 public fixed-tag image is not a fit (use the app's built image).
+
+
+## Release-only tasks
+
+A database migration usually belongs to a release, not to a clock. Declare it in
+an `Application`'s `tasks` list with `trigger = ReleaseOnly`, or with the
+`releaseHook` preset (task name, application name, command), which also inherits
+the application's image and none of its managed store:
+
+```haskell
+releaseHook :: Text -> Text -> Text -> Either Text Task
+-- e.g.
+releaseHook "migrate" "notes" "python manage.py migrate"
+```
+
+`app deploy` runs it as a pre-deploy hook exactly as it runs a scheduled one: a
+Job that must complete before the Service and workers change. Its CronJob is
+accepted with `spec.suspend: true` and the schedule `0 0 31 2 *` (31 February),
+so nothing launches it periodically, and an out-of-band unsuspend still starts
+nothing. Every later deploy keeps it suspended. The deploy preview and the saved
+review show `hookTrigger/TASK: release-only` under the application scope's
+overrides. `task list` prints `suspended` in its schedule column:
+
+```bash
+kubectl -n personal get cronjob nagare-task-migrate -o jsonpath='{.spec.suspend} {.spec.schedule}'
+```
+
+```text
+true 0 0 31 2 *
+```
+
+- Only an `Application`'s `tasks` list may hold a release-only task. One attached
+  to a Service, or a standalone task config, is refused at load, because nothing
+  would ever run it.
+- Changing an accepted scheduled task to release-only is an ordinary reviewed
+  `app deploy` that updates the CronJob in place. Under an accepted tag the hook
+  is not run again.
+- `nagarectl task run` still runs a release-only task once, as its own reviewed
+  action.
+- Changing a release-only task back to `OnSchedule` removes `suspend` on the next
+  deploy. A schedule with no `startingDeadlineSeconds` may then start a run it
+  counts as missed at once.
+- Upgrading a config from before this release: replace `schedule = s` with
+  `trigger = OnSchedule s` in each `Task` record.
 
 
 ## Operating with `nagarectl task`
@@ -386,9 +437,9 @@ source.
   an app's `tasks` list and running `nagarectl deploy`. There is no separate
   "apply a standalone task" command; the `nagarectl task` verbs operate tasks that
   `deploy` already provisioned.
-- **Cron-only plus manual `task run`.** Tasks fire on their cron schedule or when you
-  run `nagarectl task run`. There are no event-driven or webhook triggers (those
-  belong to the future Control-Plane API).
+- **Cron, release, or manual `task run`.** Tasks fire on their cron schedule, as an
+  application's pre-deploy hook, or when you run `nagarectl task run`. There are no
+  event-driven or webhook triggers (those belong to the future Control-Plane API).
 - **`task run` is not an interactive shell.** It runs a declared task once. New
   interactive database sessions are deferred (see
   [Managed databases](managed-databases.md)).
