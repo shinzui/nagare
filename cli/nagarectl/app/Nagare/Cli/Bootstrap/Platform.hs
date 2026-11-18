@@ -172,7 +172,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
           (root </> "cluster/bootstrap/job-runs/resourcequota.yaml")
           granted
       -- EP-243: an open move turns on the connector, flat names and a closed kourier one step at a time.
-      connectorMode = ingress ^. #connectorRunning
+      connectorMode = publishesConnector ingress (Map.member tunnelOwner (ResourceInventory.snapshotScopes snapshot))
       tunnelOwner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "cloudflare-tunnel")
       issuer = case profile ^. #mode of
         Local -> LocalIssuer
@@ -278,7 +278,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
       (dieT . T.pack . show)
       pure
       ( traverse
-          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled || profile ^. #lifecycleEventsEnabled] <> [CloudflaredImage | publishesConnector ingress (Map.member tunnelOwner (ResourceInventory.snapshotScopes snapshot))]))
+          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled || profile ^. #lifecycleEventsEnabled] <> [CloudflaredImage | connectorMode]))
           (manifest ^. #releaseImages)
       )
   let releaseImagePublications = maybe Map.empty snd releaseImages

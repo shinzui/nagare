@@ -82,8 +82,9 @@ postureFor ingress = \case
       FlipBase -> posture & #flatHosts .~ True & #originIssuer .~ False
       _ -> posture
 
--- | Whether the connector image is published: while the connector runs, and while its scope is still
--- accepted, which rolling back @start-connector@ keeps it (EP-246); dropping the image then left the
--- accepted connector Deployment depending on an absent publication.
+-- | Whether the connector component (its image, token Secret and Deployment) is declared: while the
+-- connector runs, and while its scope is still accepted, which rolling back @start-connector@ keeps
+-- (EP-246). Dropping it then left the accepted connector depending on an absent image publication and
+-- on a token Secret no compiler supplied.
 publishesConnector :: IngressPosture -> Bool -> Bool
 publishesConnector posture tunnelAccepted = posture ^. #connectorRunning || tunnelAccepted
