@@ -1,6 +1,7 @@
 #!/usr/bin/env cabal
 {- cabal:
 build-depends: base, bytestring, containers, crypton, http-types, time, wai, warp, directory
+ghc-options: -threaded
 -}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
