@@ -468,8 +468,10 @@ loadKubernetesMembers workspace store history members = do
             Right inventory -> fmap fst <$> loadAcceptedNativeSelected wanted store history inventory
   pure $ do
     files <- fromFiles
-    accepted <- Map.restrictKeys <$> fromAccepted <*> pure wanted
-    unless (Map.keysSet accepted == wanted) (Left "an accepted application or database member lacks its accepted native evidence")
+    recorded <- Map.restrictKeys <$> fromAccepted <*> pure wanted
+    unless (Map.keysSet recorded == wanted) (Left "an accepted application or database member lacks its accepted native evidence")
+    -- The accepted bytes under the composed declaration, which differs at most in dependencies.
+    let accepted = Map.intersectionWith (\declaration (_, bytes) -> (declaration, bytes)) generatedById recorded
     validateSuppliedKubernetesMembers generated accepted
     pure (Map.union files accepted)
   where
@@ -479,6 +481,7 @@ loadKubernetesMembers workspace store history members = do
     packaged = filter fromFile members
     generated = filter (not . fromFile) members
     wanted = Set.fromList (map (^. #identity) generated)
+    generatedById = Map.fromList [(member ^. #identity, member) | member <- generated]
     acceptedMembers = Map.fromList [(member ^. #identity, member) | Managed member <- historyDeclarations history]
     changed = generatedMemberChanged acceptedMembers
 
