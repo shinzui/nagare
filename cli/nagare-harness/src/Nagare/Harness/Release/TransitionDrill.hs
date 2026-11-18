@@ -19,6 +19,7 @@ module Nagare.Harness.Release.TransitionDrill
   , drillEnvironment
   , pushedDigest
   , pinnedImages
+  , seededPins
   )
 where
 
@@ -100,6 +101,16 @@ pinnedImages =
   , ("nagare-access", "9577009", "NAGARE_AUTH_ACCESS_IMAGE")
   , ("nagare-minio", "release-2025-09-07-arm64", "NAGARE_LOCAL_MINIO_IMAGE")
   , ("nagare-mc", "release-2025-08-13-arm64", "NAGARE_LOCAL_MC_IMAGE")
+  ]
+
+-- | The pins a source bootstrap seeds. A source that names its own service
+-- images (EP-237, every release since 0.21.0) runs them, as the candidate
+-- does; only the object store's images are pinned then.
+seededPins :: Bool -> [(String, String, String)]
+seededPins sourceImages =
+  [ pin
+  | pin@(_, _, variable) <- pinnedImages
+  , not (sourceImages && variable `elem` map (T.unpack . overrideVariable) [EnImage, ShomeiImage, AccessImage])
   ]
 
 -- | The ambient shell may carry a context, a payload root and a kubeconfig;
@@ -498,7 +509,9 @@ seedImages :: Drill -> String -> IO ()
 seedImages drill forwardPort = do
   let runtime' = drill ^. #runtime
       quiet i = i & #stdoutTo .~ Discard & #stderrTo .~ Discard
-  pins <- forM pinnedImages $ \(repository, tag', variable) -> do
+  let sourceImages = lookupVariable runtime' "NAGARE_REHEARSAL_SOURCE_IMAGES" == Just "1"
+  when sourceImages (say' drill "the source names its images: only the object store's images are pinned")
+  pins <- forM (seededPins sourceImages) $ \(repository, tag', variable) -> do
     let local = "k3d-registry.localhost:5000/" <> repository <> ":" <> tag'
         pushed = "localhost:5000/" <> repository <> ":" <> tag'
     held <- run' drill . quiet =<< command drill "docker" ["image", "inspect", local]

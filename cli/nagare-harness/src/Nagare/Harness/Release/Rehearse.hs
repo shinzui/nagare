@@ -125,6 +125,9 @@ rehearseIn runtime index repo rev prev work record checkRecord = do
   -- candidate names its own images.
   candidateRelease <- capture runtime ("no release.json at " <> rev) (invocation "git" ["-C", repo, "show", T.unpack rev <> ":release.json"])
   candidateImages <- either refuse pure (readReleaseImages candidateRelease)
+  -- A source that names its images bootstraps on them too (0.21.0 and later).
+  sourceRelease <- capture runtime ("no release.json at v" <> prev) (invocation "git" ["-C", repo, "show", "v" <> T.unpack prev <> ":release.json"])
+  sourceImages <- either refuse pure (readReleaseImages sourceRelease)
   -- the drill, from an empty environment (no direnv context, payload
   -- root or kubeconfig)
   let user = fromMaybe "" (lookupVariable runtime "USER")
@@ -144,6 +147,7 @@ rehearseIn runtime index repo rev prev work record checkRecord = do
           , ("NAGARE_REHEARSAL_RESET", "1")
           ]
             <> [("NAGARE_REHEARSAL_TARGET_IMAGES", "1") | isJust candidateImages]
+            <> [("NAGARE_REHEARSAL_SOURCE_IMAGES", "1") | isJust sourceImages]
         )
       & #stdoutTo
       .~ Tee (work </> "rehearsal.log")

@@ -221,7 +221,10 @@ releaseTransitionTests =
     "ReleaseTransition (EP-229)"
     [ testGroup
         "review decisions"
-        [ testCase "the v0.11.1 intranet reviews count 2, 211 and 0 operations, re-accepting 1, 6 and 0 scopes" $ do
+        [ testCase "a source that names its images seeds only the object store's pins (v0.22.0 rehearsal)" $ do
+            [variable | (_, _, variable) <- seededPins True] @?= ["NAGARE_LOCAL_MINIO_IMAGE", "NAGARE_LOCAL_MC_IMAGE"]
+            seededPins False @?= pinnedImages
+        , testCase "the v0.11.1 intranet reviews count 2, 211 and 0 operations, re-accepting 1, 6 and 0 scopes" $ do
             counts <- forM [1, 2, 3] $ \n -> eitherDecodeFileStrict (fixtureReview n) >>= either fail (either fail pure . parseEither reviewCounts)
             map (operationCount AllOperations) counts @?= [2, 211, 0]
             map (^. #reaccepted) counts @?= [1, 6, 0]
@@ -776,6 +779,7 @@ rehearseTests =
                 , "nix build --no-link --print-out-paths --inputs-from git+file://$T/repo?rev=" <> T.unpack rev <> " " <> unwords (map ("nixpkgs#" <>) rehearsalTools)
                 , "/nix/store/candidate-nagarectl/bin/nagarectl version --json"
                 , "git -C $T/repo show " <> T.unpack rev <> ":release.json"
+                , "git -C $T/repo show v9.8.6:release.json"
                 , "/harness/bin/nagare-harness transition drill"
                 ]
           [call ^. #names | call <- calls', call ^. #program == "/harness/bin/nagare-harness"]
