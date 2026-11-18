@@ -227,6 +227,14 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   portal-specific function, but all plan through `validateTarget` with the active profile.
   A deploy is not refused for having no portal, so removing an unrelated app still plans.
   Date: 2026-11-18
+- Decision: M5 waits for EP-235 M3. The next release carries every commit since v0.21.0,
+  among them MasterPlan 31's lifecycle event worker, whose native M3 drill the EP-235
+  session is still running, and its candidate run moves labs. Once EP-235 M3 is done, one
+  session prepares v0.22.0 and runs the candidate on the main Mac, which has the
+  `nagare-mp23` rehearsal profile; then the labs issuer move follows as one bounded,
+  operator-approved sequence.
+  Rationale: Operator decision, 2026-11-18. M1 to M4 landed at `902521a0`.
+  Date: 2026-11-18
 - Decision: On a context behind an edge, the four endpoints' responses get the same
   `Cache-Control` tightening as every other response the enforcer proxies.
   Rationale: The plan first passed Shomei's headers through unchanged, which on a tunnel
