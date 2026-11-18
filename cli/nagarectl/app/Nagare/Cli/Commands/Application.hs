@@ -135,6 +135,7 @@ import Nagare.Inventory.Application
   , compileApplicationDeployment
   , compileServiceActionScope
   , databaseRecoveryBindings
+  , hookTriggerOverrides
   , legacyApplicationReleaseImport
   , reviewedTaskImages
   )
@@ -468,6 +469,7 @@ runAppDeployPlan mctx params appOptions output = do
                     <> [ ("hook/" <> name, T.intercalate "," (map Resource.resourceIdText affected))
                        | (name, affected) <- Map.toList hookEffects
                        ]
+                    <> Map.toList (hookTriggerOverrides app)
                 )
           , scopeSource = source
           }

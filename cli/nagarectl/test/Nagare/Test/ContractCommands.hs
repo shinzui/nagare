@@ -11,6 +11,7 @@ import Data.Aeson (Value (..), eitherDecode, toJSON)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef)
@@ -31,10 +32,10 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..))
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
-import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle, ReviewInventory)
+import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle, ReviewDocument (..), ReviewInventory, loadReviewBundle, reviewBundleDocument)
 import Nagare.Inventory.Publications (readPublications)
 import Nagare.Inventory.Status qualified as Status
-import Nagare.Inventory.Store (InventoryStore, StoreError (StoreAuthRequired), initializeStore, readHead)
+import Nagare.Inventory.Store (InventoryStore, ScopeRevision (..), StoreError (StoreAuthRequired), initializeStore, readHead)
 import Nagare.Inventory.Store.Counters (Counter (..), collectStoreCounters, countOf)
 import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
 import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, composeInventory, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
@@ -63,6 +64,18 @@ contractCommandTests =
         absolute <- makeAbsolute directory
         (saved ^. #review . #directory, saved ^. #scopes, T.length (saved ^. #review . #sha256)) @?= (T.pack absolute, ["application:command-fixture"], 64)
         validateToJSON saved @?= []
+    , testCase "a saved review keeps a release-only hook's trigger override on the desired application scope (EP-269)" $ withFixture $ \fixture -> do
+        let directory = fixtureRoot fixture </> "review-release-only"
+            triggered = withScopeOverrides (Map.fromList [("tag", "v1"), ("hookTrigger/migrate", "release-only")]) fixtureScope
+        before <- loadTargetSnapshot (fixtureTarget fixture)
+        _ <- collecting (planInventoryCandidateWith (fixturePlan fixture) (fixtureTarget fixture) (ok (composeInventory before (ReplaceScope triggered :| []))) directory)
+        bundle <- loadReviewBundle directory >>= either (fail . T.unpack) pure
+        revision <- maybe (fail "no desired application revision") pure (Map.lookup fixtureOwner (reviewDesiredRevisions (reviewBundleDocument bundle)))
+        -- The scope document a reviewer reads as scopes/DIGEST.json.
+        scopeBytes <- BS.readFile (directory </> "scopes" </> (T.unpack (Resource.digestText (revisionDigest revision)) <> ".json"))
+        case Aeson.decodeStrict scopeBytes of
+          Just (Object members) -> KeyMap.lookup "overrides" members @?= Just (toJSON (Map.fromList [("hookTrigger/migrate" :: Text, "release-only" :: Text), ("tag", "v1")]))
+          _ -> assertFailure "saved scope document is not an object"
     , testCase "an in-process publication prints only its image-publication document" $ withFixture $ \fixture -> do
         printed <- newIORef []
         setContractSinkTo (\line -> modifyIORef' printed (line :))

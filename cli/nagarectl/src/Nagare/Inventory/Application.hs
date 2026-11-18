@@ -5,6 +5,7 @@ module Nagare.Inventory.Application
   ( ApplicationScopeInput (..)
   , compileApplicationScope
   , compileApplicationDeployment
+  , hookTriggerOverrides
   , applicationDatabaseRetirements
   , compileApplicationDatabases
   , compileApplicationService
@@ -69,6 +70,7 @@ import Nagare.Inventory.Application.Bindings
 import Nagare.Inventory.Application.Compile
   ( compileApplicationDeployment
   , compileApplicationScope
+  , hookTriggerOverrides
   )
 import Nagare.Inventory.Application.Database
   ( compileApplicationDatabases

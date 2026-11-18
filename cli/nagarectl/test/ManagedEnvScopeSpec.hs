@@ -1,7 +1,7 @@
 -- | EP-261 M2: a reviewed Application deploy whose workloads opt out of the
 -- managed store names only its own keys, and an Application's worker that does
 -- not opt out inherits the Application's store.
-module ManagedEnvScopeSpec (managedEnvScopeTests) where
+module ManagedEnvScopeSpec (input, managedEnvScopeTests, scopedApp, workloadObjects) where
 
 import AppDatabaseSpec (known, testCluster)
 import Control.Monad (forM_)

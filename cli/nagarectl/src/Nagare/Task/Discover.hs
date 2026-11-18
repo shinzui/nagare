@@ -97,7 +97,11 @@ rowFromItem item = do
     TaskRow
       { name = name
       , app = fromMaybe "-" (labelAt "nagare.dev/app" item)
-      , schedule = fromMaybe "?" (textAt ["spec", "schedule"] item)
+      , -- A suspended CronJob (a release-only hook, EP-269) starts nothing.
+        schedule =
+          if lookupPath ["spec", "suspend"] item == Just (Aeson.Bool True)
+            then "suspended"
+            else fromMaybe "?" (textAt ["spec", "schedule"] item)
       , lastRun = fromMaybe "never" (textAt ["status", "lastScheduleTime"] item)
       , lastSuccess = fromMaybe "never" (textAt ["status", "lastSuccessfulTime"] item)
       , active = activeCount item

@@ -34,6 +34,7 @@ import Nagare.Dsl.Broker (BrokerName, TopicName)
 import Nagare.Dsl.Config (encodeDeployment)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
+import Nagare.Dsl.Task (requireScheduled)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Deployment
@@ -284,6 +285,8 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
   unless
     (all (\task -> task ^. #name /= service ^. #name || null (task ^. #appDatabases)) (service ^. #tasks))
     (Left (invalid "a task that binds an app database needs a name other than its Deployment's"))
+  -- EP-269: a Service's task never runs as a pre-deploy hook.
+  mapM_ (first invalid . requireScheduled) (service ^. #tasks)
   let databaseBindings = Map.findWithDefault Map.empty (service ^. #name) consumerBindings
   databaseNames <- first invalid (workloadDatabaseNames (service ^. #env) (service ^. #databases) (service ^. #appDatabases) (service ^. #appDatabaseReaders))
   (databaseEnv, databaseIds, databaseSecrets) <-

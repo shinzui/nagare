@@ -2,6 +2,7 @@
 module Nagare.Inventory.Application.Compile
   ( compileApplicationDeployment
   , compileApplicationScope
+  , hookTriggerOverrides
   )
 where
 
@@ -24,7 +25,7 @@ import Nagare.Cdn.Provision
   , GcpStackRefs (globalIp)
   , planCdn
   )
-import Nagare.Dsl.Application (mkApplication)
+import Nagare.Dsl.Application (Application, mkApplication)
 import Nagare.Dsl.Broker
   ( BrokerProvider (Redpanda)
   , brokerNameText
@@ -34,6 +35,7 @@ import Nagare.Dsl.Cdn.Types
   )
 import Nagare.Dsl.Config (encodeApplication)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Task (isReleaseOnly)
 import Nagare.Dsl.Types
   ( domainText
   , mkSecretName
@@ -669,6 +671,20 @@ compileApplicationScope input = do
     (Left (invalid "application members claim the same provider address"))
   pure (scope, native)
 
+-- | The reviewed override that records each release-only pre-deploy hook on
+-- the application scope (EP-269): @hookTrigger/TASK = release-only@. The deploy
+-- preview and saved review show it; the hook scope itself is unchanged.
+hookTriggerOverrides :: Application -> Map Text Text
+hookTriggerOverrides app =
+  Map.fromList
+    [ (hookTriggerPrefix <> serviceNameText (task ^. #name), "release-only")
+    | task <- app ^. #tasks
+    , isReleaseOnly task
+    ]
+
+hookTriggerPrefix :: Text
+hookTriggerPrefix = "hookTrigger/"
+
 -- | Compose the application and its per-release hook scopes together. Keeping
 -- Jobs outside the application scope lets a later tag add new executions
 -- without retiring the completed Jobs from previous releases.
@@ -703,6 +719,9 @@ compileApplicationDeployment input = do
           (Map.toList effects)
     )
     (Left (invalid "every hook needs an exact reviewed affected-resource set or no-data-effects assertion"))
+  unless
+    (Map.filterWithKey (\key _ -> hookTriggerPrefix `T.isPrefixOf` key) overrides == hookTriggerOverrides app)
+    (Left (invalid "every release-only hook needs exactly its reviewed hookTrigger override"))
   let baseApp = app & #tasks .~ []
       baseEnvValues =
         Map.elems (baseApp ^. #env)
@@ -735,7 +754,7 @@ compileApplicationDeployment input = do
           , scopeEnvSecrets = baseSecrets
           , scopeInputOverrides =
               Map.filterWithKey
-                (\key _ -> not ("hook/" `T.isPrefixOf` key))
+                (\key _ -> not ("hook/" `T.isPrefixOf` key || hookTriggerPrefix `T.isPrefixOf` key))
                 overrides
           }
   (baseScope, baseNative) <- compileApplicationScope baseInput

@@ -20,7 +20,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy (RolloutEnv, renderTaskObjects)
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
+import Nagare.Dsl.Task (Task (..), mkTask, requireScheduled, taskResourceName)
 import Nagare.Dsl.Types
   ( DatabaseName
   , SecretName
@@ -95,6 +95,8 @@ compileApplicationTasks ::
     (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
 compileApplicationTasks app rollout cluster namespaceId imageId envSecrets source = do
   _ <- first invalid (mkApplication app)
+  -- EP-269: a release-only task compiles only as a pre-deploy hook.
+  mapM_ (first invalid . requireScheduled) (app ^. #tasks)
   owner <- first invalid (applicationScopeId app)
   compileTaskMembers
     owner
