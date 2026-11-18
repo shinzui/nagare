@@ -79,7 +79,11 @@ metrics idle
 
 # --- 2. the example receiver behind a fault proxy, reachable from the cluster ---
 KEY="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-( cd "$RX" && NAGARE_WEBHOOK_KEY="$KEY" PORT="$RECEIVER_PORT" cabal run -v0 "$REPO/cluster/examples/lifecycle-webhook-receiver/Receiver.hs" > "$RX/receiver.log" 2>&1 ) &
+RECEIVER_SRC="$REPO/cluster/examples/lifecycle-webhook-receiver/Receiver.hs"
+cabal build -v0 "$RECEIVER_SRC" || fail "the example receiver does not build"
+RECEIVER_BIN="$(cabal list-bin -v0 "$RECEIVER_SRC")"
+# exec, so the PID kept for cleanup is the receiver's own.
+( cd "$RX" && NAGARE_WEBHOOK_KEY="$KEY" PORT="$RECEIVER_PORT" exec "$RECEIVER_BIN" > "$RX/receiver.log" 2>&1 ) &
 PIDS+=($!)
 echo pass > "$RX/mode"
 python3 -I - "$PROXY_PORT" "$RECEIVER_PORT" "$RX/mode" "$RX/proxy.log" <<'PY' &
