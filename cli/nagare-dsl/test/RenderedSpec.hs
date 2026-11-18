@@ -3,7 +3,7 @@
 -- untrusted input; and a delegated deployer's process runs no config program.
 module RenderedSpec (renderedTests) where
 
-import ApplicationSpec (multiApp)
+import ApplicationSpec (multiApp, releaseOnlyApp)
 import Control.Exception (bracket_)
 import Control.Monad (forM_)
 import Data.ByteString qualified as BS
@@ -39,6 +39,9 @@ renderedTests =
         (decodeSite . snd =<< roundTrip RenderedStaticSite sites static) @?= decodeSite static
         (decodeSite . snd =<< roundTrip RenderedServerSite sites server) @?= decodeSite server
         fmap fst (roundTrip RenderedServerSite sites server) @?= Right RenderedServerSite
+    , testCase "a release-only hook decodes from its document exactly as from the program's output" $ do
+        let app = toStrict (encodeApplication releaseOnlyApp)
+        (decodeApplication . snd =<< roundTrip RenderedApplication [RenderedApplication] app) @?= Right releaseOnlyApp
     , testCase "the exact bytes survive: a trailing newline, reordered keys, non-ASCII text" $
         forM_ ["{\"kind\":\"Application\"}\n", "{ \"b\" : 1,\n  \"a\" : \"\195\169t\195\169\" }\n\n", "  \t{}  "] $ \stdout ->
           fmap snd (roundTrip RenderedApplication [RenderedApplication] stdout) @?= Right stdout

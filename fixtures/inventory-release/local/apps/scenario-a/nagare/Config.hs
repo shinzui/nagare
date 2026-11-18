@@ -27,7 +27,7 @@ import Nagare.Dsl.Config (emitApplication)
 import Nagare.Dsl.Database qualified as DB
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Presets (attachVolume, webService)
-import Nagare.Dsl.Task (ConcurrencyPolicy (..), RestartPolicy (..), Task (..), mkSchedule, mkTask)
+import Nagare.Dsl.Task (ConcurrencyPolicy (..), RestartPolicy (..), Task (..), TaskTrigger (..), mkSchedule, mkTask)
 import Nagare.Dsl.Types
   ( EnvScope (..)
   , EnvVar (..)
@@ -80,7 +80,7 @@ applicationConfig registry baseDomain = do
         { name = reportName
         , logicalKey = Nothing
         , namespace = namespace'
-        , schedule = schedule'
+        , trigger = OnSchedule schedule'
         , image = Nothing
         , app = Just appName
         , command = ["python", "-c", "print('scenario-a report')"]

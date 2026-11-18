@@ -26,6 +26,7 @@ import Nagare.Dsl.Task
   ( ConcurrencyPolicy (..)
   , RestartPolicy (..)
   , Task (..)
+  , TaskTrigger (..)
   , mkSchedule
   , mkTask
   )
@@ -83,7 +84,7 @@ application = do
         { name = migrateNm
         , logicalKey = Nothing
         , namespace = ns
-        , schedule = sched
+        , trigger = OnSchedule sched
         , image = Nothing
         , app = Just appNm
         , command = ["migrate"]

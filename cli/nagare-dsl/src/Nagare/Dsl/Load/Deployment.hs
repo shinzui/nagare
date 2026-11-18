@@ -52,6 +52,7 @@ import Nagare.Dsl.Load.Fields
   )
 import Nagare.Dsl.Load.Task (JsonTask (..), toTask)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Task (requireScheduled)
 import Nagare.Dsl.Types
   ( Deployment (..)
   , Port
@@ -161,7 +162,9 @@ toDeployment jd = do
   case firstDuplicate (map (serviceNameText . (^. #name)) tasks') of
     Just dup -> Left (MarshalError "tasks" ("duplicate task name: " <> dup))
     Nothing -> Right ()
-  -- Invariant 2: a co-located task that names an app must name THIS app.
+  -- Invariant 2: a service's task never runs as a hook, so it must be scheduled.
+  mapM_ (first (MarshalError "tasks") . requireScheduled) tasks'
+  -- Invariant 3: a co-located task that names an app must name THIS app.
   let thisApp = serviceNameText name'
   mapM_ (checkTaskApp thisApp) tasks'
   scale' <- case (jd ^. #scaleMin, jd ^. #scaleMax) of

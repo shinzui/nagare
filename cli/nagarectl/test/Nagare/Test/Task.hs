@@ -19,6 +19,7 @@ import Nagare.Dsl.Task
   ( ConcurrencyPolicy (Forbid)
   , RestartPolicy (Never)
   , Task (..)
+  , TaskTrigger (..)
   , mkSchedule
   , mkTask
   )
@@ -192,7 +193,7 @@ taskResolveTests =
             { name = unsafe (mkServiceName "sync")
             , logicalKey = Nothing
             , namespace = unsafe (mkNamespace "personal")
-            , schedule = unsafe (mkSchedule "*/15 * * * *")
+            , trigger = OnSchedule (unsafe (mkSchedule "*/15 * * * *"))
             , image = Nothing
             , app = Just (unsafe (mkServiceName "notes"))
             , command = ["python", "manage.py", "sync"]

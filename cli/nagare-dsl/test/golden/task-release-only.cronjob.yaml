@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nagare-task-migrate
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/task: migrate
+    nagare.dev/app: notes
+spec:
+  schedule: 0 0 31 2 *
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            nagare.dev/managed-by: nagarectl
+            nagare.dev/task: migrate
+            nagare.dev/app: notes
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: migrate
+            command:
+            - python
+            - manage.py
+            - migrate
+            env:
+            - name: DRY_RUN
+              value: 'false'
+          automountServiceAccountToken: false

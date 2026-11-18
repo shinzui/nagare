@@ -227,7 +227,7 @@ taskJSON t =
     [ "kind" .= ("Task" :: Text)
     , "name" .= serviceNameText (t ^. #name)
     , "namespace" .= namespaceText (t ^. #namespace)
-    , "schedule" .= scheduleText (t ^. #schedule)
+    , "schedule" .= triggerSchedule (t ^. #trigger)
     , "image" .= fmap imageRefText (t ^. #image)
     , "app" .= fmap serviceNameText (t ^. #app)
     , "command" .= (t ^. #command)
@@ -249,9 +249,18 @@ taskJSON t =
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (t ^. #logicalKey)
       <> managedEnvJSON (t ^. #managedEnv)
       <> appDatabasesJSON (t ^. #appDatabases)
+      <> triggerJSON (t ^. #trigger)
   where
     res = t ^. #resources
     taskEnvJSON = scopedEnvJSON
+    -- A scheduled task keeps its pre-EP-269 bytes: its cron under @schedule@
+    -- and no @trigger@ key. A release-only task has a null schedule.
+    triggerSchedule = \case
+      OnSchedule s -> Just (scheduleText s)
+      ReleaseOnly -> Nothing
+    triggerJSON = \case
+      OnSchedule _ -> []
+      ReleaseOnly -> ["trigger" .= ("release-only" :: Text)]
 
 -- | Serialize a bounded one-shot 'Job' to JSON and write it to stdout.
 emitJob :: Job -> IO ()

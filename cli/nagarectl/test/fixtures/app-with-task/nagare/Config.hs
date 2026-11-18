@@ -15,6 +15,7 @@ import Nagare.Dsl.Task
   ( ConcurrencyPolicy (Forbid)
   , RestartPolicy (Never)
   , Task (..)
+  , TaskTrigger (..)
   , mkSchedule
   , mkTask
   )
@@ -42,7 +43,7 @@ dep = first show $ do
         { name = taskN
         , logicalKey = Nothing
         , namespace = ns
-        , schedule = sched
+        , trigger = OnSchedule sched
         , image = Nothing
         , app = Just name
         , command = ["python", "manage.py", "sync"]

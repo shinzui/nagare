@@ -76,14 +76,25 @@ cronJobValue t =
     , "metadata" .= metadataValue (taskCronJobName t) t
     , "spec"
         .= object
-          ( [ "schedule" .= scheduleText (t ^. #schedule)
-            , "concurrencyPolicy" .= concurrencyPolicyToken (t ^. #concurrencyPolicy)
-            , "successfulJobsHistoryLimit" .= (t ^. #successfulJobsHistoryLimit)
-            , "failedJobsHistoryLimit" .= (t ^. #failedJobsHistoryLimit)
-            ]
+          ( schedulePairs (t ^. #trigger)
+              <> [ "concurrencyPolicy" .= concurrencyPolicyToken (t ^. #concurrencyPolicy)
+                 , "successfulJobsHistoryLimit" .= (t ^. #successfulJobsHistoryLimit)
+                 , "failedJobsHistoryLimit" .= (t ^. #failedJobsHistoryLimit)
+                 ]
               <> startingDeadlinePairs t
               <> ["jobTemplate" .= object ["spec" .= taskJobSpecValue t]]
           )
+    ]
+
+-- | A scheduled task renders its cron and no @suspend@ key, so its bytes are
+-- unchanged. A release-only task renders a schedule that never fires and
+-- @suspend: true@ (EP-269).
+schedulePairs :: TaskTrigger -> [Pair]
+schedulePairs = \case
+  OnSchedule s -> ["schedule" .= scheduleText s]
+  ReleaseOnly ->
+    [ "schedule" .= scheduleText releaseOnlySchedule
+    , "suspend" .= True
     ]
 
 startingDeadlinePairs :: Task -> [Pair]
@@ -216,11 +227,12 @@ taskKeyRanks =
   , ("nagare.dev/app", 2)
   , -- CronJob spec
     ("schedule", 0)
-  , ("concurrencyPolicy", 1)
-  , ("successfulJobsHistoryLimit", 2)
-  , ("failedJobsHistoryLimit", 3)
-  , ("startingDeadlineSeconds", 4)
-  , ("jobTemplate", 5)
+  , ("suspend", 1)
+  , ("concurrencyPolicy", 2)
+  , ("successfulJobsHistoryLimit", 3)
+  , ("failedJobsHistoryLimit", 4)
+  , ("startingDeadlineSeconds", 5)
+  , ("jobTemplate", 6)
   , -- Job spec
     ("backoffLimit", 0)
   , ("activeDeadlineSeconds", 1)

@@ -30,10 +30,12 @@ import Nagare.Dsl.Load.Fields
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task
   ( Task (..)
+  , TaskTrigger (..)
   , mkSchedule
   , mkTask
   , parseConcurrencyPolicy
   , parseRestartPolicy
+  , requireScheduled
   )
 import Nagare.Dsl.Types
   ( Resources (..)
@@ -55,7 +57,8 @@ data JsonTask = JsonTask
   { name :: !Text
   , logicalKey :: !(Maybe Text)
   , namespace :: !Text
-  , schedule :: !Text
+  , schedule :: !(Maybe Text)
+  , trigger :: !(Maybe Text)
   , image :: !(Maybe Text)
   , app :: !(Maybe Text)
   , command :: ![Text]
@@ -84,7 +87,8 @@ instance FromJSON JsonTask where
       <$> o .: "name"
       <*> o .:? "logicalKey"
       <*> o .: "namespace"
-      <*> o .: "schedule"
+      <*> o .:? "schedule"
+      <*> o .:? "trigger"
       <*> o .:? "image"
       <*> o .:? "app"
       <*> o .:? "command" .!= []
@@ -115,7 +119,7 @@ toTask j = do
   name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
   logicalKey' <- traverse (first (MarshalError "logicalKey") . mkLogicalKey) (j ^. #logicalKey)
   ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
-  sched' <- first (MarshalError "schedule") $ mkSchedule (j ^. #schedule)
+  trigger' <- toTaskTrigger (j ^. #schedule) (j ^. #trigger)
   img' <- traverse (first (MarshalError "image") . mkImageRef) (j ^. #image)
   app' <- traverse (first (MarshalError "app") . mkServiceName) (j ^. #app)
   env' <- mapM toEnvEntry (j ^. #env)
@@ -145,7 +149,7 @@ toTask j = do
         { name = name'
         , logicalKey = logicalKey'
         , namespace = ns'
-        , schedule = sched'
+        , trigger = trigger'
         , image = img'
         , app = app'
         , command = j ^. #command
@@ -163,6 +167,18 @@ toTask j = do
         , managedEnv = managedEnv'
         , appDatabases = appDbRefs'
         }
+
+-- | A task names exactly one of a cron @schedule@ or @trigger: release-only@.
+toTaskTrigger :: Maybe Text -> Maybe Text -> Either LoadError TaskTrigger
+toTaskTrigger sched trig = case (sched, trig) of
+  (Just s, Nothing) -> OnSchedule <$> first (MarshalError "schedule") (mkSchedule s)
+  (Nothing, Just "release-only") -> Right ReleaseOnly
+  (Nothing, Just other) ->
+    Left (MarshalError "trigger" ("unknown task trigger: " <> other <> "; expected release-only"))
+  (Just _, Just _) ->
+    Left (MarshalError "trigger" "a task names either a schedule or trigger release-only, not both")
+  (Nothing, Nothing) ->
+    Left (MarshalError "trigger" "a task needs a schedule or trigger release-only")
 
 toTaskResources :: JsonTask -> Either LoadError (Maybe Resources)
 toTaskResources j =
@@ -187,6 +203,7 @@ decodeTask bs =
       Just "Task" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode task: " <> Text.pack perr))
-        Right jt -> toTask jt
+        -- A standalone task is never a pre-deploy hook (EP-269).
+        Right jt -> toTask jt >>= \t -> t <$ first (MarshalError "trigger") (requireScheduled t)
       Just other -> Left (UnexpectedKind "Task" other)
       Nothing -> Left (UnexpectedKind "Task" "<none>")

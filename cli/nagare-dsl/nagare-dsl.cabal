@@ -145,6 +145,7 @@ test-suite nagare-dsl-test
     ResourceInventorySpec
     ServerSpec
     StaticSpec
+    TaskSpec
     WorkerSpec
 
   -- The loader tests spawn runghc; the threaded RTS keeps a child that

@@ -26,12 +26,19 @@ module Nagare.Dsl.Task
   , restartPolicyToken
   , parseRestartPolicy
 
+    -- * Trigger
+  , TaskTrigger (..)
+  , releaseOnlySchedule
+  , isReleaseOnly
+  , requireScheduled
+
     -- * Task
   , Task (..)
   , mkTask
 
     -- * Presets
   , scheduledTask
+  , releaseHook
 
     -- * Naming (IP3)
   , taskResourceName
@@ -57,6 +64,7 @@ import Nagare.Dsl.Types
   , defaultNamespace
   , mkImageRef
   , mkServiceName
+  , serviceNameText
   , validateAppDatabaseBindings
   )
 import Nagare.Resource.Types (LogicalKey)
@@ -214,6 +222,41 @@ parseRestartPolicy "OnFailure" = Just OnFailure
 parseRestartPolicy _ = Nothing
 
 -- ---------------------------------------------------------------------------
+-- Trigger
+
+-- | What starts a task. 'ReleaseOnly' is valid only for a task in an
+-- Application's @tasks@ list, which @app deploy@ runs as a pre-deploy hook; its
+-- CronJob renders suspended with 'releaseOnlySchedule', so no schedule can
+-- start it (EP-269).
+data TaskTrigger
+  = OnSchedule !Schedule
+  | ReleaseOnly
+  deriving stock (Generic, Eq, Show)
+
+-- | The schedule a release-only task's CronJob carries: 31 February, a date
+-- that never occurs, so even an out-of-band unsuspend starts nothing.
+-- Kubernetes requires a schedule on every CronJob.
+releaseOnlySchedule :: Schedule
+releaseOnlySchedule = Schedule "0 0 31 2 *"
+
+isReleaseOnly :: Task -> Bool
+isReleaseOnly t = t ^. #trigger == ReleaseOnly
+
+-- | The placement rule every route that compiles a task which is not a
+-- pre-deploy hook applies: such a task must be scheduled, because a
+-- release-only one would never run.
+requireScheduled :: Task -> Either Text ()
+requireScheduled t
+  | isReleaseOnly t =
+      Left
+        ( "task '"
+            <> serviceNameText (t ^. #name)
+            <> "' is release-only; only a task in an Application's tasks list runs as a "
+            <> "pre-deploy hook, so a release-only task anywhere else would never run"
+        )
+  | otherwise = Right ()
+
+-- ---------------------------------------------------------------------------
 -- Task
 
 -- | A scheduled task. There is no hidden constructor for 'Task' — like
@@ -226,8 +269,8 @@ data Task = Task
   , logicalKey :: !(Maybe LogicalKey)
   -- ^ DNS-1123 label; the CronJob is named @nagare-task-\<name\>@ (IP3).
   , namespace :: !Namespace
-  , schedule :: !Schedule
-  -- ^ Validated 5-field cron expression.
+  , trigger :: !TaskTrigger
+  -- ^ A validated 5-field cron schedule, or 'ReleaseOnly'.
   , image :: !(Maybe ImageRef)
   -- ^ The image to run in. 'Nothing' means "inherit the referenced app's
   -- image", which is only valid when 'app' is 'Just' (enforced in 'mkTask'
@@ -293,6 +336,8 @@ mkTask t
       Left "a task with no image must reference an app to inherit its image from"
   | null (t ^. #command) && isNothing (t ^. #app) =
       Left "a task must have a command, or reference an app to inherit its entrypoint"
+  | isReleaseOnly t && isNothing (t ^. #app) =
+      Left "a release-only task must reference the app whose deploy runs it"
   | otherwise = t <$ validateAppDatabaseBindings (Map.keysSet (t ^. #env)) (t ^. #appDatabases)
 
 -- ---------------------------------------------------------------------------
@@ -314,7 +359,7 @@ scheduledTask nameT scheduleT imageT commandT = do
       { name = n
       , logicalKey = Nothing
       , namespace = defaultNamespace
-      , schedule = sched
+      , trigger = OnSchedule sched
       , image = Just img
       , app = Nothing
       , command = Text.words commandT
@@ -330,6 +375,38 @@ scheduledTask nameT scheduleT imageT commandT = do
       , startingDeadlineSeconds = Nothing
       , serviceAccount = Nothing
       , managedEnv = InheritManagedEnv
+      , appDatabases = []
+      }
+
+-- | Build a release-only pre-deploy hook for an Application's @tasks@ list from
+-- a task name, the application name and a command: it inherits the app's image
+-- and receives none of the app's managed store ('NoManagedEnv'), only what it
+-- names in 'env' or 'appDatabases'. Other defaults are those of 'scheduledTask'.
+releaseHook :: Text -> Text -> Text -> Either Text Task
+releaseHook nameT appT commandT = do
+  n <- mkServiceName nameT
+  a <- mkServiceName appT
+  mkTask
+    Task
+      { name = n
+      , logicalKey = Nothing
+      , namespace = defaultNamespace
+      , trigger = ReleaseOnly
+      , image = Nothing
+      , app = Just a
+      , command = Text.words commandT
+      , args = []
+      , env = Map.empty
+      , resources = Nothing
+      , timeoutSeconds = Nothing
+      , concurrencyPolicy = Forbid
+      , restartPolicy = Never
+      , backoffLimit = 0
+      , successfulJobsHistoryLimit = 3
+      , failedJobsHistoryLimit = 1
+      , startingDeadlineSeconds = Nothing
+      , serviceAccount = Nothing
+      , managedEnv = NoManagedEnv
       , appDatabases = []
       }
 

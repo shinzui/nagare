@@ -5,9 +5,10 @@
 -- reference, a duplicate workload name, a duplicate database name). M2 (JSON
 -- emit/decode round-trip + kind discrimination) and M3 (config-as-program load)
 -- are added to the groups below as those milestones land.
-module ApplicationSpec (applicationTests, multiApp) where
+module ApplicationSpec (applicationTests, multiApp, releaseOnlyApp) where
 
 import Control.Lens ((&), (.~))
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (toStrict)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
@@ -81,7 +82,7 @@ migrateTask =
         { name = unsafe (mkServiceName "kizashi-migrate")
         , logicalKey = Nothing
         , namespace = unsafe (mkNamespace "personal")
-        , schedule = unsafe (mkSchedule "0 0 * * *")
+        , trigger = OnSchedule (unsafe (mkSchedule "0 0 * * *"))
         , image = Nothing
         , app = Just (unsafe (mkServiceName "kizashi"))
         , command = ["python", "manage.py", "migrate"]
@@ -202,7 +203,28 @@ mkApplicationTests =
                     (kizashiServe & #tasks .~ [migrateTask & #app .~ Just (unsafe (mkServiceName "other"))])
             )
         )
+  , testCase "accepts a release-only hook in the aggregate tasks list" $
+      assertRight (mkApplication releaseOnlyAppRec)
+  , testCase "rejects a release-only task attached to the service" $
+      assertLeftContains
+        "release-only"
+        ( mkApplication
+            ( multiAppRec
+                & #tasks .~ []
+                & #service .~ Just (kizashiServe & #tasks .~ [releaseMigrateTask])
+            )
+        )
   ]
+
+-- | The kizashi migration declared release-only (EP-269).
+releaseMigrateTask :: Task
+releaseMigrateTask = migrateTask & #trigger .~ ReleaseOnly
+
+releaseOnlyAppRec :: Application
+releaseOnlyAppRec = multiAppRec & #tasks .~ [releaseMigrateTask]
+
+releaseOnlyApp :: Application
+releaseOnlyApp = unsafe (mkApplication releaseOnlyAppRec)
 
 -- ---------------------------------------------------------------------------
 -- M2: JSON emit -> decode round-trip, kind discrimination, and the three
@@ -212,6 +234,24 @@ roundTripTests :: [TestTree]
 roundTripTests =
   [ testCase "multi-workload application survives emit -> decode round-trip" $
       decodeApplication (toStrict (encodeApplication multiApp)) @?= Right multiApp
+  , testCase "a scheduled task encodes to its pre-EP-269 bytes" $ do
+      -- Captured from the encoder before the trigger existed (608a5b45).
+      golden <- BS.readFile "test/golden/multi-app-scheduled-task.application.json"
+      toStrict (encodeApplication multiApp) @?= golden
+  , testCase "a release-only hook survives the application round-trip" $
+      decodeApplication (toStrict (encodeApplication releaseOnlyApp)) @?= Right releaseOnlyApp
+  , testCase "a release-only service task is refused at the loader" $
+      case decodeApplication
+        ( toStrict
+            ( encodeApplication
+                ( multiAppRec
+                    & #tasks .~ []
+                    & #service .~ Just (kizashiServe & #tasks .~ [releaseMigrateTask])
+                )
+            )
+        ) of
+        Left (MarshalError "tasks" msg) -> assertBool (show msg) ("release-only" `Text.isInfixOf` msg)
+        other -> assertFailure ("expected MarshalError tasks, got: " <> show other)
   , testCase "pinned application scope survives a display-name change" $ do
       let keyed = multiApp & #logicalKey .~ Just (unsafe (mkLogicalKey "kizashi"))
           renamed = keyed & #name .~ unsafe (mkServiceName "kizashi-new")

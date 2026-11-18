@@ -24,7 +24,7 @@ import Nagare.Dsl.Access
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render (renderBrokerPvc, renderBrokerService, renderBrokerStatefulSet)
 import Nagare.Dsl.Build
-import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
+import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment)
 import Nagare.Dsl.Database
 import Nagare.Dsl.Database.Render
   ( databaseCredentialTemplate
@@ -34,15 +34,13 @@ import Nagare.Dsl.Database.Render
   , renderDatabaseService
   , renderStatefulSet
   )
-import Nagare.Dsl.Load (LoadError (..), decodeBroker, decodeDatabase, decodeDeployment, decodeTask, loadBroker, loadDeployment)
+import Nagare.Dsl.Load (LoadError (..), decodeBroker, decodeDatabase, decodeDeployment, loadBroker, loadDeployment)
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Prelude hiding (Text, elements, (&), (.~))
 import Nagare.Dsl.Presets (attachVolume, development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
-import Nagare.Dsl.Task
-import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types
-import Nagare.Resource.Application (deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId)
+import Nagare.Resource.Application (deploymentResourceId, domainMappingResourceId, volumeResourceId)
 import Nagare.Resource.Broker (brokerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
 import Nagare.Resource.Inventory (Declaration (..), ManagedResource (..), ResourceBundle (..))
@@ -55,6 +53,7 @@ import RenderedSpec (renderedTests)
 import ResourceInventorySpec (resourceInventoryTests)
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
+import TaskSpec (appTask, releaseTask, taskTests)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
@@ -1083,117 +1082,6 @@ buildSpecTests =
       | needle `Text.isInfixOf` haystack = pure ()
       | otherwise = assertFailure ("expected " <> show needle <> " in: " <> Text.unpack haystack)
 
--- | Unwrap a smart-constructor result in test fixtures (the inputs are all
--- known-valid). Errors loudly if a fixture is mistyped.
--- | A standalone scheduled task, assembled through smart constructors. Mirrors
--- test/fixtures/task/standalone/nagare/Config.hs.
-standaloneTask :: Task
-standaloneTask =
-  unsafe $
-    mkTask
-      Task
-        { name = unsafe (mkServiceName "cleanup")
-        , logicalKey = Nothing
-        , namespace = unsafe (mkNamespace "personal")
-        , schedule = unsafe (mkSchedule "0 3 * * *")
-        , image = Just (unsafe (mkImageRef "gcr.io/myproject/notes"))
-        , app = Nothing
-        , command = ["python", "manage.py", "cleanup"]
-        , args = []
-        , env = Map.fromList [(unsafe (mkEnvName "DRY_RUN"), runtimeScoped (EnvLiteral "false"))]
-        , resources = Nothing
-        , timeoutSeconds = Just 600
-        , concurrencyPolicy = Forbid
-        , restartPolicy = Never
-        , backoffLimit = 0
-        , successfulJobsHistoryLimit = 3
-        , failedJobsHistoryLimit = 1
-        , startingDeadlineSeconds = Nothing
-        , serviceAccount = Nothing
-        , managedEnv = InheritManagedEnv
-        , appDatabases = []
-        }
-
--- | A task associated with the @notes@ app: it inherits @notes@'s image
--- (image = Nothing) and its runtime env/secret (rendered as envFrom), and
--- carries the nagare.dev/app label.
-appTask :: Task
-appTask =
-  unsafe . mkTask $
-    standaloneTask
-      & #name .~ unsafe (mkServiceName "sync")
-      & #schedule .~ unsafe (mkSchedule "*/15 * * * *")
-      & #image .~ Nothing
-      & #app .~ Just (unsafe (mkServiceName "notes"))
-      & #command .~ ["python", "manage.py", "sync"]
-      & #env .~ Map.empty
-      & #timeoutSeconds .~ Nothing
-      & #backoffLimit .~ 2
-
-taskTests :: [TestTree]
-taskTests =
-  [ testGroup
-      "mkSchedule"
-      [ testCase "accepts 0 3 * * *" $ assertRight (mkSchedule "0 3 * * *")
-      , testCase "accepts a step */15 * * * *" $ assertRight (mkSchedule "*/15 * * * *")
-      , testCase "accepts a list and range 1,15 0-6 * * 1-5" $
-          assertRight (mkSchedule "1,15 0-6 * * 1-5")
-      , testCase "rejects empty" $ assertLeftContains "empty" (mkSchedule "")
-      , testCase "rejects 4 fields" $ assertLeftContains "5" (mkSchedule "0 3 * *")
-      , testCase "rejects out-of-range minute" $ assertLeftContains "minute" (mkSchedule "60 3 * * *")
-      , testCase "rejects garbage" $ assertLeftContains "minute" (mkSchedule "x 3 * * *")
-      ]
-  , testGroup
-      "mkTask invariants"
-      [ testCase "rejects inheriting image with no app" $
-          assertLeftContains "inherit" (mkTask (standaloneTask & #image .~ Nothing & #app .~ Nothing))
-      , testCase "rejects negative backoffLimit" $
-          assertLeftContains ">= 0" (mkTask (standaloneTask & #backoffLimit .~ -1))
-      , testCase "rejects non-positive timeout" $
-          assertLeftContains "> 0" (mkTask (standaloneTask & #timeoutSeconds .~ Just 0))
-      ]
-  , testGroup
-      "JSON round-trip and kind discrimination"
-      [ testCase "standalone task survives emit -> decode round-trip" $
-          decodeTask (toStrict (encodeTask standaloneTask)) @?= Right standaloneTask
-      , testCase "pinned task key survives rename and JSON round-trip" $ do
-          let key = unsafe (mkLogicalKey "cleanup")
-              pinned = standaloneTask & #logicalKey .~ Just key
-              renamed = pinned & #name .~ unsafe (mkServiceName "cleanup-new")
-              owner = unsafe (mkScopeId Application "notes")
-              role = unsafe (mkName "cronjob")
-          decodeTask (toStrict (encodeTask renamed)) @?= Right renamed
-          taskResourceId owner role pinned @?= taskResourceId owner role renamed
-      , testCase "app-associated task round-trips" $
-          decodeTask (toStrict (encodeTask appTask)) @?= Right appTask
-      , testCase "decoding a Task as a Deployment is UnexpectedKind" $
-          case decodeDeployment (toStrict (encodeTask standaloneTask)) of
-            Left (UnexpectedKind "Deployment" "Task") -> pure ()
-            other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
-      , testCase "decoding a Deployment as a Task is UnexpectedKind" $
-          case decodeTask (toStrict (encodeDeployment helloDep)) of
-            Left (UnexpectedKind "Task" "<none>") -> pure ()
-            other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
-      , testCase "a task with its own command and no app decodes" $
-          case decodeTask
-            "{\"kind\":\"Task\",\"name\":\"x\",\"namespace\":\"personal\",\"schedule\":\"0 3 * * *\",\"image\":\"gcr.io/p/x\",\"command\":[\"echo\"]}" of
-            Right _ -> pure ()
-            other -> assertFailure ("expected Right (own command, no app), got: " <> show other)
-      , testCase "an inheriting task with no app fails to decode (MarshalError task)" $
-          case decodeTask
-            "{\"kind\":\"Task\",\"name\":\"x\",\"namespace\":\"personal\",\"schedule\":\"0 3 * * *\",\"command\":[\"echo\"]}" of
-            Left (MarshalError "task" _) -> pure ()
-            other -> assertFailure ("expected MarshalError task, got: " <> show other)
-      ]
-  , testGroup
-      "renderer goldens"
-      [ goldenVsString "renderTask standalone" "test/golden/task-standalone.cronjob.yaml" $
-          pure (fromStrict (renderTask standaloneTask))
-      , goldenVsString "renderTask app-associated" "test/golden/task-app-associated.cronjob.yaml" $
-          pure (fromStrict (renderTask appTask))
-      ]
-  ]
-
 -- | A `notes` deployment that co-locates EP-50's inheriting `sync` task
 -- (MasterPlan 10 / EP-52). The task's `app` is `notes`, matching the
 -- enclosing app, so it satisfies the deploy-level association invariant.
@@ -1208,6 +1096,10 @@ deploymentTaskTests =
       case decodeDeployment (toStrict (encodeDeployment badAppTaskDep)) of
         Left (MarshalError "tasks" _) -> pure ()
         other -> assertFailure ("expected MarshalError tasks, got: " <> show other)
+  , testCase "a release-only task attached to a service fails to load" $
+      case decodeDeployment (toStrict (encodeDeployment releaseOnlyDep)) of
+        Left (MarshalError "tasks" msg) -> assertBool (show msg) ("release-only" `Text.isInfixOf` msg)
+        other -> assertFailure ("expected MarshalError tasks, got: " <> show other)
   , testCase "two co-located tasks with the same name fail to load" $
       case decodeDeployment (toStrict (encodeDeployment dupTaskDep)) of
         Left (MarshalError "tasks" _) -> pure ()
@@ -1218,6 +1110,10 @@ deploymentTaskTests =
       helloDep
         & #name .~ unsafe (mkServiceName "notes")
         & #tasks .~ [appTask & #app .~ Just (unsafe (mkServiceName "other"))]
+    releaseOnlyDep =
+      helloDep
+        & #name .~ unsafe (mkServiceName "notes")
+        & #tasks .~ [releaseTask]
     dupTaskDep =
       helloDep
         & #name .~ unsafe (mkServiceName "notes")

@@ -27,6 +27,7 @@ import Nagare.Dsl.Task
   ( ConcurrencyPolicy (Forbid)
   , RestartPolicy (Never)
   , Task (..)
+  , TaskTrigger (..)
   , mkSchedule
   , mkTask
   )
@@ -46,7 +47,7 @@ deployment = first show $ do
         { name = taskN
         , logicalKey = Nothing
         , namespace = ns
-        , schedule = sched
+        , trigger = OnSchedule sched
         , image = Nothing -- inherit postgres-app's image
         , app = Just app
         , command =

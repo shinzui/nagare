@@ -39,7 +39,7 @@ import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Database (Database (..), databaseNameText)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Task (Task (..))
+import Nagare.Dsl.Task (Task (..), requireScheduled)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Deployment (..)
@@ -124,6 +124,8 @@ appLabel app = (appLabelKey, serviceNameText (app ^. #name))
 --   4. **Namespace agreement** — every embedded workload's @namespace@ must
 --      equal the 'Application'\'s @namespace@ (belt-and-braces; one comparison
 --      per workload, prevents a class of confusing partial deploys).
+--   5. **Release-only placement** — a release-only task may sit only in the
+--      aggregate @tasks@ list; one attached to the service is never run.
 mkApplication :: Application -> Either Text Application
 mkApplication app = do
   checkImageAgreement app
@@ -131,6 +133,7 @@ mkApplication app = do
   checkUniqueNames app
   checkNamespaceAgreement app
   checkTaskAssociation app
+  mapM_ requireScheduled (maybe [] (^. #tasks) (app ^. #service))
   Right app
 
 -- A co-located task may inherit this app, but cannot silently bind to a
