@@ -26,6 +26,7 @@ import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (.
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal (operationIdText)
+import Nagare.Inventory.KubernetesConfiguration (confirmInventoryFieldOwnershipFor)
 import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Restore (restoreTargetPins)
@@ -146,6 +147,18 @@ inventoryIncarnationTests =
             ordered = withLeadingDependencies [edge] member
         ordered ^. #dependencies @?= [edge]
         withLeadingDependencies [edge] ordered @?= ordered
+    , testCase "k3s's ServiceLB cleanup finalizer on a Service is the controller's, and only that (EP-243 close-kourier)" $ do
+        let at kind = Just (Kubernetes (databaseMember "cluster") "" (expectOk (mkName kind)) (Just (expectOk (mkName "kourier-system"))) (expectOk (mkName "kourier")))
+            entry manager fields = Aeson.object ["manager" Aeson..= (manager :: T.Text), "fieldsV1" Aeson..= fields]
+            own = entry "nagare-inventory" (Aeson.object ["f:spec" Aeson..= Aeson.object ["f:type" Aeson..= Aeson.object []]])
+            finalizer = "f:metadata" Aeson..= Aeson.object ["f:finalizers" Aeson..= Aeson.object ["." Aeson..= Aeson.object [], "v:\"service.kubernetes.io/load-balancer-cleanup\"" Aeson..= Aeson.object []]]
+            serviceLb = entry "k3s" (Aeson.object [finalizer, "f:status" Aeson..= Aeson.object ["f:loadBalancer" Aeson..= Aeson.object ["f:ingress" Aeson..= Aeson.object []]]])
+            widened = entry "k3s" (Aeson.object [finalizer, "f:spec" Aeson..= Aeson.object ["f:type" Aeson..= Aeson.object []]])
+            observed members = Aeson.object ["metadata" Aeson..= Aeson.object ["uid" Aeson..= ("uid-kourier" :: T.Text), "resourceVersion" Aeson..= ("4" :: T.Text), "managedFields" Aeson..= members]]
+            physical = uid "uid-kourier"
+        confirmInventoryFieldOwnershipFor (at "service") physical "4" (observed [own, serviceLb]) @?= Right ()
+        assertBool "a k3s field beyond the finalizer refused" (isLeft (confirmInventoryFieldOwnershipFor (at "service") physical "4" (observed [own, widened])))
+        assertBool "the exception applied to another kind" (isLeft (confirmInventoryFieldOwnershipFor (at "configmap") physical "4" (observed [own, serviceLb])))
     , testCase "a restore pins only the recorded incarnation of its target (ADR 27, N6)" $ do
         let stateful = databaseMember "statefulset"
             pvc = databaseMember "pvc"

@@ -205,6 +205,19 @@ expectedControllerFields (Just (Kubernetes _ "apps" kind _ _)) "k3s" fields
     permitted ["f:metadata", "f:annotations", "f:deployment.kubernetes.io/revision"] = True
     permitted ("f:status" : _) = True
     permitted _ = False
+-- k3s's ServiceLB puts its cleanup finalizer and the load balancer status on a LoadBalancer
+-- Service. Inventory never declares finalizers, so an update keeps it, and the controller
+-- removes it once the Service is no longer a LoadBalancer (EP-243 close-kourier).
+expectedControllerFields (Just (Kubernetes _ "" kind _ _)) "k3s" fields
+  | nameText kind == "service" =
+      ["f:metadata", "f:finalizers", "v:\"service.kubernetes.io/load-balancer-cleanup\""] `elem` paths
+        && all permitted paths
+  where
+    paths = managedPaths [] fields
+    permitted ["f:metadata", "f:finalizers", "."] = True
+    permitted ["f:metadata", "f:finalizers", "v:\"service.kubernetes.io/load-balancer-cleanup\""] = True
+    permitted ("f:status" : _) = True
+    permitted _ = False
 expectedControllerFields _ _ _ = False
 
 managedPaths :: [Text] -> Object -> [[Text]]
