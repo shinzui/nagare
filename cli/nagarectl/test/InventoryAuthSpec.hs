@@ -1,4 +1,4 @@
-module InventoryAuthSpec (inventoryAuthTests) where
+module InventoryAuthSpec (inventoryAuthTests, fixture, fixtureCluster, fixtureOwner) where
 
 import Control.Exception (finally)
 import Control.Monad (forM_)

@@ -16,13 +16,13 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
+import InventoryAuthSpec (fixture, fixtureCluster, fixtureOwner)
 import Nagare.Context.BaseMove (issuerMoveRefusal)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.ShomeiIssuer (shomeiDeclaredIssuer, shomeiIssuerClause)
 import Nagare.Inventory.BackendMap (issuerPortalRefusal)
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Platform.ReleaseImages (explicitSelection)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), Sensitivity (Private))
 import Nagare.Resource.Types
@@ -185,40 +185,6 @@ shomeiSettings portal =
           (SourceLocation "contribution" "platform:auth")
       )
   ]
-
-fixture :: AuthInput
-fixture =
-  AuthInput
-    fixtureOwner
-    fixtureCluster
-    namespaceId
-    "../.."
-    images
-    "example.test"
-    (Map.fromList [("en", dbId "en"), ("shomei", dbId "shomei")])
-    []
-    Map.empty
-    CloudAuth
-    Nothing
-    []
-    Nothing
-  where
-    images =
-      Map.fromList
-        [ (name, explicitSelection ("registry.example.test/" <> name <> "@sha256:" <> digest))
-        | name <- ["en", "shomei", "nagare-access"]
-        ]
-    digest = mconcat (replicate 64 "a")
-    dbId name = mintResourceId fixtureOwner (ok (mkLogicalKey name)) (ok (mkName "database"))
-
-fixtureOwner :: ScopeId
-fixtureOwner = ok (mkScopeId Platform "auth")
-
-fixtureCluster :: ResourceId
-fixtureCluster = mintResourceId fixtureOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
-
-namespaceId :: ResourceId
-namespaceId = mintResourceId fixtureOwner (ok (mkLogicalKey "foundation")) (ok (mkName "namespace-nagare-system"))
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
