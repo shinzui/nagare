@@ -118,8 +118,10 @@ Ordinary scheduled tasks render the same bytes as before.
 
   The hook Job logged `maintenance key present`. Kubernetes admitted the 31 February schedule, so
   that Decision Log entry stands.
-- [ ] M5. IR-46 is marked implemented with the landed revision, and Kotei is told which revision to
-  qualify.
+- [x] M5. IR-46 is marked implemented with the landed revision, and Kotei is told which revision to
+  qualify. Done 2026-11-18: IR-46 is `completed` with resolution and log entries naming 1790e63f
+  (code 112380c0). No Kotei session was reachable, so the revision is in IR-46 and in the report to
+  the operator for Kotei's qualification.
 
 
 ## Surprises & Discoveries
@@ -169,7 +171,15 @@ Ordinary scheduled tasks render the same bytes as before.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+A Task now declares `trigger = OnSchedule s | ReleaseOnly`. A release-only hook runs only as
+`app deploy`'s reviewed pre-deploy Job. Its CronJob is accepted suspended on a schedule that never
+fires, and every later deploy keeps it that way. The scheduled-to-release-only change updates only
+the CronJob, in place and under the same tag, with the hook scope and proof unchanged. All of this
+was shown first by compile and model-world tests, then confirmed once on a disposable local
+context, and it landed at 1790e63f. What remains is Kotei's qualification of that revision and the
+entry in the next release's notes, including the `schedule = s` → `trigger = OnSchedule s` upgrade
+note. No friction entries were recorded and nothing moves to an ADR: the trigger is local to the
+task model, as the Decision Log says.
 
 
 ## Context and Orientation

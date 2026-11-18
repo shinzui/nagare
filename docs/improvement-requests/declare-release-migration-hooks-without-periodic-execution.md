@@ -7,7 +7,10 @@ generated:
   by: process:codex
   at: "2026-11-12T23:40:00Z"
 requestId: IR-46
-status: proposed
+status: completed
+completedAt: "2026-11-18T14:05:00Z"
+resolution: "ExecPlan 269 landed on master at 1790e63f (code 112380c0), unreleased. A Task declares trigger = ReleaseOnly (or uses releaseHook); app deploy runs it as the pre-deploy hook and accepts its CronJob with suspend true and the schedule 0 0 31 2 *, recording hookTrigger/TASK = release-only on the application scope in the preview and saved review. The scheduled-to-release-only change keeps the hook scope, Job and proof and updates only the CronJob; a release-only task outside Application.tasks is refused. Effect-interpreter tests cover AC-1 to AC-4. A native run on a disposable local context confirmed the in-place transition (same CronJob UID), the hook alone referencing its maintenance key with NoManagedEnv, and a repeat deploy with no operations. Kotei owns its qualification."
+targetPlan: docs/plans/269-declare-release-only-migration-hooks-that-no-schedule-can-run.md
 origin: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
 acceptanceCriteria:
   - id: AC-1
@@ -114,4 +117,7 @@ accepted secret isolation. Static-site contract work remains independent in
 
 ExecPlan 269 ([docs/plans/269-declare-release-only-migration-hooks-that-no-schedule-can-run.md](../plans/269-declare-release-only-migration-hooks-that-no-schedule-can-run.md))
 plans AC-1 to AC-4 with a release-only task trigger that keeps the CronJob accepted suspended.
-Nothing is implemented yet.
+It landed on master at 1790e63f (code 112380c0) and is not yet in a release. To qualify it, Kotei
+pins that revision. Upgrading a config means replacing `schedule = s` with
+`trigger = OnSchedule s`; the migration then declares `trigger = ReleaseOnly`. See
+[release-only tasks](../user/scheduled-tasks.md#release-only-tasks).
