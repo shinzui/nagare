@@ -9,6 +9,18 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-18T13:02:46Z
+  reviews:
+    - model: "gpt-6.2-astra"
+      harness: "codex-cli"
+      at: 2026-11-18T13:09:07Z
+      verdict: "changes-requested"
+      note: "Require exact trigger override values, exercise modeled schedule ticks, cover external fixtures, and repair saved-review and native retry evidence."
+  revisions:
+    - model: "gpt-6.2-astra"
+      harness: "codex-cli"
+      at: 2026-11-18T13:10:09Z
+      mode: "update"
+      note: "Specify exact override and saved bundle checks, repository-wide compatibility coverage, modeled ticks and observable native retry."
 ---
 
 # Declare release-only migration hooks that no schedule can run
@@ -95,7 +107,8 @@ Ordinary scheduled tasks render the same bytes as before.
   Rationale: Kubernetes requires a schedule. A date that never occurs means an out-of-band
   unsuspend still starts nothing, and inventory status reports that edit as configuration drift.
   The consumer never writes this value; the IR's objection is to a consumer workaround. M4
-  confirms the API server accepts it; if it refuses, use `0 0 1 1 *` and record that here.
+  confirms admission on the supported cluster. If admission fails, revisit the representation
+  and rerun AC-1 before landing. An annual schedule can run after an unsuspend.
   Date: 2026-11-18
 
 - Decision: The review evidence is one application-scope override per release-only hook,
@@ -204,8 +217,13 @@ task renders no `suspend` key.
 In `cli/nagare-dsl/src/Nagare/Dsl/Application.hs` (`mkApplication`): refuse a release-only task in
 `service.tasks`.
 
-Update every `schedule = ...` record literal in tests and fixtures (`git grep -n "schedule = " cli`)
-to `trigger = OnSchedule ...`. Tests in `cli/nagare-dsl/test/Spec.hs`, `LoadSpec.hs` and
+Search the working tree with `git grep -n 'schedule =' -- '*.hs'`. Migrate Task constructors
+and their imports in the libraries, tests, consumer examples under `cluster/examples/` and live
+fixtures under `fixtures/inventory-release/`. Other types also have a schedule field. Preserve
+archived release evidence. Capture the pre-change encoded bytes of an Application with a
+scheduled Task as a regression fixture and assert byte equality after migration. Exercise the
+release-only Application through the envelope round trip in `cli/nagare-dsl/test/RenderedSpec.hs`.
+Tests in `cli/nagare-dsl/test/Spec.hs`, `LoadSpec.hs` and
 `ApplicationSpec.hs`: the release-only CronJob bytes (a new golden), the JSON round trip, both
 decoder refusals, the `mkApplication` refusal, and the existing scheduled goldens passing
 unmodified.
@@ -213,14 +231,16 @@ unmodified.
 ### M2. Compile, review evidence and refusals
 
 In `cli/nagarectl/app/Nagare/Cli/Commands/Application.hs`, add `hookTrigger/TASK = release-only` to
-`scopeInputOverrides` for each release-only hook. In `compileApplicationDeployment`, require the set
-of `hookTrigger/` keys to equal the release-only hooks, strip them with the `hook/` keys before the
+`scopeInputOverrides` for each release-only hook. In `compileApplicationDeployment`, require the entire
+`hookTrigger/` submap to equal the map derived from release-only hooks (each value is exactly
+`release-only`), strip them with the `hook/` keys before the
 base compile, and keep them on the application scope.
 
 Refuse a release-only task in the two callers that compile tasks which are not hooks:
 `compileApplicationTasks` (`.../Application/Tasks.hs`) and the Service path in
-`cli/nagarectl/src/Nagare/Inventory/Application/Service.hs`. One shared check, error code
-`release-only-task-is-not-a-hook`.
+`cli/nagarectl/src/Nagare/Inventory/Application/Service.hs`. Share the placement predicate. Allow the existing loader and inventory wrappers to report
+its diagnostic in their own error types. In `decodeTask`, reject a top-level release-only Task
+while allowing `toTask` to decode one within `Application.tasks`.
 
 In `cli/nagarectl/src/Nagare/Task/Discover.hs` (`rowFromItem`), print `suspended` in the schedule
 column when `spec.suspend` is true.
@@ -231,13 +251,16 @@ deployment silently skipped a pre-deploy hook", near line 2019) and
 
 - The release-only CronJob's accepted bytes satisfy `taskSuspended == Right True`.
 - With the same tag, the scheduled and release-only compiles produce an equal hook scope and equal
-  hook Job bytes; only the CronJob member and the config digest of the application scope differ.
+  hook Job bytes; the application scope changes its CronJob member, config digest and trigger override.
 - Compiling the release-only input twice gives equal scopes (the IR's restoring review is gone).
 - A hook with `NoManagedEnv` and a named maintenance key: only the hook CronJob and Job reference
   the Secret; no Service or worker bytes do.
 - `deployPreview` shows `hookTrigger/TASK` in `application.overrides`
   (`cli/nagarectl/test/Nagare/Test/ContractCommands.hs`).
-- Both refusals, and a missing or extra `hookTrigger/` override.
+- Load the saved bundle and check the desired application's digest-addressed scope in
+  `scopes/` carries the same override. The CLI's `saved-review` response lists changed scopes.
+- Exercise each non-hook compilation route and reject missing, extra and wrong-valued trigger
+  overrides. Assert the placement diagnostic at the first validator reached by the public input.
 
 ### M3. Interpreter proof
 
@@ -250,11 +273,15 @@ against the model world (`cli/nagarectl/test/Nagare/Test/World/`, where a CronJo
   is still the accepted one.
 - Apply the scheduled fixture, then its release-only review: the CronJob is updated, not deleted or
   recreated, and reads `suspend: true`.
-- Across those runs the release-only CronJob produced no scheduled run, and an ordinary scheduled
-  task in the same world still ticks.
+- After the transition, call `churnOnce` on both live CronJob keys in the same world. Compare
+  their before/after status. The suspended object's status stays equal and the ordinary
+  scheduled object's churn counter advances. Assert both objects exist before the tick.
 
-If the world ticks a suspended CronJob, fix the world from the Kubernetes rule (a suspended CronJob
-starts no Job) before trusting these tests.
+In `cli/nagarectl/test/Nagare/Test/World/ApiServer.hs`, `churnOnce` models a schedule tick as a
+status write. Counting child Jobs alone would pass even for an active schedule. Drive the tests
+from the compiled Application scopes and count hook Job writes separately. For the accepted
+retry, reload accepted history and prepare a fresh review, then compare the original completion
+proof and effective writes. The existing resume test exercises an interrupted transaction.
 
 ### M4. Documentation and native confirmation
 
@@ -292,8 +319,8 @@ cabal test nagare-dsl-test --project-dir=cli/nagare-dsl --test-show-details=dire
 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /hook/' --test-show-details=direct
 ```
 
-Check the test-suite names against the two `.cabal` files first; the nagarectl form is the one the
-justfile uses.
+The focused hook filter selects tests by name. Run the full suites at the milestone gate
+to cover placement, rendered inputs and scheduled-task compatibility.
 
 Before landing:
 
@@ -303,37 +330,50 @@ just land HEAD
 ```
 
 Native confirmation (M4), on a local context built per
-[`docs/user/local-development.md`](../user/local-development.md), with a fixture application whose
-`tasks` list holds one hook named `migrate`. `IMAGE` is the accepted image resource ID.
+[`docs/user/local-development.md`](../user/local-development.md), with a fixture application named `ep269` whose
+`tasks` list holds one hook named `migrate` in namespace `personal`. Use the candidate CLI and matching
+packaged DSL. The installed CLI may predate `app render`. Set `IMAGE` to the accepted image ID
+and `SECRET` to the accepted Secret resource ID. Use a harmless command that only checks for a
+nonempty maintenance variable. Reference its Secret key only from the hook and set
+`NoManagedEnv` in both versions. Inspect the accepted manifests and live Pod templates for the
+key reference on the hook Job and CronJob and its absence on Service and worker, without
+printing Secret values. Start with fresh review directory names and a baseline schedule whose
+next tick falls outside the run. Change only the trigger between steps 1 and 2.
 
 ```bash
 # 1. Scheduled baseline.
-nagarectl app deploy --file nagare/Config.hs --tag v1 --image-resource IMAGE \
-  --hook-no-data-effects migrate --save-plan review-scheduled
+nagarectl app deploy --file nagare/Config.hs --tag v1 --image-resource "$IMAGE" \
+  --source ep269 --env-secret-resource "$SECRET" --hook-no-data-effects migrate --save-plan review-scheduled
 nagarectl inventory apply review-scheduled --yes
+kubectl -n personal get jobs -l nagare.dev/task=migrate -o custom-columns=NAME:.metadata.name,UID:.metadata.uid
 kubectl -n personal get cronjob nagare-task-migrate -o jsonpath='{.metadata.uid} {.spec.suspend}'
 
 # 2. Change the task to release-only, same tag.
 nagarectl app render --file nagare/Config.hs --out app.rendered.json
-nagarectl app deploy --rendered app.rendered.json --tag v1 --image-resource IMAGE \
-  --hook-no-data-effects migrate --dry-run --contract v1
-nagarectl app deploy --rendered app.rendered.json --tag v1 --image-resource IMAGE \
-  --hook-no-data-effects migrate --save-plan review-release-only
+nagarectl app deploy --rendered app.rendered.json --tag v1 --image-resource "$IMAGE" \
+  --source ep269 --env-secret-resource "$SECRET" --hook-no-data-effects migrate --dry-run --contract 1
+nagarectl app deploy --rendered app.rendered.json --tag v1 --image-resource "$IMAGE" \
+  --source ep269 --env-secret-resource "$SECRET" --hook-no-data-effects migrate --save-plan review-release-only
+scope_digest=$(jq -er '.desiredRevisions[] | select(.scope == {"kind":"Application","name":"ep269"}) | .revision.digest' review-release-only/review.json)
+jq -e '.overrides["hookTrigger/migrate"] == "release-only"' "review-release-only/scopes/$scope_digest.json"
 nagarectl inventory apply review-release-only --yes
 kubectl -n personal get cronjob nagare-task-migrate \
   -o jsonpath='{.metadata.uid} {.spec.suspend} {.spec.schedule}'
 
 # 3. Identical deploy again.
-nagarectl app deploy --rendered app.rendered.json --tag v1 --image-resource IMAGE \
-  --hook-no-data-effects migrate --save-plan review-repeat
-kubectl -n personal get jobs -l nagare.dev/task=migrate
+nagarectl app deploy --rendered app.rendered.json --tag v1 --image-resource "$IMAGE" \
+  --source ep269 --env-secret-resource "$SECRET" --hook-no-data-effects migrate --save-plan review-repeat
+jq '{operations, baseRevisions, desiredRevisions}' review-repeat/review.json
+nagarectl inventory apply review-repeat --yes
+kubectl -n personal get jobs -l nagare.dev/task=migrate -o custom-columns=NAME:.metadata.name,UID:.metadata.uid
+kubectl -n personal get cronjob nagare-task-migrate -o jsonpath='{.metadata.uid} {.spec.suspend}'
 ```
 
 Take the exact flag spellings from `nagarectl app deploy --help` and `nagarectl app render --help`.
-Expected: step 1 prints a UID and no `suspend`; step 2's preview lists
+Expected: step 1 prints a UID and false or absent `suspend`; step 2's preview lists
 `hookTrigger/migrate: release-only` under `application.overrides`, its review changes only the
 CronJob, and the last line prints the same UID followed by `true 0 0 31 2 *`; step 3's review
-changes nothing; the Job list holds exactly one Job, the `-hook-` Job from step 1.
+changes nothing; the Job list still holds the one hook Job with its original UID, and the CronJob UID and suspension persist.
 
 
 ## Validation and Acceptance
@@ -354,7 +394,8 @@ green, and the M4 transcript is recorded under Progress.
 
 ## Idempotence and Recovery
 
-Every step is a reviewed save-then-apply and can be repeated; an identical review changes nothing.
+Reapply an issued review using its original directory. To prepare a fresh review, use a new
+directory. The publisher refuses to overwrite an existing output.
 To undo the trigger change for an application, declare `OnSchedule` again and deploy: server-side
 apply removes `suspend`. A failed hook leaves the serving workloads on the previous release, as
 today. The native confirmation uses a disposable local context; delete the context to clean up.
@@ -394,3 +435,6 @@ Rendered-document JSON for a release-only task:
 Kotei (`mori://shinzui/kotei`) consumes the landed revision and owns its own qualification,
 migration stages and recovery rehearsals. IR-44's secret isolation and IR-45
 (`mori://shinzui/nagare/okf/improvement-requests/concepts/IR-45`) are not changed by this plan.
+
+Revision (2026-11-18). Review tightened trigger evidence, scheduled-input compatibility and
+the positive schedule control, and made the native transition and identical retry verifiable.
