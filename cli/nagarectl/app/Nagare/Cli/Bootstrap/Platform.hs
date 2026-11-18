@@ -21,6 +21,7 @@ import Nagare.Cli.Runtime.Process (currentTimestamp)
 import Nagare.Cluster.GcsJob
   ( StoreBackend (GcsBackend, MinioBackend)
   )
+import Nagare.Context.Posture (publishesConnector)
 import Nagare.Contract.ReleaseImages (ReleaseImageKey (..), ReleaseImages, releaseImageKeyText)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.BackendMap (issuerPortalRefusal)
@@ -172,6 +173,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
           granted
       -- EP-243: an open move turns on the connector, flat names and a closed kourier one step at a time.
       connectorMode = ingress ^. #connectorRunning
+      tunnelOwner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "cloudflare-tunnel")
       issuer = case profile ^. #mode of
         Local -> LocalIssuer
         Cloud ->
@@ -276,7 +278,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
       (dieT . T.pack . show)
       pure
       ( traverse
-          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled || profile ^. #lifecycleEventsEnabled] <> [CloudflaredImage | connectorMode]))
+          (compileReleaseImages (contextImageRegistry profile) ([EnImage, ShomeiImage, AccessImage] <> [AdminApiImage | profile ^. #adminApiEnabled || profile ^. #lifecycleEventsEnabled] <> [CloudflaredImage | publishesConnector ingress (Map.member tunnelOwner (ResourceInventory.snapshotScopes snapshot))]))
           (manifest ^. #releaseImages)
       )
   let releaseImagePublications = maybe Map.empty snd releaseImages

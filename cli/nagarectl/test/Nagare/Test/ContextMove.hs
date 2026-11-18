@@ -306,6 +306,7 @@ contextMoveTests =
       at (length sameDomainSteps) @?= tunnelPosture
       at 2 ^. #zoneRecords @?= Just MirrorRecords
       (at 2 ^. #connectorRunning, at 6 ^. #connectorRunning) @?= (False, True)
+      (publishesConnector (at 2) False, publishesConnector (at 2) True, publishesConnector (at 6) False) @?= (False, True, True)
       (at 7 ^. #zoneRecords, at 8 ^. #zoneRecords) @?= (Just MirrorRecords, Just TunnelRecords)
       (at 10 ^. #webRules, at 11 ^. #webRules, at 11 ^. #kourierClosed) @?= (WebRulesOpen, WebRulesDisabled, False)
       at (length sameDomainSteps) ^. #webRules @?= WebRulesAbsent

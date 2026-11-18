@@ -10,6 +10,7 @@ module Nagare.Context.Posture
   , tunnelPosture
   , postureFor
   , stepsInEffect
+  , publishesConnector
   )
 where
 
@@ -80,3 +81,9 @@ postureFor ingress = \case
       CreateZone -> posture & #zoneRecords .~ Just TunnelRecords
       FlipBase -> posture & #flatHosts .~ True & #originIssuer .~ False
       _ -> posture
+
+-- | Whether the connector image is published: while the connector runs, and while its scope is still
+-- accepted, which rolling back @start-connector@ keeps it (EP-246); dropping the image then left the
+-- accepted connector Deployment depending on an absent publication.
+publishesConnector :: IngressPosture -> Bool -> Bool
+publishesConnector posture tunnelAccepted = posture ^. #connectorRunning || tunnelAccepted
