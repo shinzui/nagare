@@ -88,6 +88,9 @@ taskDiscoverTests fixture =
           byName "nightly-report" ^. #app @?= "-"
           byName "nightly-report" ^. #lastRun @?= "never"
           byName "nightly-report" ^. #active @?= 1
+  , testCase "extractTaskRows prints a suspended CronJob's schedule as suspended (EP-269)" $
+      fmap (map (^. #schedule)) (extractTaskRows "{\"items\":[{\"metadata\":{\"name\":\"nagare-task-migrate\",\"labels\":{\"nagare.dev/task\":\"migrate\"}},\"spec\":{\"schedule\":\"0 0 31 2 *\",\"suspend\":true}}]}")
+        @?= Right ["suspended"]
   , testCase "extractTaskRows on empty shape is Right []" $
       extractTaskRows "{\"items\":[]}" @?= Right []
   , testCase "formatTaskTable empty prints the placeholder" $

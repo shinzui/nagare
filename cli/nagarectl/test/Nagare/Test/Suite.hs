@@ -164,6 +164,7 @@ import PlatformTransitionSpec (platformTransitionTests)
 import PlatformVersionsSpec (platformVersionsTests)
 import RecordedSiteSpec (recordedSiteTests, runRecordedSitesFixture)
 import ReleaseOnlyHookSpec (releaseOnlyHookTests)
+import ReleaseOnlyHookWorldSpec (releaseOnlyHookWorldTests)
 import System.Environment (lookupEnv)
 import System.Exit (exitWith)
 import Test.Tasty (localOption, testGroup)
@@ -342,4 +343,5 @@ main = do
             , appDeployTests
             , managedEnvScopeTests
             , releaseOnlyHookTests
+            , releaseOnlyHookWorldTests
             ]

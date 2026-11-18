@@ -899,6 +899,7 @@ test-suite nagarectl-test
     RecordedSiteSpec
     ReleaseImageSelectionSpec
     ReleaseOnlyHookSpec
+    ReleaseOnlyHookWorldSpec
     ShomeiUserSpec
     TransitionCostSpec
     WorkloadControlsInventorySpec
