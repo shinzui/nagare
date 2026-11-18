@@ -35,7 +35,7 @@ Needs the operator's go-ahead before any step, because it reads the intranet (de
 
 ## Progress
 
-Evidence for every item: `mori://tan/tan-ng-labs` commit `0ffaffd`, `docs/evidence/2026-11-18-data-protection/`.
+Evidence for every item: `mori://tan/tan-ng-labs` commit `936b66f`, `docs/evidence/2026-11-18-data-protection/`.
 
 - [x] (2026-11-18) Inventory: there are eight active databases. The platform has `en-db`, `en-mori-db`
   (the only declared En tenant) and `shomei-db`. The servers are `labs-postgres` and
@@ -53,7 +53,7 @@ Evidence for every item: `mori://tan/tan-ng-labs` commit `0ffaffd`, `docs/eviden
   Every active database's escrow then verified its newest scheduled backup (02:30 UTC runs) with
   only the key file and the bucket, 8 of 8 exit 0 (`verify.txt`). `shomei-db`'s key-encryption key
   file is present.
-- [x] (2026-11-18) The record is committed to `mori://tan/tan-ng-labs` (`0ffaffd`) and handed to EP-267.
+- [x] (2026-11-18) The record is committed to `mori://tan/tan-ng-labs` (`936b66f`) and handed to EP-267.
 
 
 ## Surprises & Discoveries

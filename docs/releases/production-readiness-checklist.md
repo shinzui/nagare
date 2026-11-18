@@ -27,7 +27,7 @@ drill log. Nothing is ticked on an estimate.
   intranet; the per-release local and cloud evidence chain is not re-run.
 - **A release counts when the intranet runs on it.** The operator's requirement of 2026-10-10:
   developers can deploy and log in, and the operator can change and upgrade without losing data.
-  The intranet runs v0.21.0 (2026-11-14, `mori://tan/tan-ng-labs` `56decf3`: platform status exact,
+  The intranet runs v0.22.0 (2026-11-17, `mori://tan/tan-ng-labs` `d49515e`: platform status exact,
   every accepted scope converged, protected-hello redirects to login); the operator's last recorded
   sign-in is on v0.19.2 (2026-11-12).
 
@@ -76,15 +76,15 @@ What comes after this list is ranked in [priorities after v0.6.3](priorities-aft
 
 - [x] The context uses the `hourly` recovery-point objective (`mp23-c3j`; `server status` shows
       `objective=hourly`; [drill](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/)).
-      Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `0ffaffd`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): all eight active databases report `objective=hourly`.
+      Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `936b66f`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): all eight active databases report `objective=hourly`.
 - [x] Every signing key is escrowed (all five accepted databases on `mp23-c3j`: en-db, shomei-db,
-      rbk-pg, scenario-ch, scenario-pg). Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `0ffaffd`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): every
+      rbk-pg, scenario-ch, scenario-pg). Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `936b66f`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): every
       active database's escrow verified its newest backup with only the key and the bucket, after
       `en-mori-db` and `mori-registry-pg` were escrowed there (F145).
 - [x] Every authoritative store is backed up off-cluster within one hour of the latest usable
       recovery point, measured including upload, verification and retry delays (all five databases
       healthy in `server status`, ages 215–1063 s, backups in GCS; volumes are outside the objective by
-      decision D2). Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `0ffaffd`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): ages 60–940 s, every schedule on the pinned backup image (F143),
+      decision D2). Holds on the intranet on v0.21.0, 2026-11-18, `mori://tan/tan-ng-labs` `936b66f`, [EP-265](../plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md): ages 60–940 s, every schedule on the pinned backup image (F143),
       and no application volume.
 - [x] Freshness deterioration is visible before a breach, and a breach is reported unhealthy.
       (Grading observed natively on `mp23-c3j`; warning and breach grades pinned by tests in candidate
