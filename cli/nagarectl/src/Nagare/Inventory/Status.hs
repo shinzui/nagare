@@ -51,7 +51,7 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview, replacementMembers)
-import Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources, validateSuppliedKubernetesMembers)
+import Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources, renderedFromTemplate, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.ObservationNative
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Plan.Types (historyDeclarations)
@@ -455,7 +455,13 @@ loadKubernetesMembers workspace store history members = do
       then pure (Right Map.empty)
       else
         if any changed generated
-          then pure (Left "Kubernetes declaration lacks a packaged document source, and differs from its accepted declaration")
+          then
+            pure
+              ( Left
+                  ( "Kubernetes declaration lacks a packaged document source, and differs from its accepted declaration: "
+                      <> T.unwords (map (resourceIdText . (^. #identity)) (filter changed generated))
+                  )
+              )
           else case acceptedInventoryOf history of
             Left reason -> pure (Left reason)
             Right inventory -> fmap fst <$> loadAcceptedNativeSelected wanted store history inventory
@@ -466,8 +472,11 @@ loadKubernetesMembers workspace store history members = do
     validateSuppliedKubernetesMembers generated accepted
     pure (Map.union files accepted)
   where
-    packaged = filter hasPackagedSource members
-    generated = filter (not . hasPackagedSource) members
+    -- An unchanged member rendered from a template (the issuer a move retires) takes its accepted
+    -- bytes: its file holds placeholders, not the document it declared.
+    fromFile member = hasPackagedSource member && not (renderedFromTemplate member && not (changed member))
+    packaged = filter fromFile members
+    generated = filter (not . fromFile) members
     wanted = Set.fromList (map (^. #identity) generated)
     acceptedMembers = Map.fromList [(member ^. #identity, member) | Managed member <- historyDeclarations history]
     changed member = Map.lookup (member ^. #identity) acceptedMembers /= Just member

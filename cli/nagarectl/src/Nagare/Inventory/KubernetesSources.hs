@@ -1,7 +1,7 @@
 -- | Resolve packaged Kubernetes source members during review preparation.
 -- The exact bytes are retained in the private review; apply never reopens the
 -- source file. Sources must resolve within the immutable platform workspace.
-module Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources, validateSuppliedKubernetesMembers) where
+module Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources, renderedFromTemplate, validateSuppliedKubernetesMembers) where
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM)
@@ -87,17 +87,19 @@ loadKubernetesSources workspace declarations = do
       _ -> pure (Left "Kubernetes source loader received a non-Kubernetes resource")
 
 -- | Whether a declaration names a document of a packaged manifest within the
--- workspace; generated members (applications', databases') do not, and nor does
--- a member rendered from a @.tmpl@ template (the issuer, the tunnel, the admin
--- API), whose file holds placeholders, not the declared document. Such a member
--- is planned from its accepted bytes, as when a move retires the issuer.
+-- workspace; generated members (applications', databases') do not.
 hasPackagedSource :: ManagedResource -> Bool
 hasPackagedSource declaration =
-  not (T.null suffix) && not (null sourceFile) && isRelative sourceFile && not (".tmpl" `T.isSuffixOf` file location)
+  not (T.null suffix) && not (null sourceFile) && isRelative sourceFile
   where
     location = declaration ^. #source
     sourceFile = T.unpack (file location)
     (_, suffix) = T.breakOn "#document[" (path location)
+
+-- | Whether a declaration was rendered from a @.tmpl@ template (the issuer, the tunnel, the admin
+-- API), whose file holds placeholders rather than the declared document.
+renderedFromTemplate :: ManagedResource -> Bool
+renderedFromTemplate declaration = ".tmpl" `T.isSuffixOf` file (declaration ^. #source)
 
 -- | Generated members enter the planner directly. Rebind their exact bytes so
 -- a caller cannot pair a valid declaration with different native content.

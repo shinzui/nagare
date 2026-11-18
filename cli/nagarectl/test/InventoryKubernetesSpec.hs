@@ -46,7 +46,7 @@ import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTr
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
-import Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources)
+import Nagare.Inventory.KubernetesSources (loadKubernetesSources, renderedFromTemplate)
 import Nagare.Inventory.Lifecycle (decideCollection, decideRetirement)
 import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveRestoreProof (..), LiveRestoreRequest (..), LiveScheduledProof (..), compileLiveRestoreScope, liveRestoreProof)
 import Nagare.Inventory.LiveRestorePostgres (normalizePostgresDump)
@@ -4131,8 +4131,8 @@ inventoryKubernetesTests =
           changed <- loadKubernetesSources root [sourceDeclaration]
           assertBool "changed packaged source accepted" (either (const True) (const False) changed)
     , testCase "a member rendered from a template is not read back from its packaged file (EP-246)" $ do
-        let packaged file path = hasPackagedSource (fst (ok (bindKubernetesObject input {sourceLocation = SourceLocation file path})))
-        (packaged "object.json" "#document[0]", packaged "cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl" "issuer#document[0]") @?= (True, False)
+        let templated file path = renderedFromTemplate (fst (ok (bindKubernetesObject input {sourceLocation = SourceLocation file path})))
+        (templated "object.json" "#document[0]", templated "cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl" "issuer#document[0]") @?= (False, True)
     , testCase "private review reconstructs delegated native members without source files" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
