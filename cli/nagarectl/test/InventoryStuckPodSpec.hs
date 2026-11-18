@@ -52,6 +52,7 @@ import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures (databaseNative, databaseScope, ok, statefulId)
 import Nagare.Test.Support.Kubernetes qualified as K
@@ -117,6 +118,15 @@ inventoryStuckPodTests =
     , testCase "plan: a corrected declaration over a stuck member plans only its update" $ do
         planned <- planAccepted (planMember "v1") (planMember "v2") (ObservedPresent planUid) blocked
         map plannedAction planned @?= [UpdateResource]
+    , testCase "plan: a present member that only lost a dependency plans no update (EP-246)" $ do
+        let sibling = planMember "v1" & #identity .~ siblingId & #address .~ Kubernetes planCluster "apps" (ok (mkName "statefulset")) (Just (ok (mkName "personal"))) (ok (mkName "other"))
+            scopeOf members = ok (mkScopeDeclaration planOwner [ResourceBundle (map Managed members) [] [] [] [] []])
+            plan fact = do
+              (_, candidate, history) <- acceptedScopes (scopeOf [sibling, planMember "v1" & #dependencies .~ [OrderedAfter siblingId]]) (scopeOf [sibling, planMember "v1"])
+              pure (map plannedAction (proposalOperations (ok (planChanges candidate noLifecycleDecisions history (ok (observationSet [(planId, fact), (siblingId, ObservedPresent planUid)]))))))
+            siblingId = mintResourceId planOwner (ok (mkLogicalKey "other")) (ok (mkName "statefulset"))
+        plan (ObservedPresent planUid) >>= assertBool "a dependency-only change is not rewritten" . notElem UpdateResource
+        plan (ObservedDrifted planUid (contentDigest "edited")) >>= (@?= [UpdateResource])
     , testCase "status: a stuck member is a stuck rollout that names the operation" $ do
         let inventory = candidateInventory (ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope (planScope (planMember "v1")) :| [])))
             classify stuck = Status.classifyDriftWith (Map.singleton planId planUid) inventory (withStuckRollouts stuck (ok (observationSet [(planId, ObservedPresent planUid)])))
