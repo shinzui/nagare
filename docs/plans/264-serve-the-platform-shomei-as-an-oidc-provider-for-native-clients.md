@@ -127,6 +127,9 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   release proves the three release facts; on labs, after the reviewed issuer move, the
   deploy-and-login check passes, the public discovery document reports the issuer, and
   IR-47's status is updated. Needs the operator's go-ahead before any labs mutation.
+  Handoff 2026-11-18: M1 to M4 are on master at `455fa72d`, whose full gate and mutation
+  sweep (202 killed) are green. The main Mac's session prepares, runs and publishes v0.22.0;
+  this plan's owner then proposes the labs issuer move as one bounded sequence.
 
 
 ## Surprises & Discoveries
