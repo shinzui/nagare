@@ -22,6 +22,7 @@ import Nagare.Access.BackendMap (BackendTarget, Portal)
 import Nagare.Access.Cookie (CookieSettings)
 import Nagare.Access.Credential (Credential)
 import Nagare.Access.DecisionCache (AuthorizationResult, DecisionCache)
+import Nagare.Access.Oidc (OidcProvider)
 import Nagare.Access.Portal (AccessToken, CapturedResponse, PortalPage, PortalPageKind, ReturnTarget, SessionHandoff)
 import Nagare.Access.Prelude
 import Network.HTTP.Types (Header)
@@ -132,5 +133,8 @@ data AccessServices = AccessServices
   , newCsrfToken :: !(IO Text)
   , decisionCache :: !DecisionCache
   , cookieSettings :: !(Maybe CookieSettings)
+  , oidcProvider :: !(Maybe OidcProvider)
+  -- ^ EP-264: set when the issuer is an @https@ URL. Its four Shomei
+  -- endpoints are then answered on the issuer's host, before the portal.
   }
   deriving stock (Generic)

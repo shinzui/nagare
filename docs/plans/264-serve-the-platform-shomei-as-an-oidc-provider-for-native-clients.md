@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-17T23:52:58Z
       mode: "update"
       note: "Added the six constraints Mori's client and registry enforce as tested acceptance, Mori's redirect URI and scope, the in-cluster JWKS check, and release timing"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-18T00:39:18Z
+      mode: "implement"
+      note: "M1 and M2 implemented and tested"
 ---
 
 # Serve the platform Shomei as an OIDC provider for native clients
@@ -68,15 +73,23 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
 
 ## Progress
 
-- [ ] M1: `NAGARE_AUTH_ISSUER` is parsed, refused when malformed, and rendered into both
+- [x] M1: `NAGARE_AUTH_ISSUER` is parsed, refused when malformed, and rendered into both
   workloads from one value (IR-47 AC-1, and the environment half of AC-2). Acceptance:
   `nagarectl-test` cases listed under Validation pass; the two workloads' native bytes for a
   context without the setting equal the digests pinned before any source change.
-- [ ] M2: `nagare-access` serves the four endpoints on the issuer host and nothing else of
+  Done 2026-11-18: the seven cases of `test/InventoryAuthIssuerSpec.hs` pass, and the whole
+  `nagarectl-test` suite passes. The pins (`e9fab8df…` for Shomei, `6f61ec08…` for the
+  enforcer) were read on the untouched tree with every source change stashed. With the
+  setting only those two members change; without it every auth member's bytes are as
+  before, which is the evidence for "no operation" (no separate planner run).
+- [x] M2: `nagare-access` serves the four endpoints on the issuer host and nothing else of
   Shomei (the routing half of AC-3, and AC-4). Acceptance: `nagare-access-test` cases against
   a real Shomei server run a full authorization-code flow with PKCE and a
   `client_credentials` grant through the enforcer, and show `/v1/admin/users`,
   `/v1/auth/signup`, `/oauth/userinfo` and `/metrics` are not answered by Shomei.
+  Done 2026-11-18: the eleven cases of `test/OidcProviderSpec.hs` pass against a real Shomei
+  with the platform's OIDC settings and its rate limiter, and the whole suite passes (247
+  tests). `parseReturnTarget` accepts Shomei's `return_to` unchanged, so it was not widened.
 - [ ] M3: Confirmed on a disposable `mode=local` context (AC-2 to AC-5): public discovery,
   anonymous redirect to `/login`, signed-in authorization to a loopback redirect, code
   exchange, signature check against the public JWKS, service-account token, and the move
@@ -93,7 +106,19 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Shomei at `6179d567` does have a trusted-proxy setting, `SHOMEI_TRUSTED_PROXIES`
+  (`shomei-server/src/Shomei/Server/Config.hs`, `trustedProxiesEnv`), which the Context
+  section said it lacks. The limiter is one token bucket per client address over every
+  throttled route (signup, login, MFA, `/oauth/token`): a burst of 60, refilled at 60 a
+  minute. The first consumer's fifteen-minute load plus ten failed grants, sent at once,
+  passes through the enforcer's one address; failed grants count only as requests. A single
+  client sending more than 60 throttled requests a minute would still exhaust the bucket for
+  everyone, sign-ins included. The remedy needs no pin move: the enforcer would send
+  `X-Forwarded-For` and Shomei would trust the enforcer's Pod range. Not decided here; for
+  the operator.
+- Every Shomei access token carries `aud` as the string `"nagare-access"`, not a one-element
+  array: jose renders a single audience as a string, which RFC 7519 allows. Concrete Steps'
+  expected output is corrected; Mori's audience check must accept the string form.
 
 
 ## Decision Log
@@ -162,6 +187,21 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   artifact-level URI pending), so the order of that move and the labs issuer is the
   operator's decision before M5.
   Date: 2026-11-17
+- Decision: At `/oauth/authorize` only the browser's session cookie names the user. A
+  client's own `Authorization` header is removed before the session is resolved, so it is
+  neither taken as the session nor forwarded.
+  Rationale: `authenticatePortal` also accepts a bearer header as the session. Shomei mints a
+  code at once with no consent page, so an access token held by one client could otherwise
+  mint a code for another without the browser.
+  Date: 2026-11-18
+- Decision: The portal-host check runs in two places. The platform plan refuses when the
+  accepted inventory registers no portal or one on another host; every candidate plan
+  (`validateTarget` in `Nagare.Inventory.Command`) refuses a composed portal on a host other
+  than the issuer's, which covers every reviewed deploy path at once.
+  Rationale: The reviewed deploy paths (application, deployment, sites, previews) share no
+  portal-specific function, but all plan through `validateTarget` with the active profile.
+  A deploy is not refused for having no portal, so removing an unrelated app still plans.
+  Date: 2026-11-18
 - Decision: On a context behind an edge, the four endpoints' responses get the same
   `Cache-Control` tightening as every other response the enforcer proxies.
   Rationale: The plan first passed Shomei's headers through unchanged, which on a tunnel
@@ -560,7 +600,7 @@ curl -s --cacert "$CA" -u "$SVC_ID:$SVC_SECRET" "$ISS/oauth/token" -d grant_type
   | jq -r .access_token | cut -d. -f2 | basenc --base64url -d 2>/dev/null | jq '{iss, aud}'
 ```
 
-Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": ["nagare-access"]}`.
+Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": "nagare-access"}`.
 
 
 ## Validation and Acceptance
@@ -615,8 +655,7 @@ Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": ["nagare-access"]}`
     per signed-in teammate every 15 minutes, for twenty teammates) plus ten failed grants
     from another client, and assert the valid grants still succeed. If one client's
     failures can lock out the others, stop and record it in the Decision Log for the
-    operator: the remedy is a Shomei with a trusted-proxy setting, which means moving the
-    pin, and is not decided here.
+    operator. (They cannot; see Surprises & Discoveries for what volume can do.)
 - **M3** (local context): the Concrete Steps outputs appear. Additionally: the token from
   the code exchange verifies against `$ISS/.well-known/jwks.json` fetched from the
   workstation; `curl "$ISS/v1/admin/users"` and `curl "$ISS/metrics"` are answered by the

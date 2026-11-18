@@ -122,6 +122,7 @@ runHarness = do
                 , newCsrfToken = toText <$> nextRandom
                 , decisionCache = disabledDecisionCache
                 , cookieSettings = Just (signedCookieSettings ".example.test" "browser-harness-cookie-secret")
+                , oidcProvider = Nothing
                 }
             refreshWith :: RefreshCoalescer -> Text -> IO RefreshResult
             refreshWith shared = coalesceRefresh shared (refreshWithShomei shomeiEnv)

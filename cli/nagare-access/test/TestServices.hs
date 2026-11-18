@@ -28,6 +28,7 @@ testServices =
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing
+    , oidcProvider = Nothing
     }
 
 -- | A refresh that never leads, so the request is forwarded with its cookies

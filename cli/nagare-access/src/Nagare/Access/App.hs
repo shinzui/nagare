@@ -35,6 +35,7 @@ import Nagare.Access.Cookie
   )
 import Nagare.Access.Credential (Credential (SessionCookie), credentialToken, extractCredential)
 import Nagare.Access.DecisionCache
+import Nagare.Access.Oidc (OidcProvider, OidcRoute (..), oidcRoute)
 import Nagare.Access.Portal
 import Nagare.Access.Prelude hiding ((.=))
 import Nagare.Access.Response (authenticationUnavailableResponse, authorizationUnavailableResponse, challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFor, requestShapeFromWai)
@@ -101,6 +102,11 @@ appWithRuntime backends services req respond =
       respond =<< loginSubmitResponse services req
     ("POST", ["_nagare", "mfa", "complete"]) ->
       respond =<< mfaCompleteResponse services req
+    _
+      | Just provider <- services ^. #oidcProvider
+      , Just route <- oidcRoute (requestMethod req) (rawPathInfo req)
+      , (either (const Nothing) Just . mkPublicHost =<< lookupHost req) == Just (provider ^. #host) ->
+          respond =<< handleOidc services provider route req
     _ ->
       case lookupHost req >>= (`lookupBackendWithHost` backends) of
         Nothing ->
@@ -112,6 +118,29 @@ appWithRuntime backends services req respond =
               case findPortal backends of
                 Just portal -> respond =<< handlePortal backends services portal req
                 Nothing -> respond (textResponse status500 "portal backend is inconsistent")
+
+-- | EP-264: one of Shomei's four OIDC endpoints on the issuer's host. Only
+-- the authorization endpoint needs the session: it is resolved as for the
+-- portal, so a renewal answers with the same empty redirect to itself, and the
+-- access token is forwarded as Shomei reads it. No En call and no site grant
+-- is consulted; any signed-in user may authorize a client.
+handleOidc :: AccessServices -> OidcProvider -> OidcRoute -> Request -> IO Response
+handleOidc services provider route req = case route of
+  OidcAuthorize -> do
+    -- Only the browser's session cookie names the user: a client's own
+    -- Authorization header is never taken as the session, so an access token
+    -- cannot mint a code for another client without the browser.
+    authenticated <- authenticatePortal services req {requestHeaders = filter ((/= "Authorization") . fst) (requestHeaders req)}
+    case authenticated of
+      Left redirect -> pure redirect
+      Right (identity, renewed) -> do
+        let token = case identity of
+              PortalAuthenticated _ access -> Just access
+              PortalAnonymous -> Nothing
+        addResponseHeaders renewed <$> forward route token req
+  _ -> forward route Nothing req
+  where
+    forward = provider ^. #forward
 
 handleProtected :: AccessServices -> LoginPage -> PublicHost -> Maybe Text -> Request -> BackendTarget -> IO Response
 handleProtected services loginPage host delegation req target = do
@@ -437,6 +466,7 @@ defaultAccessServices =
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing
+    , oidcProvider = Nothing
     }
 
 textResponse :: Status -> Text -> Response

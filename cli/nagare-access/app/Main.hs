@@ -23,7 +23,7 @@ import Nagare.Access.EdgeCacheControl (withProxiedCacheControl)
 import Nagare.Access.En (authorizeDelegationWithEn, authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Prelude
-import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder)
+import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder, shomeiOidcProvider)
 import Nagare.Access.RefreshCoalescer (coalesceRefresh, defaultRefreshReuseSeconds, newRefreshCoalescer)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
 import Nagare.Access.ShomeiClient (completeMfaWithShomei, loginWithShomei, logoutWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
@@ -112,6 +112,8 @@ buildAccessServices runtime cfg = do
       , newCsrfToken = toText <$> nextRandom
       , decisionCache
       , cookieSettings = Just (cookieSettingsFromAuthPlane cfg)
+      , -- EP-264: an https issuer serves Shomei's OIDC endpoints on its host.
+        oidcProvider = shomeiOidcProvider manager (cfg ^. #shomeiUrl) (cfg ^. #shomeiIssuer) edgeCacheControl
       }
 
 cookieSettingsFromAuthPlane :: AuthPlaneConfig -> CookieSettings

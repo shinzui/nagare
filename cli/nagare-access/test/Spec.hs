@@ -81,6 +81,7 @@ import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
 import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
+import OidcProviderSpec (oidcProviderTests)
 import PasskeyMoveSpec (passkeyMoveTests)
 import RealShomei (withRealShomeiServer)
 import RefreshCoalescerSpec (refreshCoalescerTests)
@@ -122,6 +123,7 @@ main =
       , testGroup "MasterPlan 27" [teamAccessTests, siteAccessIntegrationTests]
       , proxyTests
       , portalTests
+      , oidcProviderTests
       , challengeTests
       , adminApiGatewayTests
       , edgeCacheControlTests
@@ -1214,6 +1216,7 @@ appTests =
                       , newCsrfToken = pure "csrf-token"
                       , decisionCache
                       , cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                      , oidcProvider = Nothing
                       }
                   accessApp = appWithRuntime backends services
                   loginReq =

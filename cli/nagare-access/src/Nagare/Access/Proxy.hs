@@ -8,6 +8,8 @@ module Nagare.Access.Proxy
   , portalPageFetcher
   , proxyForwarder
   , proxyResponseToWai
+  , shomeiForwarder
+  , shomeiOidcProvider
   , stripEnforcerCookies
   )
 where
@@ -28,14 +30,16 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Auth (AuthenticatedUser (..), PortalIdentity (..), PortalPageRequest (..), PortalUpstreamResult (..))
-import Nagare.Access.BackendMap (BackendTarget (..), Portal (..), publicHostText)
+import Nagare.Access.BackendMap (BackendTarget (..), Portal (..), PublicHost, publicHostText)
+import Nagare.Access.EdgeCacheControl (withProxiedCacheControl)
+import Nagare.Access.Oidc (OidcProvider (..), OidcRoute (..), oidcHostFromIssuer)
 import Nagare.Access.Portal (AccessToken (..), CapturedResponse (..), PortalPage (..), PortalPageKind (..), ReturnTarget (..), decodeSessionHandoff, renderReturnTarget, safePathText)
 import Nagare.Access.Prelude
 import Nagare.Access.Response (UpstreamFailure (..), requestShapeFor, requestShapeFromWai, upstreamFailureResponse)
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Client.Internal qualified as HCI
 import Network.HTTP.Client.TLS (newTlsManager)
-import Network.HTTP.Types (Header, HeaderName, HttpVersion (..), Status (..), hHost, status200, status502, statusCode, statusMessage)
+import Network.HTTP.Types (Header, HeaderName, HttpVersion (..), Status (..), hHost, status200, status413, status502, statusCode, statusMessage)
 import Network.Wai qualified as Wai
 
 newProxyManager :: IO HC.Manager
@@ -93,6 +97,90 @@ portalForwarder manager portal identity rawResponseHeaders waiReq = do
             Right response -> interceptPortalResponse response
   where
     shape = requestShapeFromWai waiReq
+
+-- | EP-264: the OIDC endpoints of an @https@ issuer, answered on its host by
+-- the Shomei Service. Behind an edge each answer gets the same @Cache-Control@
+-- tightening as every other proxied response (ADR 34): authorize and token
+-- answers carry codes and tokens.
+shomeiOidcProvider :: HC.Manager -> Text -> Text -> Maybe BS.ByteString -> Maybe OidcProvider
+shomeiOidcProvider manager shomeiUrl issuer edgeCacheControl =
+  oidcHostFromIssuer issuer <&> \publicHost ->
+    OidcProvider
+      { host = publicHost
+      , forward = \route token req -> withProxiedCacheControl edgeCacheControl <$> shomeiForwarder manager shomeiUrl publicHost route token req
+      }
+
+-- | EP-264: forward one of the four OIDC endpoints to the private Shomei
+-- Service at the same path and query, and return Shomei's answer as it sent
+-- it, apart from hop-by-hop headers. Nothing of the browser's identity
+-- reaches Shomei but what the endpoint reads: the session's access token at
+-- the authorization endpoint, and the client's own HTTP Basic credentials and
+-- form at the token endpoint. Redirects are never followed and @Location@ is
+-- never rewritten, so Shomei's redirect to a loopback client reaches it
+-- unchanged.
+shomeiForwarder :: HC.Manager -> Text -> PublicHost -> OidcRoute -> Maybe AccessToken -> Wai.Request -> IO Wai.Response
+shomeiForwarder manager shomeiUrl publicHost route token waiReq = do
+  body <- case route of
+    OidcToken -> readRequestBodyAtMost oidcTokenBodyLimit waiReq
+    _ -> pure (Just BS.empty)
+  case body of
+    Nothing -> pure (Wai.responseLBS status413 [("Content-Type", "application/json")] "{\"error\":\"invalid_request\",\"error_description\":\"request body too large\"}")
+    Just bytes -> do
+      parsed <- try (HC.parseRequest (Text.unpack shomeiUrl))
+      case parsed of
+        Left (err :: HC.HttpException) -> do
+          putStrLn ("the Shomei URL is unusable: " <> describeHttpException err)
+          pure (upstreamFailureResponse shape UpstreamUnreachable)
+        Right baseReq -> do
+          let request =
+                baseReq
+                  { HC.method = Wai.requestMethod waiReq
+                  , HC.path = appendPaths (HC.path baseReq) (Wai.rawPathInfo waiReq)
+                  , HC.queryString = Wai.rawQueryString waiReq
+                  , HC.requestBody = HC.RequestBodyBS bytes
+                  , HC.requestHeaders = oidcRequestHeaders publicHost route token (Wai.requestHeaders waiReq)
+                  , HC.decompress = const False
+                  , HC.redirectCount = 0
+                  }
+          opened <- try (HC.responseOpen request manager)
+          case opened of
+            Left (err :: HC.HttpException) -> do
+              putStrLn ("Shomei request for " <> show route <> " failed: " <> describeHttpException err)
+              pure (upstreamFailureResponse shape (classifyHttpException err))
+            Right response -> pure (proxyResponseToWai response)
+  where
+    shape = requestShapeFromWai waiReq
+
+-- | A token request is a small form; 64 KiB is far more than any grant needs.
+oidcTokenBodyLimit :: Int
+oidcTokenBodyLimit = 64 * 1024
+
+readRequestBodyAtMost :: Int -> Wai.Request -> IO (Maybe BS.ByteString)
+readRequestBodyAtMost limit waiReq = go 0 []
+  where
+    go total chunks = do
+      chunk <- Wai.getRequestBodyChunk waiReq
+      if BS.null chunk
+        then pure (Just (BS.concat (reverse chunks)))
+        else
+          let next = total + BS.length chunk
+           in if next > limit then pure Nothing else go next (chunk : chunks)
+
+-- | Only the headers an endpoint reads. No @Cookie@ reaches Shomei, and a
+-- client's @Authorization@ reaches only the token endpoint.
+oidcRequestHeaders :: PublicHost -> OidcRoute -> Maybe AccessToken -> [Header] -> [Header]
+oidcRequestHeaders publicHost route token headers =
+  kept
+    <> [("Authorization", "Bearer " <> TE.encodeUtf8 access) | OidcAuthorize <- [route], Just (AccessToken access) <- [token]]
+    <> [ ("Accept-Encoding", "")
+       , ("X-Forwarded-Host", TE.encodeUtf8 (publicHostText publicHost))
+       , ("X-Forwarded-Proto", "https")
+       ]
+  where
+    kept = [header | header@(name, _) <- headers, name `elem` allowed]
+    allowed = case route of
+      OidcToken -> ["Accept", "User-Agent", "Content-Type", "Authorization"]
+      _ -> ["Accept", "User-Agent"]
 
 -- | A response-header timeout is the upstream's 504; every other failure
 -- (refused or reset connection, connection timeout, bad URL) is a 502.
