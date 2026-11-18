@@ -251,7 +251,7 @@ import Data.Bifunctor (first)
 import Data.Generics.Labels ()
 import Nagare.Dsl.Build (BuildSpec (PrebuiltImage), mkTag)
 import Nagare.Dsl.Config (emitWorker)
-import Nagare.Dsl.Types (mkAppDatabaseName)
+import Nagare.Dsl.Types (appDatabaseBinding, mkAppDatabaseName)
 import Nagare.Dsl.Worker (mkCommand, webWorker)
 
 main :: IO ()
@@ -260,7 +260,7 @@ main = either (ioError . userError) emitWorker \$ do
   tag <- first show (mkTag "$5")
   cmd <- first show (mkCommand ["sleep", "infinity"])
   appdb <- first show (mkAppDatabaseName "$2")
-  Right (base & #build .~ PrebuiltImage tag & #command .~ Just cmd & #appDatabases .~ [appdb])
+  Right (base & #build .~ PrebuiltImage tag & #command .~ Just cmd & #appDatabases .~ [appDatabaseBinding appdb])
 EOF
   n worker deploy -f "$ROOT/config/$1/Config.hs" --tag probe --image-resource "$3" --save-plan "$REVIEWS/worker-$1" >/dev/null
   apply "$REVIEWS/worker-$1"
