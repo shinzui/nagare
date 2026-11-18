@@ -162,6 +162,12 @@ curl -s --cacert /tmp/nagare-local-ca.pem \
   artifact-level URI pending), so the order of that move and the labs issuer is the
   operator's decision before M5.
   Date: 2026-11-17
+- Decision: On a context behind an edge, the four endpoints' responses get the same
+  `Cache-Control` tightening as every other response the enforcer proxies.
+  Rationale: The plan first passed Shomei's headers through unchanged, which on a tunnel
+  context would leave authorize and token responses guarded by the zone's cache-bypass rule
+  alone. ADR 34 requires both controls.
+  Date: 2026-11-17
 
 
 ## Outcomes & Retrospective
@@ -339,7 +345,9 @@ certificates are explicit and owned; this plan adds none.
 is decided by En per hostname and is untouched; an OAuth token is not a site grant.
 [ADR 34](../adr/0034-a-context-may-serve-through-one-cloudflare-tunnel-on-a-full-zone.md):
 a context may sit behind a Cloudflare edge, where the enforcer tightens `Cache-Control` on
-proxied site responses.
+every proxied response as one of two independent cache controls, and where the edge never
+challenges a machine client (Browser Integrity Check off, Bot Fight Mode and Under Attack
+mode never on). The four endpoints follow the first and rely on the second.
 [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md): the Shomei pin
 mirrors upstream and does not move here.
 [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md):
@@ -404,7 +412,8 @@ present only when the issuer parses as `https://HOST`. In `appWithRuntime`, afte
 `/_nagare/*` routes and before the backend lookup, when the request's `Host` equals the
 OIDC host and the method and path are one of exactly these four, proxy to
 `NAGARE_ACCESS_SHOMEI_URL` at the same path and query, and return Shomei's status, headers
-and body unchanged apart from hop-by-hop headers:
+and body unchanged apart from hop-by-hop headers and, on a context behind an edge, the
+cache headers described after this list:
 
 - `GET /.well-known/openid-configuration` and `GET /.well-known/jwks.json`: no identity, no
   request body, no `Cookie` or `Authorization` forwarded.
@@ -416,6 +425,14 @@ and body unchanged apart from hop-by-hop headers:
 - `POST /oauth/token`: no session lookup. Forward the body (bounded, 64 KiB is ample),
   `Content-Type` and the client's `Authorization` header verbatim, because a confidential
   client or service account authenticates with HTTP Basic. Do not forward `Cookie`.
+
+When `NAGARE_ACCESS_PROXIED_CACHE_CONTROL` is set, which `nagarectl` does only for a
+context behind a Cloudflare edge, pass all four responses through
+`withProxiedCacheControl` (`cli/nagare-access/src/Nagare/Access/EdgeCacheControl.hs`), as
+`Main.hs` already does for protected sites and the portal. Authorize and token responses
+carry codes and tokens, and ADR 34 keeps the enforcer's header as a control independent of
+the zone's cache-bypass rule. The key set and discovery document are public, so tightening
+them costs only edge caching. Without the variable the headers are untouched.
 
 The authorize route makes no En call and consults no site grant. The token route applies
 no CSRF, `Origin` or cookie requirement. The enforcer never rewrites a `Location` header
@@ -587,6 +604,11 @@ Expected: `{"iss": "https://auth.127-0-0-1.sslip.io", "aud": ["nagare-access"]}`
     `POST /oauth/introspect`, `GET /metrics`, `GET /openapi.json` and `POST /oauth/authorize`
     on the issuer host are forwarded to the portal upstream, never to Shomei;
   - with the issuer `nagare-shomei`, all four paths go to the portal as before;
+  - with the edge cache header configured, each of the four responses carries `private`
+    and `no-transform`, never `public` or `s-maxage`, and no `CDN-Cache-Control`,
+    `Cloudflare-CDN-Cache-Control` or `Surrogate-Control`, and a response Shomei sent with
+    no `Cache-Control` gets the configured value; without it, each response's
+    `Cache-Control` is exactly Shomei's;
   - a rate-limit case: read the limits that apply to `/oauth/token` from Shomei's
     `RateLimitConfig`, then drive the real Shomei through the enforcer with the load the
     first consumer makes (one `client_credentials` grant every 270 seconds and one refresh
