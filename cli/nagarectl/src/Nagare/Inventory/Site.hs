@@ -22,6 +22,7 @@ module Nagare.Inventory.Site
   , compileStaticSitePreviewScope
   , compileServerSitePreviewScope
   , compileServerSitePreviewScopeWithBuild
+  , recordReviewedSiteInputs
   , acceptedSiteReleaseLog
   , acceptedSiteSource
   , acceptedSitePreviewDependencies
@@ -35,6 +36,7 @@ module Nagare.Inventory.Site
 where
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -55,6 +57,7 @@ import Nagare.Dsl.Static.Types (StaticSite (..), siteNameText)
 import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, mkNamespace, mkServiceName, namespaceText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Application (AccessBinding (..), CloudflareCdnBinding (..), GoogleCdnBinding (..), ReviewedCdnBinding (..))
+import Nagare.Inventory.Application.Policy (configDigestOf)
 import Nagare.Inventory.PreviewOwnership (sitePreviewRetirementScope)
 import Nagare.Inventory.ProtectedRoute (ProtectedRoute (..), ProtectedRoutes (..), composeProtectedRoutes, protectedHosts, siteAccessPolicy)
 import Nagare.Inventory.Site.Member (bindOne, checkAddress, reviewedBuildReference, siteSecretDependency)
@@ -780,6 +783,31 @@ compileSiteRenderedScope
         owner
         (ResourceBundle (map (Managed . fst) members) [] [] contributions [] [] : cdnBundles)
     pure (scope, native)
+
+-- | Record a site's configuration digest and reviewed inputs on its compiled
+-- scope (EP-263). The digest is the canonical JSON of the typed configuration
+-- as decoded, before the context qualifies its image, so one rendered document
+-- yields one digest in every context. The inputs are the public command inputs
+-- a standalone worker records: @tag@ and @imageResource@, and @baseDomain@
+-- when it was given.
+recordReviewedSiteInputs ::
+  LBS.ByteString ->
+  Map T.Text T.Text ->
+  ScopeDeclaration ->
+  Either (NonEmpty InventoryError) ScopeDeclaration
+recordReviewedSiteInputs config inputs scope = do
+  let invalid message = inventoryError "invalid-site-inputs" message :| []
+  unless
+    ("standalone:site-" `T.isPrefixOf` scopeIdText (scopeId scope))
+    (Left (invalid "reviewed site inputs belong only on a site's standalone scope"))
+  unless
+    ( Map.keysSet inputs `Set.isSubsetOf` Set.fromList ["tag", "imageResource", "baseDomain"]
+        && Map.member "tag" inputs
+        && Map.member "imageResource" inputs
+    )
+    (Left (invalid "reviewed site inputs are tag, imageResource and an optional baseDomain"))
+  digest <- first invalid (configDigestOf config)
+  pure (withScopeOverrides inputs (withScopeConfigDigest digest scope))
 
 -- | Direct site commands must check every native address they may write,
 -- including release history retained after the Service has been collected.

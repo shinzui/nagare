@@ -13,18 +13,23 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.OpenApi (validateToJSON)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime (UTCTime), fromGregorian)
 import Nagare.Contract.Problem (ProblemDetails, unknownScope)
 import Nagare.Contract.Project (deployPreview, imagePublicationResult, inventoryStatusReport, storeRefusal)
 import Nagare.Contract.Schema (Nullable (..))
-import Nagare.Contract.Sink (clearContractSink, refuseWith, setContractSinkTo, withReadContract)
-import Nagare.Contract.V1 (ImagePublicationResult (..), Outcome (..), PublishedReview (..), ReviewLocation (..), SavedReview (..), TransactionOutcome (..))
+import Nagare.Contract.Sink (clearContractSink, emitDocument, refuseWith, setContractSinkTo, withReadContract)
+import Nagare.Contract.V1 (DeployPreview, ImagePublicationResult (..), Outcome (..), PublishedReview (..), ReviewLocation (..), SavedReview (..), TransactionOutcome (..))
+import Nagare.Dsl.Config (encodeStaticSite)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Static.Types (StaticBuild (NoBuild), StaticSite, mkFilePathText)
 import Nagare.Inventory.Adapter (AdapterExecution (..), AdapterRegistry, mkAdapterRegistry)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
 import Nagare.Inventory.Command (applyInventoryWithFactory, convergeInventoryCandidateResult, loadTargetSnapshot, openInventoryForPlanning, openTargetStore, openedSnapshot, planInventoryCandidateLoaded, planInventoryCandidateWith)
@@ -34,18 +39,22 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle, ReviewDocument (..), ReviewInventory, loadReviewBundle, reviewBundleDocument)
 import Nagare.Inventory.Publications (readPublications)
+import Nagare.Inventory.Site (compileStaticSiteScope, recordReviewedSiteInputs)
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store (InventoryStore, ScopeRevision (..), StoreError (StoreAuthRequired), initializeStore, readHead)
 import Nagare.Inventory.Store.Counters (Counter (..), collectStoreCounters, countOf)
 import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
-import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, composeInventory, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
+import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, composeInventory, mkScopeDeclaration, scopeConfigDigest, scopeOverrides, snapshotScopes, withScopeConfigDigest, withScopeOverrides)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Static.Deploy (DeployInputs (..), staticUrl)
+import Nagare.Static.Release (StaticRelease (..), emptyReleaseLog)
 import Nagare.Target (ActiveTarget (..), Mode (Local), mkContextName)
 import Nagare.Test.Support.Profiles (initProfile)
-import System.Directory (makeAbsolute)
+import Nagare.Test.Support.Site (baseSite)
+import System.Directory (doesDirectoryExist, makeAbsolute)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -142,6 +151,64 @@ contractCommandTests =
         listing <- readPublications (fixtureTarget fixture) >>= either (\(_, reason) -> fail (T.unpack reason)) pure
         listing ^. #publications @?= []
         validateToJSON listing @?= []
+    , testCase "a site's deploy preview names its scope, configuration digest and reviewed inputs (EP-263)" $ do
+        let shown = deployPreview siteStamped []
+            typed = ok (canonicalValue (ok (eitherDecode @Value (encodeStaticSite fixtureSite))))
+        (shown ^. #application . #scope, shown ^. #application . #configDigest, shown ^. #application . #overrides, length (shown ^. #hooks))
+          @?= ("standalone:site-demo", Nullable (Just (Resource.digestText (contentDigest typed))), siteInputs, 0)
+        validateToJSON shown @?= []
+    , testCase "reviewed site inputs go only on a site scope and are tag, imageResource and an optional baseDomain (EP-263)" $ do
+        let record inputs = recordReviewedSiteInputs (encodeStaticSite fixtureSite) inputs
+        map
+          isLeft
+          [ record siteInputs fixtureScope
+          , record (Map.insert "cdnBackend" "x" siteInputs) siteScope
+          , record (Map.delete "tag" siteInputs) siteScope
+          , record (Map.insert "baseDomain" "example.com" siteInputs) siteScope
+          ]
+          @?= [True, True, True, False]
+    , testCase "a site's saved review applies, and the accepted scope agrees with the preview a client decoded (EP-263)" $ withFixture $ \fixture -> do
+        acceptFoundation fixture
+        -- The client reads only the two documents: the preview's scope, digest
+        -- and inputs, and the saved review's scopes and directory.
+        shown :: DeployPreview <- decodeOne =<< collecting (emitDocument (deployPreview siteStamped []))
+        candidate <- siteCandidate fixture siteStamped
+        saved :: SavedReview <- decodeOne =<< collecting (planInventoryCandidateWith (sitePlan fixture) (fixtureTarget fixture) candidate (fixtureRoot fixture </> "site-review"))
+        saved ^. #scopes @?= [shown ^. #application . #scope]
+        applied :: TransactionOutcome <- decodeOne =<< collecting (applyInventoryWithFactory (fixtureApply fixture) (fixtureTarget fixture) (T.unpack (saved ^. #review . #directory)) True)
+        applied ^. #outcome @?= OutcomeConverged
+        accepted <- acceptedSiteScope fixture
+        (Nullable (Resource.digestText <$> scopeConfigDigest accepted), scopeOverrides accepted)
+          @?= (shown ^. #application . #configDigest, shown ^. #application . #overrides)
+    , testCase "stamping an accepted unstamped site scope is a review with no member operation (EP-263)" $ withFixture $ \fixture -> do
+        acceptFoundation fixture
+        unstamped' <- siteCandidate fixture siteScope
+        (_, first') <- convergeInventoryCandidateResult (sitePlan fixture) (fixtureApply fixture) (fixtureTarget fixture) unstamped'
+        assertBool "unstamped site converged" (case first' of Converged _ -> True; _ -> False)
+        let directory = fixtureRoot fixture </> "stamp-review"
+        candidate <- siteCandidate fixture siteStamped
+        saved :: SavedReview <- decodeOne =<< collecting (planInventoryCandidateWith (sitePlan fixture) (fixtureTarget fixture) candidate directory)
+        bundle <- loadReviewBundle directory >>= either (fail . T.unpack) pure
+        (saved ^. #scopes, length (reviewOperations (reviewBundleDocument bundle))) @?= (["standalone:site-demo"], 0)
+        applied :: TransactionOutcome <- decodeOne =<< collecting (applyInventoryWithFactory (fixtureApply fixture) (fixtureTarget fixture) directory True)
+        applied ^. #outcome @?= OutcomeConverged
+        accepted <- acceptedSiteScope fixture
+        (isJust (scopeConfigDigest accepted), scopeOverrides accepted) @?= (True, siteInputs)
+    , testCase "a deployer's site plan outside its delegation is one refused outcome and publishes nothing (EP-263)" $ withFixture $ \fixture -> do
+        acceptFoundation fixture
+        store <- openTargetStore (fixtureTarget fixture)
+        before <- readHead store >>= either (fail . show) pure
+        let deployer = fixtureTarget fixture & #profile . #deployer .~ Just "kotei"
+            directory = fixtureRoot fixture </> "refused-review"
+        candidate <- siteCandidate fixture siteStamped
+        printed <- newIORef []
+        setContractSinkTo (\line -> modifyIORef' printed (line :))
+        exited <- try (planInventoryCandidateWith (sitePlan fixture) deployer candidate directory) `finally` clearContractSink
+        refused :: TransactionOutcome <- decodeOne . reverse =<< readIORef printed
+        (exited, refused ^. #outcome) @?= (Left (ExitFailure 2), OutcomeRefused)
+        after <- readHead store >>= either (fail . show) pure
+        reviewed <- doesDirectoryExist directory
+        (after == before, reviewed) @?= (True, False)
     ]
   where
     fromNullable' (Nullable value) = value
@@ -153,6 +220,7 @@ data Fixture = Fixture
   , fixturePlan :: !(CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
   , fixtureApply :: !(ReviewInventory -> ReviewBundle -> IO AdapterRegistry)
   , fixtureResource :: !Resource.ResourceId
+  , fixturePlanFor :: !(Map.Map Resource.ResourceId (ManagedResource, ByteString) -> CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
   }
 
 -- | A local context with one ConfigMap scope to accept, under a temporary
@@ -187,6 +255,7 @@ withFixture body = withSystemTempDirectory "contract-commands" $ \root -> do
           , fixturePlan = \_ _ -> pure (registryFor (Map.singleton fixtureMember (member, native)))
           , fixtureApply = \_ bundle -> pure (registryFor (ok (kubernetesSpecsFromReview bundle)))
           , fixtureResource = fixtureMember
+          , fixturePlanFor = \specs _ _ -> pure (registryFor specs)
           }
 
 fixtureContext :: Resource.ContextId
@@ -234,6 +303,73 @@ native :: ByteString
 
 fixtureScope :: ScopeDeclaration
 fixtureScope = ok (mkScopeDeclaration fixtureOwner [ResourceBundle [Managed member] [] [] [] [] []])
+
+-- ---------------------------------------------------------------------------
+-- EP-263: a static site, compiled as the production site deploy compiles it,
+-- against a foundation that declares its cluster, namespace and image.
+
+fixtureSite :: StaticSite
+fixtureSite = baseSite (NoBuild (ok (mkFilePathText "dist")))
+
+siteFoundation :: Resource.ScopeId
+siteFoundation = ok (Resource.mkScopeId Resource.Platform "foundation")
+
+siteDependency :: Text -> Text -> Resource.ResourceId
+siteDependency key name = Resource.mintResourceId siteFoundation (ok (Resource.mkLogicalKey key)) (ok (Resource.mkName name))
+
+siteCluster, siteNamespace, siteImage :: Resource.ResourceId
+siteCluster = siteDependency "cluster" "resource"
+siteNamespace = siteDependency "namespace" "resource"
+siteImage = siteDependency "image" "publication"
+
+siteInputs :: Map.Map Text Text
+siteInputs = Map.fromList [("imageResource", Resource.resourceIdText siteImage), ("tag", "v1")]
+
+siteCompiled :: (ScopeDeclaration, Map.Map Resource.ResourceId (ManagedResource, ByteString))
+siteCompiled =
+  ok
+    ( compileStaticSiteScope
+        (DeployInputs fixtureSite "v1" "example.com" "." True initProfile)
+        siteCluster
+        siteNamespace
+        siteImage
+        Map.empty
+        emptyReleaseLog
+        (StaticRelease "v1" "demo" "personal" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/demo" "v1" (staticUrl fixtureSite "example.com") Nothing (UTCTime (fromGregorian 2026 11 18) 0))
+        (Resource.SourceLocation "fixture" "static-site")
+    )
+
+siteScope, siteStamped :: ScopeDeclaration
+siteScope = fst siteCompiled
+siteStamped = ok (recordReviewedSiteInputs (encodeStaticSite fixtureSite) siteInputs siteScope)
+
+siteOwner :: Resource.ScopeId
+siteOwner = ok (Resource.mkScopeId Resource.Standalone "site-demo")
+
+sitePlan :: Fixture -> CompositionCandidate -> InventoryHistory -> IO AdapterRegistry
+sitePlan fixture = fixturePlanFor fixture (snd siteCompiled)
+
+siteCandidate :: Fixture -> ScopeDeclaration -> IO CompositionCandidate
+siteCandidate fixture scope = do
+  before <- loadTargetSnapshot (fixtureTarget fixture)
+  pure (ok (composeInventory before (ReplaceScope scope :| [])))
+
+-- | Accept the foundation the site depends on; it declares only externals.
+acceptFoundation :: Fixture -> IO ()
+acceptFoundation fixture = do
+  before <- loadTargetSnapshot (fixtureTarget fixture)
+  let external resource name = External resource (Resource.Artifact (ok (Resource.mkName name)) (contentDigest (TE.encodeUtf8 name))) [] (Resource.SourceLocation "fixture" "foundation")
+      foundation = ok (mkScopeDeclaration siteFoundation [ResourceBundle [external siteCluster "cluster", external siteNamespace "namespace", external siteImage "image"] [] [] [] [] []])
+  (_, result) <-
+    convergeInventoryCandidateResult (fixturePlanFor fixture Map.empty) (fixtureApply fixture) (fixtureTarget fixture) (ok (composeInventory before (ReplaceScope foundation :| [])))
+  case result of
+    Converged _ -> pure ()
+    other -> assertFailure ("foundation did not converge: " <> show other)
+
+acceptedSiteScope :: Fixture -> IO ScopeDeclaration
+acceptedSiteScope fixture = do
+  accepted <- loadTargetSnapshot (fixtureTarget fixture)
+  maybe (assertFailure "the site scope was not accepted" >> fail "absent") (pure . snd) (Map.lookup siteOwner (snapshotScopes accepted))
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id

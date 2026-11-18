@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-18T18:57:26Z
       mode: "update"
       note: "Rebase orientation on 08d1fa2e: moved-route carry in the site driver, gate-commit, IR-45 targetPlan"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-18T19:05:20Z
+      mode: "implement"
+      note: "M1-M4 implemented"
 ---
 
 # Print versioned preview and saved-review documents from site deploy
@@ -62,13 +67,17 @@ raised for
 
 ## Progress
 
-- [ ] M1: a site's reviewed scope carries its configuration digest and reviewed inputs, and the
+- [x] M1: a site's reviewed scope carries its configuration digest and reviewed inputs, and the
   library produces the `deploy-preview` and `saved-review` documents for it. Accepted when the
   new `nagarectl-test` cases pass: the preview of a static-site scope validates against the
   schema and names the scope, digest and inputs; the saved review of the same candidate applies
   through the existing apply path and the accepted scope agrees with both documents; a planning
   refusal under the contract sink is one `refused` outcome with nothing published; and an
   accepted site scope without a digest is replaced by one with it without any member operation.
+  Done 2026-11-18: `recordReviewedSiteInputs` in `Nagare.Inventory.Site`; the five `(EP-263)`
+  cases in `ContractCommands.hs` pass (`-p /EP-263/`), the stamp-only review has zero
+  operations, and `just gate-commit` is green. The refusal case uses a deployer with no accepted
+  delegation, which refuses every scope.
 - [ ] M2: `site deploy` accepts `--contract`. Accepted when the built executable prints one
   `deploy-preview` for `--dry-run --contract 1` and one `saved-review` for
   `--save-plan DIR --contract 1`, refuses `--contract 2` and a contract run with neither flag
