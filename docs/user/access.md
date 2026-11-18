@@ -298,6 +298,15 @@ curl -s -u "$CLIENT_ID:$SECRET" https://auth.apps.example.com/oauth/token \
   -d grant_type=client_credentials | jq '{token_type, expires_in}'
 ```
 
+**Cache tokens.** Shomei limits its token endpoint to 60 requests a minute per client
+address, and every request reaches it through the enforcer, so all clients and every
+browser's session renewal share that one allowance. A client keeps its access token until
+`expires_in` runs out and asks for a new one only then. A service account gets one token
+per 300 seconds, not one per call. A client that asks for a token on every call can
+exhaust the allowance. Shomei then answers 429 to everyone, and signed-in browsers cannot
+renew until it refills. Giving each client its own allowance is deferred as finding F157 in
+[the findings ledger](../audits/mp23-findings.md).
+
 **Changing the issuer signs browsers in again.** Applying the setting, or removing it,
 changes the issuer of every token. Tokens minted under the old issuer are refused, so a
 signed-in browser renews its session with its refresh token, which still works, and may be

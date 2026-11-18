@@ -54,6 +54,8 @@ enforcer's own cookies ([ADR 15](0015-the-auth-portal-hands-sessions-to-nagare-a
 - Native access tokens also open protected sites as bearer tokens, under the same site grants, because the audience
   is shared.
 - Every token request reaches Shomei from the enforcer's address, so Shomei's per-client rate limiter sees all of
-  them as one client. Shomei can trust a forwarded address (`SHOMEI_TRUSTED_PROXIES`); the enforcer does not send one
-  yet.
+  them as one client, and they share one bucket with every browser session renewal. Shomei can trust a forwarded
+  address (`SHOMEI_TRUSTED_PROXIES`); the enforcer does not send one yet. Until it does, clients cache their tokens
+  (operator, 2026-11-18). Sending the address is deferred as finding F157 in
+  [the findings ledger](../audits/mp23-findings.md).
 - `userinfo`, `introspect` and `revoke` are advertised by Shomei's discovery document but not served.
