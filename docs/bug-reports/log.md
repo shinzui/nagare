@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-18
+* **Addition**: Record BUG-10 from mori://shinzui/kotei/okf/friction-log/concepts/FRIC-80. Closing a terminal application migration hook leaves subsequent app reviews unable to bind the closed release Job.
+
 ## 2026-10-28
 * **Update**: BUG-9 is `fixed` in 0.11.0: the intranet transition rolled Shomei to a new image, ran its new migration Job and retained the superseded one without a decision.
 * **Update**: Mark BUG-9 `fixed` in `unreleased` by commit `1db2be79`: a completed migration Job that a scope replacement no longer declares is retained without a lifecycle decision, and any other removed member still needs one.
