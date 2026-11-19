@@ -73,6 +73,7 @@ import Nagare.Cli.Options
   )
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (activeHostShape)
 import Nagare.Cli.Runtime.Rendered (loadApplicationInput)
 import Nagare.Cli.Runtime.Target
   ( activeProfile
@@ -280,11 +281,12 @@ runAppDeployPlan mctx params appOptions output = do
   let accessPolicy = (app ^. #access) <|> (app ^. #service >>= (^. #access))
   accessBinding <-
     traverse
-      ( \_ ->
+      ( \_ -> do
+          shape <- activeHostShape active
           either
             dieT
             pure
-            (acceptedAccessBinding snapshot cluster)
+            (acceptedAccessBinding shape snapshot cluster)
       )
       accessPolicy
   (appBrokerServices, appBrokerTopics, brokerEnv) <-

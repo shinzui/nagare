@@ -28,6 +28,7 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Time (UTCTime (UTCTime), fromGregorian)
+import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Access (AccessPolicy (..), authPortal, mkAccessPermission, mkAudience, requireLogin)
 import Nagare.Dsl.Cdn.Types (cloudflareCdn)
 import Nagare.Dsl.Config (encodeServerSite, encodeStaticSite)
@@ -37,8 +38,9 @@ import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (StaticBuild (NoBuild), StaticSite, mkFilePathText, mkSiteName, siteNameText)
 import Nagare.Dsl.Types (mkDomains, mkSecretName, withTlsSecret)
 import Nagare.Inventory.Adapter (PlannedOperation (..), ResourceObservation (ConfirmedAbsent), observationSet)
-import Nagare.Inventory.Application (AccessBinding, acceptedAccessBinding)
+import Nagare.Inventory.Application (AccessBinding (accessHostShape), acceptedAccessBinding)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps)
+import Nagare.Inventory.Components.CloudflareZone (CloudflareZoneInput (CloudflareZoneInput), compileCloudflareZone)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -118,6 +120,12 @@ protectedSiteInventoryTests =
       site <- roundTrip protectedStatic
       (scope, native) <- compileStatic RecordRelease (Just binding) site emptyReleaseLog
       assertProtected scope native "demo.personal.example.com" demoUpstream
+  , testCase "a default host's shape is the posture's, not whether a Cloudflare zone is accepted (EP-246)" $ do
+      -- A rolled-back move keeps its zone; the old base still serves nested default hosts.
+      let zone = ok (compileCloudflareZone (CloudflareZoneInput (ok (Resource.mkName "zone-id")) "example.com" "dev" Nothing))
+          withZone = ok (mkScopeSnapshot context (Map.insert (scopeId zone) (generation, zone) (snapshotScopes snapshot)) Map.empty)
+      fmap accessHostShape (acceptedAccessBinding NestedHosts withZone cluster) @?= Right NestedHosts
+      fmap accessHostShape (acceptedAccessBinding FlatHosts snapshot cluster) @?= Right FlatHosts
   , testCase "a protected server site reviews the same contract" $ do
       site <- either (fail . show) pure (decodeServerSite (toStrict (encodeServerSite protectedServer)))
       site @?= protectedServer
@@ -596,7 +604,7 @@ otherApp =
         source
 
 binding :: AccessBinding
-binding = either (error . T.unpack) id (acceptedAccessBinding snapshot cluster)
+binding = either (error . T.unpack) id (acceptedAccessBinding NestedHosts snapshot cluster)
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id

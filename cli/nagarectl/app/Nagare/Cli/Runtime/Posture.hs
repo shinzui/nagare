@@ -4,6 +4,7 @@
 module Nagare.Cli.Runtime.Posture
   ( ActivePosture (..)
   , activePosture
+  , activeHostShape
   , postureOf
   )
 where
@@ -14,6 +15,7 @@ import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Context.BaseFlip (baseEnvironmentRefusal)
 import Nagare.Context.Posture
+import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command (openTargetStoreReadOnly)
 import Nagare.Inventory.Store (HeadManifest (..), readHead)
@@ -44,6 +46,10 @@ activePosture active
       pure (postureOf active marker)
   where
     profile = active ^. #profile
+
+-- | The shape of default hostnames the posture serves: flat through a tunnel and from a move's flip.
+activeHostShape :: ActiveTarget -> IO HostShape
+activeHostShape active = (\current -> if current ^. #posture . #flatHosts then FlatHosts else NestedHosts) <$> activePosture active
 
 -- | The posture from a head the caller already read.
 postureOf :: ActiveTarget -> Maybe MoveMarker -> ActivePosture

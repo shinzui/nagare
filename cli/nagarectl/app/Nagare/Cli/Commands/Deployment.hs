@@ -44,6 +44,7 @@ import Nagare.Cli.Move.Carry (withMovedRoutes)
 import Nagare.Cli.Options (DeployOpts)
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (activeHostShape)
 import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
@@ -173,11 +174,12 @@ runDeployPlan mctx options output = do
       (acceptedAppNamespace snapshot namespaceName)
   accessBinding <-
     traverse
-      ( \_ ->
+      ( \_ -> do
+          shape <- activeHostShape active
           either
             dieT
             pure
-            (acceptedAccessBinding snapshot cluster)
+            (acceptedAccessBinding shape snapshot cluster)
       )
       (service ^. #access)
   (brokerServices, brokerTopics, _) <-

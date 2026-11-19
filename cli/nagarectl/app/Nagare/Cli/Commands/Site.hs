@@ -318,7 +318,7 @@ runReviewedSiteDeployPlan mctx options config siteName ns imageName url tag cdnI
           (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
           siteName
   (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
-  accessBinding <- reviewedSiteAccessBinding snapshot cluster accessIntent
+  accessBinding <- reviewedSiteAccessBinding active snapshot cluster accessIntent
   either
     dieT
     pure
@@ -497,7 +497,7 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       cdnIntent
       (options ^. #cdnBackendResource)
   (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
-  accessBinding <- reviewedSiteAccessBinding snapshot cluster accessIntent
+  accessBinding <- reviewedSiteAccessBinding active snapshot cluster accessIntent
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   acceptedInventory <-

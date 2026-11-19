@@ -48,7 +48,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), dnsSpecsFromDeclarations, mkDnsAdapter)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
-import Nagare.Inventory.Application (ApplicationScopeInput (..), CloudflareCdnBinding (..), GoogleCdnBinding (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), CloudflareCdnBinding (..), GoogleCdnBinding (..), HostShape (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot, openTargetStore)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope)
@@ -3683,7 +3683,7 @@ renderTests =
               )
               Map.empty
           )
-      accessBinding <- either (fail . T.unpack) pure (acceptedAccessBinding authSnapshot cluster)
+      accessBinding <- either (fail . T.unpack) pure (acceptedAccessBinding NestedHosts authSnapshot cluster)
       let accessApp = app & #access .~ Just requireLogin
           accessInput =
             input
@@ -3881,7 +3881,7 @@ renderTests =
           )
       assertBool
         "missing auth scope supplied access authority"
-        (isLeft (acceptedAccessBinding readySnapshot cluster))
+        (isLeft (acceptedAccessBinding NestedHosts readySnapshot cluster))
       serviceCandidate <-
         either
           (fail . show)

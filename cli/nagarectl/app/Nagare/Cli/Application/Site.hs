@@ -11,6 +11,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Nagare.Cli.Options (SiteDeployOpts)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Posture (activeHostShape)
 import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Types (StaticSite)
@@ -18,7 +19,7 @@ import Nagare.Inventory.Application (AccessBinding, acceptedAccessBinding)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Static.Deploy (DeployInputs (..))
-import Nagare.Target (TargetProfile)
+import Nagare.Target (ActiveTarget, TargetProfile)
 
 reviewedSiteTag :: SiteDeployOpts -> IO Text
 reviewedSiteTag options = do
@@ -37,12 +38,13 @@ reviewedSiteTag options = do
 -- must not carry one. The binding is resolved against the accepted snapshot,
 -- never from a live Service or a caller-supplied name.
 reviewedSiteAccessBinding ::
+  ActiveTarget ->
   ResourceInventory.ScopeSnapshot ->
   Resource.ResourceId ->
   Maybe AccessPolicy ->
   IO (Maybe AccessBinding)
-reviewedSiteAccessBinding snapshot cluster =
-  traverse (\_ -> either dieT pure (acceptedAccessBinding snapshot cluster))
+reviewedSiteAccessBinding active snapshot cluster =
+  traverse (\_ -> activeHostShape active >>= \shape -> either dieT pure (acceptedAccessBinding shape snapshot cluster))
 
 -- | Assemble the runtime-agnostic 'DeployInputs' from the @site deploy@ options.
 siteDeployInputs :: TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Text -> DeployInputs

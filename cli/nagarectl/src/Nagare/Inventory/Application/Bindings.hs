@@ -343,9 +343,11 @@ acceptedBrokerBindings snapshot cluster namespaceName bindings = do
 
 -- | The shared backend owner and enforcer must already be accepted together.
 -- A matching live Service or caller-supplied name does not grant access to the
--- shared routing ConfigMap or to the auth namespace.
-acceptedAccessBinding :: ScopeSnapshot -> ResourceId -> Either T.Text AccessBinding
-acceptedAccessBinding snapshot cluster = do
+-- shared routing ConfigMap or to the auth namespace. The default hosts' shape is
+-- the context's posture (EP-246: flat through a tunnel or from a move's flip),
+-- never whether a Cloudflare zone is accepted: a rolled-back move keeps its zone.
+acceptedAccessBinding :: HostShape -> ScopeSnapshot -> ResourceId -> Either T.Text AccessBinding
+acceptedAccessBinding shape snapshot cluster = do
   authOwner <- mkScopeId Platform "auth"
   authScope <-
     maybe
@@ -383,8 +385,6 @@ acceptedAccessBinding snapshot cluster = do
         ]
   case enforcers of
     [enforcer] -> do
-      zoneOwner <- mkScopeId Platform "cloudflare-zone"
-      let shape = if Map.member zoneOwner (snapshotScopes snapshot) then FlatHosts else NestedHosts
       delegations <- delegatedNamespaces (fmap snd (snapshotScopes snapshot))
       Right (AccessBinding authOwner enforcer baseDomain shape delegations)
     _ -> Left "auth owner has no unique accepted enforcer Service"

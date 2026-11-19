@@ -123,7 +123,7 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
-  accessBinding <- reviewedSiteAccessBinding snapshot cluster (site ^. #access)
+  accessBinding <- reviewedSiteAccessBinding active snapshot cluster (site ^. #access)
   either
     dieT
     pure
@@ -241,7 +241,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, namespaceId) <- either dieT pure (acceptedAppNamespace snapshot ns)
-  accessBinding <- reviewedSiteAccessBinding snapshot cluster (site ^. #access)
+  accessBinding <- reviewedSiteAccessBinding active snapshot cluster (site ^. #access)
   either
     dieT
     pure

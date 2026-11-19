@@ -39,7 +39,7 @@ data AccessBinding = AccessBinding
   , accessEnforcer :: !Declaration
   , accessBaseDomain :: !Name
   , accessHostShape :: !HostShape
-  -- ^ Flat when the context's accepted zone scope serves it through a tunnel (ADR 34).
+  -- ^ The context's posture's: flat through a tunnel and from a base move's flip (ADR 34, EP-246).
   , accessDelegations :: !(Map Text Name)
   -- ^ EP-250: each delegated namespace's delegation, revoked ones included,
   -- whose grant also opens the protected hosts served from it.

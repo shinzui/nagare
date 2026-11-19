@@ -27,6 +27,7 @@ import Nagare.Cli.Runtime.Target (activeProfile, activeTarget, resolveBaseDomain
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
 import Nagare.Contract.Sink (contractSinkSet, emitDocument, withoutDocuments)
 import Nagare.Contract.V1 (SitePublishResult (..))
+import Nagare.Deploy.Host (HostShape (NestedHosts))
 import Nagare.Dsl.Config (encodeStaticSite)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude hiding (Context)
@@ -315,7 +316,7 @@ checkPrerequisites snapshot site options nsText = do
       (\e -> "namespace " <> nsText <> " is not accepted: " <> e <> "; provide it with `nagarectl inventory plan` and `nagarectl inventory apply` for the platform foundation")
       (acceptedAppNamespace snapshot nsText)
   when (isJust (site ^. #access)) $
-    void (first (\e -> "site access needs the accepted auth owner: " <> e <> "; provide it with `nagarectl access` setup (see docs/user/site-access.md)") (acceptedAccessBinding snapshot cluster))
+    void (first (\e -> "site access needs the accepted auth owner: " <> e <> "; provide it with `nagarectl access` setup (see docs/user/site-access.md)") (acceptedAccessBinding NestedHosts snapshot cluster))
   when (isJust (site ^. #cdn) && isNothing (options ^. #cdnBackendResource)) $
     Left "the site declares a CDN; pass --cdn-backend-resource RESOURCE-ID (the accepted platform BackendService, see `nagarectl inventory status`)"
   tlsIds <- traverse (first id . Resource.mkResourceId . T.pack) (options ^. #tlsSecretResources)

@@ -32,6 +32,7 @@ module Nagare.Inventory.Application
   , acceptedSecretBindings
   , acceptedBrokerBindings
   , AccessBinding (..)
+  , HostShape (..)
   , GoogleCdnBinding (..)
   , CloudflareCdnBinding (..)
   , ReviewedCdnBinding (..)
@@ -54,6 +55,7 @@ module Nagare.Inventory.Application
   )
 where
 
+import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application.Bindings
   ( acceptedAccessBinding
