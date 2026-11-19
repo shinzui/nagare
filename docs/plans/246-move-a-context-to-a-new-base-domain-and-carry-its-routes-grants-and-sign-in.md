@@ -75,6 +75,8 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
   parent domain still publishes an NS delegation for the old base. Evidence: fake-adapter tests, including that refusal.
 - [ ] D8, the rehearsal: the Rehearsal section below passes in full on a disposable context, and the length of the
   sign-in outage is recorded, because the team's notice states it. Evidence: an audit file under `docs/audits/`.
+  Steps 1–6 pass on `ep246d`, with sign-in outages of about 19 and 17 minutes, and step 7's `rebuild-decisions` and retire
+  refusal pass ([audit](../audits/ep246-base-move-rehearsal-2026-11-19.md)); step 7's upgrade and step 8's teardown remain.
 - [x] D9 ([`docs/user/moving-to-a-new-base-domain.md`](../user/moving-to-a-new-base-domain.md), [`docs/runbooks/context-move.md`](../runbooks/context-move.md), the tunnel guides' links, ADR 20, ADR 29 and ADR 34 amended 2026-11-16), docs and decisions: `docs/user/cloudflare-tunnel.md` no longer says moving a context is not built, and describes
   the move, rollback and retirement with EP-243's D10. ADR 20 and ADR 34 are amended, since a base domain can now change, and
   ADR 29 is amended with how a grant follows a host. Evidence: the linked pages.
