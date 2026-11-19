@@ -54,6 +54,7 @@ import Nagare.Inventory.Adapters.CloudflareRuntime (mirrorRecordTtl)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Components.CloudflareTunnel (cloudflareTunnelTokenSecretFile)
 import Nagare.Inventory.Components.ObservabilitySecrets (contextSecretsDirectory)
+import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan qualified as Plan
 import Nagare.Inventory.Store (InventoryStore, headAccepted, readHead)
 import Nagare.Inventory.Store.Manifest (MoveMarker (..), moveReviewIdentity, parseMoveReviewIdentity)
@@ -244,8 +245,11 @@ retireBase mctx active = do
     phase >>= \case
       RevokeGrants (scope : rest) -> review (plan withAccess (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
       RevokeGrants [] -> dieT "nothing to revoke"
-      RetireGrants (owner : rest) ->
-        review (plan withAccess (fmap (`Resource.RetireScope` RetainResources) (owner :| rest)))
+      -- As `inventory retire`: each revoked grant scope is retired by its retirement decision.
+      RetireGrants (owner : rest) -> review $ do
+        candidate <- compose (fmap (`Resource.RetireScope` RetainResources) (owner :| rest))
+        withAccess $ \registry -> Inventory.planInventoryCandidateWithDeciderPayload registry (decideRetirement candidate) identity active candidate directory
+        pure True
       RetireGrants [] -> dieT "nothing to retire"
       RouteDeletionPolicy (scope : rest) -> review (plan withWorkspace (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
       RouteDeletionPolicy [] -> dieT "no routes to make deletable"
