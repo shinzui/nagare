@@ -73,10 +73,9 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
 - [x] D7 (`context move retire`, `Nagare.Context.MoveRetire`: revoke, retire the grant scopes, drop the old routes, then the Cloud DNS set; `zoneRetirement` refuses under a live delegation, `InventoryAccessSpec`), retirement: `context move retire` is a separate, separately approved step. It revokes the old grants, retires the
   old routes, then retires the old Cloud DNS zone and deletes the passkey export. It refuses to retire the zone while the
   parent domain still publishes an NS delegation for the old base. Evidence: fake-adapter tests, including that refusal.
-- [ ] D8, the rehearsal: the Rehearsal section below passes in full on a disposable context, and the length of the
+- [x] D8 ([audit](../audits/ep246-base-move-rehearsal-2026-11-19.md): every step on `ep246d`, sign-in outages of about 19 and 17
+  minutes, the upgrade to master `b462828a`, the teardown with the zone left empty), the rehearsal: the Rehearsal section below passes in full on a disposable context, and the length of the
   sign-in outage is recorded, because the team's notice states it. Evidence: an audit file under `docs/audits/`.
-  Steps 1–6 pass on `ep246d`, with sign-in outages of about 19 and 17 minutes, and step 7's `rebuild-decisions` and retire
-  refusal pass ([audit](../audits/ep246-base-move-rehearsal-2026-11-19.md)); step 7's upgrade and step 8's teardown remain.
 - [x] D9 ([`docs/user/moving-to-a-new-base-domain.md`](../user/moving-to-a-new-base-domain.md), [`docs/runbooks/context-move.md`](../runbooks/context-move.md), the tunnel guides' links, ADR 20, ADR 29 and ADR 34 amended 2026-11-16), docs and decisions: `docs/user/cloudflare-tunnel.md` no longer says moving a context is not built, and describes
   the move, rollback and retirement with EP-243's D10. ADR 20 and ADR 34 are amended, since a base domain can now change, and
   ADR 29 is amended with how a grant follows a host. Evidence: the linked pages.
@@ -212,7 +211,14 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+A direct context moves to a new base on a Cloudflare zone with one reviewed, resumable command, and rolls back from after the
+firewall and `kourier` close: rehearsed natively on `ep246d`, moved, rolled back, moved again, committed, upgraded and torn down, with
+grants matching on every name, the seeded rows unchanged and a sign-in outage of about 17–19 minutes for the team's notice. The
+rehearsal found the defects behind 30 fix commits one at a time, because the move's model test tracked journal flags without running
+the planner, the route carrier and the Kubernetes model together; the rollback path now runs through them in
+`InventoryBaseMoveRoutesSpec`, while certificate issuance is still not modelled. What remains is the intranet's own move, in
+`mori://tan/tan-ng-labs/plans/14-re-home-the-intranet-onto-topagentnetworklabs-com-through-a-cloudflare-tunnel`, on a release that
+holds this work, and F158–F161 in the findings ledger. Nothing moves to an ADR beyond the amendments D9 made.
 
 
 ## Context and Orientation

@@ -54,13 +54,23 @@ From this workstation: TCP 80, 443, 6443 and 8443 closed; the network's only rul
   admin API's old route through a platform review, then refused: "the parent zone still delegates ep246.topagentnetwork.net;
   remove its NS records there first".
 - Upgrade to v0.22.0: refused at planning, "observation Kubernetes bytes differ from typed declaration" — the defect fixed in
-  `14f7fc72` (a public tunnel Service's flattened claim when read from stored bytes). The upgrade proof needs a packaged build that
-  holds the fix. **Open.**
+  `14f7fc72` (a public tunnel Service's flattened claim when read from stored bytes).
+- Upgrade to a packaged build of master `b462828a` (0.23.0), which holds the fix, on 2026-11-19 17:11–17:21Z: two transition
+  reviews converged, the next plan was empty, and the transition committed. CLI, context and cluster report 0.23.0; no request on a
+  new name failed during it (66 requests); the seeded rows read back unchanged (notes `500 c771…`, users `5 3bbf…`, passkeys 0).
 
 ## 8. Teardown
 
-**Open**, pending the operator: the `ep246` NS record in `tan-ng-prod`, then the drill's teardown, the Tailscale key and the request
-loop.
+2026-11-19 17:22–17:27Z, with the operator's go-ahead:
+- The `ep246.topagentnetwork.net.` NS record deleted from `topagentnetwork-net-zone` in `tan-ng-prod`, after a saved copy of the
+  zone's 10 records; afterwards the zone equals that copy minus exactly that record, and `labs.topagentnetwork.net` still delegates to
+  `ns-cloud-d1`…`d4` and resolves.
+- The stack destroyed (30 deletes, 0 resources left); no `ep246d` instance, service account, repository, bucket, disk or Cloud DNS
+  zone left; the image the run built deleted, so the project's images equal those before the run.
+- On `topagentnetworklabs.com`: both tunnel records, the cache rule and the tunnel deleted; the zone holds no record and the
+  account no tunnel.
+- The request loop stopped. The node `ep246d-nagare` stays listed, offline, in the tailnet, and its auth key unrevoked: both are the
+  operator's, in the Tailscale admin console.
 
 ## Findings (fixed on the branch, each with a test)
 
