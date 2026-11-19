@@ -19,9 +19,11 @@ import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Context.MoveCarry (carryWithAcceptedRoutes)
 import Nagare.Context.MoveRetire (RetirePhase (..), retirePhase)
+import Nagare.Context.MoveRoutes (otherBase)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter)
+import Nagare.Inventory.Components.CloudflareZone (CloudflareZoneInput (CloudflareZoneInput), compileCloudflareZone)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -46,30 +48,7 @@ inventoryBaseMoveRoutesTests =
   testGroup
     "base move routes through the interpreters (EP-246)"
     [ testCase "routes carried across the flip and a rollback stay ready, and retiring the new names collects theirs" $ do
-        run <- newRun plainShape [] []
-        bound <- newIORef (Map.empty :: Map.Map ResourceId (ManagedResource, ByteString))
-        let tls on unissued = modifyIORef' (runWorld run) (#server %~ ((#externalDomainTls .~ on) . (#unissued .~ Set.fromList unissued)))
-            deploy hosts = do
-              let native = Map.fromList [(routeId h, bindRoute h) | h <- hosts]
-                  scope = ok (mkScopeDeclaration appScope [ResourceBundle (map (Managed . fst) (Map.elems native)) [] [] [] [] []])
-              snapshot <- acceptedSnapshot run
-              (carried, carriedNative) <- asOperator run (\store -> carryWithAcceptedRoutes store snapshot (scope, native)) >>= either (assertFailure . T.unpack) pure
-              modifyIORef' bound (Map.union carriedNative)
-              converge run bound (ReplaceScope carried :| []) (\_ _ _ -> Right noLifecycleDecisions)
-              pure carriedNative
-        -- The context serves its old base, with external-domain TLS and every certificate issued.
-        tls True []
-        _ <- deploy oldHosts
-        -- The flip: the tunnel serves the new base without origin TLS, and the redeploy carries the old route.
-        tls False []
-        onNewBase <- deploy newHosts
-        assertBool "the old routes are carried with the TLS opt-out" (all (optedOut onNewBase . routeId) oldHosts)
-        -- The rollback: origin TLS returns, and the old issuer cannot solve for the new base. The redeploy
-        -- from the old config carries the new route, which is ready without a certificate.
-        tls True newHosts
-        rolledBack <- deploy oldHosts
-        assertBool "the new routes are carried with the TLS opt-out" (all (optedOut rolledBack . routeId) newHosts)
-        assertBool "the old routes are declared again without the opt-out" (not (any (optedOut rolledBack . routeId) oldHosts))
+        (run, bound) <- throughRollback
         -- `context move retire` on the new names: the packaged route becomes deletable, then every route
         -- is retired by its own decision and collected.
         phase run newHosts >>= \case
@@ -90,12 +69,63 @@ inventoryBaseMoveRoutesTests =
         world <- readIORef (runWorld run)
         assertBool "a new route is still live" (all ((`Map.notMember` objects world) . routeId) newHosts)
         assertBool "an old route is gone" (all ((`Map.member` objects world) . routeId) oldHosts)
+    , testCase "after a rollback the context moves again: the kept routes become the new base's own, the old ones are carried" $ do
+        (run, bound) <- throughRollback
+        tls run False []
+        again <- deploy run bound (otherBase newBase "" (Just (oldBase, newBase)) []) newHosts
+        assertBool "the old routes are carried with the TLS opt-out" (all (optedOut again . routeId) oldHosts)
+        assertBool "the new routes are declared again without the opt-out" (not (any (optedOut again . routeId) newHosts))
     ]
+
+-- | The context on its old base, moved to the new one, and rolled back: each redeploy carries the other
+-- base's routes ('otherBase', as `deploy` computes it).
+throughRollback :: IO (Run, IORef (Map.Map ResourceId (ManagedResource, ByteString)))
+throughRollback = do
+  run <- newRun plainShape [] []
+  bound <- newIORef Map.empty
+  -- The context serves its old base, with external-domain TLS and every certificate issued.
+  tls run True []
+  _ <- deploy run bound (otherBase oldBase "" Nothing []) oldHosts
+  -- The flip: the tunnel serves the new base without origin TLS, and the redeploy carries the old routes.
+  tls run False []
+  onNewBase <- deploy run bound (otherBase newBase "" (Just (oldBase, newBase)) []) newHosts
+  assertBool "the old routes are carried with the TLS opt-out" (all (optedOut onNewBase . routeId) oldHosts)
+  -- The rollback closes the move and keeps its zone. Origin TLS returns, and the old issuer cannot solve
+  -- for the new base. The redeploy from the old config carries the new routes, ready without a certificate.
+  tls run True newHosts
+  rolledBack <- deploy run bound (otherBase oldBase "" Nothing [keptZone]) oldHosts
+  assertBool "the new routes are carried with the TLS opt-out" (all (optedOut rolledBack . routeId) newHosts)
+  assertBool "the old routes are declared again without the opt-out" (not (any (optedOut rolledBack . routeId) oldHosts))
+  pure (run, bound)
+
+tls :: Run -> Bool -> [Text] -> IO ()
+tls run on unissued = modifyIORef' (runWorld run) (#server %~ ((#externalDomainTls .~ on) . (#unissued .~ Set.fromList unissued)))
+
+-- | Redeploy the routes from their config, carrying the other base's as `deploy` does.
+deploy :: Run -> IORef (Map.Map ResourceId (ManagedResource, ByteString)) -> Maybe Text -> [Text] -> IO (Map.Map ResourceId (ManagedResource, ByteString))
+deploy run bound other hosts = do
+  let native = Map.fromList [(routeId h, bindRoute h) | h <- hosts]
+      scope = ok (mkScopeDeclaration appScope [ResourceBundle (map (Managed . fst) (Map.elems native)) [] [] [] [] []])
+  snapshot <- acceptedSnapshot run
+  (carried, carriedNative) <- case other of
+    Nothing -> pure (scope, native)
+    Just base -> asOperator run (\store -> carryWithAcceptedRoutes base store snapshot (scope, native)) >>= either (assertFailure . T.unpack) pure
+  modifyIORef' bound (Map.union carriedNative)
+  converge run bound (ReplaceScope carried :| []) (\_ _ _ -> Right noLifecycleDecisions)
+  pure carriedNative
+
+oldBase, newBase :: Text
+oldBase = "old.test"
+newBase = "new.test"
+
+-- | The zone a rolled-back move keeps: its tunnel config serves the new base.
+keptZone :: ScopeDeclaration
+keptZone = ok (compileCloudflareZone (CloudflareZoneInput (ok (mkName "zone-id")) newBase "model" Nothing))
 
 -- | A site's route, and the admin API's, which its packaged component declares Retain.
 oldHosts, newHosts :: [Text]
-oldHosts = ["docs.old.example.test", "admin.old.example.test"]
-newHosts = ["docs-new.example.test", "admin.new.example.test"]
+oldHosts = ["docs.old.test", "admin.old.test"]
+newHosts = ["docs.new.test", "admin.new.test"]
 
 bindRoute :: Text -> (ManagedResource, ByteString)
 bindRoute host =

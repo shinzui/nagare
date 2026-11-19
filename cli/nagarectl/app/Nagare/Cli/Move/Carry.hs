@@ -7,11 +7,12 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Context.BaseFlip (baseMoveKind)
 import Nagare.Context.MoveCarry (carryWithAcceptedRoutes)
-import Nagare.Context.MoveRoutes (servesOtherBase)
+import Nagare.Context.MoveRoutes (otherBase)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command (openTargetStoreReadOnly)
 import Nagare.Inventory.Store (HeadManifest (..), readHead)
@@ -27,21 +28,21 @@ withMovedRoutes ::
   (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)) ->
   IO (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 withMovedRoutes active snapshot (scope, native) = do
-  carrying <- (servesOtherBase (active ^. #profile . #baseDomain) (map snd (Map.elems (snapshotScopes snapshot))) ||) <$> baseMoveCarrying active
-  if not carrying
-    then pure (scope, native)
-    else do
+  other <- carriedBase active snapshot
+  case other of
+    Nothing -> pure (scope, native)
+    Just base -> do
       store <- openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-      carryWithAcceptedRoutes store snapshot (scope, native) >>= either dieT pure
+      carryWithAcceptedRoutes base store snapshot (scope, native) >>= either dieT pure
 
-baseMoveCarrying :: ActiveTarget -> IO Bool
-baseMoveCarrying active
-  | profile ^. #mode == Local = pure False
-  | not (T.null retained) && retained /= profile ^. #baseDomain = pure True
+-- | The other base whose routes a redeploy carries ('otherBase'); none for a local context.
+carriedBase :: ActiveTarget -> ScopeSnapshot -> IO (Maybe Text)
+carriedBase active snapshot
+  | profile ^. #mode == Local = pure Nothing
   | otherwise = do
       store <- openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
       marker <- readHead store >>= either (dieT . T.pack . show) (pure . (>>= headMove))
-      pure (maybe False ((== baseMoveKind) . moveKind) marker)
+      let move = [(moveRetainedDnsName m, moveTargetBase m) | Just m <- [marker], moveKind m == baseMoveKind]
+      pure (otherBase (profile ^. #baseDomain) (profile ^. #retainedDnsName) (listToMaybe move) (map snd (Map.elems (snapshotScopes snapshot))))
   where
     profile = active ^. #profile
-    retained = profile ^. #retainedDnsName

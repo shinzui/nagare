@@ -18,7 +18,7 @@ import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
-import Nagare.Context.MoveRoutes (carryOldRoutes, routesToCarry, servesOtherBase, withoutOriginTls)
+import Nagare.Context.MoveRoutes (carryOldRoutes, otherBase, routesToCarry, servesOtherBase, withoutOriginTls)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
@@ -182,8 +182,8 @@ contextMoveChecksTests =
             mappingBytes host' = TE.encodeUtf8 ("{\"apiVersion\":\"serving.knative.dev/v1beta1\",\"kind\":\"DomainMapping\",\"metadata\":{\"name\":\"" <> host' <> "\",\"namespace\":\"apps\"},\"spec\":{}}")
             bytesOf scope = Map.fromList [(m ^. #identity, mappingBytes (nameText n)) | m <- members scope, Kubernetes _ _ _ _ n <- [m ^. #address]]
             oldRoutes scope = [m | m <- members scope, m ^. #address `elem` [kube "domainmapping" (Just "apps") h | h <- ["docs.old.example", "auth.old.example"]]]
-        routesToCarry (Just accepted) redeployed @?= Set.fromList (map (^. #identity) (oldRoutes accepted))
-        (carried, native) <- either (assertFailure . T.unpack) pure (carryOldRoutes (bytesOf accepted) (Just accepted) redeployed)
+        routesToCarry "old.example" (Just accepted) redeployed @?= Set.fromList (map (^. #identity) (oldRoutes accepted))
+        (carried, native) <- either (assertFailure . T.unpack) pure (carryOldRoutes "old.example" (bytesOf accepted) (Just accepted) redeployed)
         (hostsOf carried, mappingsOf carried)
           @?= (["docs.new.example", "docs.old.example"], ["auth.new.example", "auth.old.example", "docs.new.example", "docs.old.example"])
         -- A carried route is the accepted one with Knative's TLS opt-out: same identity and address, so its grants stay bound.
@@ -193,20 +193,30 @@ contextMoveChecksTests =
         map (#spec .~ NativeObject (contentDigest "")) (oldRoutes carried) @?= map (#spec .~ NativeObject (contentDigest "")) (oldRoutes accepted)
         [(m ^. #spec, snd <$> Map.lookup (m ^. #identity) native) | m <- oldRoutes carried, m ^. #address == kube "domainmapping" (Just "apps") "docs.old.example"]
           @?= [(NativeObject (contentDigest optOut), Just optOut)]
-        Map.keysSet native @?= routesToCarry (Just accepted) redeployed
-        assertBool "a carried route needs its accepted bytes" (isLeft (carryOldRoutes Map.empty (Just accepted) redeployed))
+        Map.keysSet native @?= routesToCarry "old.example" (Just accepted) redeployed
+        assertBool "a carried route needs its accepted bytes" (isLeft (carryOldRoutes "old.example" Map.empty (Just accepted) redeployed))
         -- The old portal's mapping is carried, its portal registration is not: a context has one portal.
         let asPortal scope = ok (mkScopeDeclaration (scopeId scope) [b & #contributions %~ map (\c -> c {role = PortalBackend}) | b <- scopeBundles scope])
             portalAccepted = asPortal (routeScope [("auth.old.example", True)])
-        (portal, _) <- either (assertFailure . T.unpack) pure (carryOldRoutes (bytesOf portalAccepted) (Just portalAccepted) (asPortal (routeScope [("auth.new.example", True)])))
+        (portal, _) <- either (assertFailure . T.unpack) pure (carryOldRoutes "old.example" (bytesOf portalAccepted) (Just portalAccepted) (asPortal (routeScope [("auth.new.example", True)])))
         (hostsOf portal, mappingsOf portal) @?= (["auth.new.example"], ["auth.new.example", "auth.old.example"])
-        carryOldRoutes Map.empty Nothing redeployed @?= Right (redeployed, Map.empty)
-        carryOldRoutes Map.empty (Just redeployed) redeployed @?= Right (redeployed, Map.empty)
+        carryOldRoutes "old.example" Map.empty Nothing redeployed @?= Right (redeployed, Map.empty)
+        carryOldRoutes "old.example" Map.empty (Just redeployed) redeployed @?= Right (redeployed, Map.empty)
+        -- Only the other base's routes are carried: a dropped custom domain asks for its retirement.
+        let withCustom = routeScope [("docs.old.example", True), ("shop.custom.test", False)]
+        routesToCarry "old.example" (Just withCustom) redeployed @?= Set.fromList [m ^. #identity | m <- members withCustom, m ^. #address == kube "domainmapping" (Just "apps") "docs.old.example"]
     , testCase "a rolled-back move's kept zone keeps the redeployed sites carrying its routes (EP-246 D5)" $ do
         let zoneFor served = either (error . show) id (compileCloudflareZone (CloudflareZoneInput (ok (mkName "zone-id")) served "dev" Nothing))
         servesOtherBase "old.example" [routeScope [("docs.old.example", True)], zoneFor "new.example"] @?= True
         servesOtherBase "new.example" [zoneFor "new.example"] @?= False
         servesOtherBase "old.example" [routeScope [("docs.old.example", True)]] @?= False
+        -- The base a redeploy carries: during a move the one the profile is not on, after a commit the
+        -- retained old base, after a rollback the kept zone's.
+        otherBase "new.example" "" (Just ("old.example", "new.example")) [] @?= Just "old.example"
+        otherBase "old.example" "" (Just ("old.example", "new.example")) [] @?= Just "new.example"
+        otherBase "new.example" "old.example" Nothing [] @?= Just "old.example"
+        otherBase "old.example" "" Nothing [zoneFor "new.example"] @?= Just "new.example"
+        otherBase "old.example" "" Nothing [zoneFor "old.example"] @?= Nothing
     ]
 
 now :: UTCTime

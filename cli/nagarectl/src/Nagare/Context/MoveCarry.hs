@@ -19,13 +19,15 @@ import Nagare.Inventory.Store (InventoryStore)
 import Nagare.Resource.Inventory (ManagedResource, ScopeDeclaration, ScopeSnapshot, composeSnapshot, scopeId, snapshotScopes)
 import Nagare.Resource.Types (ResourceId)
 
--- | The redeployed scope with the accepted routes it dropped, and its native members with theirs.
+-- | The redeployed scope with the accepted routes on the other base it dropped, and its native members
+-- with theirs.
 carryWithAcceptedRoutes ::
+  Text ->
   InventoryStore ->
   ScopeSnapshot ->
   (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)) ->
   IO (Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
-carryWithAcceptedRoutes store snapshot (scope, native)
+carryWithAcceptedRoutes other store snapshot (scope, native)
   | Set.null wanted = pure (Right (scope, native))
   | otherwise = do
       history <- loadInventoryHistory store
@@ -35,8 +37,8 @@ carryWithAcceptedRoutes store snapshot (scope, native)
           acceptedNative <- loadAcceptedNativeSelected wanted store loaded inventory
           pure $ do
             (routes, _) <- acceptedNative
-            (carried, carriedNative) <- carryOldRoutes (Map.map snd routes) accepted scope
+            (carried, carriedNative) <- carryOldRoutes other (Map.map snd routes) accepted scope
             pure (carried, Map.union carriedNative native)
   where
     accepted = snd <$> Map.lookup (scopeId scope) (snapshotScopes snapshot)
-    wanted = routesToCarry accepted scope
+    wanted = routesToCarry other accepted scope

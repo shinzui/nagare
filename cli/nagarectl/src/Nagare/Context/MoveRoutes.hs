@@ -1,10 +1,11 @@
 -- | The route half of EP-246 D5. A site redeployed from its config on the new base declares its new
 -- names, and a grant binds to the exact accepted protected route of its host (ADR 29), so a redeploy
 -- that dropped an old protected route would orphan its grants. While a base move is open, or the
--- context still keeps its old base, the redeployed scope carries every accepted route it dropped,
--- granted or not (the auth portal's has no grant): the same DomainMapping and the same backend
--- registration. Only retirement, which revokes and retires the grants and then the routes, lets a
--- later deploy drop them.
+-- context keeps another base, the redeployed scope carries every accepted route on that other base it
+-- dropped, granted or not (the auth portal's has no grant): the same DomainMapping and the same
+-- backend registration. Only retirement, which revokes and retires the grants and then the routes,
+-- lets a later deploy drop them. A dropped route on any other name (a removed custom domain) is not
+-- carried: its scope asks for its retirement as before.
 --
 -- A carried route is on the base the context is not serving, which the move never serves (old names
 -- stop at the flip; a rollback stops the new ones), so it declares no origin TLS: Knative's
@@ -19,6 +20,7 @@
 -- profile's ('servesOtherBase'), as it does while the profile keeps its old base after a commit.
 module Nagare.Context.MoveRoutes
   ( carryOldRoutes
+  , otherBase
   , servesOtherBase
   , routesToCarry
   , withoutOriginTls
@@ -31,6 +33,7 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -40,19 +43,30 @@ import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 
--- | The redeployed scope with each accepted route it dropped, and the native bytes of each carried
--- DomainMapping, given the accepted bytes of those mappings ('routesToCarry').
+-- | The base whose routes a redeploy carries, given the profile's base and retained name and an open
+-- base move's old and target bases: during the move the one the profile is not on, after a commit
+-- the retained old base, after a rollback the base the kept zone serves.
+otherBase :: Text -> Text -> Maybe (Text, Text) -> [ScopeDeclaration] -> Maybe Text
+otherBase base retained move scopes = case move of
+  Just (old, target) -> Just (if base == target then old else target)
+  Nothing
+    | not (T.null retained) && retained /= base -> Just retained
+    | otherwise -> listToMaybe (servedBases base scopes)
+
+-- | The redeployed scope with each accepted route on the other base it dropped, and the native bytes
+-- of each carried DomainMapping, given the accepted bytes of those mappings ('routesToCarry').
 carryOldRoutes ::
+  Text ->
   Map ResourceId ByteString ->
   Maybe ScopeDeclaration ->
   ScopeDeclaration ->
   Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-carryOldRoutes acceptedBytes accepted redeployed = case accepted of
+carryOldRoutes other acceptedBytes accepted redeployed = case accepted of
   Nothing -> Right (redeployed, Map.empty)
   Just before
-    | null (droppedHosts before redeployed) -> Right (redeployed, Map.empty)
+    | null (droppedHosts other before redeployed) -> Right (redeployed, Map.empty)
     | otherwise -> do
-        routes <- traverse optedOut [m | m <- mappings before, any (isMappingOf (m ^. #address)) (droppedHosts before redeployed)]
+        routes <- traverse optedOut [m | m <- mappings before, any (isMappingOf (m ^. #address)) (droppedHosts other before redeployed)]
         let carried =
               [ ResourceBundle
                   [Managed m | (m, _) <- routes, isMappingOf (m ^. #address) host]
@@ -61,7 +75,7 @@ carryOldRoutes acceptedBytes accepted redeployed = case accepted of
                   [c | c <- contributionsOf before, backendHost c == Just host, not (isPortal c)]
                   []
                   []
-              | host <- droppedHosts before redeployed
+              | host <- droppedHosts other before redeployed
               ]
         scope <-
           first
@@ -83,14 +97,17 @@ carryOldRoutes acceptedBytes accepted redeployed = case accepted of
 -- | Whether an accepted tunnel config serves a base other than the profile's: a move to a new base
 -- was rolled back and its zone kept.
 servesOtherBase :: Text -> [ScopeDeclaration] -> Bool
-servesOtherBase base scopes =
-  or [served /= base | scope <- scopes, bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations, CloudflareTunnelConfigSpec served _ <- [m ^. #spec]]
+servesOtherBase base = not . null . servedBases base
 
--- | The accepted DomainMappings a redeploy would carry.
-routesToCarry :: Maybe ScopeDeclaration -> ScopeDeclaration -> Set ResourceId
-routesToCarry accepted redeployed = case accepted of
+servedBases :: Text -> [ScopeDeclaration] -> [Text]
+servedBases base scopes =
+  [served | scope <- scopes, bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations, CloudflareTunnelConfigSpec served _ <- [m ^. #spec], served /= base]
+
+-- | The accepted DomainMappings on the other base a redeploy would carry.
+routesToCarry :: Text -> Maybe ScopeDeclaration -> ScopeDeclaration -> Set ResourceId
+routesToCarry other accepted redeployed = case accepted of
   Nothing -> Set.empty
-  Just before -> Set.fromList [m ^. #identity | m <- mappings before, any (isMappingOf (m ^. #address)) (droppedHosts before redeployed)]
+  Just before -> Set.fromList [m ^. #identity | m <- mappings before, any (isMappingOf (m ^. #address)) (droppedHosts other before redeployed)]
 
 -- | A DomainMapping's bytes with Knative's per-route external-domain TLS opt-out.
 withoutOriginTls :: ByteString -> Either Text ByteString
@@ -104,9 +121,11 @@ withoutOriginTls bytes = case decodeStrict bytes of
     canonicalValue (Object (KM.insert "metadata" (Object (KM.insert "annotations" (Object optOut) metadata)) root))
   _ -> Left "carried route's native bytes are not a Kubernetes object"
 
--- | The hosts the accepted scope routes that the redeploy no longer does.
-droppedHosts :: ScopeDeclaration -> ScopeDeclaration -> [Name]
-droppedHosts before redeployed = Set.toList (routedHosts before `Set.difference` routedHosts redeployed)
+-- | The hosts on the other base the accepted scope routes that the redeploy no longer does.
+droppedHosts :: Text -> ScopeDeclaration -> ScopeDeclaration -> [Name]
+droppedHosts other before redeployed = filter onOther (Set.toList (routedHosts before `Set.difference` routedHosts redeployed))
+  where
+    onOther host = let h = T.toLower (nameText host); b = T.toLower other in h == b || ("." <> b) `T.isSuffixOf` h
 
 routedHosts :: ScopeDeclaration -> Set Name
 routedHosts scope =

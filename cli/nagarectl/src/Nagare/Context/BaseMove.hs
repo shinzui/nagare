@@ -191,13 +191,15 @@ movedHosts old new facts
   | not (null refusals) = Left refusals
   | otherwise = Right moved
   where
+    -- A route already on the new base (one a rolled-back move left with its kept zone) has moved.
     names =
-      sort . nub $
+      filter (not . onNew) . sort . nub $
         map (\(namespace, name) -> defaultHostName NestedHosts name namespace old) (facts ^. #services)
           <> (facts ^. #mappings)
           <> map fst (facts ^. #backends)
           <> map fst (facts ^. #userGrants)
           <> map fst (facts ^. #teamGrants)
+    onNew host = normal host == normal new || ("." <> normal new) `T.isSuffixOf` normal host
     classified = [(host, classify host) | host <- names]
     moved =
       [ MovedHost

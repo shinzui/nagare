@@ -66,6 +66,10 @@ contextBaseMoveTests =
         [(h ^. #protected, h ^. #users, h ^. #teams) | h <- find ("docs.team." <> old)] @?= [(True, ["user_a", "user_b"], ["eng"])]
         [(h ^. #protected, h ^. #users) | h <- find old] @?= [(True, ["user_a"])]
         [(h ^. #protected, h ^. #users) | h <- find ("kansoku." <> old)] @?= [(False, [])]
+    , testCase "a route already on the new base, left by a rolled-back move, has moved and is not renamed" $ do
+        let leftOver = everyKind & #mappings %~ (["auth." <> new, new] <>)
+        hosts <- either (assertFailure . show) pure (movedHosts old new leftOver)
+        hosts @?= either (error . show) id (movedHosts old new everyKind)
     , testCase "a name outside the old base is refused by name" $
         refusedNaming "other.example.org" (everyKind & #mappings %~ ("other.example.org" :))
     , testCase "a custom domain two labels below the base is refused by name" $
