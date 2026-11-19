@@ -509,7 +509,8 @@ churnOnce key server = case (Map.lookup key (objects server), (^. #churnSource) 
 --
 -- A DomainMapping also reports its certificate, as Knative 1.22's
 -- domainmapping reconciler does (EP-183 M1). With external-domain TLS off it
--- is @CertificateProvisioned=True/TLSNotEnabled@, as the recorded traces show.
+-- is @CertificateProvisioned=True/TLSNotEnabled@, as the recorded traces show, and so it is
+-- for a mapping annotated @networking.knative.dev/disable-external-domain-tls: "true"@.
 -- With TLS on and the certificate not Ready, the default
 -- @http-protocol: Enabled@ serves the host over HTTP meanwhile: the condition
 -- is @True/HTTPDowngrade@, @Ready@ stays True and @status.url@ is @http://@.
@@ -530,8 +531,10 @@ knativeStatus server key stored =
     )
   where
     mapping = key ^. #kind == "domainmapping"
+    -- Knative 1.22 honours the per-route opt-out (EP-246).
+    optedOut = textAt ["metadata", "annotations", "networking.knative.dev/disable-external-domain-tls"] (stored ^. #content) == Just "true"
     (certificate, scheme)
-      | not (externalDomainTls server) = (Just "TLSNotEnabled", "http" :: Text)
+      | not (externalDomainTls server) || optedOut = (Just "TLSNotEnabled", "http" :: Text)
       | Set.member (key ^. #name) (unissued server) = (Just "HTTPDowngrade", "http")
       | otherwise = (Nothing, "https")
     (ready, reason')
@@ -638,7 +641,7 @@ withControllerFinalizer key stored = case controllerFinalizers key of
           & #finalizers
           %~ (<> [f | f <- wanted, f `notElem` (stored ^. #finalizers)])
           & #managed
-          %~ (normalizeEntries . (<> [FieldsEntry (statusManager key) Update Nothing (Set.fromList [["metadata", "finalizers"]])]))
+          %~ (normalizeEntries . (<> [FieldsEntry (statusManager key) Update Nothing (Set.fromList (concat [[["metadata", "finalizers", "."], ["metadata", "finalizers", "v:\"" <> f <> "\""]] | f <- wanted]))]))
 
 -- | The manager a kind's controller writes status as: Knative's controllers
 -- are @controller@, k3s's built-in ones @k3s@.

@@ -218,6 +218,18 @@ expectedControllerFields (Just (Kubernetes _ "" kind _ _)) "k3s" fields
     permitted ["f:metadata", "f:finalizers", "v:\"service.kubernetes.io/load-balancer-cleanup\""] = True
     permitted ("f:status" : _) = True
     permitted _ = False
+-- Knative's controller puts its finalizer and the status on a DomainMapping. Inventory never
+-- declares finalizers, so its server-side apply keeps it (EP-246: a carried route's TLS opt-out).
+expectedControllerFields (Just (Kubernetes _ "serving.knative.dev" kind _ _)) "controller" fields
+  | nameText kind == "domainmapping" =
+      ["f:metadata", "f:finalizers", "v:\"domainmappings.serving.knative.dev\""] `elem` paths
+        && all permitted paths
+  where
+    paths = managedPaths [] fields
+    permitted ["f:metadata", "f:finalizers", "."] = True
+    permitted ["f:metadata", "f:finalizers", "v:\"domainmappings.serving.knative.dev\""] = True
+    permitted ("f:status" : _) = True
+    permitted _ = False
 expectedControllerFields _ _ _ = False
 
 managedPaths :: [Text] -> Object -> [[Text]]

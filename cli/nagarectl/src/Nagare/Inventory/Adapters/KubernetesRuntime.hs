@@ -53,6 +53,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Data.Aeson
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
@@ -383,8 +384,16 @@ waitForReadiness config address = case address of
       readLiveManagedObject config address >>= \case
         Left _ -> pure (AdapterEffectAmbiguous "Knative DomainMapping could not be read after Ready; reobserve before retry")
         Right value
+          | httpDowngraded value && tlsOptedOut value -> settleOptOut (30 :: Int)
           | httpDowngraded value -> waitFor ("jsonpath={.status.url}=https://" <> T.unpack (nameText name)) "domainmapping.serving.knative.dev" namespace name "DomainMapping certificate" >>= withCertificateDiagnosis config (nameText name)
           | otherwise -> pure AdapterEffectCompleted
+    -- EP-246: an annotation-only update keeps the generation, so Ready, and the downgrade it
+    -- reports is stale until Knative reconciles the route's TLS opt-out.
+    settleOptOut 0 = pure (AdapterEffectAmbiguous "Knative DomainMapping kept its HTTP downgrade after its TLS opt-out; reobserve before retry")
+    settleOptOut remaining =
+      threadDelay 1000000 >> readLiveManagedObject config address >>= \case
+        Right value | not (httpDowngraded value) -> pure AdapterEffectCompleted
+        _ -> settleOptOut (remaining - 1)
 
 -- | A separate read-only condition probe. The UID check prevents a second
 -- get from attaching readiness of a replacement to the first observation.

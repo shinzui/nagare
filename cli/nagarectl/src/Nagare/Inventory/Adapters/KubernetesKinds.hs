@@ -22,6 +22,8 @@ supportedUpdateKinds =
   , ("apps", "deployment")
   , ("apps", "statefulset")
   , ("serving.knative.dev", "service")
+  , -- EP-246: a carried route takes Knative's per-route TLS opt-out in place.
+    ("serving.knative.dev", "domainmapping")
   , ("batch", "cronjob")
   , ("networking.k8s.io", "networkpolicy")
   , -- EP-248: revoking a delegation empties its deployer's Roles in place.

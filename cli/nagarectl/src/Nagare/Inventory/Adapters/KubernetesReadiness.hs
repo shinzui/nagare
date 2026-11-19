@@ -12,6 +12,7 @@ module Nagare.Inventory.Adapters.KubernetesReadiness
   , knativeReady
   , domainMappingReady
   , httpDowngraded
+  , tlsOptedOut
   , hasCondition
   , deploymentAvailable
   , statefulSetReady
@@ -90,6 +91,15 @@ hasCondition _ _ = False
 -- (@TLSNotEnabled@) is the context's choice and stays ready.
 domainMappingReady :: Value -> Bool
 domainMappingReady value = knativeReady value && not (httpDowngraded value)
+
+-- | The route carries Knative's per-route external-domain TLS opt-out (EP-246: a carried route).
+tlsOptedOut :: Value -> Bool
+tlsOptedOut (Object root) = case KM.lookup "metadata" root of
+  Just (Object metadata) -> case KM.lookup "annotations" metadata of
+    Just (Object annotations) -> KM.lookup "networking.knative.dev/disable-external-domain-tls" annotations == Just (String "true")
+    _ -> False
+  _ -> False
+tlsOptedOut _ = False
 
 -- | The route is served over HTTP because its certificate is not Ready.
 httpDowngraded :: Value -> Bool

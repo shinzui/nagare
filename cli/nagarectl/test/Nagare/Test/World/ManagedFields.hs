@@ -46,7 +46,7 @@ renderEntry entry =
     fieldsTree paths =
       Object
         ( KM.fromList
-            [ (Key.fromText (if head' == "." then "." else "f:" <> head'), fieldsTree [rest | (h : rest) <- paths, h == head', not (null rest)])
+            [ (Key.fromText (if head' == "." || "v:" `T.isPrefixOf` head' then head' else "f:" <> head'), fieldsTree [rest | (h : rest) <- paths, h == head', not (null rest)])
             | head' <- nubOrd [h | h : _ <- paths]
             ]
         )

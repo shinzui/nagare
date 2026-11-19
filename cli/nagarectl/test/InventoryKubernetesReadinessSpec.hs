@@ -12,7 +12,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Adapter (AdapterExecution (..), EffectOutcome (..), OperationAction (CreateResource), effectIdentity)
+import Nagare.Inventory.Adapter (AdapterExecution (..), EffectOutcome (..), OperationAction (CreateResource, UpdateResource), effectIdentity)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), kubernetesObserve)
 import Nagare.Inventory.Adapters.KubernetesRuntime (deploymentAvailable, domainMappingReady, knativeReady, readinessForAddress, waitForReadiness)
 import Nagare.Inventory.Digest (contentDigest)
@@ -85,14 +85,16 @@ inventoryKubernetesReadinessTests =
         -- so Ready=True. A deploy that trusts Ready alone reports a protected
         -- route as served while it answers only plain HTTP.
         let cases =
-              [ ("external-domain TLS off", False, Set.empty, True)
-              , ("certificate Ready", True, Set.empty, True)
-              , ("certificate pending", True, Set.singleton mappingHost, False)
+              [ ("external-domain TLS off", False, Set.empty, mappingValue, True)
+              , ("certificate Ready", True, Set.empty, mappingValue, True)
+              , ("certificate pending", True, Set.singleton mappingHost, mappingValue, False)
+              , -- EP-246: a carried route's opt-out needs no certificate.
+                ("certificate pending, route opted out", True, Set.singleton mappingHost, optedOutMapping, True)
               ]
-        forM_ cases $ \(label, tls, pending, servesTls) -> do
+        forM_ cases $ \(label, tls, pending, value, servesTls) -> do
           cluster <- newCluster (emptyServer & #externalDomainTls .~ tls & #unissued .~ pending) =<< newAdversary []
           let context = ok (mkContextId "context-1")
-              (managed, bytes) = bindMember extraId mappingValue
+              (managed, bytes) = bindMember extraId value
               ops = fst (clusterOps context cluster (Map.singleton extraId (managed, bytes)))
               digest = contentDigest bytes
           before <- kubernetesObserve ops extraId
@@ -109,6 +111,24 @@ inventoryKubernetesReadinessTests =
             kubernetesObserve ops extraId >>= \case
               KubernetesPresent {} -> pure ()
               other -> assertFailure (label <> ": after the certificate was issued: " <> show other)
+    , testCase "a route stuck on a pending certificate takes its TLS opt-out in place and is ready (EP-246)" $ do
+        cluster <- newCluster (emptyServer & #externalDomainTls .~ True & #unissued .~ Set.singleton mappingHost) =<< newAdversary []
+        let context = ok (mkContextId "context-1")
+            (managed, bytes) = bindMember extraId mappingValue
+            (_, optedBytes) = bindMember extraId optedOutMapping
+            createOps = fst (clusterOps context cluster (Map.singleton extraId (managed, bytes)))
+            updateOps = fst (clusterOps context cluster (Map.singleton extraId (managed, optedBytes)))
+        absent <- kubernetesObserve createOps extraId
+        _ <- kubernetesMutateConditional createOps (KubernetesMutation 1 (ok (mkOperationId "op-mapping")) (contentDigest bytes) CreateResource extraId (managed ^. #address) (TE.decodeUtf8 bytes) (contentDigest bytes) absent Nothing Nothing)
+        (stuck, stamp) <- kubernetesObserveStamped updateOps extraId
+        case stuck of
+          KubernetesNotReady {} -> pure ()
+          other -> assertFailure ("the downgraded route was " <> show other)
+        result <- kubernetesMutateConditional updateOps (KubernetesMutation 1 (ok (mkOperationId "op-opt-out")) (contentDigest optedBytes) UpdateResource extraId (managed ^. #address) (TE.decodeUtf8 optedBytes) (contentDigest optedBytes) stuck Nothing stamp)
+        snd (effectIdentity result) @?= OutcomeCompleted
+        kubernetesObserve updateOps extraId >>= \case
+          KubernetesPresent {} -> pure ()
+          other -> assertFailure ("the opted-out route was " <> show other)
     ]
 
 mappingHost :: Text
@@ -123,6 +143,14 @@ mappingValue =
     , "metadata" .= object ["name" .= mappingHost, "namespace" .= ("personal" :: Text)]
     , "spec" .= object ["ref" .= object ["name" .= ("web" :: Text), "kind" .= ("Service" :: Text), "apiVersion" .= ("serving.knative.dev/v1" :: Text)]]
     ]
+
+-- | The same route with Knative's per-route TLS opt-out, as a carried route declares it.
+optedOutMapping :: Value
+optedOutMapping = case mappingValue of
+  Object root
+    | Just (Object metadata) <- KM.lookup "metadata" root ->
+        Object (KM.insert "metadata" (Object (KM.insert "annotations" (object ["networking.knative.dev/disable-external-domain-tls" .= ("true" :: Text)]) metadata)) root)
+  other -> other
 
 -- | A Deployment at a generation, observed at a generation, with a requested
 -- replica count, conditions, and (status.replicas, updatedReplicas,

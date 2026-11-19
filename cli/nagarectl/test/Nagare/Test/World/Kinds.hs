@@ -152,7 +152,7 @@ kindTable =
   -- Application scopes: Knative Service, worker Deployment, CronJob tasks,
   -- DomainMapping, release history, volumes; databases and their backups.
   [ inLine ("serving.knative.dev", "service") updatable CanBeUnready
-  , inLine ("serving.knative.dev", "domainmapping") fixed CanBeUnready
+  , inLine ("serving.knative.dev", "domainmapping") updatable CanBeUnready
   , inLine ("apps", "deployment") updatable CanBeUnready
   , inLine ("apps", "statefulset") (KindReplaceStuckPod : migratable updatable) CanBeUnready
   , inLine ("batch", "cronjob") (migratable updatable) NoReadiness
