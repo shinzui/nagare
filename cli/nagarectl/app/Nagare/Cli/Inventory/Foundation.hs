@@ -51,6 +51,7 @@ import Nagare.Target
   )
 
 inventoryFoundationAdapter ::
+  InventoryFoundation.FoundationTargetUse ->
   ActiveTarget ->
   PlatformWorkspace ->
   Resource.ContextBinding ->
@@ -58,7 +59,7 @@ inventoryFoundationAdapter ::
   [ResourceInventory.ScopeDeclaration] ->
   Set.Set Resource.ResourceId ->
   IO InventoryAdapter.Adapter
-inventoryFoundationAdapter active workspace binding declarations scopes selectedResources
+inventoryFoundationAdapter use active workspace binding declarations scopes selectedResources
   | Set.null selectedResources =
       pure
         (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
@@ -85,6 +86,7 @@ inventoryFoundationAdapter active workspace binding declarations scopes selected
           dieT
           pure
           ( InventoryFoundation.foundationTargetsFromDeclarations
+              use
               project
               location
               backendBucket

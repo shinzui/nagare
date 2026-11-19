@@ -5,6 +5,7 @@ module Nagare.Inventory.Foundation
   ( FoundationResource (..)
   , FoundationDeclarationBundle (..)
   , compileFoundationScope
+  , FoundationTargetUse (..)
   , foundationTargetsFromDeclarations
   , validateFoundationMember
   )
@@ -83,10 +84,18 @@ compileFoundationScope bundle
         , source = foundationSource resource
         }
 
+-- | What the targets are for. A review executes exactly what it reviewed. Status only reads, and reads
+-- the Pulumi stack against the context's current config: the seed follows the profile and the move
+-- posture, which `context move commit-move`, `retire-dns` and `retire` write without a platform review,
+-- so a seed that changed since its review shows as drift there instead of refusing status (EP-246).
+data FoundationTargetUse = ExecuteReviewed | ObserveCurrent
+  deriving stock (Eq, Show)
+
 -- | Rebuild execution targets from the immutable declarations and the selected
 -- context. The digest comparison prevents a changed region or member policy
 -- from silently changing a retained review's native effects.
 foundationTargetsFromDeclarations ::
+  FoundationTargetUse ->
   Name ->
   Name ->
   Maybe Name ->
@@ -94,7 +103,7 @@ foundationTargetsFromDeclarations ::
   Maybe (ProviderAddress, FoundationTarget) ->
   [Declaration] ->
   Either Text (Map ResourceId FoundationTarget)
-foundationTargetsFromDeclarations project location backendBucket member stackTarget declarations =
+foundationTargetsFromDeclarations use project location backendBucket member stackTarget declarations =
   Map.fromList <$> traverse target foundationMembers
   where
     foundationMembers =
@@ -129,9 +138,11 @@ foundationTargetsFromDeclarations project location backendBucket member stackTar
           _ -> Left "reviewed foundation stack differs from the selected context"
         _ -> Left "reviewed foundation address is unsupported"
       unless
-        (resource ^. #spec == NativeObject (foundationTargetDigest value))
+        (resource ^. #spec == NativeObject (foundationTargetDigest value) || (use == ObserveCurrent && isStack value))
         (Left "reviewed foundation target digest differs from the selected context")
       pure (resource ^. #identity, value)
+    isStack FoundationStack {} = True
+    isStack _ = False
 
 validateFoundationMember :: Maybe Text -> Either Text ()
 validateFoundationMember Nothing = Right ()

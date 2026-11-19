@@ -74,6 +74,7 @@ import Nagare.Inventory.Components.Foundation
   ( compileContributedNamespaces
   )
 import Nagare.Inventory.DatabaseEngine qualified as InventoryDatabaseEngine
+import Nagare.Inventory.Foundation (FoundationTargetUse (..))
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesSources
   ( validateSuppliedKubernetesMembers
@@ -356,6 +357,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
   pulumi <- imagePruneRuntime (Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure) active workspace scopes pulumiPower
   foundation <-
     inventoryFoundationAdapter
+      ExecuteReviewed
       active
       workspace
       (ResourceInventory.inventoryBinding inventory)

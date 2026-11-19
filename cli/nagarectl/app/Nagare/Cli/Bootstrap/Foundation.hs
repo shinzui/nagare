@@ -117,6 +117,7 @@ foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.
             stackName
     expectedBuckets <- foundationBucketNames active
     case InventoryFoundation.foundationTargetsFromDeclarations
+      InventoryFoundation.ExecuteReviewed
       project
       location
       backendBucket

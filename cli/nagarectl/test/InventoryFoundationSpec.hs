@@ -15,7 +15,7 @@ import Nagare.Inventory.Adapters.FoundationRuntime (GcloudRunner (..), mkFoundat
 import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapPreservedScopeVectorDigest, bootstrapScopeVectorDigest, compileBootstrapStamp, verifyBootstrapStampPayload)
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Foundation (FoundationDeclarationBundle (..), FoundationResource (..), compileFoundationScope, foundationTargetsFromDeclarations, validateFoundationMember)
+import Nagare.Inventory.Foundation (FoundationDeclarationBundle (..), FoundationResource (..), FoundationTargetUse (..), compileFoundationScope, foundationTargetsFromDeclarations, validateFoundationMember)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -108,6 +108,7 @@ inventoryFoundationTests =
         targets <-
           expectRight
             ( foundationTargetsFromDeclarations
+                ExecuteReviewed
                 project
                 location
                 (Just backend)
@@ -145,6 +146,7 @@ inventoryFoundationTests =
               (const True)
               (const False)
               ( foundationTargetsFromDeclarations
+                  ExecuteReviewed
                   project
                   location
                   (Just backend)
@@ -159,6 +161,7 @@ inventoryFoundationTests =
               (const True)
               (const False)
               ( foundationTargetsFromDeclarations
+                  ExecuteReviewed
                   project
                   location
                   (Just backend)
@@ -178,6 +181,15 @@ inventoryFoundationTests =
                   declarations
               )
           )
+        -- EP-246: status reads the stack against the context's current seed, which a move's profile
+        -- write changes without a review; a changed backend member still refuses.
+        let reseeded = FoundationStack project stack "file:///tmp/state" "/tmp/program" "/tmp/home" Nothing [("nagare:ingress", "cloudflare-tunnel")]
+            stackId = mintResourceId owner (foundationLogicalKey stackResource) (foundationRole stackResource)
+        observed <- expectRight (foundationTargetsFromDeclarations ObserveCurrent project location (Just backend) (Just member) (Just (stackAddress, reseeded)) declarations)
+        Map.lookup stackId observed @?= Just reseeded
+        assertBool
+          "a changed backend member was observed"
+          (either (const True) (const False) (foundationTargetsFromDeclarations ObserveCurrent project location (Just backend) (Just "serviceAccount:other@acme-prod.iam.gserviceaccount.com") (Just (stackAddress, reseeded)) declarations))
     , testCase "Pulumi workspace relocation does not change stack desired state" $ do
         let project = known "acme-prod"
             stack = known "fresh"

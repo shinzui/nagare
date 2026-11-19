@@ -125,6 +125,7 @@ import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Collection.Adapter (controllerCollectionIdentity)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Execute qualified as InventoryExecute
+import Nagare.Inventory.Foundation (FoundationTargetUse (..))
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesReview
@@ -602,6 +603,7 @@ inventoryExecutionRegistryWith binding session mctx inventory bundle = do
             withWorkspace
               ( \root ->
                   inventoryFoundationAdapter
+                    ExecuteReviewed
                     active
                     root
                     binding

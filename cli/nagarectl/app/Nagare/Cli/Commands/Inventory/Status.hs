@@ -73,6 +73,7 @@ import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.BackupRetention (retentionPolicyText, standardRetention)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Foundation (FoundationTargetUse (..))
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.ObservationNative qualified as InventoryObservation
@@ -309,6 +310,7 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
             withWorkspace
               ( \root ->
                   inventoryFoundationAdapter
+                    ObserveCurrent
                     active
                     root
                     binding
