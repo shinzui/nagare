@@ -49,12 +49,11 @@ import Nagare.Context.MoveRoutes (servesOtherBase)
 import Nagare.Context.MoveSites (renderUnrouted, siteProgress)
 import Nagare.Context.MoveStore
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (OperationAction (VerifyResource), plannedAction, withPreparationGuard)
+import Nagare.Inventory.Adapter (OperationAction (RetireResource, VerifyResource), plannedAction, withPreparationGuard)
 import Nagare.Inventory.Adapters.CloudflareRuntime (mirrorRecordTtl)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Components.CloudflareTunnel (cloudflareTunnelTokenSecretFile)
 import Nagare.Inventory.Components.ObservabilitySecrets (contextSecretsDirectory)
-import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan qualified as Plan
 import Nagare.Inventory.Store (InventoryStore, headAccepted, readHead)
 import Nagare.Inventory.Store.Manifest (MoveMarker (..), moveReviewIdentity, parseMoveReviewIdentity)
@@ -247,8 +246,7 @@ retireBase mctx active = do
       RevokeGrants [] -> dieT "nothing to revoke"
       -- As `inventory retire`: each revoked grant scope is retired by its retirement decision.
       RetireGrants (owner : rest) -> review $ do
-        candidate <- compose (fmap (`Resource.RetireScope` RetainResources) (owner :| rest))
-        withAccess $ \registry -> Inventory.planInventoryCandidateWithDeciderPayload registry (decideRetirement candidate) identity active candidate directory
+        withAccess $ \registry -> Inventory.planInventoryRetirementsWith registry (const (Right ())) active (owner :| rest) directory
         pure True
       RetireGrants [] -> dieT "nothing to retire"
       RouteDeletionPolicy (scope : rest) -> review (plan withWorkspace (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
@@ -431,7 +429,8 @@ stageReviewOps mctx active store accepted label directory planIt =
             let document = Plan.reviewBundleDocument bundle
             pure
               ReviewPlan
-                { actions = map (plannedAction . Plan.reviewPlannedOperation) (Plan.reviewOperations document)
+                { -- A review that retains members changes the ledger though it verifies only: never settled.
+                  actions = map (plannedAction . Plan.reviewPlannedOperation) (Plan.reviewOperations document) <> [RetireResource | not (Map.null (Plan.reviewRetentions document))]
                 , desired = Plan.reviewDesiredRevisions document
                 , accepted = maybe Map.empty headAccepted headValue
                 , location = T.pack directory
