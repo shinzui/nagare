@@ -85,13 +85,13 @@ dockerfileTests :: [TestTree]
 dockerfileTests =
   [ testCase "staticDockerfile uses the nginx base and 8080 layout" $ do
       let df = staticDockerfile
-      assertInfix "FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10" df
+      assertInfix "FROM docker.io/library/nginx:1.30.7-alpine@sha256:bef154735288bc38d99fac41ae63730684bcc661503673a04a0f9bc526ba8598" df
       assertInfix "COPY nginx.conf /etc/nginx/conf.d/default.conf" df
       assertInfix "COPY site/ /usr/share/nginx/html/" df
       assertInfix "EXPOSE 8080" df
   , testCase "each supported platform has a pinned base manifest and config; another platform is refused" $ do
-      fmap (^. #manifestDigest) (basePinFor "linux/amd64") @?= Right "sha256:62223d644fa234c3a1cc785ee14242ec47a77364226f1c811d2f669f96dc2ac8"
-      fmap (^. #configDigest) (basePinFor "linux/arm64") @?= Right "sha256:96868d9fa38f469a86d2f25787e43ee9ad330339d30be260aa9f5a338bb03751"
+      fmap (^. #manifestDigest) (basePinFor "linux/amd64") @?= Right "sha256:4d1d4ce08432dc7dfe4af762cb224ce6b5273ae878f41e020ea2425d02ea91a4"
+      fmap (^. #configDigest) (basePinFor "linux/arm64") @?= Right "sha256:53233303370f5591a42077df437121f855a044e8309bbf80fa1cdf45872c3c6c"
       assertBool "an unknown platform" (either (const True) (const False) (basePinFor "linux/s390x"))
   ]
 

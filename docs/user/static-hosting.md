@@ -607,7 +607,7 @@ layer holding the generated `nginx.conf` and the site files to the pinned Nginx 
 `--builder docker|layered`; the command prints which it used. The same inputs give a byte-identical
 archive.
 
-The base is `nginx:1.27-alpine` pinned by digest for `linux/amd64` and `linux/arm64`, for both
+The base is `nginx:1.30.7-alpine` pinned by digest for `linux/amd64` and `linux/arm64`, for both
 builders. The layered builder reads it from `--base-archive FILE` (a Docker archive of exactly the
 pinned image, refused otherwise) or fetches it once by digest with `skopeo` into
 `${XDG_CACHE_HOME:-~/.cache}/nagare/static-base/` and verifies it on every use. A build with no

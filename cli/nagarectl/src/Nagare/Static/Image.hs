@@ -73,12 +73,12 @@ data BasePin = BasePin
   deriving stock (Eq, Show, Generic)
 
 baseIndexReference :: Text
-baseIndexReference = "docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+baseIndexReference = "docker.io/library/nginx:1.30.7-alpine@sha256:bef154735288bc38d99fac41ae63730684bcc661503673a04a0f9bc526ba8598"
 
 basePinFor :: Text -> Either Text BasePin
 basePinFor = \case
-  "linux/amd64" -> Right (BasePin "linux/amd64" "sha256:62223d644fa234c3a1cc785ee14242ec47a77364226f1c811d2f669f96dc2ac8" "sha256:6769dc3a703c719c1d2756bda113659be28ae16cf0da58dd5fd823d6b9a050ea")
-  "linux/arm64" -> Right (BasePin "linux/arm64" "sha256:63ffc0d1f14e4082b832c6a42e606e9a0384a526f16ddd720af7c1f018f2f7c4" "sha256:96868d9fa38f469a86d2f25787e43ee9ad330339d30be260aa9f5a338bb03751")
+  "linux/amd64" -> Right (BasePin "linux/amd64" "sha256:4d1d4ce08432dc7dfe4af762cb224ce6b5273ae878f41e020ea2425d02ea91a4" "sha256:d5f49e5ab196322ceaca86fd802279f6ace122b19c43fa67d80b029f23936f53")
+  "linux/arm64" -> Right (BasePin "linux/arm64" "sha256:efd51f02e6ed0fc6d9d5bb6c700ba28b560e1c61dae9ad125bd5bad55cd2bd11" "sha256:53233303370f5591a42077df437121f855a044e8309bbf80fa1cdf45872c3c6c")
   other -> Left ("no pinned static base for platform " <> other)
 
 -- | The generated Dockerfile for every static-site release. The Nginx config
