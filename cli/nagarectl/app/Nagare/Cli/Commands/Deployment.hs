@@ -342,7 +342,7 @@ runDeployPlan mctx options output = do
           )
           compiledScope
       )
-  carriedScope <- withMovedRoutes active snapshot scope
+  (carriedScope, carriedNative) <- withMovedRoutes active snapshot (scope, native)
   candidate <-
     either
       (dieT . T.pack . show)
@@ -359,19 +359,19 @@ runDeployPlan mctx options output = do
     else case (adoption, options ^. #savePlan) of
       (Nothing, Nothing) ->
         Inventory.convergeInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           (inventoryExecutionRegistry mctx)
           active
           candidate
       (Nothing, Just _) ->
         Inventory.planInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           output
       (Just proposal, Just _) ->
         Inventory.planInventoryCandidateAdoptionWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           proposal

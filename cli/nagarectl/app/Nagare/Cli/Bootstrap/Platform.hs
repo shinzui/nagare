@@ -459,7 +459,9 @@ buildPlatformCandidate current active paths workspace snapshot = do
     (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
   -- EP-246 D5: during a move to a new base, the admin API keeps its old route while grants name it.
-  carriedAdminApiScopes <- traverse (withMovedRoutes active snapshot) adminApiScopes
+  carriedAdminApi <- traverse (\scope -> withMovedRoutes active snapshot (scope, Map.empty)) adminApiScopes
+  let carriedAdminApiScopes = map fst carriedAdminApi
+      nativeWithRoutes = Map.union native (Map.unions (map snd carriedAdminApi))
   extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> carriedAdminApiScopes <> lifecycleScopes <> tunnelScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
@@ -520,7 +522,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
           snapshot
           (NE.fromList (changedScopes <> [ResourceInventory.ReplaceScope stampScope]))
       )
-  let linkedNative = Map.map (\(resource, bytes) -> (orderCluster resource, bytes)) native
+  let linkedNative = Map.map (\(resource, bytes) -> (orderCluster resource, bytes)) nativeWithRoutes
       composedMembers =
         Map.fromList
           [ (resource ^. #identity, resource)
@@ -535,7 +537,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
           )
           (Map.union linkedNative stampNative)
   unless
-    (Map.size completeNative == Map.size native + Map.size stampNative)
+    (Map.size completeNative == Map.size nativeWithRoutes + Map.size stampNative)
     (dieT "bootstrap completion marker shares a native identity")
   pure (stamped, completeNative)
 

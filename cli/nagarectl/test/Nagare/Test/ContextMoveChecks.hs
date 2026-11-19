@@ -18,7 +18,7 @@ import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
-import Nagare.Context.MoveRoutes (carryOldRoutes)
+import Nagare.Context.MoveRoutes (carryOldRoutes, routesToCarry, withoutOriginTls)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
@@ -173,23 +173,34 @@ contextMoveChecksTests =
               ]
         map blocksMove changes @?= [False, True, True]
         hostChanges "example.com" (appScope [service "apps" "site"]) @?= [DefaultRenamed "site.apps.example.com" "site-apps.example.com"]
-    , testCase "a redeploy during a base move keeps every route it dropped until retirement, granted or not (EP-246 D5)" $ do
+    , testCase "a redeploy during a base move keeps every route it dropped until retirement, granted or not, without origin TLS (EP-246 D5)" $ do
         let accepted = routeScope [("docs.old.example", True), ("auth.old.example", False)]
             redeployed = routeScope [("docs.new.example", True), ("auth.new.example", False)]
             hostsOf scope = sort [nameText h | b <- scopeBundles scope, RegisterBackend {host = h} <- b ^. #contributions]
             mappingsOf scope = sort [nameText n | m <- members scope, Kubernetes _ _ k _ n <- [m ^. #address], nameText k == "domainmapping"]
-        carried <- either (assertFailure . T.unpack) pure (carryOldRoutes (Just accepted) redeployed)
+            mappingBytes host' = TE.encodeUtf8 ("{\"apiVersion\":\"serving.knative.dev/v1beta1\",\"kind\":\"DomainMapping\",\"metadata\":{\"name\":\"" <> host' <> "\",\"namespace\":\"apps\"},\"spec\":{}}")
+            bytesOf scope = Map.fromList [(m ^. #identity, mappingBytes (nameText n)) | m <- members scope, Kubernetes _ _ _ _ n <- [m ^. #address]]
+            oldRoutes scope = [m | m <- members scope, m ^. #address `elem` [kube "domainmapping" (Just "apps") h | h <- ["docs.old.example", "auth.old.example"]]]
+        routesToCarry (Just accepted) redeployed @?= Set.fromList (map (^. #identity) (oldRoutes accepted))
+        (carried, native) <- either (assertFailure . T.unpack) pure (carryOldRoutes (bytesOf accepted) (Just accepted) redeployed)
         (hostsOf carried, mappingsOf carried)
           @?= (["docs.new.example", "docs.old.example"], ["auth.new.example", "auth.old.example", "docs.new.example", "docs.old.example"])
-        -- The carried routes are the accepted ones, byte for byte.
-        let oldRoutes scope = [m | m <- members scope, m ^. #address `elem` [kube "domainmapping" (Just "apps") h | h <- ["docs.old.example", "auth.old.example"]]]
-        oldRoutes carried @?= oldRoutes accepted
+        -- A carried route is the accepted one with Knative's TLS opt-out: same identity and address, so its grants stay bound.
+        optOut <- either (assertFailure . T.unpack) pure (withoutOriginTls (mappingBytes "docs.old.example"))
+        assertBool "the opt-out annotation" ("\"networking.knative.dev/disable-external-domain-tls\":\"true\"" `T.isInfixOf` TE.decodeUtf8 optOut)
+        withoutOriginTls optOut @?= Right optOut
+        map (#spec .~ NativeObject (contentDigest "")) (oldRoutes carried) @?= map (#spec .~ NativeObject (contentDigest "")) (oldRoutes accepted)
+        [(m ^. #spec, snd <$> Map.lookup (m ^. #identity) native) | m <- oldRoutes carried, m ^. #address == kube "domainmapping" (Just "apps") "docs.old.example"]
+          @?= [(NativeObject (contentDigest optOut), Just optOut)]
+        Map.keysSet native @?= routesToCarry (Just accepted) redeployed
+        assertBool "a carried route needs its accepted bytes" (isLeft (carryOldRoutes Map.empty (Just accepted) redeployed))
         -- The old portal's mapping is carried, its portal registration is not: a context has one portal.
         let asPortal scope = ok (mkScopeDeclaration (scopeId scope) [b & #contributions %~ map (\c -> c {role = PortalBackend}) | b <- scopeBundles scope])
-        portal <- either (assertFailure . T.unpack) pure (carryOldRoutes (Just (asPortal (routeScope [("auth.old.example", True)]))) (asPortal (routeScope [("auth.new.example", True)])))
+            portalAccepted = asPortal (routeScope [("auth.old.example", True)])
+        (portal, _) <- either (assertFailure . T.unpack) pure (carryOldRoutes (bytesOf portalAccepted) (Just portalAccepted) (asPortal (routeScope [("auth.new.example", True)])))
         (hostsOf portal, mappingsOf portal) @?= (["auth.new.example"], ["auth.new.example", "auth.old.example"])
-        carryOldRoutes Nothing redeployed @?= Right redeployed
-        carryOldRoutes (Just redeployed) redeployed @?= Right redeployed
+        carryOldRoutes Map.empty Nothing redeployed @?= Right (redeployed, Map.empty)
+        carryOldRoutes Map.empty (Just redeployed) redeployed @?= Right (redeployed, Map.empty)
     ]
 
 now :: UTCTime

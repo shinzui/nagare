@@ -160,7 +160,7 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
           dependencies
           source
       )
-  carriedScope <- withMovedRoutes active snapshot scope
+  (carriedScope, carriedNative) <- withMovedRoutes active snapshot (scope, native)
   candidate <-
     either
       (dieT . T.pack . show)
@@ -171,13 +171,13 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
     else case (options ^. #sitePreviewAdoptionInput, output) of
       (Nothing, Nothing) ->
         Inventory.convergeInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           (inventoryExecutionRegistry mctx)
           active
           candidate
       (Nothing, Just directory) ->
         Inventory.planInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           directory
@@ -191,7 +191,7 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
           (dieT "inline preview adoption requires candidate '.' in its proposal")
         validateInlinePreviewAdoption scope proposal
         Inventory.planInventoryCandidateAdoptionWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           proposal
@@ -294,7 +294,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
           runtimeSecrets
           source
       )
-  carriedScope <- withMovedRoutes active snapshot scope
+  (carriedScope, carriedNative) <- withMovedRoutes active snapshot (scope, native)
   candidate <-
     either
       (dieT . T.pack . show)
@@ -305,13 +305,13 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
     else case (options ^. #sitePreviewAdoptionInput, output) of
       (Nothing, Nothing) ->
         Inventory.convergeInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           (inventoryExecutionRegistry mctx)
           active
           candidate
       (Nothing, Just directory) ->
         Inventory.planInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           directory
@@ -325,7 +325,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
           (dieT "inline preview adoption requires candidate '.' in its proposal")
         validateInlinePreviewAdoption scope proposal
         Inventory.planInventoryCandidateAdoptionWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           proposal

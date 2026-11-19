@@ -389,7 +389,7 @@ runReviewedSiteDeployPlan mctx options config siteName ns imageName url tag cdnI
   -- EP-263: the scope records its configuration digest and reviewed inputs.
   let inputs = Map.fromList ([("tag", tag), ("imageResource", Resource.resourceIdText imageId)] <> [("baseDomain", T.pack domain) | Just domain <- [options ^. #baseDomain]])
   scope <- either (dieT . T.pack . show) pure (recordReviewedSiteInputs config inputs compiled)
-  carriedScope <- withMovedRoutes active snapshot scope
+  (carriedScope, carriedNative) <- withMovedRoutes active snapshot (scope, native)
   candidate <-
     either
       (dieT . T.pack . show)
@@ -403,20 +403,20 @@ runReviewedSiteDeployPlan mctx options config siteName ns imageName url tag cdnI
     else case (adoption, output) of
       (Nothing, Nothing) ->
         Inventory.convergeInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           (inventoryExecutionRegistry mctx)
           active
           candidate
       (Nothing, Just directory) ->
         Inventory.planInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           directory
       (Just proposal, Just directory) -> do
         validateInlineReleaseAdoption scope ("nagare-static-releases-" <> siteName) proposal
         Inventory.planInventoryCandidateAdoptionWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
           proposal
@@ -601,14 +601,14 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
             release
             source
         )
-  carriedScope <- withMovedRoutes active snapshot scope
+  (carriedScope, carriedNative) <- withMovedRoutes active snapshot (scope, native)
   candidate <-
     either
       (dieT . T.pack . show)
       pure
       (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
   Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native)
+    (inventoryPlanRegistryWithNative active workspace carriedNative)
     active
     candidate
     output

@@ -4586,6 +4586,7 @@ inventoryKubernetesTests =
             writeIORef state foreignState
             refused <- adapterPrepare adapter verification
             assertBool "foreign or changed unready route prepared verification" (isLeft refused)
+        writeIORef state before >> adapterPrepare adapter (operation UpdateResource) >>= void . expectRight -- EP-246: a carried route's TLS opt-out
     , testCase "retained unready access route can be conditionally collected" $ do
         let value =
               object

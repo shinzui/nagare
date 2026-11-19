@@ -539,10 +539,11 @@ validateBefore operation resource target desiredDigest state =
           Right ()
     -- F63: correcting a StatefulSet that never became Ready (a bad resource
     -- change, an unschedulable pod) is an update of the unready object. So is
-    -- correcting a Deployment, whose rollout replaces stuck pods (RES-4 §2).
+    -- correcting a Deployment, whose rollout replaces stuck pods (RES-4 §2), and a
+    -- DomainMapping waiting on a certificate it cannot get (EP-246: a carried route's TLS opt-out).
     (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
       | owner == resource && not (T.null revision)
-      , statefulSetAddress target || deploymentAddress target ->
+      , statefulSetAddress target || deploymentAddress target || domainMappingAddress target ->
           Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()

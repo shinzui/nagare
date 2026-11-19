@@ -15,6 +15,7 @@ module Nagare.Inventory.Adapters.KubernetesProof
   , knativeServiceAddress
   , statefulSetAddress
   , deploymentAddress
+  , domainMappingAddress
   , orTakeover
   , kubectlRefusal
   , resourceVersionConflict
@@ -205,6 +206,10 @@ statefulSetAddress _ = False
 deploymentAddress :: ProviderAddress -> Bool
 deploymentAddress (Kubernetes _ "apps" kind (Just _) _) = nameText kind == "deployment"
 deploymentAddress _ = False
+
+domainMappingAddress :: ProviderAddress -> Bool
+domainMappingAddress (Kubernetes _ "serving.knative.dev" kind (Just _) _) = nameText kind == "domainmapping"
+domainMappingAddress _ = False
 
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
 completionProof mutation state
