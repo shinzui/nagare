@@ -895,8 +895,8 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         | sameManaged old resource
         , Map.member resourceId (observationStuck observations) ->
             ([], Just ((resourceOperation ReplaceStuckPod resource) {plannedRecovery = VerifyBeforeRetry}))
-      (Just old@(Managed previous), _) -- EP-246: a Kubernetes member that only changed its dependencies is not rewritten.
-        | sameManaged old resource || (resource ^. #executor == KubernetesExecutor && sameManaged old (resource & #dependencies .~ previous ^. #dependencies)) ->
+      (Just old@(Managed previous), _) -- EP-246: a Kubernetes or cloud member that only changed its dependencies is not rewritten.
+        | sameManaged old resource || (resource ^. #executor `elem` [KubernetesExecutor, PulumiExecutor] && sameManaged old (resource & #dependencies .~ previous ^. #dependencies)) ->
             ( []
             , if (bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor])
                 || Set.member (resource ^. #owner) unconvergedSelectedScopeIds

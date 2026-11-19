@@ -72,6 +72,25 @@ cloudCollectionTests =
         proposal <- expectRight (planChanges candidate noLifecycleDecisions history observations)
         assertBool "policy update emitted provider mutation" (all ((== VerifyResource) . plannedAction) (proposalOperations proposal))
         assertBool "policy change was not verified" (not (null (proposalOperations proposal)))
+    , testCase "a cloud member that only lost an ordering edge plans no update (EP-246)" $ do
+        -- A context move's commit drops the remaining members' edges to the web rules it retires.
+        store <- newMemoryStore
+        let binding = ContextBinding (ok (mkContextId "dev")) (name "project")
+            original = ok (compileCloudScope fixture)
+            ids = map (^. #identity) (members original)
+            ordered = case ids of
+              _ : target : _ -> ok (mkScopeDeclaration (scopeId original) [b & #declarations %~ map (\case Managed m | m ^. #identity /= target -> Managed (m & #dependencies %~ (<> [OrderedAfter target])); other -> other) | b <- scopeBundles original])
+              _ -> original
+            base = ok (mkScopeSnapshot binding (Map.singleton (scopeId ordered) (ok (mkScopeGeneration 1), ordered)) Map.empty)
+            dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "unused")) [])
+        _ <- initializeStore store binding "cloud-edges" >>= expectRight
+        _ <- seedInventoryHistory store (ok (composeInventory base (ReplaceScope dummy :| []))) >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let snapshot = ok (mkScopeSnapshot binding (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history)) Map.empty)
+            candidate = ok (composeInventory snapshot (ReplaceScope original :| []))
+            observations = ok (observationSet [(i, ObservedPresent (ok (mkPhysicalIdentity "native"))) | i <- ids])
+        proposal <- expectRight (planChanges candidate noLifecycleDecisions history observations)
+        assertBool "a dependency-only change was rewritten" (UpdateResource `notElem` map plannedAction (proposalOperations proposal))
     , testCase "VM collection cannot clear independent native deletion protection" $ do
         let registration = last (expectedRegistrations fixture)
             exported flag = BS.pack ("{\"deployment\":{\"resources\":[{\"urn\":\"" <> T.unpack (registrationPulumiUrn registration) <> "\",\"inputs\":{\"deletionProtection\":" <> flag <> "}}]}}")
