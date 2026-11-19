@@ -1,12 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+index 783a4daf..f0943e25 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-@@ -529,7 +529,7 @@
-     -- correcting a Deployment, whose rollout replaces stuck pods (RES-4 §2).
+@@ -543,7 +543,7 @@ validateBefore operation resource target desiredDigest state =
+     -- DomainMapping waiting on a certificate it cannot get (EP-246: a carried route's TLS opt-out).
      (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
        | owner == resource && not (T.null revision)
--      , statefulSetAddress target || deploymentAddress target ->
-+      , statefulSetAddress target ->
+-      , statefulSetAddress target || deploymentAddress target || domainMappingAddress target ->
++      , statefulSetAddress target || domainMappingAddress target ->
            Right ()
      (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
        | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
