@@ -43,6 +43,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Types
 
 -- | The base whose routes a redeploy carries, given the profile's base and retained name and an open
@@ -102,7 +103,8 @@ carryOldRoutesWhere keep other acceptedBytes accepted redeployed = case accepted
     optedOut m = do
       bytes <- maybe (Left ("carried route lacks its accepted native bytes: " <> resourceIdText (m ^. #identity))) Right (Map.lookup (m ^. #identity) acceptedBytes)
       carriedBytes <- withoutOriginTls bytes
-      pure (m & #spec .~ NativeObject (contentDigest carriedBytes), carriedBytes)
+      -- A carried route waits only for its retirement, which collects it: it is deletable.
+      pure (m & #spec .~ NativeObject (contentDigest carriedBytes) & #lifecycle .~ DeleteWhenUnreferenced, carriedBytes)
     isPortal = \case
       RegisterBackend {role = PortalBackend} -> True
       _ -> False

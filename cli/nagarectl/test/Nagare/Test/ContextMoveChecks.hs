@@ -231,7 +231,10 @@ contextMoveChecksTests =
         optOut <- either (assertFailure . T.unpack) pure (withoutOriginTls (mappingBytes "docs.old.example"))
         assertBool "the opt-out annotation" ("\"networking.knative.dev/disable-external-domain-tls\":\"true\"" `T.isInfixOf` TE.decodeUtf8 optOut)
         withoutOriginTls optOut @?= Right optOut
-        map (#spec .~ NativeObject (contentDigest "")) (oldRoutes carried) @?= map (#spec .~ NativeObject (contentDigest "")) (oldRoutes accepted)
+        let unbound m = m & #spec .~ NativeObject (contentDigest "") & #lifecycle .~ DeleteWhenUnreferenced
+        map unbound (oldRoutes carried) @?= map unbound (oldRoutes accepted)
+        -- A carried route waits only for its retirement, which collects it: it is deletable.
+        map (^. #lifecycle) (oldRoutes carried) @?= map (const DeleteWhenUnreferenced) (oldRoutes accepted)
         [(m ^. #spec, snd <$> Map.lookup (m ^. #identity) native) | m <- oldRoutes carried, m ^. #address == kube "domainmapping" (Just "apps") "docs.old.example"]
           @?= [(NativeObject (contentDigest optOut), Just optOut)]
         Map.keysSet native @?= routesToCarry "old.example" (Just accepted) redeployed

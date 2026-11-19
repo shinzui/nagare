@@ -49,11 +49,8 @@ inventoryBaseMoveRoutesTests =
     "base move routes through the interpreters (EP-246)"
     [ testCase "routes carried across the flip and a rollback stay ready, and retiring the new names collects theirs" $ do
         (run, bound) <- throughRollback
-        -- `context move retire` on the new names: the packaged route becomes deletable, then every route
-        -- is retired by its own decision and collected.
-        phase run newHosts >>= \case
-          RouteDeletionPolicy (scope : rest) -> converge run bound (ReplaceScope scope :| map ReplaceScope rest) (\_ _ _ -> Right noLifecycleDecisions)
-          other -> assertFailure ("expected the packaged route's deletion policy: " <> show other)
+        -- `context move retire` on the new names: carried routes are already deletable (the packaged one
+        -- too), so every route is retired by its own decision and collected.
         phase run newHosts >>= \case
           RetireRoutes (scope : rest) routes -> do
             Set.fromList routes @?= Set.fromList (map routeId newHosts)

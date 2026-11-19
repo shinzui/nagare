@@ -52,7 +52,8 @@ retirePhase hosts retained snapshot
   | otherwise = Right NamesRetired
   where
     old = map T.toLower hosts
-    retainedRoutes = [m ^. #identity | m <- retained, oldRoute m]
+    -- A retained route its owner declared Retain stays retained; only a deletable one is collected.
+    retainedRoutes = [m ^. #identity | m <- retained, oldRoute m, m ^. #lifecycle == DeleteWhenUnreferenced]
     scopes = Map.toList (Map.map snd (snapshotScopes snapshot))
     membersOf scope = [m | bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations]
     -- An accepted grant on an old name, with its subject and whether it is present.
