@@ -5,9 +5,10 @@ module Nagare.Test.ContextMoveChecks
   )
 where
 
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.List (sort)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -27,6 +28,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store.Manifest (ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -112,6 +114,30 @@ contextMoveChecksTests =
             filter isTunnelWebRule (members revised) @?= []
             length (members revised) @?= 1
             length retired @?= 3
+            -- The bootstrap stamp orders after every platform member: the retirement drops its edges to the
+            -- retired rules, or its composition leaves them dangling (ep246d's commit-move, 2026-11-19).
+            let stampOwner = ok (mkScopeId Platform "bootstrap-stamp")
+                stampMember =
+                  ManagedResource
+                    { identity = mintResourceId stampOwner (ok (mkLogicalKey "bootstrap")) (ok (mkName "version"))
+                    , owner = stampOwner
+                    , executor = KubernetesExecutor
+                    , address = Kubernetes (ok (mkResourceId "platform:cluster/cluster/local")) "" (ok (mkName "configmap")) (Just (ok (mkName "nagare-system"))) (ok (mkName "nagare-platform-version"))
+                    , aliases = []
+                    , spec = NativeObject (contentDigest "stamp")
+                    , lifecycle = Retain
+                    , dataPolicy = Stateless
+                    , sensitivity = Public
+                    , dependencies = [OrderedAfter (m ^. #identity) | m <- members policyScope]
+                    , delegations = []
+                    , source = SourceLocation "generated:bootstrap" "platform-version"
+                    }
+                stamp = ok (mkScopeDeclaration stampOwner [ResourceBundle [Managed stampMember] [] [] [] [] []])
+                snapshot' = ok (mkScopeSnapshot (ContextBinding (ok (mkContextId "dev")) (ok (mkName "example-project"))) (Map.fromList [(scopeId policyScope, (ok (mkScopeGeneration 1), policyScope)), (stampOwner, (ok (mkScopeGeneration 1), stamp))]) Map.empty)
+            assertBool "the retirement alone left the stamp's edges dangling" (isLeft (composeInventory snapshot' (ReplaceScope revised :| [])))
+            case stampWithout retired snapshot' of
+              Just change -> assertBool "the retirement with the revised stamp does not compose" (isRight (composeInventory snapshot' (ReplaceScope revised :| [change])))
+              Nothing -> assertFailure "no stamp revision"
           other -> assertFailure ("expected the retirement: " <> show other)
         case [m | m <- members accepted, isTunnelWebRule m] of
           retained : _ -> commitAction webRuleSet (Just cloudScopeWithout) [retained] @?= Right (CommitCollect (retained ^. #identity))

@@ -15,6 +15,7 @@ import Data.Foldable (forM_)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
@@ -464,7 +465,8 @@ planRetirement active store retiring identity directory finish = do
       Inventory.planInventoryCandidateWithPayloadIdentity (registry verifyOnly) identity active candidate directory
       pure True
     CommitRetire scope members -> do
-      candidate <- compose scope
+      -- The stamp orders after every platform member; it drops its edges to the retiring ones.
+      candidate <- either (dieT . T.pack . show) pure (Resource.composeInventory snapshot (Resource.ReplaceScope scope :| maybeToList (stampWithout members snapshot)))
       Inventory.planInventoryCandidateWithRetirementsPayload (registry verifyOnly) identity active candidate members directory
       pure True
     CommitCollect member -> do

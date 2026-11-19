@@ -9,6 +9,7 @@ module Nagare.Context.MoveCommit
   , webRuleSet
   , cloudDnsSet
   , commitAction
+  , stampWithout
   , retiredMember
   , isTunnelWebRule
   )
@@ -16,12 +17,14 @@ where
 
 import Data.Generics.Labels ()
 import Data.List (sortOn)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Cloud (tunnelWebRuleKeys)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (LifecyclePolicy (DeleteWhenUnreferenced))
+import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 
 data CommitAction
@@ -109,3 +112,20 @@ memberKey retiring member =
     , key <- retiring ^. #keys
     , ("::" <> key) `T.isSuffixOf` urn
     ]
+
+-- | The bootstrap stamp without its ordering edges to the retiring members. The stamp orders after every
+-- platform member, so a scope revision that retires some of them must drop those edges with it, or its
+-- composition leaves them dangling. Only the edges change, so the stamp's object is not rewritten.
+stampWithout :: [ResourceId] -> ScopeSnapshot -> Maybe ScopeChange
+stampWithout retiring snapshot = do
+  owner <- either (const Nothing) Just (mkScopeId Platform "bootstrap-stamp")
+  (_, stamp) <- Map.lookup owner (snapshotScopes snapshot)
+  let edgeKept = \case
+        OrderedAfter target -> target `notElem` retiring
+        _ -> True
+      revise = \case
+        Managed m -> Managed (m & #dependencies %~ filter edgeKept)
+        other -> other
+      bundles = [bundle & #declarations %~ map revise | bundle <- scopeBundles stamp]
+  revised <- either (const Nothing) Just (withScopeOverrides (scopeOverrides stamp) . maybe id withScopeConfigDigest (scopeConfigDigest stamp) <$> mkScopeDeclaration owner bundles)
+  if revised == stamp then Nothing else Just (ReplaceScope revised)
