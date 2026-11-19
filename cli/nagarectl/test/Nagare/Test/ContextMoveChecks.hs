@@ -101,7 +101,13 @@ contextMoveChecksTests =
         waiting (nameServersReturned cloudDns normalised [cloudDns, cloudflare])
         nameServersReturned cloudDns normalised [cloudDns, normalised] @?= StepCompleted
     , testCase "the commit lets the web rules be deleted, retires them, collects each, then writes the profile (D6)" $ do
-        let accepted = cloudScopeWith Retain
+        -- The bucket orders after a web rule, as the Pulumi catalog orders cloud members (ep246d, 2026-11-19).
+        let plain = cloudScopeWith Retain
+            ruleIds = [m ^. #identity | m <- members plain, isTunnelWebRule m]
+            orderAfterRules = \case
+              Managed m | not (isTunnelWebRule m) -> Managed (m & #dependencies %~ (<> map OrderedAfter (take 1 ruleIds)))
+              other -> other
+            accepted = ok (mkScopeDeclaration (scopeId plain) [b & #declarations %~ map orderAfterRules | b <- scopeBundles plain])
         policy <- expectRight (commitAction webRuleSet (Just accepted) [])
         policyScope <- case policy of
           CommitPolicy revised -> pure revised
@@ -114,6 +120,7 @@ contextMoveChecksTests =
             filter isTunnelWebRule (members revised) @?= []
             length (members revised) @?= 1
             length retired @?= 3
+            [d | m <- members revised, OrderedAfter d <- m ^. #dependencies, d `elem` retired] @?= []
             -- The bootstrap stamp orders after every platform member: the retirement drops its edges to the
             -- retired rules, or its composition leaves them dangling (ep246d's commit-move, 2026-11-19).
             let stampOwner = ok (mkScopeId Platform "bootstrap-stamp")

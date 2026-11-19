@@ -64,7 +64,8 @@ commitAction retiring accepted retained = case accepted of
   Nothing -> Left "the context has no accepted platform cloud scope"
   Just scope
     | any ((/= DeleteWhenUnreferenced) . (^. #lifecycle)) (filter collectable members) -> CommitPolicy <$> revise scope policy
-    | not (null members) -> (`CommitRetire` map (^. #identity) members) <$> revise scope (const Nothing)
+    -- The remaining members order after the retired ones only by Pulumi's catalog; those edges go too.
+    | not (null members) -> (`CommitRetire` map (^. #identity) members) . withoutEdgesTo (map (^. #identity) members) <$> revise scope (const Nothing)
     | resource : _ <- sortOn order (filter collectable retained) -> Right (CommitCollect (resource ^. #identity))
     | otherwise -> Right CommitProfile
     where
@@ -120,12 +121,19 @@ stampWithout :: [ResourceId] -> ScopeSnapshot -> Maybe ScopeChange
 stampWithout retiring snapshot = do
   owner <- either (const Nothing) Just (mkScopeId Platform "bootstrap-stamp")
   (_, stamp) <- Map.lookup owner (snapshotScopes snapshot)
-  let edgeKept = \case
-        OrderedAfter target -> target `notElem` retiring
-        _ -> True
-      revise = \case
-        Managed m -> Managed (m & #dependencies %~ filter edgeKept)
-        other -> other
-      bundles = [bundle & #declarations %~ map revise | bundle <- scopeBundles stamp]
-  revised <- either (const Nothing) Just (withScopeOverrides (scopeOverrides stamp) . maybe id withScopeConfigDigest (scopeConfigDigest stamp) <$> mkScopeDeclaration owner bundles)
+  let revised = withoutEdgesTo retiring stamp
   if revised == stamp then Nothing else Just (ReplaceScope revised)
+
+-- | A scope whose members no longer order after the given ones. Only an ordering edge is dropped: a
+-- member that consumes a retiring one still makes the composition refuse.
+withoutEdgesTo :: [ResourceId] -> ScopeDeclaration -> ScopeDeclaration
+withoutEdgesTo retiring scope =
+  either (const scope) id (withScopeOverrides (scopeOverrides scope) . maybe id withScopeConfigDigest (scopeConfigDigest scope) <$> mkScopeDeclaration (scopeId scope) bundles)
+  where
+    edgeKept = \case
+      OrderedAfter target -> target `notElem` retiring
+      _ -> True
+    revise = \case
+      Managed m -> Managed (m & #dependencies %~ filter edgeKept)
+      other -> other
+    bundles = [bundle & #declarations %~ map revise | bundle <- scopeBundles scope]
