@@ -198,6 +198,16 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
   it is a finding for the deferral ledger.
   Date: 2026-11-19
 
+- Decision: A redeploy carries only routes on the other base: during a move the base the profile is not on, after a commit the
+  retained old base, after a rollback the kept zone's base; a carried route is deletable, and a later move keeps routes already on
+  its target base. Default hosts take their shape from the posture, not from whether a zone is accepted. The admin API keeps an old
+  route only while a grant names it, so retire's last route phase is a platform review that drops and retains it. A commit's
+  retirement drops ordering edges to the retired cloud members, and a stamp that only lost edges is verified, not reissued.
+  Rationale: the rehearsal's second move and commit (D8, 2026-11-19): carrying every dropped route kept a wrong route and blocked
+  the second move; the zone rule gave the old base flat names after the rollback; the admin API's members exist only in the
+  platform pipeline; the commit had never run, and its retirement left the stamp's and the catalog's edges dangling.
+  Date: 2026-11-19
+
 ## Outcomes & Retrospective
 
 (To be filled at completion.)
