@@ -37,6 +37,7 @@ import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryAuthIssuerSpec (inventoryAuthIssuerTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryAuthTenantsSpec (inventoryAuthTenantsTests)
+import InventoryBaseMoveRoutesSpec (inventoryBaseMoveRoutesTests)
 import InventoryCacheSpec (inventoryCacheTests)
 import InventoryCdnSpec (inventoryCdnTests)
 import InventoryCloseSpec (inventoryCloseTests)
@@ -261,6 +262,7 @@ main = do
             , inventoryStuckPodTests
             , inventoryActionPublicationTests
             , inventoryKubernetesReadinessTests
+            , inventoryBaseMoveRoutesTests
             , inventoryEnTenantsTests
             , inventoryAuthTenantsTests
             , inventoryAuthIssuerTests

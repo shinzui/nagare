@@ -22,7 +22,7 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Access.Reviewed (accessPlanRegistry)
 import Nagare.Cli.Bootstrap.Review (applyStageReview, planStageReview)
 import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
-import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
+import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inventoryPlanRegistry)
 import Nagare.Cli.Move.BaseSteps (BaseStepOps (..), performBase)
 import Nagare.Cli.Move.Manifest (collectManifest, listBaseMove, manifestFile)
 import Nagare.Cli.Move.Observe
@@ -44,6 +44,7 @@ import Nagare.Context.MoveHosts
 import Nagare.Context.MoveRetire (RetirePhase (..), retirePhase, zoneRetirement)
 import Nagare.Context.MoveReview (ReviewOps (..), ReviewPlan (..))
 import Nagare.Context.MoveReview qualified as MoveReview
+import Nagare.Context.MoveRoutes (servesOtherBase)
 import Nagare.Context.MoveSites (renderUnrouted, siteProgress)
 import Nagare.Context.MoveStore
 import Nagare.Dsl.Prelude
@@ -195,26 +196,32 @@ retireDns mctx active = do
     StepWaiting reason -> TIO.putStrLn ("Waiting: " <> reason)
     StepRefused reason -> dieT reason
 
--- | EP-246 D7: one phase per run, each reviewed: revoke the old names' grants, retire them, drop the
--- old routes, then, once the parent no longer delegates the old base, retire its Cloud DNS set, clear
+-- | EP-246 D7: one phase per run, each reviewed, on the names of the base the context no longer serves:
+-- after a commit the old names, after a rollback the new ones (the zone kept for a later move still
+-- serves them). Revoke their grants, retire them, make their routes deletable, retire and collect them. After a commit,
+-- once the parent no longer delegates the old base, retire its Cloud DNS set, clear
 -- @NAGARE_RETAINED_DNS_NAME@ and delete the passkey export.
 retireBase :: Maybe String -> ActiveTarget -> IO ()
 retireBase mctx active = do
   let profile = active ^. #profile
       old = profile ^. #retainedDnsName
-  unless (profile ^. #ingress == IngressCloudflareTunnel && not (T.null old) && old /= profile ^. #baseDomain) $
-    dieT "this context has no old base domain to retire; a same-domain move retires its zone with `context move retire-dns`"
+      committed = profile ^. #ingress == IngressCloudflareTunnel && not (T.null old) && old /= profile ^. #baseDomain
   store <- withStore active
   openMoveOf store >>= either dieT pure >>= mapM_ (const (dieT "a context move is open; finish or roll it back first"))
+  rolledBack <- servesOtherBase (profile ^. #baseDomain) . map snd . Map.elems . Resource.snapshotScopes <$> Inventory.loadTargetSnapshot active
+  unless (committed || rolledBack) $
+    dieT "this context has no other base to retire; a same-domain move retires its zone with `context move retire-dns`"
   moves <- takeDirectory <$> reviewDirectory active baseMoveKind MovingForward CheckPreconditions
   manifest <- readSavedManifest moves
   let identity = "operator-cli"
-      directory = moves </> "retire-old-base"
-      oldHosts = map (^. #oldName) (manifest ^. #hosts)
-      review planIt = MoveReview.reviewStep (stageReviewOps mctx active store (== identity) "the old base's retirement" directory planIt)
-      plan registryFor changes = do
+      directory = moves </> (if committed then "retire-old-base" else "retire-new-base")
+      hosts = map (if committed then (^. #oldName) else (^. #newName)) (manifest ^. #hosts)
+      review planIt = MoveReview.reviewStep (stageReviewOps mctx active store (== identity) "the other base's retirement" directory planIt)
+      compose changes = do
         snapshot <- Inventory.loadTargetSnapshot active
-        candidate <- either (dieT . T.pack . show) pure (Resource.composeInventory snapshot changes)
+        either (dieT . T.pack . show) pure (Resource.composeInventory snapshot changes)
+      plan registryFor changes = do
+        candidate <- compose changes
         registryFor $ \registry -> Inventory.planInventoryCandidateWithPayloadIdentity registry identity active candidate directory
         pure True
       withAccess body = withPreparedContextEnSession active (\en -> body (accessPlanRegistry active en))
@@ -230,7 +237,8 @@ retireBase mctx active = do
         TIO.putStrLn ("Cleared NAGARE_RETAINED_DNS_NAME and deleted " <> T.pack export <> ". The old base is retired.")
       phase = do
         snapshot <- Inventory.loadTargetSnapshot active
-        either dieT pure (retirePhase oldHosts snapshot)
+        history <- Plan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+        either dieT pure (retirePhase hosts [member | (_, (_, member)) <- Map.toAscList (Plan.historyRetained history)] snapshot)
   outcome <-
     phase >>= \case
       RevokeGrants (scope : rest) -> review (plan withAccess (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
@@ -238,11 +246,25 @@ retireBase mctx active = do
       RetireGrants (owner : rest) ->
         review (plan withAccess (fmap (`Resource.RetireScope` RetainResources) (owner :| rest)))
       RetireGrants [] -> dieT "nothing to retire"
-      RetireRoutes (scope : rest) -> review (plan withWorkspace (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
-      RetireRoutes [] -> dieT "no routes to retire"
-      RetireDns -> do
-        observeParentDelegates old >>= either dieT pure >>= either dieT pure . zoneRetirement old
-        review (planRetirement active store cloudDnsSet identity directory finish)
+      RouteDeletionPolicy (scope : rest) -> review (plan withWorkspace (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest))
+      RouteDeletionPolicy [] -> dieT "no routes to make deletable"
+      RetireRoutes (scope : rest) routes -> review $ do
+        candidate <- compose (Resource.ReplaceScope scope :| map Resource.ReplaceScope rest)
+        withWorkspace $ \registry -> Inventory.planInventoryCandidateWithRetirementsPayload registry identity active candidate routes directory
+        pure True
+      RetireRoutes [] _ -> dieT "no routes to retire"
+      -- As `inventory collect --controller-descendants`: a DomainMapping goes with its gateway KIngress.
+      CollectRoute route -> review $ do
+        (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+        Inventory.planInventoryCollectionsWithPayload (inventoryControllerCollectionRegistry active workspace) identity active (route :| []) directory
+        pure True
+      NamesRetired
+        | committed -> do
+            observeParentDelegates old >>= either dieT pure >>= either dieT pure . zoneRetirement old
+            review (planRetirement active store cloudDnsSet identity directory finish)
+        | otherwise -> do
+            TIO.putStrLn "The new base's names are retired. Its zone and connector stay, unused, for a later move."
+            pure StepCompleted
   case outcome of
     StepCompleted -> TIO.putStrLn "This phase is done; run the same command again for the next."
     StepWaiting reason -> TIO.putStrLn ("Waiting: " <> reason)

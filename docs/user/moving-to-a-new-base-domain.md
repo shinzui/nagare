@@ -109,7 +109,9 @@ nagarectl context move rollback --yes
 Until `commit-move` completes: rollback reopens the firewall and `kourier` first, restores the passkey table to the export exactly
 (passkeys registered after the flip are removed), writes the old profile back and stops for your shell to reload, then reviews the
 platform on the old base. Redeploy each site from its old config, the auth portal first, and run the portal sync above again. The old grants were never touched. The new zone and the connector
-stay, unused, so a later move finds them in place.
+stay, unused, so a later move finds them in place, and so do the sites' new routes: while the kept zone serves the new base, a
+redeploy carries them, without origin TLS, as it carried the old ones during the move. To leave the new base for good, run
+`context move retire` (below), which retires the new names' routes instead of the old ones.
 
 ## Retire the old base
 
@@ -119,8 +121,10 @@ When everyone is on the new domain:
 nagarectl context move retire --yes
 ```
 
-Run it again after each phase. It revokes the grants on the old names, retires them, drops the old routes, and then, once the old base's
-parent zone no longer delegates it, retires the old Cloud DNS zone, clears `NAGARE_RETAINED_DNS_NAME` and deletes the passkey export.
+Run it again after each phase. It revokes the grants on the old names, retires them, makes the old routes deletable, retires them and
+collects each with its controller descendants, and then, once the old base's parent zone no longer delegates it, retires the old Cloud
+DNS zone, clears `NAGARE_RETAINED_DNS_NAME` and deletes the passkey export. After a rollback the same command retires the new names'
+grants and routes the same way and stops there; the new zone and its connector stay.
 Remove the parent's NS records for the old base first, whoever owns that zone: a delegation naming a deleted zone is open to takeover.
 This is the only step that cannot be undone.
 

@@ -18,10 +18,11 @@ import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
-import Nagare.Context.MoveRoutes (carryOldRoutes, routesToCarry, withoutOriginTls)
+import Nagare.Context.MoveRoutes (carryOldRoutes, routesToCarry, servesOtherBase, withoutOriginTls)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
+import Nagare.Inventory.Components.CloudflareZone (CloudflareZoneInput (..), compileCloudflareZone)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store.Manifest (ScopeRevision (..))
 import Nagare.Resource.Inventory
@@ -201,6 +202,11 @@ contextMoveChecksTests =
         (hostsOf portal, mappingsOf portal) @?= (["auth.new.example"], ["auth.new.example", "auth.old.example"])
         carryOldRoutes Map.empty Nothing redeployed @?= Right (redeployed, Map.empty)
         carryOldRoutes Map.empty (Just redeployed) redeployed @?= Right (redeployed, Map.empty)
+    , testCase "a rolled-back move's kept zone keeps the redeployed sites carrying its routes (EP-246 D5)" $ do
+        let zoneFor served = either (error . show) id (compileCloudflareZone (CloudflareZoneInput (ok (mkName "zone-id")) served "dev" Nothing))
+        servesOtherBase "old.example" [routeScope [("docs.old.example", True)], zoneFor "new.example"] @?= True
+        servesOtherBase "new.example" [zoneFor "new.example"] @?= False
+        servesOtherBase "old.example" [routeScope [("docs.old.example", True)]] @?= False
     ]
 
 now :: UTCTime

@@ -22,7 +22,9 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
@@ -71,6 +73,16 @@ kubectlResponse request server = case args of
          in if null found
               then (server, ok "")
               else (server, ok (encodeText (object ["apiVersion" .= ("v1" :: Text), "kind" .= ("List" :: Text), "items" .= found])))
+  -- EP-246: the controller-collection runtime's metadata-only namespace inspection, as kubectl
+  -- answers it: the namespaced API resources (those of the kinds the server holds), then each
+  -- resource's complete list in one namespace.
+  ["api-resources", "--namespaced=true", "--verbs=list", "-o", "name"] ->
+    (server, ok (T.unlines (Set.toList (Set.fromList ("configmaps" : [pluralOf key | key <- Map.keys (server ^. #objects), isJust (key ^. #namespace)])))))
+  "get" : token : "--namespace" : listed : rest
+    | "-o" `elem` rest
+    , Just (group', kind') <- resourceToken token ->
+        let items = mapMaybe (\key -> get False key server) [key | key <- Map.keys (server ^. #objects), key ^. #group == group', key ^. #kind == kind', key ^. #namespace == Just listed]
+         in (server, ok (encodeText (object ["apiVersion" .= ("v1" :: Text), "kind" .= ("List" :: Text), "metadata" .= object [], "items" .= items])))
   "get" : token : name : rest -> case resourceToken token of
     Nothing -> unsupported
     Just (group', kind') ->

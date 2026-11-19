@@ -298,29 +298,7 @@ planInventoryCandidateWithRetirementsPayload registryFor identity target candida
   when
     (Set.size (Set.fromList resources) /= length resources)
     (dieText "retirement resource IDs must be distinct")
-  let decide history observations = do
-        proposals <-
-          traverse
-            ( \resource -> case Map.lookup resource (observationMap observations) of
-                Nothing ->
-                  Left
-                    ( PlanError
-                        "retirement-observation"
-                        "selected resource lacks a fresh provider observation"
-                        [resource]
-                        :| []
-                    )
-                Just fact ->
-                  Right
-                    ( LifecycleProposal
-                        resource
-                        ApproveRetirement
-                        (lifecycleObservationDigest (inventoryBinding (candidateInventory candidate)) resource fact)
-                    )
-            )
-            resources
-        validateLifecycleDecisions candidate history observations proposals
-  planInventoryCandidateWithDeciderPayload registryFor decide identity target candidate output
+  planInventoryCandidateWithDeciderPayload registryFor (decideMemberRetirement resources candidate) identity target candidate output
 
 -- | Versioned adoption proposals name a compiled candidate and exact
 -- observed incarnations. The decision is validated after fresh observation.

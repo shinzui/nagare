@@ -507,7 +507,7 @@ loadRebindNative store document = acceptedKubernetesNative "a reviewed rebind" (
 loadAbsenceNative :: InventoryStore -> ReviewDocument -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
 loadAbsenceNative store document = acceptedKubernetesNative "a reviewed absence" (Map.keysSet (reviewAbsences document)) store
 
--- | The accepted native bytes of the given accepted Kubernetes members.
+-- | The accepted native bytes of the given accepted or retained Kubernetes members.
 acceptedKubernetesNative :: Text -> Set.Set ResourceId -> InventoryStore -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
 acceptedKubernetesNative purpose members store
   | Set.null members = pure (Right Map.empty)
@@ -516,10 +516,11 @@ acceptedKubernetesNative purpose members store
       case loaded of
         Left err -> pure (Left (T.pack (show err)))
         Right history -> do
+          -- A retained member is bound too: a collection deletes what an earlier review retained.
           let wanted =
                 Set.fromList
                   [ member ^. #identity
-                  | Managed member <- historyDeclarations history
+                  | member <- [m | Managed m <- historyDeclarations history] <> map snd (Map.elems (historyRetained history))
                   , member ^. #executor == KubernetesExecutor
                   , Set.member (member ^. #identity) members
                   ]

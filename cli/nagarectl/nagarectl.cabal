@@ -113,6 +113,7 @@ library
     Nagare.Context.BaseFlip
     Nagare.Context.BaseMove
     Nagare.Context.Move
+    Nagare.Context.MoveCarry
     Nagare.Context.MoveChecks
     Nagare.Context.MoveCommit
     Nagare.Context.MoveHosts
@@ -714,6 +715,7 @@ test-suite nagarectl-test
     InventoryAuthIssuerSpec
     InventoryAuthSpec
     InventoryAuthTenantsSpec
+    InventoryBaseMoveRoutesSpec
     InventoryCacheSpec
     InventoryCdnCollectionSpec
     InventoryCdnPurgeSpec

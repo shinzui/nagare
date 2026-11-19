@@ -1,7 +1,8 @@
--- | What @context move retire@ does next after a move to a new base domain (EP-246 D7), read from the
--- accepted snapshot, so every run reviews one phase and a rerun picks up where the last stopped: revoke
--- the grants on the old names, retire those grant scopes, drop the old routes they held, retire the old
--- Cloud DNS zone, then clear the profile's retained name and delete the passkey export.
+-- | What @context move retire@ does next to the names of the base a context no longer serves (EP-246 D7):
+-- the old names after a commit, the new ones after a rollback. It is read from the accepted snapshot and
+-- the retained members, so every run reviews one phase and a rerun picks up where the last stopped:
+-- revoke the grants on those names, retire the grant scopes, make their routes deletable (a packaged
+-- route is declared Retain), retire them, each by its own decision, then collect them. After a commit the old Cloud DNS zone goes next.
 module Nagare.Context.MoveRetire
   ( RetirePhase (..)
   , retirePhase
@@ -17,6 +18,7 @@ import Nagare.Access.ShomeiUser (ShomeiUser (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Access (compileAccessScope, compileTeamAccessScope)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Types
 
 data RetirePhase
@@ -24,21 +26,29 @@ data RetirePhase
     RevokeGrants ![ScopeDeclaration]
   | -- | Revoked grant scopes to retire, which frees the routes they bound.
     RetireGrants ![ScopeId]
-  | -- | Scopes with their old routes removed.
-    RetireRoutes ![ScopeDeclaration]
-  | -- | Nothing on the old names is left in the ledger; the Cloud DNS set goes next.
-    RetireDns
+  | -- | Scopes whose routes of the names become deletable, so their retirement can collect them.
+    RouteDeletionPolicy ![ScopeDeclaration]
+  | -- | Scopes with the names' routes removed, and the routes they drop, each retained by its own decision.
+    RetireRoutes ![ScopeDeclaration] ![ResourceId]
+  | -- | A retained route of the names, to collect with its controller descendants: a review collects
+    -- one DomainMapping, so each run collects the next.
+    CollectRoute !ResourceId
+  | -- | Nothing on the names is left in the ledger.
+    NamesRetired
   deriving stock (Eq, Show)
 
--- | @oldHosts@ are the manifest's old names.
-retirePhase :: [Text] -> ScopeSnapshot -> Either Text RetirePhase
-retirePhase oldHosts snapshot
+-- | @hosts@ are the names to retire; @retained@ the members earlier reviews retained.
+retirePhase :: [Text] -> [ManagedResource] -> ScopeSnapshot -> Either Text RetirePhase
+retirePhase hosts retained snapshot
   | not (null present) = RevokeGrants <$> traverse revoke present
   | not (null grantScopes) = Right (RetireGrants (map fst grantScopes))
-  | not (null routed) = RetireRoutes <$> traverse trim routed
-  | otherwise = Right RetireDns
+  | not (null undeletable) = RouteDeletionPolicy <$> traverse (revise deletable . snd) undeletable
+  | not (null routed) = (\trimmed -> RetireRoutes trimmed [m ^. #identity | (_, scope) <- routed, m <- membersOf scope, oldRoute m]) <$> traverse (trim . snd) routed
+  | route : _ <- retainedRoutes = Right (CollectRoute route)
+  | otherwise = Right NamesRetired
   where
-    old = map T.toLower oldHosts
+    old = map T.toLower hosts
+    retainedRoutes = [m ^. #identity | m <- retained, oldRoute m]
     scopes = Map.toList (Map.map snd (snapshotScopes snapshot))
     membersOf scope = [m | bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations]
     -- An accepted grant on an old name, with its subject and whether it is present.
@@ -58,12 +68,15 @@ retirePhase oldHosts snapshot
       RegisterBackend {host = h} -> nameText h `elem` old
       _ -> False
     routed =
-      [ scope
+      [ (owner, scope)
       | (owner, scope) <- scopes
       , scopeKind owner /= Platform || scopeIdText owner == "platform:admin-api"
       , any oldRoute (membersOf scope) || any oldBackend (concatMap (^. #contributions) (scopeBundles scope))
       ]
-    trim scope =
+    undeletable = [routedScope | routedScope@(_, scope) <- routed, any (\m -> oldRoute m && m ^. #lifecycle /= DeleteWhenUnreferenced) (membersOf scope)]
+    deletable bundle = bundle & #declarations %~ map (\case Managed m | oldRoute m -> Managed (m & #lifecycle .~ DeleteWhenUnreferenced); other -> other)
+    trim = revise (\bundle -> bundle & #declarations %~ filter (\case Managed m -> not (oldRoute m); _ -> True) & #contributions %~ filter (not . oldBackend))
+    revise change scope =
       first
         (T.pack . show)
         ( withScopeOverrides (scopeOverrides scope)
@@ -72,12 +85,7 @@ retirePhase oldHosts snapshot
               (scopeId scope)
               [ kept
               | bundle <- scopeBundles scope
-              , let kept =
-                      bundle
-                        & #declarations
-                        %~ filter (\case Managed m -> not (oldRoute m); _ -> True)
-                        & #contributions
-                        %~ filter (not . oldBackend)
+              , let kept = change bundle
               , not (null (kept ^. #declarations) && null (kept ^. #contributions))
               ]
         )

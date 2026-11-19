@@ -122,25 +122,37 @@ inventoryAccessTests =
         -- The old host's own grants are never part of what the move plans.
         let oldGrant = ok (compileAccessScope snapshot "one.example.test" alice True)
         assertBool "the move planned a grant on the old name" (scopeId oldGrant `notElem` map scopeId (progress ^. #grants))
-    , testCase "retiring an old base revokes its grants, retires them, drops their routes, and only then the zone (EP-246 D7)" $ do
+    , testCase "retiring a base's names revokes their grants, retires them, retires and collects their routes, and only then the zone (EP-246 D7)" $ do
         let granted = ok (compileAccessScope snapshot "one.example.test" alice True)
             with scopes = ok (mkScopeSnapshot context (Map.union (Map.fromList [(scopeId g, (generation, g)) | g <- scopes]) (snapshotScopes snapshot)) Map.empty)
-            phaseOf = either (error . T.unpack) id . retirePhase ["one.example.test"]
+            phaseOf = either (error . T.unpack) id . retirePhase ["one.example.test"] []
         case phaseOf (with [granted]) of
           RevokeGrants [revoked] -> do
             scopeId revoked @?= scopeId granted
             [present | bundle <- scopeBundles revoked, Managed r <- bundle ^. #declarations, AccessGrantSpec _ present <- [r ^. #spec]] @?= [False]
             phaseOf (with [revoked]) @?= RetireGrants [scopeId granted]
           other -> assertFailure ("expected one revocation: " <> show other)
-        case phaseOf snapshot of
-          RetireRoutes trimmed -> do
+        -- The fixture's route is declared Retain: it becomes deletable first.
+        deletable <- case phaseOf snapshot of
+          RouteDeletionPolicy revised -> do
+            [m ^. #lifecycle | scope <- revised, bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations, Kubernetes _ _ k _ _ <- [m ^. #address], nameText k == "domainmapping"] @?= [DeleteWhenUnreferenced]
+            pure (ok (mkScopeSnapshot context (Map.union (Map.fromList [(scopeId r, (generation, r)) | r <- revised]) (snapshotScopes snapshot)) Map.empty))
+          other -> assertFailure ("expected the routes' deletion policy: " <> show other) >> pure snapshot
+        case phaseOf deletable of
+          RetireRoutes trimmed routes -> do
             let hostsOf scope = [nameText h | bundle <- scopeBundles scope, RegisterBackend {host = h} <- bundle ^. #contributions]
                 mappingsOf scope = [nameText n | bundle <- scopeBundles scope, Managed r <- bundle ^. #declarations, Kubernetes _ _ k _ n <- [r ^. #address], nameText k == "domainmapping"]
             assertBool "the old route is still registered" (all (notElem "one.example.test" . hostsOf) trimmed)
             assertBool "the old DomainMapping is still declared" (all (notElem "one.example.test" . mappingsOf) trimmed)
             assertBool "no scope was trimmed" (not (null trimmed))
+            -- Each dropped route is retired by its own decision, then collected once retained.
+            let routeMembers = [r | (_, (_, scope)) <- Map.toList (snapshotScopes deletable), bundle <- scopeBundles scope, Managed r <- bundle ^. #declarations, r ^. #identity `elem` routes]
+                retired = ok (mkScopeSnapshot context (Map.union (Map.fromList [(scopeId t, (generation, t)) | t <- trimmed]) (snapshotScopes deletable)) Map.empty)
+            [nameText n | r <- routeMembers, Kubernetes _ _ _ _ n <- [r ^. #address]] @?= ["one.example.test"]
+            [retirePhase ["one.example.test"] routeMembers retired] @?= map (Right . CollectRoute) routes
+            retirePhase ["one.example.test"] [] retired @?= Right NamesRetired
           other -> assertFailure ("expected the routes next: " <> show other)
-        retirePhase ["gone.example.test"] snapshot @?= Right RetireDns
+        retirePhase ["gone.example.test"] [] snapshot @?= Right NamesRetired
         assertBool "the zone retired under a live delegation" (isLeft (zoneRetirement "old.example.test" True))
         zoneRetirement "old.example.test" False @?= Right ()
     , testCase "the en forward port is read from kubectl's first forwarding line" $ do

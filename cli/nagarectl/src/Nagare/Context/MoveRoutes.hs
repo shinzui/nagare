@@ -12,8 +12,14 @@
 -- way the cluster's external-domain TLS is set; without it, a rollback that turns that TLS back on
 -- leaves each new-base route requesting a certificate the old issuer cannot solve, never ready. The
 -- opt-out keeps the route's address, so its identity and every grant on it are unchanged.
+--
+-- A rollback closes the move but keeps the new zone and its connector so a later move finds them in
+-- place; the sites redeployed from their old configs then drop their new-base routes, which only
+-- retirement removes. So carrying lasts while an accepted tunnel config serves a base other than the
+-- profile's ('servesOtherBase'), as it does while the profile keeps its old base after a commit.
 module Nagare.Context.MoveRoutes
   ( carryOldRoutes
+  , servesOtherBase
   , routesToCarry
   , withoutOriginTls
   )
@@ -73,6 +79,12 @@ carryOldRoutes acceptedBytes accepted redeployed = case accepted of
     isPortal = \case
       RegisterBackend {role = PortalBackend} -> True
       _ -> False
+
+-- | Whether an accepted tunnel config serves a base other than the profile's: a move to a new base
+-- was rolled back and its zone kept.
+servesOtherBase :: Text -> [ScopeDeclaration] -> Bool
+servesOtherBase base scopes =
+  or [served /= base | scope <- scopes, bundle <- scopeBundles scope, Managed m <- bundle ^. #declarations, CloudflareTunnelConfigSpec served _ <- [m ^. #spec]]
 
 -- | The accepted DomainMappings a redeploy would carry.
 routesToCarry :: Maybe ScopeDeclaration -> ScopeDeclaration -> Set ResourceId

@@ -7,6 +7,7 @@ module Nagare.Inventory.Lifecycle
   , decodeAdoptionInput
   , decideAdoption
   , decideRetirement
+  , decideMemberRetirement
   , decideCollection
   , decideRetirementAndCollection
   )
@@ -135,6 +136,24 @@ decideRetirement ::
   Either (NonEmpty PlanError) LifecycleDecisions
 decideRetirement candidate history observations =
   validateLifecycleDecisions candidate history observations (retirementProposals candidate history observations)
+
+-- | Members a review drops from their scope, each retained by its own retirement decision against its
+-- fresh observation (`inventory plan --retain-resource`; EP-246's route retirement).
+decideMemberRetirement ::
+  [ResourceId] ->
+  CompositionCandidate ->
+  InventoryHistory ->
+  ObservationSet ->
+  Either (NonEmpty PlanError) LifecycleDecisions
+decideMemberRetirement resources candidate history observations = do
+  proposals <-
+    traverse
+      ( \resource -> case Map.lookup resource (observationMap observations) of
+          Nothing -> Left (PlanError "retirement-observation" "selected resource lacks a fresh provider observation" [resource] :| [])
+          Just fact -> Right (LifecycleProposal resource ApproveRetirement (lifecycleObservationDigest (inventoryBinding (candidateInventory candidate)) resource fact))
+      )
+      resources
+  validateLifecycleDecisions candidate history observations proposals
 
 retirementProposals :: CompositionCandidate -> InventoryHistory -> ObservationSet -> [LifecycleProposal]
 retirementProposals candidate history observations =

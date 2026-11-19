@@ -183,6 +183,21 @@ Each deliverable passes on the evidence it names. Native evidence comes only aft
   software authenticator drives the same ceremonies, so the old passkey's sign-in after rollback is still proved.
   Date: 2026-11-16
 
+- Decision: A carried route is the accepted route with Knative's per-route TLS opt-out
+  (`networking.knative.dev/disable-external-domain-tls`), and a DomainMapping is updated in place. Carrying lasts while a base
+  move is open, while the profile keeps its old base, and while an accepted tunnel config serves a base other than the profile's
+  (a rolled-back move keeps its zone). `context move retire` retires the other base's names in both cases: after a commit the old
+  names, after a rollback the new ones. Each run is one phase: revoke their grants, retire the grant scopes, retire the routes
+  with retirement decisions, collect them; then after a commit the Cloud DNS phases follow, and after a rollback the zone and
+  connector stay for a later move. The whole path, rollback redeploys and every retire phase, runs in the model before native.
+  Rationale: the rehearsal's rollback (D8) left each carried new-base route waiting for a certificate the old issuer cannot
+  solve, and after the move closed every redeploy refused `retirement-required`; the retire route phase planned no retirement
+  decisions, so it would refuse the same way. A carried route is never served, so it needs no origin certificate, and only
+  retirement removes routes (above). Rejected: relaxing the verify's readiness (hides real certificate failures), and dropping
+  routes at rollback (against the carrier's rule). Reviewed removal of the zone and connector does not exist for any context;
+  it is a finding for the deferral ledger.
+  Date: 2026-11-19
+
 ## Outcomes & Retrospective
 
 (To be filled at completion.)

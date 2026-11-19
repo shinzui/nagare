@@ -1,24 +1,22 @@
--- | EP-246 D5 at deploy time: while a base move is open, or the context still keeps its old base, a
--- redeployed site keeps the protected routes it dropped ('Nagare.Context.MoveRoutes'), with the
--- native bytes of each carried route. Every other context plans its scope unchanged.
+-- | EP-246 D5 at deploy time: while a base move is open, the context still keeps its old base, or it
+-- keeps the zone of a rolled-back move, a redeployed site keeps the routes it dropped, with the native
+-- bytes of each carried route ('Nagare.Context.MoveCarry'). Every other context plans its scope unchanged.
 module Nagare.Cli.Move.Carry (withMovedRoutes) where
 
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Context.BaseFlip (baseMoveKind)
-import Nagare.Context.MoveRoutes (carryOldRoutes, routesToCarry)
+import Nagare.Context.MoveCarry (carryWithAcceptedRoutes)
+import Nagare.Context.MoveRoutes (servesOtherBase)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command (openTargetStoreReadOnly)
-import Nagare.Inventory.Plan qualified as Plan
-import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store (HeadManifest (..), readHead)
 import Nagare.Inventory.Store.Manifest (MoveMarker (..))
-import Nagare.Resource.Inventory (ManagedResource, ScopeDeclaration, ScopeSnapshot, composeSnapshot, scopeId, snapshotScopes)
+import Nagare.Resource.Inventory (ManagedResource, ScopeDeclaration, ScopeSnapshot, snapshotScopes)
 import Nagare.Resource.Types (ResourceId)
 import Nagare.Target (ActiveTarget, Mode (Local))
 
@@ -29,18 +27,12 @@ withMovedRoutes ::
   (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)) ->
   IO (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 withMovedRoutes active snapshot (scope, native) = do
-  carrying <- baseMoveCarrying active
-  let accepted = snd <$> Map.lookup (scopeId scope) (snapshotScopes snapshot)
-      wanted = routesToCarry accepted scope
-  if not carrying || Set.null wanted
+  carrying <- (servesOtherBase (active ^. #profile . #baseDomain) (map snd (Map.elems (snapshotScopes snapshot))) ||) <$> baseMoveCarrying active
+  if not carrying
     then pure (scope, native)
     else do
       store <- openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-      history <- Plan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-      inventory <- either (dieT . T.pack . show) pure (composeSnapshot snapshot)
-      (acceptedNative, _) <- Status.loadAcceptedNativeSelected wanted store history inventory >>= either dieT pure
-      (carried, routes) <- either dieT pure (carryOldRoutes (Map.map snd acceptedNative) accepted scope)
-      pure (carried, Map.union routes native)
+      carryWithAcceptedRoutes store snapshot (scope, native) >>= either dieT pure
 
 baseMoveCarrying :: ActiveTarget -> IO Bool
 baseMoveCarrying active
