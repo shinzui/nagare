@@ -13,7 +13,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Text qualified as T
-import Nagare.Cli.Move.Carry (withMovedRoutes)
+import Nagare.Cli.Move.Carry (withGrantedMovedRoutes)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (ActivePosture)
@@ -459,7 +459,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
     (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
   -- EP-246 D5: during a move to a new base, the admin API keeps its old route while grants name it.
-  carriedAdminApi <- traverse (\scope -> withMovedRoutes active snapshot (scope, Map.empty)) adminApiScopes
+  carriedAdminApi <- traverse (\scope -> withGrantedMovedRoutes active snapshot (scope, Map.empty)) adminApiScopes
   let carriedAdminApiScopes = map fst carriedAdminApi
       nativeWithRoutes = Map.union native (Map.unions (map snd carriedAdminApi))
   extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> carriedAdminApiScopes <> lifecycleScopes <> tunnelScopes of

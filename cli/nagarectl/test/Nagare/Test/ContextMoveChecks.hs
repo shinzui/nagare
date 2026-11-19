@@ -19,7 +19,7 @@ import Nagare.Context.Move (StepOutcome (..))
 import Nagare.Context.MoveChecks
 import Nagare.Context.MoveCommit
 import Nagare.Context.MoveHosts
-import Nagare.Context.MoveRoutes (carryOldRoutes, otherBase, routesToCarry, servesOtherBase, withoutOriginTls)
+import Nagare.Context.MoveRoutes (carryOldRoutes, carryOldRoutesWhere, grantedHosts, otherBase, routesToCarry, servesOtherBase, withoutOriginTls)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
@@ -243,6 +243,9 @@ contextMoveChecksTests =
         (hostsOf portal, mappingsOf portal) @?= (["auth.new.example"], ["auth.new.example", "auth.old.example"])
         carryOldRoutes "old.example" Map.empty Nothing redeployed @?= Right (redeployed, Map.empty)
         carryOldRoutes "old.example" Map.empty (Just redeployed) redeployed @?= Right (redeployed, Map.empty)
+        -- The admin API keeps an old route only while a grant names it.
+        carryOldRoutesWhere (const False) "old.example" (bytesOf accepted) (Just accepted) redeployed @?= Right (redeployed, Map.empty)
+        grantedHosts [redeployed] @?= Set.empty
         -- Only the other base's routes are carried: a dropped custom domain asks for its retirement.
         let withCustom = routeScope [("docs.old.example", True), ("shop.custom.test", False)]
         routesToCarry "old.example" (Just withCustom) redeployed @?= Set.fromList [m ^. #identity | m <- members withCustom, m ^. #address == kube "domainmapping" (Just "apps") "docs.old.example"]

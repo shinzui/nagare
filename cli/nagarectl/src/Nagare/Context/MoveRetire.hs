@@ -33,6 +33,9 @@ data RetirePhase
   | -- | A retained route of the names, to collect with its controller descendants: a review collects
     -- one DomainMapping, so each run collects the next.
     CollectRoute !ResourceId
+  | -- | The admin API still routes the names: a platform review drops its route once no grant names
+    -- it, and retires it by decision (only the platform supplies the admin API's native members).
+    PlatformRoutes
   | -- | Nothing on the names is left in the ledger.
     NamesRetired
   deriving stock (Eq, Show)
@@ -45,6 +48,7 @@ retirePhase hosts retained snapshot
   | not (null undeletable) = RouteDeletionPolicy <$> traverse (revise deletable . snd) undeletable
   | not (null routed) = (\trimmed -> RetireRoutes trimmed [m ^. #identity | (_, scope) <- routed, m <- membersOf scope, oldRoute m]) <$> traverse (trim . snd) routed
   | route : _ <- retainedRoutes = Right (CollectRoute route)
+  | not (null platformRouted) = Right PlatformRoutes
   | otherwise = Right NamesRetired
   where
     old = map T.toLower hosts
@@ -70,9 +74,10 @@ retirePhase hosts retained snapshot
     routed =
       [ (owner, scope)
       | (owner, scope) <- scopes
-      , scopeKind owner /= Platform || scopeIdText owner == "platform:admin-api"
+      , scopeKind owner /= Platform
       , any oldRoute (membersOf scope) || any oldBackend (concatMap (^. #contributions) (scopeBundles scope))
       ]
+    platformRouted = [owner | (owner, scope) <- scopes, scopeKind owner == Platform, any oldRoute (membersOf scope)]
     undeletable = [routedScope | routedScope@(_, scope) <- routed, any (\m -> oldRoute m && m ^. #lifecycle /= DeleteWhenUnreferenced) (membersOf scope)]
     deletable bundle = bundle & #declarations %~ map (\case Managed m | oldRoute m -> Managed (m & #lifecycle .~ DeleteWhenUnreferenced); other -> other)
     trim = revise (\bundle -> bundle & #declarations %~ filter (\case Managed m -> not (oldRoute m); _ -> True) & #contributions %~ filter (not . oldBackend))

@@ -39,6 +39,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Platform.ReleaseImages (ImageSelection, annotateImageSelection)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
+import Nagare.Resource.Policy (LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import System.FilePath ((</>))
@@ -213,7 +214,8 @@ compileAdminApi input declarations = case validated of
     recordSelection object = Right object
 
     withHostAlias resource
-      | resource ^. #address == domainMapping = resource {aliases = [Hostname hostName]}
+      -- A route is stateless and deletable, as a site's is, so a base's retirement can collect it.
+      | resource ^. #address == domainMapping = resource {aliases = [Hostname hostName], lifecycle = DeleteWhenUnreferenced}
       | otherwise = resource
     aliasDeclaration = \case
       Managed resource -> Managed (withHostAlias resource)

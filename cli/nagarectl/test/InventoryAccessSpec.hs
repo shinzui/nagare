@@ -151,6 +151,13 @@ inventoryAccessTests =
             [nameText n | r <- routeMembers, Kubernetes _ _ _ _ n <- [r ^. #address]] @?= ["one.example.test"]
             [retirePhase ["one.example.test"] routeMembers retired] @?= map (Right . CollectRoute) routes
             retirePhase ["one.example.test"] [] retired @?= Right NamesRetired
+            -- A platform scope still routing the name (the admin API's) is left to a platform review.
+            let platformOwner = ok (mkScopeId Platform "admin-api")
+                platformRoute = case routeMembers of
+                  r : _ -> r & #identity .~ mintResourceId platformOwner (ok (mkLogicalKey "admin-api")) (ok (mkName "route")) & #owner .~ platformOwner & #dependencies .~ []
+                  [] -> error "no route"
+                withPlatform = ok (mkScopeSnapshot context (Map.insert platformOwner (generation, ok (mkScopeDeclaration platformOwner [ResourceBundle [Managed platformRoute] [] [] [] [] []])) (snapshotScopes retired)) Map.empty)
+            retirePhase ["one.example.test"] [] withPlatform @?= Right PlatformRoutes
           other -> assertFailure ("expected the routes next: " <> show other)
         retirePhase ["gone.example.test"] [] snapshot @?= Right NamesRetired
         assertBool "the zone retired under a live delegation" (isLeft (zoneRetirement "old.example.test" True))

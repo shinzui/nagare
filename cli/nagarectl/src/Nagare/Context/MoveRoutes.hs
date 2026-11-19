@@ -20,6 +20,8 @@
 -- profile's ('servesOtherBase'), as it does while the profile keeps its old base after a commit.
 module Nagare.Context.MoveRoutes
   ( carryOldRoutes
+  , carryOldRoutesWhere
+  , grantedHosts
   , otherBase
   , servesOtherBase
   , routesToCarry
@@ -61,12 +63,23 @@ carryOldRoutes ::
   Maybe ScopeDeclaration ->
   ScopeDeclaration ->
   Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-carryOldRoutes other acceptedBytes accepted redeployed = case accepted of
+carryOldRoutes = carryOldRoutesWhere (const True)
+
+-- | 'carryOldRoutes' for the hosts @keep@ admits: the admin API keeps its old route only while an
+-- accepted grant names it, so a retirement that retired the grants lets a platform review drop it.
+carryOldRoutesWhere ::
+  (Name -> Bool) ->
+  Text ->
+  Map ResourceId ByteString ->
+  Maybe ScopeDeclaration ->
+  ScopeDeclaration ->
+  Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+carryOldRoutesWhere keep other acceptedBytes accepted redeployed = case accepted of
   Nothing -> Right (redeployed, Map.empty)
   Just before
-    | null (droppedHosts other before redeployed) -> Right (redeployed, Map.empty)
+    | null (filter keep (droppedHosts other before redeployed)) -> Right (redeployed, Map.empty)
     | otherwise -> do
-        routes <- traverse optedOut [m | m <- mappings before, any (isMappingOf (m ^. #address)) (droppedHosts other before redeployed)]
+        routes <- traverse optedOut [m | m <- mappings before, any (isMappingOf (m ^. #address)) (filter keep (droppedHosts other before redeployed))]
         let carried =
               [ ResourceBundle
                   [Managed m | (m, _) <- routes, isMappingOf (m ^. #address) host]
@@ -75,7 +88,7 @@ carryOldRoutes other acceptedBytes accepted redeployed = case accepted of
                   [c | c <- contributionsOf before, backendHost c == Just host, not (isPortal c)]
                   []
                   []
-              | host <- droppedHosts other before redeployed
+              | host <- filter keep (droppedHosts other before redeployed)
               ]
         scope <-
           first
@@ -120,6 +133,21 @@ withoutOriginTls bytes = case decodeStrict bytes of
     let optOut = KM.insert "networking.knative.dev/disable-external-domain-tls" (String "true") annotations
     canonicalValue (Object (KM.insert "metadata" (Object (KM.insert "annotations" (Object optOut) metadata)) root))
   _ -> Left "carried route's native bytes are not a Kubernetes object"
+
+-- | The hosts with a present accepted grant, direct or for a team.
+grantedHosts :: [ScopeDeclaration] -> Set Name
+grantedHosts scopes =
+  Set.fromList
+    [ host
+    | scope <- scopes
+    , bundle <- scopeBundles scope
+    , Managed m <- bundle ^. #declarations
+    , AccessGrantSpec _ True <- [m ^. #spec]
+    , host <- case m ^. #address of
+        AccessTuple _ h _ -> [h]
+        TeamAccessTuple _ h _ -> [h]
+        _ -> []
+    ]
 
 -- | The hosts on the other base the accepted scope routes that the redeploy no longer does.
 droppedHosts :: Text -> ScopeDeclaration -> ScopeDeclaration -> [Name]

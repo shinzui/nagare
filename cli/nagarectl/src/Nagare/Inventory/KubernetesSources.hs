@@ -51,7 +51,7 @@ loadKubernetesSources workspace declarations = do
                 | otherwise -> do
                     result <- try (BS.readFile fullPath) :: IO (Either IOException BS.ByteString)
                     pure $ do
-                      bytes <- first (const "could not read packaged Kubernetes source") result
+                      bytes <- first (const ("could not read packaged Kubernetes source " <> T.pack sourceFile)) result
                       members <- first (T.pack . show) (parseKubernetesManifest (SourceLocation (file location) basePath) bytes)
                       value <- case [member | (memberSource, member) <- members, memberSource == location] of
                         [one] -> Right one

@@ -2,6 +2,7 @@
 -- redeployed scope drops, through the loader every review uses ('Nagare.Context.MoveRoutes').
 module Nagare.Context.MoveCarry
   ( carryWithAcceptedRoutes
+  , carryWithAcceptedRoutesWhere
   )
 where
 
@@ -11,13 +12,13 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Context.MoveRoutes (carryOldRoutes, routesToCarry)
+import Nagare.Context.MoveRoutes (carryOldRoutesWhere, routesToCarry)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Plan (loadInventoryHistory)
 import Nagare.Inventory.Status (loadAcceptedNativeSelected)
 import Nagare.Inventory.Store (InventoryStore)
 import Nagare.Resource.Inventory (ManagedResource, ScopeDeclaration, ScopeSnapshot, composeSnapshot, scopeId, snapshotScopes)
-import Nagare.Resource.Types (ResourceId)
+import Nagare.Resource.Types (Name, ResourceId)
 
 -- | The redeployed scope with the accepted routes on the other base it dropped, and its native members
 -- with theirs.
@@ -27,7 +28,17 @@ carryWithAcceptedRoutes ::
   ScopeSnapshot ->
   (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)) ->
   IO (Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
-carryWithAcceptedRoutes other store snapshot (scope, native)
+carryWithAcceptedRoutes = carryWithAcceptedRoutesWhere (const True)
+
+-- | 'carryWithAcceptedRoutes' for the hosts @keep@ admits ('carryOldRoutesWhere').
+carryWithAcceptedRoutesWhere ::
+  (Name -> Bool) ->
+  Text ->
+  InventoryStore ->
+  ScopeSnapshot ->
+  (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)) ->
+  IO (Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
+carryWithAcceptedRoutesWhere keep other store snapshot (scope, native)
   | Set.null wanted = pure (Right (scope, native))
   | otherwise = do
       history <- loadInventoryHistory store
@@ -37,7 +48,7 @@ carryWithAcceptedRoutes other store snapshot (scope, native)
           acceptedNative <- loadAcceptedNativeSelected wanted store loaded inventory
           pure $ do
             (routes, _) <- acceptedNative
-            (carried, carriedNative) <- carryOldRoutes other (Map.map snd routes) accepted scope
+            (carried, carriedNative) <- carryOldRoutesWhere keep other (Map.map snd routes) accepted scope
             pure (carried, Map.union carriedNative native)
   where
     accepted = snd <$> Map.lookup (scopeId scope) (snapshotScopes snapshot)

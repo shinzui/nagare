@@ -261,6 +261,19 @@ retireBase mctx active = do
         (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
         Inventory.planInventoryCollectionsWithPayload (inventoryControllerCollectionRegistry active workspace) identity active (route :| []) directory
         pure True
+      -- Only the platform supplies the admin API's members: its next review drops the old route, whose
+      -- grants are retired, and retires it by decision; one stage per run, as `platform bootstrap` plans.
+      PlatformRoutes ->
+        MoveReview.reviewStep
+          ( stageReviewOps
+              mctx
+              active
+              store
+              ("nagare-bootstrap:" `T.isPrefixOf`)
+              "the platform's"
+              (moves </> "retire-platform-routes")
+              (planStageReview active ("nagare-bootstrap:" <>) (moves </> "retire-platform-routes") >> pure True)
+          )
       NamesRetired
         | committed -> do
             observeParentDelegates old >>= either dieT pure >>= either dieT pure . zoneRetirement old

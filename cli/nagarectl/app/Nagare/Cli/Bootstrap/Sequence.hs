@@ -3,6 +3,7 @@ module Nagare.Cli.Bootstrap.Sequence (planNextStage) where
 
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Nagare.Cli.Bootstrap.Cloud (buildCloudStageCandidate)
 import Nagare.Cli.Bootstrap.CloudflareZone (buildCloudflareZoneStageCandidate)
 import Nagare.Cli.Bootstrap.Host
@@ -102,9 +103,23 @@ planNextStage mode active paths workspace identity output = do
             unless exists (dieT "reviewed local context kubeconfig is missing")
             setEnv "KUBECONFIG" selectedKubeconfig
           (candidate, native) <- buildPlatformCandidate ingress active paths workspace snapshot
-          Inventory.planInventoryCandidateWithPayloadIdentity
+          -- EP-246: a route the admin API no longer declares (an old base's, once its grants are
+          -- retired) is retired by its own decision; a context move's retirement then collects it.
+          let desired = Set.fromList [resource ^. #identity | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory candidate)]
+              droppedRoutes =
+                [ resource ^. #identity
+                | (owner, (_, scope)) <- Map.toList (ResourceInventory.snapshotScopes snapshot)
+                , Resource.scopeIdText owner == "platform:admin-api"
+                , bundle <- ResourceInventory.scopeBundles scope
+                , ResourceInventory.Managed resource <- bundle ^. #declarations
+                , Resource.Kubernetes _ "serving.knative.dev" kind _ _ <- [resource ^. #address]
+                , Resource.nameText kind == "domainmapping"
+                , Set.notMember (resource ^. #identity) desired
+                ]
+          Inventory.planInventoryCandidateWithRetirementsPayload
             (inventoryPlanRegistryWithNative active workspace native)
             identity
             active
             candidate
+            droppedRoutes
             output
