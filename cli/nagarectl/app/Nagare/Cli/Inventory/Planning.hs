@@ -223,10 +223,8 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
   unless (suppliedIds `Set.isSubsetOf` declaredIds) $
     dieT ("generated native members include an undeclared Kubernetes resource: " <> T.unwords (map Resource.resourceIdText (Set.toList (suppliedIds `Set.difference` declaredIds))))
   unless
-    ( helmSuppliedIds `Set.isSubsetOf` declaredHelmIds
-        && (selectedHelm `Set.intersection` declaredHelmIds) `Set.isSubsetOf` helmSuppliedIds
-    )
-    (dieT "selected Helm release lacks a captured native contract")
+    (helmSuppliedIds `Set.isSubsetOf` declaredHelmIds)
+    (dieT "generated native members include an undeclared Helm release")
   either dieT pure (validateSuppliedKubernetesMembers kubernetesResources kubernetesSuppliedNative)
   let fileBacked =
         filter
@@ -317,13 +315,38 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
       | (resource, (_, after)) <- Map.toList updatedNative
       , Just (_, before) <- [Map.lookup resource acceptedUpdated]
       ]
+  -- An unchanged accepted Helm release keeps its captured contract, as an unchanged generated
+  -- Kubernetes member keeps its accepted bytes (F80): a review that only orders after it (a context
+  -- move's retirement revising the bootstrap stamp) supplies none.
+  let acceptedHelmMembers =
+        Map.fromList
+          [ (resource ^. #identity, resource & #dependencies .~ [])
+          | ResourceInventory.Managed resource <- historicalComposed
+          , resource ^. #executor == ResourceInventory.HelmExecutor
+          ]
+      unchangedHelmIds =
+        Set.fromList
+          [ resource ^. #identity
+          | resource <- helmResources
+          , Set.member (resource ^. #identity) selectedHelm
+          , Set.notMember (resource ^. #identity) helmSuppliedIds
+          , Map.lookup (resource ^. #identity) acceptedHelmMembers == Just (resource & #dependencies .~ [])
+          ]
+  acceptedHelmNative <-
+    if Set.null unchangedHelmIds
+      then pure Map.empty
+      else (\(_, helm) -> Map.map snd (Map.restrictKeys helm unchangedHelmIds)) <$> loadAcceptedSelected unchangedHelmIds
+  let unchangedHelm = Map.fromList [(resource ^. #identity, (resource, bytes)) | resource <- helmResources, Just bytes <- [Map.lookup (resource ^. #identity) acceptedHelmNative]]
+  unless
+    ((selectedHelm `Set.intersection` declaredHelmIds) `Set.isSubsetOf` Set.union helmSuppliedIds (Map.keysSet unchangedHelm))
+    (dieT "selected Helm release lacks a captured native contract")
   let kubernetesSpecs =
         Map.restrictKeys
           (Map.unions [kubernetesSuppliedNative, loaded, retiringNative])
           selectedKubernetes
       helmSpecs =
         Map.restrictKeys
-          (Map.union helmSuppliedNative retiringHelmNative)
+          (Map.unions [helmSuppliedNative, unchangedHelm, retiringHelmNative])
           selectedHelm
   pulumiBase <-
     if null registrations
