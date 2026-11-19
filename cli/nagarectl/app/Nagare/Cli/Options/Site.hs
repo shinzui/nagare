@@ -35,6 +35,8 @@ data SiteDeployOpts = SiteDeployOpts
   , sitePreviewAdoptionInput :: !(Maybe FilePath)
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
+  , siteRetainResources :: ![String]
+  -- ^ Members the site no longer declares, each retained by its own reviewed decision (needs @--save-plan@).
   , contract :: !(Maybe Int)
   -- ^ EP-263: print the contract's @deploy-preview@ or @saved-review@ document.
   -- Only @site deploy@ parses it; a preview deploy and @site publish@ set none.

@@ -136,6 +136,11 @@ stateless Kubernetes resources, use a later `inventory collect --resource
 RESOURCE_ID --out REVIEW` and separate reviewed apply after checking that no
 consumer still depends on the retained resource.
 
+A site that no longer declares a member (a dropped custom domain's route) is reviewed the same way from its
+config: `nagarectl site deploy -f nagare/Config.hs --retain-resource RESOURCE_ID --save-plan REVIEW`, then
+`nagarectl inventory apply REVIEW --yes`; collect a retained DomainMapping with
+`nagarectl inventory collect --resource RESOURCE_ID --controller-descendants --out REVIEW`.
+
 `nagarectl inventory retire --scope KIND:NAME --out REVIEW` reviews retention of
 a whole accepted scope: every member stays live and retained, and nothing is
 deleted. Repeat `--scope` to retire scopes that depend on each other in one

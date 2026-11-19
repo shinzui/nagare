@@ -88,6 +88,7 @@ siteDeployOptsParser contract defaultFile =
     <*> optional (strOption (long "preview-adoption-input" <> metavar "FILE" <> help "Exact-incarnation adoption proposal for an existing direct preview"))
     <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy site release ConfigMap JSON for exact adoption"))
     <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal"))
+    <*> many (strOption (long "retain-resource" <> metavar "RESOURCE-ID" <> help "Retain a member the site no longer declares (a dropped route) without deleting it; repeat as needed; needs --save-plan"))
     <*> contract
 
 siteProjectDirOpt :: Parser FilePath

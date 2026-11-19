@@ -395,23 +395,27 @@ runReviewedSiteDeployPlan mctx options config siteName ns imageName url tag cdnI
       (dieT . T.pack . show)
       pure
       (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope carriedScope NE.:| []))
+  retained <- traverse (either dieT pure . Resource.mkResourceId . T.pack) (options ^. #siteRetainResources)
   if options ^. #dryRun
     then
       if isJust (options ^. #contract)
         then emitDocument (deployPreview carriedScope [])
         else BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
     else case (adoption, output) of
-      (Nothing, Nothing) ->
-        Inventory.convergeInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace carriedNative)
-          (inventoryExecutionRegistry mctx)
-          active
-          candidate
+      (Nothing, Nothing)
+        | not (null retained) -> dieT "--retain-resource needs --save-plan: a retirement is applied as its own review"
+        | otherwise ->
+            Inventory.convergeInventoryCandidateWith
+              (inventoryPlanRegistryWithNative active workspace carriedNative)
+              (inventoryExecutionRegistry mctx)
+              active
+              candidate
       (Nothing, Just directory) ->
-        Inventory.planInventoryCandidateWith
+        Inventory.planInventoryCandidateWithRetirements
           (inventoryPlanRegistryWithNative active workspace carriedNative)
           active
           candidate
+          retained
           directory
       (Just proposal, Just directory) -> do
         validateInlineReleaseAdoption scope ("nagare-static-releases-" <> siteName) proposal

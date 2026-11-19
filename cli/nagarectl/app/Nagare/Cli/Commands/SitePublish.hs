@@ -166,6 +166,7 @@ runSitePublish mctx options imagePlan deployLoadedStaticSite staticSiteUrl = do
           , sitePreviewAdoptionInput = Nothing
           , legacyReleaseImport = Nothing
           , releaseAdoptionInput = Nothing
+          , siteRetainResources = []
           , contract = Nothing
           }
       urlFor tagText = staticSiteUrl profile (deployOptions tagText "" "") site tagText baseDomain
