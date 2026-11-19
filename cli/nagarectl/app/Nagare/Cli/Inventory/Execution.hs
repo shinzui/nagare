@@ -350,7 +350,17 @@ inventoryExecutionRegistryWith binding session mctx inventory bundle = do
           stampOwner
           (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "bootstrap"))
           (either (error . T.unpack) (\name -> name) (Resource.mkName "version"))
-  forM_ (if binding == RunsReviewedPayload then Map.lookup stampId reviewedKubernetesSpecs else Nothing) $ \(_, markerBytes) -> do
+  -- A review that writes the marker must carry the selected payload and scope vector; one that only
+  -- verifies the unchanged marker (a context move's commit dropping its edges to retired cloud
+  -- members) writes no claim, and the verify still requires its accepted bytes (EP-246).
+  let stampWritten =
+        or
+          [ InventoryAdapter.plannedAction planned `elem` [InventoryAdapter.CreateResource, InventoryAdapter.UpdateResource]
+          | entry <- InventoryPlan.reviewOperations document
+          , let planned = InventoryPlan.reviewPlannedOperation entry
+          , stampId `elem` NE.toList (InventoryAdapter.plannedResources planned)
+          ]
+  forM_ (if binding == RunsReviewedPayload && stampWritten then Map.lookup stampId reviewedKubernetesSpecs else Nothing) $ \(_, markerBytes) -> do
     active <- activeTarget mctx
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
