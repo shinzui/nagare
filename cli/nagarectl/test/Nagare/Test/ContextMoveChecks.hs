@@ -25,6 +25,7 @@ import Nagare.Inventory.Adapter (OperationAction (..))
 import Nagare.Inventory.Cloud
 import Nagare.Inventory.Components.CloudflareZone (CloudflareZoneInput (..), compileCloudflareZone)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Plan (selectsProducers)
 import Nagare.Inventory.Store.Manifest (ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -145,6 +146,13 @@ contextMoveChecksTests =
             case stampWithout retired snapshot' of
               Just change -> assertBool "the retirement with the revised stamp does not compose" (isRight (composeInventory snapshot' (ReplaceScope revised :| [change])))
               Nothing -> assertFailure "no stamp revision"
+            -- A stamp that only lost edges verifies none of its producers; a new edge or a new stamp does.
+            let lostEdges = stampMember & #dependencies %~ filter (`notElem` map OrderedAfter retired)
+            selectsProducers (Just stampMember) lostEdges @?= False
+            selectsProducers (Just lostEdges) stampMember @?= True
+            selectsProducers Nothing stampMember @?= True
+            -- An unchanged stamp in a platform review still verifies every producer.
+            selectsProducers (Just stampMember) stampMember @?= True
           other -> assertFailure ("expected the retirement: " <> show other)
         case [m | m <- members accepted, isTunnelWebRule m] of
           retained : _ -> commitAction webRuleSet (Just cloudScopeWithout) [retained] @?= Right (CommitCollect (retained ^. #identity))

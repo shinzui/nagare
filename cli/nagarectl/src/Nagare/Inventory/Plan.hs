@@ -17,6 +17,7 @@ module Nagare.Inventory.Plan
   , historyReservations
   , ObservationRequirements
   , observationRequirements
+  , selectsProducers
   , requiredResources
   , requirementsByExecutor
   , migrationIncarnations
@@ -103,6 +104,7 @@ import Nagare.Inventory.Plan.MigrationObservation
   )
 import Nagare.Inventory.Plan.Observation
   ( observationRequirements
+  , selectsProducers
   )
 import Nagare.Inventory.Plan.Prepare
   ( prepareReview

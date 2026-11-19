@@ -2,6 +2,7 @@
 module Nagare.Inventory.Plan.Observation
   ( affectedManagedIds
   , observationRequirements
+  , selectsProducers
   )
 where
 
@@ -21,6 +22,7 @@ import Nagare.Resource.Inventory
   ( CompositionCandidate
   , Declaration (Managed)
   , Executor (BrokerExecutor, KubernetesExecutor)
+  , ManagedResource
   , ScopeChange (CollectRetained, ReplaceScope, RetireScope)
   , candidateChanges
   , candidateInventory
@@ -158,6 +160,7 @@ affectedManagedIds candidate history =
         | resourceId <- Set.toAscList selectedMembers
         , Just consumer <- [Map.lookup resourceId desired]
         , consumer ^. #source . #file == "generated:bootstrap"
+        , selectsProducers (Map.lookup resourceId historical) consumer
         , dependency <- consumer ^. #dependencies
         , let target = dependencyResource dependency
         , Map.member target desired
@@ -166,3 +169,16 @@ affectedManagedIds candidate history =
     dependencyResource (Consumes (SomeRef ref)) = refProducer ref
     dependencyResource (ReadyAfter (SomeRef ref)) = refProducer ref
     dependencyResource (OrderedAfter resource) = resource
+
+-- | Whether a bootstrap marker's review must verify its producers: a new or changed marker waits for
+-- every bootstrap resource, but one that only lost ordering edges (a context move retiring cloud
+-- members, EP-246) orders after nothing new and writes nothing.
+selectsProducers :: Maybe ManagedResource -> ManagedResource -> Bool
+selectsProducers accepted marker = case accepted of
+  Just old ->
+    not
+      ( (old & #dependencies .~ []) == (marker & #dependencies .~ [])
+          && all (`elem` (old ^. #dependencies)) (marker ^. #dependencies)
+          && length (marker ^. #dependencies) < length (old ^. #dependencies)
+      )
+  Nothing -> True
