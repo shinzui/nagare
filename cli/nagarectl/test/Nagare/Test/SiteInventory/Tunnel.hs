@@ -30,8 +30,11 @@ import Nagare.Dsl.Types
   , withTlsSecret
   )
 import Nagare.Inventory.CollectionPolicy (retainedConsumerInert)
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
+import Nagare.Inventory.ObservationNative (loadObservationNative, observationKubernetes)
 import Nagare.Inventory.Site (compileStaticSiteScope)
+import Nagare.Inventory.Store (newMemoryStore, objectKeyFor, publishIfAbsent)
 import Nagare.Inventory.TunnelRoute (checkTunnelRoutes, defaultHostClaims, reboundAliases)
 import Nagare.Resource.Inventory
   ( Declaration (Managed)
@@ -131,6 +134,16 @@ tunnelSiteInventoryTests =
           declared = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
           forgedDeclared = [maybe resource fst (Map.lookup (resource ^. #identity) forged) | resource <- declared]
       assertBool "a forged claim passed" (isLeft (validateSuppliedKubernetesMembers forgedDeclared forged))
+  , testCase "a public site's flattened-name claim survives the stored-bytes rebind (EP-246)" $ do
+      -- ep246d, 2026-11-19: after a server site deployed through the tunnel, every later deploy refused
+      -- "observation Kubernetes bytes differ from typed declaration" for its Knative Service.
+      (scope, native) <- either (fail . show) pure (compileSite IngressCloudflareTunnel "pub" "personal" [])
+      store <- newMemoryStore
+      forM_ (Map.elems native) (\(_, bytes) -> publishIfAbsent store (objectKeyFor "native" (contentDigest bytes)) bytes)
+      let declared = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations, Map.member (resource ^. #identity) native]
+      assertBool "the fixture claims a flattened name" (any (not . null . (^. #aliases)) declared)
+      loaded <- loadObservationNative store declared
+      either (assertFailure . T.unpack) (\found -> Map.keysSet (observationKubernetes found) @?= Map.keysSet native) loaded
   , testCase "planning and apply rebind only a Service's exact flattened claim" $ do
       (scope, _) <- either (fail . show) pure (compileSite IngressCloudflareTunnel "pub" "personal" [])
       let declared = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]

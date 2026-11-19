@@ -32,6 +32,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Store
+import Nagare.Inventory.TunnelRoute (reboundAliases)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types
@@ -253,7 +254,8 @@ loadObservationNativeChecked store declarations = do
               )
           let bound =
                 compiled
-                  { dependencies = member ^. #dependencies
+                  { aliases = reboundAliases member compiled
+                  , dependencies = member ^. #dependencies
                   , delegations = member ^. #delegations
                   , spec = case nativeDigest (member ^. #spec) of
                       Nothing -> member ^. #spec
@@ -261,7 +263,7 @@ loadObservationNativeChecked store declarations = do
                   }
           unless
             (bound == member && rebound == bytes)
-            (Left "observation Kubernetes bytes differ from typed declaration")
+            (Left ("observation Kubernetes bytes differ from typed declaration: " <> resourceIdText (member ^. #identity)))
         _ -> Left "unsupported native observation executor"
       pure (member, bytes)
 
