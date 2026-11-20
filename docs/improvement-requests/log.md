@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-20
+
+* **Created**: Add IR-50 from mori://shinzui/kotei/masterplans/30-preview-nagare-sites-from-pull-requests-and-promote-the-tested-release for versioned, delegated preview deployment and data-only retirement of a rendered static site.
+
 * **Created**: Add IR-48 from mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer: a render-only nagarectl flake output for Kotei's credential-free build image, which runs only site render and site package and today carries a 6.7 GB nagarectl closure. Accepted and planned in ExecPlan 271 (docs/plans/271-package-a-render-only-nagarectl-for-credential-free-build-images.md), with its docs-free GHC taken from mori://shinzui/haskell-nix-dev at the operator's direction; nothing is implemented yet.
 * **Created**: Add IR-49 from mori://shinzui/kotei/masterplans/26-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare: render a site's configuration without GHC, through a precompiled evaluator or a data format for simple sites; proposed, needs a design discussion and an ADR before any plan.
 
