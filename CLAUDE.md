@@ -136,7 +136,6 @@ which defer to the user's scope:
   The `MasterPlan:` and `ExecPlan:` trailers are optional; the `Intention:` trailer is not used.
 - **Never answer a mistake with a new check, script, rule, runbook item or plan.** Fix it in one
   line and keep working. Prefer removing a step to adding one.
-- **No time estimates.** Report what is done and what is next.
 - **Size the ceremony to the risk** (operator, 2026-11-17). The heavy path is only for a change
   that can lose data, break a release upgrade, or change cloud IAM or the GCP guardrail: an
   ExecPlan, a mutation record for each fix, recorded Kubernetes API traces for a new kind, and a
