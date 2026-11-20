@@ -7,6 +7,7 @@ generated:
   at: "2026-11-18T22:00:00Z"
 bugId: BUG-10
 status: fixed
+fixedVersion: 0.24.0
 resolution: >-
   Fixed on master by commit a20a5203. The planner's scopeDeclared
   (cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs) walked every scope and
