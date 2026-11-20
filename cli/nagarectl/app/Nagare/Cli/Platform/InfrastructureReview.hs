@@ -4,6 +4,7 @@ module Nagare.Cli.Platform.InfrastructureReview
   , applyVerifiedReviewedPlan
   , instanceReplacementGuard
   , prepareInfraMutation
+  , prepareDeployerArtifactMutation
   , prepareInfraMutationWithPulumi
   , prepareInfraTargetWithPulumi
   , prepareVmPowerMutation
@@ -107,6 +108,18 @@ prepareInfraMutationWithPulumi guard needsPulumi mctx = do
   either dieT pure (guard status)
   TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
   prepareInfraTargetWithPulumi needsPulumi active
+
+-- | A cloud deployer's apply of artifacts with no Pulumi member. The release
+-- guard holds; the deployer has no Pulumi binary, state or operator
+-- credentials, and the artifact transport asserts the context's project
+-- before every observation and publication.
+prepareDeployerArtifactMutation :: (PlatformStatus -> Either Text ()) -> Maybe String -> IO (ActiveTarget, PlatformWorkspace)
+prepareDeployerArtifactMutation guard mctx = do
+  (active, status) <- gatherPlatformStatus mctx
+  either dieT pure (guard status)
+  TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  pure (active, workspace)
 
 -- Power control must work while the guest and Kubernetes API are unavailable.
 -- Preserve static release, ADC and project guards without probing either guest.

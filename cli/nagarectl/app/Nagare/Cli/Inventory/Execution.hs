@@ -50,7 +50,8 @@ import Nagare.Cli.Inventory.SourceEvidence
   )
 import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Platform.InfrastructureReview
-  ( prepareInfraMutationWithPulumi
+  ( prepareDeployerArtifactMutation
+  , prepareInfraMutationWithPulumi
   , prepareVmPowerMutation
   )
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
@@ -571,10 +572,16 @@ inventoryExecutionRegistryWith binding session mctx inventory bundle = do
                     && Map.null (InventoryPlan.reviewMigrations document)
                     then prepareVmPowerMutation mctx
                     else
-                      prepareInfraMutationWithPulumi
-                        releaseGuard
-                        (not (null registrations))
-                        mctx
+                      if isJust (active ^. #profile . #deployer)
+                        && null registrations
+                        && Set.null cloudRetained
+                        && not (Set.member ResourceInventory.HostExecutor activeExecutors)
+                        then prepareDeployerArtifactMutation releaseGuard mctx
+                        else
+                          prepareInfraMutationWithPulumi
+                            releaseGuard
+                            (not (null registrations))
+                            mctx
                 pure (prepared, Just workspace)
       let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
           withWorkspace action = maybe (dieT "selected executor requires a platform workspace") action workspace
