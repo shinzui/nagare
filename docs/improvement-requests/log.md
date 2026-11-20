@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-11-20
+* **Created**: Add IR-48 from mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer: a render-only nagarectl flake output for Kotei's credential-free build image, which runs only site render and site package and today carries a 6.7 GB nagarectl closure. Accepted and planned in ExecPlan 271 (docs/plans/271-package-a-render-only-nagarectl-for-credential-free-build-images.md), with its docs-free GHC taken from mori://shinzui/haskell-nix-dev at the operator's direction; nothing is implemented yet.
+* **Created**: Add IR-49 from mori://shinzui/kotei/masterplans/26-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare: render a site's configuration without GHC, through a precompiled evaluator or a data format for simple sites; proposed, needs a design discussion and an ADR before any plan.
+
 ## 2026-11-18
 * **Update**: IR-45 completed by ExecPlan 263, on master, unreleased: site deploy --contract 1 prints a deploy-preview for --dry-run and a saved-review for --save-plan, the site scope records its configuration digest and reviewed inputs, confirmed natively under a delegated deployer on a disposable local context; mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer adopts it.
 * **Update**: IR-46 completed by ExecPlan 269, landed on master at 1790e63f (code 112380c0), unreleased: a release-only Task trigger whose CronJob is accepted suspended with a never-firing schedule, reviewed as hookTrigger/TASK on the application scope, confirmed natively on a disposable local context; mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application qualifies that revision.
