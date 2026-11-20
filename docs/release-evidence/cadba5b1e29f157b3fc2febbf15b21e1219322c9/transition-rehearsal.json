@@ -1,0 +1,131 @@
+{
+  "bootstrap": {
+    "reviews": 3
+  },
+  "candidate": {
+    "revision": "cadba5b1e29f157b3fc2febbf15b21e1219322c9",
+    "version": "0.24.3"
+  },
+  "context": "transition",
+  "inventory": {
+    "activeTransaction": null,
+    "observationComplete": true,
+    "transactionStatus": null
+  },
+  "mode": "local",
+  "platform": {
+    "cli": "0.24.3",
+    "cluster": "0.24.3",
+    "compatibility": "legacy-unknown",
+    "context": "0.24.3",
+    "deployment": {
+      "cluster": {
+        "error": null,
+        "state": "deployed"
+      },
+      "host": {
+        "error": "local contexts do not have a GCE deployment",
+        "state": "unknown"
+      }
+    },
+    "host": null,
+    "identities": {
+      "cli": {
+        "payloadSchema": null,
+        "revision": "cadba5b1e29f157b3fc2febbf15b21e1219322c9",
+        "version": "0.24.3"
+      },
+      "cluster": {
+        "payloadSchema": 1,
+        "revision": "cadba5b1e29f157b3fc2febbf15b21e1219322c9",
+        "version": "0.24.3"
+      },
+      "context": {
+        "payloadSchema": null,
+        "revision": null,
+        "version": "0.24.3"
+      },
+      "host": {
+        "payloadSchema": null,
+        "revision": null,
+        "version": null
+      },
+      "payload": {
+        "payloadSchema": 1,
+        "revision": "cadba5b1e29f157b3fc2febbf15b21e1219322c9",
+        "version": "0.24.3"
+      }
+    },
+    "images": [
+      {
+        "classification": "release",
+        "expected": "sha256:54dc5afcc9d218f63bcb2ec3aabaeff85777c2511c5f2833d968d77a3d953014",
+        "observed": [
+          "k3d-registry.localhost:5000/en@sha256:54dc5afcc9d218f63bcb2ec3aabaeff85777c2511c5f2833d968d77a3d953014"
+        ],
+        "reason": "ready replicas run this release's image",
+        "selected": "k3d-registry.localhost:5000/en@sha256:54dc5afcc9d218f63bcb2ec3aabaeff85777c2511c5f2833d968d77a3d953014",
+        "source": "release",
+        "workload": "en"
+      },
+      {
+        "classification": "release",
+        "expected": "sha256:16d2a1a58cfc8e5f7b944cd9bc7fe8f0ab6defd1d153f29f5bfed71ab05fa47c",
+        "observed": [
+          "k3d-registry.localhost:5000/shomei@sha256:16d2a1a58cfc8e5f7b944cd9bc7fe8f0ab6defd1d153f29f5bfed71ab05fa47c"
+        ],
+        "reason": "ready replicas run this release's image",
+        "selected": "k3d-registry.localhost:5000/shomei@sha256:16d2a1a58cfc8e5f7b944cd9bc7fe8f0ab6defd1d153f29f5bfed71ab05fa47c",
+        "source": "release",
+        "workload": "shomei"
+      },
+      {
+        "classification": "release",
+        "expected": "sha256:22b45eb80927d582641c2a41614fe3456307164eb95e9ebfd50e631a89f4bf4e",
+        "observed": [
+          "k3d-registry.localhost:5000/nagare-access@sha256:22b45eb80927d582641c2a41614fe3456307164eb95e9ebfd50e631a89f4bf4e"
+        ],
+        "reason": "ready replicas run this release's image",
+        "selected": "k3d-registry.localhost:5000/nagare-access@sha256:22b45eb80927d582641c2a41614fe3456307164eb95e9ebfd50e631a89f4bf4e",
+        "source": "release",
+        "workload": "nagare-access"
+      },
+      {
+        "classification": "not-enabled",
+        "expected": "sha256:c092ab05382ea77d1c55f228f9f6c989c700ffaa07b1f92547bdb9b5ce3d39b1",
+        "observed": [],
+        "reason": "the context does not enable it",
+        "selected": null,
+        "source": null,
+        "workload": "nagare-admin-api"
+      },
+      {
+        "classification": "not-enabled",
+        "expected": "sha256:349ee02da8163b5f8491b4c80bd775be8631f4abc6000dc62c9c46124a3c432e",
+        "observed": [],
+        "reason": "the context does not enable it",
+        "selected": null,
+        "source": null,
+        "workload": "cloudflared"
+      }
+    ],
+    "payload": "0.24.3"
+  },
+  "replan": {
+    "operations": 0,
+    "reaccepts": 0
+  },
+  "schemaVersion": 1,
+  "sentinel": {
+    "readBack": "transition 20261120T210306Z",
+    "seeded": "transition 20261120T210306Z"
+  },
+  "source": {
+    "revision": "c931b11efb848eebaf058e961c51a63346d3102d",
+    "version": "0.24.2"
+  },
+  "transition": {
+    "operations": 1,
+    "reviews": 2
+  }
+}
