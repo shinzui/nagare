@@ -65,7 +65,7 @@ import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (Mode (Cloud, Local), registryPrefix)
+import Nagare.Target (imageDestinationAllowed)
 import System.Directory (makeAbsolute)
 import System.Exit (ExitCode (ExitSuccess), exitWith)
 
@@ -82,17 +82,9 @@ runAppImagePlan mctx options = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   let profile = active ^. #profile
       destination = T.pack (options ^. #destination)
-      prefix = case profile ^. #mode of
-        Local -> profile ^. #registryHost
-        Cloud -> registryPrefix profile
-      imagePart = T.takeWhileEnd (/= '/') destination
   unless
-    ( (prefix <> "/") `T.isPrefixOf` destination
-        && T.any (== ':') imagePart
-        && not (T.any (<= ' ') destination)
-        && not (T.any (== '@') destination)
-    )
-    (dieT "image destination must be a tagged image in the active context registry")
+    (imageDestinationAllowed profile destination)
+    (dieT "image destination must be a tagged image in the active context registry, or a cloud deployer's project")
   archivePath <- makeAbsolute (options ^. #archive)
   when
     ( isJust (options ^. #buildDockerfile)

@@ -2,6 +2,7 @@ module ContextReviewSpec (contextReviewTests) where
 
 import Data.ByteString qualified as BS
 import Data.Either (isLeft)
+import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -10,7 +11,8 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store (HeadManifest (..), MigrationTombstone (..), ScopeRevision (..))
 import Nagare.Resource.Types
-import Nagare.Target (ContextName, mkContextName, parseContextEnv, profileFromContextMap)
+import Nagare.Target (ContextName, Mode (Cloud), imageDestinationAllowed, mkContextName, parseContextEnv, profileFromContextMap)
+import Nagare.Test.Support.Profiles (tnbProfile)
 import System.Directory (createDirectoryIfMissing, createDirectoryLink, createFileLink, doesFileExist, doesPathExist, pathIsSymbolicLink, removeFile)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
@@ -161,6 +163,16 @@ contextReviewTests =
         decoded <- right (decodeProfileReview bytes)
         profileReviewBytes decoded @?= Right bytes
         assertBool "invalid wire" (isLeft (decodeProfileReview "{}"))
+    , testCase "a cloud deployer plans images in its delegation's repository of the context's project" $ do
+        let operator = tnbProfile & #mode .~ Cloud & #deployer .~ Nothing
+            deployer = operator & #deployer .~ Just "kotei-ci"
+            own = "us-west1-docker.pkg.dev/tan-nb-exp/kotei-ci/site:kotei-1"
+        assertBool "the operator publishes to the platform repository" (imageDestinationAllowed operator "us-west1-docker.pkg.dev/tan-nb-exp/nagare/site:kotei-1")
+        assertBool "the operator is held to the platform repository" (not (imageDestinationAllowed operator own))
+        assertBool "a deployer publishes to its delegation's repository" (imageDestinationAllowed deployer own)
+        assertBool "a deployer stays in the context's project" (not (imageDestinationAllowed deployer "us-west1-docker.pkg.dev/other/kotei-ci/site:kotei-1"))
+        assertBool "a deployer's destination is tagged" (not (imageDestinationAllowed deployer "us-west1-docker.pkg.dev/tan-nb-exp/kotei-ci/site"))
+        assertBool "a deployer's destination has no digest" (not (imageDestinationAllowed deployer (own <> "@sha256:00")))
     ]
   where
     observe _ = pure (Right headValue)

@@ -69,6 +69,7 @@ module Nagare.Target
   , resolveActiveTarget
   , resolveTargetProfile
   , registryPrefix
+  , imageDestinationAllowed
   , minioCredentialsSecret
   , storeBackendFor
   )
@@ -566,6 +567,24 @@ renderContextShellEnv name tp penv =
 registryPrefix :: TargetProfile -> Text
 registryPrefix tp =
   tp ^. #registryHost <> "/" <> tp ^. #project <> "/" <> tp ^. #artifactRegistryId
+
+-- | Whether @app image-plan@ may publish to a destination: a tagged image with
+-- no digest or whitespace in the context registry. A cloud deployer publishes
+-- to its delegation's own repository in the context's project, not the platform
+-- repository its context names, and admission holds it to that repository, so
+-- any repository of the project passes here.
+imageDestinationAllowed :: TargetProfile -> Text -> Bool
+imageDestinationAllowed tp destination =
+  (prefix <> "/") `T.isPrefixOf` destination
+    && T.any (== ':') (T.takeWhileEnd (/= '/') destination)
+    && not (T.any (<= ' ') destination)
+    && not (T.any (== '@') destination)
+  where
+    prefix = case tp ^. #mode of
+      Local -> tp ^. #registryHost
+      Cloud
+        | isJust (tp ^. #deployer) -> tp ^. #registryHost <> "/" <> tp ^. #project
+        | otherwise -> registryPrefix tp
 
 -- | Read a context file into a variable map, or 'Nothing' if the path is absent.
 readContextMap :: FilePath -> IO (Maybe (Map String Text))
