@@ -192,7 +192,7 @@ toResourceObservation :: TransportObservation -> ResourceObservation
 toResourceObservation = \case
   TransportMissing proof -> ConfirmedAbsent proof
   TransportPresent physical _ -> ObservedPresent physical
-  TransportOwnershipMismatch _ reason -> ObservationUnavailable reason
+  TransportOwnershipMismatch _ reason -> ObservationUnavailable (artifactOwnershipCode <> reason)
 
 toArtifactObservation :: TransportObservation -> ArtifactObservation
 toArtifactObservation = \case

@@ -52,6 +52,7 @@ import Nagare.Inventory.Adapter
     , ObservedReplacementRequired
     , ObservedUnowned
     )
+  , artifactOwnershipCode
   , observationMap
   , observationStuck
   )
@@ -286,11 +287,10 @@ planChanges candidate decisions history observations = do
     unavailableWithReasons = [(resource, reason) | (resource, ObservationUnavailable reason) <- Map.toAscList observed, Set.member resource (requiredResources requirements)]
     accessResources = Set.fromList (Map.findWithDefault [] AccessExecutor (requirementsByExecutor requirements))
     appDatabaseResources = Set.fromList (Map.findWithDefault [] AppDatabaseExecutor (requirementsByExecutor requirements))
-    -- Access observation reasons are fixed strings that name the missing
-    -- prerequisite, and an app database's drift and credential refusals name
-    -- the user, grant or setting; other reasons may carry provider output.
+    -- Access, artifact ownership and app database refusal reasons are fixed strings; others may carry provider output.
     printable resource reason =
       Set.member resource accessResources
+        || artifactOwnershipCode `T.isPrefixOf` reason
         || (Set.member resource appDatabaseResources && any (`T.isPrefixOf` reason) [grantDriftCode, credentialMissingCode, readerDefinerCode, readerInvokerCode])
     unavailable = [resource | (resource, reason) <- unavailableWithReasons, not (printable resource reason)]
     unavailableAccess =

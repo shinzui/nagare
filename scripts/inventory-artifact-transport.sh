@@ -45,6 +45,15 @@ source "${script_dir}/lib/target.sh"
 # shellcheck source=lib/local-registry.sh
 source "${script_dir}/lib/local-registry.sh"
 
+# Where a cloud app image may live. A delegated deployer publishes to its
+# delegation's own repository in the project, not the platform repository its
+# context names; admission holds it to that repository.
+if [ -n "${NAGARE_DEPLOYER:-}" ]; then
+  app_image_prefix="${NAGARE_REGISTRY_HOST}/${TARGET_PROJECT}"
+else
+  app_image_prefix="${NAGARE_REGISTRY_PREFIX:-}"
+fi
+
 # SHA-256 of a file, or of standard input with no argument, as 64 hex
 # characters. GNU coreutils' sha256sum where it exists (a Linux deployer image
 # has no shasum and no awk, EP-248), otherwise shasum.
@@ -121,7 +130,7 @@ observe_oci_image() (
   else
     _require_target_project
     case "${destination}" in
-      "${NAGARE_REGISTRY_PREFIX}/"*) ;;
+      "${app_image_prefix}/"*) ;;
       *) emit_owner_mismatch "oci://${destination}" "registry destination differs from the selected project"; return ;;
     esac
     local private_dir
@@ -332,7 +341,7 @@ publish_oci_archive() (
   else
     _require_target_project
     case "${destination}" in
-      "${NAGARE_REGISTRY_PREFIX}/"*) ;;
+      "${app_image_prefix}/"*) ;;
       *) echo "OCI destination differs from the selected project" >&2; return 2 ;;
     esac
   fi

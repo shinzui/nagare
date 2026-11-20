@@ -1,6 +1,7 @@
 -- | Versioned provider adapters. Adapters receive typed operations, never shell text.
 module Nagare.Inventory.Adapter
   ( ResourceObservation (..)
+  , artifactOwnershipCode
   , ObservationSet
   , observationSet
   , observationMap
@@ -69,6 +70,11 @@ import Nagare.Resource.Inventory (Executor)
 import Nagare.Resource.Policy (RecoveryClass)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire ()
+
+-- | Prefixes an artifact transport's ownership refusal. Its reason is a fixed
+-- string naming the rule, never provider output, so a plan may print it.
+artifactOwnershipCode :: Text
+artifactOwnershipCode = "artifact-ownership: "
 
 data ResourceObservation
   = ObservedPresent !PhysicalIdentity

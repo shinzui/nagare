@@ -89,6 +89,17 @@
       touch "$out"
     '';
 
+  deployer-artifact-transport = pkgs.runCommand "nagare-deployer-artifact-transport-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.jq ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-deployer-artifact-transport.sh
+      touch "$out"
+    '';
+
   release-image-transport = pkgs.runCommand "nagare-release-image-transport-test"
     {
       nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gawk pkgs.jq ];
