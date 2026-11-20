@@ -30,6 +30,7 @@ module Nagare.Inventory.Plan
   , LifecycleDecisions
   , noLifecycleDecisions
   , lifecycleObservationDigest
+  , rebindLifecycleCandidate
   , validateLifecycleDecisions
   , approveMigrations
   , combineDecisions
@@ -97,6 +98,7 @@ import Nagare.Inventory.Plan.Lifecycle
   , combineDecisions
   , lifecycleObservationDigest
   , noLifecycleDecisions
+  , rebindLifecycleCandidate
   , validateLifecycleDecisions
   )
 import Nagare.Inventory.Plan.MigrationObservation

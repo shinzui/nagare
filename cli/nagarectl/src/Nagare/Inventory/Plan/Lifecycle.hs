@@ -4,6 +4,7 @@ module Nagare.Inventory.Plan.Lifecycle
   , combineDecisions
   , lifecycleObservationDigest
   , noLifecycleDecisions
+  , rebindLifecycleCandidate
   , validateLifecycleDecisions
   , validatePairedMigrations
   )
@@ -444,3 +445,12 @@ grantLive :: ManagedResource -> Bool
 grantLive resource = case resource ^. #spec of
   AccessGrantSpec _ granted -> granted
   _ -> False
+
+-- | Decisions validated for a deployer's proposed candidate also hold for the
+-- same candidate after admission stamps the deployer's scopes (EP-247), so
+-- they bind to the stamped one. Decisions for any other candidate are kept.
+rebindLifecycleCandidate :: CompositionCandidate -> CompositionCandidate -> LifecycleDecisions -> LifecycleDecisions
+rebindLifecycleCandidate proposed stamped = \case
+  LifecycleDecisions (Just (reviewed, history)) proposals migrations
+    | reviewed == proposed -> LifecycleDecisions (Just (stamped, history)) proposals migrations
+  decisions -> decisions

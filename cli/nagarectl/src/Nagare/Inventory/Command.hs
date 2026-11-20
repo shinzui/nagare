@@ -615,7 +615,7 @@ tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target ope
   forM_ observed $ \observations ->
     forM_ (Map.toAscList (observationNotes observations)) $ \(resource, note) ->
       TIO.hPutStrLn stderr ("note: " <> resourceIdText resource <> ": " <> note)
-  case observed >>= \observations -> first renderPlanErrors (decide history observations >>= \decisions -> planChanges candidate decisions history observations) of
+  case observed >>= \observations -> first renderPlanErrors (fmap (rebindLifecycleCandidate proposed candidate) (decide history observations) >>= \decisions -> planChanges candidate decisions history observations) of
     Left reason -> pure (Left reason)
     Right proposal -> do
       prepared <- tracePhase "review preparation" (prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal)

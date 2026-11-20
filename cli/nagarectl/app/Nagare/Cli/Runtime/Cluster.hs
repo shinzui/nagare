@@ -8,7 +8,7 @@ where
 
 import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude
-import Nagare.Host.Config (readContextHostName)
+import Nagare.Host.Config (defaultHostName, readContextHostName)
 import Nagare.Inventory.AccessRuntime (EnTransport, prepareEnSession, withEnSession)
 import Nagare.Inventory.ClusterSession (commandClusterSession, defaultSessionOps, sessionGuard)
 import Nagare.Ops.ClusterGuard
@@ -33,7 +33,12 @@ guardKubernetesContext active = case active ^. #profile . #mode of
       Nothing -> pure (Right "cluster guard: local mode; no cloud cluster identity to confine")
       Just session -> fmap (const "cluster guard: local mode; no cloud cluster identity to confine") <$> either (pure . Left) sessionGuard session
   Cloud -> do
-    expectedNode <- readContextHostName context
+    -- A deployer's bundle carries no host configuration; its cluster is the
+    -- context's default host, and a renamed host still refuses below.
+    declared <- readContextHostName context
+    let expectedNode = case declared of
+          Left _ | isJust (active ^. #profile . #deployer) -> defaultHostName context
+          _ -> declared
     case expectedNode of
       Left err -> pure (Left err)
       Right expected ->
