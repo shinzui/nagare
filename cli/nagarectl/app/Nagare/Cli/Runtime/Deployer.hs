@@ -57,12 +57,14 @@ bundleDefaults target = do
     (configRoot </> "credentials" </> T.unpack (contextNameText context) <> "-s3.json")
   -- D6: on a cloud context, gcloud (the store's session and image
   -- publication) uses the bundle's configuration, where issuing activated
-  -- the deployer's key.
+  -- the deployer's key. The same key is the deployer's Application Default
+  -- Credentials, which the project guard inspects before an apply.
   let gcloudConfig = takeDirectory configRoot </> "gcloud"
       key = gcloudConfig </> "deployer-key.json"
   keyPresent <- doesFileExist key
   configured <- lookupEnv "CLOUDSDK_CONFIG"
   when (keyPresent && maybe True null configured) (setEnv "CLOUDSDK_CONFIG" gcloudConfig)
+  defaultTo "GOOGLE_APPLICATION_CREDENTIALS" [] key
   where
     defaultTo variable alternatives path = do
       given <- traverse lookupEnv (variable : alternatives)
