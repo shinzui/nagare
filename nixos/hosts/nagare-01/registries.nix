@@ -55,6 +55,40 @@ let
     # refreshed below, without restarting k3s.
   '';
 
+  # Node-level pull credentials: kubelet asks this plugin for the registry's
+  # credentials on each uncached pull, so every namespace (delegated ones included)
+  # pulls private images with no pull Secret, and the VM's token never lands in an
+  # object a tenant can read. Kubelet treats a plugin without service-account
+  # tokens as node-wide, which KubeletEnsureSecretPulledImages accepts for any pod.
+  credentialProviderName = "nagare-metadata-registry";
+  credentialProvider = pkgs.writeShellScriptBin credentialProviderName ''
+    set -euo pipefail
+    ${pkgs.coreutils}/bin/cat >/dev/null
+    # The token travels on stdin, never in argv.
+    ${pkgs.curl}/bin/curl -sf -H 'Metadata-Flavor: Google' \
+      'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
+      | ${pkgs.jq}/bin/jq -ce --arg host '${registryHost}' '
+        .access_token | select(type == "string" and length > 0) | {
+          kind: "CredentialProviderResponse",
+          apiVersion: "credentialprovider.kubelet.k8s.io/v1",
+          cacheKeyType: "Registry",
+          cacheDuration: "60s",
+          auth: {($host): {username: "oauth2accesstoken", password: .}}
+        }'
+  '';
+  credentialProviderConfig = pkgs.writeText "nagare-credential-provider.json" (builtins.toJSON {
+    apiVersion = "kubelet.config.k8s.io/v1";
+    kind = "CredentialProviderConfig";
+    providers = [
+      {
+        name = credentialProviderName;
+        matchImages = [ registryHost ];
+        defaultCacheDuration = "60s";
+        apiVersion = "credentialprovider.kubelet.k8s.io/v1";
+      }
+    ];
+  });
+
   pullSecretScript = pkgs.writeShellScript "nagare-registry-pull-secret" ''
     set -euo pipefail
 
@@ -202,6 +236,11 @@ in
   # The boot unit remains useful during initial cluster startup. Once the API is
   # ready, nagare-registry-pull-secret refreshes per-pod credentials every two
   # minutes and wires them into each app namespace's default ServiceAccount.
+  services.k3s.extraFlags = [
+    "--image-credential-provider-bin-dir=${credentialProvider}/bin"
+    "--image-credential-provider-config=${credentialProviderConfig}"
+  ];
+
   systemd.services.nagare-registries-refresh = {
     description = "Refresh k3s Artifact Registry pull credentials from the metadata server";
     # The metadata server is link-local and available early, but require the
