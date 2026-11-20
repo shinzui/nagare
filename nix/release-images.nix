@@ -243,7 +243,11 @@ let
   enMigrations = executables checkedAuthPackages.en-migrations;
   accessServer = executables checkedAuthPackages.nagare-access;
   # The admin API's suite runs in the platform package set's own build.
-  adminApiServer = executables (hl.dontCheck platformHaskellPackages.nagare-api-server);
+  # The attribute only changes the derivation: the v0.24.1 candidate's first
+  # build registered truncated binaries as valid, and an unchanged input reuses them.
+  adminApiServer = (executables (hl.dontCheck platformHaskellPackages.nagare-api-server)).overrideAttrs (_: {
+    nagareRebuild = "0.24.1";
+  });
 
   upstreamLabels = names: lib.listToAttrs (map
     (name: lib.nameValuePair "io.nagare.source.${name}" "${sourcePins.${name}.location}@${sourcePins.${name}.rev}")
