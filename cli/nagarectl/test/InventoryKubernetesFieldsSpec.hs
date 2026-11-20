@@ -23,6 +23,13 @@ inventoryKubernetesFieldsTests =
         assertBool "1Gi against 2Gi matched" (not (desiredFieldsMatch (container "memory" "1Gi") (container "memory" "2Gi")))
         assertBool "a malformed quantity matched" (not (desiredFieldsMatch (container "memory" "lots") (container "memory" "1Gi")))
         assertBool "ConfigMap data was normalised" (not (desiredFieldsMatch (settings "1024Mi") (settings "1Gi")))
+    , testCase "an empty data map the API server omits is not drift" $ do
+        let bare = object ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text)]
+            emptyData = object ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text), "data" .= object []]
+        assertBool "an omitted empty data map drifted" (desiredFieldsMatch emptyData bare)
+        assertBool "an omitted empty binaryData map drifted" (desiredFieldsMatch (object ["binaryData" .= object []]) bare)
+        assertBool "absent data matched reviewed entries" (not (desiredFieldsMatch (settings "1Gi") bare))
+        assertBool "a nested empty map was excused" (not (desiredFieldsMatch (object ["spec" .= object ["data" .= object []]]) (object ["spec" .= object []])))
     ]
 
 container :: Text -> Text -> Value

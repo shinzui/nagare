@@ -106,6 +106,8 @@ desiredFieldsMatch desired observed
                        && value `elem` [Null, Array V.empty]
                        && path == ["spec", "template", "spec"]
                    )
+                -- The API server omits a ConfigMap or Secret's empty data map.
+                || (key `elem` ["data", "binaryData"] && value == Object KM.empty && null path)
         )
         (KM.toList desired)
     go path (Array desired) (Array observed) =
