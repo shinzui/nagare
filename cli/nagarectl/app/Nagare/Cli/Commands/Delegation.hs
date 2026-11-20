@@ -26,7 +26,7 @@ import Nagare.Inventory.ClusterSession (kubectlConnectionArguments)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Components.LocalObjectStore (readLocalRegistryDigest, selectLocalMinioImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
-import Nagare.Inventory.DeployerCloudAccess (CloudKeyOps, delegatedRepositoryId, gcloudKeyOps)
+import Nagare.Inventory.DeployerCloudAccess (CloudKeyOps, admitCloudDelegation, delegatedRepositoryId, gcloudKeyOps)
 import Nagare.Inventory.DeployerCredentials (CredentialOps (..), CredentialRequest (..), issueCredentials, kubectlStoreKeyOps, randomHexIO)
 import Nagare.Inventory.DeployerDelegation
 import Nagare.Inventory.DeployerStoreAccess (StoreAccess (..))
@@ -167,6 +167,9 @@ planDelegation mctx active creating delegation output = do
       when (isRight' (acceptedFoundationNamespace snapshot ns)) (dieT ("namespace " <> ns <> " belongs to the platform foundation"))
       forM_ (Map.elems others) $ \other ->
         when (ns `elem` (NE.toList (other ^. #namespaces) <> maybe [] pure (other ^. #buildNamespace))) (dieT ("namespace " <> ns <> " belongs to delegation " <> other ^. #name))
+    -- A repository the next bootstrap could not give a cloud principal is
+    -- refused here, before it is accepted, not at bootstrap or credentials.
+    either dieT pure (admitCloudDelegation (contextNameText (active ^. #contextName)) (active ^. #profile) (map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))) delegation)
   store <- delegationStoreAccess active
   (scope, native) <- either dieT pure (compileDelegationScope cluster systemNamespace store delegation)
   candidate <- either (dieT . T.pack . show) pure (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))

@@ -18,6 +18,7 @@ module Nagare.Inventory.DeployerCloudAccess
   , deployerCloudAccountEmail
   , delegatedRepositoryId
   , cloudDelegatedDeployers
+  , admitCloudDelegation
   , delegatedDeployerConfigKeys
   , CloudKey (..)
   , CloudKeyOps (..)
@@ -40,6 +41,7 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (isAsciiLower, isDigit)
+import Data.Either (isRight)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List (nub, sortOn)
@@ -51,7 +53,7 @@ import Nagare.Init (adminApiInventoryKeys)
 import Nagare.Inventory.DeployerDelegation (DelegationState (..), DeployerDelegation, acceptedDelegations)
 import Nagare.Resource.Inventory (ScopeDeclaration, scopeId)
 import Nagare.Resource.Wire (canonicalValue)
-import Nagare.Target (InventoryStoreKind (InventoryStoreGcs), TargetProfile, defaultGcsInventoryStoreUrl, effectiveInventoryStore)
+import Nagare.Target (InventoryStoreKind (InventoryStoreGcs), Mode (Cloud), TargetProfile, defaultGcsInventoryStoreUrl, effectiveInventoryStore)
 import System.Directory (removeDirectoryRecursive)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -99,13 +101,33 @@ delegatedRepositoryId profile delegation = case T.splitOn "/" repository of
         && T.all (\c -> isAsciiLower c || isDigit c || c == '-') repo
         && not ("-" `T.isSuffixOf` repo)
 
--- | The accepted, active delegations among a composition's scopes.
--- | Every accepted delegation, revoked ones included: a revoked delegation
--- keeps its cloud principal with the account disabled (D7), so revoking
--- changes resources in place and retires nothing.
-cloudDelegatedDeployers :: [ScopeDeclaration] -> [DeployerDelegation]
-cloudDelegatedDeployers scopes =
-  Map.elems (acceptedDelegations (Map.fromList [(scopeId scope, scope) | scope <- scopes]))
+-- | The accepted delegations that have a cloud principal: every active one,
+-- and every revoked one whose repository 'delegatedRepositoryId' admits. A
+-- revoked delegation keeps its principal with the account disabled (D7), so
+-- revoking changes resources in place and retires nothing. A revoked
+-- delegation whose repository it refuses never had a principal (the refusal
+-- is a pure function of the repository and the context), so it has nothing to
+-- disable and is left out rather than blocking every later bootstrap. An
+-- active one with a refused repository stays, so the derived config refuses.
+cloudDelegatedDeployers :: TargetProfile -> [ScopeDeclaration] -> [DeployerDelegation]
+cloudDelegatedDeployers profile scopes =
+  filter
+    hasPrincipal
+    (Map.elems (acceptedDelegations (Map.fromList [(scopeId scope, scope) | scope <- scopes])))
+  where
+    hasPrincipal delegation = delegation ^. #state == DelegationActive || isRight (delegatedRepositoryId profile delegation)
+
+-- | Refuse, at planning, a new delegation the next bootstrap's derived config
+-- would refuse on a cloud context: a repository without a principal (the
+-- platform's shared one, another project or region, not an Artifact Registry
+-- ID), or one another delegation's principal already has. Other modes have no
+-- cloud principal and admit any repository.
+admitCloudDelegation :: Text -> TargetProfile -> [ScopeDeclaration] -> DeployerDelegation -> Either Text ()
+admitCloudDelegation context profile scopes delegation
+  | profile ^. #mode /= Cloud = Right ()
+  | otherwise = do
+      _ <- delegatedRepositoryId profile delegation
+      () <$ delegatedDeployerConfigKeys context profile (delegation : filter ((/= delegation ^. #name) . (^. #name)) (cloudDelegatedDeployers profile scopes))
 
 -- | The derived Pulumi config for the delegations' cloud principals: none
 -- without a delegation, so an existing stack previews unchanged; otherwise

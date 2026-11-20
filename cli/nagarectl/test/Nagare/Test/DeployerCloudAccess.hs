@@ -56,8 +56,8 @@ deployerCloudAccessTests =
         -- stays with its account disabled, so revoking retires nothing (D7).
         (active, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing kotei)
         (revoked, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing (long & #state .~ DelegationRevoked))
-        map (\d -> (d ^. #name, d ^. #state)) (cloudDelegatedDeployers [active, revoked]) @?= [("a-rather-long-deployer-name", DelegationRevoked), ("kotei", DelegationActive)]
-        disabled <- expectRight (delegatedDeployerConfigKeys "intranet" profile (cloudDelegatedDeployers [active, revoked]))
+        map (\d -> (d ^. #name, d ^. #state)) (cloudDelegatedDeployers profile [active, revoked]) @?= [("a-rather-long-deployer-name", DelegationRevoked), ("kotei", DelegationActive)]
+        disabled <- expectRight (delegatedDeployerConfigKeys "intranet" profile (cloudDelegatedDeployers profile [active, revoked]))
         assertBool "a revoked delegation's account is disabled" (any (\(key, value) -> key == "nagare:delegatedDeployers" && "\"disabled\":true,\"imageRepository\":\"us-west1-docker.pkg.dev/acme-prod/long-images\"" `T.isInfixOf` value) disabled)
         T.take 24 longAccount @?= "nagare-deployer-a-rathe-"
         forM_ ["a-rather-long-deployer-name", "kotei", "x"] $ \deployer -> do
@@ -76,6 +76,36 @@ deployerCloudAccessTests =
           ]
           $ \repository -> assertBool (T.unpack repository) (isLeft (delegatedRepositoryId profile (kotei & #imageRepository .~ repository)))
         assertBool "a refused repository refuses the derived config" (isLeft (delegatedDeployerConfigKeys "intranet" profile [kotei & #imageRepository .~ "us-west1-docker.pkg.dev/acme-prod/nagare"]))
+    , testCase "FRIC-82: a revoked delegation whose repository never had a principal does not block the derived config" $ do
+        -- Intranet: kotei was accepted naming the shared repository, then
+        -- revoked; kotei-ci names its own. Only kotei-ci has a principal.
+        let shared = kotei & #imageRepository .~ "us-west1-docker.pkg.dev/acme-prod/nagare/kotei-apps" & #state .~ DelegationRevoked & #namespaces .~ ("kotei-apps" :| [])
+            ci = kotei & #name .~ "kotei-ci" & #imageRepository .~ "us-west1-docker.pkg.dev/acme-prod/kotei-ci" & #namespaces .~ ("kotei-ci" :| [])
+        (sharedScope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing shared)
+        (ciScope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing ci)
+        map (^. #name) (cloudDelegatedDeployers profile [sharedScope, ciScope]) @?= ["kotei-ci"]
+        keys <- expectRight (delegatedDeployerConfigKeys "intranet" profile (cloudDelegatedDeployers profile [sharedScope, ciScope]))
+        lookup "nagare:delegatedDeployers" keys
+          @?= Just "[{\"accountId\":\"nagare-deployer-kotei-ci\",\"imageRepository\":\"us-west1-docker.pkg.dev/acme-prod/kotei-ci\",\"name\":\"kotei-ci\"}]"
+        -- An active delegation with a refused repository still refuses, so an
+        -- inconsistent accepted head is never silently dropped.
+        (activeShared, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing (shared & #state .~ DelegationActive))
+        map (^. #name) (cloudDelegatedDeployers profile [activeShared]) @?= ["kotei"]
+        assertBool "an active shared repository refuses" (isLeft (delegatedDeployerConfigKeys "intranet" profile (cloudDelegatedDeployers profile [activeShared])))
+    , testCase "FRIC-82: delegation create refuses, at planning, a repository the next bootstrap could not give a principal" $ do
+        (ciScope, _) <- expectRight (compileDelegationScope fixtureCluster systemNamespace Nothing (kotei & #name .~ "kotei-ci" & #imageRepository .~ "us-west1-docker.pkg.dev/acme-prod/kotei-ci"))
+        admitCloudDelegation "intranet" profile [ciScope] kotei @?= Right ()
+        forM_
+          [ "us-west1-docker.pkg.dev/acme-prod/nagare/kotei-apps"
+          , "us-west1-docker.pkg.dev/other-project/kotei/site"
+          , "europe-west1-docker.pkg.dev/acme-prod/kotei/site"
+          , "us-west1-docker.pkg.dev/acme-prod/Kotei"
+          , "ghcr.io/acme/kotei"
+          , "us-west1-docker.pkg.dev/acme-prod/kotei-ci/site"
+          ]
+          $ \repository -> assertBool (T.unpack repository) (isLeft (admitCloudDelegation "intranet" profile [ciScope] (kotei & #imageRepository .~ repository)))
+        -- A local context has no cloud principal, so any repository is admitted.
+        admitCloudDelegation "local" (profile & #mode .~ Local) [ciScope] (kotei & #imageRepository .~ "k3d-registry.localhost:5000/project/team-a") @?= Right ()
     , testCase "D6: the catalog's delegated deployer template is instantiated once per delegation, above every other layer" $ do
         catalog <- expectRight (decodeCloudCatalog catalogBytes)
         catalogDelegatedDeployers catalog @?= []

@@ -584,7 +584,7 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
             dieT
             pure
             ( InventoryCloud.withDelegatedDeployers
-                (map (^. #name) (cloudDelegatedDeployers scopes))
+                (map (^. #name) (cloudDelegatedDeployers profile scopes))
                 ( InventoryCloud.withCloudInstanceName
                     (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
                     rawCatalog

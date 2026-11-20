@@ -60,7 +60,7 @@ buildCloudStageCandidate current active workspace snapshot
           dieT
           pure
           ( InventoryCloud.withDelegatedDeployers
-              (map (^. #name) (cloudDelegatedDeployers acceptedScopes))
+              (map (^. #name) (cloudDelegatedDeployers profile acceptedScopes))
               ( InventoryCloud.withCloudInstanceName
                   (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
                   rawCatalog

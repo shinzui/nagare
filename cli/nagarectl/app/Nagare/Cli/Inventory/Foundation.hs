@@ -164,7 +164,7 @@ foundationDeployerKeys active scopes =
   either
     dieT
     pure
-    (delegatedDeployerConfigKeys (contextNameText (active ^. #contextName)) (active ^. #profile) (cloudDelegatedDeployers scopes))
+    (delegatedDeployerConfigKeys (contextNameText (active ^. #contextName)) (active ^. #profile) (cloudDelegatedDeployers (active ^. #profile) scopes))
 
 foundationImageLink :: ActiveTarget -> [ResourceInventory.Declaration] -> IO (Maybe Text)
 foundationImageLink active declarations = do
