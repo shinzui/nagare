@@ -78,10 +78,10 @@
         "storePath": "/nix/store/39bz2g2v3yh2fn3wf61bbsgwj6znjqgd-nagare-nagare-access-oci"
       },
       "nagare-admin-api": {
-        "digest": "sha256:24cd380118b93eac1b6d0299c2218c72e63d8563115d503e864a4549dae4caa2",
+        "digest": "sha256:8baf17f88429b2f0a4012069f79103fc4bd4b10108a9be1fb6dff89a456d6861",
         "platform": "linux/amd64",
         "sources": {},
-        "storePath": "/nix/store/76pxjia32v8x9dnpsvwq7x043b1xzlax-nagare-nagare-admin-api-oci"
+        "storePath": "/nix/store/2clqxnpsymrpjbjqmi3nrcrv58g1q9gv-nagare-nagare-admin-api-oci"
       },
       "shomei": {
         "digest": "sha256:16d2a1a58cfc8e5f7b944cd9bc7fe8f0ab6defd1d153f29f5bfed71ab05fa47c",
