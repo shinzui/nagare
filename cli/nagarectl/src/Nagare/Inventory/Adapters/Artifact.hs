@@ -77,13 +77,18 @@ mkArtifactAdapter specs ops =
         pure (PreparedNative bytes (summary plan))
     preflight operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
       Left err -> pure (Left err)
-      Right plan -> preflightObservation plan <$> artifactInspectRemote ops plan
+      Right plan
+        | verifying operation -> verificationObservation plan <$> artifactInspectRemote ops plan
+        | otherwise -> preflightObservation plan <$> artifactInspectRemote ops plan
     executePlan operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
       Left err -> pure (AdapterEffectFailed (KnownNoEffect err))
       Right plan -> do
         observation <- artifactInspectRemote ops plan
         case observation of
           ArtifactPresent _ digest | digest == artifactPlanExpectedDigest plan -> pure AdapterEffectCompleted
+          -- A verification observes the accepted artifact and never publishes.
+          ArtifactObservationUnavailable reason | verifying operation -> pure (AdapterEffectAmbiguous reason)
+          _ | verifying operation -> pure (AdapterEffectFailed (KnownNoEffect "verified artifact is absent or differs from the review"))
           ArtifactMissing _ -> artifactPublish ops plan
           ArtifactOwnershipMismatch _ reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           ArtifactObservationUnavailable reason -> pure (AdapterEffectAmbiguous reason)
@@ -102,7 +107,10 @@ mkArtifactAdapter specs ops =
           ArtifactObservationUnavailable reason -> Left reason
     recoverPlan operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
       Left err -> pure (RecoveryUnresolved err)
-      Right plan -> recoveryObservation plan <$> artifactInspectRemote ops plan
+      Right plan
+        | verifying operation -> verificationRecovery plan <$> artifactInspectRemote ops plan
+        | otherwise -> recoveryObservation plan <$> artifactInspectRemote ops plan
+    verifying operation = plannedAction operation == VerifyResource
 
 validatePlan :: Map ResourceId ArtifactExecutionSpec -> PlannedOperation -> ArtifactMutationPlan -> Either PrepareError ()
 validatePlan specs operation plan
@@ -141,6 +149,22 @@ preflightObservation plan observation = case observation of
     | otherwise -> Left "a named remote artifact exists with a different digest"
   ArtifactOwnershipMismatch _ reason -> Left ("remote artifact ownership mismatch: " <> reason)
   ArtifactObservationUnavailable reason -> Left ("artifact observation unavailable: " <> reason)
+
+-- | A verification requires the accepted artifact itself; absence is not a
+-- publication to retry.
+verificationObservation :: ArtifactMutationPlan -> ArtifactObservation -> Either Text ()
+verificationObservation plan observation = case observation of
+  ArtifactPresent _ digest | digest == artifactPlanExpectedDigest plan -> Right ()
+  ArtifactPresent _ _ -> Left "verified artifact digest disagrees with review"
+  ArtifactMissing _ -> Left "verified artifact is absent"
+  ArtifactOwnershipMismatch _ reason -> Left ("remote artifact ownership mismatch: " <> reason)
+  ArtifactObservationUnavailable reason -> Left ("artifact observation unavailable: " <> reason)
+
+verificationRecovery :: ArtifactMutationPlan -> ArtifactObservation -> RecoveryDecision
+verificationRecovery plan observation = case observation of
+  ArtifactPresent physical digest
+    | digest == artifactPlanExpectedDigest plan -> RecoveryProvedComplete (artifactCompletionProof plan physical)
+  _ -> RecoveryUnresolved "verified artifact is absent or differs from the review"
 
 recoveryObservation :: ArtifactMutationPlan -> ArtifactObservation -> RecoveryDecision
 recoveryObservation plan observation = case observation of

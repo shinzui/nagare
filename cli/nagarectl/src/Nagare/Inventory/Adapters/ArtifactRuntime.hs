@@ -96,8 +96,8 @@ prepareMutation config operation = pure $ do
   resource <- soleResource operation
   spec <- maybe (Left ("artifact operation names an unknown resource: " <> resourceIdText resource)) Right (Map.lookup resource (runtimeArtifactSpecs config))
   unless
-    (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation])
-    (Left "artifact runtime only executes reviewed creation, update, or publication operations")
+    (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation, VerifyResource])
+    (Left "artifact runtime only executes reviewed creation, update, publication, or verification operations")
   pure
     ArtifactMutationPlan
       { artifactPlanVersion = 1

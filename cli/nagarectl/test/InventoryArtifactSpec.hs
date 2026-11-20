@@ -382,6 +382,23 @@ inventoryArtifactTests =
         readIORef calls >>= (@?= 0)
         adapterVerify adapter publishOperation prepared >>= expectRight >>= (@?= artifactCompletionProof mutationPlan physical)
         adapterRecover adapter publishOperation prepared >>= (@?= RecoveryProvedComplete (artifactCompletionProof mutationPlan physical))
+    , testCase "a verification of an unconverged scope's artifact completes by observation and never publishes" $ do
+        calls <- newIORef (0 :: Int)
+        state <- newIORef (ArtifactPresent physical expectedDigest)
+        let adapter = mkArtifactAdapter specs (ops calls state)
+            verifyOperation = operation VerifyResource
+        prepared <- adapterPrepare adapter verifyOperation >>= expectRight
+        adapterPreflight adapter verifyOperation prepared >>= expectRight
+        adapterExecute adapter verifyOperation prepared >>= (@?= AdapterEffectCompleted)
+        adapterVerify adapter verifyOperation prepared >>= expectRight >>= (@?= artifactCompletionProof mutationPlan physical)
+        writeIORef state (ArtifactMissing (contentDigest "absence"))
+        refused <- adapterPreflight adapter verifyOperation prepared
+        case refused of
+          Left _ -> pure ()
+          Right () -> assertFailure "a verification passed preflight with the artifact absent"
+        adapterExecute adapter verifyOperation prepared >>= (@?= AdapterEffectFailed (KnownNoEffect "verified artifact is absent or differs from the review"))
+        adapterRecover adapter verifyOperation prepared >>= (@?= RecoveryUnresolved "verified artifact is absent or differs from the review")
+        readIORef calls >>= (@?= 0)
     , testCase "F142: a reviewed kubeconfig replaces the accepted one" $ do
         calls <- newIORef (0 :: Int)
         state <- newIORef (ArtifactPresent physical (contentDigest "accepted"))
