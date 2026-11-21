@@ -417,17 +417,20 @@ mutation-sweep rev="HEAD" base="" width="4":
 deep-tier-required base="origin/master" rev="":
     #!/usr/bin/env bash
     set -euo pipefail
-    inventory=cli/nagarectl/src/Nagare/Inventory
-    paths=(
-      "$inventory/Execute.hs" "$inventory/Execute/"
-      "$inventory/Journal.hs" "$inventory/OperationStep.hs" "$inventory/Store.hs" "$inventory/Store/"
-      "$inventory/Plan/CloseRecord.hs" "$inventory/Identity.hs"
-      "$inventory/Adapter.hs" "$inventory/Adapters/" "$inventory/Collection/"
-      "$inventory/DataFence.hs" "$inventory/DataFence/"
-      "$inventory/LiveRestoreAdapter.hs" "$inventory/LiveRestoreFence.hs"
-      "$inventory/MaintenanceAdapter.hs" "$inventory/MaintenanceFence.hs"
-      cli/nagarectl/test/InventoryRecoveryModelSpec.hs cli/nagarectl/test/Nagare/Test/World/ cli/nagarectl/test/Nagare/Test/Model/
-    )
+    # Both packages: the admin API's modules moved to nagare-core (51133288).
+    paths=()
+    for inventory in cli/nagarectl/src/Nagare/Inventory cli/nagare-core/src/Nagare/Inventory; do
+      paths+=(
+        "$inventory/Execute.hs" "$inventory/Execute/"
+        "$inventory/Journal.hs" "$inventory/OperationStep.hs" "$inventory/Store.hs" "$inventory/Store/"
+        "$inventory/Plan/CloseRecord.hs" "$inventory/Identity.hs"
+        "$inventory/Adapter.hs" "$inventory/Adapters/" "$inventory/Collection/"
+        "$inventory/DataFence.hs" "$inventory/DataFence/"
+        "$inventory/LiveRestoreAdapter.hs" "$inventory/LiveRestoreFence.hs"
+        "$inventory/MaintenanceAdapter.hs" "$inventory/MaintenanceFence.hs"
+      )
+    done
+    paths+=(cli/nagarectl/test/InventoryRecoveryModelSpec.hs cli/nagarectl/test/Nagare/Test/World/ cli/nagarectl/test/Nagare/Test/Model/)
     # Accept both `just deep-tier-required <ref>` and `base=<ref>`.
     base="{{base}}"
     base="${base#base=}"
