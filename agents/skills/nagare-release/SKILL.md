@@ -20,9 +20,13 @@ validators.
    `transitionsFrom`) and `docs/releases/vX.Y.Z.md` plus its link in `CHANGELOG.md`. Choose the
    version from the changes since the last tag; a pre-1.0 break needs the maintainer's decision.
    `just gate-fast && just land HEAD`.
-2. **Candidate.** When the landed commit's full gate is green: `just release-candidate X.Y.Z`. It
-   runs unattended, moves the intranet under the operator's standing go-ahead, and asks nothing.
-3. **Publish.** `just release-publish X.Y.Z`: the signed tag, the push, the GitHub release, the
+2. **Candidate.** `just release-candidate X.Y.Z`: the landing check (the landed full-gate record, or
+   that gate run here), the images, the upgrade rehearsal on a Colima profile it creates and
+   deletes, then the intranet under the operator's standing go-ahead. It asks nothing. A run belongs
+   to one version and revision, and rerunning the same command continues it: finished steps are
+   kept, not repeated.
+3. **Publish.** `just release-publish X.Y.Z`: every proof checked first, the signed tag, the
+   candidate CLI's review of the notes and rehearsal record, the push, the GitHub release, the
    public flake check, the tag pin in the operator repository.
 
 The release boundary ([ADR 7](../../../docs/adr/0007-publish-immutable-nix-releases-from-validated-tags.md)):
@@ -31,4 +35,5 @@ keeps the version: land the fix and run the candidate again with `--revision`. A
 release is marked **Deprecated** in its GitHub description and a fixed release follows.
 
 When a step refuses, stop and report it with the run directory
-(`~/.local/state/nagare/releases/vX.Y.Z/<time>/`) and the failing log; never work around a guard.
+(`~/.local/state/nagare/releases/vX.Y.Z/<revision>/`) and the failing log; never work around a guard.
+Once its cause is fixed outside the candidate, the same command resumes the run.

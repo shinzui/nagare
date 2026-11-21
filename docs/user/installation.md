@@ -16,7 +16,7 @@ generated:
 Nagare publishes one semantic version for the CLI and its immutable platform payload. Operators and
 app developers should pin that version; a source checkout is only a contributor workspace. The
 [GitHub releases page](https://github.com/shinzui/nagare/releases) identifies the latest stable
-release and supplies its manifest, native Nix output identities, notes, and `SHA256SUMS`.
+release; each release is its signed tag, its notes and the record of its upgrade rehearsal.
 
 ## Choose the package
 

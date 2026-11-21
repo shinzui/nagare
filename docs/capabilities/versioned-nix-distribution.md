@@ -51,11 +51,8 @@ evidence:
     resource: flake.nix
     proves: The root flake exports the versioned CLI, immutable payload, operator launcher, and release checks for every supported system.
   - kind: test
-    resource: scripts/test-release.sh
-    proves: The release gate rejects inconsistent versions and tags and assembles deterministic native-system evidence.
-  - kind: test
-    resource: scripts/rehearse-clone-free-release.sh
-    proves: An isolated home outside the source checkout exercises the versioned CLI, typed config runtime, immutable payload, generated host configuration, and operator recipes.
+    resource: cli/nagare-harness/test/ReleaseCandidateSpec.hs
+    proves: A candidate run binds one version and revision, keeps the steps it finished, and publication refuses a mismatched revision or a missing rehearsal before any provider write (MasterPlan 37 D3).
   - kind: conformance
     resource: .github/workflows/release.yml
     proves: Native runners validate tagged outputs before the minimal-permission job publishes immutable attachments.

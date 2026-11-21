@@ -17,8 +17,8 @@ generated:
 
 ## Move an installed context to a new release
 
-Read the target release notes first. The release's `transitionsFrom` list (in its platform
-metadata, `nagare-platform-metadata-vVERSION.json`) names the releases a context may move from;
+Read the target release notes first. The `transitionsFrom` list in the tag's `release.json` names
+the releases a context may move from;
 0.9.0 accepts 0.4.0, 0.5.0 and 0.6.1 through 0.8.0. Run every step with the **target** release's
 `nagarectl` and the context selected:
 
@@ -94,40 +94,26 @@ backup, not merely the previous server image.
 
 ## Release publication and retry
 
-The release workflow assembles its native outputs, the platform metadata and the
-transition rehearsal record described below into checksummed attachments, then invokes the tagged `nagarectl release publish` command. The command
-checks the annotated tag object and commit, manifest identity, `SHA256SUMS`,
-and every candidate byte before creating a draft. The draft body holds the
-complete publication intent; an append-only, digest-addressed receipt records
-the verified provider asset IDs before that draft is published. A retry reads
-the draft or published release and downloads each declared asset by its
-provider ID. Different bytes, an unexpected asset, or an altered tag/body
-refuse publication. The release is a repository-level artifact: contexts refer
-to it but do not own it. A successful run writes
-`nagare-publication-observation-vVERSION.json` beside the candidate files,
-recording the verified release and asset IDs; the workflow archives this local
-observation separately from the immutable release attachments.
+A release is its signed tag and two attachments: its notes, `nagare-vVERSION.md`, and the EP-172
+transition rehearsal record, `nagare-transition-rehearsal-vVERSION.json`, which records a disposable
+local context moved from the previous release to the candidate. `just release-publish` checks the
+candidate run before anything leaves the machine, then the tag's own `nagarectl release publish`
+validates the record against the tag's `release.json`: it refuses a record that binds another
+candidate, moved from a release `transitionsFrom` does not list, read its seeded row back changed,
+ended with an open transaction or a component off the candidate, or replanned with an operation, and
+it refuses secret-looking keys. Only then is the tag pushed. The per-release local and cloud evidence
+chain of MasterPlan 23 is not re-run (operator, 2026-10-10).
 
-The EP-172 transition rehearsal record is a mandatory part of release
-assembly, not an optional attachment. `scripts/assemble-release.sh` requires
-`--transition-rehearsal FILE`, the
-`docs/release-evidence/REVISION/transition-rehearsal.json` that
-`just release-rehearse` writes after moving a disposable local context
-from the previous release to the candidate. Assembly refuses before writing
-anything when the record binds another candidate, moved from a release the
-payload's `transitionsFrom` does not list, read its seeded row back changed,
-ended with an open transaction or a component off the candidate, or replanned
-with an operation. It copies the record as
-`nagare-transition-rehearsal-vVERSION.json` and the candidate's `release.json`
-as `nagare-platform-metadata-vVERSION.json`, both listed in `SHA256SUMS`. The
-publisher re-validates them against the release manifest before it contacts
-the forge, and refuses secret-looking keys. The per-release local and cloud
-evidence chain of MasterPlan 23 is not re-run (operator, 2026-10-10).
+The command checks the annotated tag object and commit and every candidate byte before creating a
+draft. The draft body holds the complete publication intent; an append-only, digest-addressed
+receipt records the verified provider asset IDs before that draft is published. A retry reads the
+draft or published release and downloads each declared asset by its provider ID. Different bytes, an
+unexpected asset, or an altered tag/body refuse publication. The release is a repository-level
+artifact: contexts refer to it but do not own it. A successful run writes
+`nagare-publication-observation-vVERSION.json` beside the candidate files, recording the verified
+release and asset IDs.
 
-The candidate files are still required when an upload is missing. If the
-temporary Actions artifacts have expired, reconstruct the exact candidate
-from the immutable tag and native checks or a retained archive. Do not accept
-new bytes under the same tag. Public attachments must contain only release
+Never accept new bytes under the same tag. Public attachments must contain only release
 checks and redacted summaries; private plans, credentials, and recovery
 archives belong outside the release.
 
