@@ -9,6 +9,7 @@ module Nagare.Inventory.KubernetesConfiguration
   , confirmInventoryFieldOwnershipFor
   , confirmReviewedFieldTakeover
   , confirmTakeoverSettled
+  , takeoverSettlementPatch
   , foreignFieldManagers
   , liveIdentity
   )
@@ -19,7 +20,7 @@ import Data.Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Foldable (toList)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -138,6 +139,62 @@ confirmTakeoverSettled target uid observed = do
   unless (actualUid == physicalIdentityText uid) (Left "Kubernetes object was replaced during its field takeover")
   remaining <- foreignFieldManagers target observed
   unless (null remaining) (Left "field takeover left fields owned by another writer; inspect managed fields")
+
+-- | The JSON Patch that ends a reviewed takeover's shared ownership, or 'Nothing' when there is none.
+-- A forced apply takes a field from another writer only when it changes the field's value. A field
+-- the other writer had already set to the declared value stays owned by both, so that writer would
+-- refuse every later update (EP-273: an annotation added with @kubectl annotate@ before Nagare
+-- declared it). After the apply, each reviewed writer's entry loses the fields Nagare's @Apply@
+-- entry owns; a field Nagare does not declare stays with its writer, which 'confirmTakeoverSettled'
+-- then refuses. The patch tests UID and resourceVersion and changes no field.
+takeoverSettlementPatch :: Maybe ProviderAddress -> [Value] -> PhysicalIdentity -> Value -> Either Text (Maybe Text)
+takeoverSettlementPatch target reviewed uid observed = do
+  (actualUid, revision) <- liveIdentity observed
+  unless (actualUid == physicalIdentityText uid) (Left "Kubernetes object was replaced during its field takeover")
+  entries <- managedFieldEntries observed
+  others <- foreignEntries target entries
+  let applied =
+        foldr
+          unionFields
+          (Object KM.empty)
+          [ fields
+          | Object entry <- entries
+          , managerOf (Object entry) == Just "nagare-inventory"
+          , KM.lookup "operation" entry == Just (String "Apply")
+          , not (KM.member "subresource" entry)
+          , Just fields <- [KM.lookup "fieldsV1" entry]
+          ]
+      writer = \case
+        Object entry -> (KM.lookup "manager" entry, KM.lookup "operation" entry, KM.lookup "subresource" entry)
+        _ -> (Nothing, Nothing, Nothing)
+      settle entry = case entry of
+        Object fields
+          | entry `elem` others
+          , writer entry `elem` map writer reviewed
+          , Just owned <- KM.lookup "fieldsV1" fields ->
+              (\rest -> Object (KM.insert "fieldsV1" rest fields)) <$> withoutFields applied owned
+        _ -> Just entry
+      settled = mapMaybe settle entries
+  if settled == entries
+    then Right Nothing
+    else
+      Just . TE.decodeUtf8
+        <$> canonicalValue
+          ( toJSON
+              [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= physicalIdentityText uid]
+              , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= revision]
+              , object ["op" .= ("replace" :: Text), "path" .= ("/metadata/managedFields" :: Text), "value" .= settled]
+              ]
+          )
+  where
+    unionFields (Object a) (Object b) = Object (KM.unionWith unionFields a b)
+    unionFields a _ = a
+    -- The owned field set without the fields in @taken@; a container's own marker goes with its
+    -- last field.
+    withoutFields (Object taken) (Object owned) =
+      let rest = KM.mapMaybeWithKey (\key value -> if key == "." then Just value else maybe (Just value) (`withoutFields` value) (KM.lookup key taken)) owned
+       in if KM.null (KM.delete "." rest) then Nothing else Just (Object rest)
+    withoutFields _ _ = Nothing
 
 -- | The foreign managed-field entries of a live object, without timestamps,
 -- in API order. Status-only entries and proved controller paths are not

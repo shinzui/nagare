@@ -619,7 +619,11 @@ same manager owning different fields, refuses before writing. The write is
 Nagare's usual forced server-side apply of the reviewed object. Afterwards the
 object must have no foreign owner of a non-status field left; if one remains (it
 owns fields the declaration does not set), the operation stops ambiguous rather
-than reporting success. Without `--take-over-fields` the refusal stays, and
+than reporting success. A forced apply takes a field from another writer only when
+it changes the field's value, so a field the other writer had already set to the
+declared value stays owned by both. After the apply, Nagare therefore removes the
+fields its own apply owns from each recorded writer's managed-field entry, with a
+patch bound to the object's UID and resourceVersion that changes no field. Without `--take-over-fields` the refusal stays, and
 objects without foreign managers plan exactly as before. Saved reviews from
 earlier releases keep their strict semantics. `inventory plan` does not yet accept
 the opt-in (finding F37).

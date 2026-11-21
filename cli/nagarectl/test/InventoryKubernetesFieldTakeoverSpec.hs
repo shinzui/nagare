@@ -90,6 +90,20 @@ kubernetesFieldTakeoverTests =
           AdapterEffectAmbiguous reason -> assertBool (T.unpack reason) ("another writer" `T.isInfixOf` reason)
           other -> assertFailure (show other)
         applies @?= 1
+    , testCase "a field the reviewed writer shares with Nagare's apply becomes Nagare's alone; a field Nagare does not declare stays (EP-273)" $ do
+        let settled reviewed entries = takeoverSettlementPatch Nothing reviewed K.physical (live "kubernetes-uid-1" "5" entries)
+            managedAfter entries = Just (TE.decodeUtf8 (ok (canonicalValue (toJSON [object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= ("kubernetes-uid-1" :: Text)], object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= ("5" :: Text)], object ["op" .= ("replace" :: Text), "path" .= ("/metadata/managedFields" :: Text), "value" .= (entries :: [Value])]]))))
+            both = object ["f:data" .= object ["." .= object [], "f:mode" .= object [], "f:extra" .= object []]]
+            marked = object ["f:data" .= object ["." .= object [], "f:mode" .= object []]]
+        -- The forced apply changed nothing the writer owns, so the API server left it a co-owner.
+        settled [untimed (patch "t1")] [own, patch "t1"] @?= Right (managedAfter [own])
+        settled [untimed (patch "t1")] [own, patchFields "t1" marked] @?= Right (managedAfter [own])
+        settled [untimed (patch "t1")] [own, patchFields "t1" both] @?= Right (managedAfter [own, patchFields "t1" (object ["f:data" .= object ["." .= object [], "f:extra" .= object []]])])
+        -- Nothing is shared, or the co-owner is not a reviewed writer: ownership is left as it is.
+        settled [untimed (patch "t1")] [own] @?= Right Nothing
+        settled [untimed (patch "t1")] [own, patchFields "t1" extraField] @?= Right Nothing
+        settled [untimed (patch "t1")] [own, edit] @?= Right Nothing
+        assertBool "a replaced object was settled" (isLeft (takeoverSettlementPatch Nothing [untimed (patch "t1")] K.physical (live "kubernetes-uid-2" "5" [own, patch "t1"])))
     , testCase "planning refuses when the object moves between its observation and managed-field read" $ do
         state <- newIORef drifted
         calls <- newIORef (0 :: Int)

@@ -78,7 +78,7 @@ import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal, resourceVersio
 import Nagare.Inventory.Adapters.KubernetesReadiness
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.KubernetesConfiguration (confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, inventoryFieldHandoverPatch, liveStamp)
+import Nagare.Inventory.KubernetesConfiguration (confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, inventoryFieldHandoverPatch, liveStamp, takeoverSettlementPatch)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
 import Nagare.Ops.CertificateChain (withCertificateDiagnosis)
@@ -221,7 +221,7 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
                       waitForCollection config (mutationAddress mutation)
                 Right (ExitSuccess, output, _)
                   | Just takeover <- mutationTakeover mutation -> do
-                      live <- readLiveManagedObject config (mutationAddress mutation)
+                      live <- settleTakeover config (mutationAddress mutation) takeover (3 :: Int)
                       identified output <$> case live >>= confirmTakeoverSettled (Just (mutationAddress mutation)) (takeoverPhysical takeover) of
                         Left reason -> pure (AdapterEffectAmbiguous reason)
                         Right () -> waitForReadiness config (mutationAddress mutation)
@@ -246,10 +246,15 @@ handoverFailure = "Kubernetes managed-field handover failed"
 -- an update, returning the resourceVersion the apply must name. It changes
 -- ownership only, so landing it without the update is harmless (EP-256).
 handOverInventoryFields :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> Value -> IO (Either Text Text)
-handOverInventoryFields config address uid revision observed = case (inventoryFieldHandoverPatch uid revision observed, address) of
-  (Left reason, _) -> pure (Left reason)
-  (Right Nothing, _) -> pure (Right revision)
-  (Right (Just patch), Kubernetes _ group kind namespace name) -> do
+handOverInventoryFields config address uid revision observed = case inventoryFieldHandoverPatch uid revision observed of
+  Left reason -> pure (Left reason)
+  Right Nothing -> pure (Right revision)
+  Right (Just patch) -> (>>= (\value -> metadataOf value >>= fieldText "resourceVersion")) <$> patchManagedFields config address patch
+
+-- | Apply a JSON Patch that rewrites only managed-field ownership, returning the patched object.
+patchManagedFields :: KubernetesRuntimeConfig -> ProviderAddress -> Text -> IO (Either Text Value)
+patchManagedFields config address patch = case address of
+  Kubernetes _ group kind namespace name -> do
     result <-
       invoke
         config
@@ -259,11 +264,24 @@ handOverInventoryFields config address uid revision observed = case (inventoryFi
         )
         ""
     pure $ case result of
-      Right (ExitSuccess, output, _) -> do
-        value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)) :: Either String Value)
-        metadataOf value >>= fieldText "resourceVersion"
+      Right (ExitSuccess, output, _) -> first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)) :: Either String Value)
       _ -> Left handoverFailure
   _ -> pure (Left "Kubernetes managed-field handover needs a Kubernetes address")
+
+-- | The live object after a takeover's forced apply, with the reviewed writers' shared ownership
+-- of Nagare's fields ended ('takeoverSettlementPatch'). A controller's status write may move the
+-- resourceVersion under the patch, so it is retried from a fresh read.
+settleTakeover :: KubernetesRuntimeConfig -> ProviderAddress -> FieldTakeover -> Int -> IO (Either Text Value)
+settleTakeover config address takeover attempts = do
+  live <- readLiveManagedObject config address
+  case live >>= takeoverSettlementPatch (Just address) (takeoverManagers takeover) (takeoverPhysical takeover) of
+    Left reason -> pure (Left reason)
+    Right Nothing -> pure live
+    Right (Just patch) ->
+      patchManagedFields config address patch >>= \case
+        Left _ | attempts > 1 -> settleTakeover config address takeover (attempts - 1)
+        Left reason -> pure (Left reason)
+        Right _ -> readLiveManagedObject config address
 
 -- | A review observes one explicit Kubernetes context. Validate the ambient
 -- context and server node before and after the read-only scan; discard every
