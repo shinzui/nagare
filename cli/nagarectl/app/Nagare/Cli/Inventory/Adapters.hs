@@ -130,6 +130,7 @@ import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DeployerCloudAccess (cloudDelegatedDeployers)
 import Nagare.Inventory.Digest qualified as InventoryDigest
+import Nagare.Inventory.HostLock qualified as HostLock
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.ContextGuard (projectGuardVerdict)
@@ -511,8 +512,10 @@ inventoryHostAdapterWith runtimeOps active workspace accepted _ reviewedDigests 
   flake <- BS.readFile (hostRoot </> "flake.nix")
   hostModule <- BS.readFile (hostRoot </> "host.nix")
   lock <- BS.readFile (hostRoot </> "flake.lock")
-  let configurationDigest = InventoryDigest.contentDigest (flake <> hostModule)
-      lockDigest = InventoryDigest.contentDigest lock
+  -- MasterPlan 37 D1: the review binds what the host evaluates; the transport
+  -- still checks the files it reads are the bytes this adapter saw.
+  let configurationDigest = HostLock.hostEvaluatedConfigurationDigest flake hostModule
+      lockDigest = HostLock.hostEvaluatedLockDigest lock
       withoutConfiguration = delete configurationDigest reviewedDigests
       remaining = delete lockDigest withoutConfiguration
   unless
@@ -543,8 +546,8 @@ inventoryHostAdapterWith runtimeOps active workspace accepted _ reviewedDigests 
           , runtimeHostZone = profile ^. #zone
           , runtimeHostInstanceName = profile ^. #instanceName
           , runtimeHostDestination = "deploy@" <> hostName
-          , runtimeHostConfigurationDigest = configurationDigest
-          , runtimeHostLockDigest = lockDigest
+          , runtimeHostConfigurationDigest = InventoryDigest.contentDigest (flake <> hostModule)
+          , runtimeHostLockDigest = InventoryDigest.contentDigest lock
           , runtimeHostAgeKeyDigest = ageKeyDigest
           , runtimeHostAccepted = accepted
           }

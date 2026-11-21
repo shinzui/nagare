@@ -151,8 +151,10 @@ buildHostCandidate mode transition paths active workspace snapshot
       owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
       key <- either dieT pure (Resource.mkLogicalKey "nixos-system")
       role <- either dieT pure (Resource.mkName "system")
-      let configurationDigest = InventoryDigest.contentDigest (flake <> hostModule)
-          lockDigest = InventoryDigest.contentDigest lock
+      -- MasterPlan 37 D1: the digests of what the host evaluates, without the
+      -- release comments and payload store path every release rewrites.
+      let configurationDigest = HostLock.hostEvaluatedConfigurationDigest flake hostModule
+          lockDigest = HostLock.hostEvaluatedLockDigest lock
           acceptedScope = snd <$> Map.lookup owner (ResourceInventory.snapshotScopes snapshot)
           systemId = Resource.mintResourceId owner key role
       -- Checklist section 3: a transition may re-pin flake.lock only for
