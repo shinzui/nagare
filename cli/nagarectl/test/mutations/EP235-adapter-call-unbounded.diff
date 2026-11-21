@@ -1,5 +1,5 @@
---- a/cli/nagarectl/src/Nagare/Events/Delivery.hs
-+++ b/cli/nagarectl/src/Nagare/Events/Delivery.hs
+--- a/cli/nagare-core/src/Nagare/Events/Delivery.hs
++++ b/cli/nagare-core/src/Nagare/Events/Delivery.hs
 @@ -549,7 +549,7 @@ attemptDelivery env adapter headValue feedValue entry = do
  boundedPublish :: DeliveryBudget -> (PublicationRequest -> IO Outcome) -> PublicationRequest -> IO Outcome
  boundedPublish budget' publish' request = do

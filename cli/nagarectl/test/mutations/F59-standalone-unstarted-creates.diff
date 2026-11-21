@@ -1,7 +1,7 @@
-diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+diff --git a/cli/nagare-core/src/Nagare/Inventory/Plan/History.hs b/cli/nagare-core/src/Nagare/Inventory/Plan/History.hs
 index 22e87467..dbdb5329 100644
---- a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
-+++ b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+--- a/cli/nagare-core/src/Nagare/Inventory/Plan/History.hs
++++ b/cli/nagare-core/src/Nagare/Inventory/Plan/History.hs
 @@ -340,6 +340,7 @@ loadUnstartedApplicationCreates store selectedOwners headValue
                  Set.member owner selectedOwners
                    -- A closed scope of any kind (F59, ADR 26) leaves

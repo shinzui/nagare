@@ -1,5 +1,5 @@
---- a/cli/nagarectl/src/Nagare/Events/Webhook/Subscription.hs
-+++ b/cli/nagarectl/src/Nagare/Events/Webhook/Subscription.hs
+--- a/cli/nagare-core/src/Nagare/Events/Webhook/Subscription.hs
++++ b/cli/nagare-core/src/Nagare/Events/Webhook/Subscription.hs
 @@ -148,7 +148,7 @@ decodeWebhookSettings spec = do
  -- sign differently.
  webhookRedirects :: DestinationSpec -> DestinationSpec -> Bool

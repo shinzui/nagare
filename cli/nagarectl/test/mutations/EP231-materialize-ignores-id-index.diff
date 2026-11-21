@@ -1,5 +1,5 @@
---- a/cli/nagarectl/src/Nagare/Events/Materialize.hs
-+++ b/cli/nagarectl/src/Nagare/Events/Materialize.hs
+--- a/cli/nagare-core/src/Nagare/Events/Materialize.hs
++++ b/cli/nagare-core/src/Nagare/Events/Materialize.hs
 @@ -122,7 +122,7 @@
              Left err -> pure (Left (MaterializeFeed err))
              Right existing -> do

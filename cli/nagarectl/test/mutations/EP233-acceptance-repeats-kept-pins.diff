@@ -1,5 +1,5 @@
---- a/cli/nagarectl/src/Nagare/Events/Backup.hs
-+++ b/cli/nagarectl/src/Nagare/Events/Backup.hs
+--- a/cli/nagare-core/src/Nagare/Events/Backup.hs
++++ b/cli/nagare-core/src/Nagare/Events/Backup.hs
 @@ -242,7 +242,7 @@ sourceRef owner fields key =
  newlyPinned :: ScopeView -> [Text] -> Bool
  newlyPinned view' keys = case view' ^. #previous of

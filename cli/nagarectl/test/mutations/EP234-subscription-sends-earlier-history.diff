@@ -1,5 +1,5 @@
---- a/cli/nagarectl/src/Nagare/Events/Delivery.hs
-+++ b/cli/nagarectl/src/Nagare/Events/Delivery.hs
+--- a/cli/nagare-core/src/Nagare/Events/Delivery.hs
++++ b/cli/nagare-core/src/Nagare/Events/Delivery.hs
 @@ -168,7 +168,7 @@ applyControl env = \case
  
  applyRevision :: DeliveryEnv -> Subscription -> IO (Either DeliveryError ())

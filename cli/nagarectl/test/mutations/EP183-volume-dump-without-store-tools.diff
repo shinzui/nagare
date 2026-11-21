@@ -1,7 +1,7 @@
-diff --git a/cli/nagarectl/src/Nagare/Database/Backup.hs b/cli/nagarectl/src/Nagare/Database/Backup.hs
+diff --git a/cli/nagare-core/src/Nagare/Database/Backup.hs b/cli/nagare-core/src/Nagare/Database/Backup.hs
 index 1fb23f1f..15eca0f4 100644
---- a/cli/nagarectl/src/Nagare/Database/Backup.hs
-+++ b/cli/nagarectl/src/Nagare/Database/Backup.hs
+--- a/cli/nagare-core/src/Nagare/Database/Backup.hs
++++ b/cli/nagare-core/src/Nagare/Database/Backup.hs
 @@ -393,7 +393,7 @@ dumpContainer i = case i ^. #source of
        [ "name" .= ("dump" :: Text)
        , "image" .= uploadImage i

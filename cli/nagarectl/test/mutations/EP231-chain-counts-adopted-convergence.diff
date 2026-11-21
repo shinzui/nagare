@@ -1,5 +1,5 @@
---- a/cli/nagarectl/src/Nagare/Events/Source/Chain.hs
-+++ b/cli/nagarectl/src/Nagare/Events/Source/Chain.hs
+--- a/cli/nagare-core/src/Nagare/Events/Source/Chain.hs
++++ b/cli/nagare-core/src/Nagare/Events/Source/Chain.hs
 @@ -134,7 +134,7 @@
              Nothing -> Passed
              Just convergence

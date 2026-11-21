@@ -1,7 +1,7 @@
-diff --git a/cli/nagarectl/src/Nagare/Inventory/DataFence.hs b/cli/nagarectl/src/Nagare/Inventory/DataFence.hs
+diff --git a/cli/nagare-core/src/Nagare/Inventory/DataFence.hs b/cli/nagare-core/src/Nagare/Inventory/DataFence.hs
 index a37ac07c..5abc8937 100644
---- a/cli/nagarectl/src/Nagare/Inventory/DataFence.hs
-+++ b/cli/nagarectl/src/Nagare/Inventory/DataFence.hs
+--- a/cli/nagare-core/src/Nagare/Inventory/DataFence.hs
++++ b/cli/nagare-core/src/Nagare/Inventory/DataFence.hs
 @@ -87,7 +87,7 @@ acquireDataFence locked controls requested = do
      Right headValue
        | not (validRequest (lockedStore locked) headValue requested) ->
