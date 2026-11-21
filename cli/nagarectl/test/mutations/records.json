@@ -1214,7 +1214,7 @@
   {
     "record": "EP273-refresh-replaces-annotations",
     "suite": "nagarectl",
-    "pattern": "/the annotation joins the route.s other annotations/",
+    "pattern": "/the annotation joins the route/",
     "expect": "test-fails"
   },
   {
@@ -1232,7 +1232,7 @@
   {
     "record": "EP273-takeover-keeps-shared-owner",
     "suite": "nagarectl",
-    "pattern": "/a hand annotation becomes Nagare.s/ || /shares with Nagare.s apply/",
+    "pattern": "/a hand annotation becomes Nagare/ || /a field the reviewed writer shares with Nagare/",
     "expect": "test-fails"
   }
 ]
