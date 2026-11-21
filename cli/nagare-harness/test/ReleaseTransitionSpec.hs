@@ -149,7 +149,7 @@ intranetWorld o knobs = do
   plans <- newIORef (0 :: Int)
   stopped <- newIORef False
   committed <- newIORef False
-  changed <- newIORef ["flake.lock" | knobs ^. #dirtyPin]
+  changed <- newIORef (if knobs ^. #dirtyPin then ["flake.nix", "flake.lock"] else [])
   let at' identity = object ["version" .= identity, "revision" .= (if identity == version' then rev else "old"), "payloadSchema" .= (1 :: Int)]
       ok out = pure (0, out)
       fails out = pure (1, out)
@@ -158,6 +158,9 @@ intranetWorld o knobs = do
     ("git", "-C" : _ : "status" : "--porcelain" : "--" : files) -> do
       dirty <- readIORef changed
       ok (T.concat [" M " <> T.pack file <> "\n" | file <- files, file `elem` dirty])
+    ("git", ["-C", _, "hash-object", "--", file]) -> do
+      present <- doesFileExist (o ^. #operator </> file)
+      if present then (\bytes -> ok (T.pack (show bytes) <> "\n")) =<< BS.readFile (o ^. #operator </> file) else ok ("generated " <> T.pack file <> "\n")
     ("git", "-C" : _ : "add" : _) -> ok ""
     ("git", "-C" : _ : "commit" : _) -> writeIORef changed [] >> ok ""
     ("git", "-C" : _ : "rev-parse" : "--short" : _) -> ok "abc1234\n"
@@ -214,6 +217,15 @@ nagare rest = unwords (["direnv", "exec", "$T/operator", "nagarectl", "--context
 pinFiles :: [String]
 pinFiles = ["flake.nix", "flake.lock", "hosts/intranet/flake.nix", "hosts/intranet/flake.lock", "contexts/intranet.env"]
 
+-- | The pin files nagarectl writes.
+generated :: [String]
+generated = drop 2 pinFiles
+
+-- | MasterPlan 37 D3: reading the pin ledger's files: their status, then the
+-- blob of each changed one.
+recordOf :: [String] -> [String] -> [String]
+recordOf files changed = ("git -C $T/operator status --porcelain -- " <> unwords files) : ["git -C $T/operator hash-object -- " <> file | file <- changed]
+
 -- | The order scripts/release-intranet.sh ran for a candidate whose first
 -- apply stops ambiguous and is resumed, converging at the third plan. Since
 -- M2 the plans write a @--summary@ and the applies print their @--contract 1@
@@ -225,21 +237,33 @@ intranetOrder =
        , "direnv exec $T/operator sh -c command -v gcloud"
        , "direnv exec $T/operator printenv NAGARE_BASE_DOMAIN"
        , "nix flake update nagare"
-       , nagare ["version", "--json"]
+       ]
+    <> recordOf ["flake.nix", "flake.lock"] ["flake.nix", "flake.lock"]
+    <> [ nagare ["version", "--json"]
        , nagare ["inventory", "store", "status", "--json"]
        , nagare ["platform", "status", "--json"]
        , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-1", "--summary", "$T/run/intranet/stage-1.summary.json"]
-       , nagare ["inventory", "apply", "$T/run/intranet/stage-1", "--yes", "--contract", "1"]
-       , nagare ["inventory", "resume", "tx-ab12", "--yes", "--contract", "1"]
-       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-2", "--summary", "$T/run/intranet/stage-2.summary.json"]
-       , nagare ["inventory", "apply", "$T/run/intranet/stage-2", "--yes", "--contract", "1"]
-       , nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-3", "--summary", "$T/run/intranet/stage-3.summary.json"]
-       , nagare ["platform", "status", "--json"]
+       ]
+    <> recordOf generated []
+    <> [nagare ["inventory", "apply", "$T/run/intranet/stage-1", "--yes", "--contract", "1"]]
+    <> recordOf generated []
+    <> [nagare ["inventory", "resume", "tx-ab12", "--yes", "--contract", "1"]]
+    <> recordOf generated []
+    <> [nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-2", "--summary", "$T/run/intranet/stage-2.summary.json"]]
+    <> recordOf generated []
+    <> [nagare ["inventory", "apply", "$T/run/intranet/stage-2", "--yes", "--contract", "1"]]
+    <> recordOf generated ["hosts/intranet/flake.nix"]
+    <> [nagare ["platform", "transition", "plan", "--out", "$T/run/intranet/stage-3", "--summary", "$T/run/intranet/stage-3.summary.json"]]
+    <> recordOf generated ["hosts/intranet/flake.nix"]
+    <> [ nagare ["platform", "status", "--json"]
        , nagare ["platform", "transition", "commit", "--yes"]
-       , nagare ["platform", "status", "--json"]
+       ]
+    <> recordOf generated ["hosts/intranet/flake.nix", "contexts/intranet.env"]
+    <> [ nagare ["platform", "status", "--json"]
        , nagare ["inventory", "status", "--json"]
        , "curl -sS -o /dev/null -m 30 -w %{http_code} %{redirect_url}\n https://protected-hello.example.test/"
        ]
+    <> recordOf pinFiles ["flake.nix", "flake.lock", "hosts/intranet/flake.nix", "contexts/intranet.env"]
     <> ["git -C $T/operator status --porcelain -- " <> file | file <- pinFiles]
     <> [ "git -C $T/operator add -- flake.nix flake.lock hosts/intranet/flake.nix contexts/intranet.env"
        , "git -C $T/operator commit -q -m feat(nagare): upgrade the intranet to the v9.8.7 candidate -m Moved the intranet to Nagare 9.8.7 at "
@@ -293,14 +317,24 @@ intranetTests =
                 ]
           [(fieldAt attempt' ["attemptId"], fieldAt attempt' ["transaction"], fieldAt attempt' ["outcome"]) | stage <- take 1 stages, Just (Aeson.Array attempts') <- [fieldAt stage ["attempts"]], attempt' <- toList attempts']
             @?= [(Just "intranet-1/apply", Just "tx-ab12", Just "ambiguous"), (Just "intranet-1/resume", Just "tx-ab12", Just "converged")]
-    , testCase "a rerun continues from pin files an earlier run left on this candidate" $
+    , testCase "a rerun continues from the pin files this run left" $
         withOperator $ \o -> do
-          writeFile (o ^. #operator </> "flake.lock") ("{\"nodes\":{\"nagare\":{\"locked\":{\"rev\":\"" <> T.unpack rev <> "\"}}}}\n")
+          (stopped, _) <- fake (o ^. #environment) =<< intranetWorld o calm {applyFails = True}
+          refused (transitionRun stopped (intranetOptions o)) >>= assertMentions "apply 1 failed"
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {dirtyPin = True}
           transitionRun runtime (intranetOptions o)
           said' <- lines' world
-          assertBool "no continue line" (any (("the pin files already name " <> rev) `T.isInfixOf`) said')
+          assertBool "no continue line" (any ("the pin files hold this run's earlier changes; continuing" `T.isInfixOf`) said')
           doesFileExist (o ^. #run </> "intranet.json") >>= assertBool "no record"
+    , testCase "a rerun after an unrelated edit beside the pin refuses, commits nothing and keeps the edit (MasterPlan 37 D3)" $
+        withOperator $ \o -> do
+          (stopped, _) <- fake (o ^. #environment) =<< intranetWorld o calm {applyFails = True}
+          refused (transitionRun stopped (intranetOptions o)) >>= assertMentions "apply 1 failed"
+          appendFile (o ^. #operator </> "flake.nix") "# the operator's own edit\n"
+          (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {dirtyPin = True}
+          refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "the pin files flake.nix in"
+          assertNothingLanded o . rendered (o ^. #root) =<< recorded world
+          readFile (o ^. #operator </> "flake.nix") >>= assertMentions "# the operator's own edit" . T.pack
     , testCase "a second ambiguous stop is not resumed again" $
         withOperator $ \o -> do
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {ambiguous = True, resumeFails = True}
@@ -341,7 +375,7 @@ intranetTests =
           readFile (o ^. #operator </> "flake.nix") >>= assertMentions "inputs.nagare.url = \"github:shinzui/nagare/v9.8.7\";" . T.pack
     , testGroup
         "every refusal writes no record and commits nothing"
-        [ refusal "dirty pin files" calm {dirtyPin = True} "the pin files have uncommitted changes"
+        [ refusal "pin files this run did not change" calm {dirtyPin = True} "have changes this run did not make"
         , refusal "the wrong CLI" calm {wrongCli = True} ("nagarectl is not 9.8.7 at " <> rev)
         , refusal "a lock on another revision" calm {wrongLock = True} ("does not resolve github:shinzui/nagare/" <> rev <> " to " <> rev)
         , refusal "an active transaction" calm {activeTransaction = True} "has an active transaction"

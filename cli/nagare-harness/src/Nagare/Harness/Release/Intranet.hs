@@ -10,7 +10,14 @@
 -- converged inventory and the protected URL answering 302 to its login page.
 -- Only then does it commit the pin files, by path, and write
 -- @<run>/intranet.json@, which release-publish requires. It never edits app
--- config. Every step stops at its first refusal; an apply that stops
+-- config.
+--
+-- MasterPlan 37 D3: the run records in @<run>/intranet/pins.json@ the git blob
+-- of every pin file it changed: the root flake files after it pins them, the
+-- files nagarectl writes (the host flake, the context) after each nagarectl
+-- command. A rerun continues only while every changed pin file holds exactly
+-- what this run left, and the commit checks the same; any other change, such
+-- as an edit to @flake.nix@ beside the pin, refuses and is left in place. Every step stops at its first refusal; an apply that stops
 -- ambiguous is resumed once (@inventory resume@) by transaction id.
 --
 -- nagarectl runs through the operator repository's dev shell
@@ -36,6 +43,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error qualified as TE
@@ -48,7 +56,7 @@ import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.Review
 import Nagare.Harness.Release.RunIndex
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, removePathForcibly)
-import System.FilePath (dropExtension, (</>))
+import System.FilePath (dropExtension, takeDirectory, (</>))
 
 data IntranetOptions = IntranetOptions
   { version :: !Text
@@ -167,6 +175,57 @@ nagarectl s arguments' = inShell s (["nagarectl", "--context", T.unpack (s ^. #c
 inShell :: Setup -> [String] -> Invocation
 inShell s command = invocation "direnv" (["exec", s ^. #operator] <> command) & #environment .~ Exactly (s ^. #clean)
 
+-- | The pin files only the pin step writes.
+rootPins :: [FilePath]
+rootPins = ["flake.nix", "flake.lock"]
+
+-- | The tracked pin files nagarectl writes: the host flake and the context.
+generatedPins :: Setup -> [FilePath]
+generatedPins s = filter (`notElem` rootPins) (s ^. #tracked)
+
+ledgerPath :: Setup -> FilePath
+ledgerPath s = s ^. #run </> "intranet/pins.json"
+
+readLedger :: Setup -> IO (Map.Map FilePath Text)
+readLedger s = do
+  present <- doesFileExist (ledgerPath s)
+  if present then either refuse pure =<< readDocument (ledgerPath s) else pure Map.empty
+
+-- | The tracked pin files among @files@ that differ from the operator's HEAD.
+changedPins :: Runtime -> Setup -> [FilePath] -> IO [FilePath]
+changedPins runtime s files
+  | null files = pure []
+  | otherwise = do
+      out <- captureText runtime "git status failed" (git (s ^. #operator) (["status", "--porcelain", "--"] <> files))
+      let listed = map (T.unpack . T.drop 3) (T.lines out)
+      pure (filter (`elem` listed) files)
+
+-- | A working-tree file's git blob, or @deleted@.
+blobOf :: Runtime -> Setup -> FilePath -> IO Text
+blobOf runtime s file = do
+  found <- invoke runtime (git (s ^. #operator) ["hash-object", "--", file] & #stdoutTo .~ Capture & #stderrTo .~ Discard)
+  pure (if found ^. #exit == 0 then T.strip (lenient (found ^. #output)) else "deleted")
+
+-- | Record what this run left in each changed file of @files@.
+recordPins :: Runtime -> Setup -> [FilePath] -> IO ()
+recordPins runtime s files = do
+  changed <- changedPins runtime s files
+  blobs <- forM changed (\file -> (,) file <$> blobOf runtime s file)
+  ledger <- readLedger s
+  createDirectoryIfMissing True (takeDirectory (ledgerPath s))
+  writeSortedAtomically (ledgerPath s) (Aeson.toJSON (Map.union (Map.fromList blobs) ledger))
+
+-- | Refuse unless every changed pin file holds exactly what this run left;
+-- whether any had changed.
+checkPins :: Runtime -> Setup -> IO Bool
+checkPins runtime s = do
+  ledger <- readLedger s
+  changed <- changedPins runtime s (s ^. #tracked)
+  strangers <- filterM (\file -> (\blob -> Map.lookup file ledger /= Just blob) <$> blobOf runtime s file) changed
+  unless (null strangers) $
+    refuse ("the pin files " <> T.intercalate ", " (map T.pack strangers) <> " in " <> T.pack (s ^. #operator) <> " have changes this run did not make; commit or stash them, then rerun")
+  pure (not (null changed))
+
 -- | Pin the published tag: the same commit, named by its tag.
 transitionPinTag :: Runtime -> IntranetOptions -> IO ()
 transitionPinTag runtime options = do
@@ -204,15 +263,10 @@ moveIntranet runtime s index = do
       context' = s ^. #context
       version' = s ^. #version
       revision' = s ^. #revision
-  -- preflight: refuse before changing anything
-  dirty <- invoke runtime (git (s ^. #operator) (["status", "--porcelain", "--"] <> s ^. #tracked) & #stdoutTo .~ Capture)
-  -- A run that stopped after pinning leaves the pin files naming this
-  -- candidate; a rerun continues from them instead of refusing.
-  unless (BS.null (dirty ^. #output)) $ do
-    lock <- readDocument @Value (s ^. #operator </> "flake.lock")
-    unless (either (const False) ((== Just revision') . lockedRevision) lock) $
-      refuse ("the pin files have uncommitted changes in " <> operator' <> ": " <> T.replace "\n" " " (lenient (dirty ^. #output)))
-    step runtime ("the pin files already name " <> revision' <> " from an earlier run; continuing")
+  -- preflight: refuse before changing anything. A run that stopped after
+  -- pinning left the pin files as it recorded them; a rerun continues.
+  continuing <- checkPins runtime s
+  when continuing (step runtime "the pin files hold this run's earlier changes; continuing")
   gcloud <- succeeds runtime (inShell s ["sh", "-c", "command -v gcloud"] & #stdoutTo .~ Discard)
   unless gcloud (refuse "gcloud is not on PATH")
   protected <- case lookupVariable runtime "NAGARE_RELEASE_PROTECTED_URL" of
@@ -225,6 +279,7 @@ moveIntranet runtime s index = do
   -- 1. pin the candidate; the dev shell then carries its nagarectl
   step runtime ("pinning " <> operator' <> " to " <> revision')
   pin runtime s revision'
+  recordPins runtime s rootPins
   let notCandidate = "the operator shell's nagarectl is not " <> version' <> " at " <> revision'
   identity <- capture runtime notCandidate (nagarectl s ["version", "--json"])
   case decodeDocument @VersionInfo "version --json" identity of
@@ -251,6 +306,7 @@ moveIntranet runtime s index = do
         step runtime "committing the transition"
         let commitLog = reviews </> "commit.log"
         committed <- succeeds runtime (nagarectl s ["platform", "transition", "commit", "--yes"] & #stdoutTo .~ WriteTo commitLog & #stderrTo .~ SameAsStdout)
+        recordPins runtime s (generatedPins s)
         unless committed $ do
           logged <- readLenient commitLog
           refuse ("transition commit refused: " <> lastLines 5 logged)
@@ -269,6 +325,7 @@ moveIntranet runtime s index = do
   unless (code == "302" && loginLocation location) $
     refuse (protected <> " answered " <> (if T.null code then "nothing" else code) <> " " <> location <> ", not a 302 to a login page")
   -- 4. the pin commit, then the record
+  _ <- checkPins runtime s
   commitPins
     runtime
     s
@@ -308,6 +365,7 @@ converge runtime s index reviews previous n
           planTrace = review <> ".plan.trace.json"
       removePathForcibly review
       planned <- succeeds runtime (traced planTrace (nagarectl s ["platform", "transition", "plan", "--out", review, "--summary", summaryFile]) & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
+      recordPins runtime s (generatedPins s)
       unless planned $ do
         logged <- readLenient planLog
         refuse ("plan " <> showText n <> " refused: " <> lastLines 5 logged)
@@ -323,12 +381,12 @@ converge runtime s index reviews previous n
       addStage index (StageEntry stage "intranet" n (relativeIn index review) (relativeIn index planLog) (Just (relativeIn index summaryFile)) operations' moves done plannedAt' [] (Just (relativeIn index planTrace)))
       step runtime ("stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts " <> showText moves <> " scopes")
       unless done $ do
-        applied <- attempt runtime index stage "apply" (nagarectl s ["inventory", "apply", review, "--yes", "--contract", "1"]) (review <> ".apply.json") (WriteTo applyLog)
+        applied <- attempt runtime s index stage "apply" (nagarectl s ["inventory", "apply", review, "--yes", "--contract", "1"]) (review <> ".apply.json") (WriteTo applyLog)
         case applied of
           AppliedConverged -> pure ()
           AppliedAmbiguous transaction -> do
             step runtime ("apply " <> showText n <> " stopped ambiguous; resuming " <> transaction <> " once")
-            resumed <- attempt runtime index stage "resume" (nagarectl s ["inventory", "resume", T.unpack transaction, "--yes", "--contract", "1"]) (review <> ".resume.json") (AppendTo applyLog)
+            resumed <- attempt runtime s index stage "resume" (nagarectl s ["inventory", "resume", T.unpack transaction, "--yes", "--contract", "1"]) (review <> ".resume.json") (AppendTo applyLog)
             unless (resumed == AppliedConverged) $ do
               logged <- readLenient applyLog
               refuse ("resume of " <> transaction <> " failed: " <> describeOutcome resumed <> ": " <> lastLines 5 logged)
@@ -338,12 +396,14 @@ converge runtime s index reviews previous n
         converge runtime s index reviews (Just work) (n + 1)
 
 -- | Run one apply or resume with its outcome document on stdout and its
--- progress in the stage's log, and index the attempt.
-attempt :: Runtime -> IndexWriter -> Text -> Text -> Invocation -> FilePath -> Sink -> IO ApplyOutcome
-attempt runtime index stage action' command document' logSink = do
+-- progress in the stage's log, record the pin files it wrote, and index the
+-- attempt.
+attempt :: Runtime -> Setup -> IndexWriter -> Text -> Text -> Invocation -> FilePath -> Sink -> IO ApplyOutcome
+attempt runtime s index stage action' command document' logSink = do
   started <- runtime ^. #now
   let trace' = dropExtension document' <> ".trace.json"
   _ <- invoke runtime (traced trace' command & #stdoutTo .~ WriteTo document' & #stderrTo .~ logSink)
+  recordPins runtime s (generatedPins s)
   (outcome', transaction', name') <- readApplyOutcome document'
   finished' <- runtime ^. #now
   let logFile' = case logSink of
