@@ -26,6 +26,11 @@ provenance:
       at: 2026-11-21T05:58:44Z
       mode: "update"
       note: "Applied review findings across release identity, publication, rehearsal isolation, cleanup scope and EP-274 recovery boundaries."
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-21T06:43:27Z
+      mode: "implement"
+      note: "D1 host and cluster identity slices, D5 CLAUDE.md rules; registry D1 and D5 In Progress"
 ---
 
 # Make releases routine by deleting what Nagare does not need
