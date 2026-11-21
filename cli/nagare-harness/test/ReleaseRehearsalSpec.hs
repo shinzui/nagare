@@ -78,7 +78,7 @@ rehearseTests =
                 , "/nix/store/candidate-nagarectl/bin/nagarectl version --json"
                 , "git -C $T/repo show " <> T.unpack rev <> ":release.json"
                 , "git -C $T/repo show v9.8.6:release.json"
-                , "colima start -p nagare-rehearsal-20261029140458 --activate=false --cpus 6 --memory 12 --disk 100 --dns 1.1.1.1 --dns 8.8.8.8"
+                , "colima start -p nagare-rehearsal-20261029140458 --activate=false --vm-type vz --vz-rosetta --cpus 6 --memory 12 --disk 100 --dns 1.1.1.1 --dns 8.8.8.8"
                 , "colima status -p nagare-rehearsal-20261029140458 --json"
                 , "/harness/bin/nagare-harness transition drill"
                 , "colima delete -p nagare-rehearsal-20261029140458 --force --data"

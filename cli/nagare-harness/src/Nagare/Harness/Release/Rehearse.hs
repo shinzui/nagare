@@ -69,9 +69,11 @@ withDaemon runtime action = case lookupVariable runtime "NAGARE_REHEARSAL_DOCKER
         delete' = invoke runtime (invocation "colima" ["delete", "-p", profile, "--force", "--data"] & #stdoutTo .~ Discard & #stderrTo .~ Discard)
     note runtime ("creating the Colima profile " <> T.pack profile <> "; this run deletes it")
     flip finally delete' $ do
-      -- resolvers that answer: a fresh VM's 192.168.5.3 does not
+      -- Resolvers that answer (a fresh VM's 192.168.5.3 does not), and
+      -- Rosetta: the service images are linux/amd64, and under qemu the
+      -- Shomei migration exceeds its 128 MiB limit.
       require runtime ("colima could not start " <> T.pack profile) $
-        invocation "colima" ["start", "-p", profile, "--activate=false", "--cpus", "6", "--memory", "12", "--disk", "100", "--dns", "1.1.1.1", "--dns", "8.8.8.8"]
+        invocation "colima" ["start", "-p", profile, "--activate=false", "--vm-type", "vz", "--vz-rosetta", "--cpus", "6", "--memory", "12", "--disk", "100", "--dns", "1.1.1.1", "--dns", "8.8.8.8"]
       status <- capture runtime ("colima status -p " <> T.pack profile <> " failed") (invocation "colima" ["status", "-p", profile, "--json"] & #stderrTo .~ Discard)
       daemon <- either refuse (pure . T.unpack) (decodeDocument @Value "colima status --json" status >>= colimaSocket)
       action daemon
