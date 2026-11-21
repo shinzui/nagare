@@ -47,6 +47,13 @@ SUBNET="${NIX_BUILDER_SUBNET:-nix-builder-subnet}"
 SUBNET_CIDR="${NIX_BUILDER_SUBNET_CIDR:-10.10.0.0/24}"
 FIREWALL="${NIX_BUILDER_FIREWALL:-nix-builder-iap-ssh}"
 INSTANCE="${NIX_BUILDER_INSTANCE:-nix-builder-x86}"
+
+# The managed name stays reserved through a replacement, when a label lookup
+# would find no instance.
+if [[ "$PROJECT" == "tan-nb-exp" && "$ZONE" == "us-west1-a" && "$INSTANCE" == "nix-builder-x86" ]]; then
+  echo "refusing to provision $PROJECT/$ZONE/$INSTANCE: managed by mori://shinzui/kama." >&2
+  exit 1
+fi
 # n2-standard-16 (16 vCPU, 64 GB) is the live builder's shape (observed
 # 2026-10-05); it was resized outside this script, which still said
 # n2-standard-2. The host sends up to four concurrent GHC builds here (its
