@@ -44,7 +44,6 @@ import Nagare.Contract.Problem
   , problemFor
   , serverBusy
   )
-import Nagare.Contract.V1 (VersionInfo)
 import Nagare.Inventory.Recorded (readRecordedHead)
 import Network.HTTP.Types (ResponseHeaders, Status, hCacheControl, hContentType, status405, status406, status500, status503, statusCode)
 import Network.Wai (Application, Middleware, Response, mapResponseHeaders, pathInfo, responseHeaders, responseLBS, responseStatus)
@@ -64,7 +63,8 @@ import System.Timeout (timeout)
 
 data AppConfig = AppConfig
   { context :: !Text
-  , version :: !VersionInfo
+  , image :: !(Maybe Text)
+  -- ^ The image reference the server was started with, if any.
   , admission :: !Int
   , logSink :: !(ByteString -> IO ())
   -- ^ Where each access line goes: stdout in the server.
@@ -76,7 +76,7 @@ adminApplication config env = do
   -- Build the served documents once, before any request: concurrent first
   -- forcing of one large top-level thunk was observed spinning on its
   -- blackhole (GHC 9.12, many capabilities).
-  _ <- evaluate (LBS.length renderAdminOpenApi + LBS.length (encode (config ^. #version)))
+  _ <- evaluate (LBS.length renderAdminOpenApi)
   inFlight <- newIORef 0
   let application = serveWithContext adminApi (formatters Servant.:. Servant.EmptyContext) (adminServer config env)
   pure (requestLog env (config ^. #logSink) (problemResponses (admitted (config ^. #admission) inFlight application)))
@@ -84,7 +84,7 @@ adminApplication config env = do
 adminServer :: AppConfig -> Env -> AdminApi (AsServerT Handler)
 adminServer config env =
   AdminApi
-    { platform = platformServer (config ^. #version) env
+    { platform = platformServer (config ^. #image) env
     , inventory = inventoryServer env (config ^. #context)
     , sites = sitesServer env (config ^. #context)
     , access = accessServer env (config ^. #context)

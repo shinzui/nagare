@@ -38,6 +38,8 @@ spec:
         - name: nagare-admin-api
           image: "@IMAGE@"
           args:
+            - --image
+            - "@IMAGE@"
             - --context
             - "@CONTEXT@"
             - --project

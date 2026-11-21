@@ -24,25 +24,13 @@
       },
       "Comparison": {
         "properties": {
-          "installedRevision": {
+          "declaredImage": {
             "type": [
               "string",
               "null"
             ]
           },
-          "installedVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "servingRevision": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "servingVersion": {
+          "servingImage": {
             "type": [
               "string",
               "null"
@@ -54,10 +42,8 @@
         },
         "required": [
           "state",
-          "installedVersion",
-          "servingVersion",
-          "installedRevision",
-          "servingRevision"
+          "declaredImage",
+          "servingImage"
         ],
         "type": "object"
       },
@@ -2052,26 +2038,18 @@
             },
             "type": "array"
           },
-          "platformVersion": {
-            "type": "string"
-          },
-          "readAt": {
-            "type": "string"
-          },
-          "revision": {
+          "image": {
             "type": [
               "string",
               "null"
             ]
           },
-          "version": {
+          "readAt": {
             "type": "string"
           }
         },
         "required": [
-          "version",
-          "platformVersion",
-          "revision",
+          "image",
           "contracts",
           "readAt"
         ],
@@ -5088,7 +5066,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VersionInfo"
+                  "$ref": "#/components/schemas/ServingBuild"
                 }
               }
             },

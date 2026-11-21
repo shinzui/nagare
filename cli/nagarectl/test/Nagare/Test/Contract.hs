@@ -375,12 +375,12 @@ transactionHistorySample =
         ]
     }
 
--- | An admin API answer: a 0.6.3 server beside a 0.13.0 install from a
--- legacy stamp, one NixOS node, one component mid-rollout and a PostgreSQL
--- server declared @18@ (EP-236).
+-- | An admin API answer: the declared admin API image serving beside a
+-- 0.13.0 install from a legacy stamp, one NixOS node, one component
+-- mid-rollout and a PostgreSQL server declared @18@ (EP-236).
 platformVersionsSample :: PlatformVersions
 platformVersionsSample =
-  platformVersionsDocument "intranet" "example-project" (Just (servingBuildOf (versionInfo (BuildVersion "0.6.3" (Just "0123456789abcdef")) Nothing) "2026-10-30T22:11:40Z")) $
+  platformVersionsDocument "intranet" "example-project" (Just (servingBuildOf (Just adminImage) "2026-10-30T22:11:40Z")) $
     Right
       VersionSnapshot
         { snapshotSchema = snapshotSchemaVersion
@@ -410,6 +410,18 @@ platformVersionsSample =
                 , workloads = [Workload pod' ("uid-" <> pod') [ObservedContainer "controller" (pods' "gcr.io/knative-releases/controller") (pods' digest)] | (pod', digest) <- [("controller-7f-a", "sha256:a1"), ("controller-9c-b", "sha256:b2")]]
                 , workloadsReason = Nullable Nothing
                 }
+            , ComponentVersions
+                { scope = "platform:admin-api"
+                , resource = "platform:admin-api/nagare-admin-api/deployment"
+                , kind = "Deployment"
+                , namespace = "nagare-system"
+                , name = "nagare-admin-api"
+                , declaredVersion = missingFact SourceRecorded "accepted declaration" at' reasonNotApplicable
+                , declaredChartVersion = missingFact SourceRecorded "accepted declaration" at' reasonNotApplicable
+                , declaredImages = [DeclaredImage "nagare-admin-api" (declared adminImage)]
+                , workloads = [Workload "nagare-admin-api-5d-x" "uid-admin" [ObservedContainer "nagare-admin-api" (pods' "europe-docker.pkg.dev/example-project/nagare/nagare-admin-api") (pods' "sha256:4e1a")]]
+                , workloadsReason = Nullable Nothing
+                }
             ]
         , componentsReason = Nullable Nothing
         , databases =
@@ -418,6 +430,7 @@ platformVersionsSample =
         , databasesReason = Nullable Nothing
         }
   where
+    adminImage = "europe-docker.pkg.dev/example-project/nagare/nagare-admin-api@sha256:4e1a"
     at' = "2026-10-31T16:00:02Z"
     stamp = recordedFact "configmap nagare-system/nagare-platform-version" at'
     node' = observedFact "node status.nodeInfo" at' . Just

@@ -75,11 +75,12 @@ data InstalledRelease = InstalledRelease
   }
   deriving stock (Eq, Show, Generic)
 
--- | The binary serving this document, read once at process start.
+-- | The binary serving this document, read once at process start. @image@
+-- is the image reference its Deployment runs it as, by digest; null when it
+-- runs outside one. The image is reused by every release that does not
+-- change it, so it carries no release version (MasterPlan 37).
 data ServingBuild = ServingBuild
-  { version :: !Text
-  , platformVersion :: !Text
-  , revision :: !(Nullable Text)
+  { image :: !(Nullable Text)
   , contracts :: ![Int]
   , readAt :: !Text
   }
@@ -99,15 +100,13 @@ data ComparisonState
   | ComparisonUnknown
   deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
 
--- | The installed release against the serving build. Unequal known fields
--- are @different@; equal versions without revision evidence on both sides
--- are @unknown@; complete equal evidence is @match@.
+-- | The admin API image the accepted declaration names against the image
+-- serving. Unequal digests are @different@; a side without an image is
+-- @unknown@; equal digests are @match@.
 data Comparison = Comparison
   { state :: !ComparisonState
-  , installedVersion :: !(Nullable Text)
-  , servingVersion :: !(Nullable Text)
-  , installedRevision :: !(Nullable Text)
-  , servingRevision :: !(Nullable Text)
+  , declaredImage :: !(Nullable Text)
+  , servingImage :: !(Nullable Text)
   }
   deriving stock (Eq, Show, Generic)
 

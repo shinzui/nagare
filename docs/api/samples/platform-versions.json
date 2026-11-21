@@ -81,6 +81,65 @@
         }
       ],
       "workloadsReason": null
+    },
+    {
+      "declaredChartVersion": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": "not_applicable",
+        "source": "accepted declaration",
+        "sourceKind": "recorded",
+        "value": null
+      },
+      "declaredImages": [
+        {
+          "container": "nagare-admin-api",
+          "image": {
+            "observedAt": "2026-10-31T16:00:02Z",
+            "reason": null,
+            "source": "accepted declaration",
+            "sourceKind": "recorded",
+            "value": "europe-docker.pkg.dev/example-project/nagare/nagare-admin-api@sha256:4e1a"
+          }
+        }
+      ],
+      "declaredVersion": {
+        "observedAt": "2026-10-31T16:00:02Z",
+        "reason": "not_applicable",
+        "source": "accepted declaration",
+        "sourceKind": "recorded",
+        "value": null
+      },
+      "kind": "Deployment",
+      "name": "nagare-admin-api",
+      "namespace": "nagare-system",
+      "resource": "platform:admin-api/nagare-admin-api/deployment",
+      "scope": "platform:admin-api",
+      "workloads": [
+        {
+          "containers": [
+            {
+              "container": "nagare-admin-api",
+              "image": {
+                "observedAt": "2026-10-31T16:00:04Z",
+                "reason": null,
+                "source": "pod status",
+                "sourceKind": "observed",
+                "value": "europe-docker.pkg.dev/example-project/nagare/nagare-admin-api"
+              },
+              "imageDigest": {
+                "observedAt": "2026-10-31T16:00:04Z",
+                "reason": null,
+                "source": "pod status",
+                "sourceKind": "observed",
+                "value": "sha256:4e1a"
+              }
+            }
+          ],
+          "pod": "nagare-admin-api-5d-x",
+          "podUid": "uid-admin"
+        }
+      ],
+      "workloadsReason": null
     }
   ],
   "componentsReason": null,
@@ -198,11 +257,9 @@
   "hostsReason": null,
   "nagare": {
     "comparison": {
-      "installedRevision": "fedcba9876543210",
-      "installedVersion": "0.13.0",
-      "servingRevision": "0123456789abcdef",
-      "servingVersion": "0.6.3",
-      "state": "different"
+      "declaredImage": "europe-docker.pkg.dev/example-project/nagare/nagare-admin-api@sha256:4e1a",
+      "servingImage": "europe-docker.pkg.dev/example-project/nagare/nagare-admin-api@sha256:4e1a",
+      "state": "match"
     },
     "installed": {
       "installedAt": {
@@ -261,10 +318,8 @@
       "contracts": [
         1
       ],
-      "platformVersion": "0.6.3",
-      "readAt": "2026-10-30T22:11:40Z",
-      "revision": "0123456789abcdef",
-      "version": "0.6.3"
+      "image": "europe-docker.pkg.dev/example-project/nagare/nagare-admin-api@sha256:4e1a",
+      "readAt": "2026-10-30T22:11:40Z"
     }
   },
   "project": "example-project",

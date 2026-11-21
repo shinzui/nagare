@@ -17,7 +17,6 @@ import Data.Text qualified as Text
 import Nagare.Api.Server.App (AppConfig (..), adminApplication)
 import Nagare.Api.Server.Serve (Env (..), newEnv)
 import Nagare.Contract.Prelude
-import Nagare.Contract.Project (versionInfo)
 import Nagare.Events.Store (filesystemObjectOps, newFeedStore)
 import Nagare.Events.Target (feedLocation, readOnlyFeedOps)
 import Nagare.Inventory.Recorded (defaultRecordedReaderConfig, newRecordedReader)
@@ -26,7 +25,6 @@ import Nagare.Inventory.Store.Gogol (inventoryManagerSettings)
 import Nagare.Inventory.Store.Service (ServiceStore (..), ServiceStoreConfig (..), openServiceStore)
 import Nagare.Platform.Versions.Store (versionSnapshotKey)
 import Nagare.Resource.Types (ContextBinding (..), mkContextId, mkName)
-import Nagare.Version (BuildVersion (..), currentBuildVersion)
 import Network.Wai.Handler.Warp (defaultSettings, runSettings, setHost, setPort)
 import Options.Applicative
 import System.Exit (die)
@@ -42,6 +40,7 @@ data Options = Options
   , source :: !Source
   , host :: !String
   , port :: !Int
+  , image :: !(Maybe Text)
   }
 
 options :: Parser Options
@@ -52,6 +51,7 @@ options =
     <*> (local <|> cloud)
     <*> strOption (long "host" <> metavar "ADDRESS" <> value "127.0.0.1" <> showDefault <> help "The address to bind")
     <*> option auto (long "port" <> metavar "PORT" <> value 8085 <> showDefault <> help "The port to bind")
+    <*> optional (strOption (long "image" <> metavar "REFERENCE" <> help "The image reference this server runs as, by digest; reported as its serving build"))
   where
     local = LocalStore <$> strOption (long "store-dir" <> metavar "DIR" <> help "The context's existing local inventory store")
     cloud =
@@ -64,7 +64,7 @@ options =
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
-  Options contextName projectName storeSource address portNumber <-
+  Options contextName projectName storeSource address portNumber servingImage <-
     execParser (info (options <**> helper) (fullDesc <> progDesc "Serve one context's recorded inventory state, read-only."))
   binding <- either (die . Text.unpack) pure (ContextBinding <$> mkContextId contextName <*> mkName projectName)
   -- EP-231: the lifecycle feed beside the inventory, read-only.
@@ -89,11 +89,10 @@ main = do
       feedPrefix <- either (die . show) pure ((service ^. #objectsAt) (feedLocation url))
       pure (service ^. #store, service ^. #freshHead, service ^. #freshObject, feedPrefix)
   recordedReader <- newRecordedReader defaultRecordedReaderConfig store binding headAction
-  let BuildVersion buildVersion buildRevision = currentBuildVersion
   -- The platform-versions snapshot, through the same session; in the cloud
   -- every read rechecks the bucket's owner like a head read (EP-236).
   let snapshotRead = first (Text.pack . show) <$> objectAction versionSnapshotKey
-  env <- newEnv recordedReader (buildVersion <> maybe "" ("+" <>) buildRevision) binding snapshotRead
+  env <- newEnv recordedReader (fromMaybe "unpinned" servingImage) binding snapshotRead
   feedStore <- newFeedStore (readOnlyFeedOps feedOps)
-  application <- adminApplication (AppConfig contextName (versionInfo currentBuildVersion Nothing) 32 (BS.hPutStr stdout)) env {feed = Just feedStore}
+  application <- adminApplication (AppConfig contextName servingImage 32 (BS.hPutStr stdout)) env {feed = Just feedStore}
   runSettings (setHost (fromString address) (setPort portNumber defaultSettings)) application

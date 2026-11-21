@@ -103,9 +103,11 @@ The document is assembled from a snapshot that `nagarectl platform versions refr
 `platform:` or `standalone:` scope refreshes for up to 20 seconds. Observations are as of
 `snapshot.completedAt`; there is no schedule and no freshness promise, so refresh before relying on
 them. `snapshot.inventoryRevision` names the accepted head the declarations were read from. The
-API never runs a provider. `nagare.comparison.state` is `different` when a known installed field
-differs from the serving build, `unknown` when versions are equal but revision evidence is missing
-on either side, and `match` otherwise. Through the CLI `servingBuild` is `null`, because the CLI is
+API never runs a provider. `nagare.servingBuild.image` is the image reference the server's
+Deployment passes it, by digest. The image is reused by every release that does not change it, so it
+carries no release version. `nagare.comparison` sets that image beside the `nagare-admin-api`
+image of the accepted declaration: `match` when their digests are equal, `different` when they differ,
+and `unknown` when either is missing. Through the CLI `servingBuild` is `null`, because the CLI is
 not the serving binary. A host activated before its identity ConfigMap existed reports
 `not_recorded` until its next `just host-switch`; an older stamp reports `payloadId` as
 `not_recorded`.
@@ -209,7 +211,7 @@ problem, not a clamp). A cursor is bound to its context, list and filters; acros
 next page is the items after the cursor in the new head, so compare `Nagare-Head-Revision` and
 restart for a consistent walk. Every 200 carries a strong `ETag` of its exact bytes and
 `Cache-Control: private, no-cache`; send it back in `If-None-Match` for a bodyless 304. Its build
-routes, `/v1/platform/version` (the serving binary) and `/v1/platform/versions` (installed beside
+routes, `/v1/platform/version` (the serving image) and `/v1/platform/versions` (installed beside
 serving, see [Platform versions](#platform-versions)), carry no `Nagare-Head-Revision`.
 
 `/v1/events` and `/v1/events/{eventId}` read the context's lifecycle event feed, never the

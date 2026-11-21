@@ -7,6 +7,7 @@ etag: header "ETag"
 header "Content-Type" contains "application/json"
 header "Nagare-Head-Revision" not exists
 jsonpath "$.contracts" includes 1
+jsonpath "$.image" == "localhost/nagare-admin-api@sha256:fixture"
 
 GET {{base_url}}/v1/platform/version
 If-None-Match: {{etag}}
@@ -40,7 +41,7 @@ jsonpath "$.nagare.installed.version.sourceKind" == "recorded"
 jsonpath "$.nagare.installed.payloadId.value" == null
 jsonpath "$.nagare.installed.payloadId.reason" == "not_recorded"
 jsonpath "$.nagare.comparison.state" matches "^(match|different|unknown)$"
-jsonpath "$.nagare.comparison.installedVersion" == "0.13.0"
+jsonpath "$.nagare.comparison.servingImage" == "localhost/nagare-admin-api@sha256:fixture"
 jsonpath "$.nagare.servingBuild.contracts" contains 1
 jsonpath "$.databases[0].declaredVersion.value" == "18"
 jsonpath "$.components[0].workloads" count == 2

@@ -38,9 +38,10 @@ where
 
 import Data.Aeson (FromJSON (..), ToJSON (..), genericParseJSON, genericToJSON)
 import Data.Generics.Labels ()
+import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..), recordOptions)
-import Nagare.Contract.V1 (VersionInfo)
+import Nagare.Contract.V1 (contractVersions)
 import Nagare.Contract.Versions
 import Nagare.Dsl.Prelude
 
@@ -74,46 +75,45 @@ instance FromJSON VersionSnapshot where parseJSON = genericParseJSON recordOptio
 snapshotSchemaVersion :: Int
 snapshotSchemaVersion = 1
 
--- | The serving build as the document reports it.
-servingBuildOf :: VersionInfo -> Text -> ServingBuild
-servingBuildOf info startedAt =
+-- | The serving build as the document reports it: the image reference the
+-- server was started with, if any, and the contracts it serves.
+servingBuildOf :: Maybe Text -> Text -> ServingBuild
+servingBuildOf servingImage startedAt =
   ServingBuild
-    { version = info ^. #version
-    , platformVersion = info ^. #platformVersion
-    , revision = Nullable (info ^. #revision)
-    , contracts = info ^. #contracts
+    { image = Nullable servingImage
+    , contracts = contractVersions
     , readAt = startedAt
     }
 
--- | Compare the installed release with the serving build. A revision equal
--- to the other's prefix (a short and a full form of one commit, at least
--- seven characters) is the same revision.
-compareRelease :: Maybe InstalledRelease -> Maybe ServingBuild -> Comparison
-compareRelease installedRelease serving =
+-- | Compare the admin API image the accepted declaration names with the
+-- image serving. Two references with digests compare by digest; otherwise
+-- they compare as written.
+compareRelease :: [ComponentVersions] -> Maybe ServingBuild -> Comparison
+compareRelease components serving =
   Comparison
     { state = verdict
-    , installedVersion = Nullable installedVersion'
-    , servingVersion = Nullable servingVersion'
-    , installedRevision = Nullable installedRevision'
-    , servingRevision = Nullable servingRevision'
+    , declaredImage = Nullable declared
+    , servingImage = Nullable served
     }
   where
-    installedVersion' = installedRelease >>= factValue . (^. #version)
-    installedRevision' = installedRelease >>= factValue . (^. #revision)
-    servingVersion' = (^. #platformVersion) <$> serving
-    servingRevision' = serving >>= \build -> fromNullable' (build ^. #revision)
-    verdict = case (installedVersion', servingVersion') of
-      (Just installedText, Just servingText)
-        | installedText /= servingText -> ComparisonDifferent
-        | otherwise -> case (installedRevision', servingRevision') of
-            (Just left, Just right)
-              | sameRevision left right -> ComparisonMatch
-              | otherwise -> ComparisonDifferent
-            _ -> ComparisonUnknown
+    declared =
+      listToMaybe
+        [ reference
+        | component <- components
+        , (component ^. #kind, component ^. #namespace, component ^. #name) == ("Deployment", "nagare-system", "nagare-admin-api")
+        , declaredImage' <- component ^. #declaredImages
+        , declaredImage' ^. #container == "nagare-admin-api"
+        , Just reference <- [factValue (declaredImage' ^. #image)]
+        ]
+    served = serving >>= \build -> fromNullable' (build ^. #image)
+    verdict = case (declared, served) of
+      (Just left, Just right)
+        | identity left == identity right -> ComparisonMatch
+        | otherwise -> ComparisonDifferent
       _ -> ComparisonUnknown
-    sameRevision left right =
-      left == right
-        || (min (T.length left) (T.length right) >= 7 && (left `T.isPrefixOf` right || right `T.isPrefixOf` left))
+    identity reference = case T.breakOn "@" reference of
+      (_, digest) | not (T.null digest) -> digest
+      _ -> reference
 
 -- | The document for one context: the snapshot (or the reason it could not
 -- be used) beside the serving build, if a server is answering.
@@ -126,7 +126,7 @@ platformVersionsDocument contextName projectName serving = \case
       , context = contextName
       , project = projectName
       , snapshot = SnapshotInfo (Nullable Nothing) (Nullable Nothing) (Nullable Nothing) False (Nullable (Just gap))
-      , nagare = NagareVersions (Nullable Nothing) (Nullable serving) (Nullable Nothing) (compareRelease Nothing serving)
+      , nagare = NagareVersions (Nullable Nothing) (Nullable serving) (Nullable Nothing) (compareRelease [] serving)
       , hosts = []
       , hostsReason = Nullable (Just gap)
       , components = []
@@ -153,7 +153,7 @@ platformVersionsDocument contextName projectName serving = \case
             { installed = stored ^. #installed
             , servingBuild = Nullable serving
             , pins = stored ^. #pins
-            , comparison = compareRelease (fromNullable' (stored ^. #installed)) serving
+            , comparison = compareRelease (stored ^. #components) serving
             }
       , hosts = stored ^. #hosts
       , hostsReason = stored ^. #hostsReason

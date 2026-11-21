@@ -26,7 +26,6 @@ import Nagare.Contract.Delivery (Delivery, DeliverySubscription)
 import Nagare.Contract.Events (LifecycleEvent (..), LifecycleFeedEntry (..))
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails (..))
-import Nagare.Contract.V1 (VersionInfo (..), contractVersions)
 import Nagare.Events.Delivery.Store
 import Nagare.Events.Envelope (eventIdFor, eventIdText)
 import Nagare.Events.Materialize (defaultBudget, enableFeed, materializeOnce)
@@ -131,7 +130,7 @@ withEventsSeeded keys more action = do
   reader <- newRecordedReader defaultRecordedReaderConfig (store recorded) fixtureBinding (readHead (store recorded))
   env <- newEnv reader "test-build" fixtureBinding (pure (Right Nothing))
   feed <- traverse seededFeed keys
-  application <- adminApplication (AppConfig "fixture" (VersionInfo "0.0.0" "0.0.0" Nothing Nothing contractVersions) 32 (const (pure ()))) env {feed}
+  application <- adminApplication (AppConfig "fixture" Nothing 32 (const (pure ()))) env {feed}
   testWithApplication (pure application) $ \portNumber -> do
     httpManager <- HTTP.newManager HTTP.defaultManagerSettings
     action (EventsServer portNumber httpManager)

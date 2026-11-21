@@ -325,7 +325,7 @@ api-hurl:
     pid=""
     trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi; rm -rf "$work"' EXIT
     NAGARE_API_FIXTURE="$work/inventory" "$suite"
-    "$server" --context fixture --project project --store-dir "$work/inventory" --port 18085 >"$work/server.log" 2>&1 &
+    "$server" --context fixture --project project --store-dir "$work/inventory" --port 18085 --image localhost/nagare-admin-api@sha256:fixture >"$work/server.log" 2>&1 &
     pid=$!
     for _ in $(seq 1 50); do
       if curl -fsS http://127.0.0.1:18085/health/ready >/dev/null 2>&1; then break; fi

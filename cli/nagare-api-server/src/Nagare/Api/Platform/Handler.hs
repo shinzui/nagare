@@ -22,8 +22,7 @@ import Nagare.Api.Response
 import Nagare.Api.Server.Serve (Env (..), noteDeadline, serveBuild)
 import Nagare.Api.Server.Validators (entityTag, noneMatch, stateValidators)
 import Nagare.Contract.Prelude
-import Nagare.Contract.V1 (VersionInfo)
-import Nagare.Contract.Versions (PlatformVersions)
+import Nagare.Contract.Versions (PlatformVersions, ServingBuild)
 import Nagare.Platform.Versions (platformVersionsDocument, reasonSnapshotUnavailable, servingBuildOf)
 import Nagare.Platform.Versions.Store (validateSnapshot)
 import Nagare.Resource.Types (contextIdText, nameText)
@@ -31,15 +30,18 @@ import Servant.Server (Handler)
 import Servant.Server.Generic (AsServerT)
 import System.Timeout (timeout)
 
-platformServer :: VersionInfo -> Env -> PlatformRoutes (AsServerT Handler)
-platformServer info env =
+-- | @image@ is the image reference the server was started with, if any.
+platformServer :: Maybe Text -> Env -> PlatformRoutes (AsServerT Handler)
+platformServer image env =
   PlatformRoutes
-    { version = serveBuild (build env) (encode info)
-    , versions = serveVersions info env
+    { version = serveBuild (build env) (encode serving)
+    , versions = serveVersions serving env
     }
+  where
+    serving = servingBuildOf image (startedAt env)
 
-serveVersions :: VersionInfo -> Env -> Maybe Text -> Handler (BuildResult PlatformVersions)
-serveVersions info env match = liftIO $ do
+serveVersions :: ServingBuild -> Env -> Maybe Text -> Handler (BuildResult PlatformVersions)
+serveVersions serving env match = liftIO $ do
   loaded <- try (timeout (deadlineMicroseconds env) (versionSnapshot env))
   stored <- case loaded of
     Right (Just (Right bytes)) -> pure (validateSnapshot (binding env) bytes)
@@ -53,7 +55,7 @@ serveVersions info env match = liftIO $ do
         platformVersionsDocument
           (contextIdText (contextBinding ^. #identity))
           (nameText (contextBinding ^. #project))
-          (Just (servingBuildOf info (startedAt env)))
+          (Just serving)
           stored
       -- Strict bytes: the encoding is forced inside this request.
       bytes = LBS.fromStrict (LBS.toStrict (encode rendered))

@@ -27,6 +27,7 @@ import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails (..), problemFor, unknownDelivery, unknownEvent, unknownScope)
 import Nagare.Contract.Schema (Nullable (..))
 import Nagare.Contract.V1
+import Nagare.Contract.Versions (ServingBuild (..))
 import Network.HTTP.Client (defaultManagerSettings, newManager)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Relay.Pagination (Connection (..), CursorPayload (..), Edge (..), KeyValue (..), PageInfo (..), cursorVersion, encodeCursor)
@@ -147,8 +148,8 @@ sampleHead =
     , transition = Nullable (Just (TransitionSummary "0.6.2" "nagare-0.6.3-source" "2026-10-16T12:00:00Z"))
     }
 
-sampleVersion :: VersionInfo
-sampleVersion = VersionInfo "0.6.3" "0.6.3" Nothing Nothing contractVersions
+sampleVersion :: ServingBuild
+sampleVersion = ServingBuild (Nullable (Just "registry.example/nagare/nagare-admin-api@sha256:serving")) contractVersions "2026-10-16T12:00:00Z"
 
 samplePage :: Connection SiteSummary
 samplePage =

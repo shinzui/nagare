@@ -65,28 +65,28 @@ versionTests :: TestTree
 versionTests =
   testGroup
     "platform versions (EP-236)"
-    [ testCase "an older serving build beside a newer installed release is different, and no store object is read" $ withServer 2 defaults $ \server -> do
-        offer server (pure (Right (Just (snapshotBytes sampleSnapshot))))
+    [ testCase "a serving image other than the declared admin API image is different, and no store object is read" $ withServer 2 defaults {servingImage = Just (adminImage "serving")} $ \server -> do
+        offer server (pure (Right (Just (snapshotBytes (declaringAdmin "declared")))))
         _ <- readsSince server
         response <- request server "GET" "/v1/platform/versions" []
         statusOf response @?= 200
         readsSince server >>= (@?= 0)
         versions <- decodeBody @PlatformVersions response
         versions ^. #nagare . #comparison . #state @?= ComparisonDifferent
-        versions ^. #nagare . #comparison . #installedVersion @?= Nullable (Just "0.13.0")
-        versions ^. #nagare . #comparison . #servingVersion @?= Nullable (Just "0.0.0")
-        fmap (^. #version) (fromNullable' (versions ^. #nagare . #servingBuild)) @?= Just "0.0.0"
+        versions ^. #nagare . #comparison . #declaredImage @?= Nullable (Just (adminImage "declared"))
+        versions ^. #nagare . #comparison . #servingImage @?= Nullable (Just (adminImage "serving"))
+        fmap (^. #image) (fromNullable' (versions ^. #nagare . #servingBuild)) @?= Just (Nullable (Just (adminImage "serving")))
         (versions ^. #snapshot . #available, versions ^. #snapshot . #completedAt) @?= (True, Nullable (Just "2026-10-31T16:00:09Z"))
         (versions ^. #context, versions ^. #project) @?= ("fixture", "project")
         header "Cache-Control" response @?= Just "private, no-cache"
         header "Nagare-Head-Revision" response @?= Nothing
-    , testCase "an equal version and revision match; an equal version without serving revision is unknown" $ do
-        withServer 2 defaults {servingRevision = Just "0123456789ab"} $ \server -> do
-          offer server (pure (Right (Just (snapshotBytes (installedAs "0.0.0")))))
+    , testCase "an equal digest matches whatever release is installed; a server started without an image is unknown" $ do
+        withServer 2 defaults {servingImage = Just ("mirror.example/nagare-admin-api@sha256:" <> "declared")} $ \server -> do
+          offer server (pure (Right (Just (snapshotBytes (declaringAdmin "declared")))))
           versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
           versions ^. #nagare . #comparison . #state @?= ComparisonMatch
         withServer 2 defaults $ \server -> do
-          offer server (pure (Right (Just (snapshotBytes (installedAs "0.0.0")))))
+          offer server (pure (Right (Just (snapshotBytes (declaringAdmin "declared")))))
           versions <- request server "GET" "/v1/platform/versions" [] >>= decodeBody @PlatformVersions
           versions ^. #nagare . #comparison . #state @?= ComparisonUnknown
     , testCase "a legacy stamp's payload ID is null with not_recorded while the rest is served" $ withServer 2 defaults $ \server -> do
@@ -163,18 +163,34 @@ versionTests =
                 , ("redis", Nullable (Just "8"), [Nullable (Just "8.2.1")])
                 ]
           fmap (^. #version . #value) (fromNullable' (versions ^. #nagare . #installed)) @?= Just (Nullable (Just "0.13.0"))
-          versions ^. #nagare . #comparison . #state @?= ComparisonDifferent
-    , testCase "the serving build route is unchanged" $ withServer 2 defaults $ \server -> do
+          versions ^. #nagare . #comparison . #state @?= ComparisonUnknown
+    , testCase "the serving build route reports the image and the contracts, and no release version" $ withServer 2 defaults {servingImage = Just (adminImage "serving")} $ \server -> do
         response <- request server "GET" "/v1/platform/version" []
         statusOf response @?= 200
-        info <- decodeBody @VersionInfo response
-        info ^. #version @?= "0.0.0"
+        serving <- decodeBody @ServingBuild response
+        (serving ^. #image, serving ^. #contracts) @?= (Nullable (Just (adminImage "serving")), contractVersions)
     ]
   where
     offer server answer = writeIORef (snapshotObject server) answer
-    installedAs release =
-      sampleSnapshot & #installed .~ Nullable (Just (InstalledRelease (stamp release) (stamp "0123456789abcdef") (stamp "nagare-payload") (stamp "2026-10-30T09:00:00Z")))
-    stamp present = recordedFact "configmap nagare-system/nagare-platform-version" "2026-10-31T16:00:02Z" (Just present)
+    adminImage digest = "registry.example/nagare/nagare-admin-api@sha256:" <> digest
+    declaringAdmin digest =
+      sampleSnapshot
+        & #components
+        %~ ( <>
+               [ ComponentVersions
+                   { scope = "platform:admin-api"
+                   , resource = "platform:admin-api/nagare-admin-api/deployment"
+                   , kind = "Deployment"
+                   , namespace = "nagare-system"
+                   , name = "nagare-admin-api"
+                   , declaredVersion = recordedFact "accepted declaration" "2026-10-31T16:00:02Z" Nothing
+                   , declaredChartVersion = recordedFact "accepted declaration" "2026-10-31T16:00:02Z" Nothing
+                   , declaredImages = [DeclaredImage "nagare-admin-api" (recordedFact "accepted declaration" "2026-10-31T16:00:02Z" (Just (adminImage digest)))]
+                   , workloads = []
+                   , workloadsReason = Nullable Nothing
+                   }
+               ]
+           )
 
 -- | Providers of one server per engine, each answering its own version.
 engineProviders :: VersionProviders
@@ -398,11 +414,11 @@ recordedTests =
 data Options = Options
   { deadline :: !Int
   , admit :: !Int
-  , servingRevision :: !(Maybe Text)
+  , servingImage :: !(Maybe Text)
   }
 
 defaults :: Options
-defaults = Options {deadline = 10000000, admit = 32, servingRevision = Nothing}
+defaults = Options {deadline = 10000000, admit = 32, servingImage = Nothing}
 
 data Server = Server
   { fixtureOf :: !Fixture
@@ -415,13 +431,13 @@ data Server = Server
   }
 
 withServer :: Int -> Options -> (Server -> IO ()) -> IO ()
-withServer sites (Options deadlineValue admitValue revisionValue) action = do
+withServer sites (Options deadlineValue admitValue imageValue) action = do
   recorded <- fixture sites
   reader <- newRecordedReader defaultRecordedReaderConfig (store recorded) fixtureBinding (readHead (store recorded))
   snapshotRef <- newIORef (pure (Right Nothing))
   env <- newEnv reader "test-build" fixtureBinding (join (readIORef snapshotRef))
   logged <- newIORef []
-  application <- adminApplication (AppConfig "fixture" (VersionInfo "0.0.0" "0.0.0" revisionValue Nothing contractVersions) admitValue (\line -> atomicModifyIORef' logged (\lines' -> (line : lines', ())))) env {deadlineMicroseconds = deadlineValue}
+  application <- adminApplication (AppConfig "fixture" imageValue admitValue (\line -> atomicModifyIORef' logged (\lines' -> (line : lines', ())))) env {deadlineMicroseconds = deadlineValue}
   testWithApplication (pure application) $ \portNumber -> do
     httpManager <- HTTP.newManager HTTP.defaultManagerSettings
     base <- parseBaseUrl ("http://127.0.0.1:" <> show portNumber)
