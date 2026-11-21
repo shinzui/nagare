@@ -4,8 +4,10 @@
 --
 -- 1. certificate verification is enforced: the same request with a
 --    deliberately wrong trust anchor is refused;
--- 2. an anonymous document request is redirected to the login page, and an
---    anonymous API request gets 401;
+-- 2. an anonymous document request is redirected to the login page, an
+--    anonymous API request gets 401, and an anonymous HTTP/1.1 WebSocket
+--    upgrade gets the enforcer's own answer, not a gateway 5xx (the
+--    DomainMapping hop once reset every upgrade, net-kourier #801);
 -- 3. a scripted login of a disposable user without a grant gets 403, and the
 --    effective-access diagnostic says denied;
 -- 4. after a reviewed grant (direct, or a team membership plus a team grant)
@@ -155,6 +157,7 @@ data RouteFailure
   | RevokeFailed !Text
   | RevokeNotEnforced !Int
   | ApiNotUnauthorized !Int
+  | UpgradeNotAnswered !Int
   | UngrantedServed !Int
   | StrangerServed !Int
   | TeamStepFailed !Text
@@ -177,6 +180,7 @@ renderFailure = \case
   RevokeFailed detail -> "the reviewed revoke failed: " <> detail
   RevokeNotEnforced code -> "the revoked session still gets " <> tshow code <> ", not 403"
   ApiNotUnauthorized code -> "an anonymous API request was not refused with 401: " <> tshow code
+  UpgradeNotAnswered code -> "an anonymous WebSocket upgrade did not reach the enforcer (302 or 401): " <> tshow code
   UngrantedServed code -> "a signed-in user without a grant was not refused with 403: " <> tshow code
   StrangerServed code -> "a member of a team without a grant was not refused with 403: " <> tshow code
   TeamStepFailed detail -> "the reviewed team step failed: " <> detail
@@ -197,6 +201,9 @@ runRouteCheck ops check = runExceptT $ do
   api <- request (HttpRequest "GET" root [] [] [("Accept", "application/json")])
   unless (api ^. #status == 401) (throwE (ApiNotUnauthorized (api ^. #status)))
   say "anonymous API request: 401 ok"
+  upgrade <- request (HttpRequest "GET" root [] [] webSocketUpgrade)
+  unless (upgrade ^. #status `elem` [302, 401]) (throwE (UpgradeNotAnswered (upgrade ^. #status)))
+  say ("anonymous WebSocket upgrade: " <> tshow (upgrade ^. #status) <> " ok")
   (email, password, user) <- newUser
   jar <- login loginUrl email password
   ungranted <- request (get root jar)
@@ -296,6 +303,16 @@ runRouteCheck ops check = runExceptT $ do
         _
           | remaining <= 0 -> pure Nothing
           | otherwise -> ops ^. #pause >> untilStatus (remaining - 1) jar wanted
+
+-- | A browser's WebSocket handshake headers (RFC 6455's sample key). The curl
+-- operation sends a request carrying them over HTTP/1.1, as a browser does.
+webSocketUpgrade :: [(Text, Text)]
+webSocketUpgrade =
+  [ ("Connection", "Upgrade")
+  , ("Upgrade", "websocket")
+  , ("Sec-WebSocket-Version", "13")
+  , ("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+  ]
 
 -- | The login page an anonymous request is sent to: the enforcer's built-in
 -- form on the same host (@/_nagare/login?rd=…@, relative or absolute). A
@@ -410,9 +427,11 @@ ioRouteOps environment host' =
             cookieArgs = if null (req ^. #cookies) then [] else ["-H", T.unpack ("Cookie: " <> T.intercalate "; " [k <> "=" <> v | (k, v) <- req ^. #cookies])]
             headerArgs = concat [["-H", T.unpack (k <> ": " <> v)] | (k, v) <- req ^. #headers]
             formArgs = concat [["--data-urlencode", T.unpack (k <> "=" <> v)] | (k, v) <- req ^. #form]
+            protocolArgs = ["--http1.1" | any ((== "upgrade") . T.toLower . fst) (req ^. #headers)]
             args =
               ["-sS", "--max-time", "20", "-X", T.unpack (req ^. #method), "-D", headerPath, "-o", "-", "-w", "\n%{http_code}"]
                 <> trustArgs
+                <> protocolArgs
                 <> connectArgs
                 <> cookieArgs
                 <> headerArgs

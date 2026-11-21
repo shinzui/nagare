@@ -353,13 +353,21 @@ renderBackendConfigMap backends =
       , "data" .= object [Key.fromText backendMapKey .= TE.decodeUtf8 (LBS.toStrict (encode backends))]
       ]
 
+-- | A route to the access enforcer asks Kourier for an HTTP/1.1 hop: Knative
+-- names the route's placeholder port @http2@, and over that hop Envoy cannot
+-- forward a WebSocket upgrade (net-kourier #801), while nagare-access proxies
+-- over HTTP/1.1 anyway. Other routes keep Kourier's default.
 renderAccessDomainMapping :: Text -> Text -> RouteTarget -> ByteString
 renderAccessDomainMapping objectNamespace host target =
   LBS.toStrict . encode $
     object
       [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
       , "kind" .= ("DomainMapping" :: Text)
-      , "metadata" .= object ["name" .= host, "namespace" .= objectNamespace, "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]]
+      , "metadata"
+          .= object
+            ( ["name" .= host, "namespace" .= objectNamespace, "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]]
+                <> ["annotations" .= object ["kourier.knative.dev/disable-http2" .= ("true" :: Text)] | isCentralEnforcer target]
+            )
       , "spec" .= object ["ref" .= object ["apiVersion" .= (target ^. #apiVersion), "kind" .= (target ^. #kind), "name" .= (target ^. #name), "namespace" .= (target ^. #namespace)]]
       ]
 

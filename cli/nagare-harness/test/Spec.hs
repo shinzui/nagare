@@ -253,6 +253,8 @@ tests =
             routeOutcome (enforcing {protected = False}) >>= (@?= Left (NotRedirectedToLogin 200 Nothing))
         , testCase "an anonymous API request that is redirected instead of refused fails" $
             routeOutcome (enforcing {apiChallenge = False}) >>= (@?= Left (ApiNotUnauthorized 302))
+        , testCase "a WebSocket upgrade the gateway resets before the enforcer fails with its 503" $
+            routeOutcome (enforcing {resetsUpgrades = True}) >>= (@?= Left (UpgradeNotAnswered 503))
         , testCase "a signed-in user served without a grant fails" $
             routeOutcome (enforcing {servesUngranted = True}) >>= (@?= Left (UngrantedServed 200))
         , testCase "a diagnostic that disagrees with the enforcer fails with both answers" $
@@ -302,11 +304,13 @@ data Route = Route
   -- ^ Off: the diagnostic answers allowed whatever the grants say.
   , teamsLeak :: !Bool
   -- ^ On: a team grant admits every signed-in user.
+  , resetsUpgrades :: !Bool
+  -- ^ On: the gateway resets a WebSocket upgrade before the enforcer sees it.
   }
   deriving stock (Generic)
 
 enforcing :: Route
-enforcing = Route False True True True True 0 False True False True False
+enforcing = Route False True True True True 0 False True False True False False
 
 routeOutcome :: Route -> IO (Either RouteFailure ())
 routeOutcome route = do
@@ -339,6 +343,8 @@ routeOutcome route = do
       answer req = case (req ^. #method, req ^. #url) of
         ("GET", "https://a.example/")
           | not (route ^. #protected) -> pure (HttpResponse 200 [] "rows: 3\n")
+          | lookup "Upgrade" (req ^. #headers) == Just "websocket" && route ^. #resetsUpgrades ->
+              pure (HttpResponse 503 [] "upstream connect error or disconnect/reset before headers. reset reason: connection termination")
           | Just user <- sessionUser req -> do
               admitted <- granted user
               before <- readIORef everAdmitted

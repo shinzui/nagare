@@ -1,7 +1,8 @@
 module AccessResolveSpec (accessResolveTests) where
 
 import Control.Exception (try)
-import Data.Aeson (eitherDecodeStrict, encode)
+import Data.Aeson (Value (..), eitherDecodeStrict, encode)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
@@ -140,7 +141,18 @@ accessResolveTests =
         addOrigin auth [other, auth, auth] @?= [other, auth]
         removeOrigin auth [other, auth, auth] @?= [other]
         removeOrigin auth [other] @?= [other]
+    , testCase "a route to the enforcer asks Kourier for HTTP/1.1, so WebSocket upgrades reach nagare-access" $ do
+        let enforcer = RouteTarget "serving.knative.dev/v1" "Service" "nagare-access" "nagare-system"
+        annotationsOf (renderAccessDomainMapping "nagare-system" "tools.example.com" enforcer)
+          @?= Just (Object (KeyMap.fromList [("kourier.knative.dev/disable-http2", String "true")]))
+    , testCase "a route to a site's own service keeps Kourier's default protocol" $
+        annotationsOf (renderAccessDomainMapping "personal" "tools.example.com" (RouteTarget "serving.knative.dev/v1" "Service" "notes" "personal"))
+          @?= Nothing
     ]
+  where
+    annotationsOf bytes = case eitherDecodeStrict bytes of
+      Right (Object top) | Just (Object metadata) <- KeyMap.lookup "metadata" top -> KeyMap.lookup "annotations" metadata
+      _ -> Nothing
 
 fakeOps :: Bool -> IORef BackendMap -> IORef [Event] -> AccessOps
 fakeOps present store events =
