@@ -148,7 +148,7 @@ evidence and documents after their consumers have moved.
 | Deliverable | Plan or owner | Hard prerequisite | Status |
 |---|---|---|---|
 | D1. CLI-only release | MasterPlan, release identity and packaging | None | Complete |
-| D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | Not Started |
+| D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | In Progress |
 | D2. Stateless Kubernetes recovery | [EP-274](../plans/274-simplify-recovery-for-stateless-kubernetes-applies.md) | D2b requires two releases on D2a and the findings decision | Not Started |
 | D4. Unused features | MasterPlan, per-feature removal | Usage and recovery check below | Not Started |
 | D5. Gates and documents | MasterPlan, landing and documentation | D3 switch for gate removal, D2 findings review for ledger removal | In Progress |
@@ -189,7 +189,7 @@ immediately. Remove each gate, fixture or evidence source only with the cutover 
 
 ## Progress
 
-D1 is complete and D5 is in progress; D3, D2 and D4 have not started. Record the accepting commit and line deltas
+D1 is complete; D3 and D5 are in progress; D2 and D4 have not started. Record the accepting commit and line deltas
 for each deliverable.
 
 D1 so far: the host's reviewed identity ignores the release comments and payload store path
@@ -252,6 +252,21 @@ cluster, registry or forwarder belonging to someone else must survive. Remove th
 Colima DNS rewrite and unconditional reset. For the two local MinIO images, reuse the pinned upstream
 binary downloads, digest checks and architecture selection in `scripts/publish-local-minio-images.sh`. Run
 against the drill's registry. Keep the source and candidate service images bound to their own releases.
+
+D3 so far (`e24f4542`..`67e11120`): the rehearsal runs on a Colima profile it creates with Rosetta
+and deletes, or on an empty daemon `NAGARE_REHEARSAL_DOCKER_HOST` names; the drill refuses a daemon
+holding k3d, publishes MinIO through `publish-local-minio-images.sh` (now `curl`) and forwards on a
+host-free port. A candidate run is `releases/vX.Y.Z/<rev>` with `candidate.json` written first; a
+rerun keeps the gate record, images receipt, rehearsal record and intranet record, indexed as
+`kept`. The candidate consumes `gate-verify` (or runs `just gate`), so `gate-release` is gone.
+Publication is `nagare-harness release publish`: every proof before the tag, the candidate CLI's
+review before the push, two assets. The pin ledger (`intranet/pins.json`) refuses foreign pin
+diffs. Deleted: assembly, native and clone-free attachments, the x86 container step, SHA256SUMS,
+the evidence commit, `latest`, and their tests and checks. Scripts −1,381 net (target 1,200);
+Haskell +226 source and +289 test lines, from publication moving out of shell. Native: the
+harness tests cover the fake-transport cases; the disposable-profile rehearsal is being confirmed.
+The mutation sweep and deep-tier recipes, Mutation.hs and the mutation records remain for the
+D5 cutover.
 
 - [ ] Interrupt a platform release at the intranet step. Rerun that step and publish from the same run
   directory. The previous step results and invocation counts show the gate, image preparation and
@@ -394,6 +409,19 @@ Both affect what can count as a successful D2 apply. [Findings ledger](../audits
   fallback. The code the admin API links moves, unchanged, into `cli/nagare-core`, which nagarectl
   re-exports; the architecture audit treats the two as one package for private modules.
   Rationale: the fallback alone linked the planner and adapters (204 modules against 79).
+  Date: 2026-11-21
+
+- Decision (operator, 2026-11-21): A rerun of the intranet step that finds a pin file whose bytes
+  differ from what the run recorded refuses, naming the file, and commits nothing; the operator's
+  edit stays in the working tree. The commit is not built from recorded bytes.
+  Rationale: the least mechanism that keeps an unrelated edit out of the pin commit.
+  Date: 2026-11-21
+
+- Decision (D3, 2026-11-21): The candidate's landing check is the landed commit's green full-gate
+  record (`gate-verify`), or that full gate run by the candidate when the machine has no record. The
+  publication intent's `payloadId` is `git:<commit>`, since no manifest is assembled. Historical
+  `docs/release-evidence/` records stay until D5 removes them with their remaining readers;
+  nothing writes there now.
   Date: 2026-11-21
 
 - 2026-11-20 review revision. Give recovery one named child and bind each shared release check to its
