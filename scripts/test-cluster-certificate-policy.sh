@@ -35,7 +35,7 @@ for transcript in "$cloud_dry_run" "$local_dry_run"; do
   fi
 done
 grep -Fq '"nagare.dev/app-namespace" .= ("true" :: Text) | name == "personal"' \
-  "$repo_root/cli/nagarectl/src/Nagare/Inventory/Components/Foundation.hs"
+  "$repo_root/cli/nagare-core/src/Nagare/Inventory/Components/Foundation.hs"
 
 tls_dry_run="$(just --justfile "$repo_root/justfile" --dry-run cluster-enable-tls 2>&1)"
 case "$tls_dry_run" in
