@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs b/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs
+index 527b6312..ede4b37c 100644
+--- a/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs
++++ b/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs
+@@ -70,7 +70,7 @@ withHttp1Hop bytes = case decodeStrict bytes of
+       Just (Object existing) -> Right existing
+       Just _ -> Left "protected route's annotations are not an object"
+     if targetsEnforcer root && KM.lookup key annotations /= Just (String "true")
+-      then Just <$> canonicalValue (Object (KM.insert "metadata" (Object (KM.insert "annotations" (Object (KM.insert key (String "true") annotations)) metadata)) root))
++      then Just <$> canonicalValue (Object (KM.insert "metadata" (Object (KM.insert "annotations" (Object (KM.singleton key (String "true"))) metadata)) root))
+       else Right Nothing
+   _ -> Left "protected route's native bytes are not a Kubernetes object"
+   where

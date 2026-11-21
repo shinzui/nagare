@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs b/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs
+index 527b6312..0ed04f81 100644
+--- a/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs
++++ b/cli/nagarectl/src/Nagare/Access/ProtectedRouteRefresh.hs
+@@ -118,7 +118,7 @@ refreshAcceptedProtectedRoutes store snapshot
+ -- 'refreshAcceptedProtectedRoutes' would still re-declare: the pin is the transition's last write
+ -- (ADR 6), so it waits for every accepted route to the enforcer to carry the annotation.
+ unrefreshedRouteRefusal :: Map ResourceId (ManagedResource, ByteString) -> Maybe Text
+-unrefreshedRouteRefusal pending = case Map.elems pending of
++unrefreshedRouteRefusal pending = case drop (Map.size pending) (Map.elems pending) of
+   [] -> Nothing
+   (route, _) : _ ->
+     Just

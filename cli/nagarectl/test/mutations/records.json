@@ -1210,5 +1210,29 @@
     "suite": "nagarectl",
     "pattern": "/Events.Delivery/&&/events before a subscription's start/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP273-refresh-replaces-annotations",
+    "suite": "nagarectl",
+    "pattern": "/the annotation joins the route.s other annotations/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP273-refresh-any-target",
+    "suite": "nagarectl",
+    "pattern": "/a route to another target and a mapping outside/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP273-commit-ignores-unannotated-routes",
+    "suite": "nagarectl",
+    "pattern": "/the commit refuses while an accepted route lacks the annotation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP273-takeover-keeps-shared-owner",
+    "suite": "nagarectl",
+    "pattern": "/a hand annotation becomes Nagare.s/ || /shares with Nagare.s apply/",
+    "expect": "test-fails"
   }
 ]
