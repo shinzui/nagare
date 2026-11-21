@@ -1,9 +1,10 @@
 -- | Publication responsibilities; internal implementation behind Nagare.Inventory.Plan.
+-- Publishing a review to the store is "Nagare.Inventory.Plan.Publish", so a
+-- reader of published reviews does not link the adapters (MasterPlan 37).
 module Nagare.Inventory.Plan.Publication
   ( loadPublishedReview
   , loadReviewBundle
-  , publishObservationMembers
-  , publishReview
+  , nativeKey
   , writeReviewBundle
   )
 where
@@ -22,9 +23,6 @@ import Nagare.Contract.Trace (OperationRecord (..))
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Adapter (PlannedOperation (..))
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.ObservationNative
-  ( observationBytesFromMutation
-  )
 import Nagare.Inventory.Plan.Types
   ( ReviewBundle (..)
   , ReviewDocument (..)
@@ -67,55 +65,6 @@ import System.FilePath
   )
 import System.IO.Temp (withTempDirectory)
 import System.Posix.Files (setFileMode)
-
-publishReview :: InventoryStore -> ReviewBundle -> IO (Either StoreError ContentDigest)
-publishReview store bundle = do
-  scopeResults <- traverse (\(digest, bytes) -> publishIfAbsent store (scopeKey digest) bytes) (Map.toAscList (bundleScopes bundle))
-  case sequence scopeResults of
-    Left err -> pure (Left err)
-    Right _ -> do
-      nativeResults <- traverse (\(digest, bytes) -> publishIfAbsent store (nativeKey digest) bytes) (Map.toAscList (bundleNative bundle))
-      case sequence nativeResults of
-        Left err -> pure (Left err)
-        Right _ -> do
-          observations <- publishObservationMembers store bundle
-          case observations of
-            Left err -> pure (Left err)
-            Right () ->
-              publishIfAbsent
-                store
-                (reviewKey (reviewDigest bundle))
-                (encodeReviewDocument (bundleDocument bundle))
-
--- | Add only immutable, digest-addressed observation bytes. This never changes
--- a head, accepted scope, operation, or admission decision. Repeating after an
--- interruption is safe. The caller must supply an original prepared/loaded review.
-publishObservationMembers :: InventoryStore -> ReviewBundle -> IO (Either StoreError ())
-publishObservationMembers store bundle = case traverse extract (reviewAdapterOperations document) of
-  Left reason -> pure (Left (StoreInvalidObject (reviewKey (reviewDigest bundle)) reason))
-  Right values -> do
-    results <-
-      traverse
-        (\bytes -> publishIfAbsent store (nativeKey (contentDigest bytes)) bytes)
-        (Map.elems (Map.fromList [(contentDigest bytes, bytes) | Just bytes <- values]))
-    pure (() <$ sequence results)
-  where
-    document = bundleDocument bundle
-    extract operation = case reviewNativeDigest operation of
-      Nothing -> Right Nothing
-      Just digest -> do
-        bytes <-
-          maybe
-            (Left "review native member is missing")
-            Right
-            (Map.lookup digest (bundleNative bundle))
-        unless (contentDigest bytes == digest) (Left "review native member digest mismatch")
-        observationBytesFromMutation
-          (reviewContextBinding document ^. #identity)
-          (reviewAdapterIdentity operation)
-          (reviewAdapterVersion operation)
-          (reviewPlannedOperation operation)
-          bytes
 
 loadPublishedReview :: InventoryStore -> ContentDigest -> IO (Either StoreError ReviewBundle)
 loadPublishedReview store digest = do

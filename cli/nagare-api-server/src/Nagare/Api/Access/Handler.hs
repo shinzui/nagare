@@ -13,7 +13,7 @@ import Nagare.Api.Server.Pagination (PageArgs (..), pageOf, pager)
 import Nagare.Api.Server.Problems (storeProblem)
 import Nagare.Api.Server.Serve
 import Nagare.Contract.Prelude
-import Nagare.Contract.Project (grants)
+import Nagare.Contract.Recorded (grants)
 import Nagare.Inventory.Recorded (Selection (..), loadRecordedStateAt, recordedAccepted, recordedHeadManifest)
 import Servant.Server (Handler)
 import Servant.Server.Generic (AsServerT)
@@ -32,6 +32,6 @@ accessServer env context =
                   loaded <- loadRecordedStateAt (reader env) checked AcceptedOnly
                   pure $ do
                     recorded <- first storeProblem loaded
-                    pure (Paged (pageOf page (^. #resourceId) (Nagare.Contract.Project.grants (recordedHeadManifest checked) (recordedAccepted recorded))))
+                    pure (Paged (pageOf page (^. #resourceId) (Nagare.Contract.Recorded.grants (recordedHeadManifest checked) (recordedAccepted recorded))))
               }
     }

@@ -44,6 +44,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.ShomeiUser (ShomeiUser, isShomeiUserId)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Access.Relationship (Relationship (..), relationshipOf)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.DeployerDelegation (acceptedDelegations)
 import Nagare.Inventory.Digest (contentDigest)
@@ -167,27 +168,6 @@ portalSyncStale shomeiNative mapsDigest = synced /= Just mapsDigest
         String value <- KM.lookup "nagare.dev/portal-sync-maps" annotations
         pure value
       _ -> Nothing
-
--- | The one relationship a reviewed access scope controls.
-data Relationship
-  = -- | @app:<host>#viewer@user:<id>@
-    DirectViewer !Name !Text
-  | -- | @group:<team>#member@user:<id>@
-    TeamMember !TeamKey !Text
-  | -- | @app:<host>#viewer@group:<team>#member@
-    TeamViewer !Name !TeamKey
-  | -- | EP-250: @delegation:<name>#viewer@group:<team>#member@
-    DelegationViewer !Name !TeamKey
-  deriving stock (Eq, Show)
-
--- | The auth en Service and the relationship a typed address names.
-relationshipOf :: ProviderAddress -> Maybe (ResourceId, Relationship)
-relationshipOf = \case
-  AccessTuple auth host subject -> Just (auth, DirectViewer host subject)
-  TeamMemberTuple auth team subject -> Just (auth, TeamMember team subject)
-  TeamAccessTuple auth host team -> Just (auth, TeamViewer host team)
-  DelegationAccessTuple auth delegation team -> Just (auth, DelegationViewer delegation team)
-  _ -> Nothing
 
 -- | Whether a binding relies on the group schema (EP-187) rather than the
 -- original direct-user model.

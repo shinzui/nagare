@@ -29,14 +29,15 @@ import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Events.Backup
 import Nagare.Events.Source (ResourceRef (..))
+import Nagare.Inventory.AcceptedNative (loadObservedAcceptedNativeSelected)
 import Nagare.Inventory.AppDatabase (AppDatabaseScheduleSource (..), appDatabaseScheduleSource)
 import Nagare.Inventory.Backup (ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob)
 import Nagare.Inventory.Journal (JournalEvent, decodeJournalEvent)
-import Nagare.Inventory.Plan (InventoryHistory (..), historyReservations, loadInventoryHistoryAt)
+import Nagare.Inventory.Plan.History (loadInventoryHistoryAt)
+import Nagare.Inventory.Plan.Types (InventoryHistory (..), historyReservations)
 import Nagare.Inventory.ScheduleHistory (convergedScheduleRevisionsIn)
 import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), ScheduledStatusSource (..), scheduledStatusSources)
-import Nagare.Inventory.Status (loadAcceptedNativeSelected)
 import Nagare.Inventory.Store (HeadManifest (..), InventoryStore, readHead, readJournalPrefix, revisionGeneration)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
@@ -60,7 +61,7 @@ loadBackupSchedules store backend = do
             Right validated -> do
               let sources = resolveSchedules snapshot (headIncarnations headValue)
                   crons = Set.fromList [found ^. #cron . #identity | Right found <- map snd sources]
-              native <- loadAcceptedNativeSelected crons store history validated
+              native <- loadObservedAcceptedNativeSelected crons store history validated
               raw <- readJournalPrefix store (headSequence headValue)
               case (native, first (T.pack . show) raw >>= traverse decodeJournalEvent) of
                 (Left err, _) -> pure (Left err)

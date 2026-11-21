@@ -25,14 +25,12 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Plan (InventoryHistory (..), PlanError (..))
 import Nagare.Inventory.Site (sitePreviewRetirementScope)
+import Nagare.Inventory.Site.Recorded (previewOwner)
 import Nagare.Inventory.Status (consumersOf)
 import Nagare.Inventory.Store (ScopeRevision (..), retainedOwner, retainedRevision)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (encodeCanonicalScope)
-
-previewOwner :: ScopeId -> Bool
-previewOwner owner = scopeKind owner == Standalone && "site-preview-" `T.isPrefixOf` nameText (scopeName owner)
 
 -- A scope prefix narrows discovery only. The existing preview compiler's exact
 -- address/policy contract must then account for every owned declaration.

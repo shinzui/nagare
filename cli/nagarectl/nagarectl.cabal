@@ -75,6 +75,7 @@ library
     Nagare.Inventory.Plan.Observation
     Nagare.Inventory.Plan.Prepare
     Nagare.Inventory.Plan.Publication
+    Nagare.Inventory.Plan.Publish
     Nagare.Inventory.Plan.Types
     Nagare.Inventory.Plan.Validation
     Nagare.Inventory.Plan.ValidationRequirements
@@ -125,6 +126,7 @@ library
     Nagare.Context.Posture
     Nagare.Context.Review
     Nagare.Contract.Project
+    Nagare.Contract.Recorded
     Nagare.Contract.Sink
     Nagare.Database.AppDatabase.Backup
     Nagare.Database.AppDatabase.Catalog
@@ -182,7 +184,9 @@ library
     Nagare.Image
     Nagare.Infra.Plan
     Nagare.Init
+    Nagare.Inventory.AcceptedNative
     Nagare.Inventory.Access
+    Nagare.Inventory.Access.Relationship
     Nagare.Inventory.AccessRuntime
     Nagare.Inventory.Actor
     Nagare.Inventory.Adapter
@@ -336,6 +340,7 @@ library
     Nagare.Inventory.Migration.Types
     Nagare.Inventory.MigrationPlanning
     Nagare.Inventory.ObservationNative
+    Nagare.Inventory.ObservationNative.Mutation
     Nagare.Inventory.OperationStep
     Nagare.Inventory.Plan
     Nagare.Inventory.PreviewCleanup

@@ -11,6 +11,7 @@ module Nagare.Inventory.Site.Recorded
   , ServiceSummary (..)
   , RecordedSite (..)
   , recordedSites
+  , previewOwner
   )
 where
 
@@ -21,12 +22,15 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.PreviewCleanup (previewOwner)
 import Nagare.Inventory.Recorded (RecordedState, recordedAccepted, recordedConverged, recordedHeadManifest, recordedStateHead)
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision)
 import Nagare.Resource.Inventory (Declaration (..), ScopeDeclaration, declarations, scopeBundles)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+
+-- | Whether a scope is a site preview's, by the name the preview compiler gives it.
+previewOwner :: ScopeId -> Bool
+previewOwner owner = scopeKind owner == Standalone && "site-preview-" `T.isPrefixOf` nameText (scopeName owner)
 
 -- | A production static or server site (@standalone:site-<name>@), a site
 -- preview, or another application or standalone web service.

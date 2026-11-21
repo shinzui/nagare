@@ -23,7 +23,8 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Journal (JournalEvent (..), OperationState (Completed), decodeJournalEvent)
 import Nagare.Inventory.ObservationNative (ObservationNativeError (..), loadObservationNativeChecked, observationKubernetes)
-import Nagare.Inventory.Plan (ReviewDocument (..), loadPublishedReview, reviewBundleDocument, reviewBundleScopes)
+import Nagare.Inventory.Plan.Publication (loadPublishedReview)
+import Nagare.Inventory.Plan.Types (ReviewDocument (..), reviewBundleDocument, reviewBundleScopes)
 import Nagare.Inventory.ScopeMember (decodeScopeMember)
 import Nagare.Inventory.Store (HeadManifest (headSequence), InventoryStore, readJournalPrefix, readObject, revisionDigest, scopeKey)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource, ResourceBundle (declarations), scopeBundles)

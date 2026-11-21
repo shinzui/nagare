@@ -115,9 +115,11 @@ import Nagare.Inventory.Plan.Prepare
 import Nagare.Inventory.Plan.Publication
   ( loadPublishedReview
   , loadReviewBundle
-  , publishObservationMembers
-  , publishReview
   , writeReviewBundle
+  )
+import Nagare.Inventory.Plan.Publish
+  ( publishObservationMembers
+  , publishReview
   )
 import Nagare.Inventory.Plan.Types
   ( AbsenceProof (..)

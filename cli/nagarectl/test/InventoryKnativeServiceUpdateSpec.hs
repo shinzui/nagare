@@ -16,7 +16,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Kubernetes
-import Nagare.Inventory.ObservationNative (observationBytesFromMutation)
+import Nagare.Inventory.ObservationNative.Mutation (observationBytesFromMutation)
 import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types

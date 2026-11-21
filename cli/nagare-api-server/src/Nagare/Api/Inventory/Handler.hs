@@ -17,7 +17,7 @@ import Nagare.Api.Server.Problems (storeProblem)
 import Nagare.Api.Server.Serve
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (problemFor, storeInvalid, unknownScope)
-import Nagare.Contract.Project (acceptedPublications, headSummary, scopeStates)
+import Nagare.Contract.Recorded (acceptedPublications, headSummary, scopeStates)
 import Nagare.Inventory.Recorded (RecordedHead, Selection (..), loadRecordedStateAt, recordedAccepted, recordedHeadManifest, recordedHeadRevision)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Types (ContextBinding, contextIdText)

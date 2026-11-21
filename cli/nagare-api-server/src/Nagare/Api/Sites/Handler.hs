@@ -15,7 +15,7 @@ import Nagare.Api.Server.Serve
 import Nagare.Api.Sites.Routes (SitesRoutes (..))
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (problemFor, storeInvalid)
-import Nagare.Contract.Project (siteSummary)
+import Nagare.Contract.Recorded (siteSummary)
 import Nagare.Contract.V1 (SiteKind (..))
 import Nagare.Inventory.Recorded (Selection (..), loadRecordedStateAt)
 import Nagare.Inventory.Site.Recorded (recordedSites)

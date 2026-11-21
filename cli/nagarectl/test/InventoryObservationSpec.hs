@@ -14,6 +14,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import InventoryObjectOpsSpec (fakeObjectOps)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.AcceptedNative (loadObservedAcceptedNativeSelected)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.Kubernetes
@@ -258,6 +259,12 @@ executionSourceRead mode = withSystemTempDirectory "nagare-observation-cache" $ 
           }
   let readOnlyOps = ops {putObject = \_ _ _ -> assertFailure "observation wrote remote history" >> error "unreachable"}
   fresh <- must (openObjectStoreReadOnly (immutableThroughGet readOnlyOps) binding "reader" cache)
+  -- MasterPlan 37: without the review decoder a member whose observation
+  -- bytes were never published refuses with its remedy, and no review is scanned.
+  when legacyMode $ do
+    observed <- loadObservedAcceptedNativeSelected (Set.singleton (rid "selected")) fresh history inventory
+    assertBool "the observed-only loader accepted a member with no observation bytes" (either ("materialize-native" `T.isInfixOf`) (const False) observed)
+    readIORef lists >>= (@?= 0)
   writeIORef gets []
   result <- loadAcceptedNativeSelected (Set.fromList (rid "selected" : [rid "helm" | mode == "mixed"])) fresh history inventory
   if mode `elem` ["corrupt", "mixed"]
