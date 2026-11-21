@@ -192,6 +192,7 @@ statusText = \case
   Running -> "running"
   Passed -> "passed"
   Failed -> "failed"
+  Kept -> "kept"
 
 outcomeText :: TraceOutcome -> Text
 outcomeText = \case

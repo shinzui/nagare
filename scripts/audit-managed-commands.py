@@ -153,7 +153,8 @@ ENTRYPOINTS = {
     # EP-229: the transition drill and the intranet move are nagare-harness commands; their
     # scripts are exec wrappers.
     "cli/nagare-harness/src/Nagare/Harness/Release/TransitionDrill.hs": ("platform bootstrap plan", "platform bootstrap apply", "transition plan", "inventory apply", "platform transition commit", "transition_sentinel"),
-    "scripts/release-publish.sh": ("release publish", "--yes", "created draft is not yet visible"),
+    # MasterPlan 37 D3: the publication logic moved into the harness.
+    "cli/nagare-harness/src/Nagare/Harness/Release/Publish.hs": ("\"release\", \"publish\"", "\"--yes\"", "created draft is not yet visible"),
     # EP-210 M5: the intranet transition of a release candidate, run by release-candidate.sh.
     "cli/nagare-harness/src/Nagare/Harness/Release/Intranet.hs": ("platform transition plan", "inventory apply", "inventory resume", "platform transition commit", "direnv exec"),
     "scripts/host-switch.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
@@ -257,7 +258,7 @@ def family_assignments() -> dict[str, str]:
     return result
 
 RECIPES = {
-    "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check gate-commit gate-fast gate-deep deep-tier-required gate gate-verify gate-landable gate-release test-remote mutation-check mutation-sweep",
+    "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check gate-commit gate-fast gate-deep deep-tier-required gate gate-verify gate-landable test-remote mutation-check mutation-sweep",
     "reviewed": "infra-up infra-preview infra-destroy cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke local-app-database-smoke local-secret-scope-smoke release-publish",
     "bounded": "iap-ssh",
     "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land gate-post-land release-candidate release-rehearse api-hurl access-browser-test",

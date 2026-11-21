@@ -9,8 +9,7 @@ let
   # commit, docs-only commits included, rebuild and retest nagarectl on every
   # system. While it is off, the shipped wrapper below sets
   # NAGARE_SOURCE_REVISION, and `nagarectl version --json` reports it, so the
-  # release tooling (check-release.sh, assemble-release.sh,
-  # rehearse-clone-free-release.sh) keeps working.
+  # release tooling (the rehearsal and the public flake check) reads it.
   stampRevision = false;
 
   # EP-210 M3: nagarectl embeds its version from release.json at compile time

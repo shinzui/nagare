@@ -12,6 +12,7 @@ import Nagare.Harness.Release.Candidate (CandidateOptions (..), releaseCandidate
 import Nagare.Harness.Release.Images (pinReleaseImages, prepareReleaseImages, readReleaseImages)
 import Nagare.Harness.Release.Intranet (IntranetOptions (..), transitionPinTag, transitionRun)
 import Nagare.Harness.Release.Process (realRuntime, refuse, refusing)
+import Nagare.Harness.Release.Publish (PublishOptions (..), releasePublish)
 import Nagare.Harness.Release.Rehearse (RehearseOptions (..), transitionRehearse)
 import Nagare.Harness.Release.TransitionDrill (transitionDrill)
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
@@ -36,6 +37,7 @@ data Command
   | MutationsSweep !Text !(Maybe Text) !Int
   | RouteCheck !RouteCheckOptions
   | ReleaseCandidate !CandidateOptions
+  | ReleasePublish !PublishOptions
   | ReleaseImagesPrepare
   | ReleaseImagesPin !Text !FilePath
   | TransitionRun !IntranetOptions !Bool
@@ -70,10 +72,21 @@ releaseParser =
                 CandidateOptions
                   <$> versionArgument
                   <*> (T.pack <$> strOption (long "revision" <> metavar "REV" <> value "HEAD" <> showDefault <> help "The candidate revision, on origin/master"))
-                  <*> switch (long "rehearsal" <> help "Run every step but land nothing and leave the intranet untouched")
+                  <*> switch (long "rehearsal" <> help "Run every step but the intranet")
+                  <*> optional (strOption (long "run" <> metavar "DIR" <> help "The run directory (default: releases/vVERSION/REV under the state directory); a rerun continues it"))
             )
-            (progDesc "Everything up to the tag, unattended: gate, transition rehearsal, attachments, assembly, the intranet, the rehearsal record (scripts/release-candidate.sh)")
+            (progDesc "Everything up to the tag: the landing check, the images, the transition rehearsal and the intranet; a rerun keeps each finished step (scripts/release-candidate.sh)")
         )
+        <> command
+          "publish"
+          ( info
+              ( fmap ReleasePublish $
+                  PublishOptions
+                    <$> versionArgument
+                    <*> optional (strOption (long "run" <> metavar "DIR" <> help "The candidate run (default: the tagged commit's, or the version's only run that moved the intranet)"))
+              )
+              (progDesc "Sign and push the tag, publish its notes and rehearsal record, check the public flake and pin the operator repository to the tag (scripts/release-publish.sh)")
+          )
         <> command "images" (info imagesParser (progDesc "Build the release's four service images and pin them (EP-237)"))
     )
 
@@ -129,7 +142,7 @@ transitionParser =
     intranetOptions =
       IntranetOptions
         <$> versionArgument
-        <*> optional (strOption (long "run" <> metavar "DIR" <> help "The candidate run (default: the version's latest run)"))
+        <*> optional (strOption (long "run" <> metavar "DIR" <> help "The candidate run (required)"))
         <*> optional (T.pack <$> strOption (long "context" <> metavar "NAME" <> help "Default: NAGARE_RELEASE_CONTEXT, else intranet"))
         <*> optional (T.pack <$> strOption (long "revision" <> metavar "REV" <> help "Refuse unless the run is for this revision"))
 
@@ -237,6 +250,7 @@ main = do
   parsed <- execParser (info (commandParser <**> helper) (fullDesc <> failureCode 2 <> progDesc "Nagare release and gate harness"))
   case parsed of
     ReleaseCandidate options -> realRuntime >>= \runtime -> refusing "release-candidate" (releaseCandidate runtime options)
+    ReleasePublish options -> realRuntime >>= \runtime -> refusing "release-publish" (releasePublish runtime options)
     ReleaseImagesPin version manifest ->
       realRuntime >>= \runtime -> refusing "release images" $ do
         images <- BS.readFile manifest >>= either refuse pure . readReleaseImages
@@ -326,6 +340,7 @@ harnessMain root parsed =
       unless green exitFailure
     -- The release commands run before the repository root is read.
     ReleaseCandidate _ -> pure ()
+    ReleasePublish _ -> pure ()
     ReleaseImagesPin {} -> pure ()
     ReleaseImagesPrepare -> realRuntime >>= \runtime -> refusing "release images" (prepareReleaseImages runtime root)
     TransitionRun _ _ -> pure ()

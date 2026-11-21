@@ -45,19 +45,11 @@ import System.Process (readProcessWithExitCode)
 runReleasePublish :: Text -> Text -> FilePath -> Bool -> Maybe (Integer, Integer, Text) -> IO ()
 runReleasePublish repository version directory yes cleanup = do
   _ <- either (dieT . renderVersionError) pure (parsePlatformVersion version)
+  -- MasterPlan 37 D3: a release is its signed tag, its notes and the
+  -- rehearsal record bound to its candidate.
   let tag = "v" <> version
-      manifestName = "nagare-release-" <> T.unpack version <> ".json"
       notesName = "nagare-" <> T.unpack tag <> ".md"
-      productNames =
-        [ manifestName
-        , notesName
-        , "nix-output-x86_64-linux.json"
-        , "nix-output-aarch64-darwin.json"
-        , "clone-free-x86_64-linux.json"
-        , "clone-free-aarch64-darwin.json"
-        , "SHA256SUMS"
-        ]
-          <> releaseEvidenceAssetNames version
+      productNames = notesName : releaseEvidenceAssetNames version
   tagType <- exactGitObjectType ("refs/tags/" <> T.unpack tag)
   unless (tagType == "tag") (dieT "release requires an annotated Git tag")
   tagObject <- exactGitRevision ("refs/tags/" <> T.unpack tag)
@@ -86,44 +78,12 @@ runReleasePublish repository version directory yes cleanup = do
             Nothing
     pure (GitHubRelease.ProductAsset (T.pack name) spec bytes)
   let byName = Map.fromList [(T.unpack (GitHubRelease.productName item), GitHubRelease.productBytes item) | item <- assets]
-      manifestBytes = fromMaybe BS.empty (Map.lookup manifestName byName)
       notesBytes = fromMaybe BS.empty (Map.lookup notesName byName)
-      sumsBytes = fromMaybe BS.empty (Map.lookup "SHA256SUMS" byName)
-  manifest <-
-    either
-      (dieT . T.pack)
-      pure
-      (Aeson.eitherDecodeStrict' manifestBytes :: Either String Aeson.Value)
-  case manifest of
-    Aeson.Object fields -> do
-      unless
-        ( AesonMap.lookup "version" fields == Just (Aeson.String version)
-            && AesonMap.lookup "tag" fields == Just (Aeson.String tag)
-            && AesonMap.lookup "revision" fields == Just (Aeson.String commit)
-            && AesonMap.lookup "consistent" fields == Just (Aeson.Bool True)
-        )
-        (dieT "assembled release manifest does not bind this version, tag, and commit")
-    _ -> dieT "assembled release manifest is not an object"
-  either dieT pure (validateReleaseEvidence version commit byName)
-  sumsText <- either (dieT . T.pack . show) pure (TE.decodeUtf8' sumsBytes)
-  listed <- forM (T.lines sumsText) $ \line -> do
-    let (digest, suffix) = T.breakOn "  " line
-        name = T.drop 2 suffix
-    unless
-      (T.length digest == 64 && not (T.null name))
-      (dieT "SHA256SUMS contains an invalid entry")
-    pure (T.unpack name, digest)
-  let expectedSums =
-        Map.fromList
-          [ (name, Resource.digestText (InventoryDigest.contentDigest bytes))
-          | (name, bytes) <- Map.toList byName
-          , name /= "SHA256SUMS"
-          ]
-  unless
-    (length listed == Map.size expectedSums && Map.fromList listed == expectedSums)
-    (dieT "SHA256SUMS does not exactly cover the assembled product bytes")
+  -- The checkout is the tag's commit, so its release.json is the release's.
+  metadata <- try (BS.readFile "release.json") >>= either (\(err :: IOException) -> dieT ("cannot read the tag's release.json: " <> T.pack (show err))) pure
+  either dieT pure (validateReleaseEvidence version commit metadata byName)
   notes <- either (dieT . T.pack . show) pure (TE.decodeUtf8' notesBytes)
-  let payload = Resource.digestText (InventoryDigest.contentDigest manifestBytes)
+  let payload = "git:" <> commit
   review <-
     either
       dieT

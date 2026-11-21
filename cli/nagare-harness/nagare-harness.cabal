@@ -40,6 +40,7 @@ library
     Nagare.Harness.Release.Images
     Nagare.Harness.Release.Intranet
     Nagare.Harness.Release.Process
+    Nagare.Harness.Release.Publish
     Nagare.Harness.Release.Records
     Nagare.Harness.Release.Rehearse
     Nagare.Harness.Release.Review
@@ -94,6 +95,7 @@ test-suite nagare-harness-test
   hs-source-dirs: test
   other-modules:
     FlakeCheckSpec
+    ReleaseCandidateSpec
     ReleaseFake
     ReleaseImagesSpec
     ReleaseRehearsalSpec

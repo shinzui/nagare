@@ -12,12 +12,14 @@ module Nagare.Harness.Release.Records
   , ReleaseMetadata (..)
   , CandidateRecord (..)
   , RehearsalCheck (..)
+  , IntranetCheck (..)
   , decodeDocument
   , readDocument
   , lockedRevision
   , exactOn
   , everyAcceptedConverged
   , rehearsalMatches
+  , intranetOn
   , writeSorted
   , writeSortedAtomically
   , encodeSorted
@@ -117,6 +119,26 @@ instance FromJSON RehearsalCheck where
       <*> withObject "source" (.: "version") source
       <*> withObject "sentinel" (.: "seeded") sentinel
       <*> withObject "sentinel" (.: "readBack") sentinel
+
+-- | What publication and a rerun read of @<run>/intranet.json@.
+data IntranetCheck = IntranetCheck
+  { version :: !Text
+  , revision :: !Text
+  , compatibility :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance FromJSON IntranetCheck where
+  parseJSON = withObject "intranet record" $ \record ->
+    IntranetCheck
+      <$> record .: "version"
+      <*> record .: "revision"
+      <*> (record .: "status" >>= withObject "status" (.: "compatibility"))
+
+-- | The intranet record shows the context exact on this candidate.
+intranetOn :: Text -> Text -> IntranetCheck -> Bool
+intranetOn version' revision' check =
+  check ^. #version == version' && check ^. #revision == revision' && check ^. #compatibility == "exact"
 
 decodeDocument :: (FromJSON a) => Text -> ByteString -> Either Text a
 decodeDocument label bytes = first (\reason -> label <> ": " <> T.pack reason) (eitherDecodeStrict bytes)

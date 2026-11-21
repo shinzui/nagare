@@ -498,8 +498,7 @@ pulumiEnvFor stateRoot ctx tp =
 -- This is deliberately __not__ @Nagare.Init.renderTargetEnv@: that renders the
 -- persisted /context file/ and must not grow Pulumi keys, because the Pulumi
 -- selection is derived state, not part of the context an operator edits. This is
--- the Haskell twin of what @scripts\/lib\/target.sh@ exports; the two must agree,
--- and @scripts\/rehearse-clone-free-release.sh@ proves they do.
+-- the Haskell twin of what @scripts\/lib\/target.sh@ exports; the two must agree.
 --
 -- Every value is single-quoted with embedded single quotes escaped, so the output
 -- is safe to @eval@ whatever a context declares.

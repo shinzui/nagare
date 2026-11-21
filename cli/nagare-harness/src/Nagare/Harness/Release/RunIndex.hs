@@ -19,6 +19,7 @@ module Nagare.Harness.Release.RunIndex
   , runIndexVersion
   , newRunIndex
   , openIndex
+  , resumeIndex
   , indexPath
   , relativeIn
   , updateIndex
@@ -27,6 +28,7 @@ module Nagare.Harness.Release.RunIndex
   , beginStep
   , advance
   , endStep
+  , keepStep
   , addStage
   , addAttempt
   , setRecord
@@ -35,7 +37,7 @@ module Nagare.Harness.Release.RunIndex
 where
 
 import Control.Exception (SomeException, fromException, throwIO, try)
-import Data.Aeson (FromJSON (..), Options (..), ToJSON (..), camelTo2, defaultOptions, genericParseJSON, genericToJSON)
+import Data.Aeson (FromJSON (..), Options (..), ToJSON (..), camelTo2, defaultOptions, eitherDecodeFileStrict, genericParseJSON, genericToJSON)
 import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (stripPrefix)
@@ -46,12 +48,15 @@ import Data.Time (UTCTime)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Release.Process (Refusal (..), Runtime)
 import Nagare.Harness.Release.Records (writeSortedAtomically)
+import System.Directory (doesFileExist)
 import System.FilePath (addTrailingPathSeparator, takeDirectory)
 
 runIndexVersion :: Int
 runIndexVersion = 1
 
-data RunStatus = Running | Passed | Failed
+-- | 'Kept': a rerun found the step's result from an earlier invocation of
+-- the same run and did not run it again (MasterPlan 37 D3).
+data RunStatus = Running | Passed | Failed | Kept
   deriving stock (Eq, Show, Generic)
 
 instance ToJSON RunStatus where toJSON = genericToJSON defaultOptions {constructorTagModifier = camelTo2 '-'}
@@ -170,6 +175,14 @@ openIndex runtime path initial = do
   updateIndex writer id
   pure writer
 
+-- | Continue the index an earlier invocation of the same run wrote, keeping
+-- its steps, stages, records and children, or start @initial@.
+resumeIndex :: Runtime -> FilePath -> RunIndex -> IO IndexWriter
+resumeIndex runtime path initial = do
+  present <- doesFileExist path
+  earlier <- if present then either (const Nothing) Just <$> eitherDecodeFileStrict path else pure Nothing
+  openIndex runtime path (maybe initial (\found -> found & #status .~ Running & #detail .~ Nothing) earlier)
+
 indexPath :: IndexWriter -> FilePath
 indexPath writer = writer ^. #file
 
@@ -239,6 +252,12 @@ endStep writer name' passed = do
         | entry ^. #name == name' && entry ^. #status == Running = entry & #status .~ (if passed then Passed else Failed) & #finishedAt ?~ at'
         | otherwise = entry
   updateIndex writer (#steps %~ map finish)
+
+-- | A step whose result an earlier invocation left: recorded, not run.
+keepStep :: IndexWriter -> Text -> IO ()
+keepStep writer name' = do
+  at' <- writer ^. #clock
+  updateIndex writer (#steps %~ (<> [StepEntry name' Kept at' (Just at') Nothing False]))
 
 addStage :: IndexWriter -> StageEntry -> IO ()
 addStage writer stage = updateIndex writer (#stages %~ (<> [stage]))

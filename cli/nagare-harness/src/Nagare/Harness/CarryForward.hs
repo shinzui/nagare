@@ -6,8 +6,8 @@
 --
 -- The repository's top-level @README.md@ and @CHANGELOG.md@ are inert: no
 -- check, test or payload reads them. Release notes under @docs/releases/@ are
--- inert too (EP-210 M2): only @scripts/check-release.sh@ reads them, in the
--- candidate run, never in a gate. So is an edited, not removed, Markdown file under @docs/@ that no
+-- inert too (EP-210 M2): only the candidate run and the publisher read them,
+-- never a gate. So is an edited, not removed, Markdown file under @docs/@ that no
 -- check reads for its content ('contentReadDocuments') and that is not one of
 -- the 'shippedDocuments' (operator, 2026-10-20: a documentation-only push must
 -- never run a gate). Code names such pages in help text and the payload copies

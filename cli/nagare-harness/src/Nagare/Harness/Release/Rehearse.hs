@@ -6,10 +6,9 @@
 -- ("Nagare.Harness.Release.TransitionDrill") on a disposable local context, on
 -- a Colima profile this run creates and deletes (MasterPlan 37 D3), or on the
 -- empty daemon @NAGARE_REHEARSAL_DOCKER_HOST@ names, which it never deletes.
--- It writes the record a release binds to
--- @docs/release-evidence/<rev>/transition-rehearsal.json@, uncommitted, or to
--- @NAGARE_RELEASE_REHEARSAL_RECORD@ (the candidate run's directory). An
--- existing record is kept: only a green run writes one.
+-- It writes the record a release binds to @NAGARE_RELEASE_REHEARSAL_RECORD@
+-- (the candidate run's directory), or to @transition-rehearsal.json@ in its
+-- work directory. An existing record is kept: only a green run writes one.
 --
 -- Both CLIs are nix packages with every guard on. The drill runs from an
 -- empty environment whose PATH holds only the operator tools below and no
@@ -92,20 +91,22 @@ transitionRehearse runtime options = do
   repo <- T.unpack <$> captureText runtime "not in a git repository" (invocation "git" ["rev-parse", "--show-toplevel"])
   rev <- captureText runtime ("no commit " <> options ^. #revision) (invocation "git" ["-C", repo, "rev-parse", "--verify", T.unpack (options ^. #revision) <> "^{commit}"])
   let prev = fromMaybe (options ^. #previous) (T.stripPrefix "v" (options ^. #previous))
-      record = fromMaybe (repo </> "docs/release-evidence" </> T.unpack rev </> "transition-rehearsal.json") (lookupVariable runtime "NAGARE_RELEASE_REHEARSAL_RECORD")
-      notAMove = T.pack record <> " does not record a move from " <> prev <> " to " <> rev
-      checkRecord path = do
+      named = maybe ((</> "transition-rehearsal.json") <$> options ^. #run) Just (lookupVariable runtime "NAGARE_RELEASE_REHEARSAL_RECORD")
+      checkRecord record path = do
+        let notAMove = T.pack record <> " does not record a move from " <> prev <> " to " <> rev
         found <- readDocument @RehearsalCheck path
         unless (either (const False) (rehearsalMatches rev prev) found) (refuse (either (\reason -> notAMove <> ": " <> reason) (const notAMove) found))
-  existing <- doesPathExist record
-  if existing
-    then do
-      checkRecord record
-      note runtime ("record exists: " <> T.pack record)
-    else do
+  existing <- maybe (pure False) doesPathExist named
+  case named of
+    Just record
+      | existing -> do
+          checkRecord record record
+          note runtime ("record exists: " <> T.pack record)
+    _ -> do
       work <- case options ^. #run of
         Just directory -> createDirectoryIfMissing True directory >> pure directory
         Nothing -> T.unpack <$> captureText runtime "mktemp failed" (invocation "mktemp" ["-d", "/private/tmp/nagare-release-rehearse.XXXXXX"])
+      let record = fromMaybe (work </> "transition-rehearsal.json") named
       started <- runtime ^. #now
       index <-
         openIndex runtime (work </> "index.json") $
@@ -114,7 +115,7 @@ transitionRehearse runtime options = do
             .~ Revisioned Nothing (Just rev)
             & #source
             .~ Revisioned (Just prev) Nothing
-      withRunIndex index (rehearseIn runtime index repo rev prev work record checkRecord)
+      withRunIndex index (rehearseIn runtime index repo rev prev work record (checkRecord record))
 
 -- | The rehearsal proper, in its work directory: both CLIs and the tool
 -- PATH, then the drill on its daemon.

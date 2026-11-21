@@ -242,8 +242,7 @@ runDrill drill sentinel = do
   ok drill "the candidate's bootstrap replan failed" . (\i -> i & #stdoutTo .~ WriteTo (replan <> ".plan.log") & #stderrTo .~ SameAsStdout) =<< nagarectl drill Target ["platform", "bootstrap", "plan", "--out", replan]
   replanned <- readReviewCounts replan >>= either refuse pure
   unless (isConverged AllOperations replanned) (refuse "replan on the candidate has operations or re-accepts a scope")
-  -- The record a release binds (scripts/assemble-release.sh
-  -- --transition-rehearsal): what moved from where, the seeded row and what
+  -- The record a release binds (published beside its notes): what moved from where, the seeded row and what
   -- read back, the final platform status, the idle inventory and the
   -- converged replan.
   sourceIdentity <- capture runtime' "the source nagarectl has no version" =<< command drill sourceCli ["version", "--json"]

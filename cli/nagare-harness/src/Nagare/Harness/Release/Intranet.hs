@@ -1,7 +1,7 @@
 -- | Move the intranet to a release candidate, or pin it to the published tag
 -- (EP-210 M5, ported by EP-229; docs/runbooks/releases.md).
--- @nagare-harness release candidate@ runs the candidate form after assembly
--- and @release-publish@ the tag form after the public flake check.
+-- @nagare-harness release candidate@ runs the candidate form after the
+-- rehearsal and @release publish@ the tag form after the public flake check.
 --
 -- The candidate form pins the operator repository's Nagare input to the run's
 -- revision, plans (@platform transition plan@) and applies (@inventory apply@)
@@ -97,7 +97,7 @@ setup :: Runtime -> IntranetOptions -> IO Setup
 setup runtime options = do
   let version' = options ^. #version
       tag' = "v" <> version'
-      given = fromMaybe (stateDirectory runtime </> "nagare/releases" </> T.unpack tag' </> "latest") (options ^. #run)
+  given <- maybe (refuse "name the candidate run with --run DIR") pure (options ^. #run)
   present <- doesFileExist (given </> "candidate.json")
   unless present (refuse ("no candidate run at " <> T.pack given))
   run' <- canonicalizePath given

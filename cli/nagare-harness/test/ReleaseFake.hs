@@ -24,6 +24,7 @@ module ReleaseFake
   , writeReview
   , version'
   , rev
+  , rehearsalRecord
   )
 where
 
@@ -223,3 +224,13 @@ version' = "9.8.7"
 
 rev :: Text
 rev = "0123456789abcdef0123456789abcdef01234567"
+
+-- | A transition rehearsal record of a move from @previous'@ to the
+-- candidate @revision'@ that read its seeded row back.
+rehearsalRecord :: Text -> Text -> Value
+rehearsalRecord revision' previous' =
+  object
+    [ "candidate" .= object ["revision" .= revision', "version" .= version']
+    , "source" .= object ["version" .= previous', "revision" .= ("s" :: Text)]
+    , "sentinel" .= object ["seeded" .= ("transition x" :: Text), "readBack" .= ("transition x" :: Text)]
+    ]

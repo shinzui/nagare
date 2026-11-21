@@ -49,7 +49,7 @@ releaseEvidenceTests :: TestTree
 releaseEvidenceTests =
   testGroup
     "release evidence"
-    [ testCase "a complete proof is accepted" $ validateReleaseEvidence "0.5.0" candidate (assetsWith id) @?= Right ()
+    [ testCase "a complete proof is accepted" $ validateReleaseEvidence "0.5.0" candidate metadata (assetsWith id) @?= Right ()
     , testCase "a rehearsal of another candidate or from an unaccepted release is refused" $ do
         refuses (assetsWith (set ["candidate", "revision"] (Aeson.String other))) "another candidate"
         refuses (assetsWith (set ["source", "version"] (Aeson.String "0.3.0"))) "does not accept"
@@ -62,33 +62,24 @@ releaseEvidenceTests =
         refuses (assetsWith (set ["inventory", "activeTransaction"] (Aeson.String "tx-1"))) "open transaction"
         refuses (assetsWith (set ["replan", "operations"] (Aeson.Number 1))) "not converged"
         refuses (assetsWith (set ["mode"] (Aeson.String "cloud"))) "unsupported schema or mode"
-    , testCase "a missing record, a secret-looking key and foreign native evidence are refused" $ do
+    , testCase "a missing record, a secret-looking key and another version's release.json are refused (MasterPlan 37 D3)" $ do
         refuses (Map.delete rehearsalName (assetsWith id)) "missing release evidence asset"
         refuses (assetsWith (set ["adminPassword"] (Aeson.String "x"))) "sensitive key"
-        refuses (Map.insert "nix-output-x86_64-linux.json" (encoded (output "x86_64-linux" "sha256-linux" other)) (assetsWith id)) "native evidence belongs to another candidate"
+        case validateReleaseEvidence "0.5.0" candidate (encoded (Aeson.object ["platformVersion" Aeson..= ("0.5.1" :: Text), "transitionsFrom" Aeson..= (["0.4.0"] :: [Text])])) (assetsWith id) of
+          Left reason -> assertBool (T.unpack reason) ("not this version" `T.isInfixOf` reason)
+          Right () -> assertFailure "accepted another version's release.json"
     ]
   where
     candidate = "37d8d45da8a0e683208a62cfc59efe8c2831f737"
     other = "0000000000000000000000000000000000000000"
-    systems = ["x86_64-linux", "aarch64-darwin"] :: [Text]
     rehearsalName = "nagare-transition-rehearsal-v0.5.0.json"
     identity = Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= candidate]
-    refuses assets needle = case validateReleaseEvidence "0.5.0" candidate assets of
+    refuses assets needle = case validateReleaseEvidence "0.5.0" candidate metadata assets of
       Left reason -> assertBool (T.unpack reason) (needle `T.isInfixOf` reason)
       Right () -> assertFailure ("accepted a proof that should refuse with " <> T.unpack needle)
     encoded = LBS.toStrict . encode
-    assetsWith adjust =
-      Map.fromList
-        ( [ ("nagare-release-0.5.0.json", encoded (Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= candidate, "systems" Aeson..= systems, "payloadDigests" Aeson..= Aeson.object ["x86_64-linux" Aeson..= ("sha256-linux" :: Text), "aarch64-darwin" Aeson..= ("sha256-darwin" :: Text)]]))
-          , ("nagare-platform-metadata-v0.5.0.json", encoded (Aeson.object ["platformVersion" Aeson..= ("0.5.0" :: Text), "supportedSystems" Aeson..= systems, "transitionsFrom" Aeson..= (["0.4.0"] :: [Text])]))
-          , (rehearsalName, encoded (adjust rehearsal))
-          , ("nix-output-x86_64-linux.json", encoded (output "x86_64-linux" "sha256-linux" candidate))
-          , ("nix-output-aarch64-darwin.json", encoded (output "aarch64-darwin" "sha256-darwin" candidate))
-          ]
-            <> [("clone-free-" <> T.unpack system <> ".json", encoded (cloneFree system)) | system <- systems]
-        )
-    output system digest revision = Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= (revision :: Text), "system" Aeson..= (system :: Text), "outputs" Aeson..= Aeson.object ["nagarectl" Aeson..= Aeson.object ["narHash" Aeson..= ("sha256-cli" :: Text)], "nagare-platform" Aeson..= Aeson.object ["narHash" Aeson..= (digest :: Text)]]]
-    cloneFree system = Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= candidate, "system" Aeson..= system, "cloneFree" Aeson..= True, "supportedSystems" Aeson..= systems, "checks" Aeson..= (["version", "context", "typed-config", "inventory-compile", "payload", "operator-recipe"] :: [Text])]
+    metadata = encoded (Aeson.object ["platformVersion" Aeson..= ("0.5.0" :: Text), "supportedSystems" Aeson..= (["x86_64-linux", "aarch64-darwin"] :: [Text]), "transitionsFrom" Aeson..= (["0.4.0"] :: [Text])])
+    assetsWith adjust = Map.fromList [(rehearsalName, encoded (adjust rehearsal))]
     rehearsal =
       Aeson.object
         [ "schemaVersion" Aeson..= (1 :: Int)

@@ -127,10 +127,10 @@ which defer to the user's scope:
   the touched packages, in nagarectl's suite only the test groups the change reaches (operator,
   2026-11-17). **Per landing:** `just gate-fast` with no uncommitted changes, then `just land`,
   which starts the full gate on the landed commit in the background; a red full gate blocks the
-  next land until a fully gated fix lands (operator decision, 2026-10-11). **Per release only:**
-  `just gate-release REV` on the candidate: its green full gate, then the mutation sweep, which a
-  land no longer runs (operator, 2026-11-17). The deep tier is not part of a release (operator,
-  2026-10-12). A docs-only commit carries its gated ancestor's record forward.
+  next land until a fully gated fix lands (operator decision, 2026-10-11). **Per release:** the
+  candidate's landed full-gate record, or that full gate run by the candidate; the mutation sweep
+  and the deep tier are not release steps (operator, 2026-11-20). A docs-only commit carries its
+  gated ancestor's record forward.
 - **Releases after v0.5.0 prove three things:** the full gate is green, the EP-172 upgrade
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud

@@ -374,7 +374,6 @@ gate-deep rev="HEAD" shards="16":
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     specs=$(for i in $(seq 0 $(( {{shards}} - 1 ))); do printf '%s/%s ' "$i" "{{shards}}"; done)
     just test-remote "$commit" '/deep tier/' "$specs" true
-    # A green run is the base `gate-release` compares later releases against.
     records="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/deep"
     mkdir -p "$records"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$records/$commit"
@@ -408,38 +407,6 @@ mutation-sweep rev="HEAD" base="" width="4":
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     base='{{base}}'
     scripts/harness.sh mutations sweep --rev "$commit" ${base:+--base "$base"} --width '{{width}}'
-
-# EP-184 M4: the release gate for a fully gated revision. The deep tier is not
-# part of it (operator, 2026-10-12): it took over six hours. Run `just gate-deep`
-# by hand when working on recovery code. The sweep is skipped when nothing it
-# builds (cli/, nix/, the flake, cabal.project) changed since the nearest
-# ancestor with a clean sweep.
-# Run the release gate: gate record, then mutation sweep unless nothing it builds changed.
-[group('test')]
-gate-release rev="HEAD":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    commit=$(git rev-parse --verify '{{rev}}^{commit}')
-    just gate-verify "$commit"
-    records="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/sweep"
-    base=""
-    for record in "$records"/*; do
-      [ -f "$record" ] || continue
-      candidate=$(basename "$record")
-      git merge-base --is-ancestor "$candidate" "$commit" 2>/dev/null || continue
-      if [ -z "$base" ] || git merge-base --is-ancestor "$base" "$candidate"; then base=$candidate; fi
-    done
-    # The version is written only in release.json (EP-210), outside what the sweep builds.
-    if [ -n "$base" ] && git diff --quiet "$base" "$commit" -- cli nix flake.nix flake.lock 'cabal.project*'; then
-      echo "gate-release: $commit has a green full gate, and nothing the mutation sweep builds changed since its clean sweep on $base"
-      exit 0
-    fi
-    # Only the records whose patched files changed since the clean sweep can
-    # have stopped failing; a revision with no clean ancestor sweeps them all.
-    just mutation-sweep "$commit" "$base"
-    mkdir -p "$records"
-    date -u +%Y-%m-%dT%H:%M:%SZ > "$records/$commit"
-    echo "gate-release: $commit has a green full gate and a clean mutation sweep"
 
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
 # changed since `base` (committed, uncommitted or untracked), and exit non-zero
@@ -543,8 +510,7 @@ land rev:
     git push origin "$target:refs/heads/master"
     log="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/post-land-$target.log"
     mkdir -p "$(dirname "$log")"
-    # A land runs the full gate only; the mutation sweep is per release, in
-    # `just gate-release` (operator, 2026-11-17).
+    # A land runs the full gate only (operator, 2026-11-17).
     nohup just gate-post-land "$target" >"$log" 2>&1 &
     echo "land: $target is on master; its post-land check runs in the background, log $log"
 
@@ -617,31 +583,32 @@ local-secret-scope-smoke context:
     NAGARE_SMOKE_CONTEXT='{{context}}' scripts/local-secret-scope-smoke.sh
 
 # MP-26 item 11: a release is two commands (docs/runbooks/releases.md). This one
-# runs everything up to the tag, unattended: `just gate-release`, the transition
-# rehearsal from the newest release the candidate accepts, the native attachments
-# on aarch64-darwin and in an amd64 Apple container, two
-# byte-identical assemblies, then the rehearsal record landed on master. Runs live
-# in ${XDG_STATE_HOME:-~/.local/state}/nagare/releases/vVERSION/. Takes
-# --revision REV (default HEAD) and --rehearsal (lands nothing, never published).
+# runs everything up to the tag: the landing check (the landed commit's green
+# full gate, or that gate run here), the release images, the transition rehearsal
+# from the newest release the candidate accepts, and the intranet on the
+# candidate. A run lives in ${XDG_STATE_HOME:-~/.local/state}/nagare/releases/vVERSION/REV
+# (or --run DIR), and a rerun keeps every step it already finished. Takes
+# --revision REV (default HEAD) and --rehearsal (leaves the intranet alone).
 # Prepare a release candidate up to the tag.
 [group('release')]
 release-candidate version *args:
     scripts/release-candidate.sh {{version}} {{args}}
 
-# MP-26 item 11: sign the tag with the maintainer's SSH key, push only the tag,
-# publish with the candidate's CLI (retrying only a draft that is not yet
-# visible), and check the public flake reports VERSION.
+# MP-26 item 11: check the run's proofs, sign the tag with the maintainer's SSH
+# key, have the candidate's CLI review the notes and rehearsal record, push only
+# the tag, publish them (retrying only a draft that is not yet visible), check
+# the public flake reports VERSION, and pin the operator repository to the tag.
 # Sign, push and publish a prepared release candidate.
 [group('release')]
-release-publish version:
-    scripts/release-publish.sh {{version}}
+release-publish version *args:
+    scripts/release-publish.sh {{version}} {{args}}
 
 # MP-26 item 12: the EP-172 upgrade rehearsal, unattended. It builds release
 # PREVIOUS's and REV's packaged nagarectl, creates a Colima profile for the run and
 # deletes it after (or uses the empty daemon NAGARE_REHEARSAL_DOCKER_HOST names), moves a disposable local
 # context from PREVIOUS to REV with every guard on, from an empty environment whose
 # PATH has no Helm, reads the seeded row back, and writes
-# docs/release-evidence/REV/transition-rehearsal.json (uncommitted). An existing
+# transition-rehearsal.json in its work directory. An existing
 # record for REV from PREVIOUS is accepted as is.
 # Rehearse the transition from a published release to a candidate.
 [group('release')]

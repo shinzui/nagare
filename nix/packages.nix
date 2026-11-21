@@ -16,10 +16,6 @@
       net-certmanager-controller-image = nagarePackages.netCertManagerControllerImage;
       nagare = nagarePackages.nagare;
       nagare-harness = nagarePackages.nagareHarness;
-      release-tools = pkgs.symlinkJoin {
-        name = "nagare-release-tools";
-        paths = [ pkgs.coreutils pkgs.jq pkgs.python3 ];
-      };
       default = nagarePackages.nagarectl;
     } // lib.optionalAttrs (system == "x86_64-linux") {
       # EP-237: the release service images, their manifest, and the check

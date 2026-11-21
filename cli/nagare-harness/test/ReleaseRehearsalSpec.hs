@@ -57,14 +57,6 @@ rehearseWorld root' carriesHelm = do
   where
     makeExecutable path = getPermissions path >>= setPermissions path . setOwnerExecutable True
 
-rehearsalRecord :: Text -> Text -> Value
-rehearsalRecord revision' previous' =
-  object
-    [ "candidate" .= object ["revision" .= revision', "version" .= version']
-    , "source" .= object ["version" .= previous', "revision" .= ("s" :: Text)]
-    , "sentinel" .= object ["seeded" .= ("transition x" :: Text), "readBack" .= ("transition x" :: Text)]
-    ]
-
 rehearseTests :: TestTree
 rehearseTests =
   testGroup

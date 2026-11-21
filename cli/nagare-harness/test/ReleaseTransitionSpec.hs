@@ -18,7 +18,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
-import Data.List (isPrefixOf, isSuffixOf)
+import Data.List (isPrefixOf)
 import Data.Text qualified as T
 import Nagare.Contract.V1 (Outcome (..))
 import Nagare.Harness.Prelude hiding ((.=))
@@ -27,10 +27,10 @@ import Nagare.Harness.Release.Intranet
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Rehearse
 import Nagare.Harness.Release.Review
+import ReleaseCandidateSpec (candidateTests, publishTests)
 import ReleaseFake
-import ReleaseImagesSpec (digestFor, fixtureImages, imageKeys, storePathFor)
 import ReleaseRehearsalSpec (drillTests, rehearseTests)
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, doesPathExist, pathIsSymbolicLink)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
@@ -91,6 +91,7 @@ releaseTransitionTests =
         ]
     , intranetTests
     , candidateTests
+    , publishTests
     , rehearseTests
     , drillTests
     ]
@@ -368,172 +369,3 @@ assertNothingLanded :: Operator -> [String] -> Assertion
 assertNothingLanded o calls' = do
   assertBool "a refusal wrote a record" . not =<< doesFileExist (o ^. #run </> "intranet.json")
   filter (isPrefixOf "git -C $T/operator commit") calls' @?= []
-
--- * release candidate (scripts/release-candidate.sh)
-
-candidateWorld :: FilePath -> IO Responder
-candidateWorld root' = candidateWorldWith root' False ""
-
--- | @images@: release.json names its service images. @pinned@ is what the
--- operator shell reports as exported image overrides.
-candidateWorldWith :: FilePath -> Bool -> Text -> IO Responder
-candidateWorldWith root' images pinned = do
-  let repo = root' </> "repo"
-      ok out = pure (0, out)
-  pure $ \command -> case (command ^. #program, command ^. #arguments) of
-    ("git", ["rev-parse", "--show-toplevel"]) -> ok (T.pack repo <> "\n")
-    ("git", ["rev-parse", "--verify", "HEAD^{commit}"]) -> ok (rev <> "\n")
-    ("nix", "eval" : _) -> ok "aarch64-darwin"
-    ("git", ["show", _]) -> ok (encodeText (object (["platformVersion" .= version', "supportedSystems" .= ["x86_64-linux", "aarch64-darwin" :: Text], "transitionsFrom" .= ["9.8.5", "9.8.6", "9.10.0" :: Text]] <> ["releaseImages" .= fixtureImages | images])))
-    ("direnv", "exec" : _ : "sh" : _) -> ok pinned
-    ("cat", [path]) | "/digest" `isSuffixOf` path -> ok (digestFor 'a' <> "\n")
-    ("git", ["rev-parse", "-q", "--verify", tagRef]) -> pure (if tagRef == "refs/tags/v9.10.0" then 0 else 1, "")
-    ("git", ["worktree", "add", "-q", "--detach", tree, _]) -> do
-      createDirectoryIfMissing True (tree </> "scripts")
-      writeFile (tree </> "scripts/release-native-container.sh") "#!/bin/sh\n"
-      ok ""
-    ("just", ["gate-release", _]) -> ok "gate: full gate green\n"
-    ("mktemp", _) -> ok (T.pack (root' </> "rehearse-work") <> "\n")
-    ("scripts/release-rehearse.sh", _) -> case command ^. #environment of
-      Extended [("NAGARE_RELEASE_REHEARSAL_RECORD", path)] -> writeFile path "{}" >> ok ""
-      other -> assertFailure ("rehearse without its record path: " <> show other) >> pure (1, "")
-    ("git", ["cat-file", "-e", _]) -> pure (1, "")
-    ("nix", "build" : rest) -> ok ("/nix/store/out-" <> T.takeWhileEnd (/= '.') (T.pack (last rest)) <> "\n")
-    _ -> ok ""
-
-candidateOrder :: Bool -> [String]
-candidateOrder rehearsal' =
-  [ "git rev-parse --show-toplevel"
-  , "git rev-parse --verify HEAD^{commit}"
-  , "nix eval --impure --raw --expr builtins.currentSystem"
-  , "git show " <> T.unpack rev <> ":release.json"
-  , "git fetch -q origin master --tags"
-  , "git merge-base --is-ancestor " <> T.unpack rev <> " origin/master"
-  ]
-    <> ["git rev-parse -q --verify refs/tags/v9.8.7" | not rehearsal']
-    <> [ "git rev-parse -q --verify refs/tags/v9.10.0"
-       , "git worktree add -q --detach " <> run' <> "/worktree " <> T.unpack rev
-       , "just gate-release " <> T.unpack rev
-       , "mktemp -d /private/tmp/nagare-release-rehearse.XXXXXX"
-       , "scripts/release-rehearse.sh " <> T.unpack rev <> " 9.10.0 --run $T/rehearse-work"
-       , "scripts/release-native.sh 9.8.7 " <> run' <> "/native/aarch64-darwin"
-       ]
-    <> ["nix build --no-link --print-out-paths --max-jobs 0 git+file://$T/repo?rev=" <> T.unpack rev <> "#packages.x86_64-linux." <> package | package <- ["nagarectl", "nagare", "nagare-platform", "release-tools"]]
-    <> [ "nix copy --to file://$T/state/nagare/releases/x86-work/cache " <> unwords ["/nix/store/out-" <> package | package <- ["nagarectl", "nagare", "nagare-platform", "release-tools"]]
-       , "git -C " <> run' <> "/worktree bundle create -q $T/state/nagare/releases/x86-work/candidate.bundle HEAD"
-       , "container system status"
-       , "container run --rm --platform linux/amd64 --rosetta -c 4 -m 16G -e HOME=/root -v $T/state/nagare/releases/x86-work:/work nixos/nix:2.35.2 bash /work/release-native-container.sh " <> T.unpack rev <> " 9.8.7"
-       , "cp -R $T/state/nagare/releases/x86-work/out/x86_64-linux " <> run' <> "/native/x86_64-linux"
-       ]
-    <> [run' <> "/worktree/scripts/assemble-release.sh --version 9.8.7 --input-root " <> run' <> "/native --transition-rehearsal " <> run' <> "/transition-rehearsal.json --output-dir " <> run' <> "/" <> dist | dist <- ["dist", "dist-again"]]
-    <> [ "diff -r " <> run' <> "/dist " <> run' <> "/dist-again"
-       , "shasum -a 256 -c SHA256SUMS"
-       ]
-    <> ( if rehearsal'
-           then []
-           else
-             [ run' <> "/worktree/scripts/release-intranet.sh 9.8.7 --run " <> run'
-             , "git fetch -q origin master"
-             , "git cat-file -e origin/master:" <> record
-             , "git worktree add -q --detach " <> run' <> "/evidence origin/master"
-             , "git -C " <> run' <> "/evidence add -- " <> record
-             , "git -C " <> run' <> "/evidence commit -q -m docs(release): record the v9.8.7 transition rehearsal -m Moved a disposable local context from v9.10.0 to the candidate " <> T.unpack rev <> "; the seeded row read back unchanged."
-             , "just land HEAD"
-             ]
-       )
-    <> ["git -C $T/repo worktree remove --force " <> run' <> "/" <> tree | tree <- ["worktree", "evidence"]]
-  where
-    run' = "$T/state/nagare/releases/v9.8.7/" <> (if rehearsal' then "rehearsal-" else "") <> "20261029T140458Z"
-    record = "docs/release-evidence/" <> T.unpack rev <> "/transition-rehearsal.json"
-
-candidateTests :: TestTree
-candidateTests =
-  testGroup
-    "release candidate"
-    [ testCase "--rehearsal runs every step in the script's order, gates in the background in the worktree, and lands nothing" $
-        withSystemTempDirectory "candidate" $ \raw -> do
-          root' <- canonicalizePath raw
-          pathless <- withoutPython root'
-          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root'
-          releaseCandidate runtime (CandidateOptions version' "HEAD" True)
-          calls' <- recorded world
-          rendered root' calls' @?= candidateOrder True
-          let runDir = root' </> "state/nagare/releases/v9.8.7/rehearsal-20261029T140458Z"
-          [(call ^. #directory, call ^. #background) | call <- calls', call ^. #program == "just"] @?= [(Just (runDir </> "worktree"), True)]
-          [call ^. #background | call <- calls', call ^. #program == "scripts/release-rehearse.sh"] @?= [True]
-          candidate <- eitherDecodeFileStrict @Value (runDir </> "candidate.json") >>= either fail pure
-          candidate @?= object ["version" .= version', "revision" .= rev, "previous" .= ("9.10.0" :: Text)]
-          assertBool "a rehearsal pointed latest at its run" . not =<< doesPathExist (root' </> "state/nagare/releases/v9.8.7/latest")
-          said' <- lines' world
-          assertBool "the gate's last line was not printed" ("gate: full gate green" `elem` said')
-    , testCase "a candidate moves the intranet, lands the rehearsal record from an evidence worktree, and points latest at its run" $
-        withSystemTempDirectory "candidate" $ \raw -> do
-          root' <- canonicalizePath raw
-          pathless <- withoutPython root'
-          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root'
-          releaseCandidate runtime (CandidateOptions version' "HEAD" False)
-          calls' <- recorded world
-          rendered root' calls' @?= candidateOrder False
-          [call ^. #directory | call <- calls', call ^. #arguments == ["land", "HEAD"]] @?= [Just (root' </> "state/nagare/releases/v9.8.7/20261029T140458Z/evidence")]
-          assertBool "latest is not a link" =<< pathIsSymbolicLink (root' </> "state/nagare/releases/v9.8.7/latest")
-          landed <- readFile (root' </> "state/nagare/releases/v9.8.7/20261029T140458Z/evidence/docs/release-evidence" </> T.unpack rev </> "transition-rehearsal.json")
-          landed @?= "{}"
-          index <- eitherDecodeFileStrict @Value (root' </> "state/nagare/releases/v9.8.7/20261029T140458Z/index.json") >>= either fail pure
-          fieldAt index ["status"] @?= Just (Aeson.String "passed")
-          fieldAt index ["children"] @?= Just (object ["rehearsal" .= (root' </> "rehearse-work/index.json"), "intranet" .= ("intranet-index.json" :: Text)])
-          fieldAt index ["records"] @?= Just (object ["candidate" .= ("candidate.json" :: Text), "dist" .= ("dist" :: Text), "transitionRehearsal" .= ("transition-rehearsal.json" :: Text)])
-          [(fieldAt entry ["name"], fieldAt entry ["status"]) | Just (Aeson.Array entries) <- [fieldAt index ["steps"]], entry <- toList entries]
-            @?= [(Just (Aeson.String name), Just "passed") | name <- ["worktree", "gate", "rehearsal", "aarch64-darwin", "x86_64-linux-outputs", "x86_64-linux", "assembly", "gate-wait", "intranet", "record"]]
-    , testCase "a release with images pushes them to the cache after the gate starts and before the rehearsal, with no registry call" $
-        withSystemTempDirectory "candidate" $ \raw -> do
-          root' <- canonicalizePath raw
-          pathless <- withoutPython root'
-          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state"), ("CACHIX_AUTH_TOKEN", "secret")] <> pathless) =<< candidateWorldWith root' True ""
-          releaseCandidate runtime (CandidateOptions version' "HEAD" True)
-          calls' <- rendered root' <$> recorded world
-          let cut = dropWhile (/= "just gate-release " <> T.unpack rev) calls'
-          takeWhile (not . isPrefixOf "mktemp") (drop 1 cut)
-            @?= concat
-              [ ["nix build --no-link --print-out-paths --max-jobs 0 git+file://$T/repo?rev=" <> T.unpack rev <> "#packages.x86_64-linux." <> package, "cat " <> storePathFor package <> "/digest"]
-              | (_, package) <- imageKeys
-              ]
-              <> ["cachix push shinzui " <> unwords [storePathFor package | (_, package) <- imageKeys]]
-              <> ["nix path-info --store https://shinzui.cachix.org " <> storePathFor package | (_, package) <- imageKeys]
-          assertBool "the candidate called a registry" (not (any ("skopeo" `isPrefixOf`) calls'))
-          assertBool "a rehearsal read the operator shell" (not (any ("direnv" `isPrefixOf`) calls'))
-    , testCase "a release with images refuses before anything runs while the operator shell exports a pin, naming it" $
-        withSystemTempDirectory "candidate" $ \raw -> do
-          root' <- canonicalizePath raw
-          createDirectoryIfMissing True (root' </> "operator/.git")
-          pathless <- withoutPython root'
-          let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state"), ("CACHIX_AUTH_TOKEN", "secret"), ("NAGARE_RELEASE_OPERATOR_REPO", root' </> "operator")] <> pathless
-          (runtime, world) <- fake environment' =<< candidateWorldWith root' True "NAGARE_AUTH_EN_IMAGE\nNAGARE_ADMIN_API_IMAGE\n"
-          reason <- refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False))
-          assertMentions "NAGARE_AUTH_EN_IMAGE, NAGARE_ADMIN_API_IMAGE" reason
-          calls' <- rendered root' <$> recorded world
-          assertBool "the run went on after the refusal" (not (any (\call -> "git worktree" `isPrefixOf` call || "just" `isPrefixOf` call) calls'))
-          (runtime', _) <- fake environment' =<< candidateWorldWith root' True ""
-          releaseCandidate runtime' (CandidateOptions version' "HEAD" False)
-    , testCase "a release without images reads no token and no operator shell, and a release with images needs the token" $
-        withSystemTempDirectory "candidate" $ \raw -> do
-          root' <- canonicalizePath raw
-          pathless <- withoutPython root'
-          let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless
-          (runtime, _) <- fake environment' =<< candidateWorldWith root' True ""
-          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" True)) >>= assertMentions "CACHIX_AUTH_TOKEN"
-          (runtime', world') <- fake environment' =<< candidateWorld root'
-          releaseCandidate runtime' (CandidateOptions version' "HEAD" True)
-          calls' <- rendered root' <$> recorded world'
-          assertBool "a release without images read the operator shell" (not (any ("direnv" `isPrefixOf`) calls'))
-    , testCase "a red release gate stops the run before the intranet and still removes the worktrees" $
-        withSystemTempDirectory "candidate" $ \raw -> do
-          root' <- canonicalizePath raw
-          base <- candidateWorld root'
-          let red command = if command ^. #arguments == ["gate-release", T.unpack rev] then pure (1, "gate: red\n") else base command
-          pathless <- withoutPython root'
-          (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) red
-          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False)) >>= assertMentions "the release gate failed"
-          calls' <- rendered root' <$> recorded world
-          filter ("release-intranet.sh" `T.isInfixOf`) (map T.pack calls') @?= []
-          take 2 (reverse calls') @?= reverse ["git -C $T/repo worktree remove --force $T/state/nagare/releases/v9.8.7/20261029T140458Z/" <> tree | tree <- ["worktree", "evidence"]]
-    ]
