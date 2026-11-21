@@ -5,7 +5,7 @@ date: 2026-10-10
 authors: [shinzui]
 related:
   - docs/use-cases/003-operate-nagare-as-a-team-run-intranet-paas.md
-  - docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md
+  - [docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md)
   - docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md
   - docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md
   - docs/adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md

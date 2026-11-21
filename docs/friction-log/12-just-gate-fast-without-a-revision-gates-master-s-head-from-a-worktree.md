@@ -12,7 +12,7 @@ kind: tooling
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare"
 affectedVersion: "unreleased"
-plan: "docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md"
+plan: "[docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md)"
 workaround: "pass the revision explicitly: just gate-fast <sha>"
 ---
 # just gate-fast without a revision gates master's HEAD from a worktree

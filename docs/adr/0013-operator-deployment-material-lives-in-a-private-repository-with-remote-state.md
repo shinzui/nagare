@@ -5,7 +5,7 @@ date: 2026-09-12
 authors: [shinzui]
 related:
   - docs/plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md
-  - docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md
+  - [docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md)
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
@@ -99,7 +99,7 @@ the second machine needs the two repositories, context links, and bucket
 credentials, then reads the same accepted inventory head. Bucket readers can
 read private native review bundles. An unresolved executor claim requires
 explicit takeover; the store does not establish whether the old executor is
-still alive. Implemented by [ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
+still alive. Implemented by [ExecPlan 151](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
 An isolated `labs` rehearsal on 2026-09-23 confirmed that a second state root
 with an empty cache reads the same GCS head and exports byte-identical history.
 The transport treats repeated names in bucket listings as one logical object;

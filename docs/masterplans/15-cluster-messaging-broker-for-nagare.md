@@ -104,12 +104,12 @@ dashboard contract, but the contract must be Nagare-owned.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | Complete |
-| 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Complete |
-| 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Complete |
-| 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Complete |
-| 79 | Broker observability abstraction dashboards and health checks | docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md | EP-76 | EP-75, EP-78 | Complete |
-| 80 | Messaging broker docs examples and Tansu migration readiness | docs/plans/80-messaging-broker-docs-examples-and-tansu-migration-readiness.md | EP-77, EP-78, EP-79 | EP-75 | Complete |
+| 75 | Broker substrate spike and Kafka-compatible provider contract | [docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md) | None | None | Complete |
+| 76 | Typed Broker model and provider-neutral renderer contract | [docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md) | None | EP-75 | Complete |
+| 78 | nagarectl broker lifecycle commands and Redpanda provisioning | [docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md) | EP-76 | EP-75 | Complete |
+| 77 | Generated broker connection env and topic bindings for workloads | [docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md) | EP-76 | EP-78 | Complete |
+| 79 | Broker observability abstraction dashboards and health checks | [docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md) | EP-76 | EP-75, EP-78 | Complete |
+| 80 | Messaging broker docs examples and Tansu migration readiness | [docs/plans/80-messaging-broker-docs-examples-and-tansu-migration-readiness.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/80-messaging-broker-docs-examples-and-tansu-migration-readiness.md) | EP-77, EP-78, EP-79 | EP-75 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).

@@ -54,16 +54,16 @@ edge TLS and origin TLS work; and that a **cache HIT** actually occurs on a stat
 What someone "gains" after EP-54 is not a clickable feature — it is **a settled set of
 substrate decisions and a body of validation evidence**. Four later plans consume those
 decisions directly, and none of them is allowed to encode a guess about what the cloud
-will accept. EP-55 (`docs/plans/55-typed-cdn-model-and-provider-renderer.md`) defines the
+will accept. EP-55 ([docs/plans/55-typed-cdn-model-and-provider-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/55-typed-cdn-model-and-provider-renderer.md)) defines the
 shared typed `Cdn` model in Haskell, and needs this spike to confirm that the proposed
 contract shape is sufficient and provider-portable. EP-56
-(`docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md`) builds the Google
+([docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md)) builds the Google
 Cloud CDN load balancer in Pulumi, and needs this spike's exact load-balancer topology,
 health-check path, host-header handling, and the standing-infra-vs-deploy-time split. EP-57
-(`docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md`) builds the Cloudflare
+([docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md)) builds the Cloudflare
 API client in `nagarectl`, and needs this spike's chosen default origin-TLS mode and the
 resolution of the DNS-authority collision (described below). EP-58
-(`docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md`) wires it all
+([docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md)) wires it all
 into the deploy engine, and needs the per-hostname DNS topology this spike validates. You
 can see the spike "working" by reading the captured `curl` transcripts in Concrete Steps:
 a response routed through each edge to the correct in-cluster app, and a second identical

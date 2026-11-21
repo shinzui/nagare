@@ -81,8 +81,8 @@ Relevant local architectural context is [ADR 1](../adr/0001-auth-plane-images-mi
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|---|---|---|---|---|
-| 186 | Protect Nagare sites with explicit user and team grants (site protection foundation) | [EP-186](../plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md) | None | None | Complete |
-| 187 | Manage reviewed team membership and site access grants | [EP-187](../plans/187-manage-reviewed-team-membership-and-site-access-grants.md) | EP-186 | None | Complete |
+| 186 | Protect Nagare sites with explicit user and team grants (site protection foundation) | [EP-186](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md) | None | None | Complete |
+| 187 | Manage reviewed team membership and site access grants | [EP-187](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/187-manage-reviewed-team-membership-and-site-access-grants.md) | EP-186 | None | Complete |
 | 188 | Check effective site access and verify user and team isolation | [EP-188](../plans/188-check-effective-site-access-and-verify-user-and-team-isolation.md) | EP-186, EP-187 | None | Complete |
 
 The numbers identify actual child documents. Whole-child hard dependencies require all milestones and acceptance in the prerequisite to be complete.

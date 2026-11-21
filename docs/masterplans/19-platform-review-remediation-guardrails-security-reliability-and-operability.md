@@ -136,14 +136,14 @@ release's checksum-breaking migration correction. It remains grouped into Phase 
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Complete |
-| 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Complete |
-| 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | Complete |
+| 1 | Fail-closed target guardrail and shell tooling hardening | [docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md) | None | None | Complete |
+| 2 | Auth-plane application security fixes for nagared and nagare-access | [docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md) | None | None | Complete |
+| 3 | Protect stateful infrastructure and make secrets and state recoverable | [docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md) | None | None | Complete |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | Complete |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
-| 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Complete |
-| 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | Complete |
-| 8 | Upgrade nagare to the latest shomei and en | docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md | None | EP-4 | Complete |
+| 6 | nagarectl correctness and robustness fixes | [docs/plans/102-nagarectl-correctness-and-robustness-fixes.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/102-nagarectl-correctness-and-robustness-fixes.md) | None | EP-2 | Complete |
+| 7 | Host tuning, upgrade story, and documentation reality sync | [docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md) | None | EP-3 | Complete |
+| 8 | Upgrade nagare to the latest shomei and en | [docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md) | None | EP-4 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -471,7 +471,7 @@ Discoveries from implementation:
   `ConfigTimeout`, `defaultConfigTimeout` (120 s), `runConfigWith`,
   `loadStaticSiteWith`, and a `LoadTimedOut` constructor on `LoadError`. Every
   existing `load*` function is unchanged in signature but now bounded by the
-  default. EP-6 (`docs/plans/102-nagarectl-correctness-and-robustness-fixes.md`)
+  default. EP-6 ([docs/plans/102-nagarectl-correctness-and-robustness-fixes.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/102-nagarectl-correctness-and-robustness-fixes.md))
   touches `Nagare.Deploy` and `Nagare.Database.*`, which consume `LoadError` —
   any exhaustive match on it there needs the new constructor.
 - **This machine's default shell resolves to a local-mode in-repo profile**

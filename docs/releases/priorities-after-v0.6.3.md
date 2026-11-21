@@ -64,17 +64,17 @@ true without looking, which matters once a team depends on the intranet.
 
 Mina lists eleven plans whose MasterPlans declare them Complete while one to three "deferred live
 validation" boxes from June 2026 keep them active:
-[EP-3](../plans/3-nixos-host-nagare-01-with-k3s.md),
-[EP-12](../plans/12-nagarectl-integration-and-full-yaml-cutover.md),
-[EP-15](../plans/15-static-release-rollback-and-preview-deployments.md),
-[EP-17](../plans/17-static-hosting-docs-and-end-to-end-examples.md),
+[EP-3](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/3-nixos-host-nagare-01-with-k3s.md),
+[EP-12](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md),
+[EP-15](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/15-static-release-rollback-and-preview-deployments.md),
+[EP-17](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/17-static-hosting-docs-and-end-to-end-examples.md),
 [EP-36](../plans/36-app-volume-backup-ownership-snapshot-to-gcs-and-retention.md),
-[EP-45](../plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md),
+[EP-45](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md),
 [EP-47](../plans/47-scheduled-database-backups-restore-commands-and-retention.md),
 [EP-54](../plans/54-cdn-substrate-spike-and-origin-tls-feasibility.md),
-[EP-56](../plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md),
-[EP-58](../plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md) and
-[EP-97](../plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md).
+[EP-56](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md),
+[EP-58](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md) and
+[EP-97](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md).
 [EP-195](../plans/195-keep-site-and-site-preview-scope-identities-disjoint.md) is done but has no
 Outcomes line. Each box is either long since proven by the MasterPlan 23 drills (then tick it with
 the evidence) or no longer owed (then void it: `- [-]` with a `{disposition=...}`). One docs-only

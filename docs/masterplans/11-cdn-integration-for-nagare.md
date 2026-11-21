@@ -178,11 +178,11 @@ call that belongs with the rest of the provider capability and the `cdn` command
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 54 | CDN substrate spike and origin-TLS feasibility | docs/plans/54-cdn-substrate-spike-and-origin-tls-feasibility.md | None | EP-2, EP-4 | Complete |
-| 55 | Typed CDN model and provider renderer | docs/plans/55-typed-cdn-model-and-provider-renderer.md | EP-54 | EP-13, EP-18 | Complete |
-| 56 | GCP Cloud CDN load balancer provisioning in Pulumi | docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md | EP-54 | EP-55 | Complete |
-| 57 | Cloudflare CDN provisioning via API in nagarectl | docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md | EP-54 | EP-55 | Complete |
-| 58 | Deploy-time CDN wiring and nagarectl cdn command group | docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md | EP-55, EP-56, EP-57 | None | Complete |
-| 59 | CDN docs and end-to-end examples | docs/plans/59-cdn-docs-and-end-to-end-examples.md | EP-58 | EP-56, EP-57 | Complete |
+| 55 | Typed CDN model and provider renderer | [docs/plans/55-typed-cdn-model-and-provider-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/55-typed-cdn-model-and-provider-renderer.md) | EP-54 | EP-13, EP-18 | Complete |
+| 56 | GCP Cloud CDN load balancer provisioning in Pulumi | [docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md) | EP-54 | EP-55 | Complete |
+| 57 | Cloudflare CDN provisioning via API in nagarectl | [docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md) | EP-54 | EP-55 | Complete |
+| 58 | Deploy-time CDN wiring and nagarectl cdn command group | [docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md) | EP-55, EP-56, EP-57 | None | Complete |
+| 59 | CDN docs and end-to-end examples | [docs/plans/59-cdn-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/59-cdn-docs-and-end-to-end-examples.md) | EP-58 | EP-56, EP-57 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 child plans by their `EP-<#>` prefix, where the number is the file number in `docs/plans/`.
@@ -190,7 +190,7 @@ Soft dependencies `EP-2` and `EP-4` refer to the bootstrap plans
 `docs/plans/2-pulumi-gcp-infrastructure.md` (the VM, static IP, firewall, and Cloud DNS zone)
 and `docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md` (Kourier ingress and
 cert-manager TLS). `EP-13` and `EP-18` refer to
-`docs/plans/13-typed-static-site-model-and-renderer.md` and
+[docs/plans/13-typed-static-site-model-and-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/13-typed-static-site-model-and-renderer.md) and
 `docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md`, the static and server
 site models the new `cdn` field attaches to.
 

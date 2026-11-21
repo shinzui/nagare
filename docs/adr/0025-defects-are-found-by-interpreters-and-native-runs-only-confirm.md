@@ -109,7 +109,7 @@ commits.
 - **The production adapter wiring must be testable.** Today it sits in `app/`, where the suite cannot
   import it, so it moves into the library
   ([EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md)).
-- **Release evidence gains a precondition.** [EP-170](../plans/170-size-the-release-gate-to-the-change.md)
+- **Release evidence gains a precondition.** [EP-170](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/170-size-the-release-gate-to-the-change.md)
   accepts native evidence only with an interpreter-coverage record and a green gate record for the
   candidate.
 - **Rules move into tools.** Rules that sessions repeatedly forgot under pressure are enforced by
@@ -188,7 +188,7 @@ hours and eight shards need 7–9 hours.
 
 Decided by the operator on 2026-10-06, when MasterPlan 23 step 3 was redirected to first principles
 ([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md)), and implemented by
-[Plan 182](../plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md).
+[Plan 182](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md).
 The earlier Kubernetes world built the adapter's view of an object itself, so it shared the adapter's
 beliefs. Defects in those beliefs (stale readiness, refusal classes, terminating objects) passed the
 model and were found only by analysis.
@@ -245,7 +245,7 @@ including user guides, runbooks, release notes and architecture documents. The r
 `gate verify` is used: `just land`, the pre-push hook and native preflight.
 Rationale: a docs-only full gate spent about 20 minutes re-running unchanged suites (16 of them in
 `nagarectl-test`), and its outcome could not differ from the ancestor's. This is the first slice of
-[EP-170](../plans/170-size-the-release-gate-to-the-change.md).
+[EP-170](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/170-size-the-release-gate-to-the-change.md).
 
 
 

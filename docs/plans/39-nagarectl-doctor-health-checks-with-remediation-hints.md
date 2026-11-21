@@ -18,7 +18,7 @@ Full plan before trimming: [39-nagarectl-doctor-health-checks-with-remediation-h
 ## Purpose / Big Picture
 
 `nagarectl server status` (built by the sibling plan
-`docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md`) tells an operator
+[docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md)) tells an operator
 *what* the platform's state is — a one-screen aligned table of `OK`/`WARN`/`UNKNOWN`/`FAIL` lines.
 What it does not tell a newcomer is *what a red line means* or *what to type to fix it*. When the VM
 line reads `FAIL TERMINATED`, the operator still has to know that the fix is
@@ -124,7 +124,7 @@ walks back to "0 failed" with exit `0`.
   Rationale: One source of truth for "is X healthy". `server status` and `doctor` must never disagree
   about whether the VM is up or a deployment is rolled out. EP-38 owns probing; EP-39 owns triage
   presentation. This is Integration Point IP1 with EP-38
-  (`docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md`).
+  ([docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md)).
   Date: 2026-06-09
 
 - Decision: Key `remediationFor` off EP-38's committed `probeName` **display values** rather than

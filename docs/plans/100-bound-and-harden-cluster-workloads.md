@@ -452,7 +452,7 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
   as live nagared evidence or expose its example DomainMapping during this rollout.
 
 - At authoring, en exposed `GET /healthz` and `GET /readyz`.
-  `docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md` later upgraded
+  [docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md) later upgraded
   en to its servant-health interface, so the current combined manifest correctly uses
   `GET /health/live` (process liveness) and `GET /health/ready` (dependency
   readiness). Remaining validation must exercise those current paths rather than the
@@ -738,7 +738,7 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
   `docs/plans/101-alerting-and-backup-freshness-monitoring.md` consumes that contract for its
   alert-channel secrets and must not touch the `grafana:` block. The image-tag
   defaulting in M3 interacts with
-  `docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md`'s
+  [docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md)'s
   registry-credential work only at the documentation level (103 syncs docs; no
   shared code).
   Date: 2026-07-15.
@@ -780,7 +780,7 @@ probe and installer-rerun acceptance is now complete. The formerly
 unbounded chart-default containers now have verified live limits. Observability installation,
 credential checks, datasource queries, store caps, and current node headroom have
 now been observed on labs. ExecPlan 104
-(`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`) later proved the
+([docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md)) later proved the
 upgraded auth plane and both dependency-owned migrations on a disposable local
 cluster; the additional EP-4-specific resource, probe and rerun evidence is now
 recorded below. Cloud auth and nagared deployment are not implied by the local proof.

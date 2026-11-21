@@ -55,14 +55,14 @@ sequences as a contract. Concretely it de-risks and pins down:
 What someone "gains" after EP-49 is not a clickable feature — it is **a settled substrate and
 a body of verified evidence**. Nothing downstream is allowed to encode a *guess* about what
 the cluster accepts. After this spike, the renderer plan
-(`docs/plans/50-typed-task-model-and-cronjob-job-renderer.md`, EP-50) can write its CronJob
+([docs/plans/50-typed-task-model-and-cronjob-job-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/50-typed-task-model-and-cronjob-job-renderer.md), EP-50) can write its CronJob
 renderer and golden files against the verified YAML recorded in this plan's "Interfaces and
 Dependencies" section; the CLI plan
-(`docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md`, EP-51)
+([docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md), EP-51)
 can encode the exact one-off-run-and-wait-and-logs command sequence; the app-association plan
-(`docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md`, EP-52)
+([docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md), EP-52)
 can encode the verified `envFrom` block and image-inheritance approach; and the docs plan
-(`docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md`, EP-53) can document the
+([docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md), EP-53) can document the
 verified Grafana/VictoriaLogs query. You can see the spike "working" by reading the captured
 transcripts in Concrete Steps: a CronJob runs on time, a one-off Job completes and its logs
 print, and a value defined in an app's runtime env appears inside a task pod's logs.

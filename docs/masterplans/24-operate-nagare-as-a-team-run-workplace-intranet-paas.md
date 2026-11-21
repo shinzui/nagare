@@ -88,12 +88,12 @@ The initiative is split by what must be known before anything can be built. Two 
 now; the implementation streams are named below but deliberately not yet written, because their
 design depends on the evaluation's outcome.
 
-[EP-162](../plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md)
+[EP-162](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md)
 captures what the workplace actually needs (how many operators, which roles, approval, audit,
 access revocation, data classification, recovery objectives, and network placement) and records
 the availability decision. It produces the criteria that the evaluation scores against.
 
-[EP-163](../plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md)
+[EP-163](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md)
 performs the evaluation RES-3 did not: desk research against current releases, bounded prototypes
 on an isolated local k3d cluster, measured footprints, and a scored comparison per layer. It ends
 with a research record superseding RES-3 and a recommendation the operator can accept or reject.
@@ -218,8 +218,8 @@ found to apply.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | Complete (2026-10-10: UC-3 confirmed, ADR 28 accepted) |
-| 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | Complete (2026-10-10: RES-6 accepted; M2 partial by operator decision) |
+| 162 | Define team operating requirements and decide availability for the intranet PaaS | [docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md) | None | None | Complete (2026-10-10: UC-3 confirmed, ADR 28 accepted) |
+| 163 | Evaluate established tooling against Nagare's managed-resource layers | [docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md) | EP-162 M1 (before EP-163 M3) | EP-162 | Complete (2026-10-10: RES-6 accepted; M2 partial by operator decision) |
 | 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | None | EP-162 M1 | In Progress (M1 and M4 under way; M2 targets confirmed) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.

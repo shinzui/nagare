@@ -406,7 +406,7 @@ Rules:
 3. Run the data checks, independent scope preservation, and the runner verify with an unchanged
    candidate.
 
-Its evidence is what [EP-170](170-size-the-release-gate-to-the-change.md)'s gate accepts as
+Its evidence is what [EP-170](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/170-size-the-release-gate-to-the-change.md)'s gate accepts as
 "transition rehearsal". The evidence is also handed to MasterPlan 24's upgrade-path stream and to
 MasterPlan 21.
 

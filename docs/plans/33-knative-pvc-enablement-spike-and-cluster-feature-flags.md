@@ -63,7 +63,7 @@ a new revision being deployed** and **survives a scale-to-zero and scale-back**,
 names the exact Service annotation(s) that make this safe on one node. That verified YAML shape
 (the `volumes`/`volumeMounts` stanza plus the rollout annotation) is the contract called
 **Integration Point IP2** in the parent MasterPlan, and the next plan,
-`docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md` (EP-34), must
+[docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md) (EP-34), must
 make its renderer emit exactly this shape.
 
 ## Progress

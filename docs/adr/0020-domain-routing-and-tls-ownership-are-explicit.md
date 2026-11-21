@@ -5,7 +5,7 @@ date: 2026-09-14
 authors: [shinzui]
 related:
   - docs/plans/131-make-apex-and-multi-domain-routing-production-ready.md
-  - docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md
+  - [docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md)
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
   - docs/adr/0010-the-active-context-owns-the-acme-identity.md
   - docs/adr/0014-the-active-context-owns-the-vm-shape.md

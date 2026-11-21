@@ -39,7 +39,7 @@ This ExecPlan is a living document. Keep Progress, Surprises & Discoveries, Deci
 
 Applications can declare worker readiness independently of liveness, and web startup, readiness and liveness independently of each other. Deployments remain unready while initialization or a required database is unavailable, without restarting a healthy process solely because readiness fails. A worker can request a 60-second termination allowance. Web, worker and task Pods run without a Kubernetes API token unless the workload names a service account.
 
-This plan also carries the shutdown and token policy work that was planned as [EP-255](255-declare-application-workload-shutdown-and-service-account-token-policy.md), now cancelled: both changes edit the same types, codecs, renderers and compilers, so they are made in one pass.
+This plan also carries the shutdown and token policy work that was planned as [EP-255](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/255-declare-application-workload-shutdown-and-service-account-token-policy.md), now cancelled: both changes edit the same types, codecs, renderers and compilers, so they are made in one pass.
 
 ## Progress
 

@@ -102,7 +102,7 @@ features:
 
 The operator runs Nagare as the platform for an intranet at work, in addition to personal use. The
 operator answered the requirement questions of
-[EP-162](../plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md)
+[EP-162](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md)
 on 2026-10-09. This use case records those answers. It replaces guesses about what "team-ready"
 means.
 

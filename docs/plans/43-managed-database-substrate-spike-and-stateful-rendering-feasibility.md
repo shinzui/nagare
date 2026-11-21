@@ -41,7 +41,7 @@ For ClickHouse it additionally proves the engine fits inside the small `e2-stand
 2 vCPU) once memory is constrained.
 
 What someone "gains" after this plan is not a feature a user can click — it is a **settled architecture
-and a body of verified evidence**. Concretely, after EP-43 the next plan (`docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md`,
+and a body of verified evidence**. Concretely, after EP-43 the next plan ([docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md),
 EP-44) can write its renderer and golden tests against *verified* YAML shapes recorded verbatim in this
 plan's "Interfaces and Dependencies" section, rather than against an unverified hypothesis. The spike
 settles the open architectural questions the MasterPlan flagged: StatefulSet versus plain Deployment;
@@ -167,7 +167,7 @@ Record every decision made while working on the plan.
   `local-path`/`ReadWriteOnce` convention, but named with a dedicated database prefix
   `nagare-db-<name>-data` rather than the app-volume `nagare-vol-<app>-<vol>` name) rather than a
   StatefulSet `volumeClaimTemplates` entry. EP-44 owns this helper as `dbPvcName` (see
-  `docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md`).
+  [docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md)).
   Rationale: MasterPlan 7's verified PVC primitive, naming, labels, and `local-path` reclaim behavior
   are already tested and discovered by `nagarectl storage` commands; a standalone PVC keeps databases
   consistent with that and keeps the data disk discoverable and independently retainable. A

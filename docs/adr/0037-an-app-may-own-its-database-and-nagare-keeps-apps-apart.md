@@ -5,7 +5,7 @@ date: 2026-11-11
 authors: [shinzui]
 related:
   - docs/masterplans/35-let-an-app-own-its-database-on-a-shared-postgresql-server.md
-  - docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md
+  - [docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md)
   - docs/improvement-requests/let-an-app-own-its-database.md
   - docs/adr/0030-app-databases-are-reviewed-tenants-of-a-shared-server.md
   - docs/adr/0031-own-database-privileges-are-declarable-server-wide-access-is-not.md
@@ -15,7 +15,7 @@ related:
 
 ## Status
 
-Accepted on 2026-11-11 with [EP-257](../plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md)
+Accepted on 2026-11-11 with [EP-257](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md)
 under [MasterPlan 35](../masterplans/35-let-an-app-own-its-database-on-a-shared-postgresql-server.md),
 which answers [IR-43](../improvement-requests/let-an-app-own-its-database.md). It amends
 [ADR 30](0030-app-databases-are-reviewed-tenants-of-a-shared-server.md) and

@@ -270,7 +270,7 @@ So a gcloud configuration with a key override is enough for both, and the bundle
 context file. The platform workspace is prepared from the installed package by `resolvePlatformWorkspace`
 (`cli/nagarectl/app/Nagare/Cli/Runtime/Target.hs`), so the bundle carries no payload.
 
-**Existing models to copy.** EP-196 (`docs/plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md`)
+**Existing models to copy.** EP-196 ([docs/plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md))
 created a read-only store account with a custom role and an object-name condition through
 `infra/pulumi/src/components/NagareAdminApiReader.ts`, wired in `infra/pulumi/index.ts` and tested in
 `infra/pulumi/test/adminApiReaderResources.test.ts`. `cluster/bootstrap/nagared/rbac.yaml` is a hand-written site

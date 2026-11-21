@@ -152,7 +152,7 @@ behind it is in
 - [-] M5: An interpreter-coverage record lists every executor and action with the model scenarios
   that cover it, and a test fails when a registered pair has none. Acceptance: deleting a scenario
   fails the coverage test, and the record is emitted for the release gate
-  ([EP-170](170-size-the-release-gate-to-the-change.md)). {disposition=declined}
+  ([EP-170](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/170-size-the-release-gate-to-the-change.md)). {disposition=declined}
 
 ## Surprises & Discoveries
 

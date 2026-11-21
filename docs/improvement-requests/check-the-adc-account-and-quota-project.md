@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T13:11:22Z"
 resolution: "ExecPlan 135 added token-safe ADC discovery with explicit environment precedence to initialization and every cloud project guard before Pulumi. Missing, invalid, unreadable, or foreign-quota credentials refuse with safe structured evidence and the exact quota-project repair; absent or mismatched principal evidence is visible as a warning. GCP onboarding and context documentation now explains ADC login, quota attribution, and context switching. Fixture, policy, redaction, command-order, and clone-free packaged tests pass as part of the 505-test focused gate. ADR 9 records the durable credential boundary."
-targetPlan: docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
+targetPlan: [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -39,7 +39,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md); the durable
+[ExecPlan 135](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md); the durable
 credential boundary is recorded in
 [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md).
 **Created:** 2026-09-13.

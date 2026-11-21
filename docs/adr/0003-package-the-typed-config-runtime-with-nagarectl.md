@@ -4,7 +4,7 @@ status: accepted
 date: 2026-08-25
 authors: [shinzui]
 related:
-  - docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md
+  - [docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md)
   - mori://garnix-io/cradle/packages/cradle
 ---
 
@@ -13,7 +13,7 @@ related:
 ## Status
 
 Accepted, 2026-08-25. Implemented by
-[ExecPlan 105](../plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md).
+[ExecPlan 105](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md).
 
 ## Context
 

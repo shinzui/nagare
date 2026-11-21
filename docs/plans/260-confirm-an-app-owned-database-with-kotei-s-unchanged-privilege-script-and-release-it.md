@@ -198,12 +198,12 @@ criteria, as this initiative delivers them:
   the hook binding.
 
 What the earlier plans provide:
-[EP-257](257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md) the
+[EP-257](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md) the
 declaration (`ownership = AppOwned` with an optional `databaseOwner`), the owner user and Secret
 `<name>-owner`, and the boundary checks;
-[EP-258](258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md) backup,
+[EP-258](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md) backup,
 restore, quiesce, resume and retirement;
-[EP-259](259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md)
+[EP-259](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md)
 the task binding with `urlVariable`. All three must be complete. ADR 37
 (`docs/adr/0037-an-app-may-own-its-database-and-nagare-keeps-apps-apart.md`) records the model.
 `scripts/local-app-database-smoke.sh` already exercises each with a Kotei-shaped script.

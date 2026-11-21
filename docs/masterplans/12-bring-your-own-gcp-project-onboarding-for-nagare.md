@@ -111,11 +111,11 @@ first-class `nagarectl init` command for a testable, guided UX, so the orchestra
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 60 | Target profile model and configurable isolation guardrail | docs/plans/60-target-profile-model-and-configurable-isolation-guardrail.md | None | None | Complete |
-| 61 | Parameterize shell scripts and .envrc to the target profile | docs/plans/61-parameterize-shell-scripts-and-envrc-to-the-target-profile.md | EP-60 | None | Complete |
-| 62 | Parameterize nagarectl and the DSL image refs to the target profile | docs/plans/62-parameterize-nagarectl-and-the-dsl-image-refs-to-the-target-profile.md | EP-60 | None | Complete |
-| 63 | GCP bootstrap automation and nagarectl init onboarding command | docs/plans/63-gcp-bootstrap-automation-and-nagarectl-init-onboarding-command.md | EP-60, EP-62 | EP-61 | Complete |
-| 64 | Bring-your-own-project onboarding documentation | docs/plans/64-bring-your-own-project-onboarding-documentation.md | None | EP-60, EP-61, EP-62, EP-63 | Complete |
+| 60 | Target profile model and configurable isolation guardrail | [docs/plans/60-target-profile-model-and-configurable-isolation-guardrail.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/60-target-profile-model-and-configurable-isolation-guardrail.md) | None | None | Complete |
+| 61 | Parameterize shell scripts and .envrc to the target profile | [docs/plans/61-parameterize-shell-scripts-and-envrc-to-the-target-profile.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/61-parameterize-shell-scripts-and-envrc-to-the-target-profile.md) | EP-60 | None | Complete |
+| 62 | Parameterize nagarectl and the DSL image refs to the target profile | [docs/plans/62-parameterize-nagarectl-and-the-dsl-image-refs-to-the-target-profile.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/62-parameterize-nagarectl-and-the-dsl-image-refs-to-the-target-profile.md) | EP-60 | None | Complete |
+| 63 | GCP bootstrap automation and nagarectl init onboarding command | [docs/plans/63-gcp-bootstrap-automation-and-nagarectl-init-onboarding-command.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/63-gcp-bootstrap-automation-and-nagarectl-init-onboarding-command.md) | EP-60, EP-62 | EP-61 | Complete |
+| 64 | Bring-your-own-project onboarding documentation | [docs/plans/64-bring-your-own-project-onboarding-documentation.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/64-bring-your-own-project-onboarding-documentation.md) | None | EP-60, EP-61, EP-62, EP-63 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference other
 rows by their `EP-<#>` prefix.

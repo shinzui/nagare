@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T19:15:20Z"
 resolution: "ExecPlan 139 corrected every user-facing boot-disk-size claim and both init/context-create help surfaces: any live size change replaces the instance and its boot-resident k3s state, shrinking is unsupported, and operators should size the disk for the VM lifetime. The gcp-bootstrap-rehearsal native check scans the packaged help and user tables for regressions while retaining the distinct supported in-place data-disk growth guidance; its full hermetic state-machine rehearsal passes."
-targetPlan: docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md
+targetPlan: [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -39,7 +39,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 139](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) on 2026-09-14.
+[ExecPlan 139](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) on 2026-09-14.
 **Created:** 2026-09-13.
 
 

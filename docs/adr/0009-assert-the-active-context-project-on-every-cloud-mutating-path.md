@@ -7,8 +7,8 @@ related:
   - docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md
   - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
   - docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md
-  - docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
-  - docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
+  - [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md)
+  - [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md)
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
 ---
@@ -196,7 +196,7 @@ nullable `stackProject` compatibility member, and add a typed `stackProjectProbe
 
 ## Amendment — 2026-09-14: validate Pulumi's Application Default Credentials
 
-[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) extends the
+[ExecPlan 135](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) extends the
 project boundary to the credentials Pulumi's Google provider actually discovers. Before any Pulumi
 process, named initialization and cloud context-guard collection resolve ADC from a nonblank
 `GOOGLE_APPLICATION_CREDENTIALS`, then
@@ -216,7 +216,7 @@ set its quota project for the selected context.
 
 ## Amendment — 2026-09-14: the image builder belongs to the context
 
-[ExecPlan 136](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) extends
+[ExecPlan 136](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) extends
 project confinement through the remote execution selected by `host-image`. An entry-point project
 guard cannot protect a plain `nix build`: ambient `/etc/nix/machines` and workstation SSH config can
 route the build to a VM in another project, starting and billing it without any Nagare gcloud call.
@@ -242,7 +242,7 @@ project, then applies the same bucket-owning-project-number assertion used
 for Pulumi state. An unreadable number refuses. Inventory-only GCS contexts
 do not need an existing Pulumi stack, so their object-store guard uses the
 bucket identity proof directly instead of the Pulumi-stack-specific
-`projectGuardVerdict`. See [ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
+`projectGuardVerdict`. See [ExecPlan 151](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
 
 ## Amendment — 2026-09-29: discover shared authority before fresh foundation
 

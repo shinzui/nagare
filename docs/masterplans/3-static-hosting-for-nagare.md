@@ -109,16 +109,16 @@ triggers the same deploy path regardless of which runtime the project uses.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 13 | Typed static site model and renderer | docs/plans/13-typed-static-site-model-and-renderer.md | None | EP-12 | Complete |
-| 14 | Static build packaging and deploy pipeline | docs/plans/14-static-build-packaging-and-deploy-pipeline.md | EP-13 | EP-12 | Complete |
-| 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Complete |
-| 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Complete |
-| 17 | Static hosting docs and end-to-end examples | docs/plans/17-static-hosting-docs-and-end-to-end-examples.md | EP-15 | EP-16, EP-18 | Complete |
+| 13 | Typed static site model and renderer | [docs/plans/13-typed-static-site-model-and-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/13-typed-static-site-model-and-renderer.md) | None | EP-12 | Complete |
+| 14 | Static build packaging and deploy pipeline | [docs/plans/14-static-build-packaging-and-deploy-pipeline.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/14-static-build-packaging-and-deploy-pipeline.md) | EP-13 | EP-12 | Complete |
+| 15 | Static release rollback and preview deployments | [docs/plans/15-static-release-rollback-and-preview-deployments.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/15-static-release-rollback-and-preview-deployments.md) | EP-14 | None | Complete |
+| 16 | Git webhook automation for static sites | [docs/plans/16-git-webhook-automation-for-static-sites.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/16-git-webhook-automation-for-static-sites.md) | EP-15 | EP-3, EP-4 | Complete |
+| 17 | Static hosting docs and end-to-end examples | [docs/plans/17-static-hosting-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/17-static-hosting-docs-and-end-to-end-examples.md) | EP-15 | EP-16, EP-18 | Complete |
 | 18 | Full-stack server-runtime hosting (TanStack Start) | docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md | EP-14 | EP-13 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 child plans by their `EP-<#>` prefix, where the number is the file number in `docs/plans/`.
-`EP-12` refers to `docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md`, the existing plan
+`EP-12` refers to [docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md), the existing plan
 that integrated the typed Haskell deployment DSL into `nagarectl`.
 
 Implementation waves:

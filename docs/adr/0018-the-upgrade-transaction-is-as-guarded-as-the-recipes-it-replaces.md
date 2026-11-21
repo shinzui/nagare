@@ -5,7 +5,7 @@ date: 2026-09-13
 authors: [shinzui]
 related:
   - docs/plans/121-give-operator-pulumi-stack-config-a-context-owned-home-so-guarded-platform-upgrades-are-safe-ship-0-2-1-and-upgrade-tan-nb-exp.md
-  - docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
+  - [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md)
   - docs/plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md
   - docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
@@ -61,7 +61,7 @@ the transaction, so their behavior cannot drift between the two paths.
 
 ## Amendment — 2026-09-14: apply the retained reviewed plan
 
-[ExecPlan 136](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) strengthens
+[ExecPlan 136](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) strengthens
 the Pulumi boundary. Preview and apply no longer compute separate plans. The preview phase invokes
 Pulumi once with `--save-plan` and retains a directory bundle containing Pulumi's plan, Nagare's
 redacted operation review, and metadata binding both to the context, GCP project, stack, backend,

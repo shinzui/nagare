@@ -22,7 +22,7 @@ with TanStack Start — not just a directory of pre-built static files. A develo
 `nagare/Config.hs` next to a TanStack Start project, run `nagarectl site deploy`, and get a running
 server that renders pages on the server (server-side rendering, "SSR"), executes server functions and
 API routes, and still serves the project's static client assets. The same command that already deploys
-a purely static site (see `docs/plans/14-static-build-packaging-and-deploy-pipeline.md`) now also
+a purely static site (see [docs/plans/14-static-build-packaging-and-deploy-pipeline.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/14-static-build-packaging-and-deploy-pipeline.md)) now also
 deploys a server-rendered application, choosing the right runtime automatically from the typed config.
 
 The concrete user-visible change is this. Before this plan, `nagarectl site deploy` only knew how to
@@ -117,7 +117,7 @@ Record every decision made while working on the plan.
   framework's self-contained server output into a minimal Node runtime image, instead of building
   inside a multi-stage Dockerfile.
   Rationale: This mirrors exactly the static pipeline in
-  `docs/plans/14-static-build-packaging-and-deploy-pipeline.md`, which runs the build locally and
+  [docs/plans/14-static-build-packaging-and-deploy-pipeline.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/14-static-build-packaging-and-deploy-pipeline.md), which runs the build locally and
   copies the output directory into the image. TanStack Start's production output (the `.output`
   directory produced by its Nitro server build) is self-contained: it bundles its own dependencies,
   so the runtime image needs only Node and that directory. Next.js `standalone` output and SvelteKit's
@@ -152,7 +152,7 @@ Record every decision made while working on the plan.
   the project is static or server-rendered is a property of the project, already encoded in the typed
   config. Cloudflare Pages, the replacement target, similarly covers both static output and
   server/edge functions behind one deploy. Auto-detection keeps the surface small and means the
-  webhook automation in `docs/plans/16-git-webhook-automation-for-static-sites.md` does not need to
+  webhook automation in [docs/plans/16-git-webhook-automation-for-static-sites.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/16-git-webhook-automation-for-static-sites.md) does not need to
   know which kind of site it is triggering.
   Date: 2026-06-09
 

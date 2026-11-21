@@ -52,7 +52,7 @@ Kubernetes manifests; you install it with `helm upgrade --install <release-name>
 where the `values.yaml` file overrides the chart's defaults. Re-running the same command updates the
 release in place, which makes installs repeatable (idempotent).
 
-This plan **hard-depends on EP-3** (`docs/plans/3-nixos-host-nagare-01-with-k3s.md`): you need a running
+This plan **hard-depends on EP-3** ([docs/plans/3-nixos-host-nagare-01-with-k3s.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/3-nixos-host-nagare-01-with-k3s.md)): you need a running
 single-node k3s cluster with the data disk mounted at `/var/lib/nagare` and the k3s local-path storage
 provisioner pointed at `/var/lib/nagare/local-path`. It **soft-depends on EP-4**
 (`docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md`): if EP-4 is done you can expose

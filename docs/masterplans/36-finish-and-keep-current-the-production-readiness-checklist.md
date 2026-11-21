@@ -128,7 +128,7 @@ shared server, which EP-266 must carry). No cross-repository ADR applies.
 |---|-------|------|-----------|-----------|--------|
 | EP-265 | Show the intranet's backups, escrow and freshness on the release it runs | docs/plans/265-show-the-intranet-s-backups-escrow-and-freshness-on-the-release-it-runs.md | None | None | Complete (2026-11-18) |
 | EP-266 | Upgrade the intranet's platform and shared-server PostgreSQL databases side by side | docs/plans/266-upgrade-the-intranet-s-platform-and-shared-server-postgresql-databases-side-by-side.md | None | nagare-fix's warm drill context | Complete (2026-11-18; M2b voided by D5, moved to EP-268) |
-| EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md | None | EP-265, EP-266, nagare-fix's gate change | Complete (2026-11-18) |
+| EP-267 | Bring the readiness checklist's evidence, gate rules and ledger rows up to the current release | [docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/267-bring-the-readiness-checklist-s-evidence-gate-rules-and-ledger-rows-up-to-the-current-release.md) | None | EP-265, EP-266, nagare-fix's gate change | Complete (2026-11-18) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 

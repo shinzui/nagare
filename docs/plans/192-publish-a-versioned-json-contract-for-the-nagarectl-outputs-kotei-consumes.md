@@ -79,7 +79,7 @@ runbooks and the existing `--json` documents do not change.
 The documents fall into two classes, recorded in `docs/api/README.md`:
 
 - **Read documents**: `inventory-status`, `publication-list`, `version-info`, and `site-list`
-  (added by [EP-193](193-list-recorded-sites-without-live-provider-observation.md) under this
+  (added by [EP-193](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/193-list-recorded-sites-without-live-provider-observation.md) under this
   contract's rules). Their item types (`ScopeState`, `Finding`, `Publication`, `SiteSummary`) are
   what the admin API returns inside its paginated responses. Each separates what the inventory
   store recorded from what a provider observed, and says when an observation is partial.

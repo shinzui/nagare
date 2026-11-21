@@ -84,7 +84,7 @@ browser -> Cloudflare edge -> tunnel -> cloudflared pod -> external kourier Serv
 ## Amendment — 2026-11-04: machine clients, caching validators and attribution
 
 A review of the shipped code against the API, performance and security found four gaps, decided here and implemented by
-[EP-245](../plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md).
+[EP-245](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/245-make-the-tunnel-s-edge-safe-and-fast-for-api-clients-and-protected-assets.md).
 
 - **The header control tightens and never replaces.** The enforcer adds `private` and `no-transform` to a proxied protected
   response, removes `public` and `s-maxage`, strips `Cloudflare-CDN-Cache-Control`, `CDN-Cache-Control` and `Surrogate-Control`,

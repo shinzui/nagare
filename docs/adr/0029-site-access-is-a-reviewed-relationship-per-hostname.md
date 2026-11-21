@@ -9,8 +9,8 @@ related:
   - docs/adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md
   - docs/adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md
   - docs/masterplans/27-protect-every-nagare-site-with-explicit-user-and-team-access.md
-  - docs/plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md
-  - docs/plans/187-manage-reviewed-team-membership-and-site-access-grants.md
+  - [docs/plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md)
+  - [docs/plans/187-manage-reviewed-team-membership-and-site-access-grants.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/187-manage-reviewed-team-membership-and-site-access-grants.md)
   - docs/plans/188-check-effective-site-access-and-verify-user-and-team-isolation.md
 ---
 

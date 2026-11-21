@@ -109,7 +109,7 @@ Decision above anticipated.
 
 A cloud context may keep its inventory store in its state bucket, beside its Pulumi state. This
 was decided the same day and is delivered by MasterPlan 23's eighth child,
-[ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
+[ExecPlan 151](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
 Replicating a local store, or moving it by export and restore, lets two machines restore one history
 and both apply, and the state at risk is deletion authority;
 [ADR 13](0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md) moved

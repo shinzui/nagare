@@ -15,7 +15,7 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 This plan coordinates the design and construction of a **type-safe configuration language for
 deploying applications with the `nagarectl` command-line tool**, replacing the untyped
 `nagare.yaml` file that the existing plan EP-6
-(`docs/plans/6-nagarectl-deploy-cli-in-haskell.md`) defines. Nagare is a single-node personal
+([docs/plans/6-nagarectl-deploy-cli-in-haskell.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/6-nagarectl-deploy-cli-in-haskell.md)) defines. Nagare is a single-node personal
 Platform-as-a-Service: one Google Cloud Platform virtual machine running the small Kubernetes
 distribution k3s with **Knative Serving** installed (Knative Serving turns a single container
 image into an auto-scaling, scale-to-zero web service it calls a *Knative Service*). Today an app
@@ -149,11 +149,11 @@ shape the decomposition principles say to merge.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 8 | Config substrate evaluation spike and decision | docs/plans/8-config-substrate-evaluation-spike-and-decision.md | None | EP-6 | Complete |
-| 9 | Typed core deployment model and Knative renderer | docs/plans/9-typed-core-deployment-model-and-knative-renderer.md | None | EP-8, EP-6 | Complete |
-| 10 | Config surface and loading for the chosen substrate | docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md | EP-8, EP-9 | None | Complete |
-| 11 | Reusable config presets and composition library | docs/plans/11-reusable-config-presets-and-composition-library.md | EP-10 | EP-9 | Complete |
-| 12 | nagarectl integration and full YAML cutover | docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md | EP-9, EP-10 | EP-11, EP-6 | Complete |
+| 8 | Config substrate evaluation spike and decision | [docs/plans/8-config-substrate-evaluation-spike-and-decision.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/8-config-substrate-evaluation-spike-and-decision.md) | None | EP-6 | Complete |
+| 9 | Typed core deployment model and Knative renderer | [docs/plans/9-typed-core-deployment-model-and-knative-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/9-typed-core-deployment-model-and-knative-renderer.md) | None | EP-8, EP-6 | Complete |
+| 10 | Config surface and loading for the chosen substrate | [docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md) | EP-8, EP-9 | None | Complete |
+| 11 | Reusable config presets and composition library | [docs/plans/11-reusable-config-presets-and-composition-library.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/11-reusable-config-presets-and-composition-library.md) | EP-10 | EP-9 | Complete |
+| 12 | nagarectl integration and full YAML cutover | [docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md) | EP-9, EP-10 | EP-11, EP-6 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 other rows by their `EP-<#>` prefix, where the number is the child plan's `docs/plans/<#>` file

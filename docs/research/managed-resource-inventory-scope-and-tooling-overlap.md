@@ -17,7 +17,7 @@ relatedPlans:
   - mori://shinzui/nagare/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas
   - mori://shinzui/nagare/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories
   - mori://shinzui/nagare/masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare
-  - mori://shinzui/nagare/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes
+  - https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md
 relatedDecisions:
   - docs/adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md
 sources:
@@ -25,7 +25,7 @@ sources:
     resource: mori://shinzui/nagare/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories
     title: MasterPlan 23, typed scoped inventories
   - id: ep151
-    resource: mori://shinzui/nagare/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes
+    resource: https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md
     title: EP-151 shared inventory store in the context state bucket
   - id: pulumi-state
     resource: https://www.pulumi.com/docs/iac/concepts/state-and-backends/

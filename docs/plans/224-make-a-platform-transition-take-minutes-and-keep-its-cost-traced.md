@@ -370,7 +370,7 @@ of [EP-225](225-keep-platform-revisions-stable-when-deployment-meaning-is-unchan
 [EP-226](226-share-bounded-cluster-observations-through-a-guarded-command-session.md),
 [EP-227](227-commit-verification-proofs-without-per-resource-remote-transactions.md),
 [EP-228](228-run-incremental-platform-rollouts-with-bounded-waits-and-durable-progress.md) and
-[EP-229](229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md).
+[EP-229](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md).
 M1 and M2 have no such dependency and unblock those children. Reuse existing Haskell dependencies;
 before selecting any new API or bounds, discover source with Mori and verify released versions
 against upstream and the authoritative package registry.

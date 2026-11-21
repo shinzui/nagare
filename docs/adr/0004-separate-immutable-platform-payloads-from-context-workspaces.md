@@ -4,8 +4,8 @@ status: accepted
 date: 2026-08-25
 authors: [shinzui]
 related:
-  - docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md
-  - docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md
+  - [docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md)
+  - [docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md)
   - docs/plans/101-alerting-and-backup-freshness-monitoring.md
   - docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md
   - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
@@ -16,7 +16,7 @@ related:
 ## Status
 
 Accepted, 2026-08-25. Implemented by
-[ExecPlan 106](../plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md).
+[ExecPlan 106](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md).
 Amended 2026-08-26 to make the already-decided credential exclusion concrete
 for Kubernetes bootstrap Secrets used by ExecPlans 99 and 101. Amended 2026-09-14 to place fetched
 per-context Kubernetes credentials on the same operator-owned side of the payload boundary.

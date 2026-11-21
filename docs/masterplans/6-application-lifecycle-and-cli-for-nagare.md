@@ -18,7 +18,7 @@ rows "App lifecycle commands" and "Deployment history/logs", together with the P
 extensions (health checks, resource limits, multiple domains). The remaining Phase 1 deliverable —
 typed build modes — already shipped as its own initiative
 (`docs/masterplans/4-application-build-modes-for-nagare.md`), so it is out of scope here. Environment
-and secret management is Phase 2 and lives in `docs/masterplans/5-environment-and-secret-management-for-nagare.md`.
+and secret management is Phase 2 and lives in [docs/masterplans/5-environment-and-secret-management-for-nagare.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/masterplans/5-environment-and-secret-management-for-nagare.md).
 
 Full plan before trimming: [6-application-lifecycle-and-cli-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/6-application-lifecycle-and-cli-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
@@ -67,7 +67,7 @@ config that does not mention them renders exactly as it does today.
 
 What is **out of scope** (covered elsewhere or deferred): typed build modes
 (`docs/masterplans/4-application-build-modes-for-nagare.md`, already shipped); environment and secret
-management including env scopes and `.env` sync (`docs/masterplans/5-environment-and-secret-management-for-nagare.md`,
+management including env scopes and `.env` sync ([docs/masterplans/5-environment-and-secret-management-for-nagare.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/masterplans/5-environment-and-secret-management-for-nagare.md),
 Phase 2); dynamic-app preview deployments (roadmap Phase 7); a control API or `nagared` mutation
 endpoints (roadmap Phase 8) — these commands stay CLI-first with direct `kubectl` shell-outs through
 the existing `cradle` library; and any multi-cluster or context model. Hard HTTP redirect enforcement
@@ -135,10 +135,10 @@ own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 29 | Extended application model: health checks, resource limits, multiple domains | docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md | None | None | Complete |
-| 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | Complete |
+| 29 | Extended application model: health checks, resource limits, multiple domains | [docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md) | None | None | Complete |
+| 30 | nagarectl app lifecycle commands | [docs/plans/30-nagarectl-app-lifecycle-commands.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/30-nagarectl-app-lifecycle-commands.md) | None | EP-29 | Complete |
 | 31 | Application deployment history and deployments commands | docs/plans/31-application-deployment-history-and-deployments-commands.md | None | EP-30 | Complete |
-| 32 | Application lifecycle docs and end-to-end examples | docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md | EP-30, EP-31 | EP-29 | Complete |
+| 32 | Application lifecycle docs and end-to-end examples | [docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md) | EP-30, EP-31 | EP-29 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-29). The numbers continue the
@@ -236,7 +236,7 @@ Track milestone-level progress across all child plans. Each entry names the chil
   checks, resource limits, multiple domains), the `app` lifecycle CLI, and deployment history/logs —
   and explicitly exclude build modes and env/secret management.
   Rationale: Build modes shipped as `docs/masterplans/4-application-build-modes-for-nagare.md` and
-  env/secret is `docs/masterplans/5-environment-and-secret-management-for-nagare.md` (Phase 2). MP4's
+  env/secret is [docs/masterplans/5-environment-and-secret-management-for-nagare.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/masterplans/5-environment-and-secret-management-for-nagare.md) (Phase 2). MP4's
   own scope statement names "the broader Phase 1 app-lifecycle CLI (`app list/get/logs/restart`),
   health checks, multiple-domain support, and resource limits" as "separate initiatives" — this is
   that initiative. Grouping them matches the roadmap's "Suggested plan shape" for Phase 1 (one

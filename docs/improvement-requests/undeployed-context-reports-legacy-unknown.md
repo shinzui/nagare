@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T13:11:22Z"
 resolution: "ExecPlan 135 added explicit host and cluster deployment evidence: only a project-scoped GCE NotFound proves the single-host cluster is not deployed, while existing unversioned resources and every inconclusive lookup remain legacy-unknown. Confirmed absence no longer hides context patch skew. The guarded platform repin command advances only a never-deployed context and recognized generated host flake to the active payload, preserves operator files, and refuses deployed or ambiguous targets. Unit and clone-free packaged integration coverage passes as part of the 505-test focused gate. ADR 6 records the durable state and re-pin semantics."
-targetPlan: docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
+targetPlan: [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -39,7 +39,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md); deployment
+[ExecPlan 135](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md); deployment
 evidence and pre-deployment re-pin semantics are recorded in
 [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md).
 **Created:** 2026-09-14.

@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T05:29:57Z"
 resolution: "ExecPlan 134 added project-confined nagare iap-ssh and nagarectl kubeconfig fetch, which derives the context-owned host name, normalizes all k3s identities and the API endpoint, writes mode 0600 through a private sibling staging directory, rejects unsafe destinations, and preserves the previous file on failure. A fail-closed cluster guard checks the ambient kube context and sole labelled server node before five cloud mutation recipes. Unit and fake-command coverage exercises context selection, credentials-preserving normalization, atomic failure, symlink refusal, wrong and ambiguous clusters, kubectl outages, and recipe ordering; all 496 Haskell tests and every native flake check pass. ADR 4 records kubeconfigs as operator-owned state."
-targetPlan: docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md
+targetPlan: [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -39,7 +39,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md);
+[ExecPlan 134](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md);
 the credential boundary is recorded in
 [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md).
 **Created:** 2026-09-14.

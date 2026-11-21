@@ -5,7 +5,7 @@ date: 2026-09-12
 authors: [shinzui]
 related:
   - docs/plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md
-  - docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md
+  - [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md)
   - docs/plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0007-publish-immutable-nix-releases-from-validated-tags.md
@@ -19,7 +19,7 @@ related:
 Accepted, 2026-09-12. Implemented by
 [ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md),
 amended 2026-09-14 by
-[ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md), and amended
+[ExecPlan 138](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md), and amended
 2026-09-15 by
 [ExecPlan 142](../plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md).
 Together they close [IR-3](../improvement-requests/context-owned-acme-identity.md),

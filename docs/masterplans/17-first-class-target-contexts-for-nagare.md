@@ -149,13 +149,13 @@ normalized contexts**: rejected for v1 as over-engineering (see Scope); flat bun
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 87 | Target context model, store, and resolver for nagarectl | docs/plans/87-target-context-model-store-and-resolver-for-nagarectl.md | None | None | Complete |
-| 88 | nagarectl context command group and --context selection | docs/plans/88-nagarectl-context-command-group-and-context-selection.md | EP-87 | None | Complete |
-| 89 | Shell and direnv context resolution and the context-aware guardrail | docs/plans/89-shell-and-direnv-context-resolution-and-the-context-aware-guardrail.md | EP-87 | None | Complete |
-| 90 | Per-context Pulumi state and config projection | docs/plans/90-per-context-pulumi-state-and-config-projection.md | EP-87 | EP-88 | Complete |
-| 91 | De-hardcode cluster manifests and NixOS registry from the active context | docs/plans/91-de-hardcode-cluster-manifests-and-nixos-registry-from-the-active-context.md | EP-87 | EP-89 | Complete |
-| 92 | Context documentation and migration from target and local profiles | docs/plans/92-context-documentation-and-migration-from-target-and-local-profiles.md | None | EP-87, EP-88, EP-89, EP-90, EP-91 | Complete |
-| 93 | Remote GCS Pulumi backends for target contexts | docs/plans/93-remote-gcs-pulumi-backends-for-target-contexts.md | EP-90 | EP-88, EP-89, EP-92 | Complete |
+| 87 | Target context model, store, and resolver for nagarectl | [docs/plans/87-target-context-model-store-and-resolver-for-nagarectl.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/87-target-context-model-store-and-resolver-for-nagarectl.md) | None | None | Complete |
+| 88 | nagarectl context command group and --context selection | [docs/plans/88-nagarectl-context-command-group-and-context-selection.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/88-nagarectl-context-command-group-and-context-selection.md) | EP-87 | None | Complete |
+| 89 | Shell and direnv context resolution and the context-aware guardrail | [docs/plans/89-shell-and-direnv-context-resolution-and-the-context-aware-guardrail.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/89-shell-and-direnv-context-resolution-and-the-context-aware-guardrail.md) | EP-87 | None | Complete |
+| 90 | Per-context Pulumi state and config projection | [docs/plans/90-per-context-pulumi-state-and-config-projection.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/90-per-context-pulumi-state-and-config-projection.md) | EP-87 | EP-88 | Complete |
+| 91 | De-hardcode cluster manifests and NixOS registry from the active context | [docs/plans/91-de-hardcode-cluster-manifests-and-nixos-registry-from-the-active-context.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/91-de-hardcode-cluster-manifests-and-nixos-registry-from-the-active-context.md) | EP-87 | EP-89 | Complete |
+| 92 | Context documentation and migration from target and local profiles | [docs/plans/92-context-documentation-and-migration-from-target-and-local-profiles.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/92-context-documentation-and-migration-from-target-and-local-profiles.md) | None | EP-87, EP-88, EP-89, EP-90, EP-91 | Complete |
+| 93 | Remote GCS Pulumi backends for target contexts | [docs/plans/93-remote-gcs-pulumi-backends-for-target-contexts.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/93-remote-gcs-pulumi-backends-for-target-contexts.md) | EP-90 | EP-88, EP-89, EP-92 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-87, EP-89).

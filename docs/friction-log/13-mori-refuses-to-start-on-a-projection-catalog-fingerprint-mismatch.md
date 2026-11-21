@@ -12,7 +12,7 @@ kind: tooling
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/mori"
 affectedVersion: "7.1.0.0"
-plan: "docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md"
+plan: "[docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/257-declare-an-app-owned-postgresql-app-database-and-keep-apps-apart.md)"
 workaround: "read the Kotei checkout at its known local path"
 ---
 # mori refuses to start on a projection catalog fingerprint mismatch

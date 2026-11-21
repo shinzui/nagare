@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T17:49:14Z"
 resolution: "ExecPlan 138 explicitly assigns system-internal and cluster-local certificate roles to knative-selfsigned-issuer and keeps only external domains on letsencrypt-dns. Because the latest and final archived net-certmanager v1.14.0 release aliases its three issuer pointers, Nagare now applies a focused source patch at the exact release commit, runs a native upstream regression, embeds the reproducible Linux/amd64 controller image in the immutable platform payload, and imports it directly into k3s. A fresh disposable cluster proved both internal roles self-signed and the labeled public wildcard on letsencrypt-dns; the fail-closed certificate-policy diagnostic passed, all 520 Haskell tests passed, and the full native flake gate passed. ADR 10 records the durable boundary."
-targetPlan: docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md
+targetPlan: [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -39,7 +39,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
+[ExecPlan 138](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
 **Created:** 2026-09-14.
 
 

@@ -4,7 +4,7 @@ status: accepted
 date: 2026-08-25
 authors: [shinzui]
 related:
-  - docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md
+  - [docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md)
   - "mori://shinzui/en — docs/adr/0001-en-s-schema-is-an-append-only-pg-migrate-component.md"
   - mori://shinzui/pg-migrate
 ---
@@ -14,7 +14,7 @@ related:
 ## Status
 
 Accepted, 2026-08-25; amended 2026-08-27 for Shomei 0.2.0.0. Implemented by
-[ExecPlan 104](../plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md).
+[ExecPlan 104](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md).
 
 ## Context
 

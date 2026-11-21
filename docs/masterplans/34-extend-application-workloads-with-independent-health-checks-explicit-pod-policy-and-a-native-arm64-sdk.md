@@ -69,7 +69,7 @@ The governing decisions are [ADR 22](../adr/0022-compose-independent-resource-sc
 |---|---|---|---|---|---|
 | EP-253 | Native ARM64 Linux SDK and CLI | [253](../plans/253-package-a-native-arm64-linux-configuration-sdk-and-cli.md) | None | None | Complete |
 | EP-254 | Workload controls: independent health checks, worker shutdown and token policy | [254](../plans/254-add-independent-application-worker-and-web-health-checks.md) | None | EP-256 M1 findings | Complete |
-| EP-255 | Shutdown and service-account token policy | [255](../plans/255-declare-application-workload-shutdown-and-service-account-token-policy.md) | — | — | Cancelled: merged into EP-254 |
+| EP-255 | Shutdown and service-account token policy | [255](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/255-declare-application-workload-shutdown-and-service-account-token-policy.md) | — | — | Cancelled: merged into EP-254 |
 | EP-256 | Delivery audit, native confirmation and release | [256](../plans/256-qualify-application-workload-controls-through-the-inventory-journal-and-recovery.md) | M1: none; M2: EP-253 and EP-254 Complete | None | Complete |
 
 ## Dependency Graph

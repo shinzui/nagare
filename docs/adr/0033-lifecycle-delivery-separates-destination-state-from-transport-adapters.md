@@ -5,9 +5,9 @@ date: 2026-10-31
 authors: [shinzui]
 related:
   - docs/masterplans/31-publish-durable-nagare-lifecycle-events-and-deliver-webhook-subscriptions.md
-  - docs/plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md
-  - docs/plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md
-  - docs/plans/235-run-the-lifecycle-event-service-and-prove-restart-and-upgrade-recovery.md
+  - [docs/plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/231-publish-a-durable-lifecycle-event-feed-with-atomic-source-facts.md)
+  - [docs/plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/234-deliver-filtered-webhook-subscriptions-with-durable-retries-and-replay.md)
+  - [docs/plans/235-run-the-lifecycle-event-service-and-prove-restart-and-upgrade-recovery.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/235-run-the-lifecycle-event-service-and-prove-restart-and-upgrade-recovery.md)
   - docs/adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md
 ---
 

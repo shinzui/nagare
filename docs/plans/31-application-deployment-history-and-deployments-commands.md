@@ -16,7 +16,7 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 This plan is a child of the MasterPlan at
 `docs/masterplans/6-application-lifecycle-and-cli-for-nagare.md`. It is self-contained. It *prefers*
 to reuse two helpers (`streamServiceLogs`, `appIdentityOrDie`) introduced by the sibling plan
-`docs/plans/30-nagarectl-app-lifecycle-commands.md`; if that plan has not landed, this plan introduces
+[docs/plans/30-nagarectl-app-lifecycle-commands.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/30-nagarectl-app-lifecycle-commands.md); if that plan has not landed, this plan introduces
 the same helpers itself (their signatures are stated below so either plan can own them). Everything
 else here is independent.
 

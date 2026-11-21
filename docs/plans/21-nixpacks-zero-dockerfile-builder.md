@@ -20,8 +20,8 @@ Full plan before trimming: [21-nixpacks-zero-dockerfile-builder.md](https://gith
 This is the third plan under the MasterPlan
 `docs/masterplans/4-application-build-modes-for-nagare.md` ("Application Build Modes for Nagare").
 It turns the `NixpacksBuild` variant — which exists as a type after
-`docs/plans/19-typed-buildspec-model-and-dsl-integration.md` and is rejected with a "not yet
-supported" message after `docs/plans/20-build-mode-execution-in-nagarectl-deploy.md` — into a real,
+[docs/plans/19-typed-buildspec-model-and-dsl-integration.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/19-typed-buildspec-model-and-dsl-integration.md) and is rejected with a "not yet
+supported" message after [docs/plans/20-build-mode-execution-in-nagarectl-deploy.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/20-build-mode-execution-in-nagarectl-deploy.md) — into a real,
 working build mode.
 
 The user-visible outcome: a developer can deploy an application that has **no Dockerfile at all**.
@@ -37,7 +37,7 @@ it, this plan begins with a **feasibility spike**: a small, throwaway experiment
 app with `nixpacks` by hand and confirms the produced image runs and serves traffic on the expected
 port. Only after the spike succeeds do we wire `nixpacks` into the CLI. You can see the finished work
 by deploying one of the example apps (added in
-`docs/plans/22-build-modes-docs-and-end-to-end-examples.md`, or a throwaway here) with no Dockerfile
+[docs/plans/22-build-modes-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/22-build-modes-docs-and-end-to-end-examples.md), or a throwaway here) with no Dockerfile
 and watching the Knative URL serve the app.
 
 Terms. **Nixpacks** is a CLI (`nixpacks`) from the Railway project; `nixpacks build <dir> --name

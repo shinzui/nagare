@@ -9,7 +9,7 @@ related:
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md
   - docs/plans/168-script-the-local-acceptance-run-as-one-command.md
-  - docs/plans/171-move-release-tooling-out-of-the-platform-payload.md
+  - [docs/plans/171-move-release-tooling-out-of-the-platform-payload.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/171-move-release-tooling-out-of-the-platform-payload.md)
 ---
 
 # ADR 24 — Release and harness tooling follows the production Haskell standard
@@ -33,7 +33,7 @@ MasterPlan 23 showed what this costs:
   - The rehearsal runner and the assembler had an evidence-layout contract that nobody wrote down: the runner's plan, apply and verify must run back to back.
   - The acceptance drivers broke that contract, and a full local run for candidate `7d486457` could not be assembled.
   - Each tool re-parses the CLI's JSON by hand, so nothing ties its idea of a review, an export or a receipt to the types the CLI actually writes.
-- **No ownership.** Each session added its own helper in whatever form was fastest mid-run. The result works, but nobody can safely maintain it, and it ships inside the platform payload ([EP-171](../plans/171-move-release-tooling-out-of-the-platform-payload.md)).
+- **No ownership.** Each session added its own helper in whatever form was fastest mid-run. The result works, but nobody can safely maintain it, and it ships inside the platform payload ([EP-171](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/171-move-release-tooling-out-of-the-platform-payload.md)).
 
 ## Decision
 
@@ -42,7 +42,7 @@ MasterPlan 23 showed what this costs:
 3. Its tests use real CLI output as fixtures, alongside focused unit cases. An evidence check that has only ever passed against hand-made input is not done.
 4. Shell is allowed only as thin glue: invoking processes, wrappers and the cluster. No Python embedded in shell, and no evidence shaping in shell.
 5. Existing Python and shell tools are frozen. Bug fixes are allowed. Adding a feature means porting that tool first. Each MasterPlan 26 stream ports the tools it touches. [EP-168](../plans/168-script-the-local-acceptance-run-as-one-command.md) starts with the local acceptance runner and the evidence helpers it composes.
-6. The tooling lives outside the platform payload ([EP-171](../plans/171-move-release-tooling-out-of-the-platform-payload.md)), so fixing a tool does not mint a release candidate.
+6. The tooling lives outside the platform payload ([EP-171](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/171-move-release-tooling-out-of-the-platform-payload.md)), so fixing a tool does not mint a release candidate.
 
 ## Consequences
 
@@ -53,7 +53,7 @@ MasterPlan 23 showed what this costs:
 
 ## Amendment — 2026-10-29: the release path is ported
 
-[EP-229](../plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) ported the
+[EP-229](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) ported the
 release path. `nagare-harness release candidate`, `transition run`, `transition pin-tag`,
 `transition rehearse` and `transition drill` under `cli/nagare-harness/src/Nagare/Harness/Release/`
 are the candidate run, the intranet move, the tag pin, the upgrade rehearsal and its transition

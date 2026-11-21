@@ -4,7 +4,7 @@ status: accepted
 date: 2026-08-25
 authors: [shinzui]
 related:
-  - docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md
+  - [docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md)
   - "mori://shinzui/en — docs/adr/0002-crypton-1-1-binds-en-s-dependency-closure-through-a-biscuit-haskell-fork.md"
 ---
 
@@ -13,7 +13,7 @@ related:
 ## Status
 
 Accepted, 2026-08-25. Implemented by
-[ExecPlan 104](../plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md).
+[ExecPlan 104](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md).
 
 ## Context
 

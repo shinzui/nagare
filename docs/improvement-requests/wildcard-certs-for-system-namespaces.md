@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T17:49:14Z"
 resolution: "ExecPlan 138 replaces the all-namespace wildcard selector with the opt-in nagare.dev/app-namespace=true label, labels personal during bootstrap, and reconciles the label across every Nagare application workload path while refusing fixed platform namespaces. Parsed diagnostics reject internal ACME names, public wildcards in unlabeled namespaces, and public wildcards on the wrong issuer. A fresh disposable cluster issued the personal wildcard only through letsencrypt-dns and none for unlabeled namespaces; all 520 Haskell tests, strict bundle validation, and the full native flake gate passed. The operator guides document rate-budget and Certificate Transparency consequences plus reviewed stale-object cleanup, and ADR 10 records the label as a security boundary."
-targetPlan: docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md
+targetPlan: [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -39,7 +39,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
+[ExecPlan 138](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
 **Created:** 2026-09-14.
 
 

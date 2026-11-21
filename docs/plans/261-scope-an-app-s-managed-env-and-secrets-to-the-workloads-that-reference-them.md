@@ -280,7 +280,7 @@ loaders (search for `serviceAccount`). No ADR covers the managed store's inherit
 one.
 
 Related work, landed in v0.20.0:
-[EP-259](259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md)
+[EP-259](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/259-let-tasks-and-pre-deploy-hooks-bind-an-app-database-under-a-named-url-variable.md)
 (IR-43 AC-5) gives a pre-deploy hook the database owner credential through a binding. With
 this plan as well, Kotei's hook can get the owner credential from the binding and nothing from
 the store. Kotei has not adopted the binding yet; AC-5 here does not require it.

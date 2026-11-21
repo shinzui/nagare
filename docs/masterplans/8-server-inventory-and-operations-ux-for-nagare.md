@@ -160,11 +160,11 @@ solves this while keeping the foundation as the dependency root.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-38 | Server inventory probe layer and `nagarectl server status` | docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md | None | None | Complete |
+| EP-38 | Server inventory probe layer and `nagarectl server status` | [docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md) | None | None | Complete |
 | EP-39 | `nagarectl doctor` health checks with remediation hints | docs/plans/39-nagarectl-doctor-health-checks-with-remediation-hints.md | EP-38 | None | Complete |
 | EP-40 | `nagarectl domains list` with DNS and certificate readiness | docs/plans/40-nagarectl-domains-list-with-dns-and-certificate-readiness.md | None | EP-38 | Complete |
-| EP-41 | `nagarectl cleanup` for images, previews, and releases | docs/plans/41-nagarectl-cleanup-for-images-previews-and-releases.md | None | EP-38 | Complete |
-| EP-42 | Server and operations UX docs and runbook integration | docs/plans/42-server-and-operations-ux-docs-and-runbook-integration.md | None | EP-38, EP-39, EP-40, EP-41 | Complete |
+| EP-41 | `nagarectl cleanup` for images, previews, and releases | [docs/plans/41-nagarectl-cleanup-for-images-previews-and-releases.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/41-nagarectl-cleanup-for-images-previews-and-releases.md) | None | EP-38 | Complete |
+| EP-42 | Server and operations UX docs and runbook integration | [docs/plans/42-server-and-operations-ux-docs-and-runbook-integration.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/42-server-and-operations-ux-docs-and-runbook-integration.md) | None | EP-38, EP-39, EP-40, EP-41 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their `EP-<#>` prefix, where the number is

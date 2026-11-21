@@ -411,7 +411,7 @@ This plan only makes sure its changes are covered by that transition's compatibi
   - Everything except the producer is already proven natively for databases on v0.4.0: grading,
     escrow, receipt verification, refusal of corrupt uploads, and restore to a new PVC.
   - K8up would add a second repository format and a second retention engine beneath the journal,
-    which EP-163 lists as an open question (`docs/plans/163-…md`, K8up questions).
+    which EP-163 lists as an open question ([EP-163](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md), K8up questions).
   - MasterPlan 24's Decision Log said to evaluate before implementing. The operator recorded this
     choice there on 2026-10-09.
   Date: 2026-10-09

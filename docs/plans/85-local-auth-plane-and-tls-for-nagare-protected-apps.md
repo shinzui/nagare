@@ -38,7 +38,7 @@ with a local image registry and a loopback wildcard domain such as `127-0-0-1.ss
 name `<app>.127-0-0-1.sslip.io` resolves to `127.0.0.1` with no DNS setup). Two sibling plans
 build the substrate (`docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md`,
 "EP-82") and the GCP-free build/deploy path in the CLI
-(`docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md`, "EP-83"). This
+([docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md), "EP-83"). This
 plan, **EP-85**, makes the *auth plane* run on that local cluster so a require-login app is
 fully testable with no GCP account.
 

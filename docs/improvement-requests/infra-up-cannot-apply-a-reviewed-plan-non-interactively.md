@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T14:12:41Z"
 resolution: "ExecPlan 136 added a private immutable bundle containing Pulumi's saved plan, a redacted operation review, and Nagare context/project/stack/backend/payload/program/config/version bindings. Guarded apply verifies every member and binding before pulumi up --plan --yes --non-interactive, with no second preview; upgrades retain the same bundle across resume. A separate guarded destroy command owns teardown. Pure and clone-free fake-Pulumi tests cover mismatches, tampering, exact argv, and no-preview apply. ADR 18 records the constrained-not-atomic execution boundary."
-targetPlan: docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
+targetPlan: [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -39,7 +39,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 136](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md); the
+[ExecPlan 136](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md); the
 retained reviewed-plan boundary is recorded in
 [ADR 18](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md).
 **Created:** 2026-09-14.

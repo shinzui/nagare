@@ -217,9 +217,9 @@ The children split by the cost each one removes:
   adds the local per-commit gate (complete).
 - [EP-168](../plans/168-script-the-local-acceptance-run-as-one-command.md): manual operation. The local
   acceptance becomes one command.
-- [EP-171](../plans/171-move-release-tooling-out-of-the-platform-payload.md): candidate churn from
+- [EP-171](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/171-move-release-tooling-out-of-the-platform-payload.md): candidate churn from
   tooling fixes.
-- [EP-170](../plans/170-size-the-release-gate-to-the-change.md): over-verification.
+- [EP-170](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/170-size-the-release-gate-to-the-change.md): over-verification.
 - [EP-172](../plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md):
   the missing move from one release to the next, and the rebuild per candidate. Re-scoped 2026-10-09
   to own the release transition itself, not only its rehearsal.
@@ -259,9 +259,9 @@ No cross-repository ADR applies.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Script the local acceptance run as one command | docs/plans/168-script-the-local-acceptance-run-as-one-command.md | None | EP-171; MP-25 EP-167 M3 (reviewed local teardown stage) | Cancelled (operator, 2026-10-14: no release reads its evidence, and `scripts/release-rehearse.sh` bootstraps a fresh local context from the packaged CLI) |
-| 2 | Run the local acceptance in CI | docs/plans/169-run-the-local-acceptance-in-ci.md | EP-168 | EP-171 | Cancelled (operator, 2026-10-04: no GitHub Actions; EP-168 + EP-174 cover the need) |
-| 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None; M3 needs EP-173 M5 | EP-168, EP-171 | Cancelled (operator, 2026-10-14: M1–M3 not started; the classifier would spare about 19 background gates in 125 commits). Landed slices: docs carry-forward (2026-10-09), the ledger-aware deep-tier judge `acd53e28` (item 10, then superseded on 2026-10-12), the sweep skip `391db1b6` and version mask `e9d78be3`, covered post-land gates `eaec31c8` |
-| 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Cancelled (operator, 2026-10-14: `release-candidate --revision` already runs tooling from the working tree, so a tooling fix mints no candidate) |
+| 2 | Run the local acceptance in CI | [docs/plans/169-run-the-local-acceptance-in-ci.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/169-run-the-local-acceptance-in-ci.md) | EP-168 | EP-171 | Cancelled (operator, 2026-10-04: no GitHub Actions; EP-168 + EP-174 cover the need) |
+| 3 | Size the release gate to the change | [docs/plans/170-size-the-release-gate-to-the-change.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/170-size-the-release-gate-to-the-change.md) | None; M3 needs EP-173 M5 | EP-168, EP-171 | Cancelled (operator, 2026-10-14: M1–M3 not started; the classifier would spare about 19 background gates in 125 commits). Landed slices: docs carry-forward (2026-10-09), the ledger-aware deep-tier judge `acd53e28` (item 10, then superseded on 2026-10-12), the sweep skip `391db1b6` and version mask `e9d78be3`, covered post-land gates `eaec31c8` |
+| 4 | Move release tooling out of the platform payload | [docs/plans/171-move-release-tooling-out-of-the-platform-payload.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/171-move-release-tooling-out-of-the-platform-payload.md) | None | None | Cancelled (operator, 2026-10-14: `release-candidate --revision` already runs tooling from the working tree, so a tooling fix mints no candidate) |
 | 5 | Move an inventory context to the next release through a reviewed transition | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | None (M3 rehearses on a disposable local context without EP-168) | None | Complete (2026-10-12: v0.6.0 and v0.6.1 moved the intranet; F124's zero-operation replan closed in `eb0f017e`, item 7). Since then v0.6.2 and v0.6.3 moved it through the same transition |
 | 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | Complete (2026-10-14: M1–M2 accepted 2026-10-05; M3–M4 out of this plan's scope, re-chartered when an intranet upgrade finds a host-stage defect or MasterPlan 25 reopens; M5 declined) |
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Complete (2026-10-05) |

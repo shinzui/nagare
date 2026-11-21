@@ -5,7 +5,7 @@ date: 2026-08-25
 authors: [shinzui]
 related:
   - docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md
-  - docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
+  - [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md)
   - docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md
   - docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
@@ -87,7 +87,7 @@ identifies the completed phase, and resume converges forward without inventing s
 
 ## Amendment — 2026-09-14: distinguish confirmed absence from unknown identity
 
-[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) separates
+[ExecPlan 135](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) separates
 deployment evidence from release identity. For a cloud context, a project-, zone-, and
 instance-scoped GCE describe that explicitly reports resource NotFound establishes that the
 single host is `not-deployed`; because Nagare's cluster resides on that host, the cluster is then

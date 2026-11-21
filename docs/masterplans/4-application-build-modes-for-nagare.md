@@ -97,14 +97,14 @@ the rest of the initiative.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 19 | Typed BuildSpec model and DSL integration | docs/plans/19-typed-buildspec-model-and-dsl-integration.md | None | EP-12 | Complete |
-| 20 | Build-mode execution in nagarectl deploy | docs/plans/20-build-mode-execution-in-nagarectl-deploy.md | EP-19 | EP-12 | Complete |
+| 19 | Typed BuildSpec model and DSL integration | [docs/plans/19-typed-buildspec-model-and-dsl-integration.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/19-typed-buildspec-model-and-dsl-integration.md) | None | EP-12 | Complete |
+| 20 | Build-mode execution in nagarectl deploy | [docs/plans/20-build-mode-execution-in-nagarectl-deploy.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/20-build-mode-execution-in-nagarectl-deploy.md) | EP-19 | EP-12 | Complete |
 | 21 | Nixpacks zero-Dockerfile builder | docs/plans/21-nixpacks-zero-dockerfile-builder.md | EP-19, EP-20 | None | Complete |
-| 22 | Build-modes docs and end-to-end examples | docs/plans/22-build-modes-docs-and-end-to-end-examples.md | EP-20 | EP-21 | Complete |
+| 22 | Build-modes docs and end-to-end examples | [docs/plans/22-build-modes-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/22-build-modes-docs-and-end-to-end-examples.md) | EP-20 | EP-21 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 child plans by their `EP-<#>` prefix, where the number is the file number in `docs/plans/`.
-`EP-12` refers to `docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md`, the completed
+`EP-12` refers to [docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md), the completed
 plan that integrated the typed Haskell deployment DSL into `nagarectl`; it is a soft dependency
 because both EP-19 and EP-20 extend the model and pipeline it established, but no new code from it
 is required.

@@ -4,7 +4,7 @@ status: accepted
 date: 2026-08-25
 authors: [shinzui]
 related:
-  - docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md
+  - [docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md)
   - docs/plans/130-give-every-context-a-distinct-default-host-name.md
   - docs/plans/133-deliver-the-host-age-key-after-first-boot.md
   - docs/plans/141-separate-generated-host-identity-from-gce-instance-identity-in-upgrades.md
@@ -17,7 +17,7 @@ related:
 ## Status
 
 Accepted, 2026-08-25. Implemented by
-[ExecPlan 107](../plans/107-externalize-per-operator-nixos-and-host-configuration.md).
+[ExecPlan 107](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md).
 
 ## Context
 

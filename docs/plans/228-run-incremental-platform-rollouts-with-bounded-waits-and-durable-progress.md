@@ -140,7 +140,7 @@ second implementation rather than enforce the Haskell tooling architecture.
   Do not blanket-parallelize arbitrary adapters.
 - 2026-10-29: Port the release orchestration being extended to Haskell before adding cost/progress
   features. Remove embedded and transitively invoked transition-specific Python from that path.
-  Later the same day the port became [EP-229](229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md);
+  Later the same day the port became [EP-229](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md);
   this plan's M3 extends the ported runner and depends on it.
 - 2026-10-29: The coordinator EP-227 was to provide is the driver's own serial journal append,
   behind one lock while operations overlap; EP-227 cancelled its batch protocol. The whole-rollout
@@ -355,7 +355,7 @@ under their original serial semantics, or fail before mutation with an explicit 
 Hard prerequisites are Complete [EP-225](225-keep-platform-revisions-stable-when-deployment-meaning-is-unchanged.md),
 [EP-226](226-share-bounded-cluster-observations-through-a-guarded-command-session.md),
 [EP-227](227-commit-verification-proofs-without-per-resource-remote-transactions.md),
-[EP-229](229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) and
+[EP-229](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/229-own-candidate-intranet-and-rehearsal-orchestration-in-haskell.md) and
 [EP-224 M2](224-make-a-platform-transition-take-minutes-and-keep-its-cost-traced.md).
 This plan owns rollout phase selection, scheduler integration, finalization metadata and the run
 index, manifest, progress and cost extensions of the release runner. It consumes the shared trace,

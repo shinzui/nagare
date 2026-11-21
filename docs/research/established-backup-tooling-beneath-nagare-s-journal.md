@@ -16,7 +16,7 @@ scope: >-
   cluster that ran outside the cp3 claim protocol and was deleted; its retention step did not complete. No
   CloudNativePG, Velero or kapp prototype ran. No cloud context, GCS bucket or Nagare context was read or changed.
 relatedPlans:
-  - mori://shinzui/nagare/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers
+  - https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md
   - mori://shinzui/nagare/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas
   - mori://shinzui/nagare/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild
 relatedDecisions:

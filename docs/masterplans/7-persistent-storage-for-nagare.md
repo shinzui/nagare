@@ -16,7 +16,7 @@ This initiative implements **Phase 3 (Persistent Storage)** of the PaaS capabili
 `docs/roadmaps/paas-gap-roadmap.md`. It is the fourth initiative in the roadmap's recommended order,
 following static hosting (`docs/masterplans/3-static-hosting-for-nagare.md`), application build modes
 (`docs/masterplans/4-application-build-modes-for-nagare.md`), environment and secret management
-(`docs/masterplans/5-environment-and-secret-management-for-nagare.md`), and application lifecycle
+([docs/masterplans/5-environment-and-secret-management-for-nagare.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/masterplans/5-environment-and-secret-management-for-nagare.md)), and application lifecycle
 (`docs/masterplans/6-application-lifecycle-and-cli-for-nagare.md`). Persistent storage is, per the
 roadmap, "a prerequisite for many 'service' and 'database' templates" and for the managed-database
 work of Phase 4, so it is sequenced before them.
@@ -84,7 +84,7 @@ application-level pattern, documented but not productized as a Nagare-managed si
 intentionally single-node, so volumes are `ReadWriteOnce`); CSI volume snapshots (this initiative
 snapshots by copying file contents to GCS, because the `local-path` provisioner has no CSI snapshot
 support); and a web UI for storage (Phase 10). The env/secret store from
-`docs/masterplans/5-environment-and-secret-management-for-nagare.md` is reused conceptually for the
+[docs/masterplans/5-environment-and-secret-management-for-nagare.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/masterplans/5-environment-and-secret-management-for-nagare.md) is reused conceptually for the
 "Nagare-managed" labelling convention but its ConfigMap/Secret machinery is not extended here.
 
 ## Decomposition Strategy
@@ -143,10 +143,10 @@ of the backup story," so they are one plan with two milestones.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 33 | Knative PVC enablement spike and cluster feature flags | docs/plans/33-knative-pvc-enablement-spike-and-cluster-feature-flags.md | None | None | Complete |
-| 34 | Typed volume and mount model with PVC and volumeMount renderer | docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md | None | EP-33 | Complete |
-| 35 | Deploy-time PVC provisioning and nagarectl storage list and inspect commands | docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md | EP-34 | EP-33 | Complete |
+| 34 | Typed volume and mount model with PVC and volumeMount renderer | [docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md) | None | EP-33 | Complete |
+| 35 | Deploy-time PVC provisioning and nagarectl storage list and inspect commands | [docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md) | EP-34 | EP-33 | Complete |
 | 36 | App volume backup ownership, snapshot to GCS, and retention | docs/plans/36-app-volume-backup-ownership-snapshot-to-gcs-and-retention.md | EP-34, EP-35 | EP-33 | Complete |
-| 37 | Persistent storage docs and end-to-end examples | docs/plans/37-persistent-storage-docs-and-end-to-end-examples.md | EP-35, EP-36 | EP-34 | Complete |
+| 37 | Persistent storage docs and end-to-end examples | [docs/plans/37-persistent-storage-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/37-persistent-storage-docs-and-end-to-end-examples.md) | EP-35, EP-36 | EP-34 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-33, EP-35). The numbers

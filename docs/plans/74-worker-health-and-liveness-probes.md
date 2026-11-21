@@ -111,7 +111,7 @@ exactly as it does today — byte-identical output, no probe block.
 - Decision: Keep the new field **optional** (`liveness :: Maybe WorkerProbe`) with a default
   of `Nothing` ("no probe"), added to the public `Worker` record without changing any
   existing field or smart constructor.
-  Rationale: EP-1 (`docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md`)
+  Rationale: EP-1 ([docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md))
   embeds `Worker` values inside its `Application` aggregate; an optional field with a sane
   default flows through embedding automatically and cannot break EP-1's construction. A
   no-probe worker must remain byte-identical in rendered YAML and JSON to today's output,

@@ -138,7 +138,7 @@ No ADR.
   (`Catalog.hs`, `Owned.hs`, `Backup.hs`, `Drain.hs`), with
   [ADR 30](../adr/0030-app-databases-are-reviewed-tenants-of-a-shared-server.md) and
   [ADR 37](../adr/0037-an-app-may-own-its-database-and-nagare-keeps-apps-apart.md).
-  EP-258 (`docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md`)
+  EP-258 ([docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/258-carry-an-app-s-roles-through-backups-restores-quiesce-and-retirement.md))
   carries an app's roles through backup, restore, quiesce and retirement.
 - Restore after a rebuild, and the En counter and datastore-id handling (F144, F147):
   `cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs`; `docs/runbooks/disaster-recovery.md`.

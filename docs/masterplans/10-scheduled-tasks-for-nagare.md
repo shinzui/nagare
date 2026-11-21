@@ -147,10 +147,10 @@ Alternatives considered and rejected:
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 49 | Scheduled-task substrate spike and one-off-run feasibility | docs/plans/49-scheduled-task-substrate-spike-and-one-off-run-feasibility.md | None | None | Complete |
-| 50 | Typed Task model and CronJob/Job renderer | docs/plans/50-typed-task-model-and-cronjob-job-renderer.md | None | EP-49 | Complete |
-| 51 | nagarectl task lifecycle commands and deploy-time provisioning | docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md | EP-50 | EP-49 | Complete |
-| 52 | App-task association and runtime env/image/secret inheritance | docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md | EP-50 | EP-51 | Complete |
-| 53 | Scheduled-tasks docs and end-to-end examples | docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md | EP-50 | EP-51, EP-52 | Complete |
+| 50 | Typed Task model and CronJob/Job renderer | [docs/plans/50-typed-task-model-and-cronjob-job-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/50-typed-task-model-and-cronjob-job-renderer.md) | None | EP-49 | Complete |
+| 51 | nagarectl task lifecycle commands and deploy-time provisioning | [docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md) | EP-50 | EP-49 | Complete |
+| 52 | App-task association and runtime env/image/secret inheritance | [docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md) | EP-50 | EP-51 | Complete |
+| 53 | Scheduled-tasks docs and end-to-end examples | [docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md) | EP-50 | EP-51, EP-52 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-49, EP-51).

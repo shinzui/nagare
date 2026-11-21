@@ -11,7 +11,7 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T15:22:49Z"
 resolution: "ExecPlan 137 orders format-nagare-data before the escaped systemd-fsck instance and the mount while retaining DefaultDependencies=false. The mount now wants k3s, whose hard mount and layout requirements remain, so a recovered mount retries the chain without a reboot. Exact evaluation assertions pass; five independent blank-disk NixOS VMs each reached exactly one Ready node in the original boot, rejected Device or resource busy and relevant failed units, and recovered layout/k3s from a mount-only restart without changing boot ID. The existing online-growth VM regression also passes."
-targetPlan: docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md
+targetPlan: [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md)
 origin: mori://shinzui/nagare
 reviews:
   - kind: model
@@ -52,7 +52,7 @@ verified:
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
-[ExecPlan 137](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md).
+[ExecPlan 137](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md).
 **Created:** 2026-09-14.
 
 

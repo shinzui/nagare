@@ -16,7 +16,7 @@ This initiative implements **Phase 4 (Managed Databases and Backups)** of the Pa
 at `docs/roadmaps/paas-gap-roadmap.md`. It is the sixth initiative in the roadmap's recommended order
 and the largest remaining gap, following static hosting (`docs/masterplans/3-static-hosting-for-nagare.md`),
 application build modes (`docs/masterplans/4-application-build-modes-for-nagare.md`), environment and
-secret management (`docs/masterplans/5-environment-and-secret-management-for-nagare.md`), application
+secret management ([docs/masterplans/5-environment-and-secret-management-for-nagare.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/masterplans/5-environment-and-secret-management-for-nagare.md)), application
 lifecycle (`docs/masterplans/6-application-lifecycle-and-cli-for-nagare.md`), persistent storage
 (`docs/masterplans/7-persistent-storage-for-nagare.md`), and server/operations UX
 (`docs/masterplans/8-server-inventory-and-operations-ux-for-nagare.md`). Per the roadmap, managed
@@ -190,11 +190,11 @@ schedule/restore milestones.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 43 | Managed-database substrate spike and stateful rendering feasibility | docs/plans/43-managed-database-substrate-spike-and-stateful-rendering-feasibility.md | None | None | Complete |
-| 44 | Typed Database model and stateful StatefulSet, Service, PVC, and Secret renderer | docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md | None | EP-43 | Complete |
-| 45 | nagarectl db lifecycle commands and deploy-time provisioning | docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md | EP-44 | EP-43 | Complete |
-| 46 | Generated database connection env injection for apps | docs/plans/46-generated-database-connection-env-injection-for-apps.md | EP-44 | EP-45 | Complete |
+| 44 | Typed Database model and stateful StatefulSet, Service, PVC, and Secret renderer | [docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md) | None | EP-43 | Complete |
+| 45 | nagarectl db lifecycle commands and deploy-time provisioning | [docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md) | EP-44 | EP-43 | Complete |
+| 46 | Generated database connection env injection for apps | [docs/plans/46-generated-database-connection-env-injection-for-apps.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/46-generated-database-connection-env-injection-for-apps.md) | EP-44 | EP-45 | Complete |
 | 47 | Scheduled database backups, restore commands, and retention | docs/plans/47-scheduled-database-backups-restore-commands-and-retention.md | EP-44, EP-45 | EP-43 | Complete |
-| 48 | Managed databases docs and end-to-end examples | docs/plans/48-managed-databases-docs-and-end-to-end-examples.md | EP-45, EP-46, EP-47 | EP-44 | Complete |
+| 48 | Managed databases docs and end-to-end examples | [docs/plans/48-managed-databases-docs-and-end-to-end-examples.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/48-managed-databases-docs-and-end-to-end-examples.md) | EP-45, EP-46, EP-47 | EP-44 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-43, EP-45). The numbers

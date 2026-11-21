@@ -4,10 +4,10 @@ status: accepted
 date: 2026-08-25
 authors: [shinzui]
 related:
-  - docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md
+  - [docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md)
   - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
   - docs/plans/140-make-clone-free-platform-upgrades-carry-release-pinned-operator-tools.md
-  - docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md
+  - [docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md)
   - docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
@@ -18,7 +18,7 @@ related:
 ## Status
 
 Accepted, 2026-08-25. Implemented by
-[ExecPlan 109](../plans/109-publish-versioned-releases-and-clone-free-onboarding.md).
+[ExecPlan 109](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md).
 
 ## Context
 
@@ -85,7 +85,7 @@ package does not.
 
 Release checks exercise the installed commands, reject either public output when `lib/links` is
 present, require `socat` on the operator PATH, and prove the package can share a Darwin profile with
-another output that owns the former collision path. [ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md)
+another output that owns the former collision path. [ExecPlan 134](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md)
 introduced and validated this boundary.
 
 ## Amendment — 2026-09-15: clone-free platform commands enter the operator shell
@@ -128,7 +128,7 @@ retry; it did not publish a Nagare release.
 The release identity is global to the repository and tag. A deployment context
 may reference it but does not own or mutate its publication record. Complete
 inventory evidence in the release archive and native tagged release gates
-remain [ExecPlan 150](../plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md) acceptance work.
+remain [ExecPlan 150](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md) acceptance work.
 
 
 ## Amendment — 2026-10-02: complete candidate-bound inventory evidence

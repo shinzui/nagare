@@ -84,7 +84,7 @@ self-contained; do not assume the reader knows them):
   folds them in ("checkpoints"). Litestream ships these WAL segments to GCS; replaying them
   reproduces the database.
 - **secretRef**: a field in Nagare's `nagare.yaml` application contract (owned by EP-6,
-  `docs/plans/6-nagarectl-deploy-cli-in-haskell.md`) that says "set this environment variable
+  [docs/plans/6-nagarectl-deploy-cli-in-haskell.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/6-nagarectl-deploy-cli-in-haskell.md)) that says "set this environment variable
   from a Kubernetes Secret of this name." For example `DATABASE_URL: { secretRef: notes-db-url }`
   means the env var `DATABASE_URL` is read from the Secret named `notes-db-url`.
 - **Application Default Credentials** (ADC): the standard way Google client tools find
@@ -193,7 +193,7 @@ Record every decision made while working on the plan.
   sops+age for *Kubernetes* secrets committed to Git — rather than a single mechanism.
   Rationale: They solve different problems at different layers. sops-nix decrypts at NixOS
   activation into `/run/secrets` for host services (e.g. the Tailscale key, already introduced
-  in EP-3, `docs/plans/3-nixos-host-nagare-01-with-k3s.md`); it cannot create Kubernetes
+  in EP-3, [docs/plans/3-nixos-host-nagare-01-with-k3s.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/3-nixos-host-nagare-01-with-k3s.md)); it cannot create Kubernetes
   Secret objects. The standalone sops tool encrypts Secret *manifests* whose decrypted form is
   applied to the cluster with `kubectl`. Both share the same age key material, keeping key
   management simple. The spec's "Secrets" section explicitly recommends exactly this pairing
