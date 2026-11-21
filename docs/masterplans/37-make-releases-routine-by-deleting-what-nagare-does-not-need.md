@@ -1,7 +1,7 @@
 ---
 id: 37
 slug: make-releases-routine-by-deleting-what-nagare-does-not-need
-title: "Make releases routine by deleting what Nagare does not need"
+title: "Make Nagare releases fast and reliable"
 kind: master-plan
 created_at: 2026-11-20T14:59:44Z
 provenance:
@@ -38,20 +38,19 @@ provenance:
       note: "D1 complete: nagare-core split, serving image, v0.25.0 and v0.25.1 released"
 ---
 
-# Make releases routine by deleting what Nagare does not need
+# Make Nagare releases fast and reliable
 
 The operator asked for this plan on 2026-11-20, after v0.24.1, a 30-line CLI fix, took seven
-candidate runs and most of a day. Its deliverables are deletions. A deliverable that adds a
-mechanism states what it adds and what it deletes, and the second number is larger.
+candidate runs and most of a day. Its scope is release engineering: make releasing faster and more
+reliable, and improve the tests (operator, 2026-11-21).
 
 
 ## Vision & Scope
 
 ### Finish line
 
-The plan is done when the following four observations are recorded. Use a real CLI-only release for the
-first, a platform-changing release for the second, and either release for the clean-checkout run. Exercise
-the two-engineer case on one shared test context.
+The plan is done when the following three observations are recorded. Use a real CLI-only release for the
+first, a platform-changing release for the second, and either release for the clean-checkout run.
 
 1. **A CLI-only fix ships without moving the platform.** Its intranet plan has zero operations: no
    host activation, no image publication, no cluster change.
@@ -59,47 +58,25 @@ the two-engineer case on one shared test context.
    runs again.
 3. **A release is cut from a clean checkout on a second machine**, with nothing copied from the
    first except credentials.
-4. **One engineer's stopped stateless apply does not block another engineer's unrelated apply.**
 
-The operator's aim (2026-11-20) is an architecture several engineers can operate safely. What
-protects them from each other is at the review level and is not touched here: admission checks the
-review's head and base, active transaction, data fence and deployer delegation
-(`cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs`), and every review records its actor. What hurts them is that one
-unresolved transaction blocks every other apply, so each stop state is a team-wide stop.
+### What this plan may change
 
-Measure the Haskell reduction against v0.24.1. Its Git archive contains 177,313 source lines and 104,437
-test lines. Count physical lines in regular `cli/**/*.hs` files from each revision's archive, counting
-`cli/<package>/test/` as tests and all other paths as source. Record shortfalls against the estimates in
-Progress.
+- Release tooling: the candidate, rehearsal, intranet and publish steps, their scripts and recipes.
+- Refactoring for faster builds and releases, with no change to what Nagare does for an operator.
+- Deleting tests, test tiers and markdown plans that are already Complete or Cancelled.
 
-### What stays exactly as strict
+### What this plan does not change
 
-- Everything that guards data: the reviewed, journalled, fenced path for databases, migrations,
-  backups, restores and volumes, and the upgrade rehearsal that reads a seeded row back.
-- The GCP guardrail in `scripts/lib/target.sh` and its fail-closed cloud branch.
-- Guarded, self-reverting host activation (`just host-switch`, ADR 11).
-- Ownership: Nagare still refuses to write a Kubernetes object or Helm release that is not stamped
-  as this context's.
+- No Nagare feature is removed, and no runtime or recovery behaviour changes.
+- No open or held plan is cancelled or closed. MasterPlans 21 and 25 stay held.
+- `docs/audits/`, `docs/evidence/` and `docs/release-evidence/` stay.
+- Everything that guards data stays exactly as strict: the reviewed, journalled, fenced path for
+  databases, migrations, backups, restores and volumes, and the upgrade rehearsal that reads a seeded
+  row back. So do the GCP guardrail in `scripts/lib/target.sh` and its fail-closed cloud branch,
+  guarded host activation (`just host-switch`, ADR 11) and Kubernetes ownership stamps.
 
 ### What is wrong, measured
 
-- **Nothing is ever removed.** From v0.4.0 (2026-10-09) to v0.24.0 (2026-11-19), 146,760 lines
-  were added under `cli/` and 10,789 deleted. ExecPlans went from 182 to 270, ADRs from 27 to 40.
-  Of 969 commits, 231 are fixes.
-- **The engine treats a ConfigMap like a database.** The planner computes a recovery class per
-  operation (`Plan/Changes.hs:954`), and no executor reads it. A stateless Deployment and a
-  PostgreSQL volume take the same journal, the same per-object proof and the same stop states.
-- **A slow rollout becomes an ambiguous stop.** When a Deployment update lands and is not Ready in
-  180 s, resume re-reads Nagare's own stamp, sees it differs from the reviewed "before" value and
-  reports "stamp changed since review" (`Adapters/Kubernetes.hs:404`, `KubernetesProof.hs:376`).
-  Only a Knative Service update is exempt. This was v0.24.1's stage-4 stop.
-- **Recovering from a stop makes a new state.** `inventory close` keeps the scope's desired
-  revision and leaves it unconverged (`Execute/Close.hs:449`). The next plan then emits a
-  journalled `VerifyResource` for every unchanged member of that scope (`Plan/Changes.hs:902`),
-  each of which fails if its object is not Ready at that moment, and the scope converges only when
-  one review operates on every member (`Execute/Claims.hs:203`). The planner already observes
-  every member, so the converged revision is a second record of what observation says. This was
-  v0.24.1's "artifact runtime only executes…" stop, and `4fe9b48b` answered it with more code.
 - **Every release moves the host and the admin API, whatever changed.** The host flake carries the
   source revision (`Host/Config.hs:344`), so a new revision is a host activation. The admin API
   image links the whole `nagarectl` library and depends on `cluster/`, `nixos/` and `release.json`
@@ -107,40 +84,18 @@ Progress.
   v0.24.1 planned a host update and 14 platform operations for a planner fix.
 - **A candidate run cannot resume.** Each run starts a new directory and repeats every step.
   `release-publish` needs a `latest` link and a landed evidence commit that only a complete run
-  writes. Pin-file refusals interrupted two of v0.24.1's seven runs. The current intranet step already accepts a dirty lock naming the candidate. It can still commit unrelated edits to a tracked pin file.
+  writes. Pin-file refusals interrupted two of v0.24.1's seven runs.
 - **Release state lives on one workstation:** gate and sweep records under `~/.local/state`, a
-  Colima profile whose socket path is hard-coded (`Rehearse.hs` selects the profile, `TransitionDrill.hs` refuses the shared daemon), two container images
-  that must already be in its store, and an on-demand x86 builder.
-
-### Why the earlier attempts made it worse
-
-Each kept the engine's contract fixed and built around it.
-
-- **MasterPlan 13** (June) fixed "abstractions": it deleted four shell scripts and added a typed
-  Job module, doctor checks, a flake check and a live smoke.
-- **MasterPlan 19** answered forty-five review findings with guards, bounds and alerts.
-- **MasterPlan 23** built the typed inventory, journal and per-object proof for every resource
-  class at once. It closed with 95 findings and the lesson "find defects with interpreters".
-- **MasterPlan 26**, "make releases routine", put "weakening any MasterPlan 23 guarantee" out of
-  scope. It added a harness, provider interpreters, a gate classifier and a rehearsal. The operator
-  cut most of it on 2026-10-10 and closed it on 2026-10-14.
-- **MasterPlan 29** made the review cheaper to read: one store open, a blob cache, concurrent
-  reads. The review stayed.
-- **MasterPlan 30** says "keep the existing reviewed-inventory model" and added five boundaries: a
-  compiler, a command session, an observation epoch, a coordinator and a rollout runner.
-- **The operator's decisions of 2026-10-10, 2026-10-29 and 2026-11-17** cut ceremony from plans
-  and gates. They could not shrink the code, so the same code kept producing the same stops.
-
-This plan narrows the journalled path for eligible stateless Kubernetes work. Mixed reviews, data-bearing
-operations and legacy recovery keep the evidence their callers require.
+  Colima profile whose socket path is hard-coded, two container images that must already be in its
+  store, and an on-demand x86 builder.
 
 
 ## Decomposition Strategy
 
-D1 changes how a release proves what is installed. D3 changes how it is rehearsed and published. Deliver
-them through the existing release commands. D2 is the only child ExecPlan because a mistake at its
-boundary can affect data recovery. D5 removes obsolete gates,
-evidence and documents after their consumers have moved.
+D1 changes how a release proves what is installed. D3 changes how it is rehearsed and published. D5
+retires superseded test tiers and plan files after their callers have moved. All three go through the
+existing release commands. The deliverable numbers are kept from the first draft; D2 and D4 left the plan
+on 2026-11-21.
 
 
 ## Exec-Plan Registry
@@ -149,47 +104,35 @@ evidence and documents after their consumers have moved.
 |---|---|---|---|
 | D1. CLI-only release | MasterPlan, release identity and packaging | None | Complete |
 | D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | In Progress |
-| D2. Stateless Kubernetes recovery | [EP-274](../plans/274-simplify-recovery-for-stateless-kubernetes-applies.md) | D2b requires two releases on D2a and the findings decision | Not Started |
-| D4. Unused features | None | None | Cancelled (operator, 2026-11-21) |
-| D5. Gates and documents | MasterPlan, landing and documentation | D3 switch for gate removal, D2 findings review for ledger removal | In Progress |
+| D5. Test tiers and plan files | MasterPlan, landing and plans | D3 switch for gate removal | In Progress |
 
 
 ## Dependency Graph
 
-Start with D1 and D3. Their implementation can overlap. Accept their release behavior together through the
-candidate, intranet and publish commands. D2a can be developed independently of those changes. Run its
-first two release observations before beginning D2b. D5 can classify files
-immediately. Remove each gate, fixture or evidence source only with the cutover of its last caller.
+D1 and D3 overlap and are accepted together through the candidate, intranet and publish commands. D5
+removes each gate recipe or record only with the cutover of its last caller.
 
 
 ## Integration Points
 
 - **Installed identity belongs to D1.** The CLI and payload report the release version and revision.
   Compare the host by the desired host configuration and locked inputs, the cluster by deployed content
-  including image digests. Compare like components. When the source is admitted and the reviewed
-  comparison finds no platform work, finalization must be able to advance the context pin with zero
-  provider writes, including when there was no first mutating stage to open a transition marker. Preserve
-  the recoverable pin-last protocol. D3 consumes this comparison in rehearsal, intranet and publication.
-  Missing evidence still requires observation or the existing adoption path.
+  including image digests. When the source is admitted and the reviewed comparison finds no platform
+  work, finalization advances the context pin with zero provider writes. Preserve the recoverable
+  pin-last protocol. D3 consumes this comparison in rehearsal, intranet and publication.
   [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
 - **The run directory and its public record belong to D3.** The candidate writes its version, revision and
   previous version before a restartable step needs them. Each step reads that run and validates its
   prerequisite results for the same candidate. Publication requires passing landing, rehearsal and
-  intranet results. The candidate descriptor alone proves only identity. The tag publisher owns the
-  reduced public asset set. D5 removes obsolete gate calls after the candidate consumes the per-landing
-  result. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) and
+  intranet results. D5 removes obsolete gate calls after the candidate consumes the per-landing result.
+  [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) and
   [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)
-- **Recovery and scope convergence belong to D2.** D1 and D3 use the transition command's judgment. D2
-  owns any change to how the command reaches it. Strict or mixed reviews, older open transactions, data
-  fences and lifecycle facts still have consumers.
-  [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and
-  [ADR 39](../adr/0039-lifecycle-sources-are-committed-by-the-converged-release.md)
 
 
 ## Progress
 
-D1 is complete; D3 and D5 are in progress; D2 has not started; D4 is cancelled. Record the accepting commit and line deltas
-for each deliverable.
+D1 is complete; D3 and D5 are in progress. Record the accepting commit and line deltas for each
+deliverable.
 
 D1 so far: the host's reviewed identity ignores the release comments and payload store path
 (`f4cfb2c4`); a plan that moves no platform scope keeps the earlier release's cluster marker, and the
@@ -236,7 +179,7 @@ revision, completed transition, seeded row read-back and intranet outcome before
 immutable-tag and same-draft retry behavior. Drop the native output and clone-free assets, double
 assembly, Apple-container attachment step and attachment-only x86 work. Verify that the retained x86
 release-image build or cache substitution works from the second machine. Remove assembly, attachment
-checks, the evidence commit, `latest` and historical release-evidence files after their readers move.
+checks, the evidence commit and `latest` after their readers move.
 Target a net reduction of 1,200 script lines. Update the release skill and runbook with the actual entry
 points.
 
@@ -286,46 +229,19 @@ D5 cutover.
   with MinIO from the upstream downloads; its published record reads the seeded row back. The gate
   record was this machine's own; without one the candidate runs `just gate` itself.
 
-**D2. Stateless Kubernetes recovery.** EP-274 owns the milestones, including the slow-update regression.
-Its deletion estimates are 2,500 Haskell source lines and 6,000 test lines. Shared constructors and their
-tests can leave only after their strict and historical callers have gone.
+**D5. Retire superseded test tiers and plan files.** Delete the mutation sweep and deep-tier recipes,
+`Mutation.hs`, the mutation records and `gate-fast`'s mutation-records check, together with `just land`'s
+cutover so a clean checkout can establish that the candidate's landing check passed, by retrieving its
+result or running that same check locally. Delete markdown plan files already marked Complete or Cancelled
+after checking live registry links, ADR references and Mori handles; where a surviving document needs
+their history, use a commit-pinned link. Do not cancel, close or edit the status of an open or held plan;
+that is the operator's decision, plan by plan.
 
-- [ ] Two qualifying D2a releases and the ledger decision are recorded in the child. After D2b, two
-  engineers using separate clients demonstrate that an interrupted eligible apply leaves an unrelated
-  fresh review able to complete.
-
-**D4. Cancelled (operator, 2026-11-21).** This plan removes no Nagare feature. See the Decision Log.
-
-**D5. Retire gates and documentation.** D5 owns the per-commit and per-landing commands. D3 owns removing
-the release-time sweep, deep tier and candidate gate invocation. Cut them over together with `just land`,
-its hook and the release skill. A clean second checkout must be able to establish that the candidate's
-landing check passed, either by retrieving its result or running that same check locally. Remove the
-superseded recipes and records after that path works. Keep the GCP isolation and host mutation rules.
-Remove the plan-owner hook and its registration, held-plan rule, duplicated decision-basis text, per-fix
-mutation/trace/ledger ceremony, native-run prerequisite and checklist tick-with-evidence paragraph.
-
-Cancel MasterPlans 21 and 25 as decided. The 36 ExecPlans with open boxes at the planning commit
-`dfddb8f3` are 71, 96, 101, 116, 117, 122–127, 164–167, 183, 194, 201, 202, 204–206, 210, 211, 215, 216,
-219, 220, 223, 224, 230, 238, 239, 243, 244 and 268. Close each with its actual disposition and identify
-the owner of any surviving obligation. Preserve later independent work, including EP-271 through EP-274.
-Remove completed and cancelled plans after checking live registry links, ADR references and Mori handles.
-Where a surviving document needs historical evidence, use a commit-pinned local-repository history link.
-Move live audit fixtures, including generator inputs, with their consumers. Keep the MP-23 ledger
-accessible to D2b until its findings decision. Then remove retired files from `docs/audits/` and
-`docs/evidence/`.
-
-- [ ] The two retained gates accept a clean candidate. Surviving tests, fixture generators and documentation resolve their inputs after cleanup.
+- [ ] The two retained gates accept a clean candidate, and the surviving tests pass.
+- [ ] Completed and cancelled plan files are removed with no broken link.
 
 
 The isolated builder store corruption during v0.24.1 remains outside this initiative.
-
-
-## Surprises & Discoveries
-
-The findings ledger already records F73, a foreign write to a Knative Service that was wrongly treated as
-Nagare's landed update. The planner also represents a matching unready Deployment as `ObservedPresent`.
-Both affect what can count as a successful D2 apply. [Findings ledger](../audits/mp23-findings.md) and
-[Kubernetes adapter](../../cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs)
 
 
 ## Decision Log
@@ -384,6 +300,17 @@ Both affect what can count as a successful D2 apply. [Findings ledger](../audits
   Date: 2026-11-21
 
 
+- Decision (operator, 2026-11-21): The plan's scope is release engineering only: faster, more
+  reliable releases and better tests. It may delete tests and markdown plans that are already Complete
+  or Cancelled, and refactor code for faster builds and releases. D2 (EP-274, stateless recovery) leaves
+  the plan, since it changes Nagare's recovery behaviour; EP-274 is no longer a child and is not
+  scheduled. MasterPlans 21 and 25 are not cancelled and stay held; the 36 ExecPlans with open boxes are
+  not closed by this plan. `docs/audits/`, `docs/evidence/` and `docs/release-evidence/` stay.
+  Finish-line test 4 is withdrawn with D2. The file keeps its slug so existing links resolve.
+  Rationale: the first draft listed cancellations and removals the operator never chose, and their
+  agreement to its numbered decisions was read as approval of everything in it.
+  Date: 2026-11-21
+
 - Decision (D1, 2026-11-20): The host moves only when what it evaluates changes. Its reviewed
   configuration digest drops the generated release comments and replaces a payload store path in
   `inputs.nagare.url`; its lock digest compares the payload node by narHash. The transport still checks
@@ -427,8 +354,7 @@ Both affect what can count as a successful D2 apply. [Findings ledger](../audits
 - Decision (D3, 2026-11-21): The candidate's landing check is the landed commit's green full-gate
   record (`gate-verify`), or that full gate run by the candidate when the machine has no record. The
   publication intent's `payloadId` is `git:<commit>`, since no manifest is assembled. Historical
-  `docs/release-evidence/` records stay until D5 removes them with their remaining readers;
-  nothing writes there now.
+  `docs/release-evidence/` records stay; nothing writes there now.
   Date: 2026-11-21
 
 - Decision (operator, 2026-11-21): No separate second machine; the old workstation is retired and

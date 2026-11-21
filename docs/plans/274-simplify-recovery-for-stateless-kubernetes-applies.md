@@ -4,7 +4,6 @@ slug: simplify-recovery-for-stateless-kubernetes-applies
 title: "Simplify recovery for stateless Kubernetes applies"
 kind: exec-plan
 created_at: 2026-11-21T05:53:08Z
-master_plan: "docs/masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md"
 provenance:
   created_by:
     model: "gpt-6.2-astra"
@@ -25,6 +24,10 @@ provenance:
 ---
 
 # Simplify recovery for stateless Kubernetes applies
+
+**Status (operator, 2026-11-21): not scheduled.** This plan changes Nagare's recovery behaviour and left
+[MasterPlan 37](../masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md), whose
+scope is release engineering only. Nothing here is worked on unless the operator schedules it.
 
 ## Purpose / Big Picture
 
