@@ -42,7 +42,7 @@ files:
   runs. The images are not in the payload: both systems' payloads carry the digests in their copy
   of `release.json`, and each context publishes the images into its own registry when it upgrades.
   An image whose inputs did not change keeps its digest, so an upgrade leaves it alone; the admin
-  API links `nagarectl` and moves with almost every release.
+  API links `nagare-core`, not `nagarectl`, so a CLI-only change leaves it alone too.
 - `docs/releases/vX.Y.Z.md`: the notes, beginning `# Nagare X.Y.Z`, and the changelog entry
   (add its link to `CHANGELOG.md`). Validation is one sentence: the three proofs passed.
 
