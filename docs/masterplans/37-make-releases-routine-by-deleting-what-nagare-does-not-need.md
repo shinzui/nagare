@@ -104,7 +104,7 @@ on 2026-11-21.
 |---|---|---|---|
 | D1. CLI-only release | MasterPlan, release identity and packaging | None | Complete |
 | D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | In Progress |
-| D5. Landing check and plan files | MasterPlan, landing and plans | D3 switch | In Progress |
+| D5. Landing check and plan files | MasterPlan, landing and plans | D3 switch | Complete |
 
 
 ## Dependency Graph
@@ -131,7 +131,7 @@ removes each gate recipe or record only with the cutover of its last caller.
 
 ## Progress
 
-D1 is complete; D3 and D5 are in progress. Record the accepting commit and line deltas for each
+D1 and D5 are complete; D3 is in progress. Record the accepting commit and line deltas for each
 deliverable.
 
 D1 so far: the host's reviewed identity ignores the release comments and payload store path
@@ -234,8 +234,15 @@ after checking live registry links, ADR references and Mori handles; where a sur
 their history, use a commit-pinned link. Do not cancel, close or edit the status of an open or held plan;
 that is the operator's decision, plan by plan.
 
-- [ ] The two retained gates accept a clean candidate, and the surviving tests pass.
-- [ ] Completed and cancelled plan files are removed with no broken link.
+- [x] The two retained gates accept a clean candidate, and the surviving tests pass. Pass, 2026-11-21:
+  the candidate takes the landed commit's green full-gate record (`gate-verify`) or runs `just gate`
+  itself (`ReleaseCandidateSpec`); v0.25.2 took the record. `940c1481` passed `just gate-fast` and its
+  full gate in a clean gate worktree (green record, both systems).
+- [x] Completed and cancelled plan files not referenced from other repos, code or the payload are
+  removed with no broken link. Pass, 2026-11-21 (`46849c32`): 123 ExecPlans and MasterPlan 5 deleted;
+  inbound links in `docs/` pinned to `940c1481`; no relative link to a missing plan. Kept: every open,
+  held or unstated plan, EP-173 (held M3–M4), and finished plans that other repos, code, `cluster/` or
+  `docs/audits/` reference.
 
 
 The isolated builder store corruption during v0.24.1 remains outside this initiative.
