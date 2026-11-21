@@ -248,5 +248,4 @@ from stores created by the previous supported release before removing a decoder 
 D2a has no implementation dependency on D1 or D3. Its release observations may use the existing pipeline
 or the revised one. D2b starts only after both D2a releases and the ledger decision. D1 owns
 installed-content identity, D3 owns the rehearsal and public release record, and this plan owns the
-convergence result they consume. D4 must check shared recovery callers with this plan before deleting
-their adapters. D5 may archive the findings ledger after this plan records its decision.
+convergence result they consume. D5 may archive the findings ledger after this plan records its decision.

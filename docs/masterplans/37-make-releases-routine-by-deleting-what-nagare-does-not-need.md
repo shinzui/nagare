@@ -139,7 +139,7 @@ operations and legacy recovery keep the evidence their callers require.
 
 D1 changes how a release proves what is installed. D3 changes how it is rehearsed and published. Deliver
 them through the existing release commands. D2 is the only child ExecPlan because a mistake at its
-boundary can affect data recovery. D4 removes unused features individually. D5 removes obsolete gates,
+boundary can affect data recovery. D5 removes obsolete gates,
 evidence and documents after their consumers have moved.
 
 
@@ -150,7 +150,7 @@ evidence and documents after their consumers have moved.
 | D1. CLI-only release | MasterPlan, release identity and packaging | None | Complete |
 | D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | In Progress |
 | D2. Stateless Kubernetes recovery | [EP-274](../plans/274-simplify-recovery-for-stateless-kubernetes-applies.md) | D2b requires two releases on D2a and the findings decision | Not Started |
-| D4. Unused features | MasterPlan, per-feature removal | Usage and recovery check below | Not Started |
+| D4. Unused features | None | None | Cancelled (operator, 2026-11-21) |
 | D5. Gates and documents | MasterPlan, landing and documentation | D3 switch for gate removal, D2 findings review for ledger removal | In Progress |
 
 
@@ -158,8 +158,7 @@ evidence and documents after their consumers have moved.
 
 Start with D1 and D3. Their implementation can overlap. Accept their release behavior together through the
 candidate, intranet and publish commands. D2a can be developed independently of those changes. Run its
-first two release observations before beginning D2b. D4 can inventory features immediately. Defer deletion
-of a shared adapter until D2 has shown which strict or legacy callers still use it. D5 can classify files
+first two release observations before beginning D2b. D5 can classify files
 immediately. Remove each gate, fixture or evidence source only with the cutover of its last caller.
 
 
@@ -182,14 +181,14 @@ immediately. Remove each gate, fixture or evidence source only with the cutover 
   [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)
 - **Recovery and scope convergence belong to D2.** D1 and D3 use the transition command's judgment. D2
   owns any change to how the command reaches it. Strict or mixed reviews, older open transactions, data
-  fences and lifecycle facts still have consumers. D4 inventories these before removing an adapter.
+  fences and lifecycle facts still have consumers.
   [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and
   [ADR 39](../adr/0039-lifecycle-sources-are-committed-by-the-converged-release.md)
 
 
 ## Progress
 
-D1 is complete; D3 and D5 are in progress; D2 and D4 have not started. Record the accepting commit and line deltas
+D1 is complete; D3 and D5 are in progress; D2 has not started; D4 is cancelled. Record the accepting commit and line deltas
 for each deliverable.
 
 D1 so far: the host's reviewed identity ignores the release comments and payload store path
@@ -264,7 +263,8 @@ review before the push, two assets. The pin ledger (`intranet/pins.json`) refuse
 diffs. Deleted: assembly, native and clone-free attachments, the x86 container step, SHA256SUMS,
 the evidence commit, `latest`, and their tests and checks. Scripts −1,381 net (target 1,200);
 Haskell +226 source and +289 test lines, from publication moving out of shell. Native: the
-harness tests cover the fake-transport cases; the disposable-profile rehearsal is being confirmed.
+harness tests cover the fake-transport cases; the disposable-profile rehearsal ran green and v0.25.2
+published its record.
 The mutation sweep and deep-tier recipes, Mutation.hs and the mutation records remain for the
 D5 cutover.
 
@@ -294,18 +294,7 @@ tests can leave only after their strict and historical callers have gone.
   engineers using separate clients demonstrate that an interrupted eligible apply leaves an unrelated
   fresh review able to complete.
 
-**D4. Remove unused features.** Check the declared intranet configuration in `mori://tan/tan-ng-labs`,
-generated platform scopes and runtime/operator entry points. Maintenance sessions, live restore, domain
-moves, stuck-pod recovery, VM power, CDN and purge, the broker, ClickHouse, previews and image prune each
-need an individual disposition. A recovery command may be needed only during an incident. Admission
-already refuses new live restores and maintenance sessions while directing old transactions to recover by
-ID. Prove that retained records and currently supported upgrades have an exit before removing their
-readers or adapters. Keep delegated deployers, actor recording and the data-recovery and rebuild
-commitments. Remove the unused `registerKubernetesDataFence` registration helper after confirming the
-production fence path and its tests.
-
-- [ ] Each deleted feature has a recorded usage finding, a decision on its recovery obligations and a
-  passing test of the surviving caller or supported upgrade.
+**D4. Cancelled (operator, 2026-11-21).** This plan removes no Nagare feature. See the Decision Log.
 
 **D5. Retire gates and documentation.** D5 owns the per-commit and per-landing commands. D3 owns removing
 the release-time sweep, deep tier and candidate gate invocation. Cut them over together with `just land`,
@@ -382,9 +371,17 @@ Both affect what can count as a successful D2 apply. [Findings ledger](../audits
   transaction is addressed by EP-274's two-client experiment before the new path can ship.
   Date: 2026-11-20
 
-- Decision (operator, 2026-11-20): The delegated deployer and actor recording are not deletion
-  candidates. The other candidates leave after the D4 usage check. The review below clarifies how to check recovery-only uses.
+- Decision (planning session, 2026-11-20; corrected 2026-11-21): The delegated deployer and actor
+  recording are not deletion candidates. This entry also said the other feature candidates leave after
+  a usage check and credited that to the operator. The operator never chose features to remove; their
+  agreement covered the plan's other decisions. Superseded by the 2026-11-21 cancellation of D4.
   Date: 2026-11-20
+
+- Decision (operator, 2026-11-21): Cancel D4. No Nagare feature is removed by this plan. Every
+  feature was built for a goal, and Nagare runs more installations than `mori://tan/tan-ng-labs`:
+  `mori://shinzui/kikan` depends on Redis, Kafka and almost every feature. Absence from one
+  installation's configuration is not evidence that a feature is unneeded.
+  Date: 2026-11-21
 
 
 - Decision (D1, 2026-11-20): The host moves only when what it evaluates changes. Its reviewed
