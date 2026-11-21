@@ -482,7 +482,10 @@ seedOnce drill = do
 -- | Step 3: the local object store's images, from the candidate's
 -- digest-checked upstream binaries, pushed through the daemon's own loopback
 -- (port 5000 on a Mac belongs to AirPlay), then a loopback forward to the
--- registry on a port Docker picks, which the artifact transport honours.
+-- registry, which the artifact transport honours, on the first port from
+-- 15213 that refuses connections on the host. Docker cannot pick it: each VM
+-- allocates its own ephemeral ports, and another VM's forwarder may already
+-- hold the one it picks on the host.
 seedImages :: Drill -> IO ()
 seedImages drill = do
   printed <- text drill "scripts/publish-local-minio-images.sh failed" . withVariable "NAGARE_LOCAL_REGISTRY_PUSH_HOST" "localhost:5000" =<< command drill "bash" [drill ^. #images]
@@ -490,9 +493,19 @@ seedImages drill = do
   unless (length pins == 2) (refuse "scripts/publish-local-minio-images.sh printed no NAGARE_LOCAL_MINIO_IMAGE and NAGARE_LOCAL_MC_IMAGE")
   forM_ pins (uncurry (setVariable drill))
   BS.writeFile (drill ^. #root </> "images.env") (TE.encodeUtf8 (T.pack (unlines [name <> "=" <> value | (name, value) <- pins])))
+  port <- freePort drill 15213
   ok drill "the registry forward did not start" . (\i -> i & #stdoutTo .~ Discard)
-    =<< command drill "docker" ["run", "-d", "--name", "registry-forward", "--network", "k3d-nagare-local", "-p", "127.0.0.1::5000", "alpine/socat", "TCP-LISTEN:5000,fork,reuseaddr", "TCP:k3d-registry.localhost:5000"]
+    =<< command drill "docker" ["run", "-d", "--name", "registry-forward", "--network", "k3d-nagare-local", "-p", "127.0.0.1:" <> show port <> ":5000", "alpine/socat", "TCP-LISTEN:5000,fork,reuseaddr", "TCP:k3d-registry.localhost:5000"]
   forward drill
+
+-- | The first loopback port from @n@ on which a connection is refused.
+freePort :: Drill -> Int -> IO Int
+freePort drill n
+  | n > 15299 = refuse "no loopback port from 15213 to 15299 is free for the registry forward"
+  | otherwise = do
+      probe <- run' drill . (\i -> i & #stdoutTo .~ Discard & #stderrTo .~ Discard) =<< command drill "curl" ["-s", "-o", "/dev/null", "-m", "2", "http://127.0.0.1:" <> show n <> "/"]
+      -- curl's exit 7: the connection was refused
+      if probe ^. #exit == 7 then pure n else freePort drill (n + 1)
 
 -- | Point the artifact transport at the registry forward's host port, once it
 -- answers with this daemon's registry.

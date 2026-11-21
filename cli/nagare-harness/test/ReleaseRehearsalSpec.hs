@@ -142,7 +142,8 @@ drillWorld = do
     ("docker", ["ps", "--format", _]) -> ok "k3d-registry.localhost\nk3d-nagare-local-server-0\n"
     ("docker", ["info", "--format", _]) -> ok "aarch64\n"
     ("bash", ["/candidate/scripts/publish-local-minio-images.sh"]) -> ok localPins
-    ("docker", ["port", "registry-forward", "5000/tcp"]) -> ok "127.0.0.1:49153\n"
+    ("docker", ["port", "registry-forward", "5000/tcp"]) -> ok "127.0.0.1:15214\n"
+    ("curl", ["-s", "-o", "/dev/null", "-m", "2", url]) -> pure (if url == "http://127.0.0.1:15213/" then 0 else 7, "")
     ("docker", ["exec", _, "wget", _, _, _, _]) -> ok "{\"repositories\":[]}\n"
     ("curl", ["-s", "-m", "3", _]) -> ok "{\"repositories\":[]}"
     ("age-keygen", ["-y", _]) -> ok "age1recipient\n"
@@ -204,10 +205,12 @@ drillOrder =
   , "docker ps --format {{.Names}}"
   ]
     <> [ "bash /candidate/scripts/publish-local-minio-images.sh"
-       , "docker run -d --name registry-forward --network k3d-nagare-local -p 127.0.0.1::5000 alpine/socat TCP-LISTEN:5000,fork,reuseaddr TCP:k3d-registry.localhost:5000"
+       , "curl -s -o /dev/null -m 2 http://127.0.0.1:15213/"
+       , "curl -s -o /dev/null -m 2 http://127.0.0.1:15214/"
+       , "docker run -d --name registry-forward --network k3d-nagare-local -p 127.0.0.1:15214:5000 alpine/socat TCP-LISTEN:5000,fork,reuseaddr TCP:k3d-registry.localhost:5000"
        , "docker port registry-forward 5000/tcp"
-       , "curl -s -m 2 -o /dev/null http://127.0.0.1:49153/v2/"
-       , "curl -s -m 3 http://127.0.0.1:49153/v2/_catalog"
+       , "curl -s -m 2 -o /dev/null http://127.0.0.1:15214/v2/"
+       , "curl -s -m 3 http://127.0.0.1:15214/v2/_catalog"
        , "docker exec k3d-registry.localhost wget -q -O - http://localhost:5000/v2/_catalog"
        , source "--context transition platform bootstrap plan --out $T/root/reviews/bootstrap-2"
        , source "--context transition inventory status --json"
