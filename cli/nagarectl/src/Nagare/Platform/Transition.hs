@@ -12,6 +12,7 @@ module Nagare.Platform.Transition
   , transitionCloseRefusal
   , transitionContinueRefusal
   , transitionCommitRefusal
+  , transitionOpenRefusal
   , TransitionState (..)
   , TransitionDelta (..)
   , TransitionRow (..)
@@ -119,6 +120,27 @@ transitionCommitRefusal payload moved headValue = case headTransition headValue 
     | scope : _ <- unconverged ->
         Just ("scope " <> scopeIdText scope <> " is accepted at a revision that has not converged; review the transition's next stage before committing")
     | otherwise -> Nothing
+  where
+    unconverged =
+      [ scope
+      | (scope, revision) <- Map.toList (headAccepted headValue)
+      , moved scope
+      , Map.lookup scope (headConverged headValue) /= Just revision
+      ]
+
+-- | MasterPlan 37 D1: a release whose plan found no platform work admits no
+-- stage, so no stage opened a marker; the commit opens one already finalizing.
+-- That needs an idle head with no open transition or move and every moved scope
+-- converged at its accepted revision.
+transitionOpenRefusal :: (ScopeId -> Bool) -> HeadManifest -> Maybe Text
+transitionOpenRefusal moved headValue
+  | isJust (headTransition headValue) = Just "a release transition is already open"
+  | isJust (headMove headValue) = Just "a context move is open; finish it before committing a release"
+  | isJust (headActiveTransaction headValue) || isJust (headExecutorClaim headValue) =
+      Just "the store has an unresolved transaction; resume or close it before committing"
+  | scope : _ <- unconverged =
+      Just ("scope " <> scopeIdText scope <> " is accepted at a revision that has not converged; review the transition's next stage before committing")
+  | otherwise = Nothing
   where
     unconverged =
       [ scope

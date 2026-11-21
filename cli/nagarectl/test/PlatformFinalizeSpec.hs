@@ -69,6 +69,30 @@ platformFinalizeTests =
         atomicModifyIORef' pin (const (Just "0.4.0", ()))
         finalize (store, pin, writes) (const (pure ())) >>= either (assertFailure . T.unpack) (const (pure ()))
         readIORef pin >>= (@?= Just "0.5.0")
+    , testCase "a release with no stage opens its marker finalizing, then moves the pin and closes it (MasterPlan 37 D1)" $ do
+        (store, pin, writes) <- opened (\headValue -> headValue {headTransition = Nothing})
+        stopped <- try @ErrorCall (finalizeOpening (store, pin, writes) (crashAt AfterIntent))
+        assertBool "the commit did not stop" (either (const True) (const False) stopped)
+        fmap (fmap (\marker -> (transitionSource marker, transitionTarget marker, transitionFinalizing marker))) (markerOf store)
+          >>= (@?= Just ("0.4.0", "payload-t", Just "0.5.0"))
+        readIORef pin >>= (@?= Just "0.4.0")
+        finalizeOpening (store, pin, writes) (const (pure ())) >>= either (assertFailure . T.unpack) (const (pure ()))
+        (,) <$> readIORef pin <*> readIORef writes >>= (@?= (Just "0.5.0", 1))
+        markerOf store >>= (@?= Nothing)
+    , testCase "opening a marker refuses an unresolved transaction and leaves the pin" $ do
+        (store, pin, writes) <- opened (\headValue -> headValue {headTransition = Nothing})
+        observed <- observeHead store >>= either (fail . show) pure
+        current <- maybe (fail "no head") pure (observedHeadManifest observed)
+        replaceObservedHead observed current {headGeneration = headGeneration current + 1, headActiveTransaction = Just "tx-open"} >>= either (fail . show) pure
+        refused <- finalizeOpening (store, pin, writes) (const (pure ()))
+        assertBool "opened over an unresolved transaction" (either ("unresolved transaction" `T.isInfixOf`) (const False) refused)
+        (,) <$> readIORef pin <*> readIORef writes >>= (@?= (Just "0.4.0", 0))
+        markerOf store >>= (@?= Nothing)
+    , testCase "without an opening a commit with no marker still refuses" $ do
+        (store, pin, writes) <- opened (\headValue -> headValue {headTransition = Nothing})
+        refused <- finalize (store, pin, writes) (const (pure ()))
+        assertBool "a commit with no transition moved the pin" (either ("no release transition is open" `T.isInfixOf`) (const False) refused)
+        readIORef writes >>= (@?= 0)
     , testCase "a marker without the intent encodes as before; with it, an older decoder would refuse" $ do
         let plain = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z" Nothing
             finalizing = plain {transitionFinalizing = Just "0.5.0"}
@@ -78,7 +102,8 @@ platformFinalizeTests =
         eitherDecode (encode finalizing) @?= Right finalizing
     ]
   where
-    finalize (store, pin, writes) pause = finalizeTransition store (pinOps pin writes) pause "payload-t" (const False) "0.5.0"
+    finalize (store, pin, writes) pause = finalizeTransition store (pinOps pin writes) pause "payload-t" (const False) "0.5.0" Nothing
+    finalizeOpening (store, pin, writes) pause = finalizeTransition store (pinOps pin writes) pause "payload-t" (const False) "0.5.0" (Just ("0.4.0", "2026-11-20T00:00:00Z"))
     crashAt step reached = when (reached == step) (throwIO (ErrorCall "stopped"))
     markerOf store = headTransition <$> currentHead store
     currentHead store = readHead store >>= either (fail . show) pure >>= maybe (fail "no head") pure

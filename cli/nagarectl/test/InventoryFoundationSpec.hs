@@ -12,7 +12,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..), PreparedNative (..), RecoveryDecision (RecoveryProvedComplete))
 import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), FoundationNativePlan (..), FoundationObservation (..), FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
 import Nagare.Inventory.Adapters.FoundationRuntime (GcloudRunner (..), mkFoundationRuntimeOps)
-import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapPreservedScopeVectorDigest, bootstrapScopeVectorDigest, compileBootstrapStamp, verifyBootstrapStampPayload)
+import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstrapMarkerFor, bootstrapMarkerValue, bootstrapPreservedScopeVectorDigest, bootstrapScopeVectorDigest, compileBootstrapStamp, markerScopeVectorDigest, verifyBootstrapStampPayload)
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Foundation (FoundationDeclarationBundle (..), FoundationResource (..), FoundationTargetUse (..), compileFoundationScope, foundationTargetsFromDeclarations, validateFoundationMember)
@@ -592,6 +592,24 @@ inventoryFoundationTests =
         bootstrapPreservedScopeVectorDigest accepted rerun @?= Right vectorDigest
         (nextStamp, _) <- expectRight (compileBootstrapStamp fixtureCluster marker rerun)
         _ <- expectRight (composeInventory accepted (candidateChanges rerun <> (ReplaceScope nextStamp :| [])))
+        -- MasterPlan 37 D1: a later release whose plan moves no platform scope
+        -- keeps the earlier release's live marker, so it writes nothing.
+        let earlier = ReleaseIdentity (Just "0.24.5") (Just "source-a") (Just 2)
+            later = ReleaseIdentity (Just "0.24.6") (Just "source-b") (Just 2)
+            earlierMarker = bootstrapMarkerValue "payload-a" vectorDigest earlier "2026-11-19T00:00:00Z"
+            laterMarker = bootstrapMarkerValue "payload-b" vectorDigest later "2026-11-20T00:00:00Z"
+            liveBytes = ok (canonicalValue earlierMarker)
+        (earlierStamp, _) <- expectRight (compileBootstrapStamp fixtureCluster earlierMarker base)
+        let choose live vector = bootstrapMarkerFor fixtureCluster base (Just earlierStamp) live "payload-b" vector later "2026-11-20T00:00:00Z"
+        choose (Just liveBytes) vectorDigest @?= earlierMarker
+        markerScopeVectorDigest liveBytes @?= Just (digestText vectorDigest)
+        let moved = contentDigest "moved-scope-vector"
+        choose (Just liveBytes) moved @?= bootstrapMarkerValue "payload-b" moved later "2026-11-20T00:00:00Z"
+        choose Nothing vectorDigest @?= laterMarker
+        let edited = ok (canonicalValue (bootstrapMarkerValue "payload-a" vectorDigest (earlier {revision = Just "source-x"}) "2026-11-19T00:00:00Z"))
+        choose (Just edited) vectorDigest @?= laterMarker
+        bootstrapMarkerFor fixtureCluster base (Just earlierStamp) (Just liveBytes) "payload-a" vectorDigest earlier "2026-11-20T00:00:00Z"
+          @?= earlierMarker
         pure ()
     , testCase "granted namespace contributions materialize once for shared callers" $ do
         let appA = ok (mkScopeId Application "a")

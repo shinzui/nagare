@@ -27,7 +27,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.BackendMap (issuerPortalRefusal)
 import Nagare.Inventory.Bootstrap
   ( BootstrapInput (BootstrapInput)
-  , bootstrapMarkerValue
+  , bootstrapMarkerFor
   , bootstrapPreservedScopeVectorDigest
   , changedPlatformScopes
   , compileBootstrapStamp
@@ -497,8 +497,8 @@ buildPlatformCandidate current active paths workspace snapshot = do
       pure
       (ResourceInventory.composeInventory unstampedSnapshot linkedChanges)
   vectorDigest <- either dieT pure (bootstrapPreservedScopeVectorDigest snapshot candidate)
-  installedAt <-
-    acceptedBootstrapInstalledAt
+  marker <-
+    acceptedBootstrapMarker
       active
       snapshot
       cluster
@@ -510,7 +510,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
     either
       (dieT . T.pack . show)
       pure
-      (compileBootstrapStamp cluster (bootstrapMarkerValue (manifest ^. #payloadId) vectorDigest (identityFromPayload manifest) installedAt) candidate)
+      (compileBootstrapStamp cluster marker candidate)
   -- EP-225: a scope whose deployment meaning is accepted stays accepted, its
   -- revision and bytes unchanged, whatever workspace this release compiled from.
   let changedScopes = changedPlatformScopes snapshot (NE.toList (ResourceInventory.candidateChanges candidate))
@@ -541,10 +541,11 @@ buildPlatformCandidate current active paths workspace snapshot = do
     (dieT "bootstrap completion marker shares a native identity")
   pure (stamped, completeNative)
 
--- Reuse the recorded install time only when it reconstructs the accepted
--- marker's exact desired specification. A changed payload gets a new time;
--- a changed live marker remains visible as drift to the inventory planner.
-acceptedBootstrapInstalledAt ::
+-- The marker this plan declares ('bootstrapMarkerFor'): the live one, kept
+-- when no platform scope moved (MasterPlan 37 D1), or this payload's. A
+-- changed live marker that reconstructs nothing remains visible as drift to
+-- the inventory planner.
+acceptedBootstrapMarker ::
   ActiveTarget ->
   ResourceInventory.ScopeSnapshot ->
   Resource.ResourceId ->
@@ -552,22 +553,18 @@ acceptedBootstrapInstalledAt ::
   Resource.ContentDigest ->
   ReleaseIdentity ->
   ResourceInventory.CompositionCandidate ->
-  IO Text
-acceptedBootstrapInstalledAt active snapshot cluster payloadId vectorDigest identity candidate = do
+  IO Aeson.Value
+acceptedBootstrapMarker active snapshot cluster payloadId vectorDigest identity candidate = do
   now <- currentTimestamp
   let owner =
         either
           (error . T.unpack)
           (\scope -> scope)
           (Resource.mkScopeId Resource.Platform "bootstrap-stamp")
-      acceptedSpecs =
-        [ resource ^. #spec
-        | Just (_, scope) <- [Map.lookup owner (ResourceInventory.snapshotScopes snapshot)]
-        , bundle <- ResourceInventory.scopeBundles scope
-        , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
-        ]
-  case acceptedSpecs of
-    [acceptedSpec] -> do
+      acceptedStamp = snd <$> Map.lookup owner (ResourceInventory.snapshotScopes snapshot)
+  live <- case acceptedStamp of
+    Nothing -> pure Nothing
+    Just _ -> do
       (code, output, err) <-
         readProcessWithExitCode
           "kubectl"
@@ -586,22 +583,8 @@ acceptedBootstrapInstalledAt active snapshot cluster payloadId vectorDigest iden
       unless
         (code == ExitSuccess)
         (dieT ("could not inspect accepted bootstrap marker: " <> T.pack err))
-      case Aeson.eitherDecodeStrict' (BC.pack output) :: Either String Aeson.Value of
-        Right (Aeson.Object live) -> case AesonMap.lookup "data" live of
-          Just (Aeson.Object fields) -> case AesonMap.lookup "installedAt" fields of
-            Just (Aeson.String installedAt) | not (T.null installedAt) -> do
-              let expected =
-                    compileBootstrapStamp
-                      cluster
-                      (bootstrapMarkerValue payloadId vectorDigest identity installedAt)
-                      candidate
-              pure $ case expected of
-                Right (_, native) | any ((== acceptedSpec) . (^. #spec) . fst) (Map.elems native) -> installedAt
-                _ -> now
-            _ -> pure now
-          _ -> pure now
-        _ -> pure now
-    _ -> pure now
+      pure (Just (BC.pack output))
+  pure (bootstrapMarkerFor cluster candidate acceptedStamp live payloadId vectorDigest identity now)
 
 readBootstrapKubeVersion :: ActiveTarget -> IO Text
 readBootstrapKubeVersion active = do

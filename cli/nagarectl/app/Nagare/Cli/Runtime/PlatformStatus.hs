@@ -23,7 +23,10 @@ import Nagare.Cli.Runtime.Target
 import Nagare.Contract.ReleaseImages (ReleaseImageKey (..))
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir)
+import Nagare.Inventory.Bootstrap (clusterContentCurrent, markerScopeVectorDigest)
+import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Components.CloudflareZone (cloudflareTunnelName)
+import Nagare.Inventory.Store (readHead)
 import Nagare.Ops.CloudflareTunnel (expectedConnectors, gradeTunnelConnectors, gradeTunnelRules, parseConnectors, parseTunnelId, parseTunnelRules)
 import Nagare.Ops.Probe (Probe, captureTool)
 import Nagare.Ops.Pulumi (stackOutput)
@@ -42,6 +45,7 @@ import Nagare.Platform.Status
   , identityFromPayload
   , parseClusterIdentity
   , parseHostIdentity
+  , withClusterContent
   , withImageAssessment
   )
 import Nagare.Platform.Workspace
@@ -67,22 +71,37 @@ gatherPlatformStatus mctx = do
   hostDeployment <- case active ^. #profile . #mode of
     Cloud -> observeHostDeployment defaultDeploymentOps (active ^. #profile)
     Local -> pure (DeploymentUnknown "local contexts do not have a GCE deployment")
-  (clusterIdentity, clusterDeployment) <- case hostDeployment of
-    NotDeployed -> pure (unknownIdentity, NotDeployed)
+  (clusterIdentity, clusterDeployment, clusterMarker) <- case hostDeployment of
+    NotDeployed -> pure (unknownIdentity, NotDeployed, Nothing)
     _ -> do
       clusterBytes <- captureTool "kubectl" ["get", "configmap", "nagare-platform-version", "-n", "nagare-system", "-o", "json", "--request-timeout=5s"]
       pure $ case clusterBytes >>= parseClusterIdentity of
-        Just identity -> (identity, Deployed)
-        Nothing -> (unknownIdentity, DeploymentUnknown "cluster release identity is unreachable or absent")
+        Just identity -> (identity, Deployed, clusterBytes)
+        Nothing -> (unknownIdentity, DeploymentUnknown "cluster release identity is unreachable or absent", Nothing)
+  -- MasterPlan 37 D1: a marker an earlier release wrote, when no platform
+  -- scope moved since; the store's head decides, and only then is it read.
+  let payloadVersion = manifest ^. #platformVersion
+      pin = active ^. #profile . #platformVersion
+  current <- case clusterMarker of
+    Just bytes
+      | clusterIdentity /= identityFromPayload manifest
+      , pin == Just payloadVersion -> do
+          opened <- Inventory.openTargetStoreReadOnly active
+          observed <- either (pure . Left) readHead opened
+          pure $ case observed of
+            Right (Just headValue) -> clusterContentCurrent payloadVersion pin (markerScopeVectorDigest bytes) headValue
+            _ -> False
+    _ -> pure False
   let status =
-        assessPlatformStatus
-          (identityFromBuild currentBuildVersion)
-          (identityFromPayload manifest)
-          (identityFromContext (active ^. #profile))
-          hostIdentity
-          hostDeployment
-          clusterIdentity
-          clusterDeployment
+        withClusterContent current $
+          assessPlatformStatus
+            (identityFromBuild currentBuildVersion)
+            (identityFromPayload manifest)
+            (identityFromContext (active ^. #profile))
+            hostIdentity
+            hostDeployment
+            clusterIdentity
+            clusterDeployment
   pure (active, status)
   where
     unknownIdentity = ReleaseIdentity Nothing Nothing Nothing

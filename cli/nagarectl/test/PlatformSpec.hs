@@ -19,6 +19,9 @@ import ImageStatusSpec (imageStatusTests)
 import Nagare.Dsl.Prelude
 import Nagare.Infra.Plan (SavedPlanMetadata (..))
 import Nagare.Init (resolveInitBase)
+import Nagare.Inventory.Bootstrap (bootstrapScopeVectorDigest, clusterContentCurrent)
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..), TransitionMarker (..))
 import Nagare.Platform.Deployment
 import Nagare.Platform.Paths
 import Nagare.Platform.PulumiReceipt
@@ -26,6 +29,7 @@ import Nagare.Platform.StackConfig
 import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
+import Nagare.Resource.Types (ContextBinding (..), ScopeKind (Platform), digestText, mkContextId, mkName, mkScopeGeneration, mkScopeId)
 import Nagare.Target (contextFilePath, mergeContextOverrides, mkContextName, profileFromContextMap, readContextProfile, resolveActiveTarget, setCurrentContext, writeContextPlatformVersion)
 import Nagare.Version (BuildVersion (..), Compatibility (..), currentBuildVersion)
 import System.Directory
@@ -196,6 +200,31 @@ platformTests =
         guardTransitionMutation midTransition @?= Right ()
         major ^. #compatibility @?= MajorIncompatible
         assertBool "a transition refuses a major mismatch" (either (const True) (const False) (guardTransitionMutation major))
+    , testCase "a cluster marker an earlier release wrote reports this payload only when its content is current (MasterPlan 37 D1)" $ do
+        let release version revision = ReleaseIdentity (Just version) (Just revision) (Just 1)
+            payload = release "0.25.1" "candidate"
+            stamp = release "0.25.0" "earlier"
+            behind = assessPlatformStatus payload payload (ReleaseIdentity (Just "0.25.1") Nothing Nothing) payload Deployed stamp Deployed
+            current = withClusterContent True behind
+        behind ^. #compatibility @?= PatchSkew
+        current ^. #compatibility @?= Exact
+        current ^. #cluster @?= payload
+        current ^. #clusterStamp @?= Just stamp
+        withClusterContent False behind @?= behind
+        assertBool "the marker's identity is reported" (KeyMap.member "clusterStamp" (objectOf (platformStatusValue current)))
+        let owner = either (error . show) (\value -> value) (mkScopeId Platform "host")
+            stampOwner = either (error . show) (\value -> value) (mkScopeId Platform "bootstrap-stamp")
+            revision n = ScopeRevision (either (error . show) (\value -> value) (mkScopeGeneration n)) (contentDigest (BS.pack [fromIntegral n]))
+            accepted = Map.fromList [(owner, revision 2), (stampOwner, revision 1)]
+            converged = idleHead {headAccepted = accepted, headConverged = accepted}
+            vector = Just (digestText (bootstrapScopeVectorDigest accepted))
+        clusterContentCurrent "0.25.1" (Just "0.25.1") vector converged @?= True
+        clusterContentCurrent "0.25.1" (Just "0.25.0") vector converged @?= False
+        clusterContentCurrent "0.25.1" (Just "0.25.1") (Just "other-vector") converged @?= False
+        clusterContentCurrent "0.25.1" (Just "0.25.1") Nothing converged @?= False
+        clusterContentCurrent "0.25.1" (Just "0.25.1") vector converged {headConverged = Map.insert owner (revision 1) accepted} @?= False
+        clusterContentCurrent "0.25.1" (Just "0.25.1") vector converged {headActiveTransaction = Just "tx"} @?= False
+        clusterContentCurrent "0.25.1" (Just "0.25.1") vector converged {headTransition = Just (TransitionMarker "0.25.0" "payload" "2026-11-20T00:00:00Z" Nothing)} @?= False
     , testCase "missing host and cluster identities remain a non-blocking legacy warning" $ do
         let release = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
             unknown = ReleaseIdentity Nothing Nothing Nothing
@@ -543,3 +572,28 @@ stackConfigTests =
     plan = planStackLink canonical entry
     isRefusal (RefuseStackLink _) = True
     isRefusal _ = False
+
+objectOf :: Aeson.Value -> Aeson.Object
+objectOf = \case
+  Aeson.Object fields -> fields
+  _ -> error "not an object"
+
+idleHead :: HeadManifest
+idleHead =
+  HeadManifest
+    2
+    1
+    0
+    (ContextBinding (either (error . show) (\value -> value) (mkContextId "fixture")) (either (error . show) (\value -> value) (mkName "project")))
+    "fixture"
+    Map.empty
+    Map.empty
+    Map.empty
+    Map.empty
+    Nothing
+    Nothing
+    Nothing
+    Nothing
+    Map.empty
+    Nothing
+    Nothing

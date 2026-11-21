@@ -137,11 +137,11 @@ evidence and documents after their consumers have moved.
 
 | Deliverable | Plan or owner | Hard prerequisite | Status |
 |---|---|---|---|
-| D1. CLI-only release | MasterPlan, release identity and packaging | None | Not Started |
+| D1. CLI-only release | MasterPlan, release identity and packaging | None | In Progress |
 | D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | Not Started |
 | D2. Stateless Kubernetes recovery | [EP-274](../plans/274-simplify-recovery-for-stateless-kubernetes-applies.md) | D2b requires two releases on D2a and the findings decision | Not Started |
 | D4. Unused features | MasterPlan, per-feature removal | Usage and recovery check below | Not Started |
-| D5. Gates and documents | MasterPlan, landing and documentation | D3 switch for gate removal, D2 findings review for ledger removal | Not Started |
+| D5. Gates and documents | MasterPlan, landing and documentation | D3 switch for gate removal, D2 findings review for ledger removal | In Progress |
 
 
 ## Dependency Graph
@@ -179,8 +179,14 @@ immediately. Remove each gate, fixture or evidence source only with the cutover 
 
 ## Progress
 
-Planning stage. D1 and D3 are ready to start. All implementation and release evidence is outstanding.
-Record the accepting commit and line deltas for each deliverable.
+D1 and D5 are in progress; D3, D2 and D4 have not started. Record the accepting commit and line deltas
+for each deliverable.
+
+D1 so far: the host's reviewed identity ignores the release comments and payload store path
+(`f4cfb2c4`); a plan that moves no platform scope keeps the earlier release's cluster marker, and the
+transition commit pins such a release after its own plan finds no work. Outstanding: the admin image
+split, which waits on how an unchanged admin API reports its version, and the real CLI-only release. D5 so far: the
+`CLAUDE.md` rules and the plan-owner hook are removed (`0f5ae649`).
 
 **D1. A CLI-only release has nothing to apply.** In `cli/nagarectl/src/Nagare/Host/Config.hs` and the
 bootstrap host stage, account for the generated version comments, the release-dependent input path and the
@@ -334,6 +340,24 @@ Both affect what can count as a successful D2 apply. [Findings ledger](../audits
   candidates. The other candidates leave after the D4 usage check. The review below clarifies how to check recovery-only uses.
   Date: 2026-11-20
 
+
+- Decision (D1, 2026-11-20): The host moves only when what it evaluates changes. Its reviewed
+  configuration digest drops the generated release comments and replaces a payload store path in
+  `inputs.nagare.url`; its lock digest compares the payload node by narHash. The transport still checks
+  raw file digests. The first release on this formula activates the unchanged closure once.
+  Rationale: the evaluated system depends on the payload input only through its narHash.
+  Date: 2026-11-20
+
+- Decision (D1, 2026-11-20): A plan whose platform scope vector equals the live cluster marker's keeps
+  that marker, so the cluster records the release that last changed it. `platform transition commit`
+  pins such a release only after planning it again finds zero operations and no re-accepted scope, and
+  when no stage was admitted it opens the marker already finalizing, keeping the pin-last protocol.
+  `platform status` reports the payload's identity for the cluster, and the marker's as `clusterStamp`,
+  only when the pin names this release, the marker's vector equals the head's accepted platform vector,
+  every platform scope converged and nothing is in flight.
+  Rationale: the transition command stays the only judge of "nothing to apply"; the pin is version
+  only, so two different payloads of one version are not distinguished, as before.
+  Date: 2026-11-20
 
 - 2026-11-20 review revision. Give recovery one named child and bind each shared release check to its
   owner. Distinguish release provenance from installed content, isolate rehearsal resets and preserve

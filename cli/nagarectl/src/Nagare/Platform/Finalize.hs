@@ -33,7 +33,7 @@ import Nagare.Inventory.Store
   , replaceObservedHead
   , withProcessLock
   )
-import Nagare.Platform.Transition (transitionCommitRefusal, transitionOwnerRefusal)
+import Nagare.Platform.Transition (transitionCommitRefusal, transitionOpenRefusal, transitionOwnerRefusal)
 import Nagare.Resource.Types (ScopeId)
 
 -- | How the context pin is read and written; tests inject both.
@@ -49,8 +49,11 @@ data FinalizeStep = AfterIntent | AfterPin
 -- | Finish the transition this payload owns, moving the pin to @target@.
 -- @moved@ selects the scopes the transition moves. @pause@ runs after each
 -- step (a no-op in production; a test throws there to model a crash).
-finalizeTransition :: InventoryStore -> PinOps -> (FinalizeStep -> IO ()) -> Text -> (ScopeId -> Bool) -> Text -> IO (Either Text TransitionMarker)
-finalizeTransition store pins pause payload moved target = do
+-- @opening@ names the source release and the time when no stage opened a
+-- marker (MasterPlan 37 D1): the intent step then writes the marker already
+-- finalizing, and the rest of the protocol is unchanged.
+finalizeTransition :: InventoryStore -> PinOps -> (FinalizeStep -> IO ()) -> Text -> (ScopeId -> Bool) -> Text -> Maybe (Text, Text) -> IO (Either Text TransitionMarker)
+finalizeTransition store pins pause payload moved target opening = do
   intended <- underLock $ \current -> case headTransition current of
     Just marker
       | Just pin <- transitionFinalizing marker ->
@@ -60,6 +63,12 @@ finalizeTransition store pins pause payload moved target = do
             Nothing
               | pin == target -> Right (Left marker)
               | otherwise -> Left ("the transition is finalizing the pin to " <> pin <> ", not " <> target)
+    Nothing
+      | Just (source, startedAt) <- opening -> case transitionOpenRefusal moved current of
+          Just reason -> Left reason
+          Nothing ->
+            let finalizing = TransitionMarker source payload startedAt (Just target)
+             in Right (Right (finalizing, current {headGeneration = headGeneration current + 1, headTransition = Just finalizing}))
     _ -> case transitionCommitRefusal payload moved current of
       Just reason -> Left reason
       Nothing -> case headTransition current of

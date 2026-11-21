@@ -14,6 +14,9 @@ module Nagare.Inventory.Bootstrap
   , changedPlatformScopes
   , bootstrapScopeVectorDigest
   , bootstrapMarkerValue
+  , bootstrapMarkerFor
+  , markerScopeVectorDigest
+  , clusterContentCurrent
   , verifyBootstrapStampPayload
   , composePlatformChanges
   , withLeadingDependencies
@@ -40,7 +43,7 @@ import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Database (DatabaseBackupTarget)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Inventory.Store (ScopeRevision (..))
+import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
 import Nagare.Platform.Status (ReleaseIdentity, clusterMarkerValue, parseClusterIdentity)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.DeploymentMeaning (sameDeploymentMeaning)
@@ -259,6 +262,85 @@ bootstrapMarkerValue payloadId vectorDigest identity installedAt =
           )
       _ -> error "platform marker has no data object"
     _ -> error "platform marker is not an object"
+
+-- | MasterPlan 37 D1: the marker a platform plan declares. A live marker that
+-- records this plan's scope vector and reconstructs the accepted marker's exact
+-- specification is kept as the release that wrote it left it: no platform scope
+-- moved, so the cluster carries what it carried and the plan writes nothing.
+-- Otherwise this payload's marker, at the live install time when that alone
+-- reconstructs the accepted marker (a rerun of the same release), else at @now@.
+bootstrapMarkerFor ::
+  ResourceId ->
+  CompositionCandidate ->
+  Maybe ScopeDeclaration ->
+  Maybe ByteString ->
+  Text ->
+  ContentDigest ->
+  ReleaseIdentity ->
+  Text ->
+  Value
+bootstrapMarkerFor cluster candidate acceptedStamp live payloadId vectorDigest identity now =
+  case [marker | marker <- kept <> rerun, reconstructs marker] of
+    marker : _ -> marker
+    [] -> bootstrapMarkerValue payloadId vectorDigest identity now
+  where
+    acceptedSpecs =
+      [ resource ^. #spec
+      | Just scope <- [acceptedStamp]
+      , bundle <- scopeBundles scope
+      , Managed resource <- declarations bundle
+      ]
+    reconstructs marker = case (acceptedSpecs, compileBootstrapStamp cluster marker candidate) of
+      ([acceptedSpec], Right (_, native)) -> any ((== acceptedSpec) . (^. #spec) . fst) (Map.elems native)
+      _ -> False
+    liveFields = do
+      bytes <- live
+      Object marker <- Aeson.decodeStrict' bytes
+      Object fields <- KeyMap.lookup "data" marker
+      pure fields
+    liveText key = do
+      fields <- liveFields
+      String value <- KeyMap.lookup key fields
+      guard (not (T.null value))
+      pure value
+    kept =
+      [ bootstrapMarkerValue livePayload vectorDigest liveIdentity installedAt
+      | Just livePayload <- [liveText "payloadId"]
+      , Just liveVector <- [liveText "scopeVectorDigest"]
+      , liveVector == digestText vectorDigest
+      , Just liveIdentity <- [live >>= parseClusterIdentity]
+      , Just installedAt <- [liveText "installedAt"]
+      ]
+    rerun = [bootstrapMarkerValue payloadId vectorDigest identity installedAt | Just installedAt <- [liveText "installedAt"]]
+
+-- | The scope vector a reviewed marker records, when it records one.
+markerScopeVectorDigest :: ByteString -> Maybe Text
+markerScopeVectorDigest bytes = do
+  Object marker <- Aeson.decodeStrict' bytes
+  Object fields <- KeyMap.lookup "data" marker
+  String digest <- KeyMap.lookup "scopeVectorDigest" fields
+  guard (not (T.null digest))
+  pure digest
+
+-- | MasterPlan 37 D1: whether a cluster marker written by an earlier release
+-- still describes the release the context is pinned to. Only a transition
+-- commit moves the pin, after a plan of that release found no platform work,
+-- so the marker describes it when the pin names it, the marker records the
+-- scope vector the store accepted, every accepted platform scope converged,
+-- and nothing is in flight. Missing evidence is never current.
+clusterContentCurrent :: Text -> Maybe Text -> Maybe Text -> HeadManifest -> Bool
+clusterContentCurrent payloadVersion pin markerVector headValue =
+  pin == Just payloadVersion
+    && markerVector == Just (digestText (bootstrapScopeVectorDigest (headAccepted headValue)))
+    && isNothing (headActiveTransaction headValue)
+    && isNothing (headExecutorClaim headValue)
+    && isNothing (headTransition headValue)
+    && isNothing (headMove headValue)
+    && and
+      [ Map.lookup owner (headConverged headValue) == Just revision
+      | (owner, revision) <- Map.toList (headAccepted headValue)
+      , scopeKind owner == Platform
+      ]
 
 -- | Check retained bytes before constructing any adapter. An immutable review
 -- does not itself pin the payload currently selected by the operator.

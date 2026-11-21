@@ -19,6 +19,7 @@ module Nagare.Platform.Status
   , validatePlatformRepin
   , clusterMarkerValue
   , withImageAssessment
+  , withClusterContent
   )
 where
 
@@ -70,6 +71,10 @@ data PlatformStatus = PlatformStatus
   , images :: ![WorkloadImageStatus]
   -- ^ EP-237: each release workload's image classification; empty until
   -- 'withImageAssessment' adds the cluster's observations.
+  , clusterStamp :: !(Maybe ReleaseIdentity)
+  -- ^ MasterPlan 37 D1: the marker's own identity when an earlier release
+  -- wrote it and 'withClusterContent' found the cluster carrying this
+  -- payload's content.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -116,7 +121,7 @@ parseClusterIdentity bytes = do
 
 assessPlatformStatus :: ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> DeploymentState -> ReleaseIdentity -> DeploymentState -> PlatformStatus
 assessPlatformStatus cli payload context host hostDeployment cluster clusterDeployment =
-  PlatformStatus cli payload context host hostDeployment cluster clusterDeployment aggregate []
+  PlatformStatus cli payload context host hostDeployment cluster clusterDeployment aggregate [] Nothing
   where
     expected = payload ^. #version >>= either (const Nothing) Just . parsePlatformVersion
     compareOne identity = case expected of
@@ -145,9 +150,22 @@ withImageAssessment release statuses status =
           else status ^. #compatibility
     }
 
+-- | MasterPlan 37 D1: a release that moves no platform scope leaves the
+-- cluster marker an earlier release wrote. When the caller has established
+-- that the cluster still carries this payload's content ('True'), the cluster
+-- reports the payload's identity and keeps the marker's own as 'clusterStamp'.
+withClusterContent :: Bool -> PlatformStatus -> PlatformStatus
+withClusterContent current status
+  | not current || status ^. #cluster == status ^. #payload = status
+  | otherwise =
+      (assessPlatformStatus (status ^. #cli) (status ^. #payload) (status ^. #context) (status ^. #host) (status ^. #hostDeployment) (status ^. #payload) (status ^. #clusterDeployment))
+        { images = status ^. #images
+        , clusterStamp = Just (status ^. #cluster)
+        }
+
 platformStatusValue :: PlatformStatus -> Aeson.Value
 platformStatusValue status =
-  Aeson.object
+  Aeson.object $
     [ "cli" Aeson..= (status ^. #cli . #version)
     , "payload" Aeson..= (status ^. #payload . #version)
     , "context" Aeson..= (status ^. #context . #version)
@@ -169,6 +187,7 @@ platformStatusValue status =
           , "cluster" Aeson..= identityValue (status ^. #cluster)
           ]
     ]
+      <> maybe [] (\stamp -> ["clusterStamp" Aeson..= identityValue stamp]) (status ^. #clusterStamp)
   where
     identityValue identity =
       Aeson.object
@@ -195,6 +214,7 @@ renderPlatformStatus contextName status =
     , renderResourceLine "Cluster" (status ^. #cluster) (status ^. #clusterDeployment)
     , "Compatibility: " <> compatibilityToken (status ^. #compatibility)
     ]
+    <> foldMap (\stamp -> "Cluster marker: " <> maybe "legacy / unknown" (\value -> value) (stamp ^. #version) <> " (no platform scope moved since)\n") (status ^. #clusterStamp)
     <> (if null (status ^. #images) then "" else T.unlines ("Service images:" : map renderImageStatusLine (status ^. #images)))
   where
     renderLine label identity = pad 12 (label <> ":") <> maybe "legacy / unknown" (\value -> value) (identity ^. #version)
