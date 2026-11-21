@@ -3,6 +3,7 @@
 Nagare uses semantic versions and immutable `v<major>.<minor>.<patch>` Git tags. Each release's
 notes are its changelog entry.
 
+- [0.25.2](docs/releases/v0.25.2.md) - 2026-11-21
 - [0.25.1](docs/releases/v0.25.1.md) - 2026-11-21
 - [0.25.0](docs/releases/v0.25.0.md) - 2026-11-21
 - [0.24.5](docs/releases/v0.24.5.md) - 2026-11-20
