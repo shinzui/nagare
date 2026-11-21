@@ -117,32 +117,11 @@ chooseCredentials sources = case (sources ^. #credentialsFile, sources ^. #envir
   where
     both = Left "set NAGARE_INVENTORY_STORE_CREDENTIALS_FILE or the AWS_* variables, not both"
 
-newtype CredentialFile = CredentialFile S3Credentials
-
-instance FromJSON CredentialFile where
-  parseJSON = withObject "object store credentials" $ \o -> do
-    unless (all (`elem` ["accessKeyId", "secretAccessKey"]) (KM.keys o)) (fail "the credential file has an unknown field")
-    fmap CredentialFile (S3Credentials <$> o .: "accessKeyId" <*> o .: "secretAccessKey")
-
 -- | Whether an opening creates the bucket: only an operator's opening that
 -- may initialize. A deployer's scoped key cannot administer the bucket, and
 -- a deployer never initializes a store (EP-248).
 ensuresBucket :: Bool -> CredentialSources -> Bool
 ensuresBucket mayInitialize sources = mayInitialize && not (sources ^. #deployer)
-
--- | A JSON file readable by its owner only. Its bytes never reach an error.
-readCredentialFile :: FilePath -> IO (Either Text S3Credentials)
-readCredentialFile path = do
-  loaded <- try $ do
-    status <- getFileStatus path
-    bytes <- BS.readFile path
-    pure (fileMode status .&. 0o077, bytes)
-  pure $ case loaded of
-    Left (_ :: IOException) -> Left "the object store credential file cannot be read"
-    Right (open, _) | open /= 0 -> Left "the object store credential file must be private (mode 0600 or 0400)"
-    Right (_, bytes) -> case eitherDecodeStrict bytes of
-      Right (CredentialFile credentials) -> Right credentials
-      Left _ -> Left "the object store credential file is not {\"accessKeyId\", \"secretAccessKey\"}"
 
 -- | The administrator Secret of the local object store, read once for an
 -- operator through the context's kubectl connection.

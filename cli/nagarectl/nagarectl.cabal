@@ -292,6 +292,7 @@ library
     Nagare.Inventory.DataFence.WriterInventory
     Nagare.Inventory.DataService
     Nagare.Inventory.Database
+    Nagare.Inventory.DatabaseCredential
     Nagare.Inventory.DatabaseEngine
     Nagare.Inventory.DelegatedKind
     Nagare.Inventory.DelegatedPlanning

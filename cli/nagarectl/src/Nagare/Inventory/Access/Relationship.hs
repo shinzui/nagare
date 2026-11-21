@@ -9,7 +9,6 @@ where
 
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Access (TeamKey)
-
 import Nagare.Resource.Types (Name, ProviderAddress (..), ResourceId)
 
 -- | The one relationship a reviewed access scope controls.

@@ -51,8 +51,8 @@ import Nagare.Dsl.Database (Engine, engineToken)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
-import Nagare.Inventory.Adapters.CredentialTemplate (databaseCredentialKind)
 import Nagare.Inventory.Database (DatabaseBackupTarget)
+import Nagare.Inventory.DatabaseCredential (databaseCredentialKind)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.AppDatabase

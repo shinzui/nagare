@@ -9,7 +9,6 @@ import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Access.Resolve (backendConfigMapNamespace)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Resource.Inventory
@@ -58,7 +57,8 @@ validatePreviewAddresses scope cluster serviceName ns host volumeNames = do
       cluster
       "serving.knative.dev/v1beta1"
       "DomainMapping"
-      (Just backendConfigMapNamespace)
+      -- The access enforcer's namespace (Nagare.Access.Resolve.backendConfigMapNamespace).
+      (Just "nagare-system")
       host
   domainAddress <- case [ member ^. #address
                         | bundle <- scopeBundles scope

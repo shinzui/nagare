@@ -34,14 +34,6 @@ import Nagare.Target
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
--- | The feed's location beside an inventory location (a path or URL).
-feedLocation :: Text -> Text
-feedLocation inventory = case T.stripSuffix "/inventory" trimmed of
-  Just parent -> parent <> "/lifecycle/v1"
-  Nothing -> trimmed <> "-lifecycle/v1"
-  where
-    trimmed = T.dropWhileEnd (== '/') inventory
-
 -- | The context binding a target's stores carry.
 targetBinding :: ActiveTarget -> Either Text ContextBinding
 targetBinding target =
@@ -107,7 +99,3 @@ targetSigningKey target ref = do
     Left reason -> Left reason
     Right (Nothing, _) -> Left "the signing Secret has no UID"
     Right (Just uid, key) -> (,) key <$> mkPhysicalIdentity uid
-
--- | Refuse every write before it reaches the transport.
-readOnlyFeedOps :: ObjectOps -> ObjectOps
-readOnlyFeedOps ops = ops {putObject = \_ _ _ -> pure (PutNoEffect "the lifecycle feed is open read-only")}

@@ -17,8 +17,7 @@ import Data.Text qualified as Text
 import Nagare.Api.Server.App (AppConfig (..), adminApplication)
 import Nagare.Api.Server.Serve (Env (..), newEnv)
 import Nagare.Contract.Prelude
-import Nagare.Events.Store (filesystemObjectOps, newFeedStore)
-import Nagare.Events.Target (feedLocation, readOnlyFeedOps)
+import Nagare.Events.Store (feedLocation, filesystemObjectOps, newFeedStore, readOnlyFeedOps)
 import Nagare.Inventory.Recorded (defaultRecordedReaderConfig, newRecordedReader)
 import Nagare.Inventory.Store (openFilesystemStoreReadOnly, readHead, readObject)
 import Nagare.Inventory.Store.Gogol (inventoryManagerSettings)

@@ -39,26 +39,13 @@ import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), appDat
 import Nagare.Dsl.AppDatabase (parseAppDatabaseRole)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.DatabaseCredential (databaseCredentialKind, fieldText, metadataOf, textAt)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), runtimeEscrowedShomeiKey)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Target.EnTenants (mkEnTenantName)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
-
-metadataOf :: Value -> Either Text Object
-metadataOf (Object root) = case KM.lookup "metadata" root of
-  Just (Object value) -> Right value
-  _ -> Left "Kubernetes observation has no metadata"
-metadataOf _ = Left "Kubernetes observation is not an object"
-
-fieldText :: Key -> Object -> Either Text Text
-fieldText key metadata = case KM.lookup key metadata of
-  Just (String value) | not (T.null value) -> Right value
-  _ -> Left ("Kubernetes observation lacks " <> T.pack (show key))
-
-textAt :: Key -> Object -> Maybe Text
-textAt key value = case KM.lookup key value of Just (String textValue) -> Just textValue; _ -> Nothing
 
 -- | Database credential templates carry no Secret.data at review time. At
 -- mutation time only, materialize their data from a newly generated password.
@@ -355,34 +342,6 @@ backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just 
       pure (Just ())
     Just _ -> Left "unknown backup signing credential template"
 backupSigningCredentialKind _ = Right Nothing
-
-databaseCredentialKind :: Value -> Either Text (Maybe (Text, Text, Engine))
-databaseCredentialKind value = case value of
-  Object root | KM.lookup "kind" root == Just (String "Secret") -> do
-    metadata <- metadataOf value
-    annotations <- case KM.lookup "annotations" metadata of
-      Just (Object fields) -> Right fields
-      Nothing -> Right KM.empty
-      _ -> Left "reviewed Secret annotations are malformed"
-    case textAt "nagare.dev/credential-template" annotations of
-      Nothing -> Right Nothing
-      Just "database-v1" -> do
-        unless
-          (not (KM.member "data" root) && not (KM.member "stringData" root))
-          (Left "database credential template may not include Secret data")
-        labels <- case KM.lookup "labels" metadata of
-          Just (Object fields) -> Right fields
-          _ -> Left "database credential template lacks labels"
-        dbName <- fieldText "nagare.dev/database" labels
-        namespace <- fieldText "namespace" metadata
-        secretName <- fieldText "name" metadata
-        unless (secretName == dbSecretName dbName) (Left "database credential template has the wrong Secret name")
-        engineName <- fieldText "nagare.dev/engine" labels
-        engine <- maybe (Left "database credential template has an unknown engine") Right (parseEngine engineName)
-        pure (Just (dbName, namespace, engine))
-      Just "app-database-v1" -> Right Nothing
-      Just _ -> Left "unknown Kubernetes credential template"
-  _ -> Right Nothing
 
 -- | What an app-database credential template names (EP-202). Its user and
 -- database are carried as annotations and checked against the names the

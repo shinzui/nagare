@@ -31,6 +31,8 @@ module Nagare.Events.Store
   , indexKey
   , idsKey
   , feedHeadKey
+  , feedLocation
+  , readOnlyFeedOps
   )
 where
 
@@ -384,3 +386,15 @@ filesystemObjectOps root = do
         && not ("/" `T.isPrefixOf` name)
         && all (\part -> part `notElem` ["", ".", ".."]) (T.splitOn "/" name)
         && T.all (\c -> c /= '\\' && c /= '\0') name
+
+-- | The feed's location beside an inventory location (a path or URL).
+feedLocation :: Text -> Text
+feedLocation inventory = case T.stripSuffix "/inventory" trimmed of
+  Just parent -> parent <> "/lifecycle/v1"
+  Nothing -> trimmed <> "-lifecycle/v1"
+  where
+    trimmed = T.dropWhileEnd (== '/') inventory
+
+-- | Refuse every write before it reaches the transport.
+readOnlyFeedOps :: ObjectOps -> ObjectOps
+readOnlyFeedOps ops = ops {putObject = \_ _ _ -> pure (PutNoEffect "the lifecycle feed is open read-only")}
