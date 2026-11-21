@@ -284,3 +284,13 @@ traces only when the adapter gains a destructive or data-bearing action for it (
 migrate); an in-place update of a plain object needs a unit test. The mutation sweep runs per
 release, in `just gate-release`, not after each land, so a survivor no longer blocks the next
 land; a red full gate still does.
+
+
+## Planned amendment (2026-11-20) — Two gates after the release-tooling cutover
+
+The operator chose a per-commit check and a per-landing check in
+[MasterPlan 37](../masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md). At
+cutover the candidate uses the accepted landing result for its revision. A clean machine can obtain that
+result or run the same check locally. The release mutation sweep, deep tier and per-fix mutation records
+retire with their callers. Recovery tests still exercise interruptions and data fences, and the release
+rehearsal still reads its seeded data back. D3 and D5 own the switch.

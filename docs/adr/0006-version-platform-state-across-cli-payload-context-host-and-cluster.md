@@ -244,3 +244,15 @@ The host's NixOS identity is recorded at activation, not read over SSH: the host
 release, code name, version, nixpkgs revision and host name. The running kernel and k3s versions are
 the node's `status.nodeInfo`. A host activated before this change reports `not_recorded` until its
 next `just host-switch`; a non-NixOS node (the local k3d harness) reports `not_applicable`.
+
+
+## Planned amendment (2026-11-20) — Installed content across CLI-only releases
+
+For the D1 cutover in
+[MasterPlan 37](../masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md), the
+candidate CLI and selected payload identify their release. A host activation and a cluster stamp attest to
+installed contents. Equivalent host inputs, deployed declarations and image digests allow the context pin
+to advance without rewriting either installation. Status continues to report the provenance actually
+observed. Missing or unproved content requires the existing guarded observation or adoption path. The
+transition writes the pin last. D1 must change status, finalization and their release consumers together
+before using this rule.

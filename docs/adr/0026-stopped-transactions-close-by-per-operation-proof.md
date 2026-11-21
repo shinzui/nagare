@@ -121,3 +121,14 @@ settles such a stage from the running payload. From there resume cannot progress
 the reviewed versions, because close only observes and writes to no provider. Every other condition of decision 2 stands, and an operation
 the running adapter cannot prove still blocks close until it is attested. A transition's stage is included: it has no reverse path while
 `rollbackSupportedFrom` is empty, and v0.16.0's first intranet run stopped on one whose own payload could never resume it (F141). Only a finalizing transition refuses.
+
+
+## Planned amendment (2026-11-20) — Scope of the proposed stateless apply exception
+
+[EP-274](../plans/274-simplify-recovery-for-stateless-kubernetes-applies.md) keeps close-by-proof for
+existing transactions and reviews containing any strict operation. Its D2a change may prove healthy,
+unchanged stateless members through fresh validations when advancing scope convergence. D2b is conditional
+on the release evidence and the two-client recovery experiment. Only a wholly eligible stateless review
+may then record the actor and review once, leave the context available after interruption and recover by
+fresh planning. Data fences, mutation ownership, delegated admission and lifecycle success facts retain
+their existing obligations. Until those conditions pass the journalled path applies.

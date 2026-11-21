@@ -171,3 +171,13 @@ the layouts to `shinzui.cachix.org`, publication pins them, and each context pub
 Artifact Registry by digest during its reviewed transition. Packages are never published to GitHub
 (operator, 2026-11-01). The digest in the reviewed `release.json` is the integrity check, so fetching
 needs no trusted key or cache configuration.
+
+
+## Planned amendment (2026-11-20) — Publication after the release-tooling cutover
+
+[MasterPlan 37](../masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md) changes
+the public release to a signed immutable tag, its notes and the candidate-bound transition rehearsal
+record. The run directory supplies the publisher with the intranet result and the rehearsal record for
+that same candidate. The seeded-row check, deploy-and-login check and retry of the same provider draft
+still apply. D3 must switch asset production, validation and publication together. Existing published
+releases retain their original assets.
