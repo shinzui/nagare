@@ -271,10 +271,20 @@ D5 cutover.
 - [ ] Interrupt a platform release at the intranet step. Rerun that step and publish from the same run
   directory. The previous step results and invocation counts show the gate, image preparation and
   rehearsal ran once. A mismatched revision or a missing rehearsal refuses publication before a provider
-  write.
-- [ ] Cut a release from a clean checkout on a second machine using its credentials, ordinary toolchain
+  write. So far on a CLI-only release: v0.25.2 (`3e0be405`), 2026-11-21, run
+  `~/.local/state/nagare/releases/v0.25.2/3e0be405aa7e1a256c0373cfd9767095cda40c23/`, interrupted
+  by SIGINT after the pin (`intranet/pins.json`) and before any plan; the rerun's `index.json` shows
+  gate `kept` twice, images and rehearsal `passed` once then `kept`, intranet `failed` then
+  `passed` (0 operations, status exact, protected URL 302); published from the same run directory.
+  The refusals are covered by `ReleaseCandidateSpec`'s publish tests. Open until a release that
+  changes the platform repeats it.
+- [x] Cut a release from a clean checkout on a second machine using its credentials, ordinary toolchain
   and documented remote sources. Start without first-machine run records, preloaded drill images or a
   workstation-specific daemon. Its published rehearsal record shows the seeded value read back.
+  Pass by operator decision, 2026-11-21: v0.25.0 and v0.25.1 were released from this machine after
+  everything moved to it, and v0.25.2's rehearsal ran on a Colima profile it created and deleted,
+  with MinIO from the upstream downloads; its published record reads the seeded row back. The gate
+  record was this machine's own; without one the candidate runs `just gate` itself.
 
 **D2. Stateless Kubernetes recovery.** EP-274 owns the milestones, including the slow-update regression.
 Its deletion estimates are 2,500 Haskell source lines and 6,000 test lines. Shared constructors and their
@@ -422,6 +432,11 @@ Both affect what can count as a successful D2 apply. [Findings ledger](../audits
   publication intent's `payloadId` is `git:<commit>`, since no manifest is assembled. Historical
   `docs/release-evidence/` records stay until D5 removes them with their remaining readers;
   nothing writes there now.
+  Date: 2026-11-21
+
+- Decision (operator, 2026-11-21): No separate second machine; the old workstation is retired and
+  every release since the move has been cut on this one. Finish-line observation 3 counts as met
+  by the move plus v0.25.2, as recorded in D3.
   Date: 2026-11-21
 
 - 2026-11-20 review revision. Give recovery one named child and bind each shared release check to its
