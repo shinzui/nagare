@@ -30,7 +30,7 @@ let
   # payload's nixos/ and release.json. Only these are copied, so other repository
   # changes do not invalidate the tested build.
   # EP-237: release.json's releaseImages member names images whose digests
-  # depend on the tested nagarectl (the admin API links it). The tests read
+  # depend on code nagarectl's suite tests (the admin API links nagare-core). The tests read
   # the rest of the file, so they get it without that member, computed at
   # evaluation so that writing the member changes no derivation.
   releaseJsonForTests = pkgs.writeText "release.json"
@@ -106,6 +106,10 @@ let
             --replace-fail '"../.."' '"${sourceForTests}"'
         '';
       })));
+
+      # MasterPlan 37: the code nagarectl and the admin API share. It embeds no
+      # release version; nagarectl's suite tests it.
+      nagare-core = nagarePackage (hfinal.callCabal2nix "nagare-core" ../cli/nagare-core { });
 
       # EP-192: the versioned public document contract; no Nagare dependency.
       nagare-contract = nagarePackage (hfinal.callCabal2nix "nagare-contract" ../cli/nagare-contract { });

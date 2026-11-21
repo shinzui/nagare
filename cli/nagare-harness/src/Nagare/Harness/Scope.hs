@@ -43,6 +43,7 @@ reaching = \case
   "nagare-contract" -> Just [NagarectlSuite, ApiServerSuite, HarnessSuite]
   "nagare-dsl" -> Just [NagarectlSuite, NagareDslSuite, ApiServerSuite]
   "nagarectl" -> Just [NagarectlSuite, ApiServerSuite]
+  "nagare-core" -> Just [NagarectlSuite, ApiServerSuite]
   "nagare-access" -> Just [NagarectlSuite, ApiServerSuite]
   "nagare-api" -> Just [ApiServerSuite]
   "nagare-api-server" -> Just [ApiServerSuite]

@@ -34,6 +34,10 @@ packages="$(printf '%s\n' "$changed" | sed -n 's#^cli/\([^/]*\)/.*\.\(hs\|cabal\
 haskell=0; [ -n "$packages" ] && haskell=1
 audit=0; printf '%s\n' "$changed" | grep -Eq '^(justfile|scripts/|cli/)' && audit=1
 [ "$haskell" = 1 ] || [ "$audit" = 1 ] || { say "no Haskell, justfile or script change; nothing to gate"; exit 0; }
+# nagare-core's modules are tested by nagarectl's suite and serve the admin API.
+if printf '%s\n' "$packages" | grep -qx nagare-core; then
+  packages="$(printf '%s\n' $packages nagarectl nagare-api-server | sort -u)"
+fi
 say "packages: ${packages:-none}"
 
 [ "$haskell" = 0 ] || step haskell-style-check . just haskell-style-check
@@ -51,6 +55,9 @@ def module(path):
     for base in ("src/", "app/", "test/"):
         if path.startswith(prefix + base) and path.endswith(".hs"):
             return path[len(prefix + base):-3].replace("/", ".")
+    # nagare-core's modules are nagarectl's, re-exported (MasterPlan 37).
+    if path.startswith("cli/nagare-core/src/") and path.endswith(".hs"):
+        return path[len("cli/nagare-core/src/"):-3].replace("/", ".")
     return None
 touched = {m for m in map(module, changed) if m}
 if any(p.startswith(prefix + "test/") and module(p) in ("Spec", "Nagare.Test.Suite") for p in changed) \
@@ -109,6 +116,9 @@ for package in $packages; do
     nagare-api-server)
       step nagare-api-server-build cli/nagarectl cabal build -v1 nagare-api-server-test exe:nagare-events
       step nagare-api-server-test cli/nagarectl cabal test nagare-api-server-test
+      ;;
+    nagare-core)
+      step nagare-core-build cli/nagarectl cabal build -v1 nagare-core
       ;;
     nagare-api|nagare-contract)
       step "$package-build" cli/nagarectl cabal build -v1 "$package"

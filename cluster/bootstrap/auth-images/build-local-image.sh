@@ -323,7 +323,8 @@ EOF
     ;;
   nagare-admin-api)
     # EP-198: the read-only admin API builds in nagarectl's workspace, with
-    # its reviewed source pins (everything after its packages block).
+    # its reviewed source pins (everything after its packages block). It links
+    # nagare-core, not nagarectl (MasterPlan 37).
     cabal_targets=(exe:nagare-api-server)
     cabal_binaries=(exe:nagare-api-server)
     {
@@ -332,7 +333,7 @@ with-compiler: ghc-9.12.4
 write-ghc-environment-files: never
 
 packages:
-  nagare/cli/nagarectl
+  nagare/cli/nagare-core
   nagare/cli/nagare-dsl
   nagare/cli/nagare-contract
   nagare/cli/nagare-api

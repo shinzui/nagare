@@ -1,0 +1,145 @@
+cabal-version: 3.0
+name: nagare-core
+-- Constant: the release version is written only in release.json (EP-210).
+version: 0.0.0
+synopsis: The inventory store, recorded-state readers and lifecycle feed.
+description:
+  The code nagarectl and the admin API share: the inventory store and its
+  recorded-state readers, the read document projections, the lifecycle
+  feed and the backup collector. It embeds no release version and links no
+  planner, adapter or context code, so the admin API image built from it
+  changes only when this code does (MasterPlan 37).
+
+build-type: Simple
+
+common common
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
+    -Wunused-packages
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
+
+library
+  import: common
+  hs-source-dirs: src
+  exposed-modules:
+    Nagare.Cluster.GcsJob
+    Nagare.Context.Move
+    Nagare.Contract.Recorded
+    Nagare.Database.AppDatabase.Backup
+    Nagare.Database.AppDatabase.Sql
+    Nagare.Database.Backup
+    Nagare.Database.Connection
+    Nagare.Database.Discover
+    Nagare.Deploy.Host
+    Nagare.Env.Store
+    Nagare.Events.Backup
+    Nagare.Events.BackupCollector
+    Nagare.Events.BackupSources
+    Nagare.Events.Delivery
+    Nagare.Events.Delivery.Inspect
+    Nagare.Events.Delivery.Store
+    Nagare.Events.Delivery.Transport
+    Nagare.Events.Envelope
+    Nagare.Events.Layout
+    Nagare.Events.Materialize
+    Nagare.Events.Query
+    Nagare.Events.Read
+    Nagare.Events.Receipts
+    Nagare.Events.SigningKeys
+    Nagare.Events.Source
+    Nagare.Events.Source.Chain
+    Nagare.Events.Source.Facts
+    Nagare.Events.Store
+    Nagare.Events.Subscription
+    Nagare.Events.Webhook.Policy
+    Nagare.Events.Webhook.Signature
+    Nagare.Events.Webhook.Subscription
+    Nagare.Events.Webhook.Transport
+    Nagare.Inventory.AcceptedNative
+    Nagare.Inventory.Access.Relationship
+    Nagare.Inventory.Actor
+    Nagare.Inventory.Adapter
+    Nagare.Inventory.AppDatabase
+    Nagare.Inventory.BackendMap
+    Nagare.Inventory.Backup
+    Nagare.Inventory.BackupFreshness
+    Nagare.Inventory.BackupReceipt
+    Nagare.Inventory.Components.Foundation
+    Nagare.Inventory.DataFence
+    Nagare.Inventory.Database
+    Nagare.Inventory.DatabaseCredential
+    Nagare.Inventory.Digest
+    Nagare.Inventory.Identity
+    Nagare.Inventory.Journal
+    Nagare.Inventory.Kubernetes
+    Nagare.Inventory.Lineage
+    Nagare.Inventory.Migration.Types
+    Nagare.Inventory.ObservationNative
+    Nagare.Inventory.Plan.CloseRecord
+    Nagare.Inventory.Plan.History
+    Nagare.Inventory.Plan.Publication
+    Nagare.Inventory.Plan.Types
+    Nagare.Inventory.PreviewOwnership
+    Nagare.Inventory.Recorded
+    Nagare.Inventory.ScheduleHistory
+    Nagare.Inventory.ScheduledReceipt
+    Nagare.Inventory.ScheduledStatus
+    Nagare.Inventory.ScheduledStore
+    Nagare.Inventory.ScopeMember
+    Nagare.Inventory.Site.Recorded
+    Nagare.Inventory.Store
+    Nagare.Inventory.Store.Counters
+    Nagare.Inventory.Store.FileIO
+    Nagare.Inventory.Store.Gogol
+    Nagare.Inventory.Store.Manifest
+    Nagare.Inventory.Store.ObjectOps
+    Nagare.Inventory.Store.S3
+    Nagare.Inventory.Store.Service
+    Nagare.Inventory.TunnelRoute
+    Nagare.Platform.Versions
+    Nagare.Platform.Versions.Store
+    Nagare.Storage.Discover
+    Nagare.Storage.Snapshot
+    Nagare.Target.AuthIssuer
+
+  build-depends:
+    aeson,
+    async,
+    base >=4.17 && <5,
+    bytestring,
+    case-insensitive,
+    containers,
+    cradle,
+    crypton,
+    crypton-connection,
+    crypton-x509-store,
+    data-default,
+    directory,
+    filepath,
+    generic-lens ^>=2.3,
+    gogol ==1.0.0.0,
+    gogol-storage ==1.0.0,
+    http-client,
+    http-client-tls,
+    http-types,
+    nagare-contract,
+    nagare-dsl,
+    network,
+    process,
+    ram,
+    temporary,
+    text,
+    time,
+    tls,
+    unix,
+    vector,
+    yaml,

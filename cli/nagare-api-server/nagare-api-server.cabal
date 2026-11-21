@@ -5,8 +5,10 @@ version: 0.0.0
 synopsis: Nagare's read-only admin API server.
 description:
   Serves one context's recorded inventory state through the routes of
-  nagare-api, reading the inventory store through the nagarectl library's
-  recorded-state reader.
+  nagare-api, reading the inventory store through nagare-core's
+  recorded-state reader. It links no nagarectl code, so its image changes
+  only when nagare-core, nagare-dsl, nagare-contract, nagare-api or this
+  package changes (MasterPlan 37).
 
 build-type: Simple
 
@@ -55,8 +57,8 @@ library
     lens ^>=5.3,
     nagare-api,
     nagare-contract,
+    nagare-core,
     nagare-dsl,
-    nagarectl,
     relay-pagination >=0.1.1.2 && <0.2,
     servant >=0.20.3 && <0.21,
     servant-health >=0.1 && <0.2,
@@ -78,8 +80,8 @@ executable nagare-events
     http-types,
     nagare-api-server,
     nagare-contract,
+    nagare-core,
     nagare-dsl,
-    nagarectl,
     optparse-applicative,
     ram,
     text,
@@ -98,8 +100,8 @@ executable nagare-api-server
     generic-lens ^>=2.3,
     nagare-api-server,
     nagare-contract,
+    nagare-core,
     nagare-dsl,
-    nagarectl,
     optparse-applicative,
     text,
     warp,
@@ -132,6 +134,7 @@ test-suite nagare-api-server-test
     nagare-api,
     nagare-api-server,
     nagare-contract,
+    nagare-core,
     nagare-dsl,
     nagarectl,
     openapi-hs,

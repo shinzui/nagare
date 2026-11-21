@@ -35,8 +35,6 @@ library
   import: common
   hs-source-dirs: src
   other-modules:
-    Nagare.Events.Source.Chain
-    Nagare.Events.Source.Facts
     Nagare.Inventory.Application.Bindings
     Nagare.Inventory.Application.Compile
     Nagare.Inventory.Application.Database
@@ -68,18 +66,13 @@ library
     Nagare.Inventory.Execute.Transaction
     Nagare.Inventory.Execute.Types
     Nagare.Inventory.Plan.Changes
-    Nagare.Inventory.Plan.CloseRecord
-    Nagare.Inventory.Plan.History
     Nagare.Inventory.Plan.Lifecycle
     Nagare.Inventory.Plan.MigrationObservation
     Nagare.Inventory.Plan.Observation
     Nagare.Inventory.Plan.Prepare
-    Nagare.Inventory.Plan.Publication
     Nagare.Inventory.Plan.Publish
-    Nagare.Inventory.Plan.Types
     Nagare.Inventory.Plan.Validation
     Nagare.Inventory.Plan.ValidationRequirements
-    Nagare.Inventory.ScopeMember
     Nagare.Inventory.Store.Target
     Nagare.Inventory.Store.TargetMigration
     Nagare.Version.Embed
@@ -108,12 +101,10 @@ library
     Nagare.Cdn.Status
     Nagare.Cluster.CertificateMigration
     Nagare.Cluster.CertificatePolicy
-    Nagare.Cluster.GcsJob
     Nagare.Cluster.Kubeconfig
     Nagare.Cluster.Namespace
     Nagare.Context.BaseFlip
     Nagare.Context.BaseMove
-    Nagare.Context.Move
     Nagare.Context.MoveCarry
     Nagare.Context.MoveChecks
     Nagare.Context.MoveCommit
@@ -126,17 +117,11 @@ library
     Nagare.Context.Posture
     Nagare.Context.Review
     Nagare.Contract.Project
-    Nagare.Contract.Recorded
     Nagare.Contract.Sink
-    Nagare.Database.AppDatabase.Backup
     Nagare.Database.AppDatabase.Catalog
     Nagare.Database.AppDatabase.Drain
     Nagare.Database.AppDatabase.Owned
-    Nagare.Database.AppDatabase.Sql
-    Nagare.Database.Backup
-    Nagare.Database.Connection
     Nagare.Database.Create
-    Nagare.Database.Discover
     Nagare.Database.Get
     Nagare.Database.List
     Nagare.Database.Prune
@@ -145,38 +130,15 @@ library
     Nagare.Database.Secret
     Nagare.Database.Shell
     Nagare.Deploy
-    Nagare.Deploy.Host
     Nagare.Deploy.Resolve
     Nagare.Domain.Binding
     Nagare.Env.BuildArgs
     Nagare.Env.Dotenv
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
-    Nagare.Env.Store
     Nagare.Events.Archive
-    Nagare.Events.Backup
-    Nagare.Events.BackupCollector
-    Nagare.Events.BackupSources
-    Nagare.Events.Delivery
-    Nagare.Events.Delivery.Inspect
-    Nagare.Events.Delivery.Store
-    Nagare.Events.Delivery.Transport
     Nagare.Events.Deployment
-    Nagare.Events.Envelope
-    Nagare.Events.Layout
-    Nagare.Events.Materialize
-    Nagare.Events.Query
-    Nagare.Events.Read
-    Nagare.Events.Receipts
-    Nagare.Events.SigningKeys
-    Nagare.Events.Source
-    Nagare.Events.Store
-    Nagare.Events.Subscription
     Nagare.Events.Target
-    Nagare.Events.Webhook.Policy
-    Nagare.Events.Webhook.Signature
-    Nagare.Events.Webhook.Subscription
-    Nagare.Events.Webhook.Transport
     Nagare.Gcp.Adc
     Nagare.GhcEnv
     Nagare.Host.AgeKey
@@ -184,12 +146,8 @@ library
     Nagare.Image
     Nagare.Infra.Plan
     Nagare.Init
-    Nagare.Inventory.AcceptedNative
     Nagare.Inventory.Access
-    Nagare.Inventory.Access.Relationship
     Nagare.Inventory.AccessRuntime
-    Nagare.Inventory.Actor
-    Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.AppDatabase
     Nagare.Inventory.Adapters.AppDatabaseRuntime
     Nagare.Inventory.Adapters.AppDatabaseSessions
@@ -228,16 +186,11 @@ library
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Adapters.RestoreScratch
     Nagare.Inventory.Adapters.ShomeiIssuer
-    Nagare.Inventory.AppDatabase
     Nagare.Inventory.AppDatabaseBackup
     Nagare.Inventory.AppDatabaseEvidence
     Nagare.Inventory.AppDatabaseRestore
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact
-    Nagare.Inventory.BackendMap
-    Nagare.Inventory.Backup
-    Nagare.Inventory.BackupFreshness
-    Nagare.Inventory.BackupReceipt
     Nagare.Inventory.BackupRetention
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.BootstrapRegistryRecovery
@@ -260,7 +213,6 @@ library
     Nagare.Inventory.Components.CloudflareTunnel
     Nagare.Inventory.Components.CloudflareZone
     Nagare.Inventory.Components.ControllerImage
-    Nagare.Inventory.Components.Foundation
     Nagare.Inventory.Components.LifecycleEvents
     Nagare.Inventory.Components.LocalObjectStore
     Nagare.Inventory.Components.Observability
@@ -270,7 +222,6 @@ library
     Nagare.Inventory.Components.PackagedCache
     Nagare.Inventory.Components.ReleaseImage
     Nagare.Inventory.Components.Upstream
-    Nagare.Inventory.DataFence
     Nagare.Inventory.DataFence.CompletedJob
     Nagare.Inventory.DataFence.DatabaseShutdown
     Nagare.Inventory.DataFence.DeploymentWriter
@@ -291,8 +242,6 @@ library
     Nagare.Inventory.DataFence.VolumeState
     Nagare.Inventory.DataFence.WriterInventory
     Nagare.Inventory.DataService
-    Nagare.Inventory.Database
-    Nagare.Inventory.DatabaseCredential
     Nagare.Inventory.DatabaseEngine
     Nagare.Inventory.DelegatedKind
     Nagare.Inventory.DelegatedPlanning
@@ -302,7 +251,6 @@ library
     Nagare.Inventory.DeployerCredentials
     Nagare.Inventory.DeployerDelegation
     Nagare.Inventory.DeployerStoreAccess
-    Nagare.Inventory.Digest
     Nagare.Inventory.EnForward
     Nagare.Inventory.Environment
     Nagare.Inventory.Execute
@@ -310,20 +258,16 @@ library
     Nagare.Inventory.HelmReview
     Nagare.Inventory.Host
     Nagare.Inventory.HostLock
-    Nagare.Inventory.Identity
     Nagare.Inventory.ImageBuild
     Nagare.Inventory.ImagePrune
     Nagare.Inventory.ImagePruneAdapter
     Nagare.Inventory.ImagePruneScript
-    Nagare.Inventory.Journal
-    Nagare.Inventory.Kubernetes
     Nagare.Inventory.KubernetesConfiguration
     Nagare.Inventory.KubernetesReview
     Nagare.Inventory.KubernetesSnapshot
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.KubernetesTransport
     Nagare.Inventory.Lifecycle
-    Nagare.Inventory.Lineage
     Nagare.Inventory.LineageHistory
     Nagare.Inventory.LiveRestore
     Nagare.Inventory.LiveRestoreAdapter
@@ -338,59 +282,41 @@ library
     Nagare.Inventory.ManualReceiptSource
     Nagare.Inventory.Migration
     Nagare.Inventory.Migration.PostgresRename
-    Nagare.Inventory.Migration.Types
     Nagare.Inventory.MigrationPlanning
-    Nagare.Inventory.ObservationNative
     Nagare.Inventory.ObservationNative.Mutation
     Nagare.Inventory.OperationStep
     Nagare.Inventory.Plan
     Nagare.Inventory.PreviewCleanup
-    Nagare.Inventory.PreviewOwnership
     Nagare.Inventory.ProtectedRoute
     Nagare.Inventory.Prune
     Nagare.Inventory.Publications
     Nagare.Inventory.Rebuild
     Nagare.Inventory.RebuildRestore
-    Nagare.Inventory.Recorded
     Nagare.Inventory.RegistryCredentials
     Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.Restore
     Nagare.Inventory.RestoreNative
-    Nagare.Inventory.ScheduleHistory
     Nagare.Inventory.ScheduledGcs
     Nagare.Inventory.ScheduledIngest
     Nagare.Inventory.ScheduledPrune
-    Nagare.Inventory.ScheduledReceipt
-    Nagare.Inventory.ScheduledStatus
-    Nagare.Inventory.ScheduledStore
     Nagare.Inventory.ShomeiKeyEscrow
     Nagare.Inventory.SigningKeyEscrow
     Nagare.Inventory.Site
     Nagare.Inventory.Site.Listing
     Nagare.Inventory.Site.Member
     Nagare.Inventory.Site.Preview
-    Nagare.Inventory.Site.Recorded
     Nagare.Inventory.Site.Release
     Nagare.Inventory.Status
-    Nagare.Inventory.Store
-    Nagare.Inventory.Store.Counters
     Nagare.Inventory.Store.Discovery
-    Nagare.Inventory.Store.FileIO
     Nagare.Inventory.Store.GcloudAuth
-    Nagare.Inventory.Store.Gogol
-    Nagare.Inventory.Store.Manifest
     Nagare.Inventory.Store.Migrate
-    Nagare.Inventory.Store.ObjectOps
     Nagare.Inventory.Store.ObjectTarget
     Nagare.Inventory.Store.ProjectNumbers
     Nagare.Inventory.Store.Remote
-    Nagare.Inventory.Store.S3
-    Nagare.Inventory.Store.Service
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
     Nagare.Inventory.Trace
     Nagare.Inventory.TransactionHistory
-    Nagare.Inventory.TunnelRoute
     Nagare.Inventory.VmPower
     Nagare.Inventory.VolumePrune
     Nagare.Inventory.VolumeRebuildRestore
@@ -423,10 +349,8 @@ library
     Nagare.Platform.Status
     Nagare.Platform.Transition
     Nagare.Platform.Upgrade
-    Nagare.Platform.Versions
     Nagare.Platform.Versions.Assemble
     Nagare.Platform.Versions.Collect
-    Nagare.Platform.Versions.Store
     Nagare.Platform.Workspace
     Nagare.Server.Build
     Nagare.Server.Deploy
@@ -442,14 +366,11 @@ library
     Nagare.Static.Publish
     Nagare.Static.Release
     Nagare.Static.Webhook
-    Nagare.Storage.Discover
     Nagare.Storage.Inspect
     Nagare.Storage.List
     Nagare.Storage.Restore
-    Nagare.Storage.Snapshot
     Nagare.Target
     Nagare.Target.Acme
-    Nagare.Target.AuthIssuer
     Nagare.Target.ContextFile
     Nagare.Target.EnTenants
     Nagare.Target.Kinds
@@ -485,6 +406,7 @@ library
     http-types,
     lens ^>=5.3,
     nagare-contract,
+    nagare-core,
     nagare-dsl,
     network,
     process,
@@ -499,6 +421,88 @@ library
     unix,
     vector,
     yaml,
+
+  -- MasterPlan 37: the modules the admin API shares, in nagare-core.
+  reexported-modules:
+    Nagare.Cluster.GcsJob,
+    Nagare.Context.Move,
+    Nagare.Contract.Recorded,
+    Nagare.Database.AppDatabase.Backup,
+    Nagare.Database.AppDatabase.Sql,
+    Nagare.Database.Backup,
+    Nagare.Database.Connection,
+    Nagare.Database.Discover,
+    Nagare.Deploy.Host,
+    Nagare.Env.Store,
+    Nagare.Events.Backup,
+    Nagare.Events.BackupCollector,
+    Nagare.Events.BackupSources,
+    Nagare.Events.Delivery,
+    Nagare.Events.Delivery.Inspect,
+    Nagare.Events.Delivery.Store,
+    Nagare.Events.Delivery.Transport,
+    Nagare.Events.Envelope,
+    Nagare.Events.Layout,
+    Nagare.Events.Materialize,
+    Nagare.Events.Query,
+    Nagare.Events.Read,
+    Nagare.Events.Receipts,
+    Nagare.Events.SigningKeys,
+    Nagare.Events.Source,
+    Nagare.Events.Source.Chain,
+    Nagare.Events.Source.Facts,
+    Nagare.Events.Store,
+    Nagare.Events.Subscription,
+    Nagare.Events.Webhook.Policy,
+    Nagare.Events.Webhook.Signature,
+    Nagare.Events.Webhook.Subscription,
+    Nagare.Events.Webhook.Transport,
+    Nagare.Inventory.AcceptedNative,
+    Nagare.Inventory.Access.Relationship,
+    Nagare.Inventory.Actor,
+    Nagare.Inventory.Adapter,
+    Nagare.Inventory.AppDatabase,
+    Nagare.Inventory.BackendMap,
+    Nagare.Inventory.Backup,
+    Nagare.Inventory.BackupFreshness,
+    Nagare.Inventory.BackupReceipt,
+    Nagare.Inventory.Components.Foundation,
+    Nagare.Inventory.DataFence,
+    Nagare.Inventory.Database,
+    Nagare.Inventory.DatabaseCredential,
+    Nagare.Inventory.Digest,
+    Nagare.Inventory.Identity,
+    Nagare.Inventory.Journal,
+    Nagare.Inventory.Kubernetes,
+    Nagare.Inventory.Lineage,
+    Nagare.Inventory.Migration.Types,
+    Nagare.Inventory.ObservationNative,
+    Nagare.Inventory.Plan.CloseRecord,
+    Nagare.Inventory.Plan.History,
+    Nagare.Inventory.Plan.Publication,
+    Nagare.Inventory.Plan.Types,
+    Nagare.Inventory.PreviewOwnership,
+    Nagare.Inventory.Recorded,
+    Nagare.Inventory.ScheduleHistory,
+    Nagare.Inventory.ScheduledReceipt,
+    Nagare.Inventory.ScheduledStatus,
+    Nagare.Inventory.ScheduledStore,
+    Nagare.Inventory.ScopeMember,
+    Nagare.Inventory.Site.Recorded,
+    Nagare.Inventory.Store,
+    Nagare.Inventory.Store.Counters,
+    Nagare.Inventory.Store.FileIO,
+    Nagare.Inventory.Store.Gogol,
+    Nagare.Inventory.Store.Manifest,
+    Nagare.Inventory.Store.ObjectOps,
+    Nagare.Inventory.Store.S3,
+    Nagare.Inventory.Store.Service,
+    Nagare.Inventory.TunnelRoute,
+    Nagare.Platform.Versions,
+    Nagare.Platform.Versions.Store,
+    Nagare.Storage.Discover,
+    Nagare.Storage.Snapshot,
+    Nagare.Target.AuthIssuer,
 
 executable nagarectl
   import: common

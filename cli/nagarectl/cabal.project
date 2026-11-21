@@ -21,6 +21,7 @@ packages:
   .
   ../nagare-dsl
   ../nagare-contract
+  ../nagare-core
   ../nagare-api
   ../nagare-api-server
 

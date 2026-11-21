@@ -189,8 +189,12 @@ for each deliverable.
 
 D1 so far: the host's reviewed identity ignores the release comments and payload store path
 (`f4cfb2c4`); a plan that moves no platform scope keeps the earlier release's cluster marker, and the
-transition commit pins such a release after its own plan finds no work. Outstanding: the admin image
-split, which waits on how an unchanged admin API reports its version, and the real CLI-only release. D5 so far: the
+transition commit pins such a release after its own plan finds no work. The admin API reports its
+serving image instead of a release version (`bc538ce2`) and links only `cli/nagare-core`, 79 modules
+moved out of nagarectl (`6c2b9665`, `64c012d2`, and the split commit). After an unrelated CLI and planner
+edit plus a version bump the admin layout keeps its store path (`fhn9cs4j…-nagare-nagare-admin-api-oci`);
+a change in nagare-core changes it. Replayed over v0.24.1 to v0.24.5, only v0.24.4 (an `Inventory.Adapter`
+change) would have moved the image. Outstanding: the real CLI-only release. D5 so far: the
 `CLAUDE.md` rules and the plan-owner hook are removed (`0f5ae649`).
 
 **D1. A CLI-only release has nothing to apply.** In `cli/nagarectl/src/Nagare/Host/Config.hs` and the
@@ -363,6 +367,22 @@ Both affect what can count as a successful D2 apply. [Findings ledger](../audits
   Rationale: the transition command stays the only judge of "nothing to apply"; the pin is version
   only, so two different payloads of one version are not distinguished, as before.
   Date: 2026-11-20
+
+- Decision (operator, 2026-11-21): The admin API reports what it is: `servingBuild` is the image
+  reference its Deployment passes with `--image`, plus its contracts, and `comparison` matches that image
+  against the accepted declaration's `nagare-admin-api` image by digest. `/v1/platform/version` returns the
+  same serving build. This replaces the version and revision fields of contract 1 in place; every reader is
+  in this repository.
+  Rationale: an image reused across releases cannot embed the release that installed it.
+  Date: 2026-11-21
+
+- Decision (operator, 2026-11-21): The events worker's backup collector reads accepted CronJob bytes from
+  observation bytes only. A member whose bytes exist only in a review published before observation bytes
+  is an unresolved schedule naming `inventory store materialize-native`; the CLI keeps the review
+  fallback. The code the admin API links moves, unchanged, into `cli/nagare-core`, which nagarectl
+  re-exports; the architecture audit treats the two as one package for private modules.
+  Rationale: the fallback alone linked the planner and adapters (204 modules against 79).
+  Date: 2026-11-21
 
 - 2026-11-20 review revision. Give recovery one named child and bind each shared release check to its
   owner. Distinguish release provenance from installed content, isolate rehearsal resets and preserve

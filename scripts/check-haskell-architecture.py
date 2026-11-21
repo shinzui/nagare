@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = ('nagare-dsl', 'nagarectl', 'nagare-access', 'nagare-contract', 'nagare-api', 'nagare-api-server', 'nagare-harness')
+PACKAGES = ('nagare-dsl', 'nagare-core', 'nagarectl', 'nagare-access', 'nagare-contract', 'nagare-api', 'nagare-api-server', 'nagare-harness')
 EXHAUSTIVENESS = ('-Werror=incomplete-patterns', '-Werror=incomplete-uni-patterns')
 PRIVATE = ('Nagare.Inventory.Application.', 'Nagare.Inventory.Plan.',
            'Nagare.Inventory.Execute.', 'Nagare.Dsl.Load.', 'Nagare.Events.Source.')
@@ -18,6 +18,9 @@ OPAQUE = {
         'LifecycleDecisions', 'ChangeProposal', 'ReviewBundle', 'ReviewedPlan'),
     'Nagare.Inventory.Execute': ('ExecutablePlan',),
 }
+# MasterPlan 37: nagare-core holds the part of nagarectl the admin API links;
+# for private modules the two are one package.
+FAMILY = {'nagare-core': 'nagarectl'}
 PURE_PLAN = {'Types', 'Changes', 'Lifecycle', 'Observation', 'Validation'}
 EFFECT_PLAN = {'History', 'Prepare', 'Publication', 'MigrationObservation'}
 
@@ -62,7 +65,7 @@ def check(root: Path, limits: dict[str, int]) -> list[str]:
         test = section(text, 'test-suite ' + package + '-test')
         exposed = module_field(library, 'exposed-modules')
         for name in exposed:
-            if name.startswith(PRIVATE):
+            if name.startswith(PRIVATE) and package not in FAMILY:
                 errors.append(f'{package}: implementation module exposed: {name}')
         components[package] = (exposed | module_field(library, 'other-modules'),
                                module_field(test, 'other-modules'))
@@ -126,7 +129,9 @@ def check(root: Path, limits: dict[str, int]) -> list[str]:
     # Libraries may use the public DSL, but only their own package's internals.
     for (package, area, name), (relative, imports) in sources.items():
         for dependency in imports:
-            if dependency.startswith(PRIVATE) and not (package, 'src', dependency) in sources:
+            family = FAMILY.get(package, package)
+            owners = {family} | {member for member, owner in FAMILY.items() if owner == family}
+            if dependency.startswith(PRIVATE) and not any((owner, 'src', dependency) in sources for owner in owners):
                 errors.append(f'{relative}: imports another package private module {dependency}')
     for package in PACKAGES:
         graph = {name: imports for (pkg, area, name), (_, imports) in sources.items()

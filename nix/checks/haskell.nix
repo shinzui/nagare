@@ -28,6 +28,7 @@
         | xargs -0 fourmolu --mode check --config cli/fourmolu.yaml \
             --ghc-opt=-XImportQualifiedPost
       cabal-gild --mode check --input cli/nagare-dsl/nagare-dsl.cabal
+      cabal-gild --mode check --input cli/nagare-core/nagare-core.cabal
       cabal-gild --mode check --input cli/nagarectl/nagarectl.cabal
       cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
       cabal-gild --mode check --input cli/nagare-contract/nagare-contract.cabal
