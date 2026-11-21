@@ -93,7 +93,7 @@ first, a platform-changing release for the second, and either release for the cl
 ## Decomposition Strategy
 
 D1 changes how a release proves what is installed. D3 changes how it is rehearsed and published. D5
-retires superseded test tiers and plan files after their callers have moved. All three go through the
+lets a clean checkout establish the landing check and removes completed or cancelled plan files. All three go through the
 existing release commands. The deliverable numbers are kept from the first draft; D2 and D4 left the plan
 on 2026-11-21.
 
@@ -104,7 +104,7 @@ on 2026-11-21.
 |---|---|---|---|
 | D1. CLI-only release | MasterPlan, release identity and packaging | None | Complete |
 | D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | In Progress |
-| D5. Test tiers and plan files | MasterPlan, landing and plans | D3 switch for gate removal | In Progress |
+| D5. Landing check and plan files | MasterPlan, landing and plans | D3 switch | In Progress |
 
 
 ## Dependency Graph
@@ -208,7 +208,7 @@ the evidence commit, `latest`, and their tests and checks. Scripts −1,381 net 
 Haskell +226 source and +289 test lines, from publication moving out of shell. Native: the
 harness tests cover the fake-transport cases; the disposable-profile rehearsal ran green and v0.25.2
 published its record.
-The mutation sweep stays (operator, 2026-11-21); the deep-tier recipe remains for the D5 cutover.
+The mutation sweep and the deep tier stay (operator, 2026-11-21).
 
 - [ ] Interrupt a platform release at the intranet step. Rerun that step and publish from the same run
   directory. The previous step results and invocation counts show the gate, image preparation and
@@ -228,8 +228,7 @@ The mutation sweep stays (operator, 2026-11-21); the deep-tier recipe remains fo
   with MinIO from the upstream downloads; its published record reads the seeded row back. The gate
   record was this machine's own; without one the candidate runs `just gate` itself.
 
-**D5. Retire superseded test tiers and plan files.** Delete the deep-tier recipe, together with `just land`'s
-cutover so a clean checkout can establish that the candidate's landing check passed, by retrieving its
+**D5. Landing check and plan files.** Cut `just land` over so a clean checkout can establish that the candidate's landing check passed, by retrieving its
 result or running that same check locally. Delete markdown plan files already marked Complete or Cancelled
 after checking live registry links, ADR references and Mori handles; where a surviving document needs
 their history, use a commit-pinned link. Do not cancel, close or edit the status of an open or held plan;
@@ -310,8 +309,9 @@ The isolated builder store corruption during v0.24.1 remains outside this initia
   Date: 2026-11-21
 
 - Decision (operator, 2026-11-21): Keep the mutation sweep, `mutation-check`, `Mutation.hs`, the
-  mutation records and `gate-fast`'s record checks. The sweep is not a release step; `CLAUDE.md`
-  says when a change calls for running it. Supersedes the sweep half of the 2026-11-20 deletion.
+  mutation records, `gate-fast`'s record checks and the recovery model's deep tier. Neither is a
+  release step; `CLAUDE.md` says when a change calls for running each, so tests follow what changed.
+  Supersedes the 2026-11-20 deletion.
   Date: 2026-11-21
 
 - Decision (D1, 2026-11-20): The host moves only when what it evaluates changes. Its reviewed

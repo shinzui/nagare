@@ -137,7 +137,8 @@ which defer to the user's scope:
   It proves only the records whose files the range touched; if it selects none, there is nothing to
   run. After a broad refactor of those areas, run `just mutation-sweep REV` over every record. Skip
   it for docs, release tooling and code no record touches. A surviving record means a test no longer
-  catches a known bug: fix the test before landing.
+  catches a known bug: fix the test before landing. Likewise run the recovery model's deep tier,
+  `just gate-deep REV`, when `just deep-tier-required BASE REV` says the change needs it.
 - **Releases after v0.5.0 prove three things:** the full gate is green, the EP-172 upgrade
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud
