@@ -208,8 +208,7 @@ the evidence commit, `latest`, and their tests and checks. Scripts −1,381 net 
 Haskell +226 source and +289 test lines, from publication moving out of shell. Native: the
 harness tests cover the fake-transport cases; the disposable-profile rehearsal ran green and v0.25.2
 published its record.
-The mutation sweep and deep-tier recipes, Mutation.hs and the mutation records remain for the
-D5 cutover.
+The mutation sweep stays (operator, 2026-11-21); the deep-tier recipe remains for the D5 cutover.
 
 - [ ] Interrupt a platform release at the intranet step. Rerun that step and publish from the same run
   directory. The previous step results and invocation counts show the gate, image preparation and
@@ -229,8 +228,7 @@ D5 cutover.
   with MinIO from the upstream downloads; its published record reads the seeded row back. The gate
   record was this machine's own; without one the candidate runs `just gate` itself.
 
-**D5. Retire superseded test tiers and plan files.** Delete the mutation sweep and deep-tier recipes,
-`Mutation.hs`, the mutation records and `gate-fast`'s mutation-records check, together with `just land`'s
+**D5. Retire superseded test tiers and plan files.** Delete the deep-tier recipe, together with `just land`'s
 cutover so a clean checkout can establish that the candidate's landing check passed, by retrieving its
 result or running that same check locally. Delete markdown plan files already marked Complete or Cancelled
 after checking live registry links, ADR references and Mori handles; where a surviving document needs
@@ -309,6 +307,11 @@ The isolated builder store corruption during v0.24.1 remains outside this initia
   Finish-line test 4 is withdrawn with D2. The file keeps its slug so existing links resolve.
   Rationale: the first draft listed cancellations and removals the operator never chose, and their
   agreement to its numbered decisions was read as approval of everything in it.
+  Date: 2026-11-21
+
+- Decision (operator, 2026-11-21): Keep the mutation sweep, `mutation-check`, `Mutation.hs`, the
+  mutation records and `gate-fast`'s record checks. The sweep is not a release step; `CLAUDE.md`
+  says when a change calls for running it. Supersedes the sweep half of the 2026-11-20 deletion.
   Date: 2026-11-21
 
 - Decision (D1, 2026-11-20): The host moves only when what it evaluates changes. Its reviewed

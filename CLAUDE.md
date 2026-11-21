@@ -131,6 +131,13 @@ which defer to the user's scope:
   candidate's landed full-gate record, or that full gate run by the candidate; the mutation sweep
   and the deep tier are not release steps (operator, 2026-11-20). A docs-only commit carries its
   gated ancestor's record forward.
+- **Mutation sweep: run it when the change calls for it** (operator, 2026-11-21). Before landing a
+  change to code that guards data or recovery (planner, executor, journal, proofs, adapters,
+  admission, transitions) or to a test a mutation record names, run `just mutation-check REV BASE`.
+  It proves only the records whose files the range touched; if it selects none, there is nothing to
+  run. After a broad refactor of those areas, run `just mutation-sweep REV` over every record. Skip
+  it for docs, release tooling and code no record touches. A surviving record means a test no longer
+  catches a known bug: fix the test before landing.
 - **Releases after v0.5.0 prove three things:** the full gate is green, the EP-172 upgrade
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud

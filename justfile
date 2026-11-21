@@ -397,8 +397,8 @@ mutation-check rev="HEAD" base="":
 # EP-180 M8: prove every mutation record at a committed revision in one remote
 # build (nix/test-runs.nix mutationSweep). Each of `width` workers compiles the
 # revision once with cabal at -O0, then per record patches, rebuilds
-# incrementally, runs the record's pattern and reverts. Run it beside every
-# landing batch's `just gate`. Exits non-zero when any record survives.
+# incrementally, runs the record's pattern and reverts. CLAUDE.md says when a
+# change calls for it. Exits non-zero when any record survives.
 # Sweep every mutation record at a commit on the remote builder.
 [group('test')]
 mutation-sweep rev="HEAD" base="" width="4":
