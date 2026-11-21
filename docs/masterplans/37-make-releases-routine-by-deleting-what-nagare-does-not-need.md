@@ -31,6 +31,11 @@ provenance:
       at: 2026-11-21T06:43:27Z
       mode: "implement"
       note: "D1 host and cluster identity slices, D5 CLAUDE.md rules; registry D1 and D5 In Progress"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-21T16:50:03Z
+      mode: "implement"
+      note: "D1 complete: nagare-core split, serving image, v0.25.0 and v0.25.1 released"
 ---
 
 # Make releases routine by deleting what Nagare does not need
@@ -142,7 +147,7 @@ evidence and documents after their consumers have moved.
 
 | Deliverable | Plan or owner | Hard prerequisite | Status |
 |---|---|---|---|
-| D1. CLI-only release | MasterPlan, release identity and packaging | None | In Progress |
+| D1. CLI-only release | MasterPlan, release identity and packaging | None | Complete |
 | D3. Resumable release steps | MasterPlan, release tooling | D1 identity for combined release acceptance | Not Started |
 | D2. Stateless Kubernetes recovery | [EP-274](../plans/274-simplify-recovery-for-stateless-kubernetes-applies.md) | D2b requires two releases on D2a and the findings decision | Not Started |
 | D4. Unused features | MasterPlan, per-feature removal | Usage and recovery check below | Not Started |
@@ -184,7 +189,7 @@ immediately. Remove each gate, fixture or evidence source only with the cutover 
 
 ## Progress
 
-D1 and D5 are in progress; D3, D2 and D4 have not started. Record the accepting commit and line deltas
+D1 is complete and D5 is in progress; D3, D2 and D4 have not started. Record the accepting commit and line deltas
 for each deliverable.
 
 D1 so far: the host's reviewed identity ignores the release comments and payload store path
@@ -194,7 +199,12 @@ serving image instead of a release version (`bc538ce2`) and links only `cli/naga
 moved out of nagarectl (`6c2b9665`, `64c012d2`, `51133288`). After an unrelated CLI and planner
 edit plus a version bump the admin layout keeps its store path (`fhn9cs4j…-nagare-nagare-admin-api-oci`);
 a change in nagare-core changes it. Replayed over v0.24.1 to v0.24.5, only v0.24.4 (an `Inventory.Adapter`
-change) would have moved the image. Outstanding: the real CLI-only release. D5 so far: the
+change) would have moved the image. v0.25.0 (`39193ea4`) carried the one-time moves: 9 operations over
+two stages, the host switch and the admin API and nagare-access images. v0.25.1 (`70ed811a`), a version
+bump alone, kept every image digest and store path; its intranet stage planned 0 operations and
+re-accepted nothing, `platform transition commit` confirmed the plan and moved the pin alone, the
+cluster marker stayed at 0.25.0 (`clusterStamp`), the status was exact with the protected URL
+answering 302, and the published tag passed the public flake check. D5 so far: the
 `CLAUDE.md` rules and the plan-owner hook are removed (`0f5ae649`).
 
 **D1. A CLI-only release has nothing to apply.** In `cli/nagarectl/src/Nagare/Host/Config.hs` and the
@@ -212,9 +222,11 @@ to the tests that read the payload or API documents. Remove the release-specific
 Compare two image manifests after an unrelated CLI edit and version bump, then after a change to a shipped
 binary. An unchanged image must keep its digest and layout path.
 
-- [ ] A real CLI-only release reports zero intranet operations, including host activation, image
+- [x] A real CLI-only release reports zero intranet operations, including host activation, image
   publication into the context registry and cluster writes. The candidate and published tag pass identity
-  verification.
+  verification. Pass: v0.25.1 (`70ed811a`), 2026-11-21; run
+  `~/.local/state/nagare/releases/v0.25.1/20261121T163102Z/` (`intranet/stage-1.summary.json`:
+  `operationCount` 0, `reaccepted` []).
 
 **D3. Each release step can run alone.** Make the explicit run directory work through `just`, the
 candidate harness, intranet, rehearsal and `scripts/release-publish.sh`. In
