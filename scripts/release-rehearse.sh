@@ -4,7 +4,8 @@
 #   scripts/release-rehearse.sh REV PREV_VERSION
 #
 # It builds PREV_VERSION's packaged nagarectl and REV's, runs the transition drill on a disposable
-# local context in the Colima profile nagare-mp23 from an empty environment whose PATH has no Helm,
+# local context, on a Colima profile it creates and deletes (or the empty daemon
+# NAGARE_REHEARSAL_DOCKER_HOST names), from an empty environment whose PATH has no Helm,
 # and writes docs/release-evidence/<rev>/transition-rehearsal.json, uncommitted, or
 # NAGARE_RELEASE_REHEARSAL_RECORD. An existing record is kept. The logic is
 # `nagare-harness transition rehearse` (cli/nagare-harness/src/Nagare/Harness/Release/Rehearse.hs,

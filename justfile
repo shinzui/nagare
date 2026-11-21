@@ -637,8 +637,8 @@ release-publish version:
     scripts/release-publish.sh {{version}}
 
 # MP-26 item 12: the EP-172 upgrade rehearsal, unattended. It builds release
-# PREVIOUS's and REV's packaged nagarectl, prepares the Colima profile nagare-mp23
-# (VM resolver, registry forward on 127.0.0.1:15213), moves a disposable local
+# PREVIOUS's and REV's packaged nagarectl, creates a Colima profile for the run and
+# deletes it after (or uses the empty daemon NAGARE_REHEARSAL_DOCKER_HOST names), moves a disposable local
 # context from PREVIOUS to REV with every guard on, from an empty environment whose
 # PATH has no Helm, reads the seeded row back, and writes
 # docs/release-evidence/REV/transition-rehearsal.json (uncommitted). An existing

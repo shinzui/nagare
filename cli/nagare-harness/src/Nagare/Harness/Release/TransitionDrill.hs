@@ -10,15 +10,16 @@
 -- row lives in the @transition_sentinel@ table.
 --
 -- Its inputs are environment variables, as the script's were:
--- @NAGARE_REHEARSAL_SOURCE@, @NAGARE_REHEARSAL_TARGET@ and @DOCKER_HOST@
--- (required), @NAGARE_REHEARSAL_ROOT@, @NAGARE_REHEARSAL_CONTEXT@,
--- @NAGARE_REHEARSAL_RESET@, @NAGARE_REHEARSAL_SKIP_BOOTSTRAP@,
--- @NAGARE_REHEARSAL_IMAGE_DAEMON@ and @NAGARE_REHEARSAL_FORWARD_PORT@.
+-- @NAGARE_REHEARSAL_SOURCE@, @NAGARE_REHEARSAL_TARGET@, @DOCKER_HOST@ and
+-- @NAGARE_REHEARSAL_IMAGES@, the candidate's
+-- @scripts/publish-local-minio-images.sh@ (required), @NAGARE_REHEARSAL_ROOT@,
+-- @NAGARE_REHEARSAL_CONTEXT@ and @NAGARE_REHEARSAL_SKIP_BOOTSTRAP@. The
+-- daemon must hold no k3d cluster and no registry forward: the drill never
+-- deletes anything it did not create (MasterPlan 37 D3).
 module Nagare.Harness.Release.TransitionDrill
   ( transitionDrill
   , drillEnvironment
-  , pushedDigest
-  , pinnedImages
+  , localImagePins
   )
 where
 
@@ -53,6 +54,7 @@ data Drill = Drill
   , context :: !String
   , source :: !FilePath
   , target :: !FilePath
+  , images :: !FilePath
   , environment :: !(IORef [(String, String)])
   , index :: !IndexWriter
   }
@@ -91,16 +93,19 @@ namespace = "personal"
 database :: String
 database = "rehearsal"
 
--- | The images the drill pins, copied once the registry exists: only the
--- local object store's, which no release names. Both releases run the
+-- | The pins @scripts/publish-local-minio-images.sh@ prints: only the local
+-- object store's images, which no release names. Both releases run the
 -- service images their release.json names (EP-237; the rehearsal refuses a
 -- release that names none), so a pin here can never stand in for one: the
 -- v0.22.0 rehearsal's pinned En 9577009 predated tenant mode and crash-looped
 -- the 0.21.0 source.
-pinnedImages :: [(String, String, String)]
-pinnedImages =
-  [ ("nagare-minio", "release-2025-09-07-arm64", "NAGARE_LOCAL_MINIO_IMAGE")
-  , ("nagare-mc", "release-2025-08-13-arm64", "NAGARE_LOCAL_MC_IMAGE")
+localImagePins :: Text -> [(String, String)]
+localImagePins printed =
+  [ (T.unpack name, T.unpack (T.drop 1 value))
+  | line <- T.lines printed
+  , let (name, value) = T.breakOn "=" (T.strip line)
+  , name `elem` ["NAGARE_LOCAL_MINIO_IMAGE", "NAGARE_LOCAL_MC_IMAGE"]
+  , T.length value > 1
   ]
 
 -- | The ambient shell may carry a context, a payload root and a kubeconfig;
@@ -116,12 +121,6 @@ drillEnvironment root' ambient =
     upperOrUnderscore c = isUpper c || c == '_'
     isPrefix prefix name = take (length prefix) name == prefix
     strip prefix name = if isPrefix prefix name then Just (drop (length prefix) name) else Nothing
-
--- | The digest @docker push@ reports last.
-pushedDigest :: Text -> Maybe Text
-pushedDigest pushed = case [T.takeWhile isHexDigit hex | line <- T.lines pushed, let (_, found) = T.breakOn "digest: sha256:" line, Just hex <- [T.stripPrefix "digest: sha256:" found]] of
-  [] -> Nothing
-  digests -> Just ("sha256:" <> last digests)
 
 say' :: Drill -> Text -> IO ()
 say' drill message = do
@@ -175,7 +174,8 @@ transitionDrill runtime' = do
       optional' name = lookupVariable runtime' name
   sourceCli <- required "NAGARE_REHEARSAL_SOURCE" "the source release nagarectl, a nix output bin/nagarectl"
   targetCli <- required "NAGARE_REHEARSAL_TARGET" "the candidate nagarectl, a nix output bin/nagarectl"
-  dockerHost <- required "DOCKER_HOST" "the disposable Docker daemon socket, never the shared cp3 daemon"
+  _ <- required "DOCKER_HOST" "an empty Docker daemon; release-rehearse creates one"
+  imagesScript <- required "NAGARE_REHEARSAL_IMAGES" "scripts/publish-local-minio-images.sh of the candidate"
   root' <- maybe (T.unpack <$> captureText runtime' "mktemp failed" (invocation "mktemp" ["-d", "/private/tmp/nagare-transition.XXXXXX"])) pure (optional' "NAGARE_REHEARSAL_ROOT")
   started <- runtime' ^. #now
   let context' = fromMaybe "transition" (optional' "NAGARE_REHEARSAL_CONTEXT")
@@ -183,11 +183,11 @@ transitionDrill runtime' = do
   environment' <- newIORef (drillEnvironment root' (runtime' ^. #variables))
   forM_ ["config", "state", "cache", "reviews", "evidence", "sops/age"] (createDirectoryIfMissing True . (root' </>))
   index' <- openIndex runtime' (root' </> "index.json") (newRunIndex "drill" "local-rehearsal" started & #context ?~ T.pack context')
-  let drill = Drill {runtime = runtime', root = root', context = context', source = sourceCli, target = targetCli, environment = environment', index = index'}
-  withRunIndex index' (runDrill drill dockerHost sentinel)
+  let drill = Drill {runtime = runtime', root = root', context = context', source = sourceCli, target = targetCli, images = imagesScript, environment = environment', index = index'}
+  withRunIndex index' (runDrill drill sentinel)
 
-runDrill :: Drill -> String -> Text -> IO ()
-runDrill drill dockerHost sentinel = do
+runDrill :: Drill -> Text -> IO ()
+runDrill drill sentinel = do
   let runtime' = drill ^. #runtime
       root' = drill ^. #root
       context' = drill ^. #context
@@ -195,8 +195,7 @@ runDrill drill dockerHost sentinel = do
       targetCli = drill ^. #target
       optional' = lookupVariable runtime'
   ok drill "chmod failed" =<< command drill "chmod" ["700", root', root' </> "sops", root' </> "sops/age"]
-  let forwardPort = fromMaybe "15213" (optional' "NAGARE_REHEARSAL_FORWARD_PORT")
-      keyFile = root' </> "sops/age/keys.txt"
+  let keyFile = root' </> "sops/age/keys.txt"
   bootstrapReviews <-
     if optional' "NAGARE_REHEARSAL_SKIP_BOOTSTRAP" == Just "1"
       then do
@@ -207,10 +206,10 @@ runDrill drill dockerHost sentinel = do
         forM_ (T.lines pins) $ \line -> case T.breakOn "=" line of
           (name, value) | not (T.null value) -> setVariable drill (T.unpack name) (T.unpack (T.drop 1 value))
           _ -> pure ()
-        setVariable drill "NAGARE_LOCAL_REGISTRY_FORWARD" ("127.0.0.1:" <> forwardPort)
+        forward drill
         say' drill ("continuing in " <> T.pack root' <> " on the bootstrapped context " <> T.pack context')
         pure Nothing
-      else Just <$> bootstrap drill dockerHost keyFile forwardPort
+      else Just <$> bootstrap drill keyFile
   -- 5. seed a database row on the source release
   setVariable drill "KUBECONFIG" (root' </> "config/nagare/kubeconfigs" </> (context' <> ".yaml"))
   present <- run' drill . (\i -> i & #stdoutTo .~ Discard & #stderrTo .~ Discard) =<< command drill "kubectl" ["-n", namespace, "get", "statefulset", database]
@@ -282,20 +281,19 @@ runDrill drill dockerHost sentinel = do
 -- | Steps 0 to 4: an empty disposable daemon, the context's secrets, the
 -- context on the source release and its bootstrap. Returns the number of
 -- bootstrap reviews applied.
-bootstrap :: Drill -> String -> FilePath -> String -> IO Int
-bootstrap drill dockerHost keyFile forwardPort = do
+bootstrap :: Drill -> FilePath -> IO Int
+bootstrap drill keyFile = do
   let root' = drill ^. #root
       runtime' = drill ^. #runtime
-  -- 0. the daemon is disposable and empty of k3d
-  when (dockerHost == "unix:///Users/shinzui/.colima/nagare-mp23-cp3/docker.sock") (refuse "refusing the shared cp3 daemon")
+  -- 0. the daemon is empty of k3d: the drill deletes nothing it did not make
   names <- text drill "docker ps failed" =<< command drill "docker" ["ps", "-a", "--format", "{{.Names}}"]
   when (any (\name -> "k3d-" `T.isPrefixOf` name || name == "registry-forward") (T.lines names)) $
-    if lookupVariable runtime' "NAGARE_REHEARSAL_RESET" == Just "1"
-      then do
-        _ <- run' drill . quiet =<< command drill "docker" ["rm", "-f", "registry-forward"]
-        _ <- run' drill . quiet =<< command drill "k3d" ["cluster", "delete", "nagare-local"]
-        void (run' drill . quiet =<< command drill "k3d" ["registry", "delete", "k3d-registry.localhost"])
-      else refuse "the daemon already holds a k3d cluster; set NAGARE_REHEARSAL_RESET=1 to delete it"
+    refuse "the daemon already holds a k3d cluster or registry forward; rehearse on an empty daemon (release-rehearse creates one)"
+  architecture <- text drill "docker info failed" =<< command drill "docker" ["info", "--format", "{{.Architecture}}"]
+  platform <- case T.strip architecture of
+    arch | arch `elem` ["aarch64", "arm64"] -> pure "linux/arm64"
+    arch | arch `elem` ["x86_64", "amd64"] -> pure "linux/amd64"
+    arch -> refuse ("the daemon runs " <> arch <> "; a rehearsal needs linux/arm64 or linux/amd64")
   sourceVersion <- text drill "the source nagarectl has no version" =<< command drill (drill ^. #source) ["version"]
   targetVersion <- text drill "the candidate nagarectl has no version" =<< command drill (drill ^. #target) ["version"]
   say' drill ("root " <> T.pack root' <> "; source " <> firstLine sourceVersion <> "; target " <> firstLine targetVersion)
@@ -318,14 +316,14 @@ bootstrap drill dockerHost keyFile forwardPort = do
     =<< nagarectl
       drill
       Source
-      ["context", "create", drill ^. #context, "--mode", "local", "--registry-host", "k3d-registry.localhost:5000", "--base-domain", "127-0-0-1.sslip.io", "--target-platform", "linux/arm64", "--local-object-store", "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups", "--use"]
+      ["context", "create", drill ^. #context, "--mode", "local", "--registry-host", "k3d-registry.localhost:5000", "--base-domain", "127-0-0-1.sslip.io", "--target-platform", platform, "--local-object-store", "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups", "--use"]
   rootDocument <- capture runtime' "platform root failed" =<< nagarectl drill Source ["platform", "root", "--json"]
   let payloadVersion = either (const Nothing) (^. #platformVersion) (decodeDocument @PlatformRoot "platform root --json" rootDocument)
   ownVersion <- capture runtime' "the source nagarectl has no version" =<< command drill (drill ^. #source) ["version", "--json"]
   let own = either (const Nothing) (^. #version) (decodeDocument @ReleaseIdentity "version --json" ownVersion)
   unless (isJust payloadVersion && payloadVersion == own) (refuse ("the source nagarectl resolved payload " <> fromMaybe "None" payloadVersion <> ", not its own release"))
   say' drill ("source payload " <> fromMaybe "None" payloadVersion)
-  result <- reviewedLoopWith drill (Loop "bootstrap" Source ["bootstrap", "plan"] ["platform", "bootstrap", "apply"] MutatingOperations) (seedOnce drill forwardPort)
+  result <- reviewedLoopWith drill (Loop "bootstrap" Source ["bootstrap", "plan"] ["platform", "bootstrap", "apply"] MutatingOperations) (seedOnce drill)
   ok drill "inventory status failed" . (\i -> i & #stdoutTo .~ WriteTo (root' </> "evidence/before-status.json")) =<< nagarectl drill Source ["inventory", "status", "--json"]
   pure (result ^. #reviews)
   where
@@ -472,52 +470,42 @@ applyText drill stage loop review applyLog = do
 
 -- | After a bootstrap stage: once the registry exists, seed the pinned
 -- images (once).
-seedOnce :: Drill -> String -> IO ()
-seedOnce drill forwardPort = do
+seedOnce :: Drill -> IO ()
+seedOnce drill = do
   seededAlready <- doesFileExist (drill ^. #root </> "images.env")
   unless seededAlready $ do
     names <- text drill "docker ps failed" =<< command drill "docker" ["ps", "--format", "{{.Names}}"]
     when (any ("k3d-registry" `T.isPrefixOf`) (T.lines names)) $ do
-      seedImages drill forwardPort
+      seedImages drill
       pins <- readLenient (drill ^. #root </> "images.env")
       say' drill ("images seeded: " <> showText (length (T.lines pins)) <> " pins")
 
--- | Step 3: the images the platform stages pin, and a loopback forward to
--- the registry. Port 5000 on this Mac belongs to AirPlay, so host-side
--- publications reach the registry through a forward, which the artifact
--- transport honours. The port must be free on the host (cp3's registry
--- tunnel holds 15013), and the forward must answer with this daemon's
--- registry, not another one.
-seedImages :: Drill -> String -> IO ()
-seedImages drill forwardPort = do
-  let runtime' = drill ^. #runtime
-      quiet i = i & #stdoutTo .~ Discard & #stderrTo .~ Discard
-  pins <- forM pinnedImages $ \(repository, tag', variable) -> do
-    let local = "k3d-registry.localhost:5000/" <> repository <> ":" <> tag'
-        pushed = "localhost:5000/" <> repository <> ":" <> tag'
-    held <- run' drill . quiet =<< command drill "docker" ["image", "inspect", local]
-    unless (held ^. #exit == 0) $ do
-      -- Pinned images stay in the daemon's store across resets;
-      -- NAGARE_REHEARSAL_IMAGE_DAEMON names a daemon to copy them from.
-      daemon <- maybe (refuse ("NAGARE_REHEARSAL_IMAGE_DAEMON: this daemon lacks " <> T.pack repository <> ":" <> T.pack tag' <> "; set NAGARE_REHEARSAL_IMAGE_DAEMON")) pure (lookupVariable runtime' "NAGARE_REHEARSAL_IMAGE_DAEMON")
-      let archive = drill ^. #root </> (repository <> ".tar")
-      ok drill ("docker save of " <> T.pack local <> " failed") =<< command drill "docker" ["--host", daemon, "save", "-o", archive, local]
-      ok drill ("docker load of " <> T.pack local <> " failed") . quiet =<< command drill "docker" ["load", "-i", archive]
-      removeFile archive
-    ok drill ("docker tag of " <> T.pack local <> " failed") =<< command drill "docker" ["tag", local, pushed]
-    out <- text drill ("docker push of " <> T.pack pushed <> " failed") =<< command drill "docker" ["push", pushed]
-    digest <- maybe (refuse ("no digest for " <> T.pack repository)) pure (pushedDigest out)
-    let reference = "k3d-registry.localhost:5000/" <> repository <> "@" <> T.unpack digest
-    setVariable drill variable reference
-    pure (variable <> "=" <> reference)
-  BS.writeFile (drill ^. #root </> "images.env") (TE.encodeUtf8 (T.pack (unlines pins)))
-  let endpoint = "http://127.0.0.1:" <> forwardPort
-  free <- run' drill . (\i -> i & #stdoutTo .~ Capture) =<< command drill "curl" ["-s", "-m", "2", "-o", "/dev/null", "-w", "%{http_code}", endpoint <> "/v2/"]
-  unless (lenient (free ^. #output) == "000") (refuse ("127.0.0.1:" <> T.pack forwardPort <> " is already in use on the host; set NAGARE_REHEARSAL_FORWARD_PORT"))
-  _ <- run' drill . quiet =<< command drill "docker" ["rm", "-f", "registry-forward"]
+-- | Step 3: the local object store's images, from the candidate's
+-- digest-checked upstream binaries, pushed through the daemon's own loopback
+-- (port 5000 on a Mac belongs to AirPlay), then a loopback forward to the
+-- registry on a port Docker picks, which the artifact transport honours.
+seedImages :: Drill -> IO ()
+seedImages drill = do
+  printed <- text drill "scripts/publish-local-minio-images.sh failed" . withVariable "NAGARE_LOCAL_REGISTRY_PUSH_HOST" "localhost:5000" =<< command drill "bash" [drill ^. #images]
+  let pins = localImagePins printed
+  unless (length pins == 2) (refuse "scripts/publish-local-minio-images.sh printed no NAGARE_LOCAL_MINIO_IMAGE and NAGARE_LOCAL_MC_IMAGE")
+  forM_ pins (uncurry (setVariable drill))
+  BS.writeFile (drill ^. #root </> "images.env") (TE.encodeUtf8 (T.pack (unlines [name <> "=" <> value | (name, value) <- pins])))
   ok drill "the registry forward did not start" . (\i -> i & #stdoutTo .~ Discard)
-    =<< command drill "docker" ["run", "-d", "--name", "registry-forward", "--network", "k3d-nagare-local", "-p", "127.0.0.1:" <> forwardPort <> ":5000", "alpine/socat", "TCP-LISTEN:5000,fork,reuseaddr", "TCP:k3d-registry.localhost:5000"]
-  let await :: Int -> IO ()
+    =<< command drill "docker" ["run", "-d", "--name", "registry-forward", "--network", "k3d-nagare-local", "-p", "127.0.0.1::5000", "alpine/socat", "TCP-LISTEN:5000,fork,reuseaddr", "TCP:k3d-registry.localhost:5000"]
+  forward drill
+
+-- | Point the artifact transport at the registry forward's host port, once it
+-- answers with this daemon's registry.
+forward :: Drill -> IO ()
+forward drill = do
+  let runtime' = drill ^. #runtime
+  published <- text drill "docker port registry-forward failed" =<< command drill "docker" ["port", "registry-forward", "5000/tcp"]
+  address <- case filter ("127.0.0.1:" `T.isPrefixOf`) (T.lines published) of
+    found : _ -> pure (T.unpack (T.strip found))
+    [] -> refuse ("the registry forward publishes no loopback port: " <> published)
+  let endpoint = "http://" <> address
+      await :: Int -> IO ()
       await n = when (n <= 30) $ do
         up <- run' drill =<< command drill "curl" ["-s", "-m", "2", "-o", "/dev/null", endpoint <> "/v2/"]
         unless (up ^. #exit == 0) ((runtime' ^. #pause) 1 >> await (n + 1))
@@ -525,5 +513,5 @@ seedImages drill forwardPort = do
   catalog <- run' drill . (\i -> i & #stdoutTo .~ Capture) =<< command drill "curl" ["-s", "-m", "3", endpoint <> "/v2/_catalog"]
   own <- run' drill . (\i -> i & #stdoutTo .~ Capture) =<< command drill "docker" ["exec", "k3d-registry.localhost", "wget", "-q", "-O", "-", "http://localhost:5000/v2/_catalog"]
   unless (trimEnd (lenient (catalog ^. #output)) == trimEnd (lenient (own ^. #output))) $
-    refuse ("the registry forward on 127.0.0.1:" <> T.pack forwardPort <> " does not answer with this daemon's registry")
-  setVariable drill "NAGARE_LOCAL_REGISTRY_FORWARD" ("127.0.0.1:" <> forwardPort)
+    refuse ("the registry forward on " <> T.pack address <> " does not answer with this daemon's registry")
+  setVariable drill "NAGARE_LOCAL_REGISTRY_FORWARD" address

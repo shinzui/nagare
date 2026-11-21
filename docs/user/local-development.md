@@ -130,7 +130,7 @@ registry, publish them once:
 scripts/publish-local-minio-images.sh
 ```
 
-The script downloads MinIO's last upstream release binaries with `gh`, checks
+The script downloads MinIO's last upstream release binaries with `curl`, checks
 each by its exact digest, builds two small images and pushes them to
 `k3d-registry.localhost:5000` as `nagare-minio:release-2025-09-07-<arch>` and
 `nagare-mc:release-2025-08-13-<arch>`. Every platform bootstrap then binds the

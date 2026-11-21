@@ -116,7 +116,7 @@ transitionParser =
                     <*> (T.pack <$> strArgument (metavar "PREV_VERSION" <> help "The published release it moves from"))
                     <*> optional (strOption (long "run" <> metavar "DIR" <> help "Work directory (default: a fresh /private/tmp/nagare-release-rehearse.XXXXXX)"))
               )
-              (progDesc "Rehearse the transition from a published release to a candidate on nagare-mp23 (scripts/release-rehearse.sh)")
+              (progDesc "Rehearse the transition from a published release to a candidate on a Colima profile it creates and deletes, or the empty daemon NAGARE_REHEARSAL_DOCKER_HOST names (scripts/release-rehearse.sh)")
           )
         <> command
           "drill"

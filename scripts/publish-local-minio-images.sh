@@ -4,11 +4,13 @@ set -euo pipefail
 # Publish disposable local-only images from the last upstream binary releases.
 # The released binaries are checked by exact asset digest before Docker sees
 # them; the reviewed local bootstrap binds the resulting registry manifests.
+# NAGARE_LOCAL_REGISTRY_PUSH_HOST names another address of the same registry for
+# docker push (the release rehearsal pushes through its daemon's localhost:5000).
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/scripts/lib/local-registry.sh"
 
-for tool in gh docker; do
+for tool in curl docker; do
   command -v "$tool" >/dev/null 2>&1 || {
     printf 'local MinIO publication requires %s\n' "$tool" >&2
     exit 1
@@ -36,10 +38,10 @@ client_asset="mc.linux-${arch}.${client_release}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/nagare-local-minio.XXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 mkdir "$work/server" "$work/client"
-gh release download "$server_release" --repo minio/minio \
-  --pattern "$server_asset" --dir "$work/server"
-gh release download "$client_release" --repo minio/mc \
-  --pattern "$client_asset" --dir "$work/client"
+curl -fsSL -o "$work/server/$server_asset" \
+  "https://github.com/minio/minio/releases/download/$server_release/$server_asset"
+curl -fsSL -o "$work/client/$client_asset" \
+  "https://github.com/minio/mc/releases/download/$client_release/$client_asset"
 
 digest_file() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -62,12 +64,13 @@ printf 'FROM alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4
   > "$work/client/Dockerfile"
 
 registry=k3d-registry.localhost:5000
+push="${NAGARE_LOCAL_REGISTRY_PUSH_HOST:-$registry}"
 server_tag="$registry/nagare-minio:release-2025-09-07-${arch}"
 client_tag="$registry/nagare-mc:release-2025-08-13-${arch}"
-docker build --platform "linux/$arch" -t "$server_tag" "$work/server"
-docker build --platform "linux/$arch" -t "$client_tag" "$work/client"
-docker push "$server_tag"
-docker push "$client_tag"
+docker build -q --platform "linux/$arch" -t "$push/${server_tag#"$registry/"}" "$work/server" >&2
+docker build -q --platform "linux/$arch" -t "$push/${client_tag#"$registry/"}" "$work/client" >&2
+docker push -q "$push/${server_tag#"$registry/"}" >&2
+docker push -q "$push/${client_tag#"$registry/"}" >&2
 export NAGARE_REGISTRY_HOST="$registry"
 server_digest="$(nagare_local_registry_digest "$server_tag")"
 client_digest="$(nagare_local_registry_digest "$client_tag")"

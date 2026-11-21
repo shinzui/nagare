@@ -94,7 +94,9 @@ test-suite nagare-harness-test
   hs-source-dirs: test
   other-modules:
     FlakeCheckSpec
+    ReleaseFake
     ReleaseImagesSpec
+    ReleaseRehearsalSpec
     ReleaseTransitionSpec
     TransitionCostSpec
 
