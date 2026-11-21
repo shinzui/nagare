@@ -191,7 +191,7 @@ D1 so far: the host's reviewed identity ignores the release comments and payload
 (`f4cfb2c4`); a plan that moves no platform scope keeps the earlier release's cluster marker, and the
 transition commit pins such a release after its own plan finds no work. The admin API reports its
 serving image instead of a release version (`bc538ce2`) and links only `cli/nagare-core`, 79 modules
-moved out of nagarectl (`6c2b9665`, `64c012d2`, and the split commit). After an unrelated CLI and planner
+moved out of nagarectl (`6c2b9665`, `64c012d2`, `51133288`). After an unrelated CLI and planner
 edit plus a version bump the admin layout keeps its store path (`fhn9cs4j…-nagare-nagare-admin-api-oci`);
 a change in nagare-core changes it. Replayed over v0.24.1 to v0.24.5, only v0.24.4 (an `Inventory.Adapter`
 change) would have moved the image. Outstanding: the real CLI-only release. D5 so far: the
