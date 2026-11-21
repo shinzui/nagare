@@ -9,6 +9,7 @@ where
 import AccessCheckSpec (accessCheckTests)
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
+import AccessRouteRefreshSpec (accessRouteRefreshTests)
 import AppDatabaseCredentialSpec (appDatabaseCredentialTests)
 import AppDatabasePrivilegeSpec (appDatabasePrivilegeTests)
 import AppDatabaseRestartSpec (appDatabaseRestartTests)
@@ -263,6 +264,7 @@ main = do
             , inventoryActionPublicationTests
             , inventoryKubernetesReadinessTests
             , inventoryBaseMoveRoutesTests
+            , accessRouteRefreshTests
             , inventoryEnTenantsTests
             , inventoryAuthTenantsTests
             , inventoryAuthIssuerTests

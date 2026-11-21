@@ -36,8 +36,18 @@ status. En and Shōmei only move forward: see [access](access.md#install-the-opt
    `nagarectl inventory apply DIR --yes`. Plan again into a new directory and repeat until the
    review has no operations.
 3. Run `nagarectl platform transition commit --yes`. It refuses until the store is idle, every
-   platform scope has converged, and the payload, host and cluster report the target. It then pins
-   the context and closes the transition. `nagarectl platform status` reports the target release.
+   platform scope has converged, every accepted protected route carries
+   `kourier.knative.dev/disable-http2`, and the payload, host and cluster report the target. It
+   then pins the context and closes the transition. `nagarectl platform status` reports the target
+   release.
+
+Once the platform scopes have no work left, the last stage re-declares every accepted route to
+nagare-access that was rendered before v0.24.5 and so lacks `kourier.knative.dev/disable-http2`.
+Kourier builds one Envoy cluster for all of those routes, so a single one without the annotation
+can fail every WebSocket upgrade to every `requireLogin` host. The stage adds the annotation to the
+route's accepted bytes and changes nothing else: no site config is compiled, and the route keeps its
+identity and its grants. A route annotated by hand with `kubectl annotate` is listed in the review
+as a field takeover from `kubectl-annotate`; applying it makes the annotation Nagare's.
 
 The first applied stage opens a transition marker in the store head. Until the commit, only the
 target release's `nagarectl` applies, resumes, recovers or closes a stage. Operators who keep

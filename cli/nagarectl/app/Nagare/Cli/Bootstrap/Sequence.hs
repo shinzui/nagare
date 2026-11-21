@@ -1,9 +1,12 @@
 -- | Bootstrap / Sequence. Executable-private CLI boundary.
-module Nagare.Cli.Bootstrap.Sequence (planNextStage) where
+module Nagare.Cli.Bootstrap.Sequence (planNextStage, reacceptedScopes) where
 
 import Data.Generics.Labels ()
+import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Set qualified as Set
+import Data.Text qualified as T
+import Nagare.Access.ProtectedRouteRefresh (refreshAcceptedProtectedRoutes)
 import Nagare.Cli.Bootstrap.Cloud (buildCloudStageCandidate)
 import Nagare.Cli.Bootstrap.CloudflareZone (buildCloudflareZoneStageCandidate)
 import Nagare.Cli.Bootstrap.Host
@@ -20,6 +23,7 @@ import Nagare.Cli.Bootstrap.Stage (StageMode (..))
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistry
   , inventoryPlanRegistryWithNative
+  , inventoryPlanRegistryWithTakeover
   )
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (postureOf)
@@ -27,6 +31,7 @@ import Nagare.Cli.Runtime.Pulumi (selectReviewedPulumiForContext)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Plan (ReviewDocument (reviewOperations), reviewBaseRevisions, reviewBundleDocument, reviewDesiredRevisions)
 import Nagare.Inventory.Store (HeadManifest (..))
 import Nagare.Platform.Paths (PlatformPaths)
 import Nagare.Platform.Workspace (PlatformWorkspace)
@@ -41,7 +46,9 @@ import System.Environment (setEnv)
 -- build and publication (before the host is accepted), the host, the
 -- kubeconfig, then the platform scopes. Bootstrap and the release transition
 -- (EP-172) share this order; a transition re-pins the accepted host instead of
--- publishing a new image, which only fresh installations use.
+-- publishing a new image, which only fresh installations use. A transition
+-- whose platform scopes have no work left then re-declares the accepted routes
+-- to the access enforcer that lack Kourier's HTTP/1.1 annotation (EP-273).
 planNextStage :: StageMode -> ActiveTarget -> PlatformPaths -> PlatformWorkspace -> Text -> FilePath -> IO ()
 planNextStage mode active paths workspace identity output = do
   (snapshot, headValue) <- Inventory.loadTargetSnapshotWithHead active
@@ -116,10 +123,39 @@ planNextStage mode active paths workspace identity output = do
                 , Resource.nameText kind == "domainmapping"
                 , Set.notMember (resource ^. #identity) desired
                 ]
-          Inventory.planInventoryCandidateWithRetirementsPayload
-            (inventoryPlanRegistryWithNative active workspace native)
-            identity
-            active
-            candidate
-            droppedRoutes
-            output
+          (bundle, digest) <-
+            Inventory.prepareInventoryCandidateWithRetirementsPayload
+              (inventoryPlanRegistryWithNative active workspace native)
+              identity
+              active
+              candidate
+              droppedRoutes
+          let document = reviewBundleDocument bundle
+          (scopes, routes) <-
+            if mode == ReleaseTransition && null (reviewOperations document) && null (reacceptedScopes document)
+              then do
+                store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+                refreshAcceptedProtectedRoutes store snapshot >>= either dieT pure
+              else pure ([], Map.empty)
+          case NE.nonEmpty (map ResourceInventory.ReplaceScope scopes) of
+            Nothing -> Inventory.writePlannedReview output bundle digest
+            Just changes -> do
+              refresh <- either (dieT . T.pack . show) pure (ResourceInventory.composeInventory snapshot changes)
+              -- A route annotated by hand is owned by another field manager. The review names that
+              -- writer, and the update ends its ownership of the annotation (F37).
+              Inventory.planInventoryCandidateWithPayloadIdentity
+                (inventoryPlanRegistryWithTakeover True active workspace routes)
+                identity
+                active
+                refresh
+                output
+
+-- | EP-229: the scopes a review accepts at a new revision, the bootstrap stamp aside (every replan
+-- re-declares the stamp).
+reacceptedScopes :: ReviewDocument -> [Resource.ScopeId]
+reacceptedScopes document =
+  [ scope
+  | (scope, revision) <- Map.toAscList (reviewDesiredRevisions document)
+  , Resource.nameText (Resource.scopeName scope) /= "bootstrap-stamp"
+  , Map.lookup scope (reviewBaseRevisions document) /= Just revision
+  ]

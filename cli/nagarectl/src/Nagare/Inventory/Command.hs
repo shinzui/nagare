@@ -21,6 +21,8 @@ module Nagare.Inventory.Command
   , planInventoryWithRetirements
   , planInventoryCandidateWithRetirements
   , planInventoryCandidateWithRetirementsPayload
+  , prepareInventoryCandidateWithRetirementsPayload
+  , writePlannedReview
   , planInventoryCandidateWith
   , planInventoryCandidateLoaded
   , planInventoryCandidateQuiet
@@ -294,11 +296,24 @@ planInventoryCandidateWithRetirementsPayload ::
   [ResourceId] ->
   FilePath ->
   IO ()
-planInventoryCandidateWithRetirementsPayload registryFor identity target candidate resources output = do
+planInventoryCandidateWithRetirementsPayload registryFor identity target candidate resources output =
+  prepareInventoryCandidateWithRetirementsPayload registryFor identity target candidate resources >>= uncurry (writePlannedReview output)
+
+-- | 'planInventoryCandidateWithRetirementsPayload' with the published review returned unwritten, for
+-- a caller that decides from it what to save (EP-273: the release transition's last stage).
+prepareInventoryCandidateWithRetirementsPayload ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  T.Text ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  [ResourceId] ->
+  IO (ReviewBundle, ContentDigest)
+prepareInventoryCandidateWithRetirementsPayload registryFor identity target candidate resources = do
   when
     (Set.size (Set.fromList resources) /= length resources)
     (dieText "retirement resource IDs must be distinct")
-  planInventoryCandidateWithDeciderPayload registryFor (decideMemberRetirement resources candidate) identity target candidate output
+  (_, bundle, digest) <- prepareInventoryCandidateWithDeciderPayload registryFor (decideMemberRetirement resources candidate) identity target candidate
+  pure (bundle, digest)
 
 -- | Versioned adoption proposals name a compiled candidate and exact
 -- observed incarnations. The decision is validated after fresh observation.

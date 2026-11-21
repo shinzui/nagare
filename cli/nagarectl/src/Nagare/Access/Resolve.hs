@@ -30,6 +30,8 @@ module Nagare.Access.Resolve
   , removeOrigin
   , removeServiceAccessWithOps
   , renderAccessDomainMapping
+  , disableHttp2Annotation
+  , isCentralEnforcer
   , renderBackendConfigMap
   , resolveAccess
   , resolveAccessRouteWithOps
@@ -366,7 +368,7 @@ renderAccessDomainMapping objectNamespace host target =
       , "metadata"
           .= object
             ( ["name" .= host, "namespace" .= objectNamespace, "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]]
-                <> ["annotations" .= object ["kourier.knative.dev/disable-http2" .= ("true" :: Text)] | isCentralEnforcer target]
+                <> ["annotations" .= object [Key.fromText disableHttp2Annotation .= ("true" :: Text)] | isCentralEnforcer target]
             )
       , "spec" .= object ["ref" .= object ["apiVersion" .= (target ^. #apiVersion), "kind" .= (target ^. #kind), "name" .= (target ^. #name), "namespace" .= (target ^. #namespace)]]
       ]
@@ -402,6 +404,10 @@ reloadEnforcerBackendMap = do
 
 reloadPatch :: Text -> Text
 reloadPatch stamp = "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"nagare.dev/backend-map-reload\":\"" <> stamp <> "\"}}}}}"
+
+-- | Kourier's per-route opt-out of the HTTP/2 hop back into its internal listener.
+disableHttp2Annotation :: Text
+disableHttp2Annotation = "kourier.knative.dev/disable-http2"
 
 isCentralEnforcer :: RouteTarget -> Bool
 isCentralEnforcer target = target ^. #apiVersion == "serving.knative.dev/v1" && target ^. #kind == "Service" && target ^. #name == enforcerName && target ^. #namespace == backendConfigMapNamespace

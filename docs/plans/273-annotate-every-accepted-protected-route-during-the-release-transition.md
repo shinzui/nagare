@@ -40,8 +40,8 @@ On 2026-11-21 the labs intranet had 11 such routes whose sites could not be rede
 The operator's session added the annotation to those 11 by hand with `kubectl annotate`. They now
 differ from Nagare's accepted state, and the field is owned by the `kubectl-annotate` field manager.
 
-After this plan, upgrading a context to the release that contains it (v0.24.6) re-declares every
-accepted protected route that lacks the annotation. The bytes are its accepted bytes plus the
+After this plan, upgrading a context to the release that contains it (the first after v0.25.2)
+re-declares every accepted protected route that lacks the annotation. The bytes are its accepted bytes plus the
 annotation; the identity, address, lifecycle and owning scope are unchanged. The re-declaration
 goes through a reviewed transition stage, and `platform transition commit` refuses until none is
 left. Accepted state then matches the cluster for every protected route without touching any
@@ -69,31 +69,44 @@ deferral-ledger entry for any finding it leaves open.
 
 ## Progress
 
-- [ ] **M1. The route transform.** A pure function takes an accepted scope declaration and the
-  accepted native bytes of its protected routes. It returns the scope re-declared with each
-  un-annotated protected route carrying the annotation, everything else byte-identical. Unit tests
-  prove: identity, address, lifecycle, dependencies, contributions, scope overrides and config
-  digest are unchanged; an already-annotated route and a route to any other target are left alone;
-  an existing annotation map is merged, not replaced. Mutation records cover dropping the merge and
-  widening the target check.
-- [ ] **M2. The transition stage.** `planNextStage` plans, after the platform scopes converge, a
-  stage that re-declares every accepted non-platform scope holding an un-annotated protected route
-  through the M1 transform. Planning again after it applies gives zero operations.
-  `transitionCommitRefusal` refuses while any accepted protected route lacks the annotation.
-  Interpreter tests drive the stage through the adversarial provider states, including a live
-  route whose field is owned by `kubectl-annotate` (the F37 reviewed field takeover must settle).
-  Mutation records cover the commit refusal and the stage selection.
+- [x] **M1. The route transform.** `Nagare.Access.ProtectedRouteRefresh.refreshProtectedRoutes`
+  re-declares a scope's un-annotated routes to the enforcer from their accepted bytes. Pass:
+  `-p "/protected route refresh/"`, 6 tests. They prove the re-declared bytes equal what
+  `renderAccessDomainMapping` renders now; the resource, the other members, the contributions, the
+  scope overrides and the config digest are unchanged; an annotated route, a route to another
+  target and a mapping outside `nagare-system` are left alone; other annotations are kept.
+  Mutation records: `EP273-refresh-replaces-annotations`, `EP273-refresh-any-target`.
+- [x] **M2. The transition stage.** `planNextStage` plans the stage once the platform review has no
+  operations and re-accepts no scope, with the field-takeover opt-in. `platform transition commit`
+  refuses through `unrefreshedRouteRefusal` while any accepted route to the enforcer lacks the
+  annotation. Pass: "through the interpreters: accepted routes are annotated, a hand annotation
+  becomes Nagare's, and planning again finds nothing" plans with the production planner and applies
+  with the production Kubernetes adapter over the model API server: two routes updated, the route
+  to another target untouched, `kubectl-annotate` gone from the hand-annotated route's managers,
+  and a second plan empty. Mutation records: `EP273-commit-ignores-unannotated-routes`,
+  `EP273-takeover-keeps-shared-owner`. Not covered by a test: the stage selection itself, which is
+  in the executable (`Nagare.Cli.Bootstrap.Sequence`) and is first exercised by M3's rehearsal.
+  The other adversarial provider states (lost acknowledgement, landed unready, replaced route) are
+  the Kubernetes adapter's existing update path, which the recovery model's deep tier covers.
 - [ ] **M3. Rehearsal and native confirmation.** The EP-172 transition rehearsal is seeded with a
   protected route rendered without the annotation, plus one annotated by `kubectl annotate`. It
-  moves from v0.24.5 to the candidate and reads both back annotated and Nagare-owned, with the
-  seeded data row unchanged. On labs, the v0.24.6 transition leaves zero un-annotated protected
-  routes and no `kubectl-annotate` field manager on any of them, and an anonymous WebSocket
-  upgrade to `kotei-ui.labs` gets a 302.
+  moves from v0.25.2 to the candidate and reads both back annotated and Nagare-owned, with the
+  seeded data row unchanged. On labs, the next release's transition leaves zero un-annotated
+  protected routes and no `kubectl-annotate` field manager on any of them, and an anonymous
+  WebSocket upgrade to `kotei-ui.labs` gets a 302. This runs when the operator cuts that release.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- A forced server-side apply does not take a field from another writer when it sets the value the
+  field already has; the API server records both as owners. The plan assumed the apply would empty
+  the `kubectl-annotate` entry. The interpreter test stopped ambiguous with "field takeover left
+  fields owned by another writer" (2026-11-21), so on labs the stage, and any redeploy of those 11
+  sites with `--take-over-fields`, would have stopped the same way. This changed M2: see the
+  Decision Log entry on shared ownership.
+- `inventory status` on labs (v0.25.2, 2026-11-21) reports no drift for the 11 hand-annotated
+  routes: the annotation is outside the stamped spec. All 22 routes carry the annotation live, 11
+  of them owned by `kubectl-annotate`. The plan is still needed for accepted state, not for traffic.
 
 
 ## Decision Log
@@ -109,6 +122,26 @@ deferral-ledger entry for any finding it leaves open.
   identity and address kept, so every grant bound to the route survives (ADR 29). Recompiling a
   site's config would ship unrelated changes, or fail on configs written for an older DSL.
   Date: 2026-11-21.
+- Decision: A reviewed field takeover ends shared ownership after its apply.
+  Rationale: Without it a field another writer set to the value Nagare then declares can never be
+  taken over, and every later update of that object refuses. After the forced apply, the runtime
+  removes the fields Nagare's `Apply` entry owns from each reviewed writer's managed-field entry
+  (`takeoverSettlementPatch`), by a patch bound to UID and resourceVersion that changes no field. A
+  field Nagare does not declare stays with its writer, and `confirmTakeoverSettled` still refuses it.
+  This applies to every `--take-over-fields` review, not only this stage.
+  Date: 2026-11-21 (implementing agent; not yet confirmed by the operator).
+- Decision: The route stage opts in to field takeover by itself.
+  Rationale: `platform transition plan` has no `--take-over-fields`, and the release runner plans
+  stages unattended. The stage only updates DomainMappings whose bytes Nagare declares in full, and
+  the review still names each writer it takes over from. A route with no other writer plans as an
+  ordinary update.
+  Date: 2026-11-21 (implementing agent; not yet confirmed by the operator).
+- Decision: The stage re-declares platform scopes too, not only site scopes.
+  Rationale: The admin API carries its old-base routes from accepted bytes during and after a base
+  move (`withGrantedMovedRoutes`), so a platform scope can also hold a route rendered before
+  v0.24.5 that no platform review re-renders. Re-declared, the next platform review carries the
+  same bytes and plans nothing.
+  Date: 2026-11-21 (implementing agent).
 
 
 ## Outcomes & Retrospective
@@ -206,17 +239,15 @@ keeping its overrides and config digest. Put the shared annotation key in one pl
 `cli/nagarectl/test/AccessRouteRefreshSpec.hs`, registered in `cli/nagarectl/nagarectl.cabal`.
 
 **M2.** In `planNextStage`, after the platform candidate yields no operations, load the snapshot
-and the accepted native bytes of every protected route in non-platform scopes (one
+and the accepted native bytes of every DomainMapping in `nagare-system` (one
 `loadAcceptedNativeSelected` call). Build a candidate holding only the scopes
 `refreshProtectedRoutes` changes, and plan it with the same payload identity as the other stages,
 so its review is a transition review. Extend `transitionCommitRefusal`'s callers to refuse while
 the M1 predicate finds any accepted protected route without the annotation. The refusal message
 names the first such route and says to plan the transition's next stage.
 
-First check that admission accepts a transition review changing `Application` and `Standalone`
-scopes. If it refuses, record the refusal under Surprises and decide between widening the
-transition's admitted scope set (preferred, with its own mutation record) and a separate reviewed
-command run by the intranet step. Record that choice in the Decision Log before continuing.
+Admission accepts a transition review changing `Application` and `Standalone` scopes:
+`transitionAdmission` checks only the review's payload identity against the open marker.
 
 Interpreter tests go beside the existing transition tests in `cli/nagarectl/test/`. They cover:
 
@@ -230,8 +261,8 @@ Interpreter tests go beside the existing transition tests in `cli/nagarectl/test
 `nagare-harness transition drill`) with one protected site deployed by the v0.24.5 CLI, whose
 route's annotation is then removed with `kubectl annotate …-`, so the route is un-annotated
 without being drift. Add one route annotated with `kubectl annotate`. The drill asserts both
-routes come back annotated, Nagare-owned, and still bound to their grants. Then ship v0.24.6 by
-`docs/runbooks/releases.md` and check labs as in Validation.
+routes come back annotated, Nagare-owned, and still bound to their grants. Then ship the next
+release by `docs/runbooks/releases.md` and check labs as in Validation.
 
 
 ## Concrete Steps
@@ -246,10 +277,10 @@ just gate-fast && just land HEAD
 Release, after M3's rehearsal change lands (see `docs/runbooks/releases.md`):
 
 ```bash
-scripts/harness.sh release images prepare   # after bumping release.json to 0.24.6
+scripts/harness.sh release images prepare   # after bumping release.json to VERSION
 just gate-fast && just land HEAD
-CACHIX_AUTH_TOKEN=... just release-candidate 0.24.6 --revision REV
-just release-publish 0.24.6
+CACHIX_AUTH_TOKEN=... just release-candidate VERSION --revision REV
+just release-publish VERSION
 ```
 
 The labs check, from the operator repository `mori://tan/tan-ng-labs`:
@@ -291,10 +322,12 @@ than silently reverting, and the annotation can be removed by a reviewed redeplo
 
 ## Interfaces and Dependencies
 
-- New: `Nagare.Access.ProtectedRouteRefresh.refreshProtectedRoutes` (signature in Plan of Work),
-  and one exported constant for the annotation key, used by `Nagare.Access.Resolve`.
-- Changed: `planNextStage` (one stage appended), the commit refusal's inputs, and the EP-172
-  rehearsal seed.
+- New: `Nagare.Access.ProtectedRouteRefresh` (`refreshProtectedRoutes`, signature in Plan of Work;
+  `refreshAcceptedProtectedRoutes`, which reads the accepted bytes; `unrefreshedRouteRefusal`),
+  `Nagare.Access.Resolve.disableHttp2Annotation`, and
+  `Nagare.Inventory.KubernetesConfiguration.takeoverSettlementPatch`.
+- Changed: `planNextStage` (one stage appended), `platform transition commit` (one refusal), the
+  Kubernetes runtime's takeover (`settleTakeover`), and, in M3, the EP-172 rehearsal seed.
 - External: Knative Serving and net-kourier knative-v1.22.0, as vendored in
   `cluster/bootstrap/vendor/`. A net-kourier upgrade must keep honouring
   `kourier.knative.dev/disable-http2`; the route check's WebSocket step

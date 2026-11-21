@@ -17,8 +17,9 @@ import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Access.ProtectedRouteRefresh (refreshAcceptedProtectedRoutes, unrefreshedRouteRefusal)
 import Nagare.Cli.Bootstrap.Foundation (buildCloudFoundationCandidate, cloudFoundationPendingAt, foundationStageTarget)
-import Nagare.Cli.Bootstrap.Sequence (planNextStage)
+import Nagare.Cli.Bootstrap.Sequence (planNextStage, reacceptedScopes)
 import Nagare.Cli.Bootstrap.Stage (StageMode (ReleaseTransition))
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -29,7 +30,7 @@ import Nagare.Contract.Release (TransitionPlanSummary (..), transitionPlanSummar
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (PlannedOperation (plannedAction))
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Plan (ReviewDocument (reviewOperations, reviewValidations), ReviewOperation (reviewPlannedOperation), loadReviewBundle, reviewBaseRevisions, reviewBundleDocument, reviewDesiredRevisions)
+import Nagare.Inventory.Plan (ReviewDocument (reviewOperations, reviewValidations), ReviewOperation (reviewPlannedOperation), loadReviewBundle, reviewBundleDocument)
 import Nagare.Inventory.Store
   ( HeadManifest (headGeneration, headSchemaVersion, headTransition)
   , InventoryStore
@@ -152,6 +153,12 @@ runPlatformTransitionCommit mctx yes = do
             else transitionOpenRefusal platform headValue
     )
     dieT
+  -- EP-273: the pin also waits for every accepted route to the access enforcer to carry Kourier's
+  -- HTTP/1.1 annotation, which the transition's last stage re-declares.
+  unless finalizing $ do
+    snapshot <- Inventory.loadTargetSnapshotReadOnly active
+    (_, pending) <- refreshAcceptedProtectedRoutes store snapshot >>= either dieT pure
+    for_ (unrefreshedRouteRefusal pending) dieT
   let target = manifest ^. #platformVersion
       reports identity = identity ^. #version == Just target
   TIO.putStr (renderPlatformStatus (contextNameText (active ^. #contextName)) status)
@@ -204,13 +211,7 @@ transitionImpact reviewDirectory = do
   bundle <- loadReviewBundle reviewDirectory >>= either dieT pure
   let document = reviewBundleDocument bundle
       actions = [actionTag (plannedAction (reviewPlannedOperation operation)) | operation <- reviewOperations document]
-      base = reviewBaseRevisions document
-      moved =
-        [ Resource.scopeIdText scope
-        | (scope, revision) <- Map.toAscList (reviewDesiredRevisions document)
-        , Resource.nameText (Resource.scopeName scope) /= "bootstrap-stamp"
-        , Map.lookup scope base /= Just revision
-        ]
+      moved = map Resource.scopeIdText (reacceptedScopes document)
   pure
     TransitionPlanSummary
       { schemaVersion = transitionPlanSummaryVersion

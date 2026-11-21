@@ -80,6 +80,7 @@ library
   exposed-modules:
     Nagare.Access.Check
     Nagare.Access.Grants
+    Nagare.Access.ProtectedRouteRefresh
     Nagare.Access.Resolve
     Nagare.Access.Reviewed
     Nagare.Access.ShomeiMove
@@ -692,6 +693,7 @@ test-suite nagarectl-test
     AccessCheckSpec
     AccessGrantsSpec
     AccessResolveSpec
+    AccessRouteRefreshSpec
     AppDatabaseCredentialSpec
     AppDatabasePrivilegeSpec
     AppDatabaseRestartSpec
