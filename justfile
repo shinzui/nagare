@@ -364,8 +364,8 @@ gate-fast rev="HEAD":
 # whose faults can interact, run as parallel shards of the placements on the
 # remote builder (`just test-remote`), for a committed revision. Each shard's
 # log has `recovery-model:` progress lines and each violation, as it is found,
-# as `recovery-model: violation:` lines. Its budget is one hour with the
-# default 16 shards. `just deep-tier-required` says whether a change needs it.
+# as `recovery-model: violation:` lines. Measured 2026-11-21: about 8.5M fault
+# pairs, 16-21 core-hours; 1-2.5 h per shard with the default 16 shards. `just deep-tier-required` says whether a change needs it.
 # Run the recovery model's deep tier for a commit on the remote builder.
 [group('test')]
 gate-deep rev="HEAD" shards="16":

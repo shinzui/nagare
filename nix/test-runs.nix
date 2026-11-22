@@ -75,7 +75,7 @@
             (
               start=$(date +%s)
               set +e
-              NAGARE_RECOVERY_MODEL_SHARD="$spec" ${selected.binary} -p ${lib.escapeShellArg pattern} > "$out/$name.log" 2>&1
+              ${lib.optionalString deep "NAGARE_SUITE_SHARDS=1 "}NAGARE_RECOVERY_MODEL_SHARD="$spec" ${selected.binary} -p ${lib.escapeShellArg pattern} > "$out/$name.log" 2>&1
               code=$?
               echo "$spec exit=$code seconds=$(( $(date +%s) - start ))" >> "$out/status"
               echo "test run: $spec finished, exit $code"
