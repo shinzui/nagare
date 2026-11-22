@@ -81,7 +81,9 @@ it touched.
   Acceptance produces its event, readable through the admin API. The EP-172 rehearsal
   (`NAGARE_REHEARSAL_LIFECYCLE=1 just release-rehearse <rev> v0.26.0`) runs the lifecycle
   worker, reads its seeded data back unchanged and shows `platform.upgraded`. Without the
-  variable the rehearsal is unchanged.
+  variable the rehearsal is unchanged. The deploy and env-change wall times and request
+  counts, and the `just gate-fast` wall time, are recorded here at the base revision and
+  at M6.
 
 
 ## Surprises & Discoveries
@@ -552,6 +554,17 @@ confirms that too. Run it once for this plan with
 its seeded row back unchanged. At completion, amend ADR 39 with the journal-derived source class and the change
 that every converged transaction now writes facts, and update
 `docs/user/lifecycle-events.md`'s type table.
+
+**Measuring the cost.** Three numbers are recorded in Progress, once at the base revision
+before M1 lands and once at M6. On the same local context, the wall time of one app deploy
+and of one env change, each taken as the median of three runs of `nagarectl … apply`. The
+wall time of `just gate-fast` on a clean tree. And, from the store's own counters (EP-212,
+`StoreCounters` in `cli/nagare-core/src/Nagare/Inventory/Store.hs`), the requests one deploy
+and one env change make. M6 is not accepted if the deploy makes more requests than at the
+base, if the env change makes more than two extra, or if either wall time grows by more
+than the spread of its three base runs. The journal needs no measurement of its own: every
+reader of the whole journal goes through `readJournalPrefix`, which the `nagarectl` cache
+serves, and the counters above would show a reader that missed it.
 
 
 ## Concrete Steps
