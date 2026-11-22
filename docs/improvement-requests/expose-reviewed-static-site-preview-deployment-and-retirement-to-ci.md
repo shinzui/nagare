@@ -9,6 +9,7 @@ generated:
 requestId: IR-50
 status: proposed
 origin: mori://shinzui/kotei/masterplans/30-preview-nagare-sites-from-pull-requests-and-promote-the-tested-release
+originPlan: mori://shinzui/kotei/masterplans/30-preview-nagare-sites-from-pull-requests-and-promote-the-tested-release
 acceptanceCriteria:
   - id: AC-1
     statement: A delegated dry run for a rendered StaticSite and an accepted image returns one versioned deploy-preview with the derived preview scope, resolved hostname or HTTPS URL, configuration digest and reviewed image and environment bindings.

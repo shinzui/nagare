@@ -11,8 +11,8 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T19:15:20Z"
 resolution: "ExecPlan 139 corrected every user-facing boot-disk-size claim and both init/context-create help surfaces: any live size change replaces the instance and its boot-resident k3s state, shrinking is unsupported, and operators should size the disk for the VM lifetime. The gcp-bootstrap-rehearsal native check scans the packaged help and user tables for regressions while retaining the distinct supported in-place data-disk growth guidance; its full hermetic state-machine rehearsal passes."
-targetPlan: [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md)
-origin: mori://shinzui/nagare
+targetPlan: mori://shinzui/nagare/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -35,8 +35,7 @@ verified:
 # Improvement Request: correct the boot-disk size documentation
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout on `v0.2.1`
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
 [ExecPlan 139](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) on 2026-09-14.

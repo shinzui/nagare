@@ -1,5 +1,15 @@
 # Bundle Update Log
 
+## 2026-11-22
+
+* **Update**: IR-36 (accepted → completed), IR-38 (proposed → completed) and IR-44 (accepted → completed). ExecPlan 222 records the packaging drill, ExecPlan 236 records the v0.14.1 live version comparisons, and mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application records the native AC-5 confirmation for IR-44.
+* **Update**: IR-39, IR-41 and IR-42 moved from accepted to in-progress. ExecPlan 237 leaves the AC-1 clean rebuild deferred as F134, and the native AC-4 override used nagare-access. ExecPlan 239 leaves the intranet renewal observation open. MasterPlan 34 and the Kotei hosting evidence leave the hosted AC-5 handoff open.
+* **Update**: Linked implementation plans for IR-24 (MasterPlan 23), IR-37 (ExecPlan 219), IR-38 (236), IR-40 (238), IR-42 (MasterPlan 34), IR-43 (MasterPlan 35), IR-44 (ExecPlan 261) and IR-49 (275). Recorded the canonical target identities of the ten requests delivered by archived ExecPlans 134–139. Their Status sections retain the plan files at 940c1481.
+* **Update**: Corrected the source of IR-1 to mori://shinzui/kikan/okf/use-cases/concepts/UC-5 and of IR-2–5 and IR-7–23 to mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation, whose rollout record identifies the reports it filed. Recorded the source plans for IR-24 (ExecPlan 96), IR-34 (204), IR-36 (mori://shinzui/tan-os/plans/77-deploy-the-network-explorer-to-the-labs-intranet-as-a-login-protected-static-site), and requests already attributed to a specific source plan.
+* **Update**: Clarified the planned Apple bootstrap in IR-6. Updated IR-45 and IR-46 with their first published releases, v0.24.0 and v0.23.0, from the tags containing db88471e and 112380c0.
+* Added [IR-51](include-the-registered-client-in-platform-oauth-access-tokens.md) to request a signed `client_id` claim in platform OAuth access tokens.
+* Repaired ten archived plan references and restored the completion timestamps for IR-24 and IR-43 from their MasterPlan close-out records.
+
 ## 2026-11-20
 
 * **Created**: Add IR-50 from mori://shinzui/kotei/masterplans/30-preview-nagare-sites-from-pull-requests-and-promote-the-tested-release for versioned, delegated preview deployment and data-only retirement of a rendered static site.

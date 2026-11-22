@@ -11,7 +11,7 @@ status: completed
 completedAt: "2026-09-12T21:27:16Z"
 resolution: "EP-111 added autoResize (x-systemd.growfs) to /var/lib/nagare; EP-114 fixed the ordering cycle that silently dropped the grow (format-nagare-data without default dependencies, ordered after its device) and proved it with the data-disk-online-grow VM test (blank-disk format, grow on reboot, grow online; no ordering cycle) plus the data-disk-auto-grow evaluation check. Recorded previews show a dataDiskSizeGb increase is an in-place update and a decrease fails closed once protect is in state; a bootDiskSizeGb change forces instance replacement. Live on nagare-01 on 2026-09-12 the disk grew 100 to 110 GiB and df went 98G to 108G via systemctl restart systemd-growfs@var-lib-nagare.service, node Ready. docs/user/resizing-the-vm.md#growing-the-data-disk documents the procedure and the DiskUsageHigh alert now points at it."
 targetPlan: docs/plans/111-automate-and-document-growing-the-data-disk.md
-origin: mori://shinzui/nagare
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex

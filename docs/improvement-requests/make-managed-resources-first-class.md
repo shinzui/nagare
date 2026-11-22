@@ -8,7 +8,11 @@ generated:
   at: "2026-09-16T17:06:57Z"
 requestId: IR-24
 status: completed
+targetPlan: mori://shinzui/nagare/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories
+completedAt: "2026-10-09T19:30:00Z"
+resolution: "MasterPlan 23 shipped in v0.4.0. The release evidence maps all seven acceptance cases to named assertions on candidate 83124396."
 origin: mori://shinzui/nagare
+originPlan: mori://shinzui/nagare/plans/96-an-in-cluster-nix-binary-cache-attic-as-a-cluster-bootstrap-component
 ---
 
 # Improvement Request: make Nagare's managed resources explicit and authoritative

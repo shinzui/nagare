@@ -7,8 +7,12 @@ generated:
   by: process:claude-code
   at: "2026-11-11T19:20:00Z"
 requestId: IR-44
-status: accepted
+status: completed
+completedAt: "2026-11-12T23:19:11.449834Z"
+resolution: "ExecPlan 261 verified the default and opted-out workload bindings. Kotei’s native ARM64 run at Nagare a314e7a9 confirmed AC-5: only the hook received the maintenance key, the hook finished before the serving Pods started, and both roles became ready. Released in v0.21.0."
+targetPlan: mori://shinzui/nagare/plans/261-scope-an-app-s-managed-env-and-secrets-to-the-workloads-that-reference-them
 origin: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
+originPlan: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
 dependencies:
   - ref: mori://shinzui/nagare/okf/improvement-requests/concepts/IR-43
     kind: soft
@@ -108,7 +112,7 @@ web service's token and webhook secret.
 
 ExecPlan 261 ([docs/plans/261-scope-an-app-s-managed-env-and-secrets-to-the-workloads-that-reference-them.md](../plans/261-scope-an-app-s-managed-env-and-secrets-to-the-workloads-that-reference-them.md),
 [ADR 38](../adr/0038-a-workload-inherits-its-app-s-managed-store-unless-it-opts-out.md)) delivers
-AC-1 to AC-4 at Nagare `a314e7a9`, not yet in a release. A web service, worker or task sets
+AC-1 to AC-4 at Nagare `a314e7a9`. The changes shipped in v0.21.0. A web service, worker or task sets
 `managedEnv = NoManagedEnv`. They were confirmed on 2026-11-12 on a local context by
 `just local-secret-scope-smoke`. At that handoff AC-5 remained for Kotei; the consumer confirmation below now supplies its live proof.
 

@@ -11,8 +11,8 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T14:12:41Z"
 resolution: "ExecPlan 136 made the target project and zone the default builder identity, rendered private per-context SSH and Nix builders files, shipped a positional GCP/IAP proxy, printed the effective builder before dry-run and build, and passed the builder explicitly to nix build. A known foreign NAGARE_BUILDER_PROJECT now refuses unless --allow-shared-builder names the exact project. Hermetic tests cover rendering, file modes, refusal, opt-in, and exact build argv; the installed-tool check requires the proxy. ADR 9 records builder project ownership."
-targetPlan: [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md)
-origin: mori://shinzui/nagare
+targetPlan: mori://shinzui/nagare/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -35,8 +35,7 @@ verified:
 # Improvement Request: confine or at least surface the host-image builder's project
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
 [ExecPlan 136](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md); builder

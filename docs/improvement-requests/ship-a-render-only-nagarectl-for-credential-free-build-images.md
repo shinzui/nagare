@@ -10,6 +10,7 @@ requestId: IR-48
 status: accepted
 targetPlan: docs/plans/271-package-a-render-only-nagarectl-for-credential-free-build-images.md
 origin: mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer
+originPlan: mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer
 acceptanceCriteria:
   - id: AC-1
     statement: A stable flake output, packages.x86_64-linux.nagarectl-render, runs nagarectl site render and nagarectl site package, and its closure has no -doc output, test framework, Helm, Pulumi, Node.js, gcloud or platform payload.

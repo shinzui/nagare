@@ -11,7 +11,7 @@ status: completed
 completedAt: "2026-09-14T01:56:48Z"
 resolution: "Commit 3a107d3 restored the declared nagare.host.hostName option and added the HostSpec golden plus host-module-options-agree contract check. ExecPlan 128 re-ran those checks, all 462 nagarectl tests, an isolated host init --dry-run, the full local and native release gates, and published the fix in the signed v0.2.2 tag at commit 248e5f9. The check compares every rendered nagare.host option with the packaged module rather than evaluating a fresh full NixOS system; nixos/flake.nix CI coverage remains a documented gap."
 targetPlan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
-origin: mori://shinzui/nagare
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -34,8 +34,7 @@ verified:
 # Improvement Request: make `nagarectl host init` render `nagare.host.hostName`
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout on `v0.2.1`
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md); the fix from `3a107d3` is published in signed tag `v0.2.2` at `248e5f9`.
 **Created:** 2026-09-13.

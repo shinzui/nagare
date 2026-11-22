@@ -7,7 +7,10 @@ generated:
   by: process:claude-code
   at: "2026-10-31T14:54:53Z"
 requestId: IR-38
-status: proposed
+status: completed
+completedAt: "2026-10-31T18:35:52Z"
+resolution: "ExecPlan 236 M4 confirmed the v0.14.1 platform versions endpoint on the intranet and a local context. Independent node, pod and database reads matched the snapshot. Wire tests covered build skew, unavailable sources and conditional reads."
+targetPlan: mori://shinzui/nagare/plans/236-expose-installed-platform-host-component-and-database-versions
 origin: mori://tan/tan-ng-labs
 acceptanceCriteria:
   - id: AC-1
@@ -50,6 +53,8 @@ reviews:
 **Addressed to:** `shinzui/nagare` agents.
 **Created:** 2026-10-31.
 
+
+**Delivered in v0.14.1.** [ExecPlan 236](../plans/236-expose-installed-platform-host-component-and-database-versions.md) records the local and intranet comparisons for AC-1 through AC-5. The [sample response](../api/samples/platform-versions.json) shows the public contract.
 
 ## Why
 
@@ -118,6 +123,4 @@ runbook already covers it. This request is only about making the versions visibl
 
 ## Consumer
 
-When this ships, the tan-ng-labs portal will vendor the new contract, then add the Nagare,
-NixOS, kernel and k3s versions to its Admin home "Nagare" card and the engine versions to its
-Databases page.
+The portal now calls `GET /v1/platform/versions`. Its fixture records the intranet response from v0.14.1 (`mori://tan/tan-ng-labs`, project-relative `web/apps/portal/src/features/nagare/fixtures/SOURCES.md`, artifact-level URI pending).

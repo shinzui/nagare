@@ -11,6 +11,7 @@ completedAt: "2026-10-20T13:40:00Z"
 resolution: "ExecPlan 204, released in 0.8.0: ClickHouse ceilings constrained MIN 1 MAX the declared value per user, and a PostgreSQL connection limit and default statement timeout; ceilings stop over-limit queries and cannot be raised or zeroed. The app-database smoke proves it natively and the intranet runs it."
 targetPlan: docs/plans/204-let-app-databases-declare-reviewed-grant-exceptions-and-resource-limits.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
+originPlan: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 acceptanceCriteria:
   - id: AC-1
     statement: A ClickHouse app database can declare, per user, a ceiling on memory per query, execution time and concurrent queries, enforced by the server.

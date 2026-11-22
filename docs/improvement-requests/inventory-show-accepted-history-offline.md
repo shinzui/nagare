@@ -11,6 +11,7 @@ status: accepted
 acceptedAt: "2026-10-29T14:31:52Z"
 targetPlan: docs/plans/223-show-accepted-inventory-history-without-contacting-providers.md
 origin: mori://shinzui/nagare
+originPlan: mori://shinzui/nagare/plans/204-let-app-databases-declare-reviewed-grant-exceptions-and-resource-limits
 acceptanceCriteria:
   - id: AC-1
     statement: nagarectl inventory show, with no argument, lists every accepted scope in the selected store with its kind, name, revision generation and member count, reading only the store.

@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-11-22
+
+* **Update**: BUG-8 moved from reported to in-progress. MasterPlan 29 and ExecPlan 221 record the shipped improvements and the v0.11.1 benchmark at 103 scopes. Two samples exceeded the thresholds and the 50-scope growth run was waived for the plan.
+
+* **Update**: BUG-5 and BUG-6 remain fixed. Their fixedVersion changed from unreleased to 0.6.3, the first published tag containing dff31cf5. Linked BUG-10 to ExecPlan 270, which records the regression test and fix in a20a5203.
+
 ## 2026-11-18
 * **Update**: Mark BUG-10 `fixed` in `unreleased` by commit `a20a5203` (ExecPlan 270): a pre-deploy hook's operation is planned only for a review that selects its own Job, so a closed release's hook no longer enters reviews through the data every hook shares.
 * **Addition**: Record BUG-10 from mori://shinzui/kotei/okf/friction-log/concepts/FRIC-80. Closing a terminal application migration hook leaves subsequent app reviews unable to bind the closed release Job.

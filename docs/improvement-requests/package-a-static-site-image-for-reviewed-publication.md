@@ -7,10 +7,13 @@ generated:
   by: process:claude-code
   at: "2026-10-22T19:09:06Z"
 requestId: IR-36
-status: accepted
+status: completed
+completedAt: "2026-10-30T19:04:59Z"
+resolution: "ExecPlan 222 recorded the packaged external-config check, byte comparisons, amd64 archive acceptance by image-plan, and the protected-site drill. The guide’s manual review commands deployed the site on a local arm64 context. See docs/audits/ep222-static-publication.md."
 acceptedAt: "2026-10-29T14:19:15Z"
 targetPlan: docs/plans/222-package-and-publish-static-site-updates-through-a-fast-repeatable-workflow.md
 origin: mori://shinzui/tan-os
+originPlan: mori://shinzui/tan-os/plans/77-deploy-the-network-explorer-to-the-labs-intranet-as-a-login-protected-static-site
 acceptanceCriteria:
   - id: AC-1
     statement: A nagarectl command given a StaticSite config and its output directory writes the static release build context, the Dockerfile from Nagare.Static.Image.staticDockerfile, nginx.conf from renderNginxConfig and site/ with the output's contents, to a directory the operator names.
@@ -42,9 +45,9 @@ reviews:
 
 # Add a command that packages a StaticSite's image for reviewed publication
 
-**Status:** accepted for implementation in
+**Status:** completed on 2026-10-30 under
 [ExecPlan 222](../plans/222-package-and-publish-static-site-updates-through-a-fast-repeatable-workflow.md).
-The plan covers packaging, repeat publication, recovery, and timing validation; implementation has not started.
+The external-config check covered credential-free packaging. The [native drill](../audits/ep222-static-publication.md) exercised the guide on arm64 and published the amd64 archive through the reviewed image path.
 
 **Authored by:** a `claude-code` session planning
 `mori://shinzui/tan-os/plans/77-deploy-the-network-explorer-to-the-labs-intranet-as-a-login-protected-static-site`

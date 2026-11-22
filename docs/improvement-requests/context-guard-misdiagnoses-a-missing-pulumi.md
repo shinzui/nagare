@@ -12,7 +12,7 @@ acceptedAt: "2026-09-14T02:10:44Z"
 completedAt: "2026-09-14T02:39:24Z"
 resolution: "ExecPlan 129 replaced the nullable stack-project probe with typed found, missing, tool-not-found, command-failed, start-failed, and invalid-output observations. The guard now runs pulumi config --json, preserves exit status and stderr, names the resolved stack/backend in every refusal, emits standalone JSON failures, and has 15 focused unit cases plus passing hermetic missing-tool and fake-Pulumi command checks. ADR 9 records the durable diagnostic contract."
 targetPlan: docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md
-origin: mori://shinzui/nagare
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -35,8 +35,7 @@ verified:
 # Improvement Request: make the context guard report why it could not read the stack project
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout on `v0.2.1`
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by [ExecPlan 129](../plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md);
 the durable diagnostic contract is recorded in

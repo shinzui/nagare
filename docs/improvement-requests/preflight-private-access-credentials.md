@@ -11,6 +11,7 @@ completedAt: "2026-10-13T14:36:14Z"
 resolution: "ExecPlan 190: planning errors and inventory status findings carry the fixed access observation reason (missing key, en port-forward failure, En refusal) while other providers stay redacted; plan errors print as code: message (resources) lines; inventory apply and resume refuse an access review before admission when NAGARE_EN_API_KEY is unset or empty, recover and close are not gated, and a fake-backed test resumes a refused transaction once the key is set with a sentinel key absent from every review, store object, journal entry and output."
 targetPlan: docs/plans/190-refuse-a-missing-access-key-before-admission-and-keep-observation-causes-in-plan-errors.md
 origin: mori://shinzui/keiro-runtime-docs/plans/49-deploy-the-docs-to-the-labs-intranet-with-local-bun-builds
+originPlan: mori://shinzui/keiro-runtime-docs/plans/49-deploy-the-docs-to-the-labs-intranet-with-local-bun-builds
 acceptanceCriteria:
   - id: AC-1
     statement: Missing private access credentials produce a specific actionable refusal before a transaction or executor claim is created.

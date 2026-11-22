@@ -6,7 +6,7 @@ generated:
   by: process:claude-code
   at: "2026-10-22T20:05:00Z"
 bugId: BUG-8
-status: reported
+status: in-progress
 severity: degraded
 origin: mori://tan/tan-ng-labs
 affects: mori://shinzui/nagare/packages/nagarectl
@@ -60,6 +60,10 @@ reviews:
 (runbook `docs/runbooks/operations.md` in that project; artifact-level URI pending) on Nagare
 v0.9.0 (`e6314c408b747befd8af2329c2eebfa46563d76b`).
 
+
+## Fix and verification
+
+[MasterPlan 29](../masterplans/29-make-a-reviewed-change-cost-seconds-by-opening-the-inventory-once-and-reading-it-concurrently.md) changed the access commands to open the store once and reuse the accepted history. In the [v0.11.1 intranet benchmark](../audits/mp29-latency-2026-10-29/baseline.json), five runs at 103 scopes had median plan and apply times of 3.40 s and 9.88 s. One plan took 19.12 s and one apply took 24.26 s during project ownership checks. The operator closed [ExecPlan 221](../plans/221-close-the-reviewed-access-latency-gate-with-measured-command-costs.md) after the baseline run. The report’s original 50-additional-scope comparison remains unverified.
 
 ## What happens
 

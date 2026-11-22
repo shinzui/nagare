@@ -12,7 +12,7 @@ acceptedAt: "2026-09-14T03:45:51Z"
 completedAt: "2026-09-14T18:40:06Z"
 resolution: "ExecPlan 133 added context-confined `nagarectl host place-age-key` delivery over retried IAP SSH stdin, a root-only host helper that verifies exact SHA-256 and root:root 0400 metadata before retrying sops and Tailscale activation, and actionable status/doctor diagnostics. Documentation now orders the intentional secretless first boot and post-boot handoff correctly. All 527 focused Haskell tests, 25 declared native root-flake checks, and three app-validity checks pass; the focused x86_64-linux VM test proves missing-key failure, runtime-generated key delivery, idempotent re-placement, different-key refusal, successful decryption and autoconnect recovery without a reboot, and no private-key or canary leakage to the journal or serial console."
 targetPlan: docs/plans/133-deliver-the-host-age-key-after-first-boot.md
-origin: mori://shinzui/nagare
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -35,8 +35,7 @@ verified:
 # Improvement Request: a supported host age-key placement for new cloud hosts
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
 [ExecPlan 133](../plans/133-deliver-the-host-age-key-after-first-boot.md).

@@ -12,6 +12,7 @@ completedAt: "2026-11-18T05:40:00Z"
 resolution: "ExecPlan 264 shipped the setting in v0.22.0. NAGARE_AUTH_ISSUER renders SHOMEI_ISSUER and NAGARE_ACCESS_SHOMEI_ISSUER from one value and turns OIDC on; unset, the packaged manifests are unchanged. nagare-access serves discovery, the key set, authorize and token on the portal host. The local drill proved the authorization-code flow with PKCE from a signed-in browser, client_credentials, refusal of old tokens and one-renewal sessions. On the intranet, mori://tan/tan-ng-labs c4c1bf7 set https://auth.labs.topagentnetwork.net through reviewed plan 35940818; the next plan has no operations, platform status is exact, and public and in-cluster discovery and JWKS answer with that issuer."
 targetPlan: docs/plans/264-serve-the-platform-shomei-as-an-oidc-provider-for-native-clients.md
 origin: mori://shinzui/mori/plans/302-migrate-the-shared-registry-from-legacy-tokens-to-shomei-and-en-with-a-team-pilot
+originPlan: mori://shinzui/mori/plans/302-migrate-the-shared-registry-from-legacy-tokens-to-shomei-and-en-with-a-team-pilot
 acceptanceCriteria:
   - id: AC-1
     statement: A context can set the auth plane's Shomei issuer to an absolute https URL. The Shomei Deployment's SHOMEI_ISSUER and nagare-access's NAGARE_ACCESS_SHOMEI_ISSUER are both rendered from that one value, so they cannot diverge. A context that sets nothing keeps the issuer nagare-shomei and renders exactly as before.

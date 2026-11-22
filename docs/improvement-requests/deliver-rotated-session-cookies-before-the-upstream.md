@@ -7,9 +7,10 @@ generated:
   by: process:claude-code
   at: "2026-11-01T21:52:18Z"
 requestId: IR-41
-status: accepted
+status: in-progress
 targetPlan: docs/plans/239-deliver-rotated-session-cookies-before-waiting-on-the-upstream.md
 origin: mori://tan/tan-ng-labs/plans/12-keep-labs-sign-ins-alive-and-add-a-remember-me-option
+originPlan: mori://tan/tan-ng-labs/plans/12-keep-labs-sign-ins-alive-and-add-a-remember-me-option
 acceptanceCriteria:
   - id: AC-1
     statement: A GET or HEAD with an expired access token and a valid refresh token, which leads a refresh, is answered with a 307 to the same path and query, carrying the rotated cookies and Cache-Control no-store, without contacting the upstream.
@@ -50,15 +51,16 @@ reviews:
 
 # Deliver rotated session cookies before waiting on the upstream
 
-nagare-access spends a refresh token before it can deliver the replacement. It
-rotates the token when the request arrives, then waits for the upstream, and only
-then sends `Set-Cookie` on the upstream's response (`handleProtected` and
-`handlePortal` in `cli/nagare-access/src/Nagare/Access/App.hs`). If the browser
-drops the request during that wait, it keeps the spent token. Its next refresh
-looks like theft, and Shōmei correctly revokes the session.
+On the intranet’s v0.11.0 enforcer, nagare-access spent a refresh token before it could deliver the replacement. It
+rotated the token when the request arrived, waited for the upstream, then sent `Set-Cookie` on the upstream's response (`handleProtected` and
+`handlePortal` in `cli/nagare-access/src/Nagare/Access/App.hs`). When the browser
+dropped the request during that wait, it kept the spent token. Its next refresh
+triggered reuse detection, and Shōmei revoked the session.
 
 On `mori://tan/tan-ng-labs` this signed a user out of two 365-day sessions in
 about a day.
+
+**In progress.** v0.17.0 shipped early cookie delivery. [ExecPlan 239](../plans/239-deliver-rotated-session-cookies-before-waiting-on-the-upstream.md) records the gateway and three-browser results, including the documented exceptions for requests carrying Origin and WebSocket upgrades. M5 still lacks the live renewal observation on the intranet.
 
 ## Evidence
 

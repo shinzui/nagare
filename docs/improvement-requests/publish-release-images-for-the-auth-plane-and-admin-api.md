@@ -7,7 +7,7 @@ generated:
   by: process:claude-code
   at: "2026-10-31T17:49:52Z"
 requestId: IR-39
-status: accepted
+status: in-progress
 targetPlan: docs/plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md
 origin: mori://tan/tan-ng-labs
 acceptanceCriteria:
@@ -56,7 +56,7 @@ described here visible; this request removes its cause.
 
 ## Implementation plan
 
-Accepted for implementation in [ExecPlan 237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md). Implemented in Nagare v0.15.0, which the work intranet runs; evidence below, with AC-1's clean rebuild from the tag deferred as F134. Operator decision, 2026-11-01: packages are never published to GitHub. The images move through the Nix binary cache into each context's GCP Artifact Registry, so this request's "public release registry" and AC-1's "release registry" mean that cache.
+Implementation and verification are tracked in [ExecPlan 237](../plans/237-publish-release-images-for-the-auth-plane-and-admin-api.md). The intranet adopted the images in v0.15.0. F134 tracks AC-1’s clean rebuild from the tag. For AC-4, the native override run selected nagare-access. The requested admin API override has test coverage and still lacks a recorded native run. Operator decision, 2026-11-01: packages are never published to GitHub. The images move through the Nix binary cache into each context's GCP Artifact Registry, so this request's "public release registry" and AC-1's "release registry" mean that cache.
 
 
 ## Acceptance evidence

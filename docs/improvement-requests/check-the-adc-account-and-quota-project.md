@@ -11,8 +11,8 @@ status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
 completedAt: "2026-09-14T13:11:22Z"
 resolution: "ExecPlan 135 added token-safe ADC discovery with explicit environment precedence to initialization and every cloud project guard before Pulumi. Missing, invalid, unreadable, or foreign-quota credentials refuse with safe structured evidence and the exact quota-project repair; absent or mismatched principal evidence is visible as a warning. GCP onboarding and context documentation now explains ADC login, quota attribution, and context switching. Fixture, policy, redaction, command-order, and clone-free packaged tests pass as part of the 505-test focused gate. ADR 9 records the durable credential boundary."
-targetPlan: [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md)
-origin: mori://shinzui/nagare
+targetPlan: mori://shinzui/nagare/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -35,8 +35,7 @@ verified:
 # Improvement Request: check the ADC account and quota project against the context
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout on `v0.2.1`
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
 [ExecPlan 135](https://github.com/shinzui/nagare/blob/940c1481caa27e7b267f070b623201c5da31e64f/docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md); the durable

@@ -8,6 +8,7 @@ generated:
   at: "2026-10-31T23:05:36Z"
 requestId: IR-40
 status: accepted
+targetPlan: mori://shinzui/nagare/plans/238-size-observability-per-context-drop-duplicate-kubelet-metrics-and-stagger-scheduled-backups
 origin: mori://tan/tan-ng-labs
 acceptanceCriteria:
   - id: AC-1

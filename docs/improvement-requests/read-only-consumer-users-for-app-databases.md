@@ -11,6 +11,7 @@ completedAt: "2026-10-20T13:40:00Z"
 resolution: "ExecPlan 206, released in 0.8.0: an app database declares readers with SELECT on named tables or views of its own databases under fixed ceilings, bound only by declared consumer apps through appDatabaseReaders; pending PostgreSQL views are notes, SECURITY DEFINER functions PUBLIC may run and security_invoker views refuse, and readers rotate and retire by declaration. The app-database smoke proves AC-2 to AC-9 natively and the intranet runs it."
 targetPlan: docs/plans/206-give-app-databases-reviewed-read-only-consumer-users.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
+originPlan: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 dependencies:
   - ref: mori://shinzui/nagare/okf/improvement-requests/concepts/IR-32
     kind: soft

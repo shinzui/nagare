@@ -8,6 +8,7 @@ generated:
   at: "2026-10-23T02:09:00Z"
 requestId: IR-37
 status: proposed
+targetPlan: mori://shinzui/nagare/plans/219-profile-the-image-publication-and-site-deployment-path-and-remove-its-measured-waste
 origin: mori://tan/tan-ng-labs
 acceptanceCriteria:
   - id: AC-1
@@ -39,6 +40,8 @@ reviews:
 ---
 
 # Profile the complete image publication and site deployment path
+
+The full four-command profile is planned in [ExecPlan 219](../plans/219-profile-the-image-publication-and-site-deployment-path-and-remove-its-measured-waste.md). The [static publication drill](../audits/ep222-static-publication.md) measured local packaging and repeat publication. The protected intranet release capture remains open.
 
 ## Observed operator cost
 

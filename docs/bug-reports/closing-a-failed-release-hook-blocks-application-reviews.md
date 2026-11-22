@@ -106,6 +106,10 @@ and the affected database PVC. Reviews for the prior retained image and a fresh
 application in the same context returned the identical operation ID and error.
 Image publication and a separate runtime Secret review still converged.
 
+## Fix
+
+[ExecPlan 270](../plans/270-plan-application-reviews-after-a-failed-release-hook-is-closed.md) reproduced the failure and verified the fix in `a20a5203`. Its regression test covers a corrected release, rollback and an unrelated application after the failed hook is closed. The fix shipped in [v0.24.0](../releases/v0.24.0.md).
+
 ## Acceptance evidence
 
 A regression should close a failed per-release application hook, then prepare

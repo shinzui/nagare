@@ -8,8 +8,11 @@ generated:
   at: "2026-11-11T14:27:44Z"
 requestId: IR-43
 status: completed
+targetPlan: mori://shinzui/nagare/masterplans/35-let-an-app-own-its-database-on-a-shared-postgresql-server
+completedAt: "2026-11-12T15:24:25Z"
 resolution: "MasterPlan 35, released in 0.20.0: an app database declares ownership = AppOwned, which gives the app one owner login with CREATEROLE; the app's own SQL manages its roles, logins, memberships, ownership and grants without drift, and planning refuses anything reaching another app, Nagare's users or a server-wide privilege. Backups carry the app's roles in a role file, quiesce and retirement close its logins, and tasks and pre-deploy hooks bind the owner credential under a named URL variable. Confirmed with Kotei's unchanged privilege script on a local context (ExecPlan 260 M1); the intranet runs 0.20.0."
 origin: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
+originPlan: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
 dependencies:
   - ref: mori://shinzui/nagare/okf/improvement-requests/concepts/IR-35
     kind: soft

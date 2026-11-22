@@ -12,7 +12,7 @@ acceptedAt: "2026-09-14T03:42:01Z"
 completedAt: "2026-09-14T04:26:54Z"
 resolution: "ExecPlan 132 added five-minute cert-manager, Knative Serving, and net-certmanager webhook rollout gates before dependent changes plus a five-attempt, two-second retry for idempotent Knative ConfigMap merge patches. Hermetic retry and recipe-order checks pass under Nix, and one local-bootstrap invocation on a new disposable k3d cluster exited zero with a ready webhook endpoint and all expected ConfigMap values; the idempotence rerun also exited zero."
 targetPlan: docs/plans/132-make-cluster-bootstrap-wait-for-knative-webhooks.md
-origin: mori://shinzui/nagare
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -35,8 +35,7 @@ verified:
 # Improvement Request: make `cluster-bootstrap` pass on its first run
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
 [ExecPlan 132](../plans/132-make-cluster-bootstrap-wait-for-knative-webhooks.md).

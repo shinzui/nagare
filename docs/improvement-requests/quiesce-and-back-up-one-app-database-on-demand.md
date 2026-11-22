@@ -11,6 +11,7 @@ completedAt: "2026-10-20T13:40:00Z"
 resolution: "ExecPlan 205, released in 0.8.0: db app-database quiesce closes the chosen logins, pauses the schedule and drains the app's sessions, scheduled run and ClickHouse mutations without restarting the shared server; backup takes the schedule's own Job on demand; resume reopens exactly the quiesced users; evidence prints the window. The app-database smoke proves it natively and the intranet runs it."
 targetPlan: docs/plans/205-quiesce-one-app-database-and-back-it-up-on-demand.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
+originPlan: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 acceptanceCriteria:
   - id: AC-1
     statement: A reviewed quiesce operation on one app database stops new sessions for its users, ends or waits out their running queries, and reports when none remain, without touching other apps' users or restarting the server.

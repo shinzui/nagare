@@ -8,7 +8,7 @@ generated:
   at: "2026-07-30T00:30:00Z"
 requestId: IR-1
 status: proposed
-origin: mori://shinzui/kikan
+origin: mori://shinzui/kikan/okf/use-cases/concepts/UC-5
 reviews:
   - kind: model
     reviewer: process:openai-codex

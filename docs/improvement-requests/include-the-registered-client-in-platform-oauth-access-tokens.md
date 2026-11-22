@@ -9,6 +9,7 @@ generated:
 requestId: IR-51
 status: proposed
 origin: mori://shinzui/kotei/plans/158-serve-permission-aware-kotei-clients-through-the-nagare-auth-plane
+originPlan: mori://shinzui/kotei/plans/158-serve-permission-aware-kotei-clients-through-the-nagare-auth-plane
 acceptanceCriteria:
   - id: AC-1
     statement: Every platform OAuth access token minted from a registered authorization-code or client-credentials grant carries the authenticated or bound registration identifier as the signed client_id claim.

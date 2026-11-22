@@ -47,7 +47,7 @@ verified:
 
 # Support native Apple container Kubernetes through reviewed local bootstrap
 
-**Status:** accepted on 2026-10-28; implemented by
+**Status:** accepted on 2026-10-28. Implementation is planned in
 [ExecPlan 220](../plans/220-run-reviewed-local-bootstrap-on-native-apple-container-kubernetes.md).
 
 ## Request and priority

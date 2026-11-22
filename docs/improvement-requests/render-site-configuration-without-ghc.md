@@ -8,7 +8,9 @@ generated:
   at: "2026-11-20T18:36:00Z"
 requestId: IR-49
 status: proposed
+targetPlan: mori://shinzui/nagare/plans/275-compile-typed-static-site-configurations-and-package-their-rendered-documents-without-ghc
 origin: mori://shinzui/kotei/masterplans/26-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare
+originPlan: mori://shinzui/kotei/masterplans/26-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare
 acceptanceCriteria:
   - id: AC-1
     statement: An ADR records the chosen design for rendering a site's configuration without a full GHC toolchain, or records the decision to keep the compiler, with the trade-offs below.
@@ -22,7 +24,7 @@ acceptanceCriteria:
 
 Raised alongside IR-48 from
 `mori://shinzui/kotei/masterplans/26-let-any-engineer-onboard-a-repository-and-deploy-on-push-through-a-kotei-hosted-on-nagare`.
-IR-48 leaves the render package at about 2 GiB of GHC and `nagare-dsl`, because `site render`
+IR-48 proposes a smaller render package that still carries GHC and `nagare-dsl`, because `site render`
 compiles the repository's typed `nagare/Config.hs`. Removing the compiler is a design change,
 not packaging.
 
@@ -45,4 +47,4 @@ not packaging.
 - Security: ADR 35 keeps evaluation of untrusted config in the credential-free build either way.
   A data format shrinks what that build must contain and what an untrusted config can execute.
 
-This deserves a design discussion and an ADR before any plan.
+The proposed pilot in [ExecPlan 275](../plans/275-compile-typed-static-site-configurations-and-package-their-rendered-documents-without-ghc.md) starts with an amendment to ADR 3. The design decision and compiler-free equivalence checks remain open.

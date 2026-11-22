@@ -7,8 +7,10 @@ generated:
   by: process:codex
   at: "2026-11-09T15:52:00Z"
 requestId: IR-42
-status: accepted
+status: in-progress
+targetPlan: mori://shinzui/nagare/masterplans/34-extend-application-workloads-with-independent-health-checks-explicit-pod-policy-and-a-native-arm64-sdk
 origin: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
+originPlan: mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application
 reviews:
   - kind: model
     reviewer: process:codex
@@ -178,3 +180,4 @@ Residual requests, each separate from EP-256 and MasterPlan 34:
 
 The request is not complete while AC-5 is open.
 
+As of 2026-11-22, [IR-44](scope-app-secrets-to-the-workloads-that-reference-them.md) has live evidence for per-role Secret delivery. Kotei also qualified private regular credential files in its restored-database rehearsal. The hosted runner’s retained-content handoff remains open under `mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application` and `mori://shinzui/kotei/plans/148-deploy-rendered-apps-and-static-sites-through-a-delegated-nagare-deployer`. AC-5 remains in progress.

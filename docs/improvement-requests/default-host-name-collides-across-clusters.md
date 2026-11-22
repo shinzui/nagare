@@ -11,7 +11,7 @@ status: completed
 completedAt: "2026-09-14T03:05:26Z"
 resolution: "ExecPlan 130 made <context>-nagare the validated implicit NixOS and Tailscale host name while retaining the independent GCE instance name. host init now scans sibling generated host.nix files, refuses an implicit collision with an actionable owner and path, follows operator-repository symlinks, fails closed on unreadable files, and preserves explicit --host-name recovery. The installed-command check proves prod-nagare and labs-nagare with shared instance nagare-01 plus collision refusal; all 472 Haskell tests, documentation and style gates, focused Nix checks, and the full native flake check pass. ADR 5 records the durable contract."
 targetPlan: docs/plans/130-give-every-context-a-distinct-default-host-name.md
-origin: mori://shinzui/nagare
+origin: mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -34,8 +34,7 @@ verified:
 # Improvement Request: derive the default host name from the context
 
 **Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout on `v0.2.1`
-(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
-artifact-level plan URI is pending).
+under `mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`.
 **Addressed to:** `shinzui/nagare` agents.
 **Status:** completed by
 [ExecPlan 130](../plans/130-give-every-context-a-distinct-default-host-name.md); the durable host
