@@ -170,6 +170,9 @@ rehearseIn runtime index repo rev prev work record checkRecord = do
             , ("NAGARE_REHEARSAL_ROOT", work </> "run")
             , ("NAGARE_REHEARSAL_IMAGES", repo </> "scripts/publish-local-minio-images.sh")
             ]
+              -- EP-276: the opt-in lifecycle check; a release's rehearsal
+              -- does not set it.
+              <> [("NAGARE_REHEARSAL_LIFECYCLE", "1") | lookupVariable runtime "NAGARE_REHEARSAL_LIFECYCLE" == Just "1"]
           )
         & #stdoutTo
         .~ Tee (work </> "rehearsal.log")

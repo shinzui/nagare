@@ -16,6 +16,13 @@
 -- @NAGARE_REHEARSAL_CONTEXT@ and @NAGARE_REHEARSAL_SKIP_BOOTSTRAP@. The
 -- daemon must hold no k3d cluster and no registry forward: the drill never
 -- deletes anything it did not create (MasterPlan 37 D3).
+--
+-- EP-276: with @NAGARE_REHEARSAL_LIFECYCLE=1@ the context runs the lifecycle
+-- worker, the source release's feed is listed before the move, and after the
+-- commit the drill waits for one @platform.upgraded@ naming the source and
+-- target the transition reviews name, then checks that every event listed
+-- before is still listed with the same ID and data. Without it the drill is
+-- unchanged, so a release's rehearsal takes no longer.
 module Nagare.Harness.Release.TransitionDrill
   ( transitionDrill
   , drillEnvironment
@@ -230,9 +237,13 @@ runDrill drill sentinel = do
   _ <- psql ("CREATE TABLE IF NOT EXISTS transition_sentinel(v text); TRUNCATE transition_sentinel; INSERT INTO transition_sentinel VALUES ('" <> T.unpack sentinel <> "');")
   seeded <- psql "SELECT v FROM transition_sentinel;"
   say' drill ("seeded: " <> seeded)
+  let lifecycle = optional' "NAGARE_REHEARSAL_LIFECYCLE" == Just "1"
+  before <- if lifecycle then Just <$> listEvents drill Source [] else pure Nothing
+  forM_ before $ \listed -> say' drill ("lifecycle feed before the move: " <> showText (length listed) <> " events")
   -- 6. the transition on the candidate, then the pin
   moved <- reviewedLoop drill (Loop "transition" Target ["transition", "plan"] ["inventory", "apply"] AllOperations)
   lastLine drill "transition commit failed" =<< nagarectl drill Target ["platform", "transition", "commit", "--yes"]
+  upgraded <- traverse (lifecycleCheck drill) before
   -- 7. read back on the candidate
   ok drill "platform status failed" . (\i -> i & #stdoutTo .~ WriteTo (root' </> "evidence/after-platform.json")) =<< nagarectl drill Target ["platform", "status", "--json"]
   ok drill "inventory status failed" . (\i -> i & #stdoutTo .~ WriteTo (root' </> "evidence/after-status.json")) =<< nagarectl drill Target ["inventory", "status", "--json"]
@@ -257,18 +268,20 @@ runDrill drill sentinel = do
     False
     (root' </> "evidence/transition-rehearsal.json")
     ( object
-        [ "schemaVersion" .= (1 :: Int)
-        , "mode" .= ("local" :: Text)
-        , "context" .= T.pack context'
-        , "source" .= identity sourceIdentity
-        , "candidate" .= identity targetIdentity
-        , "bootstrap" .= object ["reviews" .= bootstrapReviews]
-        , "transition" .= object ["reviews" .= (moved ^. #reviews), "operations" .= (moved ^. #operations)]
-        , "sentinel" .= object ["seeded" .= sentinel, "readBack" .= readBack']
-        , "platform" .= platform
-        , "inventory" .= object [Key.fromText key .= field (Right status) key | key <- ["activeTransaction", "transactionStatus", "observationComplete"]]
-        , "replan" .= object ["operations" .= (0 :: Int), "reaccepts" .= (0 :: Int)]
-        ]
+        ( [ "schemaVersion" .= (1 :: Int)
+          , "mode" .= ("local" :: Text)
+          , "context" .= T.pack context'
+          , "source" .= identity sourceIdentity
+          , "candidate" .= identity targetIdentity
+          , "bootstrap" .= object ["reviews" .= bootstrapReviews]
+          , "transition" .= object ["reviews" .= (moved ^. #reviews), "operations" .= (moved ^. #operations)]
+          , "sentinel" .= object ["seeded" .= sentinel, "readBack" .= readBack']
+          , "platform" .= platform
+          , "inventory" .= object [Key.fromText key .= field (Right status) key | key <- ["activeTransaction", "transactionStatus", "observationComplete"]]
+          , "replan" .= object ["operations" .= (0 :: Int), "reaccepts" .= (0 :: Int)]
+          ]
+            <> ["lifecycle" .= record | Just record <- [upgraded]]
+        )
     )
   let revisioned raw = case decodeDocument @ReleaseIdentity "version --json" raw of
         Right found -> Revisioned (found ^. #version) (found ^. #revision)
@@ -276,6 +289,68 @@ runDrill drill sentinel = do
   updateIndex (drill ^. #index) ((#candidate .~ revisioned targetIdentity) . (#source .~ revisioned sourceIdentity))
   setRecord (drill ^. #index) "transitionRehearsal" (root' </> "evidence/transition-rehearsal.json")
   say' drill ("transition rehearsal OK: record in " <> T.pack (root' </> "evidence/transition-rehearsal.json"))
+
+-- | One event as a listing shows it: its ID, type and data.
+data Listed = Listed
+  { eventId :: !Text
+  , eventType :: !Text
+  , payload :: !Value
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Every event a release's @events list --json@ pages through, oldest
+-- first, optionally of these types only.
+listEvents :: Drill -> Release -> [String] -> IO [Listed]
+listEvents drill which types = go Nothing []
+  where
+    go after kept = do
+      raw <- capture (drill ^. #runtime) "events list failed" =<< nagarectl drill which (["events", "list", "--json", "--first", "100"] <> concat [["--type", t] | t <- types] <> maybe [] (\cursor -> ["--after", T.unpack cursor]) after)
+      case decodeDocument @Value "events list --json" raw of
+        Left reason -> refuse reason
+        Right document -> do
+          let page = [Listed identifier kind value | Object entry <- array "events" document, Just (Object event) <- [KeyMap.lookup "event" entry], Just (String identifier) <- [KeyMap.lookup "id" event], Just (String kind) <- [KeyMap.lookup "type" event], Just value <- [KeyMap.lookup "data" event]]
+              info = member "pageInfo" document
+              more = member "hasNextPage" info == Bool True
+              cursor = case member "endCursor" info of
+                String value -> Just value
+                _ -> Nothing
+          if more && isJust cursor then go cursor (kept <> page) else pure (kept <> page)
+    member key = \case
+      Object fields -> fromMaybe Null (KeyMap.lookup (Key.fromText key) fields)
+      _ -> Null
+    array key value = case member key value of
+      Array items -> foldr (:) [] items
+      _ -> []
+
+-- | EP-276: after the commit, wait for one @platform.upgraded@ from the
+-- source to the target the transition reviews name, then check that every
+-- event listed before the move is still listed unchanged. Returns the record
+-- the rehearsal binds.
+lifecycleCheck :: Drill -> [Listed] -> IO Value
+lifecycleCheck drill before = do
+  identity <- readReviewIdentity (drill ^. #root </> "reviews/transition-1") >>= either refuse pure
+  (from', to') <- case T.stripPrefix "nagare-transition:" identity of
+    Just pair | (source', rest) <- T.breakOn "->" pair, Just target' <- T.stripPrefix "->" rest, not (T.null source') -> pure (source', target')
+    _ -> refuse ("the transition review has no transition identity: " <> identity)
+  let expected = object ["from" .= from', "to" .= to']
+      wait :: Int -> IO ()
+      wait elapsed = do
+        upgrades <- listEvents drill Target ["platform.upgraded"]
+        case upgrades of
+          [only] | only ^. #payload == expected -> pure ()
+          [] | elapsed < lifecycleDeadline -> (drill ^. #runtime . #pause) 10 >> wait (elapsed + 10)
+          [] -> refuse ("no platform.upgraded from " <> from' <> " to " <> to' <> " within " <> showText lifecycleDeadline <> " s")
+          other -> refuse ("expected one platform.upgraded from " <> from' <> " to " <> to' <> ", found " <> T.pack (show (map (^. #payload) other)))
+  wait 0
+  after <- listEvents drill Target []
+  let missing = [listed ^. #eventId | listed <- before, listed `notElem` after]
+  unless (null missing) (refuse ("events listed before the move changed or vanished: " <> T.intercalate ", " missing))
+  say' drill ("lifecycle: platform.upgraded from " <> from' <> " to " <> to' <> "; " <> showText (length before) <> " earlier events unchanged of " <> showText (length after))
+  pure (object ["before" .= length before, "after" .= length after, "upgraded" .= expected])
+
+-- | How long the candidate's worker may take to publish the upgrade.
+lifecycleDeadline :: Int
+lifecycleDeadline = 600
 
 -- | Steps 0 to 4: an empty disposable daemon, the context's secrets, the
 -- context on the source release and its bootstrap. Returns the number of
@@ -315,7 +390,9 @@ bootstrap drill keyFile = do
     =<< nagarectl
       drill
       Source
-      ["context", "create", drill ^. #context, "--mode", "local", "--registry-host", "k3d-registry.localhost:5000", "--base-domain", "127-0-0-1.sslip.io", "--target-platform", platform, "--local-object-store", "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups", "--use"]
+      ( ["context", "create", drill ^. #context, "--mode", "local", "--registry-host", "k3d-registry.localhost:5000", "--base-domain", "127-0-0-1.sslip.io", "--target-platform", platform, "--local-object-store", "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups", "--use"]
+          <> ["--enable-lifecycle-events" | lookupVariable runtime' "NAGARE_REHEARSAL_LIFECYCLE" == Just "1"]
+      )
   rootDocument <- capture runtime' "platform root failed" =<< nagarectl drill Source ["platform", "root", "--json"]
   let payloadVersion = either (const Nothing) (^. #platformVersion) (decodeDocument @PlatformRoot "platform root --json" rootDocument)
   ownVersion <- capture runtime' "the source nagarectl has no version" =<< command drill (drill ^. #source) ["version", "--json"]

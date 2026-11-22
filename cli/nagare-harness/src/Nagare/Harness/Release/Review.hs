@@ -7,6 +7,7 @@ module Nagare.Harness.Release.Review
   ( ReviewCounts (..)
   , Counting (..)
   , readReviewCounts
+  , readReviewIdentity
   , reviewCounts
   , operationCount
   , isConverged
@@ -53,6 +54,12 @@ data ReviewCounts = ReviewCounts
 -- bootstrap loop counts only operations that are not @VerifyResource@.
 data Counting = AllOperations | MutatingOperations
   deriving stock (Eq, Show, Generic)
+
+-- | A saved review's payload identity (EP-276).
+readReviewIdentity :: FilePath -> IO (Either Text Text)
+readReviewIdentity directory = do
+  decoded <- eitherDecodeFileStrict (directory <> "/review.json")
+  pure (first (\reason -> T.pack (directory <> "/review.json: " <> reason)) (decoded >>= parseEither (withObject "review" (.: "payloadIdentity"))))
 
 readReviewCounts :: FilePath -> IO (Either Text ReviewCounts)
 readReviewCounts directory = do
