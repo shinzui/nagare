@@ -56,3 +56,27 @@ transaction can stop between them. Matching `Completed` would announce transacti
 - An older CLI cannot operate a store once a release has committed facts; a downgrade is refused, not attempted.
 - The recovery model registers a producer, so every fault placement reaches the new writes, and its I10 invariant
   checks that each released transaction has exactly one committed source and a closed one none.
+
+## Amendment: every converged change commits facts, and the journal's stops are sources
+
+Date: 2026-11-22. Implemented by
+[ExecPlan 276](../plans/276-publish-lifecycle-events-for-the-changes-failures-backups-and-upgrades-an-admin-needs-to-see.md).
+
+1. The built-in `change.applied` producer yields one candidate for every converged transaction, so every converged
+   release now publishes a facts object and its convergence event (decision 1's "release without facts" no longer
+   occurs for a built-in release). A transaction that already had facts gains no object; one that had none gains the
+   facts object and the convergence event, two writes, and no head write. Every head that records a convergence after
+   this release has wire version 2.
+2. A second class of committed source is read from the journal itself: an event whose state is `Failed` or
+   `Ambiguous`, and the close commit, an event with no operation and the state `OperatorResolved "closed:<record>"`.
+   Every event below the head's sequence was committed by a head replacement, and an adopted orphan is history the
+   executor itself acts on, so no rule like decision 4's is needed. No other `OperatorResolved` marker is a source.
+   The worker turns them into `change.failed`, with the review the transaction ID names, and `change.closed`, with the
+   close record; each read counts against the cycle's journal budget, and a stop whose review or record cannot be read
+   holds the feed at that event.
+3. A transition review's convergence commits a `platform-transition` control naming its source and target. The worker
+   keeps the newest in its own `lifecycle/v1/worker-transition.json`, written before the feed head that acknowledges
+   it, and publishes `platform.upgraded` in a cycle whose inventory head holds no transition marker and no active
+   transaction. The feed head's wire does not change.
+4. New event types are forward-only: a worker of an earlier release refuses facts or envelopes that carry them and
+   stops at that position without skipping it, and resumes once the context runs the new worker.
