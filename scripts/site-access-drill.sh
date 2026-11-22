@@ -115,7 +115,7 @@ mkdir -p "$secrets"
 printf 'creation_rules:\n  - age: %s\n' "$recipient" > "$secrets/.sops.yaml"
 if [ ! -s "$secrets/grafana-admin.yaml" ]; then
   (umask 077; printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: grafana-admin\n  namespace: monitoring\nstringData:\n  admin-user: admin\n  admin-password: %s\n' "$(head -c 24 /dev/urandom | base64 | tr -d '/+=')" > "$secrets/grafana-admin.yaml.new")
-  sops --config "$secrets/.sops.yaml" --encrypt --in-place "$secrets/grafana-admin.yaml.new"
+  sops --config "$secrets/.sops.yaml" --input-type yaml --output-type yaml --encrypt --in-place "$secrets/grafana-admin.yaml.new"
   mv "$secrets/grafana-admin.yaml.new" "$secrets/grafana-admin.yaml"
 fi
 
