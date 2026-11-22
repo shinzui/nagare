@@ -129,19 +129,19 @@ deferral-ledger entry for any finding it leaves open.
   (`takeoverSettlementPatch`), by a patch bound to UID and resourceVersion that changes no field. A
   field Nagare does not declare stays with its writer, and `confirmTakeoverSettled` still refuses it.
   This applies to every `--take-over-fields` review, not only this stage.
-  Date: 2026-11-21 (implementing agent; not yet confirmed by the operator).
+  Date: 2026-11-21 (implementing agent; confirmed by the operator, 2026-11-21).
 - Decision: The route stage opts in to field takeover by itself.
   Rationale: `platform transition plan` has no `--take-over-fields`, and the release runner plans
   stages unattended. The stage only updates DomainMappings whose bytes Nagare declares in full, and
   the review still names each writer it takes over from. A route with no other writer plans as an
   ordinary update.
-  Date: 2026-11-21 (implementing agent; not yet confirmed by the operator).
+  Date: 2026-11-21 (implementing agent; confirmed by the operator, 2026-11-21).
 - Decision: The stage re-declares platform scopes too, not only site scopes.
   Rationale: The admin API carries its old-base routes from accepted bytes during and after a base
   move (`withGrantedMovedRoutes`), so a platform scope can also hold a route rendered before
   v0.24.5 that no platform review re-renders. Re-declared, the next platform review carries the
   same bytes and plans nothing.
-  Date: 2026-11-21 (implementing agent).
+  Date: 2026-11-21 (implementing agent; confirmed by the operator, 2026-11-21).
 
 
 ## Outcomes & Retrospective
