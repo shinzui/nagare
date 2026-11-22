@@ -56,6 +56,7 @@ conforms eventType = \case
   DatabaseRestoredPayload value -> through (Proxy @Contract.DatabaseRestoredData) (toJSON value)
   BackupFailedPayload value -> through (Proxy @Contract.BackupFailedData) (toJSON value)
   FreshnessChangedPayload value -> through (Proxy @Contract.BackupFreshnessChangedData) (toJSON value)
+  PlatformUpgradedPayload value -> through (Proxy @Contract.PlatformUpgradedData) (toJSON value)
   where
     through :: forall a. (Eq a, Show a, FromJSON a, ToJSON a, ToSchema a) => Proxy a -> Value -> Assertion
     through proxy value = do
@@ -182,6 +183,7 @@ samplePayload = \case
         , newestRecoveryPoint = "2026-11-22T03:15:00Z"
         , ageSeconds = 1830
         }
+  PlatformUpgraded -> PlatformUpgradedPayload (PlatformUpgrade "v0.26.0" "v0.27.0")
   where
     notesWeb = mintResourceId (scopeOf Application "notes") (either (error . show) id (mkLogicalKey "web")) (either (error . show) id (mkName "service"))
     transaction = either (error . show) id (mkTransactionId ("tx-" <> digestText review))

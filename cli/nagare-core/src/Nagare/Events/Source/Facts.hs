@@ -42,6 +42,7 @@ module Nagare.Events.Source.Facts
   , freshnessGradeText
   , BackupObjective (..)
   , FreshnessChange (..)
+  , PlatformUpgrade (..)
   , contextScope
   , releaseSubject
   , primaryScopeOf
@@ -122,6 +123,7 @@ data EventKind
   | DatabaseRestored
   | DatabaseBackupFailed
   | DatabaseBackupFreshnessChanged
+  | PlatformUpgraded
   deriving stock (Eq, Ord, Show, Bounded, Enum, Generic)
 
 eventKindText :: EventKind -> Text
@@ -138,6 +140,7 @@ eventKindText = \case
   DatabaseRestored -> "database.restored"
   DatabaseBackupFailed -> "database.backup.failed"
   DatabaseBackupFreshnessChanged -> "database.backup.freshness.changed"
+  PlatformUpgraded -> "platform.upgraded"
 
 parseEventKind :: Text -> Maybe EventKind
 parseEventKind value = lookup value [(eventKindText kind, kind) | kind <- [minBound .. maxBound]]
@@ -459,6 +462,18 @@ data FreshnessChange = FreshnessChange
   }
   deriving stock (Eq, Show, Generic)
 
+-- | @platform.upgraded@ (EP-276): the context finished moving from one Nagare
+-- release to another: a committed transition review named them, and the
+-- inventory head no longer holds the transition marker that only the
+-- transition's commit clears. A retargeted transition is one event, for the
+-- release it committed; a release that moved no scope has no review and
+-- publishes none.
+data PlatformUpgrade = PlatformUpgrade
+  { from :: !Text
+  , to :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- | The resource scope of an event about the context as a whole. No
 -- inventory scope has this name.
 contextScope :: ScopeId
@@ -497,6 +512,7 @@ data EventPayload
   | DatabaseRestoredPayload !DatabaseRestore
   | BackupFailedPayload !BackupFailure
   | FreshnessChangedPayload !FreshnessChange
+  | PlatformUpgradedPayload !PlatformUpgrade
   deriving stock (Eq, Show, Generic)
 
 payloadKind :: EventPayload -> EventKind
@@ -513,6 +529,7 @@ payloadKind = \case
   DatabaseRestoredPayload _ -> DatabaseRestored
   BackupFailedPayload _ -> DatabaseBackupFailed
   FreshnessChangedPayload _ -> DatabaseBackupFreshnessChanged
+  PlatformUpgradedPayload _ -> PlatformUpgraded
 
 -- | A payload's @data@ member.
 payloadData :: EventPayload -> Value
@@ -529,6 +546,7 @@ payloadData = \case
   DatabaseRestoredPayload value -> toJSON value
   BackupFailedPayload value -> toJSON value
   FreshnessChangedPayload value -> toJSON value
+  PlatformUpgradedPayload value -> toJSON value
 
 -- | The payload of a @data@ member of this type.
 parsePayload :: EventKind -> Value -> Parser EventPayload
@@ -545,6 +563,7 @@ parsePayload kind dataValue = case kind of
   DatabaseRestored -> DatabaseRestoredPayload <$> parseJSON dataValue
   DatabaseBackupFailed -> BackupFailedPayload <$> parseJSON dataValue
   DatabaseBackupFreshnessChanged -> FreshnessChangedPayload <$> parseJSON dataValue
+  PlatformUpgraded -> PlatformUpgradedPayload <$> parseJSON dataValue
 
 -- | One public event a source fact can become.
 data EventCandidate = EventCandidate
@@ -901,6 +920,10 @@ objectiveText = \case
 instance ToJSON BackupObjective where toJSON = String . objectiveText
 
 instance FromJSON BackupObjective where parseJSON = enumeration "backup objective" objectiveText
+
+instance ToJSON PlatformUpgrade where toJSON = genericToJSON strictOptions
+
+instance FromJSON PlatformUpgrade where parseJSON = genericParseJSON strictOptions
 
 instance ToJSON FreshnessChange where toJSON = genericToJSON strictOptions
 

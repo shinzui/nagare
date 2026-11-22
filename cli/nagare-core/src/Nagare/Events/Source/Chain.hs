@@ -55,7 +55,7 @@ import Nagare.Inventory.Journal
   )
 import Nagare.Inventory.Plan.CloseRecord (closedMarker)
 import Nagare.Inventory.Store
-  ( HeadManifest (headActiveTransaction, headMigration, headSequence)
+  ( HeadManifest (headActiveTransaction, headMigration, headSequence, headTransition)
   , InventoryStore
   , StoreError
   , journalKey
@@ -127,6 +127,9 @@ data SourceBatch = SourceBatch
   , waiting :: !Bool
   -- ^ The batch stopped at a convergence event it cannot decide yet: the
   -- last event, whose transaction is still active.
+  , settled :: !Bool
+  -- ^ EP-276: the head this batch observed holds no release transition
+  -- marker and no active transaction.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -201,7 +204,7 @@ readSourceChain store from budget = do
       pure $ do
         objects <- first SourceStoreError loadedFacts
         sources <- traverse (source objects committed) named
-        pure (SourceBatch sources stops resume tip (not (null stopped)))
+        pure (SourceBatch sources stops resume tip (not (null stopped)) (isNothing (headTransition headValue) && isNothing (headActiveTransaction headValue)))
     -- A failure or unknown outcome the executor recorded, or the close
     -- marker that commits a close; no other operator resolution ends or
     -- stops a change.

@@ -53,7 +53,7 @@ copyAll what source destination = do
         GetUnknown reason -> pure (Left ("the lifecycle object " <> objectText name <> " cannot be read: " <> reason))
     -- Heads and delivery records change in place; everything else is
     -- content-addressed or create-only.
-    mutable name = any (`T.isSuffixOf` objectText name) ["head.json", "sender.json"] || "/deliveries/" `T.isInfixOf` objectText name
+    mutable name = any (`T.isSuffixOf` objectText name) ["head.json", "sender.json", "worker-transition.json"] || "/deliveries/" `T.isInfixOf` objectText name
 
 objectText :: ObjectName -> Text
 objectText (ObjectName name) = name

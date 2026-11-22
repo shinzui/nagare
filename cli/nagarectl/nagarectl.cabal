@@ -458,6 +458,7 @@ library
     Nagare.Events.Source.Facts,
     Nagare.Events.Store,
     Nagare.Events.Subscription,
+    Nagare.Events.Transition,
     Nagare.Events.Webhook.Policy,
     Nagare.Events.Webhook.Signature,
     Nagare.Events.Webhook.Subscription,

@@ -555,6 +555,37 @@
         "type": "database.backup.freshness.changed"
       },
       "position": 11
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "from": "v0.26.0",
+          "to": "v0.27.0"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-48c86f8f4e3944a0d4254ed215e225ea",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "platform.upgraded"
+      },
+      "position": 12
     }
   ],
   "pageInfo": {

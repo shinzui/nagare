@@ -27,6 +27,7 @@ import Nagare.Events.Deployment (deploymentProducer)
 import Nagare.Events.Restore (restoreProducer)
 import Nagare.Events.Source (MemberView (..), OperationView (..), ScopeView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
 import Nagare.Events.Subscription (subscriptionProducer)
+import Nagare.Events.Transition (transitionProducer)
 import Nagare.Inventory.Adapter (PlannedOperation (plannedAction, plannedOperationId, plannedResources))
 import Nagare.Inventory.Execute.Types (reviewDocumentDigest)
 import Nagare.Inventory.Journal (JournalEvent (eventTransaction), TransactionId)
@@ -47,7 +48,7 @@ import Nagare.Resource.Types
 -- candidate for every converged transaction (EP-276), so every one commits
 -- a facts object.
 builtinProducers :: [SourceProducer]
-builtinProducers = [deploymentProducer, backupProducer, subscriptionProducer, changeProducer, deletionProducer, operationalProducer, restoreProducer]
+builtinProducers = [deploymentProducer, backupProducer, subscriptionProducer, changeProducer, deletionProducer, operationalProducer, restoreProducer, transitionProducer]
 
 -- | The facts @producers@ return for a converged release that replaces
 -- @headValue@. A member whose earlier bytes cannot be read stops the

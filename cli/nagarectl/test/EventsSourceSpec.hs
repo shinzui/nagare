@@ -3,7 +3,7 @@
 -- exactly the committed ones back.
 module EventsSourceSpec (eventsSourceTests) where
 
-import Data.Aeson (Value (Null, Object), toJSON)
+import Data.Aeson (Value (Null, Object), object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Either (isLeft)
@@ -16,11 +16,12 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding, preparedFixtureWith)
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Events.Materialize (MaterializeBudget (..), MaterializeOutcome, defaultBudget, enableFeed, materializeOnce)
 import Nagare.Events.Read (readPage, readRequest)
 import Nagare.Events.Source
 import Nagare.Events.Store (FeedStore, memoryObjectOps, newFeedStore)
+import Nagare.Events.Transition (readWaiting, transitionChannel, transitionProducer, writeWaiting)
 import Nagare.Inventory.Actor (anonymousOperator)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
@@ -281,6 +282,58 @@ eventsSourceTests =
             _ <- materializeChain chain feed defaultBudget
             entries <- feedPayloads feed
             entries @?= [ChangeClosedPayload (ChangeClosure transaction digest recordDigest [ClosedScope owner ClosedReverted] False)]
+        ]
+    , testGroup
+        "platform upgrade (EP-276)"
+        [ testCase "a transition review commits one control; an ordinary review none" $ do
+            let input identity = SourceInput (fixtureBinding ^. #identity) tx1 (contentDigest "review") identity Map.empty Map.empty Map.empty Map.empty [] anonymousOperator Nothing Map.empty Map.empty [] Map.empty Map.empty
+                produced identity = (transitionProducer ^. #produce) (input identity)
+            [(control ^. #channel, control ^. #version, control ^. #body) | Control control <- produced "nagare-transition:v0.26.0->v0.27.0"]
+              @?= [(transitionChannel, 1, object ["from" .= ("v0.26.0" :: Text), "to" .= ("v0.27.0" :: Text)])]
+            length (produced "operator-cli") @?= 0
+        , testCase "no event while the marker is held; one once it is cleared; a restart repeats none" $ do
+            chain <- buildChain [Conv tx1 (Just [transitionControl "a" "v0.26.0" "v0.27.0"])] Nothing
+            setMarker chain (Just (TransitionMarker "v0.26.0" "v0.27.0" "2026-11-22T00:00:00Z" Nothing))
+            (ops, feed) <- newFeedOver
+            _ <- materializeChain chain feed defaultBudget
+            upgradesIn feed >>= (@?= [])
+            readWaiting feed >>= either (assertFailure . show) (pure . fmap (^. #to) . snd) >>= (@?= Just "v0.27.0")
+            setMarker chain Nothing
+            _ <- materializeChain chain feed defaultBudget
+            upgradesIn feed >>= (@?= [PlatformUpgrade "v0.26.0" "v0.27.0"])
+            readWaiting feed >>= either (assertFailure . show) (pure . snd) >>= (@?= Nothing)
+            restarted <- newFeedStore ops
+            _ <- materializeChain chain restarted defaultBudget
+            upgradesIn restarted >>= (@?= [PlatformUpgrade "v0.26.0" "v0.27.0"])
+        , testCase "a crash after the publish and before the object is emptied leaves one event" $ do
+            chain <- buildChain [Conv tx1 (Just [transitionControl "a" "v0.26.0" "v0.27.0"])] Nothing
+            setMarker chain (Just (TransitionMarker "v0.26.0" "v0.27.0" "2026-11-22T00:00:00Z" Nothing))
+            (_, feed) <- newFeedOver
+            _ <- materializeChain chain feed defaultBudget
+            (_, held) <- readWaiting feed >>= either (assertFailure . show) pure
+            setMarker chain Nothing
+            _ <- materializeChain chain feed defaultBudget
+            -- The emptying write is lost: the object still holds the transition.
+            (generation, _) <- readWaiting feed >>= either (assertFailure . show) pure
+            _ <- writeWaiting feed generation held >>= either (assertFailure . show) pure
+            _ <- materializeChain chain feed defaultBudget
+            upgradesIn feed >>= (@?= [PlatformUpgrade "v0.26.0" "v0.27.0"])
+            readWaiting feed >>= either (assertFailure . show) (pure . snd) >>= (@?= Nothing)
+        , testCase "a retargeted transition is one event, for the release it committed" $ do
+            chain <- buildChain [Conv tx1 (Just [transitionControl "a" "v0.26.0" "v0.27.0"]), Plain tx2, Conv tx2 (Just [transitionControl "b" "v0.26.0" "v0.28.0"])] Nothing
+            setMarker chain (Just (TransitionMarker "v0.26.0" "v0.28.0" "2026-11-22T00:00:00Z" Nothing))
+            (_, feed) <- newFeedOver
+            _ <- materializeChain chain feed defaultBudget
+            setMarker chain Nothing
+            _ <- materializeChain chain feed defaultBudget
+            _ <- materializeChain chain feed defaultBudget
+            upgradesIn feed >>= (@?= [PlatformUpgrade "v0.26.0" "v0.28.0"])
+        , testCase "a transition control of a version the worker does not read stops it at that source" $ do
+            chain <- buildChain [Conv tx1 (Just [transitionControl "a" "v0.26.0" "v0.27.0"]), Plain tx2, Conv tx2 (Just [(transitionControl "b" "v0.27.0" "v0.28.0") {version = 2}])] Nothing
+            (_, feed) <- newFeedOver
+            outcome <- materializeChain chain feed defaultBudget
+            outcome ^. #checkpoint . #next @?= 2
+            assertBool "the cycle says why it stopped" (isJust (outcome ^. #blocked))
         ]
     , testGroup
         "controls"
@@ -548,6 +601,29 @@ sampleReview distinct = do
 
 reviewTransaction :: ContentDigest -> TransactionId
 reviewTransaction digest = either (error . T.unpack) id (mkTransactionId ("tx-" <> digestText digest))
+
+-- | A feed over its own object operations, which a restarted worker reopens.
+newFeedOver :: IO (ObjectOps, FeedStore)
+newFeedOver = do
+  ops <- memoryObjectOps
+  feed <- newFeedStore ops
+  _ <- enableFeed feed fixtureBinding "upgrade-epoch" initialCheckpoint >>= either (assertFailure . show) pure
+  pure (ops, feed)
+
+upgradesIn :: FeedStore -> IO [PlatformUpgrade]
+upgradesIn feed = do
+  payloads <- feedPayloads feed
+  pure [value | PlatformUpgradedPayload value <- payloads]
+
+transitionControl :: Text -> Text -> Text -> ControlFact
+transitionControl name source target = ControlFact (sourceKey ("platform.transition:" <> name)) transitionChannel 1 (object ["from" .= source, "to" .= target])
+
+-- | Hold or clear the release transition marker, as admission and the
+-- transition's commit do.
+setMarker :: Chain -> Maybe TransitionMarker -> IO ()
+setMarker chain marker = do
+  headValue <- readHead (chainStore chain) >>= either (assertFailure . show) (maybe (assertFailure "no head") pure)
+  replaceHeadIfGenerationMatches (chainStore chain) (Just (headGeneration headValue)) headValue {headGeneration = headGeneration headValue + 1, headTransition = marker} >>= either (assertFailure . show) pure
 
 newFeed :: IO FeedStore
 newFeed = do

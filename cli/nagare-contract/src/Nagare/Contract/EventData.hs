@@ -37,6 +37,7 @@ module Nagare.Contract.EventData
   , FreshnessGradeKind (..)
   , ObjectiveKind (..)
   , BackupFreshnessChangedData (..)
+  , PlatformUpgradedData (..)
   , eventDataSchemaName
   )
 where
@@ -71,6 +72,7 @@ eventDataSchemaName eventType =
     , ("database.restored", "DatabaseRestoredData")
     , ("database.backup.failed", "BackupFailedData")
     , ("database.backup.freshness.changed", "BackupFreshnessChangedData")
+    , ("platform.upgraded", "PlatformUpgradedData")
     ]
 
 strictRecord :: Options
@@ -341,6 +343,14 @@ data BackupFreshnessChangedData = BackupFreshnessChangedData
   }
   deriving stock (Eq, Show, Generic)
 
+-- | @platform.upgraded@: the context finished moving from one Nagare
+-- release to another.
+data PlatformUpgradedData = PlatformUpgradedData
+  { from :: !Text
+  , to :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
 instance ToJSON EventScopeRevision where toJSON = genericToJSON strictRecord
 
 instance FromJSON EventScopeRevision where parseJSON = genericParseJSON strictRecord
@@ -555,3 +565,10 @@ instance FromJSON BackupFreshnessChangedData where parseJSON = genericParseJSON 
 
 instance ToSchema BackupFreshnessChangedData where
   declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of database.backup.freshness.changed: a backup schedule's grade (fresh, deteriorating or breached) against its signed hourly or daily recovery-point objective moved, graded from the newest recovery point the collector verified."
+
+instance ToJSON PlatformUpgradedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON PlatformUpgradedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema PlatformUpgradedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of platform.upgraded: the context finished moving from the release from to the release to. A retargeted transition is one event, for the release it committed; a release that moved no scope publishes none."

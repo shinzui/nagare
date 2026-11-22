@@ -13,7 +13,11 @@
 -- its transaction names, read at most once per transaction per cycle, and a
 -- committed close a @change.closed@ with its close record. Each read counts
 -- against the cycle's journal budget. A stop whose review or record cannot be
--- read stops the cycle at that stop, which is never skipped.
+-- read stops the cycle at that stop, which is never skipped. A committed
+-- @platform-transition@ control is kept in the worker's own
+-- @worker-transition.json@, written before the head that acknowledges it,
+-- and becomes @platform.upgraded@ in a cycle whose inventory head holds no
+-- transition marker and no active transaction; the object is emptied after.
 module Nagare.Events.Materialize
   ( MaterializeBudget (..)
   , defaultBudget
@@ -36,10 +40,12 @@ import Nagare.Events.Layout
 import Nagare.Events.Receipts (readReceiptChain)
 import Nagare.Events.Source
 import Nagare.Events.Store
+import Nagare.Events.Transition (WaitingTransition, readWaiting, transitionsIn, upgradeCandidate, writeWaiting)
 import Nagare.Inventory.Journal (TransactionId, reviewDigestOf, transactionIdText)
 import Nagare.Inventory.Plan.CloseRecord (loadCloseRecord)
 import Nagare.Inventory.Plan.Types (ReviewDocument)
 import Nagare.Inventory.Store (InventoryStore)
+import Nagare.Inventory.Store.ObjectOps (Generation)
 import Nagare.Resource.Types
 
 -- | How much one cycle may take on: journal events read, envelopes published
@@ -119,12 +125,50 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
           case (chain, receiptChain) of
             (Left err, _) -> pure (Left (MaterializeSource err))
             (_, Left err) -> pure (Left (MaterializeFeed err))
-            (Right batch, Right receiptBatch) -> do
-              resolved <- resolveJournal inventory (budget ^. #journal) (headValue ^. #journal) batch
-              publish observed headValue batch resolved receiptBatch
-    publish observed headValue batch resolved receiptBatch = do
-      let units =
-            resolved ^. #units
+            (Right batch0, Right receiptBatch) -> do
+              waitingRead <- readWaiting store
+              case waitingRead of
+                Left err -> pure (Left (MaterializeFeed err))
+                Right (generation, waiting) -> do
+                  -- A transition control this worker cannot read stops the
+                  -- journal before its source.
+                  let (controls, refusal) = transitionsIn batch0
+                      batch = maybe batch0 (cutBatch . fst) refusal
+                      newest = lastMaybe controls <|> waiting
+                      upgrade = if batch ^. #settled then newest else Nothing
+                      cutBatch cut =
+                        batch0
+                          & #sources
+                          %~ filter ((< cut ^. #next) . (^. #journalSequence))
+                          & #stops
+                          %~ filter ((< cut ^. #next) . (^. #journalSequence))
+                          & #checkpoint
+                          .~ cut
+                          & #waiting
+                          .~ False
+                  resolved0 <- resolveJournal inventory (budget ^. #journal) (headValue ^. #journal) batch
+                  let resolved = case refusal of
+                        Just (_, reason) | not (resolved0 ^. #halted) -> resolved0 & #halted .~ True & #blocked ?~ reason
+                        _ -> resolved0
+                  observedAt <- clock
+                  publish observed headValue batch resolved receiptBatch (TransitionStep generation waiting newest upgrade observedAt)
+    publish observed headValue batch resolved receiptBatch transition = do
+      let upgradeUnit =
+            [ Unit (transition ^. #observedAt) [candidate] Nothing Nothing
+            | Just waiting <- [transition ^. #upgrade]
+            , Right candidate <- [upgradeCandidate waiting]
+            ]
+          -- The waiting object is written before the head that
+          -- acknowledges its control, and emptied after an upgrade's head.
+          waitingWrite = case transition ^. #upgrade of
+            Just _ -> Nothing
+            Nothing
+              | transition ^. #newest /= transition ^. #waiting -> Just (transition ^. #newest)
+              | otherwise -> Nothing
+          emptyAfter = isJust (transition ^. #upgrade) && isJust (transition ^. #waiting)
+          units =
+            upgradeUnit
+              <> resolved ^. #units
               <> [ Unit (observation ^. #observedAt) (observation ^. #events) Nothing (Just (SourceCheckpoint (after ^. #next - 1) (observation ^. #previous)))
                  | (after, observation) <- receiptBatch ^. #observations
                  ]
@@ -147,7 +191,7 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
             | Set.member eventId seen = dedupe seen rest
             | otherwise = (eventId, pair) : dedupe (Set.insert eventId seen) rest
           idle = MaterializeOutcome 0 0 (headValue ^. #journal) (headValue ^. #count) False (batch ^. #waiting && not cutJournal) behind blocked
-      if null candidates && journal' == headValue ^. #journal && receipts' == headValue ^. #receipts
+      if null candidates && journal' == headValue ^. #journal && receipts' == headValue ^. #receipts && isNothing waitingWrite
         then pure (Right (Just idle))
         else do
           known <- lookupIds store (headValue ^. #ids) (map fst ordered)
@@ -176,7 +220,14 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
                               , journal = journal'
                               , receipts = receipts'
                               }
-                      replaced <- replaceFeedHead store observed replacement
+                      written <- maybe (pure (Right True)) (writeWaiting store (transition ^. #generation)) waitingWrite
+                      replaced <- case written of
+                        Left err -> pure (Left err)
+                        Right False -> pure (Right Superseded)
+                        Right True -> replaceFeedHead store observed replacement
+                      -- A crash before this publishes the same event ID
+                      -- again, which the ID index drops.
+                      when (emptyAfter && replaced == Right Replaced) (void (writeWaiting store (transition ^. #generation) Nothing))
                       pure $ case replaced of
                         Left err -> Left (MaterializeFeed err)
                         Right Superseded -> Right Nothing
@@ -207,6 +258,21 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
            in if fits
                 then go (unit : kept) (eventsSoFar + length candidates) (bytesSoFar + size) rest
                 else (reverse kept, Just unit)
+
+-- | What a cycle knows of the release transition: the worker's waiting
+-- object and its generation, the newest committed control or the waiting
+-- one, the one to announce now that the head settled, and the cycle's time.
+data TransitionStep = TransitionStep
+  { generation :: !(Maybe Generation)
+  , waiting :: !(Maybe WaitingTransition)
+  , newest :: !(Maybe WaitingTransition)
+  , upgrade :: !(Maybe WaitingTransition)
+  , observedAt :: !Text
+  }
+  deriving stock (Generic)
+
+lastMaybe :: [a] -> Maybe a
+lastMaybe = foldl (\_ value -> Just value) Nothing
 
 -- | The journal's units of one cycle, in journal order: a convergence's
 -- facts, or one stop's candidate built from what it names. @through@ is the

@@ -27,6 +27,7 @@ A context records what Nagare did as immutable lifecycle events:
 | `database.restored` | A reviewed restore of a database backup converged, into a scratch database or a rebuilt server. |
 | `database.backup.failed` | A scheduled backup run failed verification for good: a bad signature, a source that is not the recorded incarnation, or changed bytes. |
 | `database.backup.freshness.changed` | A backup schedule's grade against its recovery-point objective moved between `fresh`, `deteriorating` and `breached`. |
+| `platform.upgraded` | The context finished moving to a new Nagare release. |
 
 An event's `id` never changes across retries, restarts or replays. Read them
 with `nagarectl events list` or `GET /v1/events`. Backup events are described
@@ -92,6 +93,21 @@ that also moved the release is reported only as `app.deployed`, and running the
 command again with nothing to change publishes no named event. `app.deleted`
 counts the members the deletion retained and names the last release when the
 deletion operated the release log.
+
+## Platform upgrades
+
+`platform.upgraded` (`PlatformUpgradedData`, about `platform:context`) names
+the release the context moved `from` and the one it moved `to`. Each review of
+a release transition records the two releases when it converges, and the
+worker publishes the event once `nagarectl platform transition commit` has
+cleared the transition marker and no change is running. A transition retargeted
+to a later release before its commit is one event, for the release it
+committed. A release that moves no scope has no review and publishes none.
+
+During the move the previous release's worker meets events it cannot read and
+stops at them without skipping any; the new release's worker publishes them
+when it starts. A receiver subscribed by exact types is sent no new type
+unless an operator adds it to the subscription.
 
 A reviewed `db restore` or app-database restore publishes `database.restored`
 when it converges: the restore ID, the backup, the source database (`database`,

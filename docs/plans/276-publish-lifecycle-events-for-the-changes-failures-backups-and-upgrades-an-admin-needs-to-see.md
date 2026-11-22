@@ -100,9 +100,14 @@ it touched.
   breached→fresh across a restart; a schedule left out of a cycle and a future point grade
   nothing; a stored version-1 state keeps its pending run and is written at version 2.
   `just gate-commit` green.
-- [ ] M5: `platform.upgraded` is published once per committed release transition, with the
+- [x] M5: `platform.upgraded` is published once per committed release transition, with the
   source and target its reviews name, and not while the transition marker is still in the
   head.
+  (2026-11-22) `Events.Source/platform upgrade (EP-276)`: a transition review commits one
+  control and an ordinary review none; no event while the marker is held, one once it is
+  cleared, none more after a restart or a lost emptying write; a retarget is one event for
+  the last target; an unreadable control version holds the journal at its source. The
+  context export copies `worker-transition.json` with the heads. `just gate-commit` green.
 - [ ] M6: Native confirmation on a disposable local context. Each scenario in Validation and
   Acceptance produces its event, readable through the admin API. The EP-172 rehearsal
   (`NAGARE_REHEARSAL_LIFECYCLE=1 just release-rehearse <rev> v0.26.0`) runs the lifecycle
