@@ -108,7 +108,7 @@ it touched.
   cleared, none more after a restart or a lost emptying write; a retarget is one event for
   the last target; an unreadable control version holds the journal at its source. The
   context export copies `worker-transition.json` with the heads. `just gate-commit` green.
-- [ ] M6: Native confirmation on a disposable local context. Each scenario in Validation and
+- [x] M6: Native confirmation on a disposable local context. Each scenario in Validation and
   Acceptance produces its event, readable through the admin API. The EP-172 rehearsal
   (`NAGARE_REHEARSAL_LIFECYCLE=1 just release-rehearse <rev> v0.26.0`) runs the lifecycle
   worker, reads its seeded data back unchanged and shows `platform.upgraded`. Without the
@@ -124,9 +124,13 @@ it touched.
   spread 0.189 s), 0.577 s and 0.573 s for an env change (base spread 0.095 s); head reads,
   history loads and opens equal. `just gate-fast`: 173 s at the base, 604 s at `a7643244`
   (four suites, beside the native run and its builds) and 209 s at `577a6a1a`
-  (incremental), so the gate times are not comparable. Open: the rehearsal's
-  `platform.upgraded` check waits for the first release candidate (FRIC-19); the drill code
-  is in `d246600c`, and `platform.upgraded` is proved offline in M5.
+  (incremental), so the gate times are not comparable. The 0.27.0 candidate
+  (`5ebd6f05`) ran the rehearsal with `NAGARE_REHEARSAL_LIFECYCLE=1`: the seeded row read
+  back unchanged and one `platform.upgraded` named `0.26.0` and `nagare-0.27.0-5ebd6f0528c3`
+  (the target is the payload ID the transition reviews name); the source feed was empty
+  before the move, so no earlier event was compared. Its first run failed because the
+  rehearsal worked under `/private/tmp`, which Colima does not share, so the source worker
+  read an empty store; fixed in `5ebd6f05`. 0.27.0 is published and the intranet runs it.
 
 
 ## Surprises & Discoveries
@@ -311,11 +315,12 @@ none); `change.failed` and `change.closed` derived by the worker from the commit
 `app.deleted`, `app.stopped`, `app.restarted` and `database.restored` from scope overrides at
 release; `database.backup.failed` and `database.backup.freshness.changed` from the collector,
 whose state is now version 2; and `platform.upgraded` from a transition control and the
-worker's own object. Each type's `data` has a schema in `docs/api/openapi.json`. All but
-`platform.upgraded` were confirmed natively, with no slower deploy or env change; M1–M5 and the
-two native fixes are landed (`577a6a1a`, full gate green). What remains is the rehearsal's
-`platform.upgraded` check at the first release candidate (FRIC-19, accepted: a candidate's
-`release.json` names its own worker image). ADR 39 was amended with the journal-derived
+worker's own object. Each type's `data` has a schema in `docs/api/openapi.json`. Every type was
+confirmed natively, with no slower deploy or env change; M1–M5 and the
+native fixes are landed, and the 0.27.0 rehearsal confirmed `platform.upgraded`; 0.27.0 is
+published and the intranet runs it. FRIC-19 (the rehearsal runs `release.json`'s worker image)
+is accepted: a release candidate names its own image, which is where the check ran. Nothing
+remains. ADR 39 was amended with the journal-derived
 sources, the facts every converged change commits and the upgrade control.
 
 

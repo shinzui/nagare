@@ -36,6 +36,7 @@ Found on the way and fixed, each with a test: the local admin API did not mount 
 feed, so `GET /v1/events` answered `events_not_enabled` while the worker published (`577a6a1a`);
 the site-access drill encrypted its Grafana secret as sops binary data (`a7643244`).
 
-Not covered here: `platform.upgraded` natively (the rehearsal runs `release.json`'s worker image,
-FRIC-19; covered offline in `Events.Source/platform upgrade`), `database.backup.accepted` (no
-ingestion was reviewed), and a cloud context.
+`platform.upgraded` was confirmed by the 0.27.0 candidate's rehearsal (`5ebd6f05`,
+`NAGARE_REHEARSAL_LIFECYCLE=1`): one event from `0.26.0` to `nagare-0.27.0-5ebd6f0528c3` after the
+commit, beside the seeded row read back unchanged. Not covered here: `database.backup.accepted` (no
+ingestion was reviewed) and a cloud context.
