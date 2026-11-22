@@ -97,6 +97,11 @@ spec:
             - name: inventory
               mountPath: /var/lib/nagare/inventory
               readOnly: true
+            # EP-276: the lifecycle feed beside the store, which GET /v1/events
+            # reads, read-only.
+            - name: lifecycle
+              mountPath: /var/lib/nagare/lifecycle
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
@@ -107,6 +112,13 @@ spec:
           hostPath:
             path: /var/lib/nagare/inventory
             type: Directory
+        # The substrate mounts it only for a context that runs the lifecycle
+        # worker; without it the directory is empty and the API answers that
+        # the feed is not enabled.
+        - name: lifecycle
+          hostPath:
+            path: /var/lib/nagare/lifecycle
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

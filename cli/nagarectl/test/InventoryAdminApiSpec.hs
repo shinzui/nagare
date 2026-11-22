@@ -48,6 +48,13 @@ inventoryAdminApiTests =
         assertBool "the local server binds loopback" (String "0.0.0.0" `elem` arrayOf (field ["args"] container))
         let mount = headOf (field ["volumes"] pod `except` "tmp")
         field ["hostPath", "type"] mount @?= String "Directory"
+        -- EP-276: GET /v1/events reads the lifecycle feed beside the store,
+        -- read-only; a context without the worker has an empty directory.
+        [feedVolume] <- pure [volume | volume <- arrayOf (field ["volumes"] pod), field ["name"] volume == String "lifecycle"]
+        field ["hostPath", "path"] feedVolume @?= String "/var/lib/nagare/lifecycle"
+        field ["hostPath", "type"] feedVolume @?= String "DirectoryOrCreate"
+        [feedMount] <- pure [volumeMount | volumeMount <- arrayOf (field ["volumeMounts"] container), field ["name"] volumeMount == String "lifecycle"]
+        field ["readOnly"] feedMount @?= Bool True
         policy <- objectOf "networkpolicy" native
         -- One peer holding both selectors is a conjunction; two peers would
         -- admit either the namespace or the label.
