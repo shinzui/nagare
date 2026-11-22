@@ -50,6 +50,10 @@ conforms eventType = \case
   ChangeAppliedPayload value -> through (Proxy @Contract.ChangeAppliedData) (toJSON value)
   ChangeFailedPayload value -> through (Proxy @Contract.ChangeFailedData) (toJSON value)
   ChangeClosedPayload value -> through (Proxy @Contract.ChangeClosedData) (toJSON value)
+  AppDeletedPayload value -> through (Proxy @Contract.AppDeletedData) (toJSON value)
+  AppStoppedPayload value -> through (Proxy @Contract.AppStoppedData) (toJSON value)
+  AppRestartedPayload value -> through (Proxy @Contract.AppRestartedData) (toJSON value)
+  DatabaseRestoredPayload value -> through (Proxy @Contract.DatabaseRestoredData) (toJSON value)
   where
     through :: forall a. (Eq a, Show a, FromJSON a, ToJSON a, ToSchema a) => Proxy a -> Value -> Assertion
     through proxy value = do
@@ -138,6 +142,23 @@ samplePayload = \case
         , record = contentDigest "close record"
         , scopes = [ClosedScope (scopeOf Application "notes") ClosedKept, ClosedScope (scopeOf Publication "notes-image") ClosedReverted]
         , attested = False
+        }
+  AppDeleted -> AppDeletedPayload (AppDeletion ServiceSubject transaction review (revisionAt 7 "api revision 7") 2 (Just "api-20261120-2"))
+  AppStopped -> AppStoppedPayload (AppStop ApplicationSubject transaction review (revisionAt 6 "notes revision 6"))
+  AppRestarted -> AppRestartedPayload (AppRestart SiteSubject transaction review (revisionAt 3 "site revision 3") "20261122t040000z")
+  DatabaseRestored ->
+    DatabaseRestoredPayload
+      DatabaseRestore
+        { restore = "restore-20261122-1"
+        , backup = Just "bk-0123456789abcdef0123456789abcdef"
+        , database = Just "notes"
+        , appDatabase = Nothing
+        , namespace = Just "personal"
+        , targetDatabase = Just "notes_restore_20261122"
+        , targetKind = ScratchTarget
+        , transaction
+        , review
+        , scopeRevision = revisionAt 1 "restore revision 1"
         }
   where
     notesWeb = mintResourceId (scopeOf Application "notes") (either (error . show) id (mkLogicalKey "web")) (either (error . show) id (mkName "service"))

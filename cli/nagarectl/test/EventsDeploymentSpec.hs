@@ -7,6 +7,7 @@ module EventsDeploymentSpec
   , withWorld
   , deploy
   , deployWith
+  , retire
   , resume
   , closeStopped
   , feedEntries
@@ -28,6 +29,7 @@ where
 
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -42,7 +44,7 @@ import Nagare.Events.Materialize (defaultBudget, enableFeed, materializeOnce)
 import Nagare.Events.Read (FeedEntry, readPage, readRequest)
 import Nagare.Events.Source (AppDeployment (..), DeploymentAction (..), DeploymentSubject (..), EventKind (AppDeployed), EventPayload (..), initialCheckpoint, payloadKind)
 import Nagare.Events.Store (FeedStore, memoryObjectOps, newFeedStore)
-import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (..), AdapterRegistry, PlannedOperation (..), RecoveryDecision (RecoveryLandedUnready), Settlement (SettledLanded), lookupAdapter, mkAdapterRegistry, observeWithRegistry)
+import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (..), AdapterRegistry, PlannedOperation (..), RecoveryDecision (RecoveryLandedUnready), Settlement (SettledLanded), lookupAdapter, mkAdapterRegistry, observationMap, observeWithRegistry)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (CloseInput (..), TransactionResult (..), applyReviewed, closeTransaction, resumeTransaction)
@@ -52,9 +54,9 @@ import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Site (compileStaticSiteRollbackScope, compileStaticSiteScope)
 import Nagare.Inventory.Store
-import Nagare.Resource.Inventory (Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, ScopeSnapshot, composeInventory, mkScopeDeclaration, mkScopeSnapshot)
+import Nagare.Resource.Inventory (Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope, RetireScope), ScopeDeclaration, ScopeSnapshot, composeInventory, mkScopeDeclaration, mkScopeSnapshot)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
-import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RetirementIntent (RetainResources), Sensitivity (Private))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Static.Deploy (DeployInputs (..), staticUrl)
@@ -179,13 +181,32 @@ deploy world = deployWith world id
 
 -- | 'deploy', with the prepared review changed before it is published.
 deployWith :: World -> (ReviewBundle -> ReviewBundle) -> [(ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))] -> IO TransactionResult
-deployWith world amend scopes = do
+deployWith world amend scopes = applyChanges world amend (ReplaceScope (fst (headOf scopes)) :| map (ReplaceScope . fst) (drop 1 scopes)) (Map.unions (map snd scopes))
+  where
+    headOf = \case
+      value : _ -> value
+      [] -> error "no scope to deploy"
+
+-- | Retire a scope, retaining its members.
+retire :: World -> ScopeId -> IO TransactionResult
+retire world scope = applyChanges world id (RetireScope scope RetainResources :| []) Map.empty
+
+-- | Review these changes against the accepted history and apply the review.
+applyChanges :: World -> (ReviewBundle -> ReviewBundle) -> NonEmpty ScopeChange -> Map.Map ResourceId (ManagedResource, ByteString) -> IO TransactionResult
+applyChanges world amend changes native = do
   history <- loadInventoryHistory (world ^. #store) >>= orFail
-  let candidate = checked (composeInventory (snapshot (historyAccepted history)) (ReplaceScope (fst (headOf scopes)) :| map (ReplaceScope . fst) (drop 1 scopes)))
-      native = Map.unions (map snd scopes)
+  let candidate = checked (composeInventory (snapshot (historyAccepted history)) changes)
       selected = registry world native
   facts <- observeWithRegistry selected (requirementsByExecutor (observationRequirements candidate history)) >>= orFail
-  proposal <- orFail (planChanges candidate noLifecycleDecisions history facts)
+  -- Every accepted member a retirement leaves out is approved for retirement.
+  let retiring = [owner | RetireScope owner _ <- toList changes]
+      proposals =
+        [ LifecycleProposal resource ApproveRetirement (lifecycleObservationDigest binding resource fact)
+        | (resource, fact) <- Map.toAscList (observationMap facts)
+        , any (\owner -> (scopeIdText owner <> "/") `T.isPrefixOf` resourceIdText resource) retiring
+        ]
+  decisions <- if null retiring then pure noLifecycleDecisions else orFail (validateLifecycleDecisions candidate history facts proposals)
+  proposal <- orFail (planChanges candidate decisions history facts)
   state <- readStoreSnapshot (world ^. #store) >>= orFail
   bundle <- amend <$> (prepareReview selected state proposal >>= orFail)
   _ <- publishReview (world ^. #store) bundle >>= orFail
@@ -194,10 +215,6 @@ deployWith world amend scopes = do
   let bound = checked (kubernetesSpecsFromReview bundle)
   writeIORef (world ^. #natives) bound
   applyReviewed (world ^. #store) (registry world bound) reviewed >>= orFail
-  where
-    headOf = \case
-      value : _ -> value
-      [] -> error "no scope to deploy"
 
 resume :: World -> TransactionId -> IO TransactionResult
 resume world transaction = do

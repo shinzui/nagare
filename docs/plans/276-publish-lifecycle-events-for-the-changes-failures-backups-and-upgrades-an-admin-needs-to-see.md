@@ -85,8 +85,13 @@ it touched.
   that abandon and other markers are no stops, an uncommitted journal object is none until
   a head commits it, a stop whose review is missing holds the cycle at it, and review reads
   count against the journal budget. `just gate-commit` green.
-- [ ] M3: `app.deleted`, `app.stopped`, `app.restarted` and `database.restored` are
+- [x] M3: `app.deleted`, `app.stopped`, `app.restarted` and `database.restored` are
   published by release-time producers. A verification-only rerun publishes none of them.
+  (2026-11-22) `Events.Change` drives stop, restart, retirement and a restore scope through
+  the real planner and executor: one event each, none on a rerun, none for a scope with no
+  converged view or whose release also moved. A database rebuild restore records no
+  `restore.target.kind`, so its `restore.rebuild.*` lineage marks it `rebuilt`.
+  `just gate-commit` green.
 - [ ] M4: `database.backup.failed` and `database.backup.freshness.changed` are published by
   the backup collector. A worker restart publishes neither twice.
 - [ ] M5: `platform.upgraded` is published once per committed release transition, with the

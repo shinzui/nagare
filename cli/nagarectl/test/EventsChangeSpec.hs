@@ -8,16 +8,19 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import EventsDeploymentSpec
 import Nagare.Dsl.Prelude
+import Nagare.Events.Application (deletionProducer)
 import Nagare.Events.Change (changeKey, changeProducer)
 import Nagare.Events.Envelope (eventIdFor)
 import Nagare.Events.Read (FeedEntry)
+import Nagare.Events.Restore (restoreProducer)
 import Nagare.Events.Source
 import Nagare.Inventory.Actor (Actor (..), ReviewSource (..))
 import Nagare.Inventory.DelegatedPlanning (attributeReview)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..))
-import Nagare.Inventory.Journal (TransactionId, mkTransactionId)
+import Nagare.Inventory.Journal (TransactionId, mkOperationId, mkTransactionId)
 import Nagare.Inventory.Store (ScopeRevision (..))
+import Nagare.Resource.Inventory (ScopeDeclaration, withScopeOverrides)
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -110,6 +113,64 @@ eventsChangeTests =
         map (^. #scope) (closure ^. #scopes) @?= [notesScope]
         closure ^. #attested @?= False
         feedEntries world >>= (@?= events)
+    , testCase "a stop is app.stopped and a later restart app.restarted; rerunning either names nothing (M3)" $ withWorld $ \world -> do
+        _ <- deploy world [notes (releaseLog ["r1"] "r1") "v1"]
+        stopped <- deploy world [withOverrides [("operational.visibility", "cluster-local")] (notes (releaseLog ["r1"] "r1") "v1")]
+        assertConverged stopped
+        _ <- deploy world [withOverrides [("operational.visibility", "cluster-local")] (notes (releaseLog ["r1"] "r1") "v1")]
+        restarted <- deploy world [withOverrides [("operational.restart", "s1")] (notes (releaseLog ["r1"] "r1") "v1")]
+        assertConverged restarted
+        _ <- deploy world [withOverrides [("operational.restart", "s1")] (notes (releaseLog ["r1"] "r1") "v1")]
+        events <- feedEntries world
+        [(kindOf entry, entry ^. #envelope . #resource . #scope) | entry <- events, kindOf entry `elem` [AppStopped, AppRestarted]]
+          @?= [(AppStopped, notesScope), (AppRestarted, notesScope)]
+        [stamp' | entry <- events, AppRestartedPayload value <- [entry ^. #envelope . #payload], let { stamp' = value ^. #restartStamp }] @?= ["s1"]
+        length [() | entry <- events, kindOf entry == ChangeApplied] @?= 5
+    , testCase "a scope with no converged view, or whose release also moved, is neither stopped nor restarted (M3)" $ withWorld $ \world -> do
+        _ <- deploy world [withOverrides [("operational.restart", "s1")] (notes (releaseLog ["r1"] "r1") "v1")]
+        _ <- deploy world [withOverrides [("operational.visibility", "cluster-local")] (notes (releaseLog ["r2", "r1"] "r2") "v2")]
+        kinds <- map kindOf <$> feedEntries world
+        kinds @?= [AppDeployed, ChangeApplied, AppDeployed, ChangeApplied]
+    , testCase "retiring an application is app.deleted counting the members it retained (M3)" $ withWorld $ \world -> do
+        _ <- deploy world [notes (releaseLog ["r1"] "r1") "v1"]
+        retired <- retire world notesScope
+        assertConverged retired
+        events <- feedEntries world
+        [(entry ^. #envelope . #resource . #scope, value ^. #subject, value ^. #retainedMembers) | entry <- events, AppDeletedPayload value <- [entry ^. #envelope . #payload]]
+          @?= [(notesScope, ApplicationSubject, 3)]
+        [change] <- pure (drop 1 (changes events))
+        map (\scope -> (scope ^. #scope, scope ^. #change)) (change ^. #payload . #scopes) @?= [(notesScope, ScopeRetired)]
+    , testCase "a converged restore scope is database.restored once; a review that keeps its overrides is none (M3)" $ withWorld $ \world -> do
+        let restoreScope = checked (mkScopeId Standalone "restore-notes-1")
+            overrides =
+              [ ("restore.id", "restore-1")
+              , ("restore.backup.id", "bk-1")
+              , ("restore.database", "notes")
+              , ("restore.namespace", "personal")
+              , ("restore.target.database", "notes_restore_1")
+              ]
+        restored <- deploy world [withOverrides overrides (scopeWith restoreScope [workload restoreScope "job" "j1"])]
+        assertConverged restored
+        _ <- deploy world [withOverrides overrides (scopeWith restoreScope [workload restoreScope "job" "j2"])]
+        events <- feedEntries world
+        [value | entry <- events, DatabaseRestoredPayload value <- [entry ^. #envelope . #payload]]
+          & map (\value -> (value ^. #restore, value ^. #backup, value ^. #database, value ^. #appDatabase, value ^. #targetDatabase, value ^. #targetKind))
+          & (@?= [("restore-1", Just "bk-1", Just "notes", Nothing, Just "notes_restore_1", ScratchTarget)])
+    , testCase "a deletion that operated the release log names the last release; a rebuild restore is rebuilt (M3)" $ do
+        let before = ScopeRevision (checked (mkScopeGeneration 3)) (contentDigest "before")
+            (logId, (_, logBytes)) = history notesScope "notes" (releaseLog ["r2", "r1"] "r2")
+            restoreScope = checked (mkScopeId Standalone "restore-notes-2")
+            input =
+              (emptyInput (checked (mkTransactionId "tx-retire")))
+                { baseRevisions = Map.fromList [(notesScope, before)]
+                , convergedBefore = Map.fromList [(notesScope, before)]
+                , members = Map.singleton logId (MemberView notesScope (checked (mkOperationId "op-retire")) Nothing (Just logBytes))
+                , scopes = Map.singleton restoreScope (ScopeView before (Map.fromList [("restore.id", "restore-2"), ("restore.rebuild.review", "abc")]) Nothing)
+                }
+        [value | PublicCandidate candidate <- (deletionProducer ^. #produce) input, AppDeletedPayload value <- [candidate ^. #payload]]
+          & map (\value -> (value ^. #lastRelease, value ^. #scopeRevision))
+          & (@?= [(Just "r2", before)])
+        [value ^. #targetKind | PublicCandidate candidate <- (restoreProducer ^. #produce) input, DatabaseRestoredPayload value <- [candidate ^. #payload]] @?= [RebuiltTarget]
     , testCase "a named actor's review names the actor and the source it came from" $ withWorld $ \world -> do
         let source = ReviewSource (Just "github.com/example/notes") (Just "0123abc") Nothing
         _ <- deployWith world (attributeReview (OperatorActor (Just "alice")) (Just source)) [notes (releaseLog ["r1"] "r1") "v1"]
@@ -119,23 +180,10 @@ eventsChangeTests =
     , testCase "a deployer's change names the deployer; retiring a scope is a retirement from its converged revision" $ do
         let before = ScopeRevision (checked (mkScopeGeneration 1)) (contentDigest "before")
             input =
-              SourceInput
-                { context = binding ^. #identity
-                , transaction = checked (mkTransactionId "tx-deployer")
-                , review = contentDigest "review"
-                , payloadIdentity = "operator-cli"
-                , baseRevisions = Map.fromList [(notesScope, before)]
-                , desiredRevisions = Map.empty
+              (emptyInput (checked (mkTransactionId "tx-deployer")))
+                { baseRevisions = Map.fromList [(notesScope, before)]
                 , convergedBefore = Map.fromList [(notesScope, before)]
-                , operations = Map.empty
-                , steps = []
                 , actor = DeployerActor "ci"
-                , source = Nothing
-                , retained = Map.empty
-                , collected = Map.empty
-                , journal = []
-                , members = Map.empty
-                , scopes = Map.empty
                 }
         case (changeProducer ^. #produce) input of
           [PublicCandidate candidate] -> do
@@ -153,6 +201,31 @@ data Applied = Applied
   , payload :: !ChangeApplication
   }
   deriving stock (Eq, Show, Generic)
+
+-- | A converging transaction that changed nothing.
+emptyInput :: TransactionId -> SourceInput
+emptyInput transaction =
+  SourceInput
+    { context = binding ^. #identity
+    , transaction
+    , review = contentDigest "review"
+    , payloadIdentity = "operator-cli"
+    , baseRevisions = Map.empty
+    , desiredRevisions = Map.empty
+    , convergedBefore = Map.empty
+    , operations = Map.empty
+    , steps = []
+    , actor = OperatorActor Nothing
+    , source = Nothing
+    , retained = Map.empty
+    , collected = Map.empty
+    , journal = []
+    , members = Map.empty
+    , scopes = Map.empty
+    }
+
+withOverrides :: [(Text, Text)] -> (ScopeDeclaration, natives) -> (ScopeDeclaration, natives)
+withOverrides values (declaration, native) = (withScopeOverrides (Map.fromList values) declaration, native)
 
 stoppedTransaction :: TransactionResult -> IO TransactionId
 stoppedTransaction = \case

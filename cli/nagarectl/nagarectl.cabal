@@ -137,9 +137,11 @@ library
     Nagare.Env.Dotenv
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
+    Nagare.Events.Application
     Nagare.Events.Archive
     Nagare.Events.Change
     Nagare.Events.Deployment
+    Nagare.Events.Restore
     Nagare.Events.Target
     Nagare.Gcp.Adc
     Nagare.GhcEnv

@@ -326,6 +326,159 @@
         "type": "change.closed"
       },
       "position": 5
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "lastRelease": "api-20261120-2",
+          "retainedMembers": 2,
+          "review": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+          "scopeRevision": {
+            "digest": "32a015bde9c7a9559ca095926315a350251ebc02cf92bd788ea99c0db1c0a231",
+            "generation": 7
+          },
+          "subject": "service",
+          "transaction": "tx-c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-3f0219753f2ba59a7ae56736a04c9c75",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "app.deleted"
+      },
+      "position": 6
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "review": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+          "scopeRevision": {
+            "digest": "2be287fa5567d831c4b6657ae2afa3528e4e811c9f9f45afc0ce6d043b2b963c",
+            "generation": 6
+          },
+          "subject": "application",
+          "transaction": "tx-c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-b6472eb554c4223b44d6352d1625e729",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "app.stopped"
+      },
+      "position": 7
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "restartStamp": "20261122t040000z",
+          "review": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+          "scopeRevision": {
+            "digest": "ff58741ff99b1d647da0c87d2362f96496a43def4347c23b16298445af822382",
+            "generation": 3
+          },
+          "subject": "site",
+          "transaction": "tx-c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-dcf0461db44dd2a163102ce4da582bac",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "app.restarted"
+      },
+      "position": 8
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "appDatabase": null,
+          "backup": "bk-0123456789abcdef0123456789abcdef",
+          "database": "notes",
+          "namespace": "personal",
+          "restore": "restore-20261122-1",
+          "review": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+          "scopeRevision": {
+            "digest": "8d4021176928ac12afca045c0ba69f4e0b186d5704cd7c0e7fff798c8637386e",
+            "generation": 1
+          },
+          "targetDatabase": "notes_restore_20261122",
+          "targetKind": "scratch",
+          "transaction": "tx-c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-178e4347fd69540d1586875709ceb8ac",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "database.restored"
+      },
+      "position": 9
     }
   ],
   "pageInfo": {

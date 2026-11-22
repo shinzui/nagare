@@ -19,10 +19,12 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Events.Application (deletionProducer, operationalProducer)
 import Nagare.Events.Backup (backupProducer)
 import Nagare.Events.Change (changeProducer)
 import Nagare.Events.ChangeOutcome (operationActionName)
 import Nagare.Events.Deployment (deploymentProducer)
+import Nagare.Events.Restore (restoreProducer)
 import Nagare.Events.Source (MemberView (..), OperationView (..), ScopeView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
 import Nagare.Events.Subscription (subscriptionProducer)
 import Nagare.Inventory.Adapter (PlannedOperation (plannedAction, plannedOperationId, plannedResources))
@@ -45,7 +47,7 @@ import Nagare.Resource.Types
 -- candidate for every converged transaction (EP-276), so every one commits
 -- a facts object.
 builtinProducers :: [SourceProducer]
-builtinProducers = [deploymentProducer, backupProducer, subscriptionProducer, changeProducer]
+builtinProducers = [deploymentProducer, backupProducer, subscriptionProducer, changeProducer, deletionProducer, operationalProducer, restoreProducer]
 
 -- | The facts @producers@ return for a converged release that replaces
 -- @headValue@. A member whose earlier bytes cannot be read stops the

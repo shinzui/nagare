@@ -37,6 +37,11 @@ module Nagare.Events.Source
   , ClosedDisposition (..)
   , ClosedScope (..)
   , ChangeClosure (..)
+  , AppDeletion (..)
+  , AppStop (..)
+  , AppRestart (..)
+  , RestoreTargetKind (..)
+  , DatabaseRestore (..)
   , contextScope
   , releaseSubject
   , primaryScopeOf

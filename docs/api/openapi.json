@@ -22,6 +22,43 @@
       "AnyValue": {
         "additionalProperties": true
       },
+      "AppDeletedData": {
+        "description": "The data of app.deleted: a converged change retired an application, standalone service or site. retainedMembers counts the members it kept rather than deleted; lastRelease is the release current before, when the change operated the release log.",
+        "properties": {
+          "lastRelease": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retainedMembers": {
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scopeRevision": {
+            "$ref": "#/components/schemas/EventScopeRevision"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/DeploymentSubjectKind"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "transaction",
+          "review",
+          "scopeRevision",
+          "retainedMembers",
+          "lastRelease"
+        ],
+        "type": "object"
+      },
       "AppDeployedData": {
         "description": "The data of app.deployed: a changed production release passed its reviewed readiness and its transaction converged.",
         "properties": {
@@ -62,6 +99,58 @@
           "transaction",
           "review",
           "readiness"
+        ],
+        "type": "object"
+      },
+      "AppRestartedData": {
+        "description": "The data of app.restarted: a converged change rolled an application, standalone service or site to a fresh revision under a new restart stamp.",
+        "properties": {
+          "restartStamp": {
+            "type": "string"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scopeRevision": {
+            "$ref": "#/components/schemas/EventScopeRevision"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/DeploymentSubjectKind"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "transaction",
+          "review",
+          "scopeRevision",
+          "restartStamp"
+        ],
+        "type": "object"
+      },
+      "AppStoppedData": {
+        "description": "The data of app.stopped: a converged change took an application, standalone service or site offline.",
+        "properties": {
+          "review": {
+            "type": "string"
+          },
+          "scopeRevision": {
+            "$ref": "#/components/schemas/EventScopeRevision"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/DeploymentSubjectKind"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "transaction",
+          "review",
+          "scopeRevision"
         ],
         "type": "object"
       },
@@ -478,6 +567,69 @@
           "image",
           "imageDigest",
           "reportedVersion"
+        ],
+        "type": "object"
+      },
+      "DatabaseRestoredData": {
+        "description": "The data of database.restored: a reviewed restore of a backup converged, into a scratch database or a rebuilt server. database or appDatabase names the source; a member the restore did not record is null.",
+        "properties": {
+          "appDatabase": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "backup": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "database": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "namespace": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restore": {
+            "type": "string"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scopeRevision": {
+            "$ref": "#/components/schemas/EventScopeRevision"
+          },
+          "targetDatabase": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetKind": {
+            "$ref": "#/components/schemas/RestoreTargetKindName"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "restore",
+          "backup",
+          "database",
+          "appDatabase",
+          "namespace",
+          "targetDatabase",
+          "targetKind",
+          "transaction",
+          "review",
+          "scopeRevision"
         ],
         "type": "object"
       },
@@ -1646,7 +1798,7 @@
         "type": "object"
       },
       "LifecycleEvent": {
-        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData, change.failed ChangeFailedData, change.closed ChangeClosedData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it.",
+        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData, change.failed ChangeFailedData, change.closed ChangeClosedData, app.deleted AppDeletedData, app.stopped AppStoppedData, app.restarted AppRestartedData, database.restored DatabaseRestoredData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it.",
         "properties": {
           "context": {
             "type": "string"
@@ -2386,6 +2538,13 @@
           "config"
         ],
         "type": "object"
+      },
+      "RestoreTargetKindName": {
+        "enum": [
+          "scratch",
+          "rebuilt"
+        ],
+        "type": "string"
       },
       "ReviewLocation": {
         "properties": {

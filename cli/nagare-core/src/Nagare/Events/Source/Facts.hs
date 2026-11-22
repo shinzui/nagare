@@ -31,6 +31,11 @@ module Nagare.Events.Source.Facts
   , ClosedDisposition (..)
   , ClosedScope (..)
   , ChangeClosure (..)
+  , AppDeletion (..)
+  , AppStop (..)
+  , AppRestart (..)
+  , RestoreTargetKind (..)
+  , DatabaseRestore (..)
   , contextScope
   , releaseSubject
   , primaryScopeOf
@@ -105,6 +110,10 @@ data EventKind
   | ChangeApplied
   | ChangeFailed
   | ChangeClosed
+  | AppDeleted
+  | AppStopped
+  | AppRestarted
+  | DatabaseRestored
   deriving stock (Eq, Ord, Show, Bounded, Enum, Generic)
 
 eventKindText :: EventKind -> Text
@@ -115,6 +124,10 @@ eventKindText = \case
   ChangeApplied -> "change.applied"
   ChangeFailed -> "change.failed"
   ChangeClosed -> "change.closed"
+  AppDeleted -> "app.deleted"
+  AppStopped -> "app.stopped"
+  AppRestarted -> "app.restarted"
+  DatabaseRestored -> "database.restored"
 
 parseEventKind :: Text -> Maybe EventKind
 parseEventKind value = lookup value [(eventKindText kind, kind) | kind <- [minBound .. maxBound]]
@@ -317,6 +330,69 @@ data ChangeClosure = ChangeClosure
   }
   deriving stock (Eq, Show, Generic)
 
+-- | @app.deleted@ (EP-276): a converged transaction retired a release
+-- subject's scope. @scopeRevision@ is the revision it retired (the one
+-- converged before, or the accepted one for a scope that never converged),
+-- @retainedMembers@ how many of its members the review retained rather than
+-- deleted, and @lastRelease@ the release current before, when the
+-- transaction operated the scope's release log (null otherwise).
+data AppDeletion = AppDeletion
+  { subject :: !DeploymentSubject
+  , transaction :: !TransactionId
+  , review :: !ContentDigest
+  , scopeRevision :: !ScopeRevision
+  , retainedMembers :: !Int
+  , lastRelease :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | @app.stopped@ (EP-276): a converged transaction took a release subject
+-- offline: its scope became cluster-local, which it was not before. A change
+-- that also moved the release is reported only as @app.deployed@.
+data AppStop = AppStop
+  { subject :: !DeploymentSubject
+  , transaction :: !TransactionId
+  , review :: !ContentDigest
+  , scopeRevision :: !ScopeRevision
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | @app.restarted@ (EP-276): a converged transaction rolled a release
+-- subject to a fresh revision under a new restart stamp, and brought it back
+-- online if it was stopped. A change that also moved the release is
+-- reported only as @app.deployed@.
+data AppRestart = AppRestart
+  { subject :: !DeploymentSubject
+  , transaction :: !TransactionId
+  , review :: !ContentDigest
+  , scopeRevision :: !ScopeRevision
+  , restartStamp :: !Text
+  -- ^ The restart stamp the scope now carries.
+  }
+  deriving stock (Eq, Show, Generic)
+
+data RestoreTargetKind = ScratchTarget | RebuiltTarget
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
+-- | @database.restored@ (EP-276): a reviewed restore of a backup converged,
+-- into a scratch database or into a rebuilt server. @database@ names a
+-- database restore's source and @appDatabase@ an app-owned database's; each
+-- member the restore's scope did not record is null. Volume and storage
+-- restores are not database restores and publish only @change.applied@.
+data DatabaseRestore = DatabaseRestore
+  { restore :: !Text
+  , backup :: !(Maybe Text)
+  , database :: !(Maybe Text)
+  , appDatabase :: !(Maybe Text)
+  , namespace :: !(Maybe Text)
+  , targetDatabase :: !(Maybe Text)
+  , targetKind :: !RestoreTargetKind
+  , transaction :: !TransactionId
+  , review :: !ContentDigest
+  , scopeRevision :: !ScopeRevision
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- | The resource scope of an event about the context as a whole. No
 -- inventory scope has this name.
 contextScope :: ScopeId
@@ -349,6 +425,10 @@ data EventPayload
   | ChangeAppliedPayload !ChangeApplication
   | ChangeFailedPayload !ChangeFailure
   | ChangeClosedPayload !ChangeClosure
+  | AppDeletedPayload !AppDeletion
+  | AppStoppedPayload !AppStop
+  | AppRestartedPayload !AppRestart
+  | DatabaseRestoredPayload !DatabaseRestore
   deriving stock (Eq, Show, Generic)
 
 payloadKind :: EventPayload -> EventKind
@@ -359,6 +439,10 @@ payloadKind = \case
   ChangeAppliedPayload _ -> ChangeApplied
   ChangeFailedPayload _ -> ChangeFailed
   ChangeClosedPayload _ -> ChangeClosed
+  AppDeletedPayload _ -> AppDeleted
+  AppStoppedPayload _ -> AppStopped
+  AppRestartedPayload _ -> AppRestarted
+  DatabaseRestoredPayload _ -> DatabaseRestored
 
 -- | A payload's @data@ member.
 payloadData :: EventPayload -> Value
@@ -369,6 +453,10 @@ payloadData = \case
   ChangeAppliedPayload value -> toJSON value
   ChangeFailedPayload value -> toJSON value
   ChangeClosedPayload value -> toJSON value
+  AppDeletedPayload value -> toJSON value
+  AppStoppedPayload value -> toJSON value
+  AppRestartedPayload value -> toJSON value
+  DatabaseRestoredPayload value -> toJSON value
 
 -- | The payload of a @data@ member of this type.
 parsePayload :: EventKind -> Value -> Parser EventPayload
@@ -379,6 +467,10 @@ parsePayload kind dataValue = case kind of
   ChangeApplied -> ChangeAppliedPayload <$> parseJSON dataValue
   ChangeFailed -> ChangeFailedPayload <$> parseJSON dataValue
   ChangeClosed -> ChangeClosedPayload <$> parseJSON dataValue
+  AppDeleted -> AppDeletedPayload <$> parseJSON dataValue
+  AppStopped -> AppStoppedPayload <$> parseJSON dataValue
+  AppRestarted -> AppRestartedPayload <$> parseJSON dataValue
+  DatabaseRestored -> DatabaseRestoredPayload <$> parseJSON dataValue
 
 -- | One public event a source fact can become.
 data EventCandidate = EventCandidate
@@ -683,6 +775,31 @@ instance FromJSON ClosedScope where parseJSON = genericParseJSON strictOptions
 instance ToJSON ChangeClosure where toJSON = genericToJSON strictOptions
 
 instance FromJSON ChangeClosure where parseJSON = genericParseJSON strictOptions
+
+instance ToJSON AppDeletion where toJSON = genericToJSON strictOptions
+
+instance FromJSON AppDeletion where parseJSON = genericParseJSON strictOptions
+
+instance ToJSON AppStop where toJSON = genericToJSON strictOptions
+
+instance FromJSON AppStop where parseJSON = genericParseJSON strictOptions
+
+instance ToJSON AppRestart where toJSON = genericToJSON strictOptions
+
+instance FromJSON AppRestart where parseJSON = genericParseJSON strictOptions
+
+targetKindText :: RestoreTargetKind -> Text
+targetKindText = \case
+  ScratchTarget -> "scratch"
+  RebuiltTarget -> "rebuilt"
+
+instance ToJSON RestoreTargetKind where toJSON = String . targetKindText
+
+instance FromJSON RestoreTargetKind where parseJSON = enumeration "restore target kind" targetKindText
+
+instance ToJSON DatabaseRestore where toJSON = genericToJSON strictOptions
+
+instance FromJSON DatabaseRestore where parseJSON = genericParseJSON strictOptions
 
 -- | A payload is encoded as its kind and its data, so the kind is explicit.
 instance ToJSON EventCandidate where

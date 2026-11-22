@@ -27,6 +27,11 @@ module Nagare.Contract.EventData
   , ClosedDispositionKind (..)
   , EventClosedScope (..)
   , ChangeClosedData (..)
+  , AppDeletedData (..)
+  , AppStoppedData (..)
+  , AppRestartedData (..)
+  , RestoreTargetKindName (..)
+  , DatabaseRestoredData (..)
   , eventDataSchemaName
   )
 where
@@ -55,6 +60,10 @@ eventDataSchemaName eventType =
     , ("change.applied", "ChangeAppliedData")
     , ("change.failed", "ChangeFailedData")
     , ("change.closed", "ChangeClosedData")
+    , ("app.deleted", "AppDeletedData")
+    , ("app.stopped", "AppStoppedData")
+    , ("app.restarted", "AppRestartedData")
+    , ("database.restored", "DatabaseRestoredData")
     ]
 
 strictRecord :: Options
@@ -241,6 +250,57 @@ data ChangeClosedData = ChangeClosedData
   }
   deriving stock (Eq, Show, Generic)
 
+-- | @app.deleted@: a converged change retired an application, standalone
+-- service or site.
+data AppDeletedData = AppDeletedData
+  { subject :: !DeploymentSubjectKind
+  , transaction :: !Text
+  , review :: !Text
+  , scopeRevision :: !EventScopeRevision
+  , retainedMembers :: !Int
+  , lastRelease :: !(Nullable Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | @app.stopped@: a converged change took a release subject offline.
+data AppStoppedData = AppStoppedData
+  { subject :: !DeploymentSubjectKind
+  , transaction :: !Text
+  , review :: !Text
+  , scopeRevision :: !EventScopeRevision
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | @app.restarted@: a converged change rolled a release subject to a fresh
+-- revision under a new restart stamp.
+data AppRestartedData = AppRestartedData
+  { subject :: !DeploymentSubjectKind
+  , transaction :: !Text
+  , review :: !Text
+  , scopeRevision :: !EventScopeRevision
+  , restartStamp :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+data RestoreTargetKindName = TargetScratch | TargetRebuilt
+  deriving stock (Eq, Show, Generic)
+
+-- | @database.restored@: a reviewed restore of a backup converged, into a
+-- scratch database or a rebuilt server.
+data DatabaseRestoredData = DatabaseRestoredData
+  { restore :: !Text
+  , backup :: !(Nullable Text)
+  , database :: !(Nullable Text)
+  , appDatabase :: !(Nullable Text)
+  , namespace :: !(Nullable Text)
+  , targetDatabase :: !(Nullable Text)
+  , targetKind :: !RestoreTargetKindName
+  , transaction :: !Text
+  , review :: !Text
+  , scopeRevision :: !EventScopeRevision
+  }
+  deriving stock (Eq, Show, Generic)
+
 instance ToJSON EventScopeRevision where toJSON = genericToJSON strictRecord
 
 instance FromJSON EventScopeRevision where parseJSON = genericParseJSON strictRecord
@@ -389,3 +449,37 @@ instance FromJSON ChangeClosedData where parseJSON = genericParseJSON strictReco
 
 instance ToSchema ChangeClosedData where
   declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of change.closed: a stopped change was closed by its committed close record, whether an operator closed it, abandoned its migration or a proved rollback ended it."
+
+instance ToJSON AppDeletedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON AppDeletedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema AppDeletedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of app.deleted: a converged change retired an application, standalone service or site. retainedMembers counts the members it kept rather than deleted; lastRelease is the release current before, when the change operated the release log."
+
+instance ToJSON AppStoppedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON AppStoppedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema AppStoppedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of app.stopped: a converged change took an application, standalone service or site offline."
+
+instance ToJSON AppRestartedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON AppRestartedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema AppRestartedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of app.restarted: a converged change rolled an application, standalone service or site to a fresh revision under a new restart stamp."
+
+instance ToJSON RestoreTargetKindName where toJSON = genericToJSON (enumOptions "Target")
+
+instance FromJSON RestoreTargetKindName where parseJSON = genericParseJSON (enumOptions "Target")
+
+instance ToSchema RestoreTargetKindName where declareNamedSchema = enumSchema "Target"
+
+instance ToJSON DatabaseRestoredData where toJSON = genericToJSON strictRecord
+
+instance FromJSON DatabaseRestoredData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema DatabaseRestoredData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of database.restored: a reviewed restore of a backup converged, into a scratch database or a rebuilt server. database or appDatabase names the source; a member the restore did not record is null."

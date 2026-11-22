@@ -21,6 +21,10 @@ A context records what Nagare did as immutable lifecycle events:
 | `change.applied` | A reviewed inventory change converged: every operation completed and its convergence was committed. Every change has one. |
 | `change.failed` | The executor recorded that an operation of a change failed or that its outcome is unknown. The change is stopped and waits for a resume or a close. |
 | `change.closed` | A stopped change was closed: an operator closed it or abandoned its migration, or a proved rollback ended it. |
+| `app.deleted` | A converged change retired an application, standalone service or site. |
+| `app.stopped` | A converged change took an application, standalone service or site offline (`app stop`). |
+| `app.restarted` | A converged change rolled an application, standalone service or site to a fresh revision (`app restart`). |
+| `database.restored` | A reviewed restore of a database backup converged, into a scratch database or a rebuilt server. |
 
 An event's `id` never changes across retries, restarts or replays. Read them
 with `nagarectl events list` or `GET /v1/events`. Backup events are described
@@ -75,6 +79,23 @@ could prove. An abandoned migration closes the same way, and its per-stage
 markers publish nothing. A stopped or closed change's events are derived by the
 worker from the committed journal and the change's review, so a review the
 worker cannot read holds the feed at that event until it can.
+
+## Applications and restores
+
+`app delete`, `app stop` and `app restart`, once their saved review converges,
+publish `app.deleted`, `app.stopped` and `app.restarted` beside the change's
+`change.applied`. A stop is the scope becoming cluster-local when it was not; a
+restart is a new restart stamp, which also brings a stopped app back. A change
+that also moved the release is reported only as `app.deployed`, and running the
+command again with nothing to change publishes no named event. `app.deleted`
+counts the members the deletion retained and names the last release when the
+deletion operated the release log.
+
+A reviewed `db restore` or app-database restore publishes `database.restored`
+when it converges: the restore ID, the backup, the source database (`database`,
+or `appDatabase` for an app-owned database), the namespace, the target database
+and `targetKind` (`scratch` or `rebuilt`). Volume and storage restores publish
+only `change.applied`.
 
 ## Run the worker
 
