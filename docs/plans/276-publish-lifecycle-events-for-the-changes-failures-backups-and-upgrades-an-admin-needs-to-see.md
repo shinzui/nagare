@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-22T04:06:01Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-22T10:55:40Z
+      mode: "update"
+      note: "Reviewed against the code and corrected M2 to M6: close marker, override-based producers, worker state versions, platform.upgraded acceptance"
 ---
 
 # Publish lifecycle events for the changes, failures, backups and upgrades an admin needs to see
@@ -32,12 +38,14 @@ only show what Nagare publishes.
 After this plan, the feed has ten more event types:
 - `change.applied`: a reviewed inventory change converged. It says who applied it, where it
   came from, and which scopes it created, updated or retired.
-- `change.failed`: an operation of a change failed or its outcome is unknown, so the change
-  is stopped and waiting for a resume or a close.
-- `change.closed`: an operator closed or abandoned a stopped change.
+- `change.failed`: the executor recorded that an operation of a change failed or that its
+  outcome is unknown, so the change is stopped and waiting for a resume or a close.
+- `change.closed`: a stopped change was closed. An operator closed it or abandoned its
+  migration, or a proved rollback ended it.
 - `app.deleted`, `app.stopped` and `app.restarted`: an application, standalone service or
   site was retired, taken offline, or rolled to a fresh revision.
-- `database.restored`: a reviewed restore of a backup into a scratch database converged.
+- `database.restored`: a reviewed restore of a backup converged, into a scratch database or
+  into a rebuilt server.
 - `database.backup.failed`: a scheduled backup run failed verification.
 - `database.backup.freshness.changed`: a backup schedule's freshness grade moved between
   `fresh`, `deteriorating` and `breached`, against its signed recovery-point objective.
@@ -67,11 +75,11 @@ it touched.
 - [ ] M4: `database.backup.failed` and `database.backup.freshness.changed` are published by
   the backup collector. A worker restart publishes neither twice.
 - [ ] M5: `platform.upgraded` is published once per committed release transition, and not
-  while the transition marker is still in the head.
+  while the transition marker is still in the head. A worker that has recorded no release
+  yet publishes nothing.
 - [ ] M6: Native confirmation on a disposable local context. Each scenario in Validation and
   Acceptance produces its event, readable through the admin API. The EP-172 rehearsal
-  (`just release-rehearse`) reads its seeded data back unchanged and shows
-  `platform.upgraded`.
+  (`just release-rehearse <rev> v0.26.0`) reads its seeded data back unchanged.
 
 
 ## Surprises & Discoveries
@@ -144,6 +152,50 @@ it touched.
   (`docs/user/observability.md`). Previews are high-volume and were excluded by MasterPlan 31.
   The admin tool can add them later as their own types.
   Date: 2026-11-21
+- Decision: `change.closed` is derived only from the journal's `closed:<record digest>` event,
+  and its payload comes from the close record that event names. It has no `how` field. This
+  narrows the 2026-11-21 decision that also named the abandon marker.
+  Rationale: `commitClose` in `cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs` writes
+  that event as the commit point of every close: an operator's close, a migration abandon and
+  a proved fenced rollback (`closeRolledBack`) all end there. The abandon marker
+  (`migration-abandoned`) is written once per unfinished stage, before the close, and a
+  partial abandon leaves it committed while the transaction is still open. The close record
+  cannot tell an abandon from a rollback (both class as reverted), so the payload reports
+  what the record proves: each scope reverted or kept, and whether the close was attested.
+  Date: 2026-11-22
+- Decision: `app.stopped`, `app.restarted` and `database.restored` read the changed scope's
+  overrides through `scopeKeys`, as `backupProducer` does. They read no native object bytes.
+  Rationale: Stop and restart set `operational.visibility` and `operational.restart` on the
+  scope (`cli/nagarectl/src/Nagare/Inventory/Application/Policy.hs`). The Service label is
+  not a stop signal: a restart of a service behind the access proxy also sets it to
+  `cluster-local`. A reviewed restore records `restore.id`, `restore.backup.id` and its target
+  as overrides of its own scope, so the producer needs no object parsing and stays total.
+  Date: 2026-11-22
+- Decision: The feed head's wire format does not change. The worker keeps the release it
+  last ran in its own object under `lifecycle/v1/`. The collector state moves to version 2
+  and its decoder still reads version 1.
+  Rationale: `FeedHead`'s decoder refuses any version but 1 and any unknown field, and the
+  admin API server and `nagarectl` read that head. A new head version would stop
+  `GET /v1/events` on any reader not yet moved. The event ID comes from the source key, so
+  writing the release object after the feed head is safe: a crash between the two republishes
+  the same ID, which the ID index drops. The collector state is read only by the worker, and
+  every existing context holds version 1.
+  Date: 2026-11-22
+- Decision: `platform.upgraded` is first published on the upgrade after the one that brings
+  this plan's worker. M6 does not confirm it natively. Its proof is M5's unit tests.
+  Rationale: A worker from an earlier release records no release, so the first new worker
+  has no `from` and only records what it runs. The EP-172 rehearsal moves a context from the
+  previous release, so it meets exactly that case, and its harness
+  (`cli/nagare-harness/src/Nagare/Harness/Release/Rehearse.hs`) does not run the lifecycle
+  worker. ADR 25 lets a native run only confirm what offline tests found.
+  Date: 2026-11-22
+- Decision: An event that is about the context as a whole uses the resource scope
+  `platform:context`. That is `platform.upgraded`, and a `change.applied` with no single
+  subject.
+  Rationale: `ResourceRef` needs a `ScopeId`, and there is no single platform scope. The real
+  ones are named (`platform:auth`, `platform:serving`, `platform:host` and others). No
+  inventory scope has this name, so a receiver cannot mistake it for one.
+  Date: 2026-11-22
 
 
 ## Outcomes & Retrospective
@@ -219,13 +271,51 @@ named, or a named deployer), `reviewSource` (repository, commit, CI run), `revie
 (each with its planned operation, adapter, and a `reviewPublicSummary`), `reviewRetentions`,
 `reviewCollections`, and base and desired revisions. A retired scope is in the base revisions
 but not converged afterwards, and its members are retained. `Actor` and `ReviewSource` are in
-`cli/nagare-core/src/Nagare/Inventory/Actor.hs`. Stop and restart compile, in
-`cli/nagarectl/src/Nagare/Inventory/Application/Policy.hs`, to a Service whose
-`networking.knative.dev/visibility` label is `cluster-local` (stop) or whose
-`nagare.dev/restartedAt` annotation has a new stamp (restart). Backup freshness grading
+`cli/nagare-core/src/Nagare/Inventory/Actor.hs`. Stop and restart, in
+`cli/nagarectl/src/Nagare/Inventory/Application/Policy.hs`, set a scope override: a stop sets
+`operational.visibility` to `cluster-local` and removes `operational.restart`, and a restart
+sets `operational.restart` to a new stamp and removes `operational.visibility`. A producer
+sees a changed scope's overrides, desired and previously converged, as a `ScopeView` when it
+names one of the scope's keys in `scopeKeys`. A reviewed restore
+(`cli/nagarectl/src/Nagare/Inventory/Restore.hs` and `AppDatabaseRestore.hs`) creates its own
+`standalone:` scope whose overrides hold `restore.id`, `restore.backup.id`,
+`restore.database` or `restore.app-database`, `restore.namespace`, `restore.target.database`
+and, for an app database, `restore.target.kind` (`scratch` or `rebuilt`).
+`cli/nagarectl/src/Nagare/Inventory/Adapters/RestoreScratch.hs` only proves that a scratch
+pod failed; it does not identify a restore.
+
+**What the journal records of a failure.** The executor
+(`cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs`) appends `Failed (KnownNoEffect …)`
+when an adapter refused before any effect, and `Ambiguous` for every other stop it can
+record. It never appends `Failed (PartialOrUnknown …)`, though readers still decode that
+state. A stop that reaches no append leaves no event: a lost executor claim, a crashed
+process, a failed journal write, or a review refused at admission. A close is committed by
+one event with no operation and the state `OperatorResolved "closed:<record digest>"`
+(`closedMarker`, `closedRecordDigest` and `loadCloseRecord` are already in
+`cli/nagare-core/src/Nagare/Inventory/Plan/CloseRecord.hs`). Other `OperatorResolved`
+markers (`migration-abandoned`, `adapter-proved-safe-retry`, `fenced-recovery-proved:` and
+others) are steps inside a transaction, not its end. A journal object whose head write
+failed is an orphan. A later append by the same transaction commits it as history
+(`appendEventAt` in `cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs`), and from then
+the executor reads it like any other event.
+
+**Worker state and its versions.** `FeedHead` in `cli/nagare-core/src/Nagare/Events/Store.hs`
+and `CollectorState` in `BackupCollector.hs` are strict: their decoders refuse an unknown
+field and any version but 1. The feed head is also read by the admin API server and by
+`nagarectl`. The collector state is read only by the worker. The worker has no release
+identity today: `cli/nagare-api-server/app/Events.hs` takes none, and its manifests
+(`cluster/bootstrap/lifecycle-events/lifecycle-events-local.yaml.tmpl` and
+`lifecycle-events-cloud.yaml.tmpl`, rendered by
+`cli/nagarectl/src/Nagare/Inventory/Components/LifecycleEvents.hs`) substitute only the
+image. A source key (`mkSourceKey` in `Facts.hs`) holds only lowercase ASCII letters, digits
+and `-._:/`, so a timestamp such as `2026-11-21T04:00:00Z` is refused as written.
+
+Backup freshness grading
 already exists as `backupFreshness` in `cli/nagare-core/src/Nagare/Inventory/BackupFreshness.hs`.
 It returns `Fresh`, `Deteriorating`, `Breached`, `NoRecoveryPoint` or `FutureRecoveryPoint`
-against the signed `hourly` or `daily` objective. A release transition's state is the head's
+against the signed `hourly` or `daily` objective, and takes only verified recovery-point
+times. The collector verifies only runs newer than its activation baseline, and its
+failure reasons are free text. A release transition's state is the head's
 `headTransition` marker (`TransitionMarker` in
 `cli/nagare-core/src/Nagare/Inventory/Store/Manifest.hs`). The worker may read the whole
 inventory prefix and write only `lifecycle/v1/` (`docs/runbooks/lifecycle-worker-key.md`).
@@ -261,87 +351,147 @@ source, retentions and collections, and a per-operation view: operation ID, acti
 identity, public summary and resources. Fill these in `convergedSourceFacts`. Add
 `cli/nagarectl/src/Nagare/Events/Change.hs` with `changeProducer`, and register it in
 `builtinProducers`. It emits exactly one candidate per converged transaction, keyed
-`change.applied:<transaction>`, about the transaction's primary scope. That is the single
-changed scope, or the `Platform` scope when several changed, with every changed scope also
-listed in the payload. The payload `ChangeApplied` holds `transaction`, `review`, `actor`
+`change.applied:<transaction>`, about the transaction's primary scope. A scope is changed
+when its desired revision differs from its `convergedBefore` revision, or when the review
+retires it: it is in `reviewBaseRevisions` and not in `reviewDesiredRevisions`, the rule of
+`convergedSelectedScopes` in `cli/nagarectl/src/Nagare/Inventory/Execute/Claims.hs`. The
+primary scope is the single changed scope. When several changed, it is the single changed
+release subject (`subjectOf` in `Deployment.hs`, which must be exported), so a deploy that
+also changes a publication scope is still about its app. Otherwise, and when no scope
+changed, it is `platform:context`. Every changed scope is listed in the payload. The payload
+`ChangeApplied` holds `transaction`, `review`, `actor`
 (`{kind: operator|deployer, name}`), `source` (repository, revision and run, each nullable),
 `scopes` (a list of `{scope, change: created|updated|retired, from, to}`, where `from` and `to`
 are scope revisions or null), and `operations` (count by action). A scope is `created` when it
 had no converged revision before, `retired` when the review retires it, and `updated`
 otherwise. The producer reads no member bytes and no scope, so it cannot fail on input. Tests
 in `cli/nagarectl/test/EventsChangeSpec.hs` follow `EventsDeploymentSpec.hs`. A deploy yields
-one `change.applied` beside its `app.deployed`. A resumed transaction yields the same key
-once. A verification-only rerun still yields `change.applied`, because a converged change
-happened. A deployer-applied review carries the deployer's name.
+one `change.applied` beside its `app.deployed`, about the app. A resumed transaction yields
+the same key once. A review that only verifies still yields `change.applied`, with an empty
+`scopes`, because a reviewed transaction converged. A deployer-applied review carries the
+deployer's name.
 
 **M2 — `change.failed` and `change.closed`.** Extend `readSourceChain` in `Chain.hs` to also
-yield committed journal events whose state is `Failed`, `Ambiguous`, or an `OperatorResolved`
-close or abandon marker (`closedMarker` and `abandonedMarker` in
-`cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs`; move the marker prefixes to
-`nagare-core` if the worker cannot import them). An event at a sequence at or below the head's
+yield committed journal events whose state is `Failed` or `Ambiguous`, and the close event:
+no operation, and the state `OperatorResolved` with the `closedMarker` prefix. No other
+`OperatorResolved` marker is a source. `SourceBatch` gains these beside `sources`, in journal
+order, and `materializeOnce` turns each into a `Unit` with its own journal checkpoint, so
+failures and convergences are published in sequence order and a cycle cut by its budget
+resumes at the right event. An event at a sequence below the head's
 `headSequence`, linked by digest to the checkpoint, is committed. Unlike convergence, no
-"next event" rule is needed. `materializeOnce` reads the review the transaction ID names, at
+"next event" rule is needed: an adopted orphan is history the executor itself acts on.
+`materializeOnce` reads the review the transaction ID names, at
 most once per transaction per cycle, and builds the candidate in a new
-`cli/nagare-core/src/Nagare/Events/Change.hs`. `change.failed` (key
+`cli/nagare-core/src/Nagare/Events/Change.hs`. Move `reviewDigestOf` from
+`cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs` to
+`cli/nagare-core/src/Nagare/Inventory/Journal.hs` so the worker can use it. A transaction ID
+that names no review, or a review that cannot be read, stops the cycle at that event. It is
+not skipped. `change.failed` (key
 `change.failed:<transaction>:<journal sequence>`) carries `transaction`, `review`, `actor`,
 `source`, `operation`, the operation's resources and owning scope, `outcome`
 (`failed-no-effect`, `failed-partial-or-unknown` or `ambiguous`), the journal's detail text,
-and `next: resume-or-close`. `change.closed` (key `change.closed:<transaction>`) carries
-`transaction`, `review`, `how` (`closed` or `abandoned`) and the close record digest when
-there is one. Tests use the faultable store fixture of `EventsSourceSpec.hs` to show that a
+and `next: resume-or-close`. The executor writes `failed-no-effect` and `ambiguous` today.
+`failed-partial-or-unknown` exists because the journal can hold that state. Each failed
+resume is a new journal event and so a new `change.failed`. The event's Haddock and the user
+documentation state its limit: it reports a stop the executor recorded. A stop that
+journaled nothing publishes no event, and the admin tool finds such a change through the
+inventory status, as it does today. `change.closed` (key `change.closed:<transaction>`)
+carries `transaction`, `review`, `record` (the close record digest), `scopes` (a list of
+`{scope, disposition: reverted|kept}` from the record's `closedScopes`) and `attested`
+(whether the record has an attestation). The worker reads the record with `loadCloseRecord`.
+Tests use the faultable store fixture of `EventsSourceSpec.hs` to show that a
 failed apply publishes one `change.failed`, that resuming to convergence then publishes
-`change.applied`, and that a close publishes `change.closed`. A journal object written at the
-head's next sequence whose head write failed publishes nothing until a later head commits it.
-The review read must fit the existing per-cycle request budget in Materialize, which counts
-journal events read. Count a review read against it.
+`change.applied`, and that a close publishes `change.closed`. An abandoned migration
+publishes one `change.closed`, and its per-stage abandon markers publish nothing. A journal
+object written at the head's next sequence whose head write failed publishes nothing until a
+later head commits it.
+The review read and the close record read must fit the existing per-cycle request budget in
+Materialize, which counts journal events read. Count each against it.
 
 **M3 — app and restore events.** Add release-time producers next to `deploymentProducer`.
 `app.deleted` (key `app.deleted:<transaction>:<scope>`) fires for a release subject
 (application, standalone service or production site, reusing `subjectOf` from
-`Deployment.hs`) whose scope this transaction retired. It carries the last release and the
-retained members' count. `app.stopped` and `app.restarted` read the Service member's desired
-and previous bytes through `wants`. A stop is the visibility label added. A restart is a
-changed `nagare.dev/restartedAt` stamp. A change that also moves the release is reported only
-as `app.deployed`. `database.restored` fires for a converged transaction whose operations
-include a scratch restore (`cli/nagarectl/src/Nagare/Inventory/Adapters/RestoreScratch.hs`).
-It carries the source database, backup ID, restore ID and the scratch target. Each producer
-gets a unit test, plus a test that a verification-only rerun yields none.
+`Deployment.hs`) whose scope this transaction retired. It carries the count of the scope's
+members in the review's retentions, and the last release when the transaction operated the
+scope's release-history member. That field is nullable: a member the transaction did not
+operate has no `MemberView`. `app.stopped` and `app.restarted` name
+`operational.visibility` and `operational.restart` in `scopeKeys` and compare the release
+subject's `ScopeView`. A stop is `operational.visibility` equal to `cluster-local` in the
+desired overrides and not in the previous ones. A restart is an `operational.restart` value
+that differs from the previous one. A scope with no previous view yields neither. A change
+that also moves the release is reported only as `app.deployed`. `database.restored` (key
+`database.restored:<transaction>:<scope>`) names `restore.id` in `scopeKeys`. It fires for a
+changed scope whose desired overrides hold `restore.id` and whose previous overrides do not
+hold the same value. It carries the restore ID, the backup ID, the source
+(`restore.database` or `restore.app-database`), the namespace, the target database and the
+target kind (`scratch` or `rebuilt`; `scratch` when the scope records none). An override the
+scope does not hold is null in the payload, so the producer stays total. Volume and storage
+restores are not database restores and publish only `change.applied`. Each producer
+gets a unit test, plus a test that a later review that leaves the overrides alone yields
+none.
 
 **M4 — backup failure and freshness.** In `BackupCollector.hs`, publish
 `database.backup.failed` (key `database.backup.failed:<schedule>:<run>`) for a run whose
 verification failed with a terminal reason: a bad signature, a source that is not the
-recorded incarnation, or changed bytes. "The receipt has no backup object" is not terminal,
-because the upload may still be in progress, and a run that never completes is reported by
-freshness instead. Add each schedule's last published grade to the collector state, committed
-in the same conditional write as its observations. After each cycle, grade each schedule with
-`backupFreshness`. On a change from the recorded grade, publish
+recorded incarnation, or changed bytes. The collector's reasons are free text today, so give
+verification a typed result that marks these three as terminal and every other reason as
+not. A reason is terminal only when listed: a key that cannot be read, a schedule with no
+accepted revision and "the receipt has no backup object" are not, because a later cycle may
+verify the run. A run that never completes is reported by freshness instead. The event's
+Haddock states that a run reported failed may still complete later, for example after its
+signing Secret is rebound, and then publishes `database.backup.completed`. Move the
+collector state to version 2: it adds, per schedule, the newest verified recovery point and
+the last recorded grade. The decoder still reads version 1, as a state with no schedule
+entries, because every existing context holds one. The new state is committed
+in the same conditional write as the cycle's observations. After each cycle, grade each
+schedule the cycle was given with `backupFreshness`, from its recorded newest recovery point
+and its signed objective, and drop the entry of a schedule the cycle was not given, so a
+retired database does not grade to breached. Only `fresh`, `deteriorating` and `breached` are
+grades. A schedule with no verified recovery point since activation, a run whose receipt
+carries no recovery point, and a recovery point in the future record nothing and publish
+nothing. On a change from the recorded grade, publish
 `database.backup.freshness.changed` (key
-`database.backup.freshness:<schedule>:<grade>:<newest recovery point or none>`) with `from`,
-`to`, `objective` and `newestRecoveryPoint`. The first grade of a schedule is recorded without
+`database.backup.freshness:<schedule>:<grade>:<newest recovery point>`, with the recovery
+point written in the source-key alphabet, for example `20261121t040000z`) with `from`,
+`to`, `objective` and `newestRecoveryPoint`. Build both keys with `mkSourceKey` and treat a
+refusal as a failure of that candidate, never with `error`. The first grade of a schedule is
+recorded without
 an event. Tests drive the collector's existing fake `CollectorOps` through fresh, then a stop
 in uploads past both thresholds, then a new upload. They expect exactly the transitions
 `fresh→deteriorating`, `deteriorating→breached` and `breached→fresh`, and a restart between
-cycles repeats none.
+cycles repeats none. One more test starts the collector on a stored version-1 state and
+expects it to keep its pending runs and write version 2.
 
-**M5 — `platform.upgraded`.** Add the running release to the worker's feed-side state (beside
-the feed head in `cli/nagare-core/src/Nagare/Events/Store.hs`). The release is the payload
-version the worker is built from, the same identity `nagarectl platform status` reports as
-the payload (see `cli/nagarectl/src/Nagare/Platform/Status.hs`). Pass it into the worker from
-`cli/nagare-api-server/app/Events.hs`. In a cycle where the recorded release differs from the
+**M5 — `platform.upgraded`.** The worker keeps the release it last ran in its own object,
+`lifecycle/v1/worker-release.json`, written through the `FeedStore`'s object operations in
+`cli/nagare-core/src/Nagare/Events/Store.hs`. The feed head is not changed. The release is
+the payload's `platformVersion` (`PayloadManifest` in
+`cli/nagarectl/src/Nagare/Platform/Workspace.hs`), the version `nagarectl platform status`
+reports for the payload. The worker does not know it today. Add a `--release` argument to
+`nagare-events` in `cli/nagare-api-server/app/Events.hs`, and render it in both manifest
+templates from a new substitution that
+`cli/nagarectl/src/Nagare/Inventory/Components/LifecycleEvents.hs` fills from the payload
+manifest. A worker started without `--release` publishes and records nothing for this type.
+In a cycle where the recorded release differs from the
 running one and the inventory head has no active transaction and no `headTransition`, publish
-`platform.upgraded` (key `platform.upgraded:<from>:<to>`, scope `Platform`) with `from` and
-`to`, and record the new release in the same write. The first cycle with no recorded release
+`platform.upgraded` (key `platform.upgraded:<from>:<to>`, scope `platform:context`) with
+`from` and `to`. The key holds each release lowercased, with any character outside the
+source-key alphabet replaced by `-`; the payload holds them as written. After the feed head
+write that publishes the event, write the new release to the object. A crash between the two
+writes publishes the same ID again, which the ID index drops. The first cycle with no
+recorded release
 only records it. A cycle that sees the marker waits. Tests: marker present means no event;
-marker cleared means one event; a restart means none again.
+marker cleared means one event; a restart means none again; a crash after the feed head
+write and before the release write means one event in the feed.
 
 **M6 — native confirmation.** On a disposable local context created with
 `--enable-lifecycle-events --enable-lifecycle-delivery`, run the scenarios in Validation and
 Acceptance. Read every event through the admin API and through a webhook subscription that
-names all thirteen types, pointed at
-`cluster/examples/lifecycle-webhook-receiver/Receiver.hs`. Then run `just release-rehearse`
-from the latest release to this revision. It must read its seeded data back unchanged, and
-the moved context's feed must hold `platform.upgraded` and the events seeded before the move,
-unchanged. At completion, amend ADR 39 with the journal-derived source class and the change
+names the twelve types those scenarios produce, pointed at
+`cluster/examples/lifecycle-webhook-receiver/Receiver.hs`. Then run
+`just release-rehearse <rev> v0.26.0`. It must read its seeded data back unchanged. The
+rehearsal does not run the lifecycle worker and does not check `platform.upgraded` (see the
+Decision Log). At completion, amend ADR 39 with the journal-derived source class and the change
 that every converged transaction now writes facts, and update
 `docs/user/lifecycle-events.md`'s type table.
 
@@ -367,8 +517,10 @@ git diff docs/api/openapi.json docs/api/samples
 
 Per Haskell commit, run `just haskell-style-check` and `just gate-commit`. M1 to M3 touch the
 executor's release path (`Sources.hs`), and M2 touches the source chain, so run
-`just mutation-check HEAD <base>` before landing them. Its existing EP-232 records
-(`cli/nagarectl/test/mutations/EP232-*.diff`) must still be killed. To land a milestone, run
+`just mutation-check HEAD <base>` before landing them. M4 touches the collector, so run it
+there too. The existing EP-231, EP-232 and EP-233 records
+(`cli/nagarectl/test/mutations/EP231-*.diff`, `EP232-*.diff` and `EP233-*.diff`) must still be
+killed. To land a milestone, run
 `just gate-fast` on a clean tree, then `just land <rev>`.
 
 A local check of the feed after a scenario:
@@ -378,7 +530,7 @@ nagarectl events list --type change.applied --type change.failed --json | jq '.e
 ```
 
 ```text
-{"type":"change.failed","scope":{"kind":"Application","name":"notes"},"data":{"outcome":"failed-partial-or-unknown","next":"resume-or-close", ...}}
+{"type":"change.failed","scope":{"kind":"Application","name":"notes"},"data":{"outcome":"ambiguous","next":"resume-or-close", ...}}
 {"type":"change.applied","scope":{"kind":"Application","name":"notes"},"data":{"actor":{"kind":"operator","name":null}, ...}}
 ```
 
@@ -396,12 +548,15 @@ failing hook gives `change.failed`. Resuming it gives `change.applied`. Closing 
 failure instead gives `change.closed`. `app stop` gives `app.stopped` and `change.applied`.
 `app restart` gives `app.restarted` and `change.applied`. `app delete` with its saved review
 applied gives `app.deleted` and `change.applied`. An env change gives only `change.applied`, and
-its `scopes` names the app. `db restore` into a scratch database gives `database.restored`.
+its `scopes` names the app. `db restore` into a scratch database gives `database.restored`
+and `change.applied`.
 A backup whose receipt is tampered with gives `database.backup.failed`. Pausing the backup
 CronJob past the hourly thresholds gives two `database.backup.freshness.changed` events, and
-resuming it gives one more. `just release-rehearse` ends with one `platform.upgraded`. Running
-any scenario's command again with nothing to change, or restarting the worker, adds no event
-with a new ID.
+resuming it gives one more. Restarting the worker adds no event. Running a scenario's
+command again with nothing to change adds no named event; if it converges a new review, it
+adds one `change.applied` with an empty `scopes`. `platform.upgraded` is not confirmed here:
+M5's unit tests accept it, and `just release-rehearse <rev> v0.26.0` only has to read its
+seeded data back unchanged.
 
 The labs admin tool is out of this repository. It is ready to integrate when the events
 above are listed by `GET /v1/events` and their `data` matches the OpenAPI schema in
@@ -415,7 +570,10 @@ restarted worker or a replayed cycle publishes nothing new. The tests in M1 to M
 this. Producers are pure and read nothing they cannot already read, so a release that fails
 to build facts leaves the transaction resumable, exactly as today. The worker stops at a
 journal position it cannot decode and does not skip it. A worker from an earlier release
-therefore pauses the feed until the context runs the new worker, and then catches up. No
+therefore pauses the feed until the context runs the new worker, and then catches up. The
+same holds for the collector state: the new worker reads version 1 and writes version 2,
+which an earlier worker refuses. The feed head keeps its version, so the admin API and
+`nagarectl` of either release read it. No
 step deletes or rewrites existing journal, facts, envelope or delivery bytes. A bad milestone
 is reverted with `git revert` before the next land. Events it already published on a test
 context stay valid history, because readers of later releases still decode every kind.
@@ -433,3 +591,5 @@ shared `transaction` field that joins events of one change, and the `data` schem
 change adds a new type instead. `SourceInput` gains fields in M1. Its only constructor is
 `convergedSourceFacts` in `cli/nagarectl/src/Nagare/Inventory/Execute/Sources.hs`, plus the
 test fixtures in `cli/nagarectl/test/EventsSourceSpec.hs` and `EventsBackupSpec.hs`.
+`nagare-events` gains a `--release` argument in M5, and the lifecycle worker's two manifest
+templates gain the substitution that fills it. `CollectorState` moves to version 2 in M4.
