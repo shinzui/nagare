@@ -107,7 +107,12 @@ transitionRehearse runtime options = do
     _ -> do
       work <- case options ^. #run of
         Just directory -> createDirectoryIfMissing True directory >> pure directory
-        Nothing -> T.unpack <$> captureText runtime "mktemp failed" (invocation "mktemp" ["-d", "/private/tmp/nagare-release-rehearse.XXXXXX"])
+        -- In the home directory a Colima VM shares: the local substrate
+        -- mounts the context's store from the work directory.
+        Nothing -> do
+          let parent = stateDirectory runtime </> "nagare/rehearsals"
+          createDirectoryIfMissing True parent
+          T.unpack <$> captureText runtime "mktemp failed" (invocation "mktemp" ["-d", parent </> "nagare-release-rehearse.XXXXXX"])
       let record = fromMaybe (work </> "transition-rehearsal.json") named
       started <- runtime ^. #now
       index <-

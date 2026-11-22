@@ -191,7 +191,11 @@ releaseCandidate outer options = do
     if kept
       then keepStep index "rehearsal"
       else do
-        rehearsalWork <- T.unpack <$> captureText runtime "mktemp failed" (invocation "mktemp" ["-d", "/private/tmp/nagare-release-rehearse.XXXXXX"])
+        -- Under the run directory, in the home directory a Colima VM shares:
+        -- the local substrate mounts the context's store from here, and a
+        -- path the VM does not share mounts empty (the lifecycle worker then
+        -- reads no head).
+        rehearsalWork <- T.unpack <$> captureText runtime "mktemp failed" (invocation "mktemp" ["-d", run </> "rehearsal.XXXXXX"])
         setChild index "rehearsal" (rehearsalWork </> "index.json")
         advance index "rehearsal" (Just (run </> "rehearsal.log"))
         step runtime ("transition rehearsal from v" <> previous <> " (log " <> T.pack (run </> "rehearsal.log") <> ")")

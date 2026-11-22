@@ -86,7 +86,8 @@ candidateOrder rehearsal' =
        , "git -C $T/repo worktree remove --force " <> run' <> "/worktree"
        , "git worktree add -q --detach " <> run' <> "/worktree " <> T.unpack rev
        , "just gate-verify " <> T.unpack rev
-       , "mktemp -d /private/tmp/nagare-release-rehearse.XXXXXX"
+       , -- Under the run directory, which a Colima VM shares.
+         "mktemp -d " <> run' <> "/rehearsal.XXXXXX"
        , "scripts/release-rehearse.sh " <> T.unpack rev <> " 9.10.0 --run $T/rehearse-work"
        ]
     <> [run' <> "/worktree/scripts/release-intranet.sh 9.8.7 --run " <> run' | not rehearsal']
