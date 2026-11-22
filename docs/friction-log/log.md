@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-22
+* **Addition**: FRIC-19 records detour tooling friction with mori://shinzui/nagare: The upgrade rehearsal cannot run a candidate's own service images
+
 ## 2026-11-18
 
 * **Update**: FRIC-18 resolved: Status set to resolved.

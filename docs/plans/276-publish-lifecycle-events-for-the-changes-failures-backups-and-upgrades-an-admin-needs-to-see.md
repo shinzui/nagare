@@ -119,7 +119,15 @@ it touched.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The EP-172 rehearsal runs the service images `release.json` names, and the lifecycle worker
+  runs the admin API image. At an unreleased revision that is v0.26.0's image, which refuses
+  the new types, so `NAGARE_REHEARSAL_LIFECYCLE=1 just release-rehearse <rev> v0.26.0` can
+  show `platform.upgraded` only for a candidate whose `release.json` names an admin API image
+  built with this plan's code (FRIC-19). Evidence: `release.json` `releaseImages.images.nagare-admin-api`
+  is `sha256:2b58b5a1…`, and `drillEnvironment` drops every `NAGARE_` override but
+  `NAGARE_REHEARSAL_*`. M6's rehearsal check moves to the first release candidate; the
+  scenario run uses a drill root whose context pins the image built from this tree
+  (`scripts/site-access-drill.sh` with `NAGARE_DRILL_LIFECYCLE=1`).
 
 
 ## Decision Log
