@@ -125,8 +125,8 @@ the running adapter cannot prove still blocks close until it is attested. A tran
 
 ## Planned amendment (2026-11-20) — Scope of the proposed stateless apply exception
 
-Not scheduled (operator, 2026-11-21): EP-274 left MasterPlan 37 and nothing below is planned. The
-journalled path applies.
+Status (2026-11-21): EP-274 left MasterPlan 37 when the operator limited it to release engineering, and
+has no master plan yet. Until it lands, the journalled path applies.
 
 [EP-274](../plans/274-simplify-recovery-for-stateless-kubernetes-applies.md) keeps close-by-proof for
 existing transactions and reviews containing any strict operation. Its D2a change may prove healthy,

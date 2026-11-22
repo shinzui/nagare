@@ -291,6 +291,6 @@ land; a red full gate still does.
 The operator chose a per-commit check and a per-landing check in
 [MasterPlan 37](../masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md). At
 cutover the candidate uses the accepted landing result for its revision. A clean machine can obtain that
-result or run the same check locally. The mutation sweep, its records and the deep tier stay and run when a change calls for them
-(operator, 2026-11-21). Recovery tests still exercise interruptions and data fences, and the release
+result or run the same check locally. The mutation sweep and its records stay and run when a change calls for them; the deep tier stays a
+manual tool (operator, 2026-11-21). Recovery tests still exercise interruptions and data fences, and the release
 rehearsal still reads its seeded data back. D3 and D5 own the switch.

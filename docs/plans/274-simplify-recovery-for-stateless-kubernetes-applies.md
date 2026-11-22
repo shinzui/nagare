@@ -25,9 +25,9 @@ provenance:
 
 # Simplify recovery for stateless Kubernetes applies
 
-**Status (operator, 2026-11-21): not scheduled.** This plan changes Nagare's recovery behaviour and left
-[MasterPlan 37](../masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md), whose
-scope is release engineering only. Nothing here is worked on unless the operator schedules it.
+**Status (2026-11-21):** this plan changes Nagare's recovery behaviour, so it left
+[MasterPlan 37](../masterplans/37-make-releases-routine-by-deleting-what-nagare-does-not-need.md) when the operator
+limited that plan to release engineering. It has no master plan yet.
 
 ## Purpose / Big Picture
 

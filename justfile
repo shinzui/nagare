@@ -410,7 +410,8 @@ mutation-sweep rev="HEAD" base="" width="4":
 
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
 # changed since `base` (committed, uncommitted or untracked), and exit non-zero
-# when there are any: such a change needs a passing `just gate-deep`. With
+# when there are any: someone working on such a change may run `just gate-deep`
+# by hand; it is no landing or release step (ADR 25, 2026-10-12). With
 # `rev`, compare the committed revision only.
 # Report whether changes since a base need the recovery model's deep tier.
 [group('test')]
