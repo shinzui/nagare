@@ -7,20 +7,27 @@ import Data.Aeson (Value (Null, Object), toJSON)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Either (isLeft)
+import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding, preparedFixtureWith)
 import Nagare.Dsl.Prelude
+import Nagare.Events.Materialize (MaterializeBudget (..), MaterializeOutcome, defaultBudget, enableFeed, materializeOnce)
+import Nagare.Events.Read (readPage, readRequest)
 import Nagare.Events.Source
+import Nagare.Events.Store (FeedStore, memoryObjectOps, newFeedStore)
 import Nagare.Inventory.Actor (anonymousOperator)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Plan (ReviewDocument (reviewHeadSequence), encodeReviewDocument, reviewedDocument)
+import Nagare.Inventory.Plan.CloseRecord (CloseRecord (..), ScopeDisposition (..), publishCloseRecord)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Counters (Counter (RemoteGet, RemotePut), countOf, snapshotCounters)
 import Nagare.Inventory.Store.ObjectOps
@@ -37,7 +44,7 @@ eventsSourceTests =
         "executor"
         [ testCase "a converged transaction with facts commits one source and a version 2 head" $ do
             run <- runFixture [] (Just testProducer)
-            assertConverged (outcome run)
+            assertConverged (run ^. #outcome)
             headValue <- readHeadOf run
             headSchemaVersion headValue @?= 2
             events <- journalOf run
@@ -52,7 +59,7 @@ eventsSourceTests =
         , testCase "every converged transaction commits one source; it costs a fact-less change two writes and a deploy none (EP-276)" $ do
             without <- runFixture [] Nothing
             with <- runFixture [] (Just testProducer)
-            assertConverged (outcome without)
+            assertConverged (without ^. #outcome)
             headValue <- readHeadOf without
             headSchemaVersion headValue @?= 2
             events <- journalOf without
@@ -68,29 +75,29 @@ eventsSourceTests =
             (headPuts without, headPuts with) @?= (6, 6)
         , testCase "a lost facts upload stops the release; resume commits exactly one source" $ do
             run <- runFixture [FailOnce (keyPrefixed "facts/") NotLanded] (Just testProducer)
-            assertNotConverged (outcome run)
+            assertNotConverged (run ^. #outcome)
             (readAll run >>= \batch -> batch ^. #sources @?= [])
             resumed <- resumeFixture run
             assertConverged resumed
             assertOneSource run
         , testCase "a refused convergence journal write stops the release; resume commits exactly one source" $ do
             run <- runFixture [FailOnce convergenceEvent NotLanded] (Just testProducer)
-            assertNotConverged (outcome run)
+            assertNotConverged (run ^. #outcome)
             (readAll run >>= \batch -> batch ^. #sources @?= [])
             resumed <- resumeFixture run
             assertConverged resumed
             assertOneSource run
         , testCase "a refused release head write is retried and commits one source" $ do
             run <- runFixture [FailAfterConvergence 1 NotLanded] (Just testProducer)
-            assertConverged (outcome run)
+            assertConverged (run ^. #outcome)
             assertOneSource run
         , testCase "a release head write whose acknowledgement was lost is read back as committed" $ do
             run <- runFixture [FailAfterConvergence 1 LandedLost] (Just testProducer)
-            assertConverged (outcome run)
+            assertConverged (run ^. #outcome)
             assertOneSource run
         , testCase "a persistent release failure leaves an orphan no reader sees; resume adopts it and commits one source" $ do
             run <- runFixture [FailAfterConvergence 4 NotLanded] (Just testProducer)
-            assertNotConverged (outcome run)
+            assertNotConverged (run ^. #outcome)
             headValue <- readHeadOf run
             orphan <- readObject (inspect run) (journalKey (headSequence headValue))
             assertBool "the convergence event was published but not committed" (isRightJust orphan)
@@ -196,6 +203,84 @@ eventsSourceTests =
             -- earlier event and no write.
             countOf RemoteGet after - countOf RemoteGet before @?= 3
             countOf RemotePut after - countOf RemotePut before @?= 0
+        ]
+    , testGroup
+        "stops (EP-276)"
+        [ testCase "committed failures, unknown outcomes and the close marker are stops; other resolutions are not" $ do
+            let closed = contentDigest "record"
+            chain <-
+              buildChain
+                [ State tx1 (Just op1) (Failed (KnownNoEffect "refused"))
+                , State tx1 (Just op1) Ambiguous
+                , State tx1 Nothing (OperatorResolved "migration-abandoned")
+                , State tx1 (Just op1) (OperatorResolved "adapter-proved-safe-retry")
+                , State tx1 Nothing (OperatorResolved ("closed:" <> digestText closed))
+                , State tx1 (Just op1) (OperatorResolved ("closed:" <> digestText closed))
+                , Plain tx2
+                ]
+                Nothing
+            batch <- readFrom chain initialCheckpoint 10
+            map (\stop -> (stop ^. #journalSequence, stop ^. #kind)) (batch ^. #stops)
+              @?= [(0, StopFailed (KnownNoEffect "refused")), (1, StopAmbiguous), (4, StopClosed closed)]
+        , testCase "a journal object at the head's next sequence is no stop until a head commits it" $ do
+            chain <- buildChain [Plain tx1] (Just tx1)
+            headValue <- readHead (chainStore chain) >>= either (assertFailure . show) (maybe (assertFailure "no head") pure)
+            tipEvent <- tipCheckpoint (chainStore chain) >>= either (assertFailure . show) pure
+            let orphan = JournalEvent 1 1 (tipEvent ^. #previous) tx1 (Just op1) Ambiguous "2026-11-17T00:00:00Z" "test" Nothing Nothing
+            _ <- appendAtSequence (chainStore chain) 1 (encodeJournalEvent orphan) >>= either (assertFailure . show) pure
+            before <- readFrom chain initialCheckpoint 10
+            before ^. #stops @?= []
+            replaceHeadIfGenerationMatches (chainStore chain) (Just (headGeneration headValue)) headValue {headGeneration = headGeneration headValue + 1, headSequence = 2} >>= either (assertFailure . show) pure
+            after <- readFrom chain initialCheckpoint 10
+            map (^. #journalSequence) (after ^. #stops) @?= [1]
+        , testCase "a stop whose review cannot be read stops the cycle at it, publishing what came before; it is published once readable" $ do
+            (digestA, bytesA) <- sampleReview 1
+            (digestB, bytesB) <- sampleReview 2
+            let txA = reviewTransaction digestA
+                txB = reviewTransaction digestB
+            chain <- buildChain [State txA (Just op1) Ambiguous, State txB (Just op1) Ambiguous, State txA (Just op1) Ambiguous] Nothing
+            _ <- publishIfAbsent (chainStore chain) (reviewKey digestA) bytesA >>= either (assertFailure . show) pure
+            feed <- newFeed
+            first' <- materializeChain chain feed defaultBudget
+            (first' ^. #published, first' ^. #checkpoint . #next) @?= (1, 1)
+            assertBool "the cycle says why it stopped" (isJust (first' ^. #blocked))
+            again <- materializeChain chain feed defaultBudget
+            (again ^. #published, again ^. #checkpoint . #next) @?= (0, 1)
+            _ <- publishIfAbsent (chainStore chain) (reviewKey digestB) bytesB >>= either (assertFailure . show) pure
+            done <- materializeChain chain feed defaultBudget
+            (done ^. #published, done ^. #checkpoint . #next, done ^. #blocked) @?= (2, 3, Nothing)
+            entries <- feedPayloads feed
+            [(failure ^. #transaction, failure ^. #outcome) | ChangeFailedPayload failure <- entries] @?= [(txA, AmbiguousOutcome), (txB, AmbiguousOutcome), (txA, AmbiguousOutcome)]
+        , testCase "each review read counts against the cycle's journal budget" $ do
+            reviews <- traverse sampleReview [1 .. 4]
+            chain <- buildChain [State (reviewTransaction digest) (Just op1) Ambiguous | (digest, _) <- reviews] Nothing
+            for_ reviews $ \(digest, bytes) -> publishIfAbsent (chainStore chain) (reviewKey digest) bytes >>= either (assertFailure . show) pure
+            feed <- newFeed
+            let budget = defaultBudget & #journal .~ 4
+            first' <- materializeChain chain feed budget
+            (first' ^. #published, first' ^. #checkpoint . #next, first' ^. #behind) @?= (2, 2, True)
+            rest <- materializeChain chain feed budget
+            (rest ^. #published, rest ^. #checkpoint . #next, rest ^. #behind) @?= (2, 4, False)
+        , testCase "an abandoned migration's stage markers publish nothing; its close is one change.closed" $ do
+            (digest, bytes) <- sampleReview 1
+            let transaction = reviewTransaction digest
+                owner = either (error . T.unpack) id (mkScopeId Application "notes")
+                record = CloseRecord transaction digest Map.empty (Map.singleton owner (RevertTo Nothing)) Map.empty Set.empty Set.empty Nothing
+            let recordDigest = contentDigest (either (error . T.unpack) id (canonicalValue (toJSON record)))
+            _ <- pure bytes
+            chain <-
+              buildChain
+                [ State transaction Nothing (OperatorResolved "migration-abandoned")
+                , State transaction Nothing (OperatorResolved "migration-abandoned")
+                , State transaction Nothing (OperatorResolved ("closed:" <> digestText recordDigest))
+                ]
+                Nothing
+            published <- publishCloseRecord (chainStore chain) record >>= either (assertFailure . T.unpack) pure
+            published @?= recordDigest
+            feed <- newFeed
+            _ <- materializeChain chain feed defaultBudget
+            entries <- feedPayloads feed
+            entries @?= [ChangeClosedPayload (ChangeClosure transaction digest recordDigest [ClosedScope owner ClosedReverted] False)]
         ]
     , testGroup
         "controls"
@@ -389,7 +474,11 @@ sourceKey = either (error . T.unpack) id . mkSourceKey
 
 -- * Handcrafted journals
 
-data Entry = Plain !TransactionId | Conv !TransactionId !(Maybe [ControlFact])
+data Entry
+  = Plain !TransactionId
+  | Conv !TransactionId !(Maybe [ControlFact])
+  | -- | An event of this transaction and operation in this state (EP-276).
+    State !TransactionId !(Maybe OperationId) !OperationState
 
 data Chain = Chain {chainStore :: !InventoryStore}
 
@@ -411,21 +500,22 @@ buildChainWith publishFacts entries active = do
   let review = contentDigest "review"
       go _ _ [] = pure ()
       go sequenceNumber previous (entry : rest) = do
-        (transaction, convergence) <- case entry of
-          Plain transaction -> pure (transaction, Nothing)
-          Conv transaction Nothing -> pure (transaction, Just (Convergence review Nothing))
+        (transaction, convergence, operation, state) <- case entry of
+          Plain transaction -> pure (transaction, Nothing, Nothing, Pending)
+          State transaction operation state -> pure (transaction, Nothing, operation, state)
+          Conv transaction Nothing -> pure (transaction, Just (Convergence review Nothing), Nothing, Completed review)
           Conv transaction (Just controlFacts) -> do
             let facts = SourceFacts factsSchemaVersion transaction review [] controlFacts
             when publishFacts (void (publishIfAbsent store (factsKey (factsDigest facts)) (encodeSourceFacts facts) >>= either (assertFailure . show) pure))
-            pure (transaction, Just (Convergence review (Just (factsDigest facts))))
+            pure (transaction, Just (Convergence review (Just (factsDigest facts))), Nothing, Completed review)
         let event =
               JournalEvent
                 (if isJust convergence then convergenceSchemaVersion else 1)
                 sequenceNumber
                 previous
                 transaction
-                Nothing
-                (if isJust convergence then Completed review else Pending)
+                operation
+                state
                 "2026-11-17T00:00:00Z"
                 "test"
                 Nothing
@@ -442,6 +532,36 @@ buildChainWith publishFacts entries active = do
           }
   replaceHeadIfGenerationMatches store (Just (headGeneration initial)) committed >>= either (assertFailure . show) pure
   pure (Chain store)
+
+op1 :: OperationId
+op1 = either (error . T.unpack) id (mkOperationId "op-one")
+
+-- | A real review document, made distinct by its head sequence, and its
+-- canonical bytes.
+sampleReview :: Integer -> IO (ContentDigest, ByteString)
+sampleReview distinct = do
+  ops <- fakeObjectOps
+  store <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+  (reviewed, _) <- preparedFixtureWith store (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure RecoverySafeToRetry)
+  let bytes = encodeReviewDocument ((reviewedDocument reviewed) {reviewHeadSequence = distinct})
+  pure (contentDigest bytes, bytes)
+
+reviewTransaction :: ContentDigest -> TransactionId
+reviewTransaction digest = either (error . T.unpack) id (mkTransactionId ("tx-" <> digestText digest))
+
+newFeed :: IO FeedStore
+newFeed = do
+  feed <- memoryObjectOps >>= newFeedStore
+  _ <- enableFeed feed fixtureBinding "stops-epoch" initialCheckpoint >>= either (assertFailure . show) pure
+  pure feed
+
+materializeChain :: Chain -> FeedStore -> MaterializeBudget -> IO MaterializeOutcome
+materializeChain chain feed budget = materializeOnce (chainStore chain) feed fixtureBinding budget (pure "2026-11-17T01:00:00Z") >>= either (assertFailure . show) pure
+
+feedPayloads :: FeedStore -> IO [EventPayload]
+feedPayloads feed = do
+  page <- readPage feed fixtureBinding readRequest >>= either (assertFailure . show) pure
+  pure [entry ^. #envelope . #payload | entry <- page ^. #entries]
 
 readFrom :: Chain -> SourceCheckpoint -> Int -> IO SourceBatch
 readFrom chain from budget = readSourceChain (chainStore chain) from budget >>= either (assertFailure . show) pure

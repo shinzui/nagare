@@ -68,6 +68,7 @@ runEventsCollectBackups mctx options = do
          ]
       <> ["  pending run " <> run <> ": " <> reason | (run, reason) <- outcome ^. #failures]
       <> ["feed: " <> showT (materialized ^. #published) <> " events published, " <> showT (materialized ^. #count) <> " in the feed"]
+      <> ["  the feed waits at " <> reason | Just reason <- [materialized ^. #blocked]]
   where
     stamp = T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
     showT :: (Show a) => a -> Text

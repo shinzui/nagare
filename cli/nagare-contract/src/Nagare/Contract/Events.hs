@@ -132,7 +132,7 @@ instance ToSchema LifecycleEvent where
     genericDeclareNamedSchema (fromAesonOptions eventOptions) proxy
       <&> schema
       . description
-      ?~ "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it."
+      ?~ "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData, change.failed ChangeFailedData, change.closed ChangeClosedData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it."
 
 instance ToJSON LifecycleFeedEntry where toJSON = genericToJSON recordOptions
 

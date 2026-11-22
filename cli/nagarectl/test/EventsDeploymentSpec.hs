@@ -8,6 +8,7 @@ module EventsDeploymentSpec
   , deploy
   , deployWith
   , resume
+  , closeStopped
   , feedEntries
   , notes
   , notesBase
@@ -41,17 +42,17 @@ import Nagare.Events.Materialize (defaultBudget, enableFeed, materializeOnce)
 import Nagare.Events.Read (FeedEntry, readPage, readRequest)
 import Nagare.Events.Source (AppDeployment (..), DeploymentAction (..), DeploymentSubject (..), EventKind (AppDeployed), EventPayload (..), initialCheckpoint, payloadKind)
 import Nagare.Events.Store (FeedStore, memoryObjectOps, newFeedStore)
-import Nagare.Inventory.Adapter (AdapterExecution (..), AdapterRegistry, PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
+import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (..), AdapterRegistry, PlannedOperation (..), RecoveryDecision (RecoveryLandedUnready), Settlement (SettledLanded), lookupAdapter, mkAdapterRegistry, observeWithRegistry)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
-import Nagare.Inventory.Journal (TransactionId)
+import Nagare.Inventory.Execute (CloseInput (..), TransactionResult (..), applyReviewed, closeTransaction, resumeTransaction)
+import Nagare.Inventory.Journal (TransactionId, reviewDigestOf)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Site (compileStaticSiteRollbackScope, compileStaticSiteScope)
 import Nagare.Inventory.Store
-import Nagare.Resource.Inventory (Declaration (..), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, ScopeSnapshot, composeInventory, mkScopeDeclaration, mkScopeSnapshot)
+import Nagare.Resource.Inventory (Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, ScopeSnapshot, composeInventory, mkScopeDeclaration, mkScopeSnapshot)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
 import Nagare.Resource.Types
@@ -202,6 +203,17 @@ resume :: World -> TransactionId -> IO TransactionResult
 resume world transaction = do
   bound <- readIORef (world ^. #natives)
   resumeTransaction (world ^. #store) (registry world bound) transaction >>= orFail
+
+-- | Close a stopped transaction by per-operation proof, the interrupted
+-- update having landed but never become ready, so resume cannot progress.
+closeStopped :: World -> TransactionId -> Assertion
+closeStopped world transaction = do
+  bound <- readIORef (world ^. #natives)
+  review <- maybe (assertFailure "the transaction names no review" >> fail "review") pure (reviewDigestOf transaction)
+  let kubernetes = checked (lookupAdapter (registry world bound) KubernetesExecutor)
+      landed = checked (mkAdapterRegistry [kubernetes {adapterRecover = \_ _ -> pure (RecoveryLandedUnready (checked (mkPhysicalIdentity "uid-landed"))), adapterSettle = Just (\_ _ -> pure (SettledLanded (checked (mkPhysicalIdentity "uid-landed"))))}])
+  closed <- closeTransaction (world ^. #store) landed (CloseInput transaction review False Nothing)
+  either (\errors -> assertFailure ("close refused: " <> show errors)) (const (pure ())) closed
 
 -- | A fake Kubernetes API: every write lands; the next one, when armed, loses
 -- its acknowledgement.

@@ -5,6 +5,7 @@ module Nagare.Inventory.Journal
   ( TransactionId
   , mkTransactionId
   , transactionIdText
+  , reviewDigestOf
   , OperationId
   , mkOperationId
   , operationIdText
@@ -43,6 +44,11 @@ mkTransactionId value
 
 transactionIdText :: TransactionId -> Text
 transactionIdText (TransactionId value) = value
+
+-- | The review a transaction applies: its ID is @tx-@ and the review's
+-- digest.
+reviewDigestOf :: TransactionId -> Maybe ContentDigest
+reviewDigestOf transaction = either (const Nothing) Just (mkContentDigest (T.drop 3 (transactionIdText transaction)))
 
 newtype OperationId = OperationId Text deriving stock (Eq, Ord, Show)
 

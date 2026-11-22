@@ -21,18 +21,24 @@ module Nagare.Contract.EventData
   , OperationActionKind (..)
   , EventActionCount (..)
   , ChangeAppliedData (..)
+  , FailureOutcomeKind (..)
+  , NextStepKind (..)
+  , ChangeFailedData (..)
+  , ClosedDispositionKind (..)
+  , EventClosedScope (..)
+  , ChangeClosedData (..)
   , eventDataSchemaName
   )
 where
 
 import Data.Aeson
   ( FromJSON (..)
-  , Options (rejectUnknownFields)
+  , Options (rejectUnknownFields, tagSingleConstructors)
   , ToJSON (..)
   , genericParseJSON
   , genericToJSON
   )
-import Data.OpenApi (ToSchema (..), description, schema)
+import Data.OpenApi (ToSchema (..), description, fromAesonOptions, genericDeclareNamedSchema, schema)
 import Nagare.Contract.Events (LifecycleScope)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Schema
@@ -47,6 +53,8 @@ eventDataSchemaName eventType =
     , ("database.backup.completed", "BackupCompletedData")
     , ("database.backup.accepted", "BackupAcceptedData")
     , ("change.applied", "ChangeAppliedData")
+    , ("change.failed", "ChangeFailedData")
+    , ("change.closed", "ChangeClosedData")
     ]
 
 strictRecord :: Options
@@ -184,6 +192,55 @@ data ChangeAppliedData = ChangeAppliedData
   }
   deriving stock (Eq, Show, Generic)
 
+data FailureOutcomeKind = OutcomeFailedNoEffect | OutcomeFailedPartialOrUnknown | OutcomeAmbiguous
+  deriving stock (Eq, Show, Generic)
+
+data NextStepKind = NextResumeOrClose
+  deriving stock (Eq, Show, Generic)
+
+-- | @change.failed@: the executor recorded that an operation of a change
+-- failed or that its outcome is unknown; the change waits for a resume or a
+-- close. A stop the executor did not record publishes no event.
+data ChangeFailedData = ChangeFailedData
+  { transaction :: !Text
+  , review :: !Text
+  , actor :: !EventActor
+  , source :: !EventSource
+  , operation :: !(Nullable Text)
+  , action :: !(Nullable OperationActionKind)
+  , resources :: ![Text]
+  , scope :: !(Nullable LifecycleScope)
+  , outcome :: !FailureOutcomeKind
+  , reason :: !(Nullable Text)
+  , detail :: !Text
+  , next :: !NextStepKind
+  }
+  deriving stock (Eq, Show, Generic)
+
+data ClosedDispositionKind = ClosedReverted | ClosedKept
+  deriving stock (Eq, Show, Generic)
+
+-- | One scope of a closed change, reverted to its base or kept at the
+-- change's revision.
+data EventClosedScope = EventClosedScope
+  { scope :: !LifecycleScope
+  , disposition :: !ClosedDispositionKind
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | @change.closed@: a stopped change was closed by its committed close
+-- record (an operator's close, an abandoned migration or a proved
+-- rollback). @attested@ says the close accepted operations no adapter could
+-- prove.
+data ChangeClosedData = ChangeClosedData
+  { transaction :: !Text
+  , review :: !Text
+  , record :: !Text
+  , scopes :: ![EventClosedScope]
+  , attested :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
+
 instance ToJSON EventScopeRevision where toJSON = genericToJSON strictRecord
 
 instance FromJSON EventScopeRevision where parseJSON = genericParseJSON strictRecord
@@ -289,3 +346,46 @@ instance FromJSON ChangeAppliedData where parseJSON = genericParseJSON strictRec
 
 instance ToSchema ChangeAppliedData where
   declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of change.applied: a reviewed inventory transaction converged. Every converged change has one, joined to its other events by transaction; scopes is empty for a change that only verified. actor and source are what the review asserted, not proved."
+
+instance ToJSON FailureOutcomeKind where toJSON = genericToJSON (enumOptions "Outcome")
+
+instance FromJSON FailureOutcomeKind where parseJSON = genericParseJSON (enumOptions "Outcome")
+
+instance ToSchema FailureOutcomeKind where declareNamedSchema = enumSchema "Outcome"
+
+-- | A one-member enumeration is still a string.
+nextOptions :: Options
+nextOptions = (enumOptions "Next") {tagSingleConstructors = True}
+
+instance ToJSON NextStepKind where toJSON = genericToJSON nextOptions
+
+instance FromJSON NextStepKind where parseJSON = genericParseJSON nextOptions
+
+instance ToSchema NextStepKind where declareNamedSchema = genericDeclareNamedSchema (fromAesonOptions nextOptions)
+
+instance ToJSON ChangeFailedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON ChangeFailedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema ChangeFailedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of change.failed: the executor recorded that an operation failed (failed-no-effect: refused before any effect) or that its outcome is unknown (ambiguous), and the change waits for a resume or a close. Each recorded stop is one event; a stop the executor did not record publishes none."
+
+instance ToJSON ClosedDispositionKind where toJSON = genericToJSON (enumOptions "Closed")
+
+instance FromJSON ClosedDispositionKind where parseJSON = genericParseJSON (enumOptions "Closed")
+
+instance ToSchema ClosedDispositionKind where declareNamedSchema = enumSchema "Closed"
+
+instance ToJSON EventClosedScope where toJSON = genericToJSON strictRecord
+
+instance FromJSON EventClosedScope where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema EventClosedScope where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "One scope of a closed change: reverted to its base, or kept at the change's revision."
+
+instance ToJSON ChangeClosedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON ChangeClosedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema ChangeClosedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of change.closed: a stopped change was closed by its committed close record, whether an operator closed it, abandoned its migration or a proved rollback ended it."

@@ -22,7 +22,6 @@ where
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Prelude
-import Nagare.Events.Deployment (subjectOf)
 import Nagare.Events.Source
 import Nagare.Inventory.Journal (TransactionId, transactionIdText)
 import Nagare.Inventory.Store (ScopeRevision (revisionDigest))
@@ -87,8 +86,4 @@ changedScopes input =
     converged = input ^. #convergedBefore
 
 primaryScope :: [ScopeChange] -> ScopeId
-primaryScope changes = case map (^. #scope) changes of
-  [only] -> only
-  several -> case filter (isJust . subjectOf) several of
-    [subject] -> subject
-    _ -> contextScope
+primaryScope = primaryScopeOf . map (^. #scope)

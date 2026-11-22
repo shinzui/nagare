@@ -68,6 +68,7 @@ import Nagare.Inventory.Journal
   , OperationState (..)
   , TransactionId
   , operationStates
+  , reviewDigestOf
   , transactionIdText
   )
 import Nagare.Inventory.OperationStep (OperationStep (..), nextOperation)
@@ -283,9 +284,6 @@ closeRolledBack lock transaction = case reviewDigestOf transaction of
                 case [operation | (operation, ClassUnknown _ _) <- Map.toList classes] of
                   [] -> commitClose lock (closeRecordFor transaction review document classes Set.empty)
                   unknowns -> pure (failure "unknown-operation" ("a fenced rollback left unproved operations: " <> T.pack (show unknowns)))
-
-reviewDigestOf :: TransactionId -> Maybe ContentDigest
-reviewDigestOf transaction = either (const Nothing) Just (mkContentDigest (T.drop 3 (transactionIdText transaction)))
 
 -- | Whether resume could still progress, and why. Resume runs the same serial
 -- step: a recovery that the adapter proves complete or safe to retry, or a

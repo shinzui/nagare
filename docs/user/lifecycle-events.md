@@ -19,6 +19,8 @@ A context records what Nagare did as immutable lifecycle events:
 | `database.backup.completed` | A database backup's archive and signed receipt were verified at exact stored versions. |
 | `database.backup.accepted` | A reviewed transaction admitted that backup as a recovery point. |
 | `change.applied` | A reviewed inventory change converged: every operation completed and its convergence was committed. Every change has one. |
+| `change.failed` | The executor recorded that an operation of a change failed or that its outcome is unknown. The change is stopped and waits for a resume or a close. |
+| `change.closed` | A stopped change was closed: an operator closed it or abandoned its migration, or a proved rollback ended it. |
 
 An event's `id` never changes across retries, restarts or replays. Read them
 with `nagarectl events list` or `GET /v1/events`. Backup events are described
@@ -54,6 +56,25 @@ service or site when it changed several, and otherwise `platform:context`.
 `actor` and `source` are asserted by the client that applied the review, not
 proved. A change's other events, such as its `app.deployed`, carry the same
 `transaction`, which is how a receiver joins them.
+
+A change that stops publishes `change.failed` (`ChangeFailedData`): the
+operation, its action and resources, the scope that owns them, and `outcome`,
+which is `failed-no-effect` when an adapter refused before doing anything and
+`ambiguous` when the effect is unknown. `next` is `resume-or-close`: run
+`nagarectl inventory resume` or close the change. Each recorded stop is its own
+event, so a resume that stops again publishes another; a resume that converges
+publishes the change's `change.applied`. The event reports only stops the
+executor recorded. A stop that recorded nothing (a lost executor claim, a
+crashed process, a failed journal write, a review refused at admission)
+publishes no event; `nagarectl inventory status` shows such a change.
+
+Closing a stopped change publishes `change.closed` (`ChangeClosedData`): the
+close record's digest, each scope `reverted` (nothing in it took effect) or
+`kept`, and `attested`, true when the close accepted operations no adapter
+could prove. An abandoned migration closes the same way, and its per-stage
+markers publish nothing. A stopped or closed change's events are derived by the
+worker from the committed journal and the change's review, so a review the
+worker cannot read holds the feed at that event until it can.
 
 ## Run the worker
 

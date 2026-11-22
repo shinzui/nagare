@@ -78,8 +78,13 @@ it touched.
   Each type's `data` now has a schema (`AppDeployedData` … `ChangeAppliedData`), checked by
   `Contract/event data`; sample `docs/api/samples/event-types.json`. `just gate-commit`
   green.
-- [ ] M2: `change.failed` and `change.closed` are published from the committed journal. No
+- [x] M2: `change.failed` and `change.closed` are published from the committed journal. No
   journal object the head does not commit becomes an event.
+  (2026-11-22) `Events.Change` shows a stopped rollout's `change.failed`, its resume's
+  `change.applied` and a close's `change.closed`; `Events.Source/stops (EP-276)` shows
+  that abandon and other markers are no stops, an uncommitted journal object is none until
+  a head commits it, a stop whose review is missing holds the cycle at it, and review reads
+  count against the journal budget. `just gate-commit` green.
 - [ ] M3: `app.deleted`, `app.stopped`, `app.restarted` and `database.restored` are
   published by release-time producers. A verification-only rerun publishes none of them.
 - [ ] M4: `database.backup.failed` and `database.backup.freshness.changed` are published by

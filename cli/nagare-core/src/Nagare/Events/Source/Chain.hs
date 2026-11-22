@@ -12,10 +12,20 @@
 -- committed source exactly when the next event belongs to another
 -- transaction, or when it is the last event and its transaction is no longer
 -- active. It is never a source when the next event is its own transaction's.
+--
+-- EP-276: a committed event that records an operation's failure or unknown
+-- outcome, or the close of its transaction, is a source too. Every event
+-- below the head's sequence was committed by a head replacement, and an
+-- adopted orphan is history the executor itself acts on, so no rule beyond
+-- that is needed.
 module Nagare.Events.Source.Chain
   ( SourceCheckpoint (..)
   , initialCheckpoint
   , CommittedSource (..)
+  , StopKind (..)
+  , CommittedStop (..)
+  , JournalSource (..)
+  , journalSources
   , SourceBatch (..)
   , SourceChainError (..)
   , readSourceChain
@@ -29,16 +39,21 @@ import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Events.Source.Facts
 import Nagare.Inventory.Journal
   ( Convergence (convergedFacts, convergedReview)
-  , JournalEvent (eventConvergence, eventPreviousDigest, eventSequence, eventTimestamp, eventTransaction)
+  , FailureClass
+  , JournalEvent (eventConvergence, eventDetail, eventOperation, eventPreviousDigest, eventSequence, eventState, eventTimestamp, eventTransaction)
+  , OperationId
+  , OperationState (Ambiguous, Failed, OperatorResolved)
   , TransactionId
   , decodeJournalEvent
   , journalEventDigest
   , transactionIdText
   )
+import Nagare.Inventory.Plan.CloseRecord (closedMarker)
 import Nagare.Inventory.Store
   ( HeadManifest (headActiveTransaction, headMigration, headSequence)
   , InventoryStore
@@ -49,7 +64,7 @@ import Nagare.Inventory.Store
   , readImmutableObjectsEach
   , readObject
   )
-import Nagare.Resource.Types (ContentDigest)
+import Nagare.Resource.Types (ContentDigest, mkContentDigest)
 
 -- | Where a consumer resumes: the next journal sequence it has not decided,
 -- and the digest of the event before it, so the suffix is linked to what the
@@ -76,8 +91,35 @@ data CommittedSource = CommittedSource
   }
   deriving stock (Eq, Show, Generic)
 
+-- | How a committed journal event stopped or ended a change (EP-276).
+data StopKind
+  = StopFailed !FailureClass
+  | StopAmbiguous
+  | -- | The close of the transaction, by the digest of its close record.
+    StopClosed !ContentDigest
+  deriving stock (Eq, Show, Generic)
+
+-- | A committed journal event that records a stop or a close.
+data CommittedStop = CommittedStop
+  { journalSequence :: !Integer
+  , previous :: !(Maybe ContentDigest)
+  , digest :: !ContentDigest
+  -- ^ The digest of the stop's own journal event.
+  , transaction :: !TransactionId
+  , operation :: !(Maybe OperationId)
+  , kind :: !StopKind
+  , detail :: !Text
+  , recordedAt :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+data JournalSource = ConvergedSource !CommittedSource | StoppedSource !CommittedStop
+  deriving stock (Eq, Show, Generic)
+
 data SourceBatch = SourceBatch
   { sources :: ![CommittedSource]
+  , stops :: ![CommittedStop]
+  -- ^ EP-276: the committed stops and closes of the decided prefix.
   , checkpoint :: !SourceCheckpoint
   -- ^ After the decided prefix; resume here.
   , observedSequence :: !Integer
@@ -150,11 +192,28 @@ readSourceChain store from budget = do
           resume = case reverse decided of
             lastEvent : _ -> SourceCheckpoint (eventSequence lastEvent + 1) (Just (journalEventDigest lastEvent))
             [] -> from
+          stops =
+            [ CommittedStop (eventSequence event) (eventPreviousDigest event) (journalEventDigest event) (eventTransaction event) (eventOperation event) kind (eventDetail event) (eventTimestamp event)
+            | event <- decided
+            , Just kind <- [stopKind event]
+            ]
       loadedFacts <- readImmutableObjects store (map (factsKey . snd) named)
       pure $ do
         objects <- first SourceStoreError loadedFacts
         sources <- traverse (source objects committed) named
-        pure (SourceBatch sources resume tip (not (null stopped)))
+        pure (SourceBatch sources stops resume tip (not (null stopped)))
+    -- A failure or unknown outcome the executor recorded, or the close
+    -- marker that commits a close; no other operator resolution ends or
+    -- stops a change.
+    stopKind event = case eventState event of
+      Failed failure -> Just (StopFailed failure)
+      Ambiguous -> Just StopAmbiguous
+      OperatorResolved marker
+        | isNothing (eventOperation event)
+        , Just token <- T.stripPrefix closedMarker marker
+        , Right digest <- mkContentDigest token ->
+            Just (StopClosed digest)
+      _ -> Nothing
     source objects committed (event, digest) = do
       let sequenceNumber = eventSequence event
       bytes <- maybe (Left (SourceFactsInvalid sequenceNumber "facts object was not read")) Right (Map.lookup (factsKey digest) objects)
@@ -163,6 +222,13 @@ readSourceChain store from budget = do
       unless (decoded ^. #transaction == eventTransaction event) (Left (SourceFactsInvalid sequenceNumber "facts name another transaction"))
       unless (Just (decoded ^. #review) == review) (Left (SourceFactsInvalid sequenceNumber "facts name another review"))
       pure (CommittedSource sequenceNumber (eventPreviousDigest event) (eventTransaction event) (eventTimestamp event) decoded)
+
+-- | A batch's convergences and stops in journal order.
+journalSources :: SourceBatch -> [JournalSource]
+journalSources batch = Map.elems (Map.fromList (converged <> stopped))
+  where
+    converged = [(source ^. #journalSequence, ConvergedSource source) | source <- batch ^. #sources]
+    stopped = [(stop ^. #journalSequence, StoppedSource stop) | stop <- batch ^. #stops]
 
 -- | The checkpoint at the journal's current tip: a consumer starting here
 -- reads only what is committed after now (EP-233 activation).

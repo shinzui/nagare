@@ -224,6 +224,108 @@
         "type": "change.applied"
       },
       "position": 3
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "action": "update",
+          "actor": {
+            "kind": "operator",
+            "name": "alice"
+          },
+          "detail": "operation outcome is unknown",
+          "next": "resume-or-close",
+          "operation": "op-0123abcd",
+          "outcome": "ambiguous",
+          "reason": "readiness wait timed out",
+          "resources": [
+            "application:notes/web/service"
+          ],
+          "review": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          },
+          "source": {
+            "repository": null,
+            "revision": null,
+            "run": null
+          },
+          "transaction": "tx-c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-641c5562c18cf3fa6b8ee87b8f5471d0",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "change.failed"
+      },
+      "position": 4
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "attested": false,
+          "record": "f32263e7c03c959290d65f9606159ad1c0430e0e0161a468515340bccb5a3391",
+          "review": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+          "scopes": [
+            {
+              "disposition": "kept",
+              "scope": {
+                "kind": "Application",
+                "name": "notes"
+              }
+            },
+            {
+              "disposition": "reverted",
+              "scope": {
+                "kind": "Publication",
+                "name": "notes-image"
+              }
+            }
+          ],
+          "transaction": "tx-c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-2b6d0e4900b3c525fc3fc065b0cf9d96",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "change.closed"
+      },
+      "position": 5
     }
   ],
   "pageInfo": {

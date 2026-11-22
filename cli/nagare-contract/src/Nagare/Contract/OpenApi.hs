@@ -23,7 +23,7 @@ import Data.OpenApi
   )
 import Data.OpenApi.Declare (Declare, execDeclare)
 import Nagare.Contract.Delegation (DelegationDocument, DeployerCredentials, TransactionHistory)
-import Nagare.Contract.EventData (AppDeployedData, BackupAcceptedData, BackupCompletedData, ChangeAppliedData)
+import Nagare.Contract.EventData (AppDeployedData, BackupAcceptedData, BackupCompletedData, ChangeAppliedData, ChangeClosedData, ChangeFailedData)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails)
 import Nagare.Contract.Rendered (RenderedConfiguration)
@@ -79,6 +79,8 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @BackupCompletedData))
   void (declareSchemaRef (Proxy @BackupAcceptedData))
   void (declareSchemaRef (Proxy @ChangeAppliedData))
+  void (declareSchemaRef (Proxy @ChangeFailedData))
+  void (declareSchemaRef (Proxy @ChangeClosedData))
 
 contractOpenApi :: OpenApi
 contractOpenApi =

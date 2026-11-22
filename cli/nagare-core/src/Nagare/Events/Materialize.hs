@@ -8,6 +8,12 @@
 -- one conditional write, so a crash can never acknowledge a source without
 -- making its events visible. A source already published, by any route, is
 -- never published twice: its ID resolves in the ID index.
+--
+-- EP-276: a committed journal stop becomes a @change.failed@ with the review
+-- its transaction names, read at most once per transaction per cycle, and a
+-- committed close a @change.closed@ with its close record. Each read counts
+-- against the cycle's journal budget. A stop whose review or record cannot be
+-- read stops the cycle at that stop, which is never skipped.
 module Nagare.Events.Materialize
   ( MaterializeBudget (..)
   , defaultBudget
@@ -22,12 +28,17 @@ import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Events.ChangeOutcome (closureCandidate, failureCandidate, loadReviewDocument)
 import Nagare.Events.Envelope
 import Nagare.Events.Layout
 import Nagare.Events.Receipts (readReceiptChain)
 import Nagare.Events.Source
 import Nagare.Events.Store
+import Nagare.Inventory.Journal (TransactionId, reviewDigestOf, transactionIdText)
+import Nagare.Inventory.Plan.CloseRecord (loadCloseRecord)
+import Nagare.Inventory.Plan.Types (ReviewDocument)
 import Nagare.Inventory.Store (InventoryStore)
 import Nagare.Resource.Types
 
@@ -54,6 +65,8 @@ data MaterializeOutcome = MaterializeOutcome
   -- ^ The source chain stopped at a convergence it cannot decide yet.
   , behind :: !Bool
   -- ^ The cycle stopped at its budget with committed sources left.
+  , blocked :: !(Maybe Text)
+  -- ^ The cycle stopped at a journal stop it could not resolve, and why.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -106,23 +119,26 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
           case (chain, receiptChain) of
             (Left err, _) -> pure (Left (MaterializeSource err))
             (_, Left err) -> pure (Left (MaterializeFeed err))
-            (Right batch, Right receiptBatch) -> publish observed headValue batch receiptBatch
-    publish observed headValue batch receiptBatch = do
+            (Right batch, Right receiptBatch) -> do
+              resolved <- resolveJournal inventory (budget ^. #journal) (headValue ^. #journal) batch
+              publish observed headValue batch resolved receiptBatch
+    publish observed headValue batch resolved receiptBatch = do
       let units =
-            [ Unit (source ^. #convergedAt) (source ^. #facts . #events) (Just (SourceCheckpoint (source ^. #journalSequence) (source ^. #previous))) Nothing
-            | source <- batch ^. #sources
-            ]
+            resolved ^. #units
               <> [ Unit (observation ^. #observedAt) (observation ^. #events) Nothing (Just (SourceCheckpoint (after ^. #next - 1) (observation ^. #previous)))
                  | (after, observation) <- receiptBatch ^. #observations
                  ]
           (taken, cutAt) = within units
+          journalEnd = resolved ^. #through
           (journal', receipts') = case cutAt of
-            Nothing -> (batch ^. #checkpoint, receiptBatch ^. #checkpoint)
+            Nothing -> (journalEnd, receiptBatch ^. #checkpoint)
             Just unit -> case (unit ^. #journalBefore, unit ^. #receiptsBefore) of
               (Just before, _) -> (before, headValue ^. #receipts)
-              (_, Just before) -> (batch ^. #checkpoint, before)
+              (_, Just before) -> (journalEnd, before)
               _ -> (headValue ^. #journal, headValue ^. #receipts)
-          cutJournal = maybe False (isJust . (^. #journalBefore)) cutAt
+          cutJournal = maybe False (isJust . (^. #journalBefore)) cutAt || resolved ^. #halted
+          blocked = if cutJournal && isJust cutAt then Nothing else resolved ^. #blocked
+          behind = isJust cutAt || (resolved ^. #halted && isNothing (resolved ^. #blocked))
           context = binding ^. #identity
           candidates = [(unit ^. #observedAt, candidate) | unit <- taken, candidate <- unit ^. #candidates]
           ordered = dedupe Set.empty [(eventIdFor context (candidate ^. #key), pair) | pair@(_, candidate) <- candidates]
@@ -130,7 +146,7 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
           dedupe seen ((eventId, pair) : rest)
             | Set.member eventId seen = dedupe seen rest
             | otherwise = (eventId, pair) : dedupe (Set.insert eventId seen) rest
-          idle = MaterializeOutcome 0 0 (headValue ^. #journal) (headValue ^. #count) False (batch ^. #waiting) False
+          idle = MaterializeOutcome 0 0 (headValue ^. #journal) (headValue ^. #count) False (batch ^. #waiting && not cutJournal) behind blocked
       if null candidates && journal' == headValue ^. #journal && receipts' == headValue ^. #receipts
         then pure (Right (Just idle))
         else do
@@ -174,7 +190,8 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
                                     (replacement ^. #count)
                                     True
                                     (batch ^. #waiting && not cutJournal)
-                                    (isJust cutAt)
+                                    behind
+                                    blocked
                                 )
                             )
     -- Take whole units while they fit the event and byte budgets; the
@@ -190,6 +207,55 @@ materializeOnce inventory store binding budget clock = attempt (3 :: Int)
            in if fits
                 then go (unit : kept) (eventsSoFar + length candidates) (bytesSoFar + size) rest
                 else (reverse kept, Just unit)
+
+-- | The journal's units of one cycle, in journal order: a convergence's
+-- facts, or one stop's candidate built from what it names. @through@ is the
+-- checkpoint they reach: the batch's own, or the one before a stop the cycle
+-- did not take, because its reads would pass the budget (@blocked@ is
+-- 'Nothing') or what it names cannot be read (@blocked@ says why).
+data Resolved = Resolved
+  { units :: ![Unit]
+  , through :: !SourceCheckpoint
+  , halted :: !Bool
+  , blocked :: !(Maybe Text)
+  }
+  deriving stock (Generic)
+
+resolveJournal :: InventoryStore -> Int -> SourceCheckpoint -> SourceBatch -> IO Resolved
+resolveJournal inventory budget from batch = go [] Map.empty (0 :: Int) (journalSources batch)
+  where
+    go kept _ _ [] = pure (Resolved (reverse kept) (batch ^. #checkpoint) False Nothing)
+    go kept reviews reads (item : rest) = case item of
+      ConvergedSource source ->
+        go (Unit (source ^. #convergedAt) (source ^. #facts . #events) (Just (SourceCheckpoint (source ^. #journalSequence) (source ^. #previous))) Nothing : kept) reviews reads rest
+      StoppedSource stop -> do
+        let before = SourceCheckpoint (stop ^. #journalSequence) (stop ^. #previous)
+            fresh = case stop ^. #kind of
+              StopClosed _ -> 1
+              _ | Map.member (stop ^. #transaction) reviews -> 0
+              _ -> 1
+            cost = fromIntegral (stop ^. #journalSequence - from ^. #next + 1) + reads + fresh
+            halt reason = pure (Resolved (reverse kept) before True reason)
+        -- The first unit always fits, so a cycle always progresses.
+        if cost > budget && not (null kept)
+          then halt Nothing
+          else do
+            built <- candidateOf reviews stop
+            case built of
+              Left reason -> halt (Just ("journal event " <> T.pack (show (stop ^. #journalSequence)) <> ": " <> reason))
+              Right (candidate, reviews') -> go (Unit (stop ^. #recordedAt) [candidate] (Just before) Nothing : kept) reviews' (reads + fresh) rest
+    candidateOf :: Map.Map TransactionId ReviewDocument -> CommittedStop -> IO (Either Text (EventCandidate, Map.Map TransactionId ReviewDocument))
+    candidateOf reviews stop = case stop ^. #kind of
+      StopClosed recordDigest -> do
+        loaded <- loadCloseRecord inventory recordDigest
+        pure (loaded >>= fmap (,reviews) . closureCandidate stop recordDigest)
+      _ -> case reviewDigestOf transaction of
+        Nothing -> pure (Left ("the transaction " <> transactionIdText transaction <> " names no review"))
+        Just digest -> do
+          document <- maybe (loadReviewDocument inventory digest) (pure . Right) (Map.lookup transaction reviews)
+          pure (document >>= \found -> (,Map.insert transaction found reviews) <$> failureCandidate stop found)
+      where
+        transaction = stop ^. #transaction
 
 -- | One committed source a cycle may take: a journal convergence or a
 -- collector observation, its observation time, its candidates and the

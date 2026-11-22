@@ -98,13 +98,7 @@ deployments input =
 -- environment and hook scopes hold no release log, so they never reach here;
 -- a preview is refused by name as well.
 subjectOf :: ScopeId -> Maybe DeploymentSubject
-subjectOf scope = case T.breakOn ":" (scopeIdText scope) of
-  ("application", _) -> Just ApplicationSubject
-  ("standalone", rest)
-    | "site-preview-" `T.isPrefixOf` T.drop 1 rest -> Nothing
-    | "site-" `T.isPrefixOf` T.drop 1 rest -> Just SiteSubject
-    | "service-" `T.isPrefixOf` T.drop 1 rest -> Just ServiceSubject
-  _ -> Nothing
+subjectOf = releaseSubject
 
 -- | A rollback re-selects a recorded release: the records are those the
 -- converged log had, and only the current release moved.

@@ -25,7 +25,15 @@ module Nagare.Events.Source.Facts
   , ScopeChange (..)
   , ActionCount (..)
   , ChangeApplication (..)
+  , FailureOutcome (..)
+  , NextStep (..)
+  , ChangeFailure (..)
+  , ClosedDisposition (..)
+  , ClosedScope (..)
+  , ChangeClosure (..)
   , contextScope
+  , releaseSubject
+  , primaryScopeOf
   , EventPayload (..)
   , payloadKind
   , payloadData
@@ -95,6 +103,8 @@ data EventKind
   | DatabaseBackupCompleted
   | DatabaseBackupAccepted
   | ChangeApplied
+  | ChangeFailed
+  | ChangeClosed
   deriving stock (Eq, Ord, Show, Bounded, Enum, Generic)
 
 eventKindText :: EventKind -> Text
@@ -103,6 +113,8 @@ eventKindText = \case
   DatabaseBackupCompleted -> "database.backup.completed"
   DatabaseBackupAccepted -> "database.backup.accepted"
   ChangeApplied -> "change.applied"
+  ChangeFailed -> "change.failed"
+  ChangeClosed -> "change.closed"
 
 parseEventKind :: Text -> Maybe EventKind
 parseEventKind value = lookup value [(eventKindText kind, kind) | kind <- [minBound .. maxBound]]
@@ -243,16 +255,100 @@ data ChangeApplication = ChangeApplication
   }
   deriving stock (Eq, Show, Generic)
 
+-- | How the executor recorded an operation's stop.
+data FailureOutcome = FailedNoEffect | FailedPartialOrUnknown | AmbiguousOutcome
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
+-- | What a stopped change waits for.
+data NextStep = ResumeOrClose
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
+-- | @change.failed@ (EP-276): the executor journaled that an operation of a
+-- reviewed change failed or that its outcome is unknown, and that event was
+-- committed. The change is stopped: it waits for a resume or a close. Each
+-- recorded stop is its own event, so a resume that stops again publishes
+-- another. It reports only stops the executor recorded: a stop that
+-- journaled nothing (a lost claim, a crashed process, a failed journal
+-- write, a review refused at admission) publishes no event, and the
+-- inventory status shows such a change. @outcome@ is @failed-no-effect@
+-- when an adapter refused before any effect, @ambiguous@ when the effect is
+-- unknown, and @failed-partial-or-unknown@ for that recorded state.
+-- @detail@ is the journal's text and @reason@ the failure's own, when it
+-- has one. @actor@ and @source@ are what the change's review asserted.
+data ChangeFailure = ChangeFailure
+  { transaction :: !TransactionId
+  , review :: !ContentDigest
+  , actor :: !Actor
+  , source :: !ChangeSource
+  , operation :: !(Maybe OperationId)
+  , action :: !(Maybe Text)
+  , resources :: ![ResourceId]
+  , scope :: !(Maybe ScopeId)
+  , outcome :: !FailureOutcome
+  , reason :: !(Maybe Text)
+  , detail :: !Text
+  , next :: !NextStep
+  }
+  deriving stock (Eq, Show, Generic)
+
+data ClosedDisposition = ClosedReverted | ClosedKept
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
+-- | One scope of a closed change: @reverted@ when nothing in it took effect
+-- and its accepted revision returned to the review's base, @kept@ when
+-- something did and it keeps the change's revision.
+data ClosedScope = ClosedScope
+  { scope :: !ScopeId
+  , disposition :: !ClosedDisposition
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | @change.closed@ (EP-276): a stopped change was closed by its committed
+-- close record: an operator closed it, abandoned its migration, or a proved
+-- rollback ended it. The record cannot tell these apart, so the event
+-- reports what it proves: each scope reverted or kept, and whether the
+-- close was attested because some operation could not be proved.
+data ChangeClosure = ChangeClosure
+  { transaction :: !TransactionId
+  , review :: !ContentDigest
+  , record :: !ContentDigest
+  , scopes :: ![ClosedScope]
+  , attested :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- | The resource scope of an event about the context as a whole. No
 -- inventory scope has this name.
 contextScope :: ScopeId
 contextScope = either (error . T.unpack) id (mkScopeId Platform "context")
+
+-- | Which release subject a scope is, if any: an application, a standalone
+-- service or a production site. A site preview is none.
+releaseSubject :: ScopeId -> Maybe DeploymentSubject
+releaseSubject scope = case T.breakOn ":" (scopeIdText scope) of
+  ("application", _) -> Just ApplicationSubject
+  ("standalone", rest)
+    | "site-preview-" `T.isPrefixOf` T.drop 1 rest -> Nothing
+    | "site-" `T.isPrefixOf` T.drop 1 rest -> Just SiteSubject
+    | "service-" `T.isPrefixOf` T.drop 1 rest -> Just ServiceSubject
+  _ -> Nothing
+
+-- | The scope an event about a change of these scopes is about: the only
+-- one, the only release subject among several, or else the context.
+primaryScopeOf :: [ScopeId] -> ScopeId
+primaryScopeOf = \case
+  [single] -> single
+  several -> case filter (isJust . releaseSubject) several of
+    [subject] -> subject
+    _ -> contextScope
 
 data EventPayload
   = AppDeployedPayload !AppDeployment
   | BackupCompletedPayload !BackupCompletion
   | BackupAcceptedPayload !BackupAcceptance
   | ChangeAppliedPayload !ChangeApplication
+  | ChangeFailedPayload !ChangeFailure
+  | ChangeClosedPayload !ChangeClosure
   deriving stock (Eq, Show, Generic)
 
 payloadKind :: EventPayload -> EventKind
@@ -261,6 +357,8 @@ payloadKind = \case
   BackupCompletedPayload _ -> DatabaseBackupCompleted
   BackupAcceptedPayload _ -> DatabaseBackupAccepted
   ChangeAppliedPayload _ -> ChangeApplied
+  ChangeFailedPayload _ -> ChangeFailed
+  ChangeClosedPayload _ -> ChangeClosed
 
 -- | A payload's @data@ member.
 payloadData :: EventPayload -> Value
@@ -269,6 +367,8 @@ payloadData = \case
   BackupCompletedPayload value -> toJSON value
   BackupAcceptedPayload value -> toJSON value
   ChangeAppliedPayload value -> toJSON value
+  ChangeFailedPayload value -> toJSON value
+  ChangeClosedPayload value -> toJSON value
 
 -- | The payload of a @data@ member of this type.
 parsePayload :: EventKind -> Value -> Parser EventPayload
@@ -277,6 +377,8 @@ parsePayload kind dataValue = case kind of
   DatabaseBackupCompleted -> BackupCompletedPayload <$> parseJSON dataValue
   DatabaseBackupAccepted -> BackupAcceptedPayload <$> parseJSON dataValue
   ChangeApplied -> ChangeAppliedPayload <$> parseJSON dataValue
+  ChangeFailed -> ChangeFailedPayload <$> parseJSON dataValue
+  ChangeClosed -> ChangeClosedPayload <$> parseJSON dataValue
 
 -- | One public event a source fact can become.
 data EventCandidate = EventCandidate
@@ -543,6 +645,44 @@ instance FromJSON ActionCount where parseJSON = genericParseJSON strictOptions
 instance ToJSON ChangeApplication where toJSON = genericToJSON strictOptions
 
 instance FromJSON ChangeApplication where parseJSON = genericParseJSON strictOptions
+
+outcomeText :: FailureOutcome -> Text
+outcomeText = \case
+  FailedNoEffect -> "failed-no-effect"
+  FailedPartialOrUnknown -> "failed-partial-or-unknown"
+  AmbiguousOutcome -> "ambiguous"
+
+instance ToJSON FailureOutcome where toJSON = String . outcomeText
+
+instance FromJSON FailureOutcome where parseJSON = enumeration "failure outcome" outcomeText
+
+nextText :: NextStep -> Text
+nextText ResumeOrClose = "resume-or-close"
+
+instance ToJSON NextStep where toJSON = String . nextText
+
+instance FromJSON NextStep where parseJSON = enumeration "next step" nextText
+
+instance ToJSON ChangeFailure where toJSON = genericToJSON strictOptions
+
+instance FromJSON ChangeFailure where parseJSON = genericParseJSON strictOptions
+
+dispositionText :: ClosedDisposition -> Text
+dispositionText = \case
+  ClosedReverted -> "reverted"
+  ClosedKept -> "kept"
+
+instance ToJSON ClosedDisposition where toJSON = String . dispositionText
+
+instance FromJSON ClosedDisposition where parseJSON = enumeration "closed disposition" dispositionText
+
+instance ToJSON ClosedScope where toJSON = genericToJSON strictOptions
+
+instance FromJSON ClosedScope where parseJSON = genericParseJSON strictOptions
+
+instance ToJSON ChangeClosure where toJSON = genericToJSON strictOptions
+
+instance FromJSON ChangeClosure where parseJSON = genericParseJSON strictOptions
 
 -- | A payload is encoded as its kind and its data, so the kind is explicit.
 instance ToJSON EventCandidate where

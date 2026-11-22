@@ -25,7 +25,7 @@ import Nagare.Events.Query (lifecycleEvent)
 import Nagare.Events.Source
 import Nagare.Inventory.Actor (Actor (..))
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Journal (mkTransactionId)
+import Nagare.Inventory.Journal (mkOperationId, mkTransactionId)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
@@ -48,6 +48,8 @@ conforms eventType = \case
   BackupCompletedPayload value -> through (Proxy @Contract.BackupCompletedData) (toJSON value)
   BackupAcceptedPayload value -> through (Proxy @Contract.BackupAcceptedData) (toJSON value)
   ChangeAppliedPayload value -> through (Proxy @Contract.ChangeAppliedData) (toJSON value)
+  ChangeFailedPayload value -> through (Proxy @Contract.ChangeFailedData) (toJSON value)
+  ChangeClosedPayload value -> through (Proxy @Contract.ChangeClosedData) (toJSON value)
   where
     through :: forall a. (Eq a, Show a, FromJSON a, ToJSON a, ToSchema a) => Proxy a -> Value -> Assertion
     through proxy value = do
@@ -112,7 +114,33 @@ samplePayload = \case
             ]
         , operations = [ActionCount "create" 1, ActionCount "retire" 1, ActionCount "update" 2]
         }
+  ChangeFailed ->
+    ChangeFailedPayload
+      ChangeFailure
+        { transaction
+        , review
+        , actor = OperatorActor (Just "alice")
+        , source = ChangeSource Nothing Nothing Nothing
+        , operation = Just (either (error . show) id (mkOperationId "op-0123abcd"))
+        , action = Just "update"
+        , resources = [notesWeb]
+        , scope = Just (scopeOf Application "notes")
+        , outcome = AmbiguousOutcome
+        , reason = Just "readiness wait timed out"
+        , detail = "operation outcome is unknown"
+        , next = ResumeOrClose
+        }
+  ChangeClosed ->
+    ChangeClosedPayload
+      ChangeClosure
+        { transaction
+        , review
+        , record = contentDigest "close record"
+        , scopes = [ClosedScope (scopeOf Application "notes") ClosedKept, ClosedScope (scopeOf Publication "notes-image") ClosedReverted]
+        , attested = False
+        }
   where
+    notesWeb = mintResourceId (scopeOf Application "notes") (either (error . show) id (mkLogicalKey "web")) (either (error . show) id (mkName "service"))
     transaction = either (error . show) id (mkTransactionId ("tx-" <> digestText review))
     review = contentDigest "review"
 

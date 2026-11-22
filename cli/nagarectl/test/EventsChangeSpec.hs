@@ -16,7 +16,7 @@ import Nagare.Inventory.Actor (Actor (..), ReviewSource (..))
 import Nagare.Inventory.DelegatedPlanning (attributeReview)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..))
-import Nagare.Inventory.Journal (mkTransactionId)
+import Nagare.Inventory.Journal (TransactionId, mkTransactionId)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Types
 import Test.Tasty
@@ -78,6 +78,38 @@ eventsChangeTests =
         let expected = eventIdFor (binding ^. #identity) (either (error . T.unpack) id (changeKey transaction))
         [entry ^. #envelope . #eventId | entry <- events, kindOf entry == ChangeApplied] @?= [expected]
         feedEntries world >>= (@?= events)
+    , testCase "a stopped apply is one change.failed about its application; its resume is change.applied (M2)" $ withWorld $ \world -> do
+        writeIORef (world ^. #interruptNext) True
+        stopped <- deploy world [notes (releaseLog ["r1"] "r1") "v1"]
+        transaction <- stoppedTransaction stopped
+        events <- feedEntries world
+        map kindOf events @?= [ChangeFailed]
+        [(scope, failure)] <- pure (failures events)
+        scope @?= notesScope
+        failure ^. #transaction @?= transaction
+        failure ^. #outcome @?= AmbiguousOutcome
+        failure ^. #next @?= ResumeOrClose
+        failure ^. #scope @?= Just notesScope
+        failure ^. #actor @?= OperatorActor Nothing
+        assertBool "the failure names its operation and resources" (isJust (failure ^. #operation) && not (null (failure ^. #resources)))
+        resumed <- resume world transaction
+        resumed @?= Converged transaction
+        after <- feedEntries world
+        map kindOf after @?= [ChangeFailed, AppDeployed, ChangeApplied]
+        -- A later cycle, or a restarted worker, repeats nothing.
+        feedEntries world >>= (@?= after)
+    , testCase "closing a stopped change is one change.closed naming its record (M2)" $ withWorld $ \world -> do
+        writeIORef (world ^. #interruptNext) True
+        stopped <- deploy world [notes (releaseLog ["r1"] "r1") "v1"]
+        transaction <- stoppedTransaction stopped
+        closeStopped world transaction
+        events <- feedEntries world
+        map kindOf events @?= [ChangeFailed, ChangeClosed]
+        [closure] <- pure [value | entry <- events, ChangeClosedPayload value <- [entry ^. #envelope . #payload]]
+        closure ^. #transaction @?= transaction
+        map (^. #scope) (closure ^. #scopes) @?= [notesScope]
+        closure ^. #attested @?= False
+        feedEntries world >>= (@?= events)
     , testCase "a named actor's review names the actor and the source it came from" $ withWorld $ \world -> do
         let source = ReviewSource (Just "github.com/example/notes") (Just "0123abc") Nothing
         _ <- deployWith world (attributeReview (OperatorActor (Just "alice")) (Just source)) [notes (releaseLog ["r1"] "r1") "v1"]
@@ -121,6 +153,14 @@ data Applied = Applied
   , payload :: !ChangeApplication
   }
   deriving stock (Eq, Show, Generic)
+
+stoppedTransaction :: TransactionResult -> IO TransactionId
+stoppedTransaction = \case
+  StoppedAmbiguous token _ _ -> pure token
+  other -> assertFailure ("expected the rollout to stop, got " <> show other) >> fail "stop"
+
+failures :: [FeedEntry] -> [(ScopeId, ChangeFailure)]
+failures events = [(entry ^. #envelope . #resource . #scope, value) | entry <- events, ChangeFailedPayload value <- [entry ^. #envelope . #payload]]
 
 kindOf :: FeedEntry -> EventKind
 kindOf entry = payloadKind (entry ^. #envelope . #payload)

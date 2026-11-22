@@ -169,6 +169,8 @@ sourceCycle config = do
   outcome <- materializeOnce (config ^. #inventory) (config ^. #feed) (config ^. #binding) defaultBudget (stamp <$> config ^. #clock)
   pure $ case outcome of
     Left err -> Left (showText err)
+    -- EP-276: the events before the stop are published; the stop waits.
+    Right o | Just reason <- o ^. #blocked -> Left ("the feed waits at " <> reason)
     Right o -> Right (Map.fromList [("published", toInteger (o ^. #published)), ("feed_events", o ^. #count), ("behind", if o ^. #behind then 1 else 0)])
 
 -- | One receipt collection cycle, if the worker reads backups.

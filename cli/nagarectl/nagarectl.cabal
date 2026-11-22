@@ -439,6 +439,7 @@ library
     Nagare.Events.Backup,
     Nagare.Events.BackupCollector,
     Nagare.Events.BackupSources,
+    Nagare.Events.ChangeOutcome,
     Nagare.Events.Delivery,
     Nagare.Events.Delivery.Inspect,
     Nagare.Events.Delivery.Store,

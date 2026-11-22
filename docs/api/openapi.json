@@ -206,6 +206,123 @@
         ],
         "type": "object"
       },
+      "ChangeClosedData": {
+        "description": "The data of change.closed: a stopped change was closed by its committed close record, whether an operator closed it, abandoned its migration or a proved rollback ended it.",
+        "properties": {
+          "attested": {
+            "type": "boolean"
+          },
+          "record": {
+            "type": "string"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/EventClosedScope"
+            },
+            "type": "array"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction",
+          "review",
+          "record",
+          "scopes",
+          "attested"
+        ],
+        "type": "object"
+      },
+      "ChangeFailedData": {
+        "description": "The data of change.failed: the executor recorded that an operation failed (failed-no-effect: refused before any effect) or that its outcome is unknown (ambiguous), and the change waits for a resume or a close. Each recorded stop is one event; a stop the executor did not record publishes none.",
+        "properties": {
+          "action": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OperationActionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "actor": {
+            "$ref": "#/components/schemas/EventActor"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/NextStepKind"
+          },
+          "operation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/FailureOutcomeKind"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LifecycleScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/EventSource"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction",
+          "review",
+          "actor",
+          "source",
+          "operation",
+          "action",
+          "resources",
+          "scope",
+          "outcome",
+          "reason",
+          "detail",
+          "next"
+        ],
+        "type": "object"
+      },
+      "ClosedDispositionKind": {
+        "enum": [
+          "reverted",
+          "kept"
+        ],
+        "type": "string"
+      },
       "Comparison": {
         "properties": {
           "declaredImage": {
@@ -972,6 +1089,22 @@
         ],
         "type": "string"
       },
+      "EventClosedScope": {
+        "description": "One scope of a closed change: reverted to its base, or kept at the change's revision.",
+        "properties": {
+          "disposition": {
+            "$ref": "#/components/schemas/ClosedDispositionKind"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LifecycleScope"
+          }
+        },
+        "required": [
+          "scope",
+          "disposition"
+        ],
+        "type": "object"
+      },
       "EventScopeChange": {
         "description": "One scope a converged change created, updated or retired.",
         "properties": {
@@ -1128,6 +1261,14 @@
         "enum": [
           "known-no-effect",
           "partial-or-unknown"
+        ],
+        "type": "string"
+      },
+      "FailureOutcomeKind": {
+        "enum": [
+          "failed-no-effect",
+          "failed-partial-or-unknown",
+          "ambiguous"
         ],
         "type": "string"
       },
@@ -1505,7 +1646,7 @@
         "type": "object"
       },
       "LifecycleEvent": {
-        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it.",
+        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData, change.failed ChangeFailedData, change.closed ChangeClosedData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it.",
         "properties": {
           "context": {
             "type": "string"
@@ -1725,6 +1866,12 @@
           "comparison"
         ],
         "type": "object"
+      },
+      "NextStepKind": {
+        "enum": [
+          "resume-or-close"
+        ],
+        "type": "string"
       },
       "NixCacheEndpoint": {
         "properties": {

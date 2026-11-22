@@ -21,10 +21,11 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Events.Backup (backupProducer)
 import Nagare.Events.Change (changeProducer)
+import Nagare.Events.ChangeOutcome (operationActionName)
 import Nagare.Events.Deployment (deploymentProducer)
 import Nagare.Events.Source (MemberView (..), OperationView (..), ScopeView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
 import Nagare.Events.Subscription (subscriptionProducer)
-import Nagare.Inventory.Adapter (OperationAction (..), PlannedOperation (plannedAction, plannedOperationId, plannedResources))
+import Nagare.Inventory.Adapter (PlannedOperation (plannedAction, plannedOperationId, plannedResources))
 import Nagare.Inventory.Execute.Types (reviewDocumentDigest)
 import Nagare.Inventory.Journal (JournalEvent (eventTransaction), TransactionId)
 import Nagare.Inventory.Plan
@@ -86,7 +87,7 @@ convergedSourceFacts store producers transaction reviewed events headValue = do
             , steps =
                 [ OperationView
                     { operation = plannedOperationId planned
-                    , action = actionName (plannedAction planned)
+                    , action = operationActionName (plannedAction planned)
                     , adapter = reviewAdapterIdentity operation
                     , summary = reviewPublicSummary operation
                     , resources = plannedResources planned
@@ -143,20 +144,6 @@ convergedSourceFacts store producers transaction reviewed events headValue = do
               Left err -> Left ("the converged native object of " <> resourceIdText resource <> " cannot be read: " <> T.pack (show err))
               Right found -> Right found
           _ -> pure (Right Nothing)
-
--- | An operation action's wire name in lifecycle payloads.
-actionName :: OperationAction -> Text
-actionName = \case
-  CreateResource -> "create"
-  UpdateResource -> "update"
-  VerifyResource -> "verify"
-  AdoptResource -> "adopt"
-  RetireResource -> "retire"
-  ReplaceStuckPod -> "replace-stuck-pod"
-  RunDeclaredOperation -> "run-declared-operation"
-  OpenMaintenanceSession -> "open-maintenance-session"
-  RestoreLiveDatabase -> "restore-live-database"
-  MigrateResource _ -> "migrate"
 
 -- | The scope a resource ID names: the part before its first @/@.
 ownerOf :: ResourceId -> Either Text ScopeId

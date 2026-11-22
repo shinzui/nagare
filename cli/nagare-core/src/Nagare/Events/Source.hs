@@ -31,7 +31,15 @@ module Nagare.Events.Source
   , ScopeChange (..)
   , ActionCount (..)
   , ChangeApplication (..)
+  , FailureOutcome (..)
+  , NextStep (..)
+  , ChangeFailure (..)
+  , ClosedDisposition (..)
+  , ClosedScope (..)
+  , ChangeClosure (..)
   , contextScope
+  , releaseSubject
+  , primaryScopeOf
   , EventPayload (..)
   , payloadKind
   , payloadData
@@ -64,6 +72,10 @@ module Nagare.Events.Source
   , SourceCheckpoint (..)
   , initialCheckpoint
   , CommittedSource (..)
+  , StopKind (..)
+  , CommittedStop (..)
+  , JournalSource (..)
+  , journalSources
   , SourceBatch (..)
   , SourceChainError (..)
   , readSourceChain
