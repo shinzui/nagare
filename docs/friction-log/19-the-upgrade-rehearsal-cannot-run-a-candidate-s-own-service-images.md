@@ -6,13 +6,18 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-22T18:17:43Z"
 frictionId: FRIC-19
-status: logged
+status: "accepted"
 impact: detour
 kind: tooling
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare"
 plan: "docs/plans/276-publish-lifecycle-events-for-the-changes-failures-backups-and-upgrades-an-admin-needs-to-see.md"
 workaround: "the lifecycle check is proved by a release candidate whose release.json names an image with this code, or on a drill root whose context pins the image built from this tree"
+resolution: "A release candidate's release.json names the images built from it, so the opt-in rehearsal check runs at the first candidate; an unreleased revision's worker is proved on a drill root that pins this tree's image."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-22T20:22:23Z"
+    change: "Accepted: the rehearsal proves releases, and pinning service images there would change what a release rehearsal proves."
 ---
 # The upgrade rehearsal cannot run a candidate's own service images
 

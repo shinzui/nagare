@@ -1,0 +1,13 @@
+cli	change	review	apply_seconds	counts
+BASE	deploy	deploy-m31	2.310	objects=8;head reads=15;history loads=2;store opens=2
+BASE	deploy	deploy-m32	2.349	objects=8;head reads=15;history loads=2;store opens=2
+BASE	deploy	deploy-m33	2.499	objects=8;head reads=15;history loads=2;store opens=2
+BASE	env	env-BASE-3-1	0.577	objects=4;head reads=10;history loads=1;store opens=1
+BASE	env	env-BASE-3-2	0.577	objects=4;head reads=10;history loads=1;store opens=1
+BASE	env	env-BASE-3-3	0.672	objects=4;head reads=10;history loads=1;store opens=1
+CAND	deploy	deploy-m41	2.267	objects=8;head reads=15;history loads=2;store opens=2
+CAND	deploy	deploy-m42	2.147	objects=8;head reads=15;history loads=2;store opens=2
+CAND	deploy	deploy-m43	2.034	objects=8;head reads=15;history loads=2;store opens=2
+CAND	env	env-CAND-4-1	0.584	objects=6;head reads=10;history loads=1;store opens=1
+CAND	env	env-CAND-4-2	0.573	objects=6;head reads=10;history loads=1;store opens=1
+CAND	env	env-CAND-4-3	0.563	objects=6;head reads=10;history loads=1;store opens=1

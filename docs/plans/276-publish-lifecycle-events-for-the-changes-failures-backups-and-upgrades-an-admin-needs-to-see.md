@@ -115,6 +115,18 @@ it touched.
   variable the rehearsal is unchanged. The deploy and env-change wall times and request
   counts, and the `just gate-fast` wall time, are recorded here at the base revision and
   at M6.
+  (2026-11-22, partial) On local context `ep276` every Validation scenario published its
+  events, read through `nagarectl events list`, `GET /v1/events?type=…` and a signed
+  webhook to the example receiver; a worker restart added none; record in
+  [`docs/audits/ep276-lifecycle-events/`](../audits/ep276-lifecycle-events/README.md). Cost
+  on that context, base `0b5ae0d8` against candidate: a deploy wrote 8 store objects with
+  either and an env change 4 and 6; median apply 2.349 s and 2.147 s for a deploy (base
+  spread 0.189 s), 0.577 s and 0.573 s for an env change (base spread 0.095 s); head reads,
+  history loads and opens equal. `just gate-fast`: 173 s at the base, 604 s at `a7643244`
+  (four suites, beside the native run and its builds) and 209 s at `577a6a1a`
+  (incremental), so the gate times are not comparable. Open: the rehearsal's
+  `platform.upgraded` check waits for the first release candidate (FRIC-19); the drill code
+  is in `d246600c`, and `platform.upgraded` is proved offline in M5.
 
 
 ## Surprises & Discoveries
@@ -282,11 +294,29 @@ it touched.
   event, never invent one, and the collector test pins each terminal reason by tampering a
   real receipt.
   Date: 2026-11-22
+- Decision: An env change's `change.applied` is about the app's env channel scope
+  (`application:env-NAME-runtime`), the scope the change moved, not the app scope the
+  Validation text names. The local admin API mounts the lifecycle feed read-only.
+  Rationale: Observed on `ep276`; the event reports what the review changed. Without the
+  mount a local context's `GET /v1/events` answered `events_not_enabled` (fixed in
+  `577a6a1a`, with a test).
+  Date: 2026-11-22
 
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+The feed now publishes the ten new types: `change.applied` for every converged change (at
+release, in the facts object a deploy already wrote, plus two objects for a change that had
+none); `change.failed` and `change.closed` derived by the worker from the committed journal;
+`app.deleted`, `app.stopped`, `app.restarted` and `database.restored` from scope overrides at
+release; `database.backup.failed` and `database.backup.freshness.changed` from the collector,
+whose state is now version 2; and `platform.upgraded` from a transition control and the
+worker's own object. Each type's `data` has a schema in `docs/api/openapi.json`. All but
+`platform.upgraded` were confirmed natively, with no slower deploy or env change; M1–M5 and the
+two native fixes are landed (`577a6a1a`, full gate green). What remains is the rehearsal's
+`platform.upgraded` check at the first release candidate (FRIC-19, accepted: a candidate's
+`release.json` names its own worker image). ADR 39 was amended with the journal-derived
+sources, the facts every converged change commits and the upgrade control.
 
 
 ## Context and Orientation

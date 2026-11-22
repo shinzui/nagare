@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-22
+
+* **Update**: FRIC-19 accepted: Accepted: the rehearsal proves releases, and pinning service images there would change what a release rehearsal proves.
+
 * **Addition**: FRIC-19 records detour tooling friction with mori://shinzui/nagare: The upgrade rehearsal cannot run a candidate's own service images
 
 ## 2026-11-18

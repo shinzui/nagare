@@ -1,0 +1,84 @@
+0 change.applied Platform:context {"scopes": [["admin-api", "created"], ["auth", "created"], ["bootstrap-stamp", "created"], ["cert-manager", "created"], ["certificate-issuer", "created"], ["fou
+1 change.applied Platform:context {"scopes": [["bootstrap-stamp", "updated"], ["lifecycle-events", "updated"]]}
+2 change.applied Publication:app-image-prebuilt-image-app {"scopes": [["app-image-prebuilt-image-app", "created"]]}
+3 change.applied Publication:app-image-notes {"scopes": [["app-image-notes", "created"]]}
+4 app.deployed Standalone:service-notes {"release": "r1"}
+5 change.applied Standalone:service-notes {"scopes": [["service-notes", "created"]]}
+6 change.applied Publication:app-image-notes-m11 {"scopes": [["app-image-notes-m11", "created"]]}
+7 app.deployed Standalone:service-notes {"release": "m11"}
+8 change.applied Publication:app-image-notes-m21 {"scopes": [["app-image-notes-m21", "created"]]}
+9 app.deployed Standalone:service-notes {"release": "m21"}
+10 change.applied Publication:app-image-notes-m22 {"scopes": [["app-image-notes-m22", "created"]]}
+11 app.deployed Standalone:service-notes {"release": "m22"}
+12 change.applied Publication:app-image-notes-m23 {"scopes": [["app-image-notes-m23", "created"]]}
+13 app.deployed Standalone:service-notes {"release": "m23"}
+14 change.applied Publication:app-image-notes-m31 {"scopes": [["app-image-notes-m31", "created"]]}
+15 app.deployed Standalone:service-notes {"release": "m31"}
+16 change.applied Publication:app-image-notes-m32 {"scopes": [["app-image-notes-m32", "created"]]}
+17 app.deployed Standalone:service-notes {"release": "m32"}
+18 change.applied Publication:app-image-notes-m33 {"scopes": [["app-image-notes-m33", "created"]]}
+19 app.deployed Standalone:service-notes {"release": "m33"}
+20 change.applied Platform:context {"scopes": []}
+21 change.applied Publication:app-image-notes-m41 {"scopes": [["app-image-notes-m41", "created"]]}
+22 app.deployed Standalone:service-notes {"release": "m41"}
+23 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+24 change.applied Publication:app-image-notes-m42 {"scopes": [["app-image-notes-m42", "created"]]}
+25 app.deployed Standalone:service-notes {"release": "m42"}
+26 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+27 change.applied Publication:app-image-notes-m43 {"scopes": [["app-image-notes-m43", "created"]]}
+28 app.deployed Standalone:service-notes {"release": "m43"}
+29 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+30 change.applied Application:env-notes-runtime {"scopes": [["env-notes-runtime", "updated"]]}
+31 change.applied Application:env-notes-runtime {"scopes": [["env-notes-runtime", "updated"]]}
+32 change.applied Application:env-notes-runtime {"scopes": [["env-notes-runtime", "updated"]]}
+33 database.backup.completed Platform:auth {}
+34 database.backup.completed Platform:auth {}
+35 change.applied Standalone:events-ep276 {"scopes": [["events-ep276", "created"]]}
+36 change.applied Platform:context {"scopes": [["bootstrap-stamp", "updated"], ["lifecycle-events", "updated"]]}
+37 change.applied Publication:app-image-notes-r2 {"scopes": [["app-image-notes-r2", "created"]]}
+38 app.deployed Standalone:service-notes {"release": "r2"}
+39 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+40 app.stopped Standalone:service-notes {}
+41 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+42 app.restarted Standalone:service-notes {"restartStamp": "20261122-185206"}
+43 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+44 change.applied Publication:app-image-notes-s1 {"scopes": [["app-image-notes-s1", "created"]]}
+45 change.failed Standalone:service-notes {"outcome": "ambiguous", "reason": null}
+46 app.deployed Standalone:service-notes {"release": "s1"}
+47 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+48 change.applied Publication:app-image-notes-c1 {"scopes": [["app-image-notes-c1", "created"]]}
+49 change.failed Standalone:service-notes {"outcome": "ambiguous", "reason": null}
+50 change.closed Standalone:service-notes {"scopes": [["service-notes", "kept"]], "attested": false}
+51 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"], ["app-image-notes-r3", "created"]]}
+52 app.deployed Standalone:service-notes {"release": "r3"}
+53 change.applied Standalone:service-notes {"scopes": [["service-notes", "updated"]]}
+54 change.applied Standalone:database-pg1 {"scopes": [["database-pg1", "created"]]}
+55 change.applied Platform:context {"scopes": [["bootstrap-stamp", "updated"], ["lifecycle-events", "updated"]]}
+56 database.backup.completed Platform:auth {}
+57 database.backup.completed Platform:auth {}
+58 change.applied Standalone:database-backup-personal-pg1-local-001 {"scopes": [["database-backup-personal-pg1-local-001", "created"]]}
+59 change.applied Standalone:database-restore-personal-pg1-ep276-restore-1 {"scopes": [["database-restore-personal-pg1-ep276-restore-1", "created"]]}
+60 database.restored Standalone:database-restore-personal-pg1-ep276-restore-1 {"restore": "ep276-restore-1"}
+61 change.applied Publication:app-image-gone-g1 {"scopes": [["app-image-gone-g1", "created"]]}
+62 app.deployed Standalone:service-gone {"release": "g1"}
+63 change.applied Standalone:service-gone {"scopes": [["service-gone", "created"]]}
+64 app.deleted Standalone:service-gone {"retainedMembers": 2}
+65 change.applied Standalone:service-gone {"scopes": [["service-gone", "retired"]]}
+66 database.backup.completed Standalone:database-pg1 {}
+67 database.backup.completed Platform:auth {}
+68 database.backup.completed Platform:auth {}
+69 change.applied Platform:context {"scopes": [["admin-api", "updated"], ["bootstrap-stamp", "updated"]]}
+70 database.backup.failed Standalone:database-pg1 {"reason": "bad-signature", "schedule": "personal/pg1"}
+71 change.applied Platform:context {"scopes": []}
+72 database.backup.completed Platform:auth {}
+73 database.backup.completed Platform:auth {}
+74 database.backup.completed Platform:auth {}
+75 database.backup.freshness.changed Standalone:database-pg1 {"to": "deteriorating", "from": "fresh", "schedule": "personal/pg1"}
+76 database.backup.completed Platform:auth {}
+77 database.backup.completed Platform:auth {}
+78 database.backup.completed Platform:auth {}
+79 database.backup.freshness.changed Standalone:database-pg1 {"to": "breached", "from": "deteriorating", "schedule": "personal/pg1"}
+80 database.backup.completed Platform:auth {}
+81 database.backup.completed Platform:auth {}
+82 database.backup.completed Standalone:database-pg1 {}
+83 database.backup.freshness.changed Standalone:database-pg1 {"to": "fresh", "from": "breached", "schedule": "personal/pg1"}
