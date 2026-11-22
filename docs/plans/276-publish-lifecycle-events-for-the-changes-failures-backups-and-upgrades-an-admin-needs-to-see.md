@@ -74,12 +74,13 @@ it touched.
   published by release-time producers. A verification-only rerun publishes none of them.
 - [ ] M4: `database.backup.failed` and `database.backup.freshness.changed` are published by
   the backup collector. A worker restart publishes neither twice.
-- [ ] M5: `platform.upgraded` is published once per committed release transition, and not
-  while the transition marker is still in the head. A worker that has recorded no release
-  yet publishes nothing.
+- [ ] M5: `platform.upgraded` is published once per committed release transition, with the
+  source and target its reviews name, and not while the transition marker is still in the
+  head.
 - [ ] M6: Native confirmation on a disposable local context. Each scenario in Validation and
   Acceptance produces its event, readable through the admin API. The EP-172 rehearsal
-  (`just release-rehearse <rev> v0.26.0`) reads its seeded data back unchanged.
+  (`just release-rehearse <rev> v0.26.0`) runs the lifecycle worker, reads its seeded data
+  back unchanged and shows `platform.upgraded`.
 
 
 ## Surprises & Discoveries
@@ -171,23 +172,33 @@ it touched.
   `cluster-local`. A reviewed restore records `restore.id`, `restore.backup.id` and its target
   as overrides of its own scope, so the producer needs no object parsing and stays total.
   Date: 2026-11-22
-- Decision: The feed head's wire format does not change. The worker keeps the release it
-  last ran in its own object under `lifecycle/v1/`. The collector state moves to version 2
-  and its decoder still reads version 1.
+- Decision: The feed head's wire format does not change. The worker keeps the transition it
+  is waiting on in its own object under `lifecycle/v1/`. The collector state moves to
+  version 2 and its decoder still reads version 1.
   Rationale: `FeedHead`'s decoder refuses any version but 1 and any unknown field, and the
   admin API server and `nagarectl` read that head. A new head version would stop
   `GET /v1/events` on any reader not yet moved. The event ID comes from the source key, so
-  writing the release object after the feed head is safe: a crash between the two republishes
-  the same ID, which the ID index drops. The collector state is read only by the worker, and
-  every existing context holds version 1.
+  the worker's object needs no write in common with the feed head: a crash between the two
+  republishes the same ID, which the ID index drops. The collector state is read only by
+  the worker, and every existing context holds version 1.
   Date: 2026-11-22
-- Decision: `platform.upgraded` is first published on the upgrade after the one that brings
-  this plan's worker. M6 does not confirm it natively. Its proof is M5's unit tests.
-  Rationale: A worker from an earlier release records no release, so the first new worker
-  has no `from` and only records what it runs. The EP-172 rehearsal moves a context from the
-  previous release, so it meets exactly that case, and its harness
-  (`cli/nagare-harness/src/Nagare/Harness/Release/Rehearse.hs`) does not run the lifecycle
-  worker. ADR 25 lets a native run only confirm what offline tests found.
+- Decision: `platform.upgraded` takes its `from` and `to` from the transition's own reviews,
+  through a control fact committed at their convergence, and is published when the head
+  no longer holds the transition marker. This replaces the 2026-11-21 decision to compare
+  the release the worker runs with one it recorded. The transition commit is still not
+  changed. The rehearsal runs the lifecycle worker and checks the event.
+  Rationale: Every review of a transition carries the identity
+  `nagare-transition:<source>-><target>` (`transitionReviewIdentity` in
+  `cli/nagare-core/src/Nagare/Inventory/Store/Manifest.hs`), and only the target release's
+  CLI applies them, so the fact is committed by the new release even when the worker it
+  replaces recorded nothing. The event therefore appears on the first upgrade to this
+  plan's release, and the EP-172 rehearsal can confirm it. Observing the marker directly
+  was rejected: the worker reads sources every 30 seconds and may start after the commit
+  cleared the marker. The marker is cleared only by the commit
+  (`cli/nagarectl/src/Nagare/Platform/Finalize.hs`), so a committed transition fact and no
+  marker mean the transition committed. A release that moves no scope has no review and
+  publishes no event: nothing in the cluster changed. The operator chose this over
+  unit-test-only proof (2026-11-22).
   Date: 2026-11-22
 - Decision: An event that is about the context as a whole uses the resource scope
   `platform:context`. That is `platform.upgraded`, and a `change.applied` with no single
@@ -302,12 +313,29 @@ the executor reads it like any other event.
 **Worker state and its versions.** `FeedHead` in `cli/nagare-core/src/Nagare/Events/Store.hs`
 and `CollectorState` in `BackupCollector.hs` are strict: their decoders refuse an unknown
 field and any version but 1. The feed head is also read by the admin API server and by
-`nagarectl`. The collector state is read only by the worker. The worker has no release
-identity today: `cli/nagare-api-server/app/Events.hs` takes none, and its manifests
-(`cluster/bootstrap/lifecycle-events/lifecycle-events-local.yaml.tmpl` and
-`lifecycle-events-cloud.yaml.tmpl`, rendered by
-`cli/nagarectl/src/Nagare/Inventory/Components/LifecycleEvents.hs`) substitute only the
-image. A source key (`mkSourceKey` in `Facts.hs`) holds only lowercase ASCII letters, digits
+`nagarectl`. The collector state is read only by the worker. The worker does not know
+which release it runs: `cli/nagare-api-server/app/Events.hs` takes no release. A facts
+object can also carry *control facts* (`ControlFact` in `Facts.hs`): internal instructions
+addressed to one consumer by a channel name, never published. A consumer reads its channel
+with `consumeControls` in `Chain.hs` and ignores the others, as delivery does for
+subscriptions (`cli/nagare-core/src/Nagare/Events/Delivery.hs`).
+
+**How a release transition is recorded.** Every review of a transition has the payload
+identity `nagare-transition:<source>-><target>`, built by `transitionReviewIdentity` and
+read back by `parseTransitionReviewIdentity` in
+`cli/nagare-core/src/Nagare/Inventory/Store/Manifest.hs`. `SourceInput` already holds it as
+`payloadIdentity`. Admission of the first such review opens the head's `headTransition`
+marker (`cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs`), a later release's first
+review retargets it, and only `platform transition commit`
+(`cli/nagarectl/src/Nagare/Platform/Finalize.hs`) clears it, as its last step. A release
+that moves no scope has no review: its commit opens and clears the marker itself. The
+rehearsal's steps are in
+`cli/nagare-harness/src/Nagare/Harness/Release/TransitionDrill.hs`: it bootstraps a local
+context on the previous release, seeds a database row, runs `transition plan` and
+`inventory apply` with the candidate until nothing is left, commits, and reads the row
+back. It does not enable the lifecycle worker today.
+
+A source key (`mkSourceKey` in `Facts.hs`) holds only lowercase ASCII letters, digits
 and `-._:/`, so a timestamp such as `2026-11-21T04:00:00Z` is refused as written.
 
 Backup freshness grading
@@ -462,36 +490,46 @@ in uploads past both thresholds, then a new upload. They expect exactly the tran
 cycles repeats none. One more test starts the collector on a stored version-1 state and
 expects it to keep its pending runs and write version 2.
 
-**M5 — `platform.upgraded`.** The worker keeps the release it last ran in its own object,
-`lifecycle/v1/worker-release.json`, written through the `FeedStore`'s object operations in
-`cli/nagare-core/src/Nagare/Events/Store.hs`. The feed head is not changed. The release is
-the payload's `platformVersion` (`PayloadManifest` in
-`cli/nagarectl/src/Nagare/Platform/Workspace.hs`), the version `nagarectl platform status`
-reports for the payload. The worker does not know it today. Add a `--release` argument to
-`nagare-events` in `cli/nagare-api-server/app/Events.hs`, and render it in both manifest
-templates from a new substitution that
-`cli/nagarectl/src/Nagare/Inventory/Components/LifecycleEvents.hs` fills from the payload
-manifest. A worker started without `--release` publishes and records nothing for this type.
-In a cycle where the recorded release differs from the
-running one and the inventory head has no active transaction and no `headTransition`, publish
+**M5 — `platform.upgraded`.** Add a release-time producer `transitionProducer` beside
+`changeProducer` and register it in `builtinProducers`. For a converged review whose
+`payloadIdentity` parses with `parseTransitionReviewIdentity`, it emits one `ControlFact`:
+key `platform.transition:<transaction>`, channel `platform-transition`, version 1, body
+`{from, to}`. For any other review it emits nothing. It reads no member and no scope. In
+`materializeOnce`, read that channel from the batch with `consumeControls`. The newest
+control is the transition the worker waits on. Write it to
+`lifecycle/v1/worker-transition.json` through the `FeedStore`'s object operations in
+`cli/nagare-core/src/Nagare/Events/Store.hs`, before the feed head write that advances the
+journal checkpoint past it, so a crash rereads the control and writes the same object. The
+feed head is not changed. In a cycle where that object holds a transition and the inventory
+head has no `headTransition` and no active transaction, publish
 `platform.upgraded` (key `platform.upgraded:<from>:<to>`, scope `platform:context`) with
-`from` and `to`. The key holds each release lowercased, with any character outside the
-source-key alphabet replaced by `-`; the payload holds them as written. After the feed head
-write that publishes the event, write the new release to the object. A crash between the two
-writes publishes the same ID again, which the ID index drops. The first cycle with no
-recorded release
-only records it. A cycle that sees the marker waits. Tests: marker present means no event;
-marker cleared means one event; a restart means none again; a crash after the feed head
-write and before the release write means one event in the feed.
+`from` and `to`, then empty the object. The key holds each release lowercased, with any
+character outside the source-key alphabet replaced by `-`; the payload holds them as
+written. A crash after the publish and before the object is emptied publishes the same ID
+again, which the ID index drops. A cycle that sees the marker waits. A later release's
+control replaces the waiting one, so a retargeted transition publishes one event, for the
+release it committed. A control version the worker does not read stops it at that source,
+as `consumeControls` already does. Tests, in `EventsSourceSpec.hs`'s fixture: a converged
+transition review with the marker present means no event; the marker cleared means one
+event with the review's `from` and `to`; a restart means none again; a crash between the
+publish and the emptied object means one event in the feed; a retarget means one event for
+the last target; a review with an ordinary payload identity commits no control.
 
 **M6 — native confirmation.** On a disposable local context created with
 `--enable-lifecycle-events --enable-lifecycle-delivery`, run the scenarios in Validation and
 Acceptance. Read every event through the admin API and through a webhook subscription that
 names the twelve types those scenarios produce, pointed at
-`cluster/examples/lifecycle-webhook-receiver/Receiver.hs`. Then run
-`just release-rehearse <rev> v0.26.0`. It must read its seeded data back unchanged. The
-rehearsal does not run the lifecycle worker and does not check `platform.upgraded` (see the
-Decision Log). At completion, amend ADR 39 with the journal-derived source class and the change
+`cluster/examples/lifecycle-webhook-receiver/Receiver.hs`. Then extend the rehearsal in
+`cli/nagare-harness/src/Nagare/Harness/Release/TransitionDrill.hs`. Its bootstrap creates
+the context with `--enable-lifecycle-events`, which the previous release (v0.26.0) accepts.
+Before the transition it lists the feed with the source release's `nagarectl events list
+--json`. After `platform transition commit` it polls the candidate's `events list` until
+one `platform.upgraded` names the source and target the transition moved between, and
+refuses after a deadline. It then checks that every event listed before the move is still
+listed with the same ID and `data`. During the move the previous release's worker meets
+facts it cannot decode and stops, and the candidate's worker catches up: the rehearsal
+confirms that too. Run it with `just release-rehearse <rev> v0.26.0`. It must still read
+its seeded row back unchanged. At completion, amend ADR 39 with the journal-derived source class and the change
 that every converged transaction now writes facts, and update
 `docs/user/lifecycle-events.md`'s type table.
 
@@ -554,9 +592,9 @@ A backup whose receipt is tampered with gives `database.backup.failed`. Pausing 
 CronJob past the hourly thresholds gives two `database.backup.freshness.changed` events, and
 resuming it gives one more. Restarting the worker adds no event. Running a scenario's
 command again with nothing to change adds no named event; if it converges a new review, it
-adds one `change.applied` with an empty `scopes`. `platform.upgraded` is not confirmed here:
-M5's unit tests accept it, and `just release-rehearse <rev> v0.26.0` only has to read its
-seeded data back unchanged.
+adds one `change.applied` with an empty `scopes`. `just release-rehearse <rev> v0.26.0` ends
+with its seeded row read back unchanged, one `platform.upgraded` from v0.26.0 to the
+candidate, and every event listed before the move still listed unchanged.
 
 The labs admin tool is out of this repository. It is ready to integrate when the events
 above are listed by `GET /v1/events` and their `data` matches the OpenAPI schema in
@@ -591,5 +629,7 @@ shared `transaction` field that joins events of one change, and the `data` schem
 change adds a new type instead. `SourceInput` gains fields in M1. Its only constructor is
 `convergedSourceFacts` in `cli/nagarectl/src/Nagare/Inventory/Execute/Sources.hs`, plus the
 test fixtures in `cli/nagarectl/test/EventsSourceSpec.hs` and `EventsBackupSpec.hs`.
-`nagare-events` gains a `--release` argument in M5, and the lifecycle worker's two manifest
-templates gain the substitution that fills it. `CollectorState` moves to version 2 in M4.
+`CollectorState` moves to version 2 in M4. M5 adds the control channel `platform-transition`
+(version 1, body `{from, to}`), which only the materializer reads, and the worker's object
+`lifecycle/v1/worker-transition.json`. M6 changes the rehearsal drill, which every later
+release runs.
