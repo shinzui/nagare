@@ -23,6 +23,7 @@ import Data.OpenApi
   )
 import Data.OpenApi.Declare (Declare, execDeclare)
 import Nagare.Contract.Delegation (DelegationDocument, DeployerCredentials, TransactionHistory)
+import Nagare.Contract.EventData (AppDeployedData, BackupAcceptedData, BackupCompletedData, ChangeAppliedData)
 import Nagare.Contract.Prelude
 import Nagare.Contract.Problem (ProblemDetails)
 import Nagare.Contract.Rendered (RenderedConfiguration)
@@ -73,6 +74,11 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @TransactionHistory))
   void (declareSchemaRef (Proxy @DeployerCredentials))
   void (declareSchemaRef (Proxy @RenderedConfiguration))
+  -- EP-276: the data of each lifecycle event type.
+  void (declareSchemaRef (Proxy @AppDeployedData))
+  void (declareSchemaRef (Proxy @BackupCompletedData))
+  void (declareSchemaRef (Proxy @BackupAcceptedData))
+  void (declareSchemaRef (Proxy @ChangeAppliedData))
 
 contractOpenApi :: OpenApi
 contractOpenApi =

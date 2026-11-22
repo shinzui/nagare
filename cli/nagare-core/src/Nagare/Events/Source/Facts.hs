@@ -19,8 +19,17 @@ module Nagare.Events.Source.Facts
   , StoredVersion (..)
   , BackupCompletion (..)
   , BackupAcceptance (..)
+  , ChangeSource (..)
+  , changeSource
+  , ScopeChangeKind (..)
+  , ScopeChange (..)
+  , ActionCount (..)
+  , ChangeApplication (..)
+  , contextScope
   , EventPayload (..)
   , payloadKind
+  , payloadData
+  , parsePayload
   , EventCandidate (..)
   , ControlChannel
   , mkControlChannel
@@ -28,6 +37,7 @@ module Nagare.Events.Source.Facts
   , ControlFact (..)
   , SourceItem (..)
   , SourceInput (..)
+  , OperationView (..)
   , SourceProducer (..)
   , sourceProducer
   , MemberView (..)
@@ -53,6 +63,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Actor (Actor, ReviewSource)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (JournalEvent, OperationId, TransactionId)
 import Nagare.Inventory.Store (ScopeRevision, objectKeyFor)
@@ -77,7 +88,13 @@ mkSourceKey value
 sourceKeyText :: SourceKey -> Text
 sourceKeyText (SourceKey value) = value
 
-data EventKind = AppDeployed | DatabaseBackupCompleted | DatabaseBackupAccepted
+-- | The public event types. A new type is added at the end and never
+-- renamed; a worker that does not know a type refuses it and stops.
+data EventKind
+  = AppDeployed
+  | DatabaseBackupCompleted
+  | DatabaseBackupAccepted
+  | ChangeApplied
   deriving stock (Eq, Ord, Show, Bounded, Enum, Generic)
 
 eventKindText :: EventKind -> Text
@@ -85,6 +102,7 @@ eventKindText = \case
   AppDeployed -> "app.deployed"
   DatabaseBackupCompleted -> "database.backup.completed"
   DatabaseBackupAccepted -> "database.backup.accepted"
+  ChangeApplied -> "change.applied"
 
 parseEventKind :: Text -> Maybe EventKind
 parseEventKind value = lookup value [(eventKindText kind, kind) | kind <- [minBound .. maxBound]]
@@ -169,10 +187,72 @@ data BackupAcceptance = BackupAcceptance
   }
   deriving stock (Eq, Show, Generic)
 
+-- | Where a reviewed change came from, as its review recorded it. Each
+-- part is null when the review named none.
+data ChangeSource = ChangeSource
+  { repository :: !(Maybe Text)
+  , revision :: !(Maybe Text)
+  , run :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The source a review recorded, with every part null when it named none.
+changeSource :: Maybe ReviewSource -> ChangeSource
+changeSource = \case
+  Nothing -> ChangeSource Nothing Nothing Nothing
+  Just recorded -> ChangeSource (recorded ^. #repository) (recorded ^. #revision) (recorded ^. #run)
+
+data ScopeChangeKind = ScopeCreated | ScopeUpdated | ScopeRetired
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
+-- | One scope a converged transaction changed: created (it had no converged
+-- revision before), updated, or retired (its review removed it). @from@ is
+-- the revision converged before, or the accepted one for a retired scope
+-- that never converged; @to@ is the converged revision, null when retired.
+data ScopeChange = ScopeChange
+  { scope :: !ScopeId
+  , change :: !ScopeChangeKind
+  , from :: !(Maybe ScopeRevision)
+  , to :: !(Maybe ScopeRevision)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | How many of a transaction's operations had this action.
+data ActionCount = ActionCount
+  { action :: !Text
+  , count :: !Int
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | @change.applied@ (EP-276): a reviewed inventory transaction converged:
+-- every operation it journaled completed and the head that records its
+-- convergence was committed. It is published once per transaction, whatever
+-- the change was, so a deploy has one beside its @app.deployed@ and an env,
+-- secret, access, storage, schedule or CDN change has only this one. Its
+-- resource is the single scope it changed, the single release subject when
+-- it changed several, and otherwise @platform:context@. @scopes@ lists every
+-- scope it changed and is empty for a review that only verified. @actor@
+-- and @source@ are what the review asserted, not proved (ADR 35).
+data ChangeApplication = ChangeApplication
+  { transaction :: !TransactionId
+  , review :: !ContentDigest
+  , actor :: !Actor
+  , source :: !ChangeSource
+  , scopes :: ![ScopeChange]
+  , operations :: ![ActionCount]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The resource scope of an event about the context as a whole. No
+-- inventory scope has this name.
+contextScope :: ScopeId
+contextScope = either (error . T.unpack) id (mkScopeId Platform "context")
+
 data EventPayload
   = AppDeployedPayload !AppDeployment
   | BackupCompletedPayload !BackupCompletion
   | BackupAcceptedPayload !BackupAcceptance
+  | ChangeAppliedPayload !ChangeApplication
   deriving stock (Eq, Show, Generic)
 
 payloadKind :: EventPayload -> EventKind
@@ -180,6 +260,23 @@ payloadKind = \case
   AppDeployedPayload _ -> AppDeployed
   BackupCompletedPayload _ -> DatabaseBackupCompleted
   BackupAcceptedPayload _ -> DatabaseBackupAccepted
+  ChangeAppliedPayload _ -> ChangeApplied
+
+-- | A payload's @data@ member.
+payloadData :: EventPayload -> Value
+payloadData = \case
+  AppDeployedPayload value -> toJSON value
+  BackupCompletedPayload value -> toJSON value
+  BackupAcceptedPayload value -> toJSON value
+  ChangeAppliedPayload value -> toJSON value
+
+-- | The payload of a @data@ member of this type.
+parsePayload :: EventKind -> Value -> Parser EventPayload
+parsePayload kind dataValue = case kind of
+  AppDeployed -> AppDeployedPayload <$> parseJSON dataValue
+  DatabaseBackupCompleted -> BackupCompletedPayload <$> parseJSON dataValue
+  DatabaseBackupAccepted -> BackupAcceptedPayload <$> parseJSON dataValue
+  ChangeApplied -> ChangeAppliedPayload <$> parseJSON dataValue
 
 -- | One public event a source fact can become.
 data EventCandidate = EventCandidate
@@ -229,6 +326,14 @@ data SourceInput = SourceInput
   , convergedBefore :: !(Map ScopeId ScopeRevision)
   -- ^ The scopes' converged revisions in the head this release replaces.
   , operations :: !(Map OperationId (NonEmpty ResourceId))
+  , steps :: ![OperationView]
+  -- ^ The review's operations, in review order (EP-276).
+  , actor :: !Actor
+  , source :: !(Maybe ReviewSource)
+  , retained :: !(Map ResourceId ScopeId)
+  -- ^ The members the review retained, by the scope that owned them.
+  , collected :: !(Map ResourceId ScopeId)
+  -- ^ The members the review collected, by the scope that owned them.
   , journal :: ![JournalEvent]
   , members :: !(Map ResourceId MemberView)
   -- ^ The members some producer wants that this transaction operated.
@@ -237,6 +342,18 @@ data SourceInput = SourceInput
   -- key some producer names (EP-233).
   }
   deriving stock (Generic)
+
+-- | One reviewed operation as a producer sees it: its action's wire name
+-- (@create@, @update@, @verify@, @retire@, @migrate@ and the others), the
+-- adapter that runs it, its public summary and its resources.
+data OperationView = OperationView
+  { operation :: !OperationId
+  , action :: !Text
+  , adapter :: !Text
+  , summary :: !Text
+  , resources :: !(NonEmpty ResourceId)
+  }
+  deriving stock (Eq, Show, Generic)
 
 -- | One changed scope's overrides at its desired revision, and at the
 -- revision converged before this release, if it had one.
@@ -401,6 +518,32 @@ instance ToJSON BackupAcceptance where toJSON = genericToJSON strictOptions
 
 instance FromJSON BackupAcceptance where parseJSON = genericParseJSON strictOptions
 
+instance ToJSON ChangeSource where toJSON = genericToJSON strictOptions
+
+instance FromJSON ChangeSource where parseJSON = genericParseJSON strictOptions
+
+scopeChangeText :: ScopeChangeKind -> Text
+scopeChangeText = \case
+  ScopeCreated -> "created"
+  ScopeUpdated -> "updated"
+  ScopeRetired -> "retired"
+
+instance ToJSON ScopeChangeKind where toJSON = String . scopeChangeText
+
+instance FromJSON ScopeChangeKind where parseJSON = enumeration "scope change" scopeChangeText
+
+instance ToJSON ScopeChange where toJSON = genericToJSON strictOptions
+
+instance FromJSON ScopeChange where parseJSON = genericParseJSON strictOptions
+
+instance ToJSON ActionCount where toJSON = genericToJSON strictOptions
+
+instance FromJSON ActionCount where parseJSON = genericParseJSON strictOptions
+
+instance ToJSON ChangeApplication where toJSON = genericToJSON strictOptions
+
+instance FromJSON ChangeApplication where parseJSON = genericParseJSON strictOptions
+
 -- | A payload is encoded as its kind and its data, so the kind is explicit.
 instance ToJSON EventCandidate where
   toJSON candidate =
@@ -412,21 +555,13 @@ instance ToJSON EventCandidate where
       , "evidence" .= (candidate ^. #evidence)
       , "data" .= payloadData (candidate ^. #payload)
       ]
-    where
-      payloadData = \case
-        AppDeployedPayload value -> toJSON value
-        BackupCompletedPayload value -> toJSON value
-        BackupAcceptedPayload value -> toJSON value
 
 instance FromJSON EventCandidate where
   parseJSON = withObject "event candidate" $ \o -> do
     exactKeys "event candidate" ["key", "type", "resource", "occurredAt", "evidence", "data"] o
     kind <- o .: "type"
     dataValue <- o .: "data"
-    payloadValue <- case kind of
-      AppDeployed -> AppDeployedPayload <$> parseJSON dataValue
-      DatabaseBackupCompleted -> BackupCompletedPayload <$> parseJSON dataValue
-      DatabaseBackupAccepted -> BackupAcceptedPayload <$> parseJSON dataValue
+    payloadValue <- parsePayload kind dataValue
     EventCandidate <$> o .: "key" <*> o .: "resource" <*> o .:? "occurredAt" <*> o .: "evidence" <*> pure payloadValue
 
 instance ToJSON ControlFact where

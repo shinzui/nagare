@@ -110,11 +110,6 @@ instance ToJSON Envelope where
       , "evidence" .= (envelope ^. #evidence)
       , "data" .= payloadData (envelope ^. #payload)
       ]
-    where
-      payloadData = \case
-        AppDeployedPayload value -> toJSON value
-        BackupCompletedPayload value -> toJSON value
-        BackupAcceptedPayload value -> toJSON value
 
 instance FromJSON Envelope where
   parseJSON = withObject "event envelope" $ \o -> do
@@ -123,10 +118,7 @@ instance FromJSON Envelope where
     unless (version == envelopeSchemaVersion) (fail "unsupported event envelope version")
     kind <- o .: "type"
     dataValue <- o .: "data"
-    payloadValue <- case kind of
-      AppDeployed -> AppDeployedPayload <$> parseJSON dataValue
-      DatabaseBackupCompleted -> BackupCompletedPayload <$> parseJSON dataValue
-      DatabaseBackupAccepted -> BackupAcceptedPayload <$> parseJSON dataValue
+    payloadValue <- parsePayload kind dataValue
     Envelope version
       <$> o .: "id"
       <*> o .: "context"

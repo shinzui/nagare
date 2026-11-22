@@ -25,8 +25,17 @@ module Nagare.Events.Source
   , StoredVersion (..)
   , BackupCompletion (..)
   , BackupAcceptance (..)
+  , ChangeSource (..)
+  , changeSource
+  , ScopeChangeKind (..)
+  , ScopeChange (..)
+  , ActionCount (..)
+  , ChangeApplication (..)
+  , contextScope
   , EventPayload (..)
   , payloadKind
+  , payloadData
+  , parsePayload
   , EventCandidate (..)
 
     -- * Internal control facts
@@ -38,6 +47,7 @@ module Nagare.Events.Source
     -- * Producers and the facts object
   , SourceItem (..)
   , SourceInput (..)
+  , OperationView (..)
   , SourceProducer (..)
   , sourceProducer
   , MemberView (..)

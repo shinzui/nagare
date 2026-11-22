@@ -70,6 +70,7 @@ import Nagare.Resource.Types hiding (ScopeKind (..))
 import Nagare.Resource.Types qualified as Types
 import Nagare.Target (ActiveTarget (..), mkContextName)
 import Nagare.Test.ContractCommands (contractCommandTests)
+import Nagare.Test.EventData (eventDataTests, eventTypesSample)
 import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Test.Support.Site (baseSite)
 import Nagare.Version (BuildVersion (..))
@@ -90,6 +91,7 @@ contractTests =
     "Contract"
     [ testGroup "samples" (concatMap sampleTests samples)
     , contractCommandTests
+    , eventDataTests
     , testCase "a base problem has exactly the RFC 9457 members and the two extensions" $ do
         let base = problemFor unknownScope "application:nope is not accepted"
         objectKeys (toJSON base) @?= sort ["type", "title", "status", "detail", "code", "retryable"]
@@ -204,6 +206,7 @@ samples =
   , Sample "deploy-preview-site.json" deployPreviewSiteSample
   , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "event-list.json" eventListSample
+  , Sample "event-types.json" eventTypesSample
   , Sample "subscription-list.json" subscriptionListSample
   , Sample "delivery-list.json" deliveryListSample
   , Sample "delivery.json" deliverySample

@@ -138,6 +138,7 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Events.Archive
+    Nagare.Events.Change
     Nagare.Events.Deployment
     Nagare.Events.Target
     Nagare.Gcp.Adc
@@ -710,6 +711,7 @@ test-suite nagarectl-test
     DataFenceSpec
     DomainBindingSpec
     EventsBackupSpec
+    EventsChangeSpec
     EventsDeliverySpec
     EventsDeploymentSpec
     EventsSourceSpec
@@ -846,6 +848,7 @@ test-suite nagarectl-test
     Nagare.Test.Effectful.Fixture
     Nagare.Test.Effectful.Model
     Nagare.Test.Environment
+    Nagare.Test.EventData
     Nagare.Test.Gcp
     Nagare.Test.GhcEnvironment
     Nagare.Test.Image

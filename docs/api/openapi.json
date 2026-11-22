@@ -22,6 +22,190 @@
       "AnyValue": {
         "additionalProperties": true
       },
+      "AppDeployedData": {
+        "description": "The data of app.deployed: a changed production release passed its reviewed readiness and its transaction converged.",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/DeploymentActionKind"
+          },
+          "previousRelease": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "readiness": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scopeRevision": {
+            "$ref": "#/components/schemas/EventScopeRevision"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/DeploymentSubjectKind"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "action",
+          "release",
+          "previousRelease",
+          "scopeRevision",
+          "transaction",
+          "review",
+          "readiness"
+        ],
+        "type": "object"
+      },
+      "BackupAcceptedData": {
+        "description": "The data of database.backup.accepted: a reviewed transaction admitted the backup as a recovery point. It grants no restore authority.",
+        "properties": {
+          "backup": {
+            "type": "string"
+          },
+          "completion": {
+            "type": "string"
+          },
+          "receiptRevision": {
+            "$ref": "#/components/schemas/EventScopeRevision"
+          },
+          "receiptScope": {
+            "$ref": "#/components/schemas/LifecycleScope"
+          },
+          "recoveryPoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "review": {
+            "type": "string"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backup",
+          "completion",
+          "receiptScope",
+          "receiptRevision",
+          "transaction",
+          "review",
+          "recoveryPoint"
+        ],
+        "type": "object"
+      },
+      "BackupCompletedData": {
+        "description": "The data of database.backup.completed: an archive and its authenticated receipt were verified at exact versions.",
+        "properties": {
+          "archive": {
+            "$ref": "#/components/schemas/EventStoredVersion"
+          },
+          "archiveBytes": {
+            "type": "integer"
+          },
+          "backup": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/BackupOriginKind"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/EventStoredVersion"
+          },
+          "recoveryPoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run": {
+            "type": "string"
+          },
+          "scheduleRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backup",
+          "origin",
+          "run",
+          "archive",
+          "receipt",
+          "sha256",
+          "archiveBytes",
+          "scheduleRevision",
+          "recoveryPoint",
+          "completedAt"
+        ],
+        "type": "object"
+      },
+      "BackupOriginKind": {
+        "enum": [
+          "scheduled",
+          "manual"
+        ],
+        "type": "string"
+      },
+      "ChangeAppliedData": {
+        "description": "The data of change.applied: a reviewed inventory transaction converged. Every converged change has one, joined to its other events by transaction; scopes is empty for a change that only verified. actor and source are what the review asserted, not proved.",
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/EventActor"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/EventActionCount"
+            },
+            "type": "array"
+          },
+          "review": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/EventScopeChange"
+            },
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EventSource"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction",
+          "review",
+          "actor",
+          "source",
+          "scopes",
+          "operations"
+        ],
+        "type": "object"
+      },
       "Comparison": {
         "properties": {
           "declaredImage": {
@@ -729,6 +913,164 @@
         ],
         "type": "object"
       },
+      "DeploymentActionKind": {
+        "enum": [
+          "deploy",
+          "rollback"
+        ],
+        "type": "string"
+      },
+      "DeploymentSubjectKind": {
+        "enum": [
+          "application",
+          "service",
+          "site"
+        ],
+        "type": "string"
+      },
+      "EventActionCount": {
+        "description": "How many of a change's operations had this action.",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/OperationActionKind"
+          },
+          "count": {
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "count"
+        ],
+        "type": "object"
+      },
+      "EventActor": {
+        "description": "Who a review says applied it; asserted by the client, not proved.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/EventActorKind"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      },
+      "EventActorKind": {
+        "enum": [
+          "operator",
+          "deployer"
+        ],
+        "type": "string"
+      },
+      "EventScopeChange": {
+        "description": "One scope a converged change created, updated or retired.",
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/ScopeChangeKind"
+          },
+          "from": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventScopeRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LifecycleScope"
+          },
+          "to": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventScopeRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "scope",
+          "change",
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "EventScopeRevision": {
+        "description": "An accepted scope revision: its declaration's digest and generation.",
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "digest",
+          "generation"
+        ],
+        "type": "object"
+      },
+      "EventSource": {
+        "description": "The repository, commit and CI run a change came from, each null when not recorded.",
+        "properties": {
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "repository",
+          "revision",
+          "run"
+        ],
+        "type": "object"
+      },
+      "EventStoredVersion": {
+        "description": "An exact stored object version.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "type": "object"
+      },
       "ExecutorClaimSummary": {
         "properties": {
           "claimedAt": {
@@ -1163,7 +1505,7 @@
         "type": "object"
       },
       "LifecycleEvent": {
-        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type is app.deployed, database.backup.completed or database.backup.accepted, and data is that type's payload.",
+        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it.",
         "properties": {
           "context": {
             "type": "string"
@@ -1498,6 +1840,21 @@
           "imageDigest"
         ],
         "type": "object"
+      },
+      "OperationActionKind": {
+        "enum": [
+          "create",
+          "update",
+          "verify",
+          "adopt",
+          "retire",
+          "replace-stuck-pod",
+          "run-declared-operation",
+          "open-maintenance-session",
+          "restore-live-database",
+          "migrate"
+        ],
+        "type": "string"
       },
       "Outcome": {
         "enum": [
@@ -1958,6 +2315,14 @@
           "rebuilds"
         ],
         "type": "object"
+      },
+      "ScopeChangeKind": {
+        "enum": [
+          "created",
+          "updated",
+          "retired"
+        ],
+        "type": "string"
       },
       "ScopeState": {
         "description": "A recorded scope revision. converged means the accepted revision's execution completed; it is not a live health check.",

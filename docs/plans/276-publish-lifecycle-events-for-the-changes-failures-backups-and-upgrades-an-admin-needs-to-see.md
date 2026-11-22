@@ -15,6 +15,11 @@ provenance:
       at: 2026-11-22T10:55:40Z
       mode: "update"
       note: "Reviewed against the code and corrected M2 to M6: close marker, override-based producers, worker state versions, platform.upgraded acceptance"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-22T17:13:17Z
+      mode: "implement"
+      note: "M1 to M5 implemented in code and tests"
 ---
 
 # Publish lifecycle events for the changes, failures, backups and upgrades an admin needs to see
@@ -65,9 +70,14 @@ it touched.
 
 ## Progress
 
-- [ ] M1: `change.applied` is published for every converged reviewed change, with actor,
+- [x] M1: `change.applied` is published for every converged reviewed change, with actor,
   source and per-scope classification. It can be read with `nagarectl events list`,
   `GET /v1/events` and a webhook subscription. OpenAPI and samples are regenerated.
+  (2026-11-22) `Events.Change` (7 tests) and `Events.Source` pass; the fixture transaction
+  writes 12 objects with or without other facts (10 and 12 before) and 6 heads in both.
+  Each type's `data` now has a schema (`AppDeployedData` … `ChangeAppliedData`), checked by
+  `Contract/event data`; sample `docs/api/samples/event-types.json`. `just gate-commit`
+  green.
 - [ ] M2: `change.failed` and `change.closed` are published from the committed journal. No
   journal object the head does not commit becomes an event.
 - [ ] M3: `app.deleted`, `app.stopped`, `app.restarted` and `database.restored` are
@@ -223,6 +233,16 @@ it touched.
   every release's rehearsal would add a component to bootstrap and move, and a wait of at
   least one 30-second worker cycle, so it runs only when asked. M1's test asserts both
   write counts.
+  Date: 2026-11-22
+- Decision: A scope counts as changed for `change.applied` when its desired declaration
+  digest differs from the one converged before, not its whole revision. The worker-side
+  module of M2 is `Nagare.Events.ChangeOutcome` in nagare-core, because nagarectl
+  re-exports every nagare-core module and already holds `Nagare.Events.Change`. Every
+  type's `data` gets a contract schema in `cli/nagare-contract/src/Nagare/Contract/EventData.hs`.
+  Rationale: A rerun with nothing to change re-accepts the same declaration at the next
+  generation, and the plan wants it to list no scope. The `data` member of `LifecycleEvent`
+  is an opaque value, so without per-type schemas the admin tool had nothing in
+  `openapi.json` to check `data` against.
   Date: 2026-11-22
 
 

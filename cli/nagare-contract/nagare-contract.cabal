@@ -33,6 +33,7 @@ library
   exposed-modules:
     Nagare.Contract.Delegation
     Nagare.Contract.Delivery
+    Nagare.Contract.EventData
     Nagare.Contract.Events
     Nagare.Contract.OpenApi
     Nagare.Contract.Prelude

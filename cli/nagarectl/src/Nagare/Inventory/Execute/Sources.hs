@@ -20,15 +20,17 @@ import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Events.Backup (backupProducer)
+import Nagare.Events.Change (changeProducer)
 import Nagare.Events.Deployment (deploymentProducer)
-import Nagare.Events.Source (MemberView (..), ScopeView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
+import Nagare.Events.Source (MemberView (..), OperationView (..), ScopeView (..), SourceFacts, SourceInput (..), SourceProducer, assembleFacts)
 import Nagare.Events.Subscription (subscriptionProducer)
-import Nagare.Inventory.Adapter (PlannedOperation (plannedOperationId, plannedResources))
+import Nagare.Inventory.Adapter (OperationAction (..), PlannedOperation (plannedAction, plannedOperationId, plannedResources))
 import Nagare.Inventory.Execute.Types (reviewDocumentDigest)
 import Nagare.Inventory.Journal (JournalEvent (eventTransaction), TransactionId)
 import Nagare.Inventory.Plan
-  ( ReviewDocument (reviewBaseRevisions, reviewDesiredRevisions, reviewOperations, reviewPayloadIdentity)
-  , ReviewOperation (reviewPlannedOperation)
+  ( RetentionProof (retentionOwner)
+  , ReviewDocument (reviewActor, reviewBaseRevisions, reviewCollections, reviewDesiredRevisions, reviewOperations, reviewPayloadIdentity, reviewRetentions, reviewSource)
+  , ReviewOperation (reviewAdapterIdentity, reviewPlannedOperation, reviewPublicSummary)
   , ReviewedPlan
   , reviewedDocument
   )
@@ -38,9 +40,11 @@ import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (..), Scope
 import Nagare.Resource.Types
 
 -- | The producers every converged release runs, whichever command applied
--- or resumed it, ahead of any the registry adds.
+-- or resumed it, ahead of any the registry adds. 'changeProducer' yields one
+-- candidate for every converged transaction (EP-276), so every one commits
+-- a facts object.
 builtinProducers :: [SourceProducer]
-builtinProducers = [deploymentProducer, backupProducer, subscriptionProducer]
+builtinProducers = [deploymentProducer, backupProducer, subscriptionProducer, changeProducer]
 
 -- | The facts @producers@ return for a converged release that replaces
 -- @headValue@. A member whose earlier bytes cannot be read stops the
@@ -79,6 +83,21 @@ convergedSourceFacts store producers transaction reviewed events headValue = do
                   | operation <- reviewOperations document
                   , let planned = reviewPlannedOperation operation
                   ]
+            , steps =
+                [ OperationView
+                    { operation = plannedOperationId planned
+                    , action = actionName (plannedAction planned)
+                    , adapter = reviewAdapterIdentity operation
+                    , summary = reviewPublicSummary operation
+                    , resources = plannedResources planned
+                    }
+                | operation <- reviewOperations document
+                , let planned = reviewPlannedOperation operation
+                ]
+            , actor = reviewActor document
+            , source = reviewSource document
+            , retained = Map.map retentionOwner (reviewRetentions document)
+            , collected = Map.map retentionOwner (reviewCollections document)
             , journal = [event | event <- events, eventTransaction event == transaction]
             , members
             , scopes
@@ -124,6 +143,20 @@ convergedSourceFacts store producers transaction reviewed events headValue = do
               Left err -> Left ("the converged native object of " <> resourceIdText resource <> " cannot be read: " <> T.pack (show err))
               Right found -> Right found
           _ -> pure (Right Nothing)
+
+-- | An operation action's wire name in lifecycle payloads.
+actionName :: OperationAction -> Text
+actionName = \case
+  CreateResource -> "create"
+  UpdateResource -> "update"
+  VerifyResource -> "verify"
+  AdoptResource -> "adopt"
+  RetireResource -> "retire"
+  ReplaceStuckPod -> "replace-stuck-pod"
+  RunDeclaredOperation -> "run-declared-operation"
+  OpenMaintenanceSession -> "open-maintenance-session"
+  RestoreLiveDatabase -> "restore-live-database"
+  MigrateResource _ -> "migrate"
 
 -- | The scope a resource ID names: the part before its first @/@.
 ownerOf :: ResourceId -> Either Text ScopeId

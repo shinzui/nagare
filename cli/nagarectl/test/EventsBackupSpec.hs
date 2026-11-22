@@ -41,6 +41,7 @@ import Nagare.Events.Materialize
 import Nagare.Events.Read
 import Nagare.Events.Source
 import Nagare.Events.Store
+import Nagare.Inventory.Actor (anonymousOperator)
 import Nagare.Inventory.Adapter (AdapterExecution (AdapterEffectCompleted), RecoveryDecision (RecoverySafeToRetry))
 import Nagare.Inventory.Backup (ScheduledReceiptExpectation, scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
@@ -267,7 +268,7 @@ eventsBackupTests =
         _ <- publishedEvents world
         ingested <- ingestedInventory
         afterIngestion <- materializeWith world ingested
-        kindsOf afterIngestion @?= [DatabaseBackupCompleted, DatabaseBackupAccepted]
+        kindsOf afterIngestion @?= [DatabaseBackupCompleted, ChangeApplied, DatabaseBackupAccepted]
         assertCrossReferenced afterIngestion
         -- Ingestion first: the collector's later completion is the same event.
         world' <- newWorld
@@ -277,11 +278,12 @@ eventsBackupTests =
         _ <- materializeWith world' ingested'
         _ <- collect world'
         both <- materializeWith world' ingested'
-        -- Facts are key-ordered: here the acceptance is published first.
-        kindsOf both @?= [DatabaseBackupAccepted, DatabaseBackupCompleted]
+        -- Facts are key-ordered: here the acceptance is published first, after
+        -- the ingestion's change.applied.
+        kindsOf both @?= [ChangeApplied, DatabaseBackupAccepted, DatabaseBackupCompleted]
         assertCrossReferenced both
     , testCase "a later revision keeping the pins, a volume run and a recorded manual receipt announce nothing; a new manual record announces completion and acceptance" $ do
-        let input scopes' = SourceInput (fixtureBinding ^. #identity) (ok (mkTransactionId "tx-1")) (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] Map.empty (Map.fromList scopes')
+        let input scopes' = SourceInput (fixtureBinding ^. #identity) (ok (mkTransactionId "tx-1")) (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] anonymousOperator Nothing Map.empty Map.empty [] Map.empty (Map.fromList scopes')
             revision = ScopeRevision (ok (mkScopeGeneration 2)) (contentDigest "scope")
             produced = (backupProducer ^. #produce) . input
             receiptScope = ok (mkScopeId Platform "receipt-1")

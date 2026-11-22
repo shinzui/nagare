@@ -18,10 +18,42 @@ A context records what Nagare did as immutable lifecycle events:
 | `app.deployed` | A changed production release of an application, standalone service or site passed its reviewed readiness and its transaction converged. |
 | `database.backup.completed` | A database backup's archive and signed receipt were verified at exact stored versions. |
 | `database.backup.accepted` | A reviewed transaction admitted that backup as a recovery point. |
+| `change.applied` | A reviewed inventory change converged: every operation completed and its convergence was committed. Every change has one. |
 
 An event's `id` never changes across retries, restarts or replays. Read them
 with `nagarectl events list` or `GET /v1/events`. Backup events are described
 in [Backups and disaster recovery](backups-and-disaster-recovery.md#backup-lifecycle-events).
+Each type's `data` has its own schema in [`docs/api/openapi.json`](../api/openapi.json),
+named in the `LifecycleEvent` schema's description (`change.applied` is
+`ChangeAppliedData`), and [`docs/api/samples/event-types.json`](../api/samples/event-types.json)
+holds one event of every type.
+
+## Changes
+
+Every admin action in Nagare is a reviewed inventory change, and every change
+that converges publishes one `change.applied`, whatever it changed: a deploy,
+an env or secret change, an access, storage, schedule or CDN change. Its `data`
+says who applied it and where it came from, as the review recorded them, and
+which scopes it changed:
+
+```json
+{
+  "transaction": "tx-…",
+  "review": "…",
+  "actor": {"kind": "deployer", "name": "ci"},
+  "source": {"repository": "github.com/example/notes", "revision": "0123abc", "run": null},
+  "scopes": [{"scope": {"kind": "Application", "name": "notes"}, "change": "updated", "from": {"digest": "…", "generation": 4}, "to": {"digest": "…", "generation": 5}}],
+  "operations": [{"action": "update", "count": 2}]
+}
+```
+
+A scope is `created` when it had not converged before, `retired` when the
+change removed it, and `updated` otherwise; a change that only re-verified
+lists none. The event is about the one scope it changed, the one application,
+service or site when it changed several, and otherwise `platform:context`.
+`actor` and `source` are asserted by the client that applied the review, not
+proved. A change's other events, such as its `app.deployed`, carry the same
+`transaction`, which is how a receiver joins them.
 
 ## Run the worker
 

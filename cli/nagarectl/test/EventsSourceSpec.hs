@@ -16,6 +16,7 @@ import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding, preparedFixtureWith)
 import Nagare.Dsl.Prelude
 import Nagare.Events.Source
+import Nagare.Inventory.Actor (anonymousOperator)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
@@ -45,22 +46,26 @@ eventsSourceTests =
             map eventSequence conv @?= [headSequence headValue - 1]
             batch <- readAll run
             map (^. #transaction) (batch ^. #sources) @?= [transactionOf run]
-            [candidate ^. #key | source <- batch ^. #sources, candidate <- source ^. #facts . #events] @?= [candidateKey (transactionOf run)]
+            [candidate ^. #key | source <- batch ^. #sources, candidate <- source ^. #facts . #events] @?= [changeAppliedKey (transactionOf run), candidateKey (transactionOf run)]
             batch ^. #checkpoint . #next @?= headSequence headValue
             batch ^. #waiting @?= False
-        , testCase "a transaction without facts writes nothing more and keeps a version 1 head" $ do
+        , testCase "every converged transaction commits one source; it costs a fact-less change two writes and a deploy none (EP-276)" $ do
             without <- runFixture [] Nothing
             with <- runFixture [] (Just testProducer)
             assertConverged (outcome without)
             headValue <- readHeadOf without
-            headSchemaVersion headValue @?= 1
+            headSchemaVersion headValue @?= 2
             events <- journalOf without
-            [event | event <- events, isJust (eventConvergence event)] @?= []
+            length [event | event <- events, isJust (eventConvergence event)] @?= 1
             batch <- readAll without
-            batch ^. #sources @?= []
-            -- One facts object and one journal event; no further head write.
-            puts with - puts without @?= 2
-            headPuts with @?= headPuts without
+            map (^. #transaction) (batch ^. #sources) @?= [transactionOf without]
+            [candidate ^. #key | source <- batch ^. #sources, candidate <- source ^. #facts . #events] @?= [changeAppliedKey (transactionOf without)]
+            -- Before EP-276 the fixture transaction wrote 10 objects without
+            -- facts and 12 with them, 6 of them heads. change.applied adds
+            -- the facts object and its convergence event to the first and
+            -- joins the second's facts object, with no further head write.
+            (puts without, puts with) @?= (12, 12)
+            (headPuts without, headPuts with) @?= (6, 6)
         , testCase "a lost facts upload stops the release; resume commits exactly one source" $ do
             run <- runFixture [FailOnce (keyPrefixed "facts/") NotLanded] (Just testProducer)
             assertNotConverged (outcome run)
@@ -125,7 +130,7 @@ eventsSourceTests =
             decodeSourceFacts bytes @?= Right facts
             assertBool "an unknown field is refused" (isLeft (decodeSourceFacts (either (error . T.unpack) id (canonicalValue (addField (toJSON facts))))))
         , testCase "producers' items assemble once per key and refuse a key naming two facts" $ do
-            let input = SourceInput (fixtureBinding ^. #identity) tx1 (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] Map.empty Map.empty
+            let input = SourceInput (fixtureBinding ^. #identity) tx1 (contentDigest "review") "operator-cli" Map.empty Map.empty Map.empty Map.empty [] anonymousOperator Nothing Map.empty Map.empty [] Map.empty Map.empty
                 producing items = sourceProducer (const items)
             assembleFacts input [] @?= Right Nothing
             fmap (fmap (^. #controls)) (assembleFacts input [producing [Control (control "a" 1)], producing [Control (control "a" 1)]]) @?= Right (Just [control "a" 1])
@@ -372,6 +377,9 @@ testProducer = sourceProducer $ \input ->
             }
       ]
     [] -> []
+
+changeAppliedKey :: TransactionId -> SourceKey
+changeAppliedKey transaction = sourceKey ("change.applied:" <> transactionIdText transaction)
 
 candidateKey :: TransactionId -> SourceKey
 candidateKey transaction = sourceKey ("test:" <> transactionIdText transaction)

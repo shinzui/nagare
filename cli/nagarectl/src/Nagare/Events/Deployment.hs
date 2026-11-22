@@ -18,6 +18,7 @@ module Nagare.Events.Deployment
   ( deploymentProducer
   , isReleaseHistory
   , deploymentKey
+  , subjectOf
   )
 where
 

@@ -4,9 +4,11 @@ module Nagare.Cli.Parser.Events
   )
 where
 
+import Data.Text qualified as T
 import Nagare.Cli.Options
 import Nagare.Cli.Options.Events
 import Nagare.Dsl.Prelude
+import Nagare.Events.Source (eventKindText)
 import Options.Applicative
 
 eventsCmd :: ParserInfo Command
@@ -23,6 +25,10 @@ eventsCmd =
     )
     (fullDesc <> progDesc "Read the active context's durable lifecycle event history")
 
+-- | Every published event type, as @--type@ accepts it.
+eventTypes :: String
+eventTypes = T.unpack (T.intercalate ", " (map eventKindText [minBound .. maxBound]))
+
 eventsListCmd :: ParserInfo Command
 eventsListCmd =
   info
@@ -31,7 +37,7 @@ eventsListCmd =
                 <$> optional (option auto (long "first" <> metavar "N" <> help "Events per page, 1 to 100 (default 50)"))
                 <*> optional (strOption (long "after" <> metavar "CURSOR" <> help "Continue after this cursor, the previous page's endCursor"))
                 <*> switch (long "refresh" <> help "With --after, also read events published since the cursor's traversal began")
-                <*> many (strOption (long "type" <> metavar "TYPE" <> help "Only events of this type (app.deployed, database.backup.completed, database.backup.accepted); repeatable"))
+                <*> many (strOption (long "type" <> metavar "TYPE" <> help ("Only events of this type (" <> eventTypes <> "); repeatable")))
                 <*> optional (strOption (long "scope" <> metavar "KIND:NAME" <> help "Only events about this scope, for example application:notes"))
                 <*> optional (strOption (long "member" <> metavar "RESOURCE" <> help "With --scope, only events about this member"))
                 <*> switch (long "json" <> help "Print the versioned event-list document")
@@ -79,7 +85,7 @@ webhookCmd =
       WebhookCreateOpts
         <$> nameArg
         <*> strOption (long "url" <> metavar "URL" <> help "The receiver, https:// (http:// only for an --allow-host host)")
-        <*> some (strOption (long "type" <> metavar "TYPE" <> help "An event type to send (app.deployed, database.backup.completed, database.backup.accepted); repeatable"))
+        <*> some (strOption (long "type" <> metavar "TYPE" <> help ("An event type to send (" <> eventTypes <> "); repeatable")))
         <*> optional (strOption (long "scope" <> metavar "KIND:NAME" <> help "Only events about this scope"))
         <*> optional (strOption (long "member" <> metavar "RESOURCE" <> help "With --scope, only events about this member"))
         <*> many (strOption (long "allow-host" <> metavar "HOST" <> help "A cluster-private receiver host whose private addresses (and plain http) are allowed; repeatable"))

@@ -1,7 +1,29 @@
 -- | EP-232 M1: a converged application release yields one @app.deployed@
 -- event through the real planner, executor, journal and feed; a stopped,
 -- repeated or provenance-only transaction yields none.
-module EventsDeploymentSpec (eventsDeploymentTests) where
+module EventsDeploymentSpec
+  ( eventsDeploymentTests
+  , World (..)
+  , withWorld
+  , deploy
+  , deployWith
+  , resume
+  , feedEntries
+  , notes
+  , notesBase
+  , docs
+  , releaseLog
+  , notesScope
+  , docsScope
+  , binding
+  , scopeWith
+  , workload
+  , history
+  , assertConverged
+  , checked
+  , orFail
+  )
+where
 
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
@@ -17,7 +39,7 @@ import Nagare.Events.Deployment (deploymentKey)
 import Nagare.Events.Envelope (encodeEnvelope, eventIdFor)
 import Nagare.Events.Materialize (defaultBudget, enableFeed, materializeOnce)
 import Nagare.Events.Read (FeedEntry, readPage, readRequest)
-import Nagare.Events.Source (AppDeployment (..), DeploymentAction (..), DeploymentSubject (..), EventPayload (..), initialCheckpoint)
+import Nagare.Events.Source (AppDeployment (..), DeploymentAction (..), DeploymentSubject (..), EventKind (AppDeployed), EventPayload (..), initialCheckpoint, payloadKind)
 import Nagare.Events.Store (FeedStore, memoryObjectOps, newFeedStore)
 import Nagare.Inventory.Adapter (AdapterExecution (..), AdapterRegistry, PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
@@ -152,7 +174,11 @@ withWorld action = do
 
 -- | Review the scopes against the accepted history and apply the review.
 deploy :: World -> [(ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))] -> IO TransactionResult
-deploy world scopes = do
+deploy world = deployWith world id
+
+-- | 'deploy', with the prepared review changed before it is published.
+deployWith :: World -> (ReviewBundle -> ReviewBundle) -> [(ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))] -> IO TransactionResult
+deployWith world amend scopes = do
   history <- loadInventoryHistory (world ^. #store) >>= orFail
   let candidate = checked (composeInventory (snapshot (historyAccepted history)) (ReplaceScope (fst (headOf scopes)) :| map (ReplaceScope . fst) (drop 1 scopes)))
       native = Map.unions (map snd scopes)
@@ -160,7 +186,7 @@ deploy world scopes = do
   facts <- observeWithRegistry selected (requirementsByExecutor (observationRequirements candidate history)) >>= orFail
   proposal <- orFail (planChanges candidate noLifecycleDecisions history facts)
   state <- readStoreSnapshot (world ^. #store) >>= orFail
-  bundle <- prepareReview selected state proposal >>= orFail
+  bundle <- amend <$> (prepareReview selected state proposal >>= orFail)
   _ <- publishReview (world ^. #store) bundle >>= orFail
   published' <- readStoreSnapshot (world ^. #store) >>= orFail
   reviewed <- orFail (verifyReview published' bundle)
@@ -196,9 +222,14 @@ registry world native = checked (mkAdapterRegistry [mkKubernetesAdapter native o
               else pure AdapterEffectCompleted
         }
 
--- | Materialize everything committed so far and read the feed back.
+-- | Materialize everything committed so far and read the deployment events
+-- back.
 published :: World -> IO [FeedEntry]
-published world = do
+published world = filter (\entry -> payloadKind (entry ^. #envelope . #payload) == AppDeployed) <$> feedEntries world
+
+-- | Materialize everything committed so far and read the whole feed back.
+feedEntries :: World -> IO [FeedEntry]
+feedEntries world = do
   _ <- materializeOnce (world ^. #store) (world ^. #feed) binding defaultBudget (pure "2026-11-17T00:00:00Z") >>= orFail
   page <- readPage (world ^. #feed) binding readRequest >>= orFail
   pure (page ^. #entries)
