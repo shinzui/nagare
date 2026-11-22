@@ -92,8 +92,14 @@ it touched.
   converged view or whose release also moved. A database rebuild restore records no
   `restore.target.kind`, so its `restore.rebuild.*` lineage marks it `rebuilt`.
   `just gate-commit` green.
-- [ ] M4: `database.backup.failed` and `database.backup.freshness.changed` are published by
+- [x] M4: `database.backup.failed` and `database.backup.freshness.changed` are published by
   the backup collector. A worker restart publishes neither twice.
+  (2026-11-22) `Events.Backup`: of six failing runs, the bad signature, wrong source and two
+  changed archives each publish one failure, and a restarted collector's retry none again;
+  freshness publishes exactly fresh→deteriorating, deteriorating→breached and
+  breached→fresh across a restart; a schedule left out of a cycle and a future point grade
+  nothing; a stored version-1 state keeps its pending run and is written at version 2.
+  `just gate-commit` green.
 - [ ] M5: `platform.upgraded` is published once per committed release transition, with the
   source and target its reviews name, and not while the transition marker is still in the
   head.
@@ -253,6 +259,15 @@ it touched.
   generation, and the plan wants it to list no scope. The `data` member of `LifecycleEvent`
   is an opaque value, so without per-type schemas the admin tool had nothing in
   `openapi.json` to check `data` against.
+  Date: 2026-11-22
+- Decision: The collector types the receipt verifier's existing reasons
+  (`classifyFailure` in `cli/nagare-core/src/Nagare/Events/BackupCollector.hs`) instead
+  of changing the verifier's result type. A failure is announced only the first time its
+  run is recorded failed for a terminal reason.
+  Rationale: The verifier is shared with ingestion and restore, which guard data. A reason
+  the classifier does not list stays retryable, so a reworded reason can only suppress an
+  event, never invent one, and the collector test pins each terminal reason by tampering a
+  real receipt.
   Date: 2026-11-22
 
 

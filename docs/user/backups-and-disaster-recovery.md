@@ -513,7 +513,7 @@ context in the private operator repository (ADR 13). The procedure is
 
 ## Backup lifecycle events
 
-The context's lifecycle feed (`nagarectl events list`) records two backup
+The context's lifecycle feed (`nagarectl events list`) records these backup
 events. `database.backup.completed` means a managed database's or an app
 database's archive and its signed receipt were verified at exact provider
 versions; for a manual backup, its `db manual-receipt` record verified them.
@@ -530,7 +530,16 @@ collect-backups --once` runs one cycle by hand; `--activate` starts
 collection, treating the backups present at that moment as already seen.
 A run that fails verification (a bad signature, a source that is not the
 recorded incarnation, changed or missing bytes) is reported as pending with
-its reason and is never published. A backup deleted by someone else before
+its reason and is never published as completed. A bad signature, a source
+that is not the recorded incarnation or changed bytes publishes
+`database.backup.failed` once; a missing archive or an unreadable key is
+retried quietly, since a later cycle may verify the run. A run reported failed
+can still complete later, for example after its signing Secret is rebound.
+Every cycle grades each schedule's newest verified recovery point against its
+signed `hourly` or `daily` objective, and a grade that moves between `fresh`,
+`deteriorating` and `breached` publishes `database.backup.freshness.changed`.
+A schedule's first grade is recorded without an event, and a schedule with no
+verified run since collection was activated has no grade. A backup deleted by someone else before
 the collector verified it has no completion event: the feed is not a record
 of arbitrary changes made outside Nagare.
 

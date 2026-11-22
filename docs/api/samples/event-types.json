@@ -479,6 +479,82 @@
         "type": "database.restored"
       },
       "position": 9
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "archive": {
+            "name": "s3://backups/personal/notes/run.dump",
+            "version": "1"
+          },
+          "detail": "scheduled receipt HMAC differs from the accepted signing key",
+          "reason": "bad-signature",
+          "receipt": {
+            "name": "s3://backups/personal/notes/run.dump.receipt.json",
+            "version": "2"
+          },
+          "run": "3f0c9a52-6d1e-4b8a-9b0e-5c2d1f7e8a90",
+          "schedule": "personal/notes"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-2fa98e5db78045ba80cb207550afdde4",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "database.backup.failed"
+      },
+      "position": 10
+    },
+    {
+      "event": {
+        "context": "context-1",
+        "data": {
+          "ageSeconds": 1830,
+          "from": "fresh",
+          "newestRecoveryPoint": "2026-11-22T03:15:00Z",
+          "objective": "hourly",
+          "schedule": "personal/notes",
+          "to": "deteriorating"
+        },
+        "evidence": [
+          {
+            "digest": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+            "name": "review"
+          }
+        ],
+        "id": "ev-fa1e6a0e6e4b875b0f7e8a599d007195",
+        "observedAt": "2026-11-22T04:00:05Z",
+        "occurredAt": "2026-11-22T04:00:05Z",
+        "publishedAt": "2026-11-22T04:00:07Z",
+        "resource": {
+          "incarnation": null,
+          "member": null,
+          "namespace": "personal",
+          "scope": {
+            "kind": "Application",
+            "name": "notes"
+          }
+        },
+        "schemaVersion": 1,
+        "type": "database.backup.freshness.changed"
+      },
+      "position": 11
     }
   ],
   "pageInfo": {

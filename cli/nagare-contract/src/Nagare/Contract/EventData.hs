@@ -32,6 +32,11 @@ module Nagare.Contract.EventData
   , AppRestartedData (..)
   , RestoreTargetKindName (..)
   , DatabaseRestoredData (..)
+  , BackupFailureReasonKind (..)
+  , BackupFailedData (..)
+  , FreshnessGradeKind (..)
+  , ObjectiveKind (..)
+  , BackupFreshnessChangedData (..)
   , eventDataSchemaName
   )
 where
@@ -64,6 +69,8 @@ eventDataSchemaName eventType =
     , ("app.stopped", "AppStoppedData")
     , ("app.restarted", "AppRestartedData")
     , ("database.restored", "DatabaseRestoredData")
+    , ("database.backup.failed", "BackupFailedData")
+    , ("database.backup.freshness.changed", "BackupFreshnessChangedData")
     ]
 
 strictRecord :: Options
@@ -301,6 +308,39 @@ data DatabaseRestoredData = DatabaseRestoredData
   }
   deriving stock (Eq, Show, Generic)
 
+data BackupFailureReasonKind = ReasonBadSignature | ReasonWrongSource | ReasonChangedBytes
+  deriving stock (Eq, Show, Generic)
+
+-- | @database.backup.failed@: a scheduled run failed verification for a
+-- reason no later cycle clears on its own.
+data BackupFailedData = BackupFailedData
+  { schedule :: !Text
+  , run :: !Text
+  , receipt :: !EventStoredVersion
+  , archive :: !(Nullable EventStoredVersion)
+  , reason :: !BackupFailureReasonKind
+  , detail :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+data FreshnessGradeKind = GradeFresh | GradeDeteriorating | GradeBreached
+  deriving stock (Eq, Show, Generic)
+
+data ObjectiveKind = ObjectiveHourly | ObjectiveDaily
+  deriving stock (Eq, Show, Generic)
+
+-- | @database.backup.freshness.changed@: a backup schedule's grade against
+-- its signed recovery-point objective moved.
+data BackupFreshnessChangedData = BackupFreshnessChangedData
+  { schedule :: !Text
+  , from :: !FreshnessGradeKind
+  , to :: !FreshnessGradeKind
+  , objective :: !ObjectiveKind
+  , newestRecoveryPoint :: !Text
+  , ageSeconds :: !Integer
+  }
+  deriving stock (Eq, Show, Generic)
+
 instance ToJSON EventScopeRevision where toJSON = genericToJSON strictRecord
 
 instance FromJSON EventScopeRevision where parseJSON = genericParseJSON strictRecord
@@ -483,3 +523,35 @@ instance FromJSON DatabaseRestoredData where parseJSON = genericParseJSON strict
 
 instance ToSchema DatabaseRestoredData where
   declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of database.restored: a reviewed restore of a backup converged, into a scratch database or a rebuilt server. database or appDatabase names the source; a member the restore did not record is null."
+
+instance ToJSON BackupFailureReasonKind where toJSON = genericToJSON (enumOptions "Reason")
+
+instance FromJSON BackupFailureReasonKind where parseJSON = genericParseJSON (enumOptions "Reason")
+
+instance ToSchema BackupFailureReasonKind where declareNamedSchema = enumSchema "Reason"
+
+instance ToJSON BackupFailedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON BackupFailedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema BackupFailedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of database.backup.failed: a scheduled run failed verification for good (bad-signature, wrong-source or changed-bytes). It may still verify later, for example after its signing Secret is rebound, and then publishes database.backup.completed."
+
+instance ToJSON FreshnessGradeKind where toJSON = genericToJSON (enumOptions "Grade")
+
+instance FromJSON FreshnessGradeKind where parseJSON = genericParseJSON (enumOptions "Grade")
+
+instance ToSchema FreshnessGradeKind where declareNamedSchema = enumSchema "Grade"
+
+instance ToJSON ObjectiveKind where toJSON = genericToJSON (enumOptions "Objective")
+
+instance FromJSON ObjectiveKind where parseJSON = genericParseJSON (enumOptions "Objective")
+
+instance ToSchema ObjectiveKind where declareNamedSchema = enumSchema "Objective"
+
+instance ToJSON BackupFreshnessChangedData where toJSON = genericToJSON strictRecord
+
+instance FromJSON BackupFreshnessChangedData where parseJSON = genericParseJSON strictRecord
+
+instance ToSchema BackupFreshnessChangedData where
+  declareNamedSchema proxy = recordSchema proxy <&> schema . description ?~ "The data of database.backup.freshness.changed: a backup schedule's grade (fresh, deteriorating or breached) against its signed hourly or daily recovery-point objective moved, graded from the newest recovery point the collector verified."

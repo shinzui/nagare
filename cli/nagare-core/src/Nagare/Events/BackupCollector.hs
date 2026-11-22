@@ -14,9 +14,14 @@
 -- lifecycle prefix's @receipts/@. It holds no inventory claim and can create,
 -- ingest, restore or prune nothing. Observing a backup never accepts it.
 --
--- A run that fails verification is never published. It stays pending with
--- its reason, first-seen time and a growing backoff while later runs
--- progress; one invalid object cannot starve the rest. A listing is
+-- A run that fails verification is never published as completed. It stays
+-- pending with its reason, first-seen time and a growing backoff while later
+-- runs progress; one invalid object cannot starve the rest. EP-276: a run
+-- whose failure no later cycle can clear on its own (a bad signature, a
+-- source that is not the recorded incarnation, changed bytes) is announced
+-- once as @database.backup.failed@, and each schedule's freshness against its
+-- signed recovery-point objective is graded every cycle and announced when it
+-- moves, as @database.backup.freshness.changed@. A listing is
 -- complete every cycle, so a receipt that appears late, behind any name
 -- order, is found on the next cycle; the activation baseline, not a cursor,
 -- decides what is new.
@@ -25,6 +30,9 @@ module Nagare.Events.BackupCollector
   , collectorStateVersion
   , Baseline (..)
   , PendingRun (..)
+  , ScheduleFreshness (..)
+  , VerifyFailure (..)
+  , classifyFailure
   , CollectorOps (..)
   , CollectBudget (..)
   , defaultCollectBudget
@@ -39,6 +47,7 @@ where
 import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List (nub, sortOn)
@@ -56,8 +65,9 @@ import Nagare.Events.Layout (lookupIds)
 import Nagare.Events.Receipts
 import Nagare.Events.Source
 import Nagare.Events.Store
-import Nagare.Inventory.Backup (ScheduledReceiptExpectation (..))
-import Nagare.Inventory.ScheduledReceipt (inspectScheduledReceiptAt)
+import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..))
+import Nagare.Inventory.BackupFreshness (BackupFreshness (..), RecoveryPointObjective (..), backupFreshness)
+import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceiptAt)
 import Nagare.Inventory.ScheduledStore (StoredObject, VersionedObject (..), VersionedReader (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -74,11 +84,51 @@ data CollectorState = CollectorState
   , pending :: ![PendingRun]
   , dropped :: !Int
   -- ^ Pending runs beyond the bound, still retried by later cycles.
+  , freshness :: !(Map Text ScheduleFreshness)
+  -- ^ EP-276: each schedule's newest verified recovery point and the grade
+  -- last recorded for it, by schedule label. Version 1 had none.
   }
   deriving stock (Eq, Show, Generic)
 
+-- | Version 2 (EP-276) adds 'freshness'; a version 1 state reads as one
+-- with no schedule graded yet.
 collectorStateVersion :: Int
-collectorStateVersion = 1
+collectorStateVersion = 2
+
+-- | A schedule's newest verified recovery point, and the grade recorded for
+-- it, once it had one.
+data ScheduleFreshness = ScheduleFreshness
+  { newest :: !UTCTime
+  , grade :: !(Maybe FreshnessGrade)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Why a run did not verify: for good, or for a reason a later cycle may
+-- clear (an unreadable key, a schedule with no accepted revision, a receipt
+-- with no backup object yet, a race with an upload).
+data VerifyFailure
+  = TerminalFailure !BackupFailureReason !Text
+  | RetryableFailure !Text
+  deriving stock (Eq, Show, Generic)
+
+-- | The verifier's reasons, typed. A reason is terminal only when it is
+-- listed here; every other one is retryable.
+classifyFailure :: Text -> VerifyFailure
+classifyFailure reason'
+  | reason' `elem` ["scheduled receipt HMAC differs from the accepted signing key", "scheduled receipt has an invalid HMAC"] = TerminalFailure BadSignature reason'
+  | reason' == "scheduled receipt source incarnation differs from accepted evidence" = TerminalFailure WrongSource reason'
+  | reason' == "scheduled backup version, length, or checksum changed" = TerminalFailure ChangedBytes reason'
+  | otherwise = RetryableFailure reason'
+
+failureText :: VerifyFailure -> Text
+failureText = \case
+  TerminalFailure _ text -> text
+  RetryableFailure text -> text
+
+isTerminal :: VerifyFailure -> Bool
+isTerminal = \case
+  TerminalFailure _ _ -> True
+  RetryableFailure _ -> False
 
 -- | The receipts present at activation: every receipt version the provider
 -- dated at or before @through@, except those dated exactly then and not
@@ -169,7 +219,7 @@ activateCollection store binding ops schedules = do
           let receipts = [object' | object' <- objectsListed, ".receipt.json" `T.isSuffixOf` versionedKey object']
               through = if null receipts then Nothing else Just (maximum (map versionedModified receipts))
               tied = [address ops (versionedKey object') | object' <- receipts, Just (versionedModified object') == through]
-              state' = CollectorState collectorStateVersion now (Baseline through tied) [] [] 0
+              state' = CollectorState collectorStateVersion now (Baseline through tied) [] [] 0 Map.empty
           stored <- publishFeedObject store stateKey (encodeState state')
           case stored of
             Left err -> pure (Left (CollectFeed err))
@@ -224,9 +274,26 @@ collectOnce store binding ops budget schedules = do
               keys <- signingKeys (nub [candidate ^. #schedule | candidate <- chosen])
               results <- inWaves (max 1 (budget ^. #concurrency)) (verifyFound keys) chosen
               let successes = [(candidate, run') | (candidate, Right run') <- zip chosen results]
-                  failed = [(candidate, reason') | (candidate, Left reason') <- zip chosen results] <> [(candidate, "the receipt has no backup object") | candidate <- missingArchive]
+                  typed = [(candidate, classifyFailure reason') | (candidate, Left reason') <- zip chosen results] <> [(candidate, RetryableFailure "the receipt has no backup object") | candidate <- missingArchive]
+                  failed = [(candidate, failureText failure) | (candidate, failure) <- typed]
                   events' = [scheduledCompletion (candidate ^. #schedule) run' | (candidate, run') <- successes]
                   updates = Map.fromList [(foundKey candidate, failedEntry pendingBy now (foundKey candidate) candidate reason') | (candidate, reason') <- failed]
+                  -- A terminal failure is announced when it is first recorded:
+                  -- a retry, or a restarted collector, finds it pending.
+                  failures' =
+                    [ event
+                    | (candidate, TerminalFailure why detail') <- typed
+                    , maybe True (not . isTerminal . classifyFailure . (^. #reason)) (Map.lookup (foundKey candidate) pendingBy)
+                    , Right event <- [failureEvent candidate why detail']
+                    ]
+                  points =
+                    Map.fromListWith
+                      max
+                      [ (candidate ^. #schedule . #label, point)
+                      | (candidate, run') <- successes
+                      , Just point <- [scheduledRecoveryPoint (scheduledReceipt (run' ^. #evidence))]
+                      , point <= now
+                      ]
                   listedKeys = Set.fromList (map foundKey found)
                   -- Verified, already known, or no longer listed: nothing is pending.
                   resolved =
@@ -235,7 +302,7 @@ collectOnce store binding ops budget schedules = do
                           <> [foundKey candidate | candidate <- found, Just backup <- [backupOf candidate], Set.member backup recentSet || seenInFeed candidate]
                           <> [key' | key' <- Map.keys pendingBy, Set.notMember key' listedKeys]
                       )
-              committed <- commit store binding now events' updates resolved
+              committed <- commit store binding now (events' <> failures') (gradeSchedules now schedules points) updates resolved
               pure $ do
                 (wrote', stateAfter) <- committed
                 pure
@@ -274,6 +341,25 @@ collectOnce store binding ops budget schedules = do
       archive' <- candidate ^. #archive
       pure (backupIdFor ScheduledBackup (candidate ^. #schedule . #owner) (candidate ^. #run) (stored archive') (stored (candidate ^. #receipt)))
     stored object' = StoredVersion (address ops (versionedKey object')) (versionedVersion object')
+    failureEvent candidate why detail' = do
+      key <- mkSourceKey ("database.backup.failed:" <> candidate ^. #schedule . #label <> ":" <> candidate ^. #run)
+      pure
+        EventCandidate
+          { key
+          , resource = candidate ^. #schedule . #source
+          , occurredAt = Just (stamp (versionedModified (candidate ^. #receipt)))
+          , evidence = []
+          , payload =
+              BackupFailedPayload
+                BackupFailure
+                  { schedule = candidate ^. #schedule . #label
+                  , run = candidate ^. #run
+                  , receipt = stored (candidate ^. #receipt)
+                  , archive = stored <$> candidate ^. #archive
+                  , reason = why
+                  , detail = detail'
+                  }
+          }
     foundKey candidate = (candidate ^. #schedule . #label, stored (candidate ^. #receipt))
     partitionArchive candidates = ([c | c <- candidates, isNothing (c ^. #archive)], [c | c <- candidates, isJust (c ^. #archive)])
     withinBudget = go 0 (0 :: Int) []
@@ -384,8 +470,8 @@ loadCollector store binding = do
 -- then the head over it and the new state in one conditional write. A head
 -- another collector replaced is reread and the commit applied to it, at
 -- most three times; candidates it already observed are dropped.
-commit :: FeedStore -> ContextBinding -> UTCTime -> [EventCandidate] -> Map (Text, StoredVersion) PendingRun -> Set.Set (Text, StoredVersion) -> IO (Either CollectError (Bool, CollectorState))
-commit store binding now candidates updates resolved = attempt' (3 :: Int)
+commit :: FeedStore -> ContextBinding -> UTCTime -> [EventCandidate] -> (Map Text ScheduleFreshness -> (Map Text ScheduleFreshness, [EventCandidate])) -> Map (Text, StoredVersion) PendingRun -> Set.Set (Text, StoredVersion) -> IO (Either CollectError (Bool, CollectorState))
+commit store binding now candidates freshen updates resolved = attempt' (3 :: Int)
   where
     attempt' remaining = do
       loaded <- loadCollector store binding
@@ -393,11 +479,12 @@ commit store binding now candidates updates resolved = attempt' (3 :: Int)
         Left err -> pure (Left err)
         Right (observed, headValue, state') -> do
           let recentSet = Set.fromList (state' ^. #recent)
-              wanted = [candidate | candidate <- candidates, maybe True (`Set.notMember` recentSet) (backupIdOf candidate)]
+              (graded, freshnessEvents) = freshen (state' ^. #freshness)
+              wanted = [candidate | candidate <- candidates, maybe True (`Set.notMember` recentSet) (backupIdOf candidate)] <> freshnessEvents
               merged = Map.union updates (Map.fromList [(pendingKey entry, entry) | entry <- state' ^. #pending, Set.notMember (pendingKey entry) resolved])
               ordered = sortOn (^. #firstSeen) (Map.elems merged)
               (kept, overflow) = splitAt pendingBound ordered
-              withPending = state' {pending = kept, dropped = length overflow}
+              withPending = state' {pending = kept, dropped = length overflow, freshness = graded}
           if null wanted && withPending == state'
             then pure (Right (False, state'))
             else do
@@ -443,6 +530,65 @@ commit store binding now candidates updates resolved = attempt' (3 :: Int)
       BackupCompletedPayload completion -> Just (completion ^. #backup)
       _ -> Nothing
 
+-- | Grade each schedule the cycle was given from its newest verified
+-- recovery point, and the events of the grades that moved. A schedule the
+-- cycle was not given drops out, so a retired database never grades to
+-- breached; one with no verified point, no objective or only a point in the
+-- future records nothing new; a first grade is recorded without an event.
+gradeSchedules :: UTCTime -> [BackupSchedule] -> Map Text UTCTime -> Map Text ScheduleFreshness -> (Map Text ScheduleFreshness, [EventCandidate])
+gradeSchedules now schedules points recorded =
+  (Map.fromList [(label, entry) | (label, entry, _) <- graded], [event | (_, _, Just event) <- graded])
+  where
+    graded = mapMaybe gradeOne schedules
+    gradeOne schedule' = do
+      let label = schedule' ^. #label
+          earlier = Map.lookup label recorded
+      newest' <- maximumMaybe (maybe [] (\entry -> [entry ^. #newest]) earlier <> maybe [] pure (Map.lookup label points))
+      let previous' = earlier >>= (^. #grade)
+          keep = (label, ScheduleFreshness newest' previous', Nothing)
+      pure $ case (listToMaybe (map scheduledObjective (schedule' ^. #expectations)), previous') of
+        (Nothing, _) -> keep
+        (Just objective', _) -> case gradeOf (backupFreshness objective' now [newest']) of
+          Nothing -> keep
+          Just (current, _) | previous' == Nothing || previous' == Just current -> (label, ScheduleFreshness newest' (Just current), Nothing)
+          Just (current, age) -> case (previous', changeEvent schedule' objective' newest' current age) of
+            (Just from', Right event) -> (label, ScheduleFreshness newest' (Just current), Just (event from'))
+            -- A key the alphabet refuses records nothing new.
+            _ -> keep
+    gradeOf = \case
+      Fresh age -> Just (GradeFresh, age)
+      Deteriorating age -> Just (GradeDeteriorating, age)
+      Breached age -> Just (GradeBreached, age)
+      NoRecoveryPoint -> Nothing
+      FutureRecoveryPoint -> Nothing
+    changeEvent schedule' objective' newest' current age = do
+      key <- mkSourceKey ("database.backup.freshness:" <> schedule' ^. #label <> ":" <> freshnessGradeText current <> ":" <> T.toLower (T.pack (formatTime defaultTimeLocale "%Y%m%dT%H%M%SZ" newest')))
+      pure $ \from' ->
+        EventCandidate
+          { key
+          , resource = schedule' ^. #source
+          , occurredAt = Nothing
+          , evidence = []
+          , payload =
+              FreshnessChangedPayload
+                FreshnessChange
+                  { schedule = schedule' ^. #label
+                  , from = from'
+                  , to = current
+                  , objective = case objective' of
+                      HourlyRecoveryPoint -> HourlyObjective
+                      DailyRecoveryPoint -> DailyObjective
+                  , newestRecoveryPoint = stamp newest'
+                  , ageSeconds = age
+                  }
+          }
+    maximumMaybe = \case
+      [] -> Nothing
+      values -> Just (maximum values)
+    listToMaybe = \case
+      value : _ -> Just value
+      [] -> Nothing
+
 recentBound, pendingBound :: Int
 recentBound = 256
 pendingBound = 256
@@ -455,9 +601,10 @@ encodeState = either (error . T.unpack) id . canonicalValue . toJSON
 
 decodeState :: ByteString -> Either FeedError CollectorState
 decodeState bytes' = do
-  value <- first (FeedInvalid "collector state" . T.pack) (eitherDecodeStrict' bytes')
-  unless (encodeState value == bytes') (Left (FeedInvalid "collector state" "not canonical"))
-  pure value
+  -- Canonical at the version it was written, which may be an earlier one.
+  raw <- first (FeedInvalid "collector state" . T.pack) (eitherDecodeStrict' bytes')
+  unless (canonicalValue (raw :: Value) == Right bytes') (Left (FeedInvalid "collector state" "not canonical"))
+  first (FeedInvalid "collector state" . T.pack) (parseEither parseJSON raw)
 
 strictFields :: Options
 strictFields = defaultOptions {rejectUnknownFields = True}
@@ -470,20 +617,33 @@ instance ToJSON PendingRun where toJSON = genericToJSON strictFields
 
 instance FromJSON PendingRun where parseJSON = genericParseJSON strictFields
 
+instance ToJSON ScheduleFreshness where toJSON = genericToJSON strictFields
+
+instance FromJSON ScheduleFreshness where parseJSON = genericParseJSON strictFields
+
+-- | Always written at the current version.
 instance ToJSON CollectorState where
   toJSON state' =
     object
-      [ "version" .= (state' ^. #schemaVersion)
+      [ "version" .= collectorStateVersion
       , "activatedAt" .= (state' ^. #activatedAt)
       , "baseline" .= (state' ^. #baseline)
       , "recent" .= (state' ^. #recent)
       , "pending" .= (state' ^. #pending)
       , "dropped" .= (state' ^. #dropped)
+      , "freshness" .= (state' ^. #freshness)
       ]
 
+-- | Versions 1 and 2. A version 1 state has no freshness and reads as one
+-- with no schedule graded; it decodes to the current version, so the next
+-- write moves it to version 2.
 instance FromJSON CollectorState where
   parseJSON = withObject "collector state" $ \o -> do
-    unless (all (`elem` ["version", "activatedAt", "baseline", "recent", "pending", "dropped"]) (KM.keys o)) (fail "the collector state has an unknown field")
     version <- o .: "version"
-    unless (version == collectorStateVersion) (fail "unsupported collector state version")
-    CollectorState version <$> o .: "activatedAt" <*> o .: "baseline" <*> o .: "recent" <*> o .: "pending" <*> o .: "dropped"
+    let base = ["version", "activatedAt", "baseline", "recent", "pending", "dropped"]
+    case version :: Int of
+      1 -> unless (all (`elem` base) (KM.keys o)) (fail "the collector state has an unknown field")
+      2 -> unless (all (`elem` ("freshness" : base)) (KM.keys o)) (fail "the collector state has an unknown field")
+      _ -> fail "unsupported collector state version"
+    freshness' <- if version == 1 then pure Map.empty else o .: "freshness"
+    CollectorState collectorStateVersion <$> o .: "activatedAt" <*> o .: "baseline" <*> o .: "recent" <*> o .: "pending" <*> o .: "dropped" <*> pure freshness'

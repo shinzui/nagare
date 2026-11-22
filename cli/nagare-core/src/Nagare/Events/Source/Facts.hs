@@ -36,6 +36,12 @@ module Nagare.Events.Source.Facts
   , AppRestart (..)
   , RestoreTargetKind (..)
   , DatabaseRestore (..)
+  , BackupFailureReason (..)
+  , BackupFailure (..)
+  , FreshnessGrade (..)
+  , freshnessGradeText
+  , BackupObjective (..)
+  , FreshnessChange (..)
   , contextScope
   , releaseSubject
   , primaryScopeOf
@@ -114,6 +120,8 @@ data EventKind
   | AppStopped
   | AppRestarted
   | DatabaseRestored
+  | DatabaseBackupFailed
+  | DatabaseBackupFreshnessChanged
   deriving stock (Eq, Ord, Show, Bounded, Enum, Generic)
 
 eventKindText :: EventKind -> Text
@@ -128,6 +136,8 @@ eventKindText = \case
   AppStopped -> "app.stopped"
   AppRestarted -> "app.restarted"
   DatabaseRestored -> "database.restored"
+  DatabaseBackupFailed -> "database.backup.failed"
+  DatabaseBackupFreshnessChanged -> "database.backup.freshness.changed"
 
 parseEventKind :: Text -> Maybe EventKind
 parseEventKind value = lookup value [(eventKindText kind, kind) | kind <- [minBound .. maxBound]]
@@ -393,6 +403,62 @@ data DatabaseRestore = DatabaseRestore
   }
   deriving stock (Eq, Show, Generic)
 
+-- | Why a scheduled run's verification failed for good.
+data BackupFailureReason
+  = -- | The receipt's HMAC is not the accepted signing key's.
+    BadSignature
+  | -- | The receipt names a source that is not the recorded incarnation.
+    WrongSource
+  | -- | The archive's bytes differ from what the receipt signed.
+    ChangedBytes
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
+-- | @database.backup.failed@ (EP-276): the backup collector found a
+-- scheduled run whose verification failed for a reason no later cycle can
+-- clear on its own: a bad signature, a source that is not the recorded
+-- incarnation, or changed bytes. @schedule@ is the schedule's
+-- @namespace/database@ label and @detail@ the verifier's text. A run
+-- reported failed may still verify later, for example after its signing
+-- Secret is rebound, and then publishes @database.backup.completed@. A run
+-- that never completes is reported by its schedule's freshness instead.
+data BackupFailure = BackupFailure
+  { schedule :: !Text
+  , run :: !Text
+  , receipt :: !StoredVersion
+  , archive :: !(Maybe StoredVersion)
+  , reason :: !BackupFailureReason
+  , detail :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+data FreshnessGrade = GradeFresh | GradeDeteriorating | GradeBreached
+  deriving stock (Eq, Ord, Show, Bounded, Enum, Generic)
+
+freshnessGradeText :: FreshnessGrade -> Text
+freshnessGradeText = \case
+  GradeFresh -> "fresh"
+  GradeDeteriorating -> "deteriorating"
+  GradeBreached -> "breached"
+
+data BackupObjective = HourlyObjective | DailyObjective
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
+-- | @database.backup.freshness.changed@ (EP-276): a backup schedule's grade
+-- against its signed recovery-point objective moved. It is graded from the
+-- newest recovery point among the runs the collector itself verified since
+-- its activation; a schedule with none yet has no grade, and its first grade
+-- is recorded without an event. @ageSeconds@ is the newest point's age when
+-- the grade moved.
+data FreshnessChange = FreshnessChange
+  { schedule :: !Text
+  , from :: !FreshnessGrade
+  , to :: !FreshnessGrade
+  , objective :: !BackupObjective
+  , newestRecoveryPoint :: !Text
+  , ageSeconds :: !Integer
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- | The resource scope of an event about the context as a whole. No
 -- inventory scope has this name.
 contextScope :: ScopeId
@@ -429,6 +495,8 @@ data EventPayload
   | AppStoppedPayload !AppStop
   | AppRestartedPayload !AppRestart
   | DatabaseRestoredPayload !DatabaseRestore
+  | BackupFailedPayload !BackupFailure
+  | FreshnessChangedPayload !FreshnessChange
   deriving stock (Eq, Show, Generic)
 
 payloadKind :: EventPayload -> EventKind
@@ -443,6 +511,8 @@ payloadKind = \case
   AppStoppedPayload _ -> AppStopped
   AppRestartedPayload _ -> AppRestarted
   DatabaseRestoredPayload _ -> DatabaseRestored
+  BackupFailedPayload _ -> DatabaseBackupFailed
+  FreshnessChangedPayload _ -> DatabaseBackupFreshnessChanged
 
 -- | A payload's @data@ member.
 payloadData :: EventPayload -> Value
@@ -457,6 +527,8 @@ payloadData = \case
   AppStoppedPayload value -> toJSON value
   AppRestartedPayload value -> toJSON value
   DatabaseRestoredPayload value -> toJSON value
+  BackupFailedPayload value -> toJSON value
+  FreshnessChangedPayload value -> toJSON value
 
 -- | The payload of a @data@ member of this type.
 parsePayload :: EventKind -> Value -> Parser EventPayload
@@ -471,6 +543,8 @@ parsePayload kind dataValue = case kind of
   AppStopped -> AppStoppedPayload <$> parseJSON dataValue
   AppRestarted -> AppRestartedPayload <$> parseJSON dataValue
   DatabaseRestored -> DatabaseRestoredPayload <$> parseJSON dataValue
+  DatabaseBackupFailed -> BackupFailedPayload <$> parseJSON dataValue
+  DatabaseBackupFreshnessChanged -> FreshnessChangedPayload <$> parseJSON dataValue
 
 -- | One public event a source fact can become.
 data EventCandidate = EventCandidate
@@ -800,6 +874,37 @@ instance FromJSON RestoreTargetKind where parseJSON = enumeration "restore targe
 instance ToJSON DatabaseRestore where toJSON = genericToJSON strictOptions
 
 instance FromJSON DatabaseRestore where parseJSON = genericParseJSON strictOptions
+
+failureReasonText :: BackupFailureReason -> Text
+failureReasonText = \case
+  BadSignature -> "bad-signature"
+  WrongSource -> "wrong-source"
+  ChangedBytes -> "changed-bytes"
+
+instance ToJSON BackupFailureReason where toJSON = String . failureReasonText
+
+instance FromJSON BackupFailureReason where parseJSON = enumeration "backup failure reason" failureReasonText
+
+instance ToJSON BackupFailure where toJSON = genericToJSON strictOptions
+
+instance FromJSON BackupFailure where parseJSON = genericParseJSON strictOptions
+
+instance ToJSON FreshnessGrade where toJSON = String . freshnessGradeText
+
+instance FromJSON FreshnessGrade where parseJSON = enumeration "freshness grade" freshnessGradeText
+
+objectiveText :: BackupObjective -> Text
+objectiveText = \case
+  HourlyObjective -> "hourly"
+  DailyObjective -> "daily"
+
+instance ToJSON BackupObjective where toJSON = String . objectiveText
+
+instance FromJSON BackupObjective where parseJSON = enumeration "backup objective" objectiveText
+
+instance ToJSON FreshnessChange where toJSON = genericToJSON strictOptions
+
+instance FromJSON FreshnessChange where parseJSON = genericParseJSON strictOptions
 
 -- | A payload is encoded as its kind and its data, so the kind is explicit.
 instance ToJSON EventCandidate where

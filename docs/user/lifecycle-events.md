@@ -25,6 +25,8 @@ A context records what Nagare did as immutable lifecycle events:
 | `app.stopped` | A converged change took an application, standalone service or site offline (`app stop`). |
 | `app.restarted` | A converged change rolled an application, standalone service or site to a fresh revision (`app restart`). |
 | `database.restored` | A reviewed restore of a database backup converged, into a scratch database or a rebuilt server. |
+| `database.backup.failed` | A scheduled backup run failed verification for good: a bad signature, a source that is not the recorded incarnation, or changed bytes. |
+| `database.backup.freshness.changed` | A backup schedule's grade against its recovery-point objective moved between `fresh`, `deteriorating` and `breached`. |
 
 An event's `id` never changes across retries, restarts or replays. Read them
 with `nagarectl events list` or `GET /v1/events`. Backup events are described

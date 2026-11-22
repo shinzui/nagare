@@ -22,6 +22,7 @@ import Data.Generics.Labels ()
 import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), addUTCTime, fromGregorian)
@@ -39,6 +40,7 @@ import Nagare.Events.BackupSources (resolveSchedules)
 import Nagare.Events.Envelope (encodeEnvelope, eventIdFor, eventIdText)
 import Nagare.Events.Materialize
 import Nagare.Events.Read
+import Nagare.Events.Receipts (observeCollector, observedCollectorHead, replaceCollectorHead, stateKey)
 import Nagare.Events.Source
 import Nagare.Events.Store
 import Nagare.Inventory.Actor (anonymousOperator)
@@ -117,12 +119,83 @@ eventsBackupTests =
         outcome ^. #pendingRuns @?= 6
         outcome ^. #oldestPending @?= Just (minutes 10)
         assertBool "each reason is named" (all (not . T.null . snd) (outcome ^. #failures))
-        runs <- map completionRun <$> publishedEvents world
-        runs @?= [Just run7]
+        published' <- publishedEvents world
+        mapMaybe completionRun published' @?= [run7]
+        -- EP-276: the failures no later cycle can clear are announced once;
+        -- a changed metadata and a missing archive are not.
+        failuresOf published' @?= [(run1, BadSignature), (run2, WrongSource), (run3, ChangedBytes), (run4, ChangedBytes)]
         -- Backoff: the next cycle five minutes later does not retry yet.
         advance world 60
         retry <- collect world
         (retry ^. #failures, retry ^. #pendingRuns) @?= ([], 6)
+        -- A retry after the backoff, by a restarted collector, announces none again.
+        advance world 3600
+        restarted <- restart world
+        again <- collect restarted
+        length (again ^. #failures) @?= 6
+        failuresOf <$> publishedEvents restarted >>= (@?= failuresOf published')
+    , testCase "freshness moves fresh, deteriorating, breached and fresh again; a restart repeats none (EP-276)" $ do
+        world <- newWorld
+        activate world
+        -- 00:10: a run whose point is 00:05 grades fresh, recorded without an event.
+        uploadRun world run1 (minutes 6) validRun {pointAt = "2026-11-17T00:05:00Z"}
+        _ <- collect world
+        freshnessOf <$> publishedEvents world >>= (@?= [])
+        -- Uploads stop: 00:40 passes the half-hour warning, 01:10 the hour.
+        advance world 1800
+        _ <- collect world
+        restarted <- restart world
+        _ <- collect restarted
+        advance world 1800
+        _ <- collect restarted
+        _ <- collect restarted
+        -- A new upload makes it fresh again.
+        uploadRun world run2 (minutes 68) validRun {pointAt = "2026-11-17T01:08:00Z"}
+        _ <- collect restarted
+        _ <- collect restarted
+        changes' <- freshnessOf <$> publishedEvents restarted
+        map (\change -> (change ^. #from, change ^. #to)) changes'
+          @?= [(GradeFresh, GradeDeteriorating), (GradeDeteriorating, GradeBreached), (GradeBreached, GradeFresh)]
+        map (^. #newestRecoveryPoint) changes' @?= ["2026-11-17T00:05:00Z", "2026-11-17T00:05:00Z", "2026-11-17T01:08:00Z"]
+        map (^. #objective) changes' @?= [HourlyObjective, HourlyObjective, HourlyObjective]
+    , testCase "a schedule the cycle is not given drops out, and a point in the future records nothing (EP-276)" $ do
+        world <- newWorld
+        activate world
+        uploadRun world run1 (minutes 6) validRun {pointAt = "2026-11-17T00:05:00Z"}
+        _ <- collect world
+        -- A cycle without the schedule forgets it, so it does not grade to
+        -- breached when it is given again with no new run.
+        _ <- collectOnce (world ^. #feed) fixtureBinding (ops world) defaultCollectBudget [] >>= either (assertFailure . show) pure
+        advance world 7200
+        _ <- collect world
+        freshnessOf <$> publishedEvents world >>= (@?= [])
+        future <- newWorld
+        activate future
+        uploadRun future run1 (minutes 6) validRun {pointAt = "2026-11-17T05:00:00Z"}
+        _ <- collect future
+        advance future 7200
+        _ <- collect future
+        freshnessOf <$> publishedEvents future >>= (@?= [])
+    , testCase "a stored version 1 state keeps its pending runs and is written at version 2 (EP-276)" $ do
+        world <- newWorld
+        activate world
+        uploadReceiptOnly world run1 (minutes 1)
+        _ <- collect world
+        observed <- observeCollector (world ^. #feed) fixtureBinding >>= either (assertFailure . show) pure
+        headValue <- maybe (assertFailure "no collector head") pure (observedCollectorHead observed)
+        stored <- readFeedObject (world ^. #feed) stateKey (headValue ^. #state) >>= either (assertFailure . show) pure
+        version1 <- case Aeson.decodeStrict stored of
+          Just (Aeson.Object fields) -> pure (Aeson.Object (KeyMap.insert "version" (Aeson.Number 1) (KeyMap.delete "freshness" fields)))
+          _ -> assertFailure "the state is not an object" >> fail "state"
+        digest <- publishFeedObject (world ^. #feed) stateKey (canonical version1) >>= either (assertFailure . show) pure
+        _ <- replaceCollectorHead (world ^. #feed) observed (headValue & #generation %~ (+ 1) & #state .~ digest) >>= either (assertFailure . show) pure
+        uploadRun world run2 (minutes 2) validRun
+        outcome <- collect world
+        (outcome ^. #published, outcome ^. #pendingRuns) @?= (1, 1)
+        after <- observeCollector (world ^. #feed) fixtureBinding >>= either (assertFailure . show) pure
+        afterHead <- maybe (assertFailure "no collector head") pure (observedCollectorHead after)
+        written <- readFeedObject (world ^. #feed) stateKey (afterHead ^. #state) >>= either (assertFailure . show) pure
+        fmap (KeyMap.lookup "version") (Aeson.decodeStrict written) @?= Just (Just (Aeson.Number 2))
     , testCase "a pending run deleted by its owner leaves the pending set" $ do
         world <- newWorld
         activate world
@@ -522,6 +595,12 @@ completionArchive = \case
   BackupCompletedPayload completion -> Just (completion ^. #archive)
   _ -> Nothing
 
+failuresOf :: [EventPayload] -> [(Text, BackupFailureReason)]
+failuresOf payloads = [(failure ^. #run, failure ^. #reason) | BackupFailedPayload failure <- payloads]
+
+freshnessOf :: [EventPayload] -> [FreshnessChange]
+freshnessOf payloads = [change | FreshnessChangedPayload change <- payloads]
+
 completionRun :: EventPayload -> Maybe Text
 completionRun payload' = case payload' of
   BackupCompletedPayload completion -> Just (completion ^. #run)
@@ -535,11 +614,13 @@ data RunSpec = RunSpec
   , archiveBytes :: !ByteString
   , signedArchive :: !ByteString
   , metadataEdit :: !(KeyMap.KeyMap Aeson.Value -> KeyMap.KeyMap Aeson.Value)
+  , pointAt :: !Text
+  -- ^ The signed recovery point.
   }
   deriving stock (Generic)
 
 validRun :: RunSpec
-validRun = RunSpec signingKeyHex claimIncarnation "archive bytes" "archive bytes" id
+validRun = RunSpec signingKeyHex claimIncarnation "archive bytes" "archive bytes" id "2026-11-17T00:00:00Z"
 
 uploadRun :: World -> Text -> UTCTime -> RunSpec -> IO ()
 uploadRun world run' at spec = do
@@ -573,7 +654,7 @@ receiptBytesFor v run' spec =
         , "object" Aeson..= ("s3://nagare-backups/" <> variantArchiveKey v run')
         , "source" Aeson..= Aeson.object ["statefulSetUid" Aeson..= physicalIdentityText statefulIncarnation, "pvcUid" Aeson..= physicalIdentityText (spec ^. #pvc)]
         , "backup" Aeson..= Aeson.Object ((spec ^. #metadataEdit) (v ^. #metadata))
-        , "recoveryPoint" Aeson..= ("2026-11-17T00:00:00Z" :: Text)
+        , "recoveryPoint" Aeson..= (spec ^. #pointAt)
         ]
     key = BS.pack (hexBytes (T.unpack (spec ^. #signingHex)))
     signature = T.pack (show (hmacGetDigest (hmac key (canonical payload) :: HMAC SHA256)))

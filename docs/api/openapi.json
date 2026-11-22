@@ -250,6 +250,85 @@
         ],
         "type": "object"
       },
+      "BackupFailedData": {
+        "description": "The data of database.backup.failed: a scheduled run failed verification for good (bad-signature, wrong-source or changed-bytes). It may still verify later, for example after its signing Secret is rebound, and then publishes database.backup.completed.",
+        "properties": {
+          "archive": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventStoredVersion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/BackupFailureReasonKind"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/EventStoredVersion"
+          },
+          "run": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schedule",
+          "run",
+          "receipt",
+          "archive",
+          "reason",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "BackupFailureReasonKind": {
+        "enum": [
+          "bad-signature",
+          "wrong-source",
+          "changed-bytes"
+        ],
+        "type": "string"
+      },
+      "BackupFreshnessChangedData": {
+        "description": "The data of database.backup.freshness.changed: a backup schedule's grade (fresh, deteriorating or breached) against its signed hourly or daily recovery-point objective moved, graded from the newest recovery point the collector verified.",
+        "properties": {
+          "ageSeconds": {
+            "type": "integer"
+          },
+          "from": {
+            "$ref": "#/components/schemas/FreshnessGradeKind"
+          },
+          "newestRecoveryPoint": {
+            "type": "string"
+          },
+          "objective": {
+            "$ref": "#/components/schemas/ObjectiveKind"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "to": {
+            "$ref": "#/components/schemas/FreshnessGradeKind"
+          }
+        },
+        "required": [
+          "schedule",
+          "from",
+          "to",
+          "objective",
+          "newestRecoveryPoint",
+          "ageSeconds"
+        ],
+        "type": "object"
+      },
       "BackupOriginKind": {
         "enum": [
           "scheduled",
@@ -1469,6 +1548,14 @@
         ],
         "type": "string"
       },
+      "FreshnessGradeKind": {
+        "enum": [
+          "fresh",
+          "deteriorating",
+          "breached"
+        ],
+        "type": "string"
+      },
       "Grant": {
         "description": "A recorded viewer relationship on a hostname; not an effective-access check, and it may outlive its route.",
         "properties": {
@@ -1798,7 +1885,7 @@
         "type": "object"
       },
       "LifecycleEvent": {
-        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData, change.failed ChangeFailedData, change.closed ChangeClosedData, app.deleted AppDeletedData, app.stopped AppStoppedData, app.restarted AppRestartedData, database.restored DatabaseRestoredData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it.",
+        "description": "An immutable lifecycle event. Its id is stable across retries and restarts; delivery is at least once, so a consumer may see the same id again. type names the payload in data, whose schema is: app.deployed AppDeployedData, database.backup.completed BackupCompletedData, database.backup.accepted BackupAcceptedData, change.applied ChangeAppliedData, change.failed ChangeFailedData, change.closed ChangeClosedData, app.deleted AppDeletedData, app.stopped AppStoppedData, app.restarted AppRestartedData, database.restored DatabaseRestoredData, database.backup.failed BackupFailedData, database.backup.freshness.changed BackupFreshnessChangedData. A type is never renamed and a payload member never removed; a reader that does not know a type may skip it.",
         "properties": {
           "context": {
             "type": "string"
@@ -2120,6 +2207,13 @@
           "nixpkgsRevision"
         ],
         "type": "object"
+      },
+      "ObjectiveKind": {
+        "enum": [
+          "hourly",
+          "daily"
+        ],
+        "type": "string"
       },
       "ObservedContainer": {
         "properties": {

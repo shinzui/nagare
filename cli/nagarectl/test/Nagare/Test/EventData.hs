@@ -54,6 +54,8 @@ conforms eventType = \case
   AppStoppedPayload value -> through (Proxy @Contract.AppStoppedData) (toJSON value)
   AppRestartedPayload value -> through (Proxy @Contract.AppRestartedData) (toJSON value)
   DatabaseRestoredPayload value -> through (Proxy @Contract.DatabaseRestoredData) (toJSON value)
+  BackupFailedPayload value -> through (Proxy @Contract.BackupFailedData) (toJSON value)
+  FreshnessChangedPayload value -> through (Proxy @Contract.BackupFreshnessChangedData) (toJSON value)
   where
     through :: forall a. (Eq a, Show a, FromJSON a, ToJSON a, ToSchema a) => Proxy a -> Value -> Assertion
     through proxy value = do
@@ -159,6 +161,26 @@ samplePayload = \case
         , transaction
         , review
         , scopeRevision = revisionAt 1 "restore revision 1"
+        }
+  DatabaseBackupFailed ->
+    BackupFailedPayload
+      BackupFailure
+        { schedule = "personal/notes"
+        , run = "3f0c9a52-6d1e-4b8a-9b0e-5c2d1f7e8a90"
+        , receipt = StoredVersion "s3://backups/personal/notes/run.dump.receipt.json" "2"
+        , archive = Just (StoredVersion "s3://backups/personal/notes/run.dump" "1")
+        , reason = BadSignature
+        , detail = "scheduled receipt HMAC differs from the accepted signing key"
+        }
+  DatabaseBackupFreshnessChanged ->
+    FreshnessChangedPayload
+      FreshnessChange
+        { schedule = "personal/notes"
+        , from = GradeFresh
+        , to = GradeDeteriorating
+        , objective = HourlyObjective
+        , newestRecoveryPoint = "2026-11-22T03:15:00Z"
+        , ageSeconds = 1830
         }
   where
     notesWeb = mintResourceId (scopeOf Application "notes") (either (error . show) id (mkLogicalKey "web")) (either (error . show) id (mkName "service"))

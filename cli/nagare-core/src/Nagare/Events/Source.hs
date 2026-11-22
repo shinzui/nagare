@@ -42,6 +42,12 @@ module Nagare.Events.Source
   , AppRestart (..)
   , RestoreTargetKind (..)
   , DatabaseRestore (..)
+  , BackupFailureReason (..)
+  , BackupFailure (..)
+  , FreshnessGrade (..)
+  , freshnessGradeText
+  , BackupObjective (..)
+  , FreshnessChange (..)
   , contextScope
   , releaseSubject
   , primaryScopeOf
