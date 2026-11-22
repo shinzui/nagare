@@ -79,8 +79,9 @@ it touched.
   head.
 - [ ] M6: Native confirmation on a disposable local context. Each scenario in Validation and
   Acceptance produces its event, readable through the admin API. The EP-172 rehearsal
-  (`just release-rehearse <rev> v0.26.0`) runs the lifecycle worker, reads its seeded data
-  back unchanged and shows `platform.upgraded`.
+  (`NAGARE_REHEARSAL_LIFECYCLE=1 just release-rehearse <rev> v0.26.0`) runs the lifecycle
+  worker, reads its seeded data back unchanged and shows `platform.upgraded`. Without the
+  variable the rehearsal is unchanged.
 
 
 ## Surprises & Discoveries
@@ -186,7 +187,7 @@ it touched.
   through a control fact committed at their convergence, and is published when the head
   no longer holds the transition marker. This replaces the 2026-11-21 decision to compare
   the release the worker runs with one it recorded. The transition commit is still not
-  changed. The rehearsal runs the lifecycle worker and checks the event.
+  changed. The rehearsal can run the lifecycle worker and check the event.
   Rationale: Every review of a transition carries the identity
   `nagare-transition:<source>-><target>` (`transitionReviewIdentity` in
   `cli/nagare-core/src/Nagare/Inventory/Store/Manifest.hs`), and only the target release's
@@ -206,6 +207,20 @@ it touched.
   Rationale: `ResourceRef` needs a `ScopeId`, and there is no single platform scope. The real
   ones are named (`platform:auth`, `platform:serving`, `platform:host` and others). No
   inventory scope has this name, so a receiver cannot mistake it for one.
+  Date: 2026-11-22
+- Decision: This plan must not make a deploy or a release slower. Every new producer is pure
+  and reads no object a release does not read today, except one: a changed scope that holds
+  `operational.visibility`, `operational.restart` or `restore.id` has its previous
+  declaration read, one object. The rehearsal's lifecycle check is opt-in and off for
+  releases.
+  Rationale: The operator's requirement (2026-11-22). A deploy already writes facts, so it
+  gains no store request: `change.applied` joins its facts object. A change with no facts
+  today gains two writes at release, the facts object and its convergence event, after
+  every operation has finished. The worker's new reads (a review per failure, a close
+  record per close) happen in `nagare-system`, off the deploy path. A lifecycle check in
+  every release's rehearsal would add a component to bootstrap and move, and a wait of at
+  least one 30-second worker cycle, so it runs only when asked. M1's test asserts both
+  write counts.
   Date: 2026-11-22
 
 
@@ -394,7 +409,9 @@ are scope revisions or null), and `operations` (count by action). A scope is `cr
 had no converged revision before, `retired` when the review retires it, and `updated`
 otherwise. The producer reads no member bytes and no scope, so it cannot fail on input. Tests
 in `cli/nagarectl/test/EventsChangeSpec.hs` follow `EventsDeploymentSpec.hs`. A deploy yields
-one `change.applied` beside its `app.deployed`, about the app. A resumed transaction yields
+one `change.applied` beside its `app.deployed`, about the app, and its release writes the
+same number of store objects as before this plan. A change with no other facts writes
+exactly two more: the facts object and the convergence event. A resumed transaction yields
 the same key once. A review that only verifies still yields `change.applied`, with an empty
 `scopes`, because a reviewed transaction converged. A deployer-applied review carries the
 deployer's name.
@@ -520,15 +537,18 @@ the last target; a review with an ordinary payload identity commits no control.
 Acceptance. Read every event through the admin API and through a webhook subscription that
 names the twelve types those scenarios produce, pointed at
 `cluster/examples/lifecycle-webhook-receiver/Receiver.hs`. Then extend the rehearsal in
-`cli/nagare-harness/src/Nagare/Harness/Release/TransitionDrill.hs`. Its bootstrap creates
-the context with `--enable-lifecycle-events`, which the previous release (v0.26.0) accepts.
-Before the transition it lists the feed with the source release's `nagarectl events list
+`cli/nagare-harness/src/Nagare/Harness/Release/TransitionDrill.hs` with a lifecycle check
+that runs only when `NAGARE_REHEARSAL_LIFECYCLE=1` is set. Without it the drill is
+unchanged, so a release's rehearsal takes no longer than today. With it, the bootstrap
+creates the context with `--enable-lifecycle-events`, which the previous release (v0.26.0)
+accepts. Before the transition it lists the feed with the source release's `nagarectl events list
 --json`. After `platform transition commit` it polls the candidate's `events list` until
 one `platform.upgraded` names the source and target the transition moved between, and
 refuses after a deadline. It then checks that every event listed before the move is still
 listed with the same ID and `data`. During the move the previous release's worker meets
 facts it cannot decode and stops, and the candidate's worker catches up: the rehearsal
-confirms that too. Run it with `just release-rehearse <rev> v0.26.0`. It must still read
+confirms that too. Run it once for this plan with
+`NAGARE_REHEARSAL_LIFECYCLE=1 just release-rehearse <rev> v0.26.0`. It must still read
 its seeded row back unchanged. At completion, amend ADR 39 with the journal-derived source class and the change
 that every converged transaction now writes facts, and update
 `docs/user/lifecycle-events.md`'s type table.
@@ -592,7 +612,8 @@ A backup whose receipt is tampered with gives `database.backup.failed`. Pausing 
 CronJob past the hourly thresholds gives two `database.backup.freshness.changed` events, and
 resuming it gives one more. Restarting the worker adds no event. Running a scenario's
 command again with nothing to change adds no named event; if it converges a new review, it
-adds one `change.applied` with an empty `scopes`. `just release-rehearse <rev> v0.26.0` ends
+adds one `change.applied` with an empty `scopes`.
+`NAGARE_REHEARSAL_LIFECYCLE=1 just release-rehearse <rev> v0.26.0` ends
 with its seeded row read back unchanged, one `platform.upgraded` from v0.26.0 to the
 candidate, and every event listed before the move still listed unchanged.
 
@@ -631,5 +652,5 @@ change adds a new type instead. `SourceInput` gains fields in M1. Its only const
 test fixtures in `cli/nagarectl/test/EventsSourceSpec.hs` and `EventsBackupSpec.hs`.
 `CollectorState` moves to version 2 in M4. M5 adds the control channel `platform-transition`
 (version 1, body `{from, to}`), which only the materializer reads, and the worker's object
-`lifecycle/v1/worker-transition.json`. M6 changes the rehearsal drill, which every later
-release runs.
+`lifecycle/v1/worker-transition.json`. M6 adds an opt-in check to the rehearsal drill; a
+release's rehearsal does not set it.
