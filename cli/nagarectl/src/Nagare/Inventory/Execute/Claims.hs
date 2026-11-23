@@ -38,7 +38,7 @@ import Nagare.Inventory.Journal
   , transactionIdText
   )
 import Nagare.Inventory.Plan
-  ( ReviewDocument (reviewBaseRevisions, reviewCollections, reviewDesiredRevisions, reviewMigrations, reviewOperations, reviewRetentions)
+  ( ReviewDocument (reviewBaseRevisions, reviewCollections, reviewDesiredRevisions, reviewMigrations, reviewOperations, reviewRetentions, reviewValidations)
   , ReviewOperation (reviewPlannedOperation)
   )
 import Nagare.Inventory.ScopeMember (decodeScopeMember)
@@ -209,7 +209,8 @@ reverifiedScopes store previous document = Map.fromList . concat <$> traverse pr
       , Map.lookup scope (reviewBaseRevisions document) == Just revision
       , Map.lookup scope previous /= Just revision
       ]
-    operated = Set.fromList [resource | operation <- reviewOperations document, resource <- NE.toList (plannedResources (reviewPlannedOperation operation))]
+    -- A validation is proved at admission (EP-225 M2), so a converged review proved its members too.
+    operated = Set.fromList [resource | operation <- reviewOperations document <> reviewValidations document, resource <- NE.toList (plannedResources (reviewPlannedOperation operation))]
     proved (scope, revision) = do
       found <- readObject store (scopeKey (revisionDigest revision))
       pure $ case found >>= decodeScopeMember scope (revisionDigest revision) of

@@ -135,6 +135,10 @@ partialStage = do
   reverifiedScopes store Map.empty unchanged >>= (@?= Map.singleton scope revision)
   reverifiedScopes store (Map.singleton scope revision) unchanged >>= (@?= Map.empty)
   reverifiedScopes store Map.empty unchanged {reviewOperations = drop 1 (reviewOperations unchanged)} >>= (@?= Map.empty)
+  -- A member proved by an admission validation (EP-225 M2) counts as operated on: a release stage
+  -- that verifies the scope's unchanged members as validations converges it.
+  let (first', rest') = splitAt 1 (reviewOperations unchanged)
+  reverifiedScopes store Map.empty unchanged {reviewOperations = rest', reviewValidations = first'} >>= (@?= Map.singleton scope revision)
 
 emptyStage :: IO ()
 emptyStage = do
