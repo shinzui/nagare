@@ -1,7 +1,7 @@
 module ContextReviewSpec (contextReviewTests) where
 
 import Data.ByteString qualified as BS
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -111,6 +111,9 @@ contextReviewTests =
         assertBool "project" (isLeft (prepareProfileReviewAt name "/fixture.env" original (Just "CLOUDSDK_CORE_PROJECT=foreign\nNAGARE_MODE=local\n") headValue))
         assertBool "store" (isLeft (prepareProfileReviewAt name "/fixture.env" original (Just (original <> "NAGARE_INVENTORY_STORE_URL=gs://foreign/history\n")) headValue))
         assertBool "transaction" (isLeft (prepareProfileReviewAt name "/fixture.env" original Nothing headValue {headActiveTransaction = Just "active"}))
+    , testCase "the Attic NAR size threshold is an operational input (BUG-11)" $ do
+        let next = either (error . show) id (renderProfileReplacement (profileFromContextMap (parseContextEnv (original <> "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD=0\n"))))
+        assertBool "threshold change refused" (isRight (prepareProfileReviewAt name "/fixture.env" original (Just next) headValue))
     , testCase "removal restore refuses occupying bytes and foreign roots" $
         withSystemTempDirectory "context-restore-conflict" $ \root -> do
           let path = root </> "fixture.env"

@@ -203,6 +203,7 @@ validate review = do
             , bootDiskSizeGb = after ^. #bootDiskSizeGb
             , dataDiskSizeGb = after ^. #dataDiskSizeGb
             , nixCacheEnabled = after ^. #nixCacheEnabled
+            , nixCacheNarSizeThreshold = after ^. #nixCacheNarSizeThreshold
             , cdnEnabled = after ^. #cdnEnabled
             , adminApiEnabled = after ^. #adminApiEnabled
             , lifecycleEventsEnabled = after ^. #lifecycleEventsEnabled
