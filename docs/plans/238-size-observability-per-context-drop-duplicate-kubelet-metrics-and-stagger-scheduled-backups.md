@@ -21,6 +21,11 @@ provenance:
       at: 2026-11-01T02:22:25Z
       mode: "update"
       note: "Fix the context: overlay path and its resolver field, the globbed curl measurement, the hourly test and adapter-test claims; name the config builder and payload packaging"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-23T14:01:38Z
+      mode: "implement"
+      note: "M3 staggered hourly backup schedules implemented"
 ---
 
 # Size observability per context, drop duplicate kubelet metrics and stagger scheduled backups
@@ -71,9 +76,11 @@ from `mori://tan/tan-ng-labs`. Its acceptance criteria AC-1 to AC-5 are the acce
 - [ ] M2: the packaged kubelet `/metrics` scrape drops the control-plane families the apiserver job
   already stores, measured on a local k3s context, with `kubelet_*` families and the broker
   dashboard intact (IR-40 AC-3).
-- [ ] M3: hourly-objective backup CronJobs (server, app-database and volume schedules) start at a
-  per-name minute offset, and the accepted-schedule receipt check accepts exactly the 15-minute
-  cadences under the hourly objective (IR-40 AC-4, AC-5).
+- [x] M3: hourly-objective backup CronJobs (server, app-database and volume schedules) start at a
+  per-name minute offset (IR-40 AC-4). 2026-11-23: `staggeredRecoveryPointSchedule` renders
+  `12-59/15`, `6-59/15`, `4-59/15` and `11-59/15` for the four names above and `*/15` for offset 0;
+  the renderers that recognize earlier accepted bytes keep `*/15`, and the prune-removal review
+  recognizes the unstaggered producer. The receipt check was not narrowed (Decision Log).
 - [ ] M4: user documentation, the ADR 23 amendment and IR-40's status are updated, and the intranet
   operators have the overlay they need for 1Gi.
 
@@ -121,6 +128,19 @@ from `mori://tan/tan-ng-labs`. Its acceptance criteria AC-1 to AC-5 are the acce
   12, 6, 4 and 11, so no two of them collide. Keeping `*/15` for offset 0 means those schedules do
   not change bytes.
   Date: 2026-10-31.
+
+
+- Decision: M3 leaves the accepted-schedule receipt check as it is. It already accepts any
+  schedule under the hourly objective, so staggered schedules ingest; freshness is graded from
+  receipt times, so a wrong cadence shows as a breach without a new check.
+  Rationale: the operator's rule against new checks (CLAUDE.md, 2026-10-10).
+  Date: 2026-11-23.
+
+- Decision: M3 ships alone, ahead of M1, M2 and M4. The work intranet's nine hourly CronJobs had
+  been staggered by hand with `kubectl patch`, and the executor refused the v0.28.0 transition on
+  that foreign field; the operator chose to declare the stagger instead of reverting it. The
+  intranet's minutes change from the hand-picked 5 to 13 to the derived ones.
+  Date: 2026-11-23.
 
 
 ## Outcomes & Retrospective

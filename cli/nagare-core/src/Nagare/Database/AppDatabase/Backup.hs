@@ -54,7 +54,7 @@ data AppDatabaseBackup = AppDatabaseBackup
 -- metadata names the app database, server, databases and declaration.
 renderInventoryAppDatabaseBackupCronJob :: RecoveryPointObjective -> AppDatabaseBackup -> StoreBackend -> Int -> ByteString
 renderInventoryAppDatabaseBackupCronJob objective backup backend keep =
-  renderScheduledCronJob objective True True baseInputs $ \revision ->
+  renderScheduledCronJob True objective True True baseInputs $ \revision ->
     [ "appDatabase" .= (backup ^. #appDatabase)
     , "server" .= (backup ^. #server)
     , "databases" .= (backup ^. #databases)

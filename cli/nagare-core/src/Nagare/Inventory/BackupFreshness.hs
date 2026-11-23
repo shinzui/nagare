@@ -11,14 +11,20 @@ module Nagare.Inventory.BackupFreshness
   , parseRecoveryPointObjective
   , recoveryPointObjectiveText
   , recoveryPointSchedule
+  , staggeredRecoveryPointSchedule
+  , producerSchedule
+  , hourlyScheduleOffset
   , recoveryPointThresholds
   )
 where
 
-import Data.List (sortOn)
+import Crypto.Hash (Digest, SHA256, hash)
+import Data.ByteArray qualified as BA
+import Data.List (foldl', sortOn)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, diffUTCTime)
 import Nagare.Dsl.Prelude
 
@@ -56,6 +62,33 @@ recoveryPointSchedule :: RecoveryPointObjective -> Text
 recoveryPointSchedule = \case
   HourlyRecoveryPoint -> "*/15 * * * *"
   DailyRecoveryPoint -> "17 3 * * *"
+
+-- | The cadence a current producer named @name@ runs at (EP-238 M3). Hourly
+-- schedules start at a per-name minute offset, so a context's schedules do not
+-- all start in the same second every quarter hour; offset 0 keeps
+-- @*/15 * * * *@. Daily is unchanged. Producers accepted before staggering
+-- are recognized through 'recoveryPointSchedule'.
+staggeredRecoveryPointSchedule :: RecoveryPointObjective -> Text -> Text
+staggeredRecoveryPointSchedule objective name = case objective of
+  HourlyRecoveryPoint
+    | offset /= 0 -> T.pack (show offset) <> "-59/15 * * * *"
+  _ -> recoveryPointSchedule objective
+  where
+    offset = hourlyScheduleOffset name
+
+-- | A producer's cadence: staggered for a current producer, the unstaggered
+-- preset for a renderer that recognizes bytes accepted before staggering.
+producerSchedule :: Bool -> RecoveryPointObjective -> Text -> Text
+producerSchedule staggered objective name
+  | staggered = staggeredRecoveryPointSchedule objective name
+  | otherwise = recoveryPointSchedule objective
+
+-- | The first eight bytes of SHA-256 of the CronJob name, big-endian, modulo 15.
+hourlyScheduleOffset :: Text -> Int
+hourlyScheduleOffset name =
+  fromInteger (foldl' (\acc byte -> acc * 256 + toInteger byte) 0 (take 8 (BA.unpack digest)) `mod` 15)
+  where
+    digest = hash (TE.encodeUtf8 name) :: Digest SHA256
 
 -- | Warning and breach ages in seconds.
 recoveryPointThresholds :: RecoveryPointObjective -> (Integer, Integer)

@@ -19,7 +19,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), addUTCTime, fromGregorian, secondsToDiffTime)
 import Data.Yaml qualified as Yaml
-import Nagare.Database.Backup (renderInventoryDbBackupCronJob)
+import Nagare.Database.Backup (renderInventoryDbBackupCronJob, renderUnstaggeredInventoryDbBackupCronJob)
 import Nagare.Database.Restore
   ( VerifiedRestoreSource
       ( VerifiedRestoreSource
@@ -56,8 +56,10 @@ import Nagare.Inventory.BackupFreshness
   , RecoveryPointGrade (RecoveryPointGrade)
   , RecoveryPointObjective (..)
   , backupFreshness
+  , hourlyScheduleOffset
   , parseRecoveryPointObjective
   , recoveryPointDetail
+  , staggeredRecoveryPointSchedule
   )
 import Nagare.Inventory.ScheduledGcs (parseGcsObjectListing)
 import Nagare.Inventory.ScheduledIngest
@@ -130,7 +132,14 @@ scheduledReceiptTests =
         @?= "healthy; age=600s; objective=daily; newest point is verified and awaits reviewed ingestion"
       recoveryPointDetail (RecoveryPointGrade HourlyRecoveryPoint (Breached 3600) False)
         @?= "unhealthy; age=3600s; hourly objective breached"
-  , testCase "daily schedules bind their objective into signed metadata; hourly bytes are unchanged" $ do
+  , testCase "hourly schedules start at their name's minute offset; daily is unchanged (EP-238 M3)" $ do
+      map
+        (staggeredRecoveryPointSchedule HourlyRecoveryPoint)
+        ["nagare-dbbackup-labs-postgres", "nagare-dbbackup-labs-clickhouse", "nagare-appdb-kansoku-pg", "nagare-appdb-kansoku-ch", "nagare-dbbackup-nix-cache-db"]
+        @?= ["12-59/15 * * * *", "6-59/15 * * * *", "4-59/15 * * * *", "11-59/15 * * * *", "*/15 * * * *"]
+      staggeredRecoveryPointSchedule DailyRecoveryPoint "nagare-dbbackup-labs-postgres" @?= "17 3 * * *"
+      assertBool "an offset left the quarter hour" (all (\name -> hourlyScheduleOffset name `elem` [0 .. 14]) ["a", "b", "nagare-dbbackup-en-db"])
+  , testCase "daily schedules bind their objective into signed metadata; hourly metadata is unchanged" $ do
       let decode bytes = either (error . show) id (Yaml.decodeEither' bytes :: Either Yaml.ParseException Aeson.Value)
           hourly = decode (renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "mydb" Postgres "18" localMinioBackend 7)
           daily = decode (renderInventoryDbBackupCronJob DailyRecoveryPoint "personal" "mydb" Postgres "18" localMinioBackend 7)
@@ -148,10 +157,12 @@ scheduledReceiptTests =
               uid
               uid
               (either (error . T.unpack) id (canonicalValue value))
-      scheduleOf hourly @?= Just (Aeson.String "*/15 * * * *")
+      scheduleOf hourly @?= Just (Aeson.String "5-59/15 * * * *")
+      scheduleOf (decode (renderUnstaggeredInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "mydb" Postgres "18" localMinioBackend 7))
+        @?= Just (Aeson.String "*/15 * * * *")
       scheduleOf daily @?= Just (Aeson.String "17 3 * * *")
       -- The parser accepts hourly metadata only with exactly the seven
-      -- original fields, so this also proves hourly bytes did not change.
+      -- original fields, so this also proves hourly metadata did not change.
       fmap scheduledObjective (expect hourly) @?= Right HourlyRecoveryPoint
       fmap scheduledObjective (expect daily) @?= Right DailyRecoveryPoint
       let retimed = case daily of

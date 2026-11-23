@@ -46,6 +46,7 @@ module Nagare.Database.Backup
   , renderPreviousInventoryDbBackupCronJob
   , renderPreviousSignedInventoryDbBackupCronJob
   , renderUnpinnedInventoryDbBackupCronJob
+  , renderUnstaggeredInventoryDbBackupCronJob
   , renderInventoryVolumeBackupCronJob
   , appDatabaseBackupExt
   , appOwnedBackupFormat
@@ -93,8 +94,8 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Inventory.BackupFreshness
   ( RecoveryPointObjective (HourlyRecoveryPoint)
+  , producerSchedule
   , recoveryPointObjectiveText
-  , recoveryPointSchedule
   )
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Types (digestText)
@@ -799,7 +800,7 @@ uploadImage i
   | otherwise = storeImage (i ^. #backend)
 
 renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJob = renderDbBackupCronJobWithOptions True HourlyRecoveryPoint True False True
+renderDbBackupCronJob = renderDbBackupCronJobWithOptions False True HourlyRecoveryPoint True False True
 
 -- | A reviewed database may schedule uploads, but the CronJob must not delete
 -- older backup objects without a separate reviewed pruning decision. The Job
@@ -809,24 +810,28 @@ renderDbBackupCronJob = renderDbBackupCronJobWithOptions True HourlyRecoveryPoin
 -- graded against the accepted schedule. Hourly omits the field, keeping the
 -- bytes of schedules accepted before the objective became configurable.
 renderInventoryDbBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions False objective False True True
+renderInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions True False objective False True True
+
+-- | The current producer as accepted before hourly schedules were staggered, to recognize it.
+renderUnstaggeredInventoryDbBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderUnstaggeredInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions False False objective False True True
 
 -- | The current producer as accepted before its image was pinned (F143), to recognize it.
 renderUnpinnedInventoryDbBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderUnpinnedInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions True objective False True True
+renderUnpinnedInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions False True objective False True True
 
 -- | Native bytes issued before reviewed backup readback verification was added.
 -- Used only to recognize and upgrade an already accepted schedule.
 renderPreviousInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions True HourlyRecoveryPoint False False True
+renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True HourlyRecoveryPoint False False True
 
 -- | Exact signed-v4 daily producer, for recognition of accepted schedules only.
 renderPreviousSignedInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions True HourlyRecoveryPoint False True False
+renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True HourlyRecoveryPoint False True False
 
-renderDbBackupCronJobWithOptions :: Bool -> RecoveryPointObjective -> Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJobWithOptions unpinned objective shouldPrune shouldVerify timed ns name eng version backend keep =
-  renderScheduledCronJob objective shouldVerify timed baseInputs $ \revision ->
+renderDbBackupCronJobWithOptions :: Bool -> Bool -> RecoveryPointObjective -> Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderDbBackupCronJobWithOptions staggered unpinned objective shouldPrune shouldVerify timed ns name eng version backend keep =
+  renderScheduledCronJob staggered objective shouldVerify timed baseInputs $ \revision ->
     [ "database" .= name
     , "namespace" .= ns
     , "engine" .= T.toLower (T.pack (show eng))
@@ -860,7 +865,7 @@ renderDbBackupCronJobWithOptions unpinned objective shouldPrune shouldVerify tim
 -- claim mounted read-only. The receipt's source is the claim's UID alone.
 renderInventoryVolumeBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Text -> StoreBackend -> Int -> ByteString
 renderInventoryVolumeBackupCronJob objective ns app volume backend keep =
-  renderScheduledCronJob objective True True baseInputs $ \revision ->
+  renderScheduledCronJob True objective True True baseInputs $ \revision ->
     [ "app" .= app
     , "volume" .= volume
     , "namespace" .= ns
@@ -894,14 +899,16 @@ renderInventoryVolumeBackupCronJob objective ns app volume backend keep =
 -- receipts; their metadata names the schedule revision, which is the digest of
 -- the same CronJob rendered with a zero revision. A non-hourly objective adds
 -- its name to the metadata so freshness is graded against the accepted cadence.
+-- Only current producers stagger (EP-238 M3); recognizers of earlier bytes do not.
 renderScheduledCronJob ::
+  Bool ->
   RecoveryPointObjective ->
   Bool ->
   Bool ->
   BackupJobInputs ->
   (Text -> [Pair]) ->
   ByteString
-renderScheduledCronJob objective shouldVerify timed baseInputs metadataFields =
+renderScheduledCronJob staggered objective shouldVerify timed baseInputs metadataFields =
   Y.encode . backupCronJobValueWithRecoveryPoint timed $
     if shouldVerify
       then
@@ -930,7 +937,7 @@ renderScheduledCronJob objective shouldVerify timed baseInputs metadataFields =
               BackupObjectReceiptTarget
               (TE.decodeUtf8 (LBS.toStrict (Aeson.encode metadata)))
        in BackupCronInputs
-            (if timed then recoveryPointSchedule objective else defaultBackupSchedule)
+            (if timed then producerSchedule staggered objective (baseInputs ^. #jobName) else defaultBackupSchedule)
             (baseInputs {receipt = Just scheduledReceipt})
 
 -- ---------------------------------------------------------------------------
