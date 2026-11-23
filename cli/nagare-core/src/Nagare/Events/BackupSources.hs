@@ -35,10 +35,10 @@ import Nagare.Inventory.Backup (ScheduledReceiptExpectation (..), scheduledRecei
 import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob)
 import Nagare.Inventory.Journal (decodeJournalEvent)
 import Nagare.Inventory.Plan.History (loadInventoryHistoryAt)
-import Nagare.Inventory.Plan.Types (InventoryHistory (..), ReviewDocument, historyReservations)
-import Nagare.Inventory.ScheduleHistory (convergedReviewDocuments, convergedScheduleRevisionsFromReviews)
+import Nagare.Inventory.Plan.Types (InventoryHistory (..), historyReservations)
+import Nagare.Inventory.ScheduleHistory (convergedDesiredRevisions, convergedScheduleRevisionsFromReviews)
 import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), ScheduledStatusSource (..), scheduledStatusSources)
-import Nagare.Inventory.Store (HeadManifest (..), InventoryStore, readHead, readJournalPrefix, revisionGeneration)
+import Nagare.Inventory.Store (HeadManifest (..), InventoryStore, ScopeRevision, readHead, readJournalPrefix, revisionGeneration)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 
@@ -67,14 +67,14 @@ loadBackupSchedules store backend = do
                 (Left err, _) -> pure (Left err)
                 (_, Left err) -> pure (Left ("the journal cannot be read for schedule revisions: " <> err))
                 (Right (accepted, _), Right events) -> do
-                  loadedReviews <- convergedReviewDocuments store events
+                  loadedReviews <- convergedDesiredRevisions store events
                   case loadedReviews of
                     Left err -> pure (Left err)
                     Right reviews -> do
                       built <- traverse (build accepted reviews) sources
                       pure (Right ([schedule | Right schedule <- built], [problem | Left problem <- built]))
   where
-    build :: Map ResourceId (ManagedResource, ByteString) -> [ReviewDocument] -> (Text, Either Text Resolved) -> IO (Either (Text, Text) BackupSchedule)
+    build :: Map ResourceId (ManagedResource, ByteString) -> [Map ScopeId ScopeRevision] -> (Text, Either Text Resolved) -> IO (Either (Text, Text) BackupSchedule)
     build _ _ (label', Left reason) = pure (Left (label', reason))
     build accepted reviews (label', Right found) = case Map.lookup (found ^. #cron . #identity) accepted of
       Nothing -> pure (Left (label', "the accepted CronJob has no native bytes"))

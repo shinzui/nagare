@@ -10,7 +10,7 @@
 module Nagare.Inventory.ScheduleHistory
   ( convergedScheduleRevisions
   , convergedScheduleRevisionsIn
-  , convergedReviewDocuments
+  , convergedDesiredRevisions
   , convergedScheduleRevisionsFromReviews
   , convergedReviews
   )
@@ -19,6 +19,7 @@ where
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List (nub)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text qualified as T
@@ -28,9 +29,9 @@ import Nagare.Inventory.Journal (JournalEvent (..), OperationState (Completed), 
 import Nagare.Inventory.ObservationNative (ObservationNativeError (..), loadObservationNativeChecked, observationKubernetes)
 import Nagare.Inventory.Plan.Types (ReviewDocument (reviewDesiredRevisions))
 import Nagare.Inventory.ScopeMember (decodeScopeMember)
-import Nagare.Inventory.Store (HeadManifest (headSequence), InventoryStore, readJournalPrefix, readObject, revisionDigest, scopeKey)
+import Nagare.Inventory.Store (HeadManifest (headSequence), InventoryStore, ScopeRevision, readJournalPrefix, readObject, revisionDigest, scopeKey)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource, ResourceBundle (declarations), scopeBundles)
-import Nagare.Resource.Types (ContentDigest)
+import Nagare.Resource.Types (ContentDigest, ScopeId)
 
 -- | The CronJob bytes of every converged revision of the schedule, oldest
 -- first and without repeats. A revision whose bytes predate the native store
@@ -46,17 +47,28 @@ convergedScheduleRevisions store headValue cron = do
 -- caller resolving several schedules reads the journal once (EP-233).
 convergedScheduleRevisionsIn :: InventoryStore -> [JournalEvent] -> ManagedResource -> IO (Either Text [ByteString])
 convergedScheduleRevisionsIn store events cron = do
-  reviews <- convergedReviewDocuments store events
-  either (pure . Left) (\docs -> convergedScheduleRevisionsFromReviews store docs cron) reviews
+  reviews <- convergedDesiredRevisions store events
+  either (pure . Left) (\desired -> convergedScheduleRevisionsFromReviews store desired cron) reviews
 
--- | Read each converged review's digest-verified document once. The callers
--- that resolve several schedules share the decoded documents.
-convergedReviewDocuments :: InventoryStore -> [JournalEvent] -> IO (Either Text [ReviewDocument])
-convergedReviewDocuments store = fmap sequence . traverse (loadReviewDocument store) . convergedReviews
+-- | Read each converged review's digest-verified document once and keep only
+-- its desired scope revisions, which is all a schedule's history needs. Each
+-- document is released as soon as its map is taken: holding every decoded
+-- review at once grew with the journal until the lifecycle worker ran out of
+-- memory. The callers that resolve several schedules share the maps.
+convergedDesiredRevisions :: InventoryStore -> [JournalEvent] -> IO (Either Text [Map ScopeId ScopeRevision])
+convergedDesiredRevisions store = go [] . convergedReviews
+  where
+    go taken [] = pure (Right (reverse taken))
+    go taken (digest : rest) =
+      loadReviewDocument store digest >>= \case
+        Left err -> pure (Left err)
+        Right document -> do
+          let !desired = reviewDesiredRevisions document
+          go (desired : taken) rest
 
-convergedScheduleRevisionsFromReviews :: InventoryStore -> [ReviewDocument] -> ManagedResource -> IO (Either Text [ByteString])
+convergedScheduleRevisionsFromReviews :: InventoryStore -> [Map ScopeId ScopeRevision] -> ManagedResource -> IO (Either Text [ByteString])
 convergedScheduleRevisionsFromReviews store reviews cron = do
-  let revisions = nub (mapMaybe (Map.lookup owner . reviewDesiredRevisions) reviews)
+  let revisions = nub (mapMaybe (Map.lookup owner) reviews)
   loaded <- traverse (revisionIn . revisionDigest) revisions
   pure (nub . catMaybes <$> sequence loaded)
   where
