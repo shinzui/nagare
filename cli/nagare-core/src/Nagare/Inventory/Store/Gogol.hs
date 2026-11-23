@@ -22,11 +22,14 @@ module Nagare.Inventory.Store.Gogol
   )
 where
 
+import Conduit (runConduit, (.|))
+import Conduit qualified
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (modifyMVar, newMVar)
 import Control.Exception (Handler (..), IOException, catches)
 import Control.Monad (foldM)
+import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (encode)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -53,6 +56,7 @@ import Nagare.Inventory.Store.ObjectOps
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (statusCode, urlEncode)
+import System.Directory (getFileSize)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import System.Timeout (timeout)
@@ -449,15 +453,17 @@ gogolVersionedReader environment bucket quota = VersionedReader list readAt
           pure (VersionedObject name (T.pack (show gen)) (toInteger size) (G.unDateTime updated))
     readAt key version path = case reads (T.unpack version) of
       [(gen, "")] | gen > (0 :: Int64) -> do
+        -- Stream the body to the file: a backup archive can be larger than the
+        -- lifecycle worker's memory limit (a 999 MiB one OOM-killed it at 2Gi).
         result <-
-          traced MediaRequest BucketObjects bodySize . sdk $ \env ->
-            G.runResourceT $
-              G.download env ((S.newStorageObjectsGet bucket (encodePart key)) {Get.generation = Just gen, Get.userProject = quota}) >>= G.sinkLBS
+          traced MediaRequest BucketObjects (Just . fromIntegral) . sdk $ \env ->
+            G.runResourceT $ do
+              body <- G.download env ((S.newStorageObjectsGet bucket (encodePart key)) {Get.generation = Just gen, Get.userProject = quota})
+              runConduit (body .| Conduit.sinkFile path)
+              liftIO (getFileSize path)
         case result of
           Left _ -> pure (Left "backup object generation could not be downloaded")
-          Right bytes -> do
-            LBS.writeFile path bytes
-            pure (Right (StoredObject version (toInteger (LBS.length bytes))))
+          Right size -> pure (Right (StoredObject version size))
       _ -> pure (Left "backup object generation is invalid")
 
 -- | 'gogolVersionedReader' over a command-local token source, as

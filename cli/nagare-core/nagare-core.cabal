@@ -119,6 +119,7 @@ library
     base >=4.17 && <5,
     bytestring,
     case-insensitive,
+    conduit,
     containers,
     cradle,
     crypton,
