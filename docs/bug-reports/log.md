@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-23
+* **Addition**: Record BUG-11 from mori://tan/tan-ng-labs/plans/23-enable-the-shared-attic-cache-on-labs. Nagare forces chunked Attic uploads on GCS. A disposable unchunked cache restored direct GCS downloads and passed cold signed substitution.
+
 ## 2026-11-22
 
 * **Update**: BUG-8 moved from reported to in-progress. MasterPlan 29 and ExecPlan 221 record the shipped improvements and the v0.11.1 benchmark at 103 scopes. Two samples exceeded the thresholds and the 50-scope growth run was waived for the plan.
