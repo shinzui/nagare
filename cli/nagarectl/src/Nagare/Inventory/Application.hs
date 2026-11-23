@@ -25,6 +25,7 @@ module Nagare.Inventory.Application
   , nativeWorkloadOwned
   , hostnameClaimOwned
   , acceptedApplicationImage
+  , acceptedApplicationImageReference
   , acceptedImageBuildSecrets
   , acceptedImageResourceForDestination
   , reviewedTaskImages
@@ -63,6 +64,7 @@ import Nagare.Inventory.Application.Bindings
   , acceptedAppDatabaseReaderBindings
   , acceptedAppDatabaseTaskBindings
   , acceptedApplicationImage
+  , acceptedApplicationImageReference
   , acceptedBrokerBindings
   , acceptedDatabaseBindings
   , acceptedImageBuildSecrets

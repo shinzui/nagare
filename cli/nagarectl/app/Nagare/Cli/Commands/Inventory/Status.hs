@@ -2,6 +2,7 @@
 module Nagare.Cli.Commands.Inventory.Status
   ( runInventoryStatus
   , runInventoryPublications
+  , runInventoryImageReferences
   )
 where
 
@@ -78,7 +79,7 @@ import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.ObservationNative qualified as InventoryObservation
 import Nagare.Inventory.Plan qualified as InventoryPlan
-import Nagare.Inventory.Publications (readPublications, renderPublicationTable)
+import Nagare.Inventory.Publications (readImageReferences, readPublications, renderPublicationTable)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Platform.Paths
@@ -103,6 +104,15 @@ runInventoryPublications mctx = do
   listing <- activeTarget mctx >>= readPublications >>= either dieCoded pure
   contract <- contractSinkSet
   if contract then emitDocument listing else TIO.putStr (renderPublicationTable listing)
+
+runInventoryImageReferences :: Maybe String -> IO ()
+runInventoryImageReferences mctx = do
+  listing <- activeTarget mctx >>= readImageReferences >>= either dieCoded pure
+  contract <- contractSinkSet
+  if contract
+    then emitDocument listing
+    else forM_ (listing ^. #references) $ \reference ->
+      TIO.putStrLn ((reference ^. #resourceId) <> "\t" <> (reference ^. #reference))
 
 runInventoryStatus :: Maybe String -> Maybe String -> Bool -> Maybe FilePath -> Maybe String -> IO ()
 runInventoryStatus mctx requested json gcOutput scopeArg = do

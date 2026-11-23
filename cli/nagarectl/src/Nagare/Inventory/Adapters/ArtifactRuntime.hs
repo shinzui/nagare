@@ -207,6 +207,7 @@ expectedPhysical spec = case executionArtifactKind spec of
   where
     physicalPrefix = \case
       OciImageArtifact -> "oci://"
+      OciImageReferenceArtifact -> "oci://"
       GcsImageObjectArtifact -> "gcs://"
       GceImageArtifact -> "gce://"
       KubeconfigArtifact -> "kubeconfig://"

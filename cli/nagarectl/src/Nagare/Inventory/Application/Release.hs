@@ -20,7 +20,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.App.Deploy (RolloutEnv)
+import Nagare.App.Deploy (RolloutEnv, rolloutReleaseImage)
 import Nagare.App.Deployments
   ( appConfigMapName
   , appDeploymentsPrefix
@@ -45,7 +45,6 @@ import Nagare.Dsl.Application qualified as DslApp
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( Deployment
-  , imageRefText
   , namespaceText
   , serviceNameText
   )
@@ -291,7 +290,7 @@ compileApplicationRelease app rollout owner cluster namespaceId imageId priorBun
         && release ^. #namespace == ns
         && release ^. #releaseId == tag
         && release ^. #imageTag == tag
-        && release ^. #image == imageRefText (rollout ^. #qualifiedImage)
+        && release ^. #image == rolloutReleaseImage rollout
         && release ^. #url
           == maybe
             ""

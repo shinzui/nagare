@@ -41,7 +41,7 @@ import Nagare.Cli.Commands.Infrastructure
   , runServerStatus
   )
 import Nagare.Cli.Commands.Init (runInit)
-import Nagare.Cli.Commands.Inventory.Status (runInventoryPublications, runInventoryStatus)
+import Nagare.Cli.Commands.Inventory.Status (runInventoryImageReferences, runInventoryPublications, runInventoryStatus)
 import Nagare.Cli.Commands.Inventory.Store (runInventoryMaterializeNative, runInventoryStoreMigrate, runInventoryStoreStatus)
 import Nagare.Cli.Commands.Move (runContextMove)
 import Nagare.Cli.Commands.NixCache (runNixCache)
@@ -199,6 +199,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryLegacyGuard operation -> runInventoryLegacyGuard mctx operation
   InventoryStatus json scope contract -> withReadContract contract (runInventoryStatus mctx Nothing json Nothing scope)
   InventoryPublications contract -> withReadContract contract (runInventoryPublications mctx)
+  InventoryImageReferences contract -> withReadContract contract (runInventoryImageReferences mctx)
   InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing Nothing
   InventoryStoreMaterializeNative after limit -> runInventoryMaterializeNative mctx after limit
   InventoryStoreStatus json -> runInventoryStoreStatus mctx json

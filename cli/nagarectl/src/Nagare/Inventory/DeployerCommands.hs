@@ -39,7 +39,7 @@ deployerCommandAllowed = \case
   "task" : verb : _ -> verb `elem` ["run", "delete"]
   "site" : "preview" : _ -> True
   "site" : verb : _ -> verb `elem` ["deploy", "rollback"]
-  "inventory" : verb : _ -> verb `elem` ["apply", "resume", "status", "publications", "history"]
+  "inventory" : verb : _ -> verb `elem` ["apply", "resume", "status", "publications", "image-references", "history"]
   "delegation" : "show" : _ -> True
   _ -> False
 
@@ -56,7 +56,7 @@ guardDeployerCommand actor arguments = case actor of
               <> T.unwords command
               <> " is not available in deployer context "
               <> deployer
-              <> "; a delegated deployer may run app image-plan|check|deploy|delete, worker deploy, task run|delete, site deploy|rollback|preview, inventory apply|resume|status|publications|history, delegation show and version"
+              <> "; a delegated deployer may run app image-plan|check|deploy|delete, worker deploy, task run|delete, site deploy|rollback|preview, inventory apply|resume|status|publications|image-references|history, delegation show and version"
           )
   where
     command = take 2 (commandWords arguments)

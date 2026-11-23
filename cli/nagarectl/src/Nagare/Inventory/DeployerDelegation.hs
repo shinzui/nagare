@@ -561,7 +561,7 @@ checkDelegatedProposal check = case Map.lookup deployer (check ^. #delegations) 
                            ]
             (ArtifactExecutor, _) -> case resource ^. #spec of
               ArtifactPublication kind destination _ _
-                | nameText kind /= "oci-image" -> [bounds "member-kind" memberText "only OCI images may be published"]
+                | nameText kind `notElem` ["oci-image", "oci-image-reference"] -> [bounds "member-kind" memberText "only OCI images may be published or referenced"]
                 | not (withinRepository (d ^. #imageRepository) destination) ->
                     [bounds "image-repository" memberText ("image " <> destination <> " is outside " <> (d ^. #imageRepository))]
                 | otherwise -> []

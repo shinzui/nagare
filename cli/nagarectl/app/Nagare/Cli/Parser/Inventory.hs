@@ -174,6 +174,9 @@ inventoryCmd =
               "publications"
               (info (InventoryPublications <$> contractOpt <**> helper) (progDesc "List accepted artifact publications from the inventory store without contacting providers"))
             <> command
+              "image-references"
+              (info (InventoryImageReferences <$> contractOpt <**> helper) (progDesc "List accepted registry image references from the inventory store"))
+            <> command
               "guard-legacy"
               ( info
                   (InventoryLegacyGuard <$> strArgument (metavar "OPERATION") <**> helper)

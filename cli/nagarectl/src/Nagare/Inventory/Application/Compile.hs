@@ -15,6 +15,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.App.Deploy (rolloutDigestReference)
 import Nagare.Broker.Connection
   ( BrokerConn (..)
   , brokerConnectionEnv
@@ -170,9 +171,10 @@ compileApplicationScope input = do
       rollout = scopeRollout input
   unless
     ( Map.keysSet overrides
-        `Set.isSubsetOf` Set.fromList ["tag", "baseDomain", "imageResource", "requestNamespace", "cdnBackendResource", "cdnTarget", "cdnZone", "cdnOriginIp"]
+        `Set.isSubsetOf` Set.fromList ["tag", "baseDomain", "imageResource", "imageReference", "requestNamespace", "cdnBackendResource", "cdnTarget", "cdnZone", "cdnOriginIp"]
         && Map.lookup "tag" overrides == Just (rollout ^. #imageTag)
         && Map.lookup "imageResource" overrides == Just (resourceIdText (scopeImage input))
+        && Map.lookup "imageReference" overrides == rolloutDigestReference rollout
         && maybe True (== rollout ^. #baseDomain) (Map.lookup "baseDomain" overrides)
         && Map.lookup "requestNamespace" overrides
           == (if isJust (scopeNamespaceContributionOwner input) then Just "true" else Nothing)

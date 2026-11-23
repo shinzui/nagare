@@ -1,0 +1,17 @@
+{
+  "context": {
+    "identity": "intranet",
+    "project": "example-project"
+  },
+  "contractVersion": 1,
+  "document": "image-reference-list",
+  "references": [
+    {
+      "generation": 1,
+      "manifestDigest": "sha256:2196416f14015c43829dedfdb3795038948a0a6c1bbfc00604efc4993a5069da",
+      "reference": "registry.example/kizashi@sha256:2196416f14015c43829dedfdb3795038948a0a6c1bbfc00604efc4993a5069da",
+      "resourceId": "publication:app-image-kizashi-digest/kizashi-digest/oci-image",
+      "scope": "publication:app-image-kizashi-digest"
+    }
+  ]
+}

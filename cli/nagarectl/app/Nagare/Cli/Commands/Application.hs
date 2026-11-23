@@ -37,6 +37,8 @@ import Nagare.App
 import Nagare.App.Deploy
   ( AppDeployParams (..)
   , resolveAppRolloutWithBrokerEnv
+  , rolloutDigestReference
+  , rolloutReleaseImage
   )
 import Nagare.App.Deployments
   ( appConfigMapName
@@ -125,7 +127,7 @@ import Nagare.Inventory.Application
   , ReviewedCdnBinding (CloudflareCdnBindingFor, GoogleCdnBindingFor)
   , ServiceAction (..)
   , acceptedAccessBinding
-  , acceptedApplicationImage
+  , acceptedApplicationImageReference
   , acceptedApplicationReleaseLog
   , acceptedBrokerBindings
   , acceptedImageBuildSecrets
@@ -309,17 +311,21 @@ runAppDeployPlan mctx params appOptions output = do
         Map.unionsWith
           Map.union
           (appBrokerTopics : [topics | (_, topics, _) <- workloadBrokers])
-  rollout <- resolveAppRolloutWithBrokerEnv params app brokerEnv
+  configured <- resolveAppRolloutWithBrokerEnv params app brokerEnv
   unless
     ( all
         ( \build ->
-            resolveImageTag build (rollout ^. #imageTag)
-              == rollout ^. #effectiveTag
+            resolveImageTag build (configured ^. #imageTag)
+              == configured ^. #effectiveTag
         )
         builds
     )
     (dieT "application workloads resolve to different prepublished image tags")
-  either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  let renderedRepository =
+        imageRefText (configured ^. #qualifiedImage) <$ appOptions ^. #rendered
+  imageReference <-
+    either dieT pure (acceptedApplicationImageReference renderedRepository snapshot imageId (configured ^. #taggedAppImage))
+  let rollout = configured & #taggedAppImage .~ imageReference
   either
     dieT
     pure
@@ -393,7 +399,7 @@ runAppDeployPlan mctx params appOptions output = do
             { releaseId = releaseTag
             , siteName = releaseSubject
             , namespace = appNamespaceName
-            , image = imageRefText (rollout ^. #qualifiedImage)
+            , image = rolloutReleaseImage rollout
             , imageTag = releaseTag
             , url =
                 maybe
@@ -455,6 +461,7 @@ runAppDeployPlan mctx params appOptions output = do
                 ( [("tag", T.pack selected) | selected <- maybe [] pure (appOptions ^. #tag)]
                     <> [("baseDomain", T.pack selected) | selected <- maybe [] pure (appOptions ^. #baseDomain)]
                     <> [("imageResource", T.pack selected) | selected <- maybe [] pure (appOptions ^. #imageResource)]
+                    <> [("imageReference", reference) | reference <- maybe [] pure (rolloutDigestReference rollout)]
                     <> [ ("cdnBackendResource", Resource.resourceIdText (ResourceInventory.declarationId (googleCdnBackend selected)))
                        | GoogleCdnBindingFor selected <- maybe [] pure cdnBinding
                        ]

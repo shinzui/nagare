@@ -31,6 +31,7 @@ import Nagare.Resource.Types
 
 data ArtifactKind
   = OciImageArtifact
+  | OciImageReferenceArtifact
   | GcsImageObjectArtifact
   | GceImageArtifact
   | KubeconfigArtifact
@@ -243,6 +244,7 @@ kindName :: ArtifactKind -> Name
 kindName =
   knownName . \case
     OciImageArtifact -> "oci-image"
+    OciImageReferenceArtifact -> "oci-image-reference"
     GcsImageObjectArtifact -> "gcs-image-object"
     GceImageArtifact -> "gce-image"
     KubeconfigArtifact -> "kubeconfig"
@@ -256,6 +258,7 @@ kindName =
 kindFromName :: Name -> Either Text ArtifactKind
 kindFromName value = case nameText value of
   "oci-image" -> Right OciImageArtifact
+  "oci-image-reference" -> Right OciImageReferenceArtifact
   "gcs-image-object" -> Right GcsImageObjectArtifact
   "gce-image" -> Right GceImageArtifact
   "kubeconfig" -> Right KubeconfigArtifact

@@ -17,6 +17,7 @@ module Nagare.Cli.Options
   , AppDeployOpts (..)
   , AppGetOpts (..)
   , AppImagePlanOpts (..)
+  , AppImageInput (..)
   , AppCheckOpts (..)
   , AppListOpts (..)
   , AppLogsOpts (..)
@@ -149,9 +150,13 @@ data DeployOpts = DeployOpts
   }
   deriving stock (Generic, Show)
 
+data AppImageInput
+  = ArchiveImage !FilePath !String
+  | RegistryImage !String
+  deriving stock (Eq, Show)
+
 data AppImagePlanOpts = AppImagePlanOpts
-  { archive :: !FilePath
-  , destination :: !String
+  { input :: !AppImageInput
   , key :: !String
   , buildInputResources :: ![String]
   , buildDockerfile :: !(Maybe FilePath)
@@ -325,6 +330,7 @@ data Command
   | InventoryRestore FilePath Bool
   | InventoryStatus Bool (Maybe String) (Maybe Int)
   | InventoryPublications (Maybe Int)
+  | InventoryImageReferences (Maybe Int)
   | InventoryLegacyGuard String
   | InventoryExplain String Bool
   | InventoryStoreMaterializeNative (Maybe String) Int

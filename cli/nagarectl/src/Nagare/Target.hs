@@ -71,6 +71,7 @@ module Nagare.Target
   , resolveTargetProfile
   , registryPrefix
   , imageDestinationAllowed
+  , parseImageDigestReference
   , minioCredentialsSecret
   , storeBackendFor
   )
@@ -98,6 +99,7 @@ import Nagare.Inventory.BackupFreshness
   ( RecoveryPointObjective (..)
   , recoveryPointObjectiveText
   )
+import Nagare.Resource.Types qualified as Resource
 import Nagare.Target.Acme
 import Nagare.Target.AuthIssuer (AuthIssuer, authIssuerText, authIssuerVariable, parseAuthIssuer)
 import Nagare.Target.ContextFile (ctxOr, ctxRaw, mapOr, mapRaw, parseContextEnv, shellQuote)
@@ -590,6 +592,32 @@ imageDestinationAllowed tp destination =
       Cloud
         | isJust (tp ^. #deployer) -> tp ^. #registryHost <> "/" <> tp ^. #project
         | otherwise -> registryPrefix tp
+
+parseImageDigestReference :: Text -> Either Text (Text, Resource.ContentDigest)
+parseImageDigestReference reference = case T.splitOn "@sha256:" reference of
+  [repository, digest] | validRepository repository -> (repository,) <$> Resource.mkContentDigest digest
+  _ -> Left "image reference must be a qualified repository followed by @sha256 and a manifest digest"
+  where
+    validRepository repository =
+      T.length repository <= 512 && case T.splitOn "/" repository of
+        host : path@(_ : _) -> validHost host && all component path
+        _ -> False
+    validHost host = case T.splitOn ":" host of
+      [name] -> all component (T.splitOn "." name)
+      [name, port] -> all component (T.splitOn "." name) && validPort port
+      _ -> False
+    validPort port =
+      not (T.null port)
+        && T.length port <= 5
+        && T.all digit port
+        && let value = read (T.unpack port) :: Int in value > 0 && value <= 65535
+    digit c = c >= '0' && c <= '9'
+    alphanumeric c = isAsciiLower c || digit c
+    component name =
+      not (T.null name)
+        && alphanumeric (T.head name)
+        && alphanumeric (T.last name)
+        && T.all (\c -> alphanumeric c || c `elem` ("._-" :: String)) name
 
 -- | Read a context file into a variable map, or 'Nothing' if the path is absent.
 readContextMap :: FilePath -> IO (Maybe (Map String Text))

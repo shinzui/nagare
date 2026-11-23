@@ -112,11 +112,32 @@ observe_oci_image() (
   local output status
   local tls_args=()
   local auth_args=()
+  local reference=false
+  if [ "${kind}" = OciImageReferenceArtifact ]; then
+    reference=true
+    if [[ "${destination}" != *@sha256:"${expected}" || "${source_digest}" != "${expected}" ]]; then
+      echo "OCI reference differs from the reviewed manifest digest" >&2
+      return 2
+    fi
+  fi
   if [ "${NAGARE_MODE:-cloud}" = local ]; then
+    if "${reference}" && [[ "${destination}" != "${NAGARE_REGISTRY_HOST:?}/"* ]]; then
+      emit_owner_mismatch "oci://${destination}" "registry destination differs from the selected context"
+      return
+    fi
     # Inside the cluster (a hosted deployer, EP-248) the registry is reached
     # directly; the docker exec read is only for a workstation whose port
     # 5000 macOS AirPlay may own.
     if [ "${NAGARE_REGISTRY_HOST:-}" = k3d-registry.localhost:5000 ] && [ -z "${KUBERNETES_SERVICE_HOST:-}" ]; then
+      if "${reference}"; then
+        local repository="${destination#"${NAGARE_REGISTRY_HOST}/"}"
+        repository="${repository%@sha256:*}"
+        [[ "${repository}" =~ ^[a-z0-9][a-z0-9._/-]*$ && "${repository}" != *..* ]] || return 2
+        observe_oci_reference docker exec k3d-registry.localhost wget -q -O - \
+          --header='Accept: application/vnd.oci.image.manifest.v1+json' \
+          "http://localhost:5000/v2/${repository}/manifests/sha256:${expected}"
+        return
+      fi
       if output="$(nagare_local_registry_digest "$destination")"; then
         emit_present "oci://${destination}" "$output"
         return
@@ -141,12 +162,42 @@ observe_oci_image() (
       --password-stdin --authfile "${private_dir}/auth.json" "${NAGARE_REGISTRY_HOST}" >/dev/null
     auth_args=(--authfile "${private_dir}/auth.json")
   fi
+  if "${reference}"; then
+    observe_oci_reference skopeo inspect --raw "${tls_args[@]}" "${auth_args[@]}" "docker://${destination}"
+    return
+  fi
   if ! output="$(skopeo inspect "${tls_args[@]}" "${auth_args[@]}" --format '{{.Digest}}' "docker://${destination}" 2>&1)"; then
     if grep -Eqi 'manifest unknown|name unknown|not found' <<<"${output}"; then emit_missing; return; fi
     printf '%s\n' "${output}" >&2
     return 1
   fi
   emit_present "oci://${destination}" "$(tail -n 1 <<<"${output}")"
+)
+
+observe_oci_reference() (
+  local private_dir bytes
+  umask 077
+  private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-oci-reference.XXXXXX")"
+  trap 'rm -rf "${private_dir}"' EXIT
+  if ! "$@" | head -c 4194305 >"${private_dir}/manifest"; then
+    echo "reviewed OCI manifest is unavailable" >&2
+    return 1
+  fi
+  bytes="$(wc -c <"${private_dir}/manifest")"
+  if [ "${bytes}" -gt 4194304 ] || [ "$(sha256_of "${private_dir}/manifest")" != "${expected}" ]; then
+    echo "registry manifest bytes differ from the reviewed digest" >&2
+    return 1
+  fi
+  if ! jq -e '
+    .schemaVersion == 2
+    and (.mediaType // "application/vnd.oci.image.manifest.v1+json") == "application/vnd.oci.image.manifest.v1+json"
+    and (.config | type == "object")
+    and (.layers | type == "array")
+  ' "${private_dir}/manifest" >/dev/null; then
+    echo "reviewed OCI reference must identify a single-platform image manifest" >&2
+    return 1
+  fi
+  emit_present "oci://${destination}" "${expected}"
 )
 
 observe_gcs_object() {
@@ -319,6 +370,7 @@ observe() {
   case "${kind}" in
     GceImageArtifact) observe_gce_image ;;
     OciImageArtifact) observe_oci_image ;;
+    OciImageReferenceArtifact) observe_oci_image ;;
     GcsImageObjectArtifact) observe_gcs_object ;;
     KubeconfigArtifact) observe_kubeconfig ;;
     BuildJobArtifact) observe_build_job ;;
@@ -454,6 +506,7 @@ publish_oci_layout() (
 
 publish() {
   case "${kind}" in
+    OciImageReferenceArtifact) echo "an OCI reference is read-only" >&2; return 3 ;;
     BuildJobArtifact)
       NAGARE_ARTIFACT_DESTINATION="${destination}" \
       NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \

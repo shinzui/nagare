@@ -20,6 +20,7 @@
 module Nagare.Dsl.Render
   ( renderService
   , renderServiceIn
+  , renderServiceWithImageIn
   , renderDomainMappings
 
     -- * Managed-resource naming helpers (IP2)
@@ -72,7 +73,11 @@ renderService dep = renderServiceIn (serviceNameText (dep ^. #name)) dep
 -- app: an Application's web service inherits the Application's store, whatever
 -- the service itself is called.
 renderServiceIn :: Text -> Deployment -> Text -> ByteString
-renderServiceIn storeApp dep tag = YP.encodePretty knativeConfig (serviceValue storeApp dep tag)
+renderServiceIn storeApp dep tag =
+  renderServiceWithImageIn storeApp dep (imageRefText (dep ^. #image) <> ":" <> resolveImageTag (dep ^. #build) tag)
+
+renderServiceWithImageIn :: Text -> Deployment -> Text -> ByteString
+renderServiceWithImageIn storeApp dep image = YP.encodePretty knativeConfig (serviceValue storeApp dep image)
 
 -- | Render one DomainMapping YAML document per configured custom domain. An app
 -- with no custom domains renders an empty list (the Knative wildcard URL is used
@@ -355,10 +360,9 @@ serviceAccountPairs Nothing = ["automountServiceAccountToken" .= False]
 serviceAccountPairs (Just account) = ["serviceAccountName" .= serviceAccountNameText account]
 
 containerValue :: Text -> Deployment -> Text -> Value
-containerValue storeApp dep tag =
+containerValue storeApp dep imageStr =
   object (required <> optionals)
   where
-    imageStr = imageRefText (dep ^. #image) <> ":" <> resolveImageTag (dep ^. #build) tag
     portN = portInt (dep ^. #port)
     required =
       [ "image" .= imageStr

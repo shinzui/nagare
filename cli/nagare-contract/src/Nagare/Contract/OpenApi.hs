@@ -33,6 +33,7 @@ import Nagare.Contract.V1
   , Grant
   , HeadSummary
   , ImagePublicationResult
+  , ImageReferenceList
   , InventoryStatusReport
   , NixCacheEndpoint
   , NixCachePushResult
@@ -61,6 +62,7 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @DeployPreview))
   void (declareSchemaRef (Proxy @InventoryStatusReport))
   void (declareSchemaRef (Proxy @PublicationList))
+  void (declareSchemaRef (Proxy @ImageReferenceList))
   void (declareSchemaRef (Proxy @VersionInfo))
   void (declareSchemaRef (Proxy @PlatformVersions))
   void (declareSchemaRef (Proxy @ScopeState))

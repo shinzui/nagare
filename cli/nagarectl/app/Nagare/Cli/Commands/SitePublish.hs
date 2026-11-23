@@ -20,7 +20,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
-import Nagare.Cli.Options (AppImagePlanOpts (..), SiteDeployOpts (..), SitePackageOpts, SitePublishOpts)
+import Nagare.Cli.Options (AppImageInput (..), AppImagePlanOpts (..), SiteDeployOpts (..), SitePackageOpts, SitePublishOpts)
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target (activeProfile, activeTarget, resolveBaseDomain)
@@ -354,8 +354,7 @@ publishImageFor imagePlan receipt =
           withoutDocuments $
             imagePlan
               AppImagePlanOpts
-                { archive = receipt ^. #archive
-                , destination = T.unpack (receipt ^. #destination)
+                { input = ArchiveImage (receipt ^. #archive) (T.unpack (receipt ^. #destination))
                 , key = T.unpack (receipt ^. #key)
                 , buildInputResources = []
                 , buildDockerfile = Nothing

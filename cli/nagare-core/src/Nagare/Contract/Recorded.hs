@@ -10,6 +10,7 @@ module Nagare.Contract.Recorded
   , revisionOf
   , acceptedPublications
   , publicationList
+  , imageReferenceList
   , siteSummary
   , siteList
   , headSummary
@@ -29,6 +30,8 @@ import Nagare.Contract.V1
   , ExecutorClaimSummary (..)
   , Grant (..)
   , HeadSummary (..)
+  , ImageReference (..)
+  , ImageReferenceList (..)
   , MigrationSummary (..)
   , Publication (..)
   , PublicationList (..)
@@ -111,6 +114,9 @@ acceptedPublications accepted =
       , bundle <- scopeBundles declaration
       , Managed resource <- declarations bundle
       , resource ^. #executor == ArtifactExecutor
+      , case resource ^. #spec of
+          ArtifactPublication kindName _ _ _ -> nameText kindName /= "oci-image-reference"
+          _ -> True
       ]
   where
     consumers =
@@ -150,6 +156,28 @@ publicationList accepted = do
       , document = DocumentName
       , publications = items
       }
+
+imageReferenceList :: ContextBinding -> Map ScopeId (ScopeGeneration, ScopeDeclaration) -> Either Text ImageReferenceList
+imageReferenceList binding accepted = do
+  references <-
+    traverse
+      check
+      [ (scope, generationValue, resourceIdText (resource ^. #identity), reference, manifest, spec)
+      | (scope, (generationValue, declaration)) <- Map.toList accepted
+      , scopeKind scope == Types.Publication
+      , bundle <- scopeBundles declaration
+      , Managed resource <- declarations bundle
+      , resource ^. #executor == ArtifactExecutor
+      , Artifact _ manifest <- [resource ^. #address]
+      , ArtifactPublication kind reference spec _ <- [resource ^. #spec]
+      , nameText kind == "oci-image-reference"
+      ]
+  pure (ImageReferenceList ContractVersion1 DocumentName (contextRef binding) (sortOn (^. #resourceId) references))
+  where
+    check (scope, generationValue, identity, reference, manifest, spec) = do
+      let digest = "sha256:" <> digestText manifest
+      unless (spec == manifest && ("@" <> digest) `T.isSuffixOf` reference) (Left "accepted OCI reference has inconsistent digest evidence")
+      pure (ImageReference identity (scopeIdText scope) reference digest (generationNumber generationValue))
 
 siteSummary :: Recorded.RecordedSite -> SiteSummary
 siteSummary site =

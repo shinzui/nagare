@@ -24,6 +24,8 @@ module Nagare.App.Deploy
 
     -- * Rendering + the shared-identity label
   , RolloutEnv (..)
+  , rolloutDigestReference
+  , rolloutReleaseImage
   , renderServiceObjects
   , renderWorkerObjects
   , renderTaskObjects
@@ -50,7 +52,7 @@ import Nagare.Dsl.Build (BuildSpec, resolveImageTag)
 import Nagare.Dsl.Database (Database (..), engineVersionText)
 import Nagare.Dsl.Database.Render (databaseCredentialTemplate, renderDatabase)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Dsl.Render (renderDomainMappings, renderServiceIn, renderVolumeClaims)
+import Nagare.Dsl.Render (renderDomainMappings, renderServiceIn, renderServiceWithImageIn, renderVolumeClaims)
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
   ( Deployment
@@ -64,7 +66,7 @@ import Nagare.Dsl.Types
   , serviceNameText
   )
 import Nagare.Dsl.Worker (Worker)
-import Nagare.Dsl.Worker.Render (renderWorkerIn)
+import Nagare.Dsl.Worker.Render (renderWorkerIn, renderWorkerWithImageIn)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Image (qualifyImage)
 import Nagare.Target (TargetProfile (..), storeBackendFor)
@@ -192,9 +194,14 @@ renderServiceObjects :: RolloutEnv -> Deployment -> Either Text [(Text, ByteStri
 renderServiceObjects env svc0 =
   traverse
     (stamp env "service")
-    (renderVolumeClaims svc <> [renderServiceIn (env ^. #appName) svc (env ^. #imageTag)] <> renderDomainMappings svc)
+    (renderVolumeClaims svc <> [workload] <> renderDomainMappings svc)
   where
     svc = svc0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
+    workload =
+      maybe
+        (renderServiceIn (env ^. #appName) svc (env ^. #imageTag))
+        (renderServiceWithImageIn (env ^. #appName) svc)
+        (rolloutDigestReference env)
 
 -- | Apply the shared image + shared env to a worker, render its PVCs + Deployment,
 -- and stamp the app label on each. The worker inherits the rollout app's managed
@@ -202,9 +209,23 @@ renderServiceObjects env svc0 =
 -- standalone worker, whose rollout app is the worker itself.
 renderWorkerObjects :: RolloutEnv -> Worker -> Either Text [(Text, ByteString)]
 renderWorkerObjects env w0 =
-  traverse (stamp env "worker") (renderWorkerIn (env ^. #appName) w (env ^. #imageTag))
+  traverse (stamp env "worker") manifests
   where
     w = w0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
+    manifests =
+      maybe
+        (renderWorkerIn (env ^. #appName) w (env ^. #imageTag))
+        (renderWorkerWithImageIn (env ^. #appName) w)
+        (rolloutDigestReference env)
+
+rolloutDigestReference :: RolloutEnv -> Maybe Text
+rolloutDigestReference env = do
+  let image = env ^. #taggedAppImage
+  guard ("@" `T.isInfixOf` image)
+  pure image
+
+rolloutReleaseImage :: RolloutEnv -> Text
+rolloutReleaseImage env = fromMaybe (imageRefText (env ^. #qualifiedImage)) (rolloutDigestReference env)
 
 -- | Render a pre-deploy hook Task's CronJob with the shared env flowed in and the
 -- app's resolved image substituted (an inheriting task runs the app's code), then

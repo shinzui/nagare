@@ -31,6 +31,7 @@ import Nagare.Contract.Delivery qualified as DeliveryDocs
 import Nagare.Contract.Events qualified as Events
 import Nagare.Contract.Problem
 import Nagare.Contract.Project
+import Nagare.Contract.Recorded (imageReferenceList)
 import Nagare.Contract.Rendered (RenderedConfiguration)
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..), fromNullable)
 import Nagare.Contract.Sink (clearContractSink, markExecuting, refuseWith, setContractSinkTo, transactionExitCode, transactionOutcome)
@@ -193,6 +194,7 @@ samples :: [Sample]
 samples =
   [ Sample "version-info.json" (versionInfo (BuildVersion "0.6.3" (Just "0123456789abcdef")) Nothing)
   , Sample "publication-list.json" samplePublications
+  , Sample "image-reference-list.json" sampleImageReferences
   , Sample "inventory-status.json" sampleStatus
   , Sample "transaction-outcome-converged.json" (outcomeSample OutcomeConverged)
   , Sample "transaction-outcome-stopped.json" stoppedSample
@@ -496,6 +498,32 @@ acceptedDeclarations =
 
 samplePublications :: PublicationList
 samplePublications = either (error . Text.unpack) id (publicationList acceptedDeclarations)
+
+sampleImageReferences :: ImageReferenceList
+sampleImageReferences = ok (imageReferenceList sampleBinding (Map.singleton scope (ok (mkScopeGeneration 1), declaration)))
+  where
+    scope = ok (mkScopeId Types.Publication "app-image-kizashi-digest")
+    digest = contentDigest "kizashi-manifest"
+    reference = "registry.example/kizashi@sha256:" <> digestText digest
+    resource =
+      ArtifactResourceSpec
+        { artifactLogicalKey = ok (mkLogicalKey "kizashi-digest")
+        , artifactRole = ok (mkName "oci-image")
+        , artifactName = ok (mkName "kizashi-digest")
+        , artifactDestination = reference
+        , artifactContentDigest = digest
+        , artifactSpecDigest = digest
+        , artifactKind = OciImageReferenceArtifact
+        , artifactOwnership = OwnedArtifact
+        , artifactLifecycle = Retain
+        , artifactDataPolicy = Stateless
+        , artifactSensitivity = Private
+        , artifactDependencies = []
+        , artifactConsumers = ConsumerCompletenessUnknown
+        , artifactPublishOperation = False
+        , artifactSource = SourceLocation reference "oci-reference-v1"
+        }
+    declaration = either (error . show) id (compileArtifactScope (ArtifactDeclarationBundle 1 scope (resource :| [])))
 
 sampleBinding :: ContextBinding
 sampleBinding = ContextBinding (ok (mkContextId "intranet")) (ok (mkName "example-project"))

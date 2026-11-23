@@ -28,6 +28,7 @@ review `git diff docs/api/samples`.
 |---|---|---|---|
 | `inventory-status` | `InventoryStatusReport` | read | `nagarectl inventory status --contract 1 [--scope KIND:NAME]` |
 | `publication-list` | `PublicationList` | read | `nagarectl inventory publications --contract 1` |
+| `image-reference-list` | `ImageReferenceList` | read | `nagarectl inventory image-references --contract 1` |
 | `site-list` | `SiteList` | read | `nagarectl site list --contract 1` |
 | `event-list` | `EventList` | read | `nagarectl events list --contract 1`; its items are `GET /v1/events` |
 | `delegation` | `DelegationDocument` | read | `nagarectl delegation show NAME --contract 1` |

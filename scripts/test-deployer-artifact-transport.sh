@@ -23,6 +23,7 @@ cat >"$work/bin/skopeo" <<EOF
 echo "skopeo \$*" >>"$calls"
 case " \$* " in
   *" login "*) cat >/dev/null ;;
+  *" inspect --raw "*docker://*) cat "$work/manifest" ;;
   *" inspect "*docker-archive:*) echo "sha256:\$FAKE_DIGEST" ;;
   *" inspect "*docker://*)
     [ -e "$work/registry" ] && echo "sha256:\$FAKE_DIGEST" || { echo "manifest unknown" >&2; exit 1; } ;;
@@ -77,5 +78,33 @@ grep -q "copy .*docker://$own" "$calls" || fail "deployer publish did not copy t
 if run publish "$own"; then fail "operator published outside the platform repository"; fi
 grep -q 'OCI destination differs from the selected project' "$work/err" || fail "operator publish refused for another reason"
 ! grep -q ' copy ' "$calls" || fail "operator publish reached the registry"
+
+printf '%s' '{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{},"layers":[]}' >"$work/manifest"
+manifest_digest="$(sha256sum "$work/manifest" 2>/dev/null || shasum -a 256 "$work/manifest")"
+manifest_digest="${manifest_digest%% *}"
+reference="${own%:*}@sha256:${manifest_digest}"
+
+run_reference() {
+  local action="$1" reference="$2"
+  : >"$calls"
+  jq -nc --arg reference "$reference" --arg digest "$manifest_digest" '
+    {version:1,resource:"fixture",kind:"OciImageReferenceArtifact",destination:$reference,expectedDigest:$digest,specDigest:$digest,
+      plan:{version:1,resource:"fixture",kind:"OciImageReferenceArtifact",destination:$reference,expectedDigest:$digest,sourceDigest:$digest}}' |
+    env -i PATH="$work/bin:$PATH" HOME="$work" TMPDIR="$work" XDG_CONFIG_HOME="$work/config" \
+      XDG_STATE_HOME="$work/state" NAGARE_CONTEXT=deployer-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+      NAGARE_DEPLOYER=kotei-ci bash "$script" "$action" >"$work/out" 2>"$work/err"
+}
+
+run_reference observe "$reference" || fail "digest reference observation failed"
+jq -e --arg identity "oci://$reference" --arg digest "$manifest_digest" \
+  '.tag == "TransportPresent" and .contents == [$identity, $digest]' "$work/out" >/dev/null ||
+  fail "digest reference observation changed its identity"
+if run_reference observe "$own"; then fail "tag-only reference was accepted"; fi
+if run_reference publish "$reference"; then fail "digest reference reached the publisher"; fi
+[ ! -s "$calls" ] || fail "digest reference publisher ran a registry command"
+printf ' ' >>"$work/manifest"
+if run_reference observe "$reference"; then fail "digest reference accepted different registry bytes"; fi
+rm "$work/manifest"
+if run_reference observe "$reference"; then fail "digest reference accepted a missing manifest"; fi
 
 printf '%s\n' 'deployer artifact transport passed'

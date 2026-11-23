@@ -2,6 +2,7 @@
 module Nagare.Inventory.Application.Bindings
   ( acceptedAccessBinding
   , acceptedApplicationImage
+  , acceptedApplicationImageReference
   , acceptedBrokerBindings
   , acceptedDatabaseBindings
   , acceptedAppDatabaseBindings
@@ -103,20 +104,37 @@ import Nagare.Resource.Types
   , scopeKind
   , scopeName
   )
+import Nagare.Target (parseImageDigestReference)
 
 -- | A reviewed rollout may depend only on an already accepted OCI publication
 -- whose destination is the exact tagged image embedded in its native manifests.
 acceptedApplicationImage :: ScopeSnapshot -> ResourceId -> T.Text -> Either T.Text ()
 acceptedApplicationImage snapshot imageId taggedImage =
-  case [ resource
+  void (acceptedApplicationImageReference Nothing snapshot imageId taggedImage)
+
+-- | A rendered application can consume an independently accepted registry
+-- reference in the same repository as its rendered image. Legacy callers
+-- pass no repository and continue to require an exact tagged publication.
+acceptedApplicationImageReference :: Maybe T.Text -> ScopeSnapshot -> ResourceId -> T.Text -> Either T.Text T.Text
+acceptedApplicationImageReference repository snapshot imageId taggedImage =
+  case [ (scope, resource)
        | (_, scope) <- Map.elems (snapshotScopes snapshot)
        , bundle <- scopeBundles scope
        , Managed resource <- declarations bundle
        , resource ^. #identity == imageId
        ] of
-    [resource] -> case (resource ^. #executor, resource ^. #address, resource ^. #spec) of
-      (ArtifactExecutor, Artifact _ _, ArtifactPublication kind destination _ _)
-        | nameText kind == "oci-image" && destination == taggedImage -> Right ()
+    [(scope, resource)] -> case (resource ^. #executor, resource ^. #address, resource ^. #spec) of
+      (ArtifactExecutor, Artifact _ manifest, ArtifactPublication kind destination specDigest _)
+        | nameText kind == "oci-image" && destination == taggedImage -> Right taggedImage
+        | nameText kind == "oci-image-reference"
+        , Just expected <- repository
+        , scopeKind (scopeId scope) == Publication
+        , resource ^. #owner == scopeId scope -> do
+            (actual, digest) <- parseImageDigestReference destination
+            unless
+              (actual == expected && digest == manifest && digest == specDigest)
+              (Left "accepted image reference differs from the rendered image repository or manifest")
+            pure destination
         -- F116: say which two images differ and what to change.
         | nameText kind == "oci-image" ->
             Left
@@ -154,7 +172,7 @@ acceptedImageBuildSecrets snapshot imageId cluster appName namespaceName = do
     ( scopeKind (scopeId imageScope) == Publication
         && image ^. #owner == scopeId imageScope
         && case image ^. #spec of
-          ArtifactPublication kind _ _ _ -> nameText kind == "oci-image"
+          ArtifactPublication kind _ _ _ -> nameText kind `elem` ["oci-image", "oci-image-reference"]
           _ -> False
     )
     (Left "Build inputs require an accepted OCI publication")

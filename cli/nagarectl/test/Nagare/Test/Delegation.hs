@@ -375,7 +375,7 @@ commandTests =
       guardDeployerCommand (DeployerActor "kotei") ["env", "set", "X=1"] @?= Left (T.concat ["nagarectl env set is not available in deployer context kotei; ", allowedText])
   ]
   where
-    allowedText = "a delegated deployer may run app image-plan|check|deploy|delete, worker deploy, task run|delete, site deploy|rollback|preview, inventory apply|resume|status|publications|history, delegation show and version"
+    allowedText = "a delegated deployer may run app image-plan|check|deploy|delete, worker deploy, task run|delete, site deploy|rollback|preview, inventory apply|resume|status|publications|image-references|history, delegation show and version"
     table =
       [ (["version"], True)
       , (["release", "publish"], False)
@@ -383,6 +383,7 @@ commandTests =
       , (["inventory", "resume", "tx"], True)
       , (["inventory", "status"], True)
       , (["inventory", "publications"], True)
+      , (["inventory", "image-references"], True)
       , (["inventory", "history"], True)
       , (["inventory", "plan"], False)
       , (["inventory", "retire"], False)

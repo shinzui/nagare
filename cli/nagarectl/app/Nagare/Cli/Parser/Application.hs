@@ -13,6 +13,7 @@ import Nagare.Cli.Options
   , AppDeleteOpts (..)
   , AppDeployOpts (..)
   , AppGetOpts (..)
+  , AppImageInput (..)
   , AppImagePlanOpts (..)
   , AppListOpts (..)
   , AppLogsOpts (..)
@@ -111,8 +112,12 @@ deployOptsParser defaultFile =
 appImagePlanOptsParser :: Parser AppImagePlanOpts
 appImagePlanOptsParser =
   AppImagePlanOpts
-    <$> strOption (long "archive" <> metavar "FILE" <> help "Docker archive to bind by SHA-256")
-    <*> strOption (long "destination" <> metavar "IMAGE:TAG" <> help "Exact registry tag to publish")
+    <$> ( ArchiveImage
+            <$> strOption (long "archive" <> metavar "FILE" <> help "Docker archive to bind by SHA-256")
+            <*> strOption (long "destination" <> metavar "IMAGE:TAG" <> help "Exact registry tag to publish")
+              <|> RegistryImage
+            <$> strOption (long "registry-reference" <> metavar "REPOSITORY@sha256:DIGEST" <> help "Review an existing registry image by manifest digest. Requires --save-plan.")
+        )
     <*> strOption (long "key" <> metavar "KEY" <> help "Stable publication key")
     <*> many (strOption (long "build-input-resource" <> metavar "RESOURCE-ID" <> help "Exact accepted Build environment or Secret channel used to prepare this archive"))
     <*> optional (strOption (long "build-dockerfile" <> metavar "FILE" <> help "Build the archive locally with this Dockerfile and accepted Build inputs"))
@@ -415,7 +420,7 @@ appSubparser =
           "image-plan"
           ( info
               (withReviewSource False (AppImagePlan <$> appImagePlanOptsParser) <**> helper)
-              (progDesc "Publish an application OCI archive through review, or save the review for separate apply")
+              (progDesc "Review an application OCI archive or an existing registry digest")
           )
     )
 

@@ -40,6 +40,8 @@ module Nagare.Contract.V1
   , InventoryStatusReport (..)
   , Publication (..)
   , PublicationList (..)
+  , ImageReference (..)
+  , ImageReferenceList (..)
   , VersionInfo (..)
   , SiteKind (..)
   , RecordState (..)
@@ -299,6 +301,23 @@ data PublicationList = PublicationList
   { contractVersion :: !ContractVersion
   , document :: !(DocumentName "publication-list")
   , publications :: ![Publication]
+  }
+  deriving stock (Eq, Show, Generic)
+
+data ImageReference = ImageReference
+  { resourceId :: !Text
+  , scope :: !Text
+  , reference :: !Text
+  , manifestDigest :: !Text
+  , generation :: !Integer
+  }
+  deriving stock (Eq, Show, Generic)
+
+data ImageReferenceList = ImageReferenceList
+  { contractVersion :: !ContractVersion
+  , document :: !(DocumentName "image-reference-list")
+  , context :: !ContextRef
+  , references :: ![ImageReference]
   }
   deriving stock (Eq, Show, Generic)
 
@@ -566,6 +585,18 @@ instance ToJSON PublicationList where toJSON = genericToJSON recordOptions
 instance FromJSON PublicationList where parseJSON = genericParseJSON recordOptions
 
 instance ToSchema PublicationList where declareNamedSchema = recordSchema
+
+instance ToJSON ImageReference where toJSON = genericToJSON recordOptions
+
+instance FromJSON ImageReference where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema ImageReference where declareNamedSchema = recordSchema
+
+instance ToJSON ImageReferenceList where toJSON = genericToJSON recordOptions
+
+instance FromJSON ImageReferenceList where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema ImageReferenceList where declareNamedSchema = recordSchema
 
 instance ToJSON VersionInfo where toJSON = genericToJSON versionOptions
 

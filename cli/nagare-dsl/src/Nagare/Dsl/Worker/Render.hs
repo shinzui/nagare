@@ -17,6 +17,7 @@
 module Nagare.Dsl.Worker.Render
   ( renderWorker
   , renderWorkerIn
+  , renderWorkerWithImageIn
   , renderWorkerDeployment
   , workerDeploymentName
   )
@@ -68,12 +69,19 @@ renderWorker w = renderWorkerIn (nameText w) w
 -- an Application's worker inherits the Application's store, not one of its own.
 renderWorkerIn :: Text -> Worker -> Text -> [ByteString]
 renderWorkerIn storeApp w tag =
+  renderWorkerWithImageIn storeApp w (taggedImage w tag)
+
+renderWorkerWithImageIn :: Text -> Worker -> Text -> [ByteString]
+renderWorkerWithImageIn storeApp w image =
   renderPersistentVolumeClaims (nameText w) (nsText w) (w ^. #volumes)
-    <> [YP.encodePretty workerConfig (deploymentValue storeApp w tag)]
+    <> [YP.encodePretty workerConfig (deploymentValue storeApp w image)]
 
 -- | Render the single @apps/v1@ Deployment document for a standalone worker.
 renderWorkerDeployment :: Worker -> Text -> ByteString
-renderWorkerDeployment w tag = YP.encodePretty workerConfig (deploymentValue (nameText w) w tag)
+renderWorkerDeployment w tag = YP.encodePretty workerConfig (deploymentValue (nameText w) w (taggedImage w tag))
+
+taggedImage :: Worker -> Text -> Text
+taggedImage w tag = imageRefText (w ^. #image) <> ":" <> resolveImageTag (w ^. #build) tag
 
 -- ---------------------------------------------------------------------------
 -- Shared helpers.
@@ -135,7 +143,7 @@ deploymentValue storeApp w tag =
     ]
 
 containerValue :: Text -> Worker -> Text -> Value
-containerValue storeApp w tag =
+containerValue storeApp w imageStr =
   object
     ( [ "name" .= nameText w
       , "image" .= imageStr
@@ -147,8 +155,6 @@ containerValue storeApp w tag =
         <> probesField (w ^. #readiness) (w ^. #liveness)
         <> volumeMountsField (w ^. #volumes)
     )
-  where
-    imageStr = imageRefText (w ^. #image) <> ":" <> resolveImageTag (w ^. #build) tag
 
 -- | The Pod's termination allowance, omitted when the worker declares none.
 shutdownPairs :: Maybe ShutdownSeconds -> [Pair]

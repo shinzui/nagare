@@ -1806,6 +1806,65 @@
         ],
         "type": "object"
       },
+      "ImageReference": {
+        "properties": {
+          "generation": {
+            "type": "integer"
+          },
+          "manifestDigest": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resourceId",
+          "scope",
+          "reference",
+          "manifestDigest",
+          "generation"
+        ],
+        "type": "object"
+      },
+      "ImageReferenceList": {
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/ContextRef"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "image-reference-list"
+            ],
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/ImageReference"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "context",
+          "references"
+        ],
+        "type": "object"
+      },
       "InstalledRelease": {
         "properties": {
           "installedAt": {

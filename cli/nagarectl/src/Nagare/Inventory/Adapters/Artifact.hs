@@ -110,7 +110,10 @@ mkArtifactAdapter specs ops =
       Right plan
         | verifying operation -> verificationRecovery plan <$> artifactInspectRemote ops plan
         | otherwise -> recoveryObservation plan <$> artifactInspectRemote ops plan
-    verifying operation = plannedAction operation == VerifyResource
+    verifying operation =
+      plannedAction operation == VerifyResource
+        || any isReference (plannedResources operation)
+    isReference resource = maybe False ((== OciImageReferenceArtifact) . executionArtifactKind) (Map.lookup resource specs)
 
 validatePlan :: Map ResourceId ArtifactExecutionSpec -> PlannedOperation -> ArtifactMutationPlan -> Either PrepareError ()
 validatePlan specs operation plan
