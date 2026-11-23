@@ -2,6 +2,8 @@
 
 ## 2026-11-23
 
+* **Addition**: Filed [IR-53](review-an-existing-application-image-by-registry-digest.md) for reviewed deployment of an existing registry digest.
+
 * **Add**: Record [IR-52](enable-lifecycle-events-through-the-standard-cloud-rollout.md) from mori://tan/tan-ng-labs/plans/24-show-nagare-change-events-in-the-portal-admin to bring the context review, GCS permissions and worker startup fixes into the standard Nagare cloud rollout.
 
 ## 2026-11-22
