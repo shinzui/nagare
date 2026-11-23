@@ -180,9 +180,11 @@ spec:
               mountPath: /var/run/nagare
               readOnly: true
       volumes:
+        # Backup archives stream here while they are verified, up to four at a time; the
+        # work intranet's reach 999 MiB (EP-281).
         - name: tmp
           emptyDir:
-            sizeLimit: 256Mi
+            sizeLimit: 6Gi
         - name: cache
           emptyDir:
             sizeLimit: 256Mi
