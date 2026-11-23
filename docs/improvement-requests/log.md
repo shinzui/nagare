@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-11-23
+
+* **Add**: Record [IR-52](enable-lifecycle-events-through-the-standard-cloud-rollout.md) from mori://tan/tan-ng-labs/plans/24-show-nagare-change-events-in-the-portal-admin to bring the context review, GCS permissions and worker startup fixes into the standard Nagare cloud rollout.
+
 ## 2026-11-22
 
 * **Update**: IR-36 (accepted → completed), IR-38 (proposed → completed) and IR-44 (accepted → completed). ExecPlan 222 records the packaging drill, ExecPlan 236 records the v0.14.1 live version comparisons, and mori://shinzui/kotei/plans/135-package-and-run-kotei-as-a-nagare-application records the native AC-5 confirmation for IR-44.
