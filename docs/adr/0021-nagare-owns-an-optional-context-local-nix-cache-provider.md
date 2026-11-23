@@ -63,3 +63,12 @@ ConfigMap and requires coordinated trust refresh, while database restore should 
 
 The cache improves only closure transfer on a hit. It is not an OCI registry, source of truth,
 cross-context trust federation, or replacement for Nagare's public development/release Cachix.
+
+Amendment (2026-11-22, [ExecPlan 278](../plans/278-let-a-context-choose-the-attic-nar-size-threshold-so-gcs-cache-hits-redirect.md)):
+each context chooses Attic's chunking layout with `NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD`. Only a
+single-chunk NAR is served as a presigned GCS redirect; a chunked NAR is reassembled and streamed
+through the cache Pod, which made GCS-backed hits slower than the public cache (BUG-11). `0` stores
+every NAR whole and gives up cross-NAR chunk deduplication, so GCS usage grows. The default stays
+`65536`, and its rendered server configuration is byte-identical to earlier releases, so a context
+that does not opt in sees no rollout. The setting applies to new uploads only; moving existing
+chunked NARs is an operator reseed that keeps the cache row and therefore the signing key.

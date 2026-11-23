@@ -168,6 +168,7 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_NIX_CACHE_ENABLED` | `0` | cloud-only Attic opt-in (`0` or `1`) |
 | `NAGARE_CDN_ENABLED` | `0` | cloud-only Google CDN opt-in (`0` or `1`); projects `nagare:enableCdn` and `nagare:cdnApex: false` |
 | `NAGARE_NIX_CACHE_BUCKET` | `tan-nb-exp-nagare-nix-cache` | `<project>-nagare-nix-cache` |
+| `NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD` | `65536` | bytes; Attic splits a newly pushed NAR this large or larger into chunks. `0` stores every NAR whole, so a cache hit redirects to GCS. A malformed value is an error. See [Choose the chunking threshold](nix-binary-cache.md#choose-the-chunking-threshold). |
 | `NAGARE_BASE_DOMAIN` | `apps.example.com` | wildcard apps domain |
 | `NAGARE_ACME_EMAIL` | — (none) | Let's Encrypt contact for the cluster's ACME account. **No default**; rendering the `letsencrypt-dns` ClusterIssuer refuses without it. See [ACME identity](contexts.md#acme-identity). |
 | `NAGARE_ACME_DIRECTORY` | `production` | ACME service: `production`, `staging` (untrusted certs, looser rate limits), or an absolute `https://` directory URL. An unrecognized value is an error, not a fallback. |

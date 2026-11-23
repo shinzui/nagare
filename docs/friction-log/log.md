@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-23
+* **Addition**: FRIC-20 records detour environment friction with mori://shinzui/nagare: Apple containers cannot start the pinned Attic image
+
 ## 2026-11-22
 
 * **Update**: FRIC-19 accepted: Accepted: the rehearsal proves releases, and pinning service images there would change what a release rehearsal proves.

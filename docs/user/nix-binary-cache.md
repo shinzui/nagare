@@ -125,6 +125,136 @@ To prove a cache hit, use `cluster/bootstrap/nix-cache/smoke-pod.yaml`. Its posi
 sets `--max-jobs 0` and disables fallback, so it cannot silently build. The negative Pod
 uses the same cache with a wrong public key and must fail signature verification.
 
+## Choose the chunking threshold
+
+Attic splits a newly pushed NAR into content-defined chunks when the NAR is at least
+`NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD` bytes; the default is `65536`. A client that downloads a
+single-chunk NAR gets an HTTP 307 redirect to a presigned GCS URL and reads the object directly. A
+chunked NAR is fetched chunk by chunk from GCS and streamed through the cache Pod. On a real
+context that made one Bun NAR take about 20 seconds instead of under half a second, and made a
+build slower with the cache preferred than with the public cache alone
+([BUG-11](../bug-reports/forced-attic-chunking-slows-gcs-cache-hits.md)).
+
+Set the threshold to `0` to store every NAR whole, so every hit is a redirect. The cost is chunk
+deduplication: two NARs that share most of their bytes, such as successive builds of one package,
+are stored twice, so the bucket grows faster. Keep the default when GCS usage matters more than
+pull speed. The chunk size settings have no effect when the threshold is `0`.
+
+Opt in by adding one line to the context file and running normal bootstrap:
+
+```bash
+export NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD=0
+```
+
+```bash
+nagare cluster-bootstrap
+kubectl -n nagare-system get configmap nagare-nix-cache-server \
+  -o jsonpath='{.data.server\.toml}' | grep nar-size-threshold
+# nar-size-threshold = 0
+```
+
+`nagarectl context create NAME --force --nix-cache-nar-size-threshold 0` writes the same line.
+The value is read from the stored context, so a shell variable cannot change it. Bootstrap rolls
+Attic out under a new revision. The setting changes only how new uploads are stored: a NAR that
+is already chunked stays chunked, and a repush reuses it. To move those NARs, follow the next
+section. Setting the threshold back and bootstrapping restores the old layout for new uploads;
+NARs stored whole keep working.
+
+## Move existing NARs to whole-object storage
+
+Run this once on a context after its bootstrap has rolled out the zero threshold. It removes
+the cache entries that point at chunked NARs, lets Attic's garbage collector delete those NARs,
+and repushes. It never touches the cache row, which holds the NAR signing key, so consumer trust
+and `nagare-nix-cache-client` do not change. Consumers miss on the removed paths and fall back to
+their other substituters until the repush finishes. Until the procedure ends, push nothing
+except the repush below and do not run bootstrap: an early push can attach a path to a chunked
+NAR again, and bootstrap clears the CronJob suspension.
+
+Record the public key so you can compare it at the end, and hold scheduled collection:
+
+```bash
+nagare nix-cache-status          # note the public key
+kubectl -n nagare-system patch cronjob nix-cache-gc -p '{"spec":{"suspend":true}}'
+```
+
+Run SQL in the cache database. Confirm the Pod name with `kubectl -n nagare-system get pods`:
+
+```bash
+attic_sql() { kubectl -n nagare-system exec -i nix-cache-db-0 -- \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'; }
+```
+
+Inspect the scope. Only `nagare-cache` should exist:
+
+```bash
+attic_sql <<'SQL'
+SELECT name FROM cache;
+SELECT count(*) AS chunked_nars, coalesce(sum(nar_size), 0) AS bytes FROM nar WHERE num_chunks > 1;
+SQL
+```
+
+Copy the entries you are about to remove into a side table, then remove them, in one
+transaction. The copy is the rollback until garbage collection runs:
+
+```bash
+attic_sql <<'SQL'
+BEGIN;
+CREATE TABLE nagare_reseed_object AS
+  SELECT o.* FROM object o
+    JOIN nar n ON n.id = o.nar_id
+    JOIN cache c ON c.id = o.cache_id
+   WHERE c.name = 'nagare-cache' AND n.num_chunks > 1;
+DELETE FROM object WHERE id IN (SELECT id FROM nagare_reseed_object);
+COMMIT;
+SELECT count(*) AS removed FROM nagare_reseed_object;
+SQL
+```
+
+To roll back at this point, put the entries back, drop the copy and resume the CronJob. Every
+chunk is still in GCS, so the cache serves exactly what it served before:
+
+```bash
+attic_sql <<'SQL'
+INSERT INTO object SELECT * FROM nagare_reseed_object;
+DROP TABLE nagare_reseed_object;
+SQL
+kubectl -n nagare-system patch cronjob nix-cache-gc -p '{"spec":{"suspend":false}}'
+```
+
+Otherwise run garbage collection once. It deletes the NARs that no entry references and their
+chunks:
+
+```bash
+kubectl -n nagare-system create job --from=cronjob/nix-cache-gc nix-cache-gc-reseed
+kubectl -n nagare-system wait --for=condition=complete --timeout=30m job/nix-cache-gc-reseed
+attic_sql <<'SQL'
+SELECT count(*) FROM nar WHERE num_chunks > 1;
+SQL
+```
+
+The collector logs only its banner, so this count is the check: it must be `0`. If it is not, a push attached a path to a chunked NAR: repeat the copy,
+delete and collection steps, appending to the side table with `INSERT INTO nagare_reseed_object
+SELECT ...` instead of `CREATE TABLE`. One run deletes at most 65535 chunks from GCS; later
+scheduled runs delete the rest, which costs only bucket space. From here there is no rollback:
+the removed NARs are gone, so repush instead. The cache is transport, and every closure is
+reproducible from its producer.
+
+Repush the producer closures, drop the copy, and resume scheduled collection:
+
+```bash
+nagarectl nix-cache push "$(nix build .#your-output --no-link --print-out-paths)"
+attic_sql <<'SQL'
+DROP TABLE nagare_reseed_object;
+SQL
+kubectl -n nagare-system patch cronjob nix-cache-gc -p '{"spec":{"suspend":false}}'
+nagare nix-cache-status          # the public key must match the one you noted
+```
+
+A repushed NAR now redirects. From an opted-in Pod, `curl -s -o /dev/null -w '%{http_code}\n'`
+against its `nar/` URL from the path's `.narinfo` prints `307`. Every step is safe to repeat: a
+second delete finds no rows, a second collection finds no orphans, and the push skips paths the
+cache already holds.
+
 ## Observe and maintain it
 
 ```bash

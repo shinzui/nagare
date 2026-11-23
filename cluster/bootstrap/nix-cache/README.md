@@ -21,7 +21,11 @@ It writes only sops ciphertext to the context-owned secrets directory. Then run
 automatically when enabled. `nagare nix-cache-status` reports the public
 configuration without credentials.
 
-Attic's S3 backend returns presigned GCS redirects for single-chunk NARs.
+Attic's S3 backend returns presigned GCS redirects for single-chunk NARs. A NAR
+is pushed as one chunk when it is smaller than `[chunking] nar-size-threshold`,
+which bootstrap renders from the context's `NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD`
+(default `65536`; `0` never chunks). Attic streams a multi-chunk NAR through the
+server instead, which is slow against GCS (BUG-11).
 Opted-in clients therefore receive unrestricted TCP 443 egress in v1; Kubernetes
 NetworkPolicy cannot constrain it to `storage.googleapis.com` by hostname. The
 kube-router policy controller also has a short reconciliation window for newly

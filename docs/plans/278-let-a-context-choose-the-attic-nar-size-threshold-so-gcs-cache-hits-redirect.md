@@ -62,13 +62,21 @@ the build that uses the public substituter alone.
   gate-commit` green (nagarectl suite, 121 s). The parser lives in `Nagare.Target.Kinds` and the
   context-map lookups moved to `Nagare.Target.ContextFile`, because the architecture audit refuses
   modules over 1000 lines.
-- [ ] M2: Documentation and reseed procedure. `docs/user/reference.md`,
+- [x] M2 (2026-11-22): Documentation and reseed procedure. `docs/user/reference.md`,
   `docs/user/nix-binary-cache.md`, `cluster/bootstrap/nix-cache/README.md` and an ADR 21 amendment
   describe the choice and its trade-off. The user guide gains a reseed procedure that preserves the
   signing key and has a rollback at each step. The procedure has been rehearsed once against a
   disposable Attic, PostgreSQL and S3-compatible store in local Apple containers. In that rehearsal a
   NAR that was chunked before returned 307 after the reseed, and `nix store verify --sigs-needed 1`
   passed.
+  Evidence (Apple containers: pinned Attic amd64 binaries, PostgreSQL 18, MinIO): at `65536` a
+  9.3 MB NAR was stored as 136 chunks and served `200`; a repush at `0` without the reseed still
+  served `200`. The side-table delete gave `404` and its rollback `200`. One collection took the
+  bucket from 137 objects to 1 and the chunked count to `0`. After the repush the NAR returned `307`
+  (and a single-chunk control path `307`), the public key `nagare-cache:det4T+…` was unchanged, a
+  60-path closure copied into a fresh store with `require-sigs`, `--max-jobs 0` and `fallback false`,
+  `nix store verify --sigs-needed 1 -r` passed, and a wrong key was refused as untrusted. The pinned
+  image would not start under Apple containers as published ([FRIC-20](../friction-log/20-apple-containers-cannot-start-the-pinned-attic-image.md)).
 - [ ] M3: Labs rollout, which needs the operator's go-ahead. A release containing M1 is upgraded onto
   Labs. Labs sets the threshold to `0` and bootstraps, and the reseed runs. From a fresh Job, the
   Bun 1.4.2 and Caddy 2.11.7 NARs return 307 and download in under 1 second, and signed pulls pass
@@ -79,7 +87,11 @@ the build that uses the public substituter alone.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `nagarectl db restore` restores only into a new scratch database
+  (`docs/user/backups-and-disaster-recovery.md`), so the planned `db backup` could not roll the
+  reseed's delete back in place. This changed the reseed's rollback; see the Decision Log.
+- Attic's collector prints only its banner at the default log level, so the procedure checks
+  `SELECT count(*) FROM nar WHERE num_chunks > 1` instead of a `Deleted N orphan NARs` line.
 
 
 ## Decision Log
@@ -111,6 +123,17 @@ the build that uses the public substituter alone.
   steps and fewer tools.
   Date: 2026-11-22
 
+
+- Decision: The reseed copies the `object` rows it removes into a side table,
+  `nagare_reseed_object`, in the same transaction, instead of taking a `nagarectl db backup` first.
+  Rollback before collection is `INSERT INTO object SELECT * FROM nagare_reseed_object`.
+  Rationale: `db restore` restores only into a scratch database, so it could not undo the delete.
+  Nothing references `object`, and `chunkref` cascades only on NAR deletion
+  (`server/src/database/migration/` in the pinned Attic), so the copy restores the cache exactly
+  while every chunk is still in GCS. It is one SQL statement rather than a reviewed backup flow,
+  and the cache row with the signing key is never touched, so the daily
+  `nagare-dbbackup-nix-cache` backup remains the signing-identity boundary.
+  Date: 2026-11-22
 
 ## Outcomes & Retrospective
 
@@ -274,57 +297,24 @@ cabal test nagarectl-test --test-option=-p --test-option='/cache inventory adapt
 cabal test nagarectl-test --test-option=-p --test-option='/context/'
 ```
 
-The reseed procedure for `docs/user/nix-binary-cache.md`, M2 and M3. Run it against the active
-cloud context after bootstrap has rolled out the zero threshold:
+The reseed procedure, for M2 and M3, is the section "Move existing NARs to whole-object storage"
+in `docs/user/nix-binary-cache.md`. Run it against the active cloud context after bootstrap has
+rolled out the zero threshold. In order:
 
-```bash
-# 1. Prove the server now runs with chunking disabled.
-kubectl -n nagare-system get configmap nagare-nix-cache-server -o jsonpath='{.data.server\.toml}' | grep nar-size-threshold
-# expect: nar-size-threshold = 0
+1. Note the public key from `nagare nix-cache-status` and suspend CronJob `nix-cache-gc`.
+2. In `nix-cache-db-0`, inspect `SELECT name FROM cache` and the count of `nar` rows with
+   `num_chunks > 1`.
+3. In one transaction, copy the `nagare-cache` `object` rows whose NAR has `num_chunks > 1` into
+   `nagare_reseed_object`, then delete them from `object`.
+4. Run `nix-cache-gc` once as a Job and confirm `SELECT count(*) FROM nar WHERE num_chunks > 1`
+   returns `0`.
+5. Repush the producer closures, drop `nagare_reseed_object`, resume the CronJob, and compare
+   the public key.
 
-# 2. Take a fresh, reviewed metadata backup; it is the rollback point until step 5.
-nagarectl db backup nix-cache-db --backup-id reseed-YYYYMMDD --save-plan ./nix-cache-reseed-backup
-# apply the saved review as docs/user/backups-and-disaster-recovery.md describes, then
-# accept its receipt with `nagarectl db backup-receipt nix-cache-db --backup-id ...`
-
-# 3. Hold scheduled collection so nothing runs between steps.
-kubectl -n nagare-system patch cronjob nix-cache-gc -p '{"spec":{"suspend":true}}'
-```
-
-If `db backup` does not accept the platform-owned `nix-cache-db`, take a backup another way:
-trigger the `nagare-dbbackup-nix-cache` CronJob and accept that run's receipt. Record which path
-worked in the user guide. Step 4 runs `psql` inside the database Pod, following the `q()` helper
-in `docs/user/managed-databases.md`, with namespace `nagare-system` and the Pod name confirmed by
-`kubectl -n nagare-system get pods`. Before running it, confirm the table and column names
-(`cache.name`, `object.cache_id`, `object.nar_id`, `nar.num_chunks`) in the pinned Attic source
-under `server/src/database/entity/` and `server/src/database/migration/`.
-
-```sql
--- 4a. Inspect the scope: only nagare-cache exists, and how many chunked NARs it holds.
-SELECT name FROM cache;
-SELECT count(*) AS chunked_nars, coalesce(sum(nar_size), 0) AS bytes FROM nar WHERE num_chunks > 1;
--- 4b. Remove the cache entries that point at chunked NARs. Signing keys are untouched.
-BEGIN;
-DELETE FROM object o USING nar n, cache c
- WHERE o.nar_id = n.id AND o.cache_id = c.id
-   AND c.name = 'nagare-cache' AND n.num_chunks > 1;
-COMMIT;
-```
-
-```bash
-# 5. Reap the orphaned NARs and their chunks once, so repushes cannot deduplicate onto them.
-kubectl -n nagare-system create job --from=cronjob/nix-cache-gc nix-cache-gc-reseed
-kubectl -n nagare-system logs -f job/nix-cache-gc-reseed   # expect "Deleted N orphan NARs"
-
-# 6. Repush the producer closures (consumers miss and fall back until this finishes).
-nagarectl nix-cache push "$(nix build .#your-output --no-link --print-out-paths)"
-
-# 7. Resume scheduled collection.
-kubectl -n nagare-system patch cronjob nix-cache-gc -p '{"spec":{"suspend":false}}'
-```
-
-After step 5, `SELECT count(*) FROM nar WHERE num_chunks > 1;` returns `0`. A bootstrap run during
-the procedure clears the CronJob's suspension, so do not bootstrap until step 7.
+Do not push anything else and do not bootstrap during the procedure: an early push can reattach
+a path to a chunked NAR, and bootstrap clears the CronJob suspension. The local rehearsal ran
+the same SQL with `container exec -i ep278-pg` in place of `kubectl exec` and
+`atticd --mode garbage-collector-once` in place of the CronJob.
 
 
 ## Validation and Acceptance
@@ -354,17 +344,16 @@ single-chunk NAR the same way.
 
 The reseed's rollback depends on how far it got:
 
-- Before step 4, resume the CronJob. Nothing has changed.
-- After step 4 and before step 5, every chunk is still in GCS. Restore `nix-cache-db` from the
-  step-2 backup with the reviewed `nagarectl db restore` flow in
-  `docs/user/backups-and-disaster-recovery.md`. The deleted objects come back with the same
-  signing key. Then resume the CronJob.
-- After step 5, the chunks of the removed NARs are gone, so a restore would point at missing data.
-  Repush instead. The cache is transport (ADR 21), and every closure is reproducible from its
-  producer.
+- Before step 3, resume the CronJob. Nothing has changed.
+- After step 3 and before step 4, every chunk is still in GCS. Run
+  `INSERT INTO object SELECT * FROM nagare_reseed_object`, drop the table and resume the CronJob.
+  The cache serves exactly what it served before, under the same signing key.
+- After step 4, the chunks of the removed NARs are gone. Repush instead. The cache is transport
+  (ADR 21), and every closure is reproducible from its producer.
 
-Steps 4 to 7 are safe to repeat. A second delete finds no rows, a second collection finds no
-orphans, and Attic skips paths the cache already holds.
+Steps 3 to 5 are safe to repeat. A second delete finds no rows (append to the side table rather
+than recreate it), a second collection finds no orphans, and Attic skips paths the cache already
+holds.
 
 
 ## Interfaces and Dependencies
