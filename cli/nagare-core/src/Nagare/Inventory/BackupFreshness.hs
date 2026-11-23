@@ -19,7 +19,7 @@ module Nagare.Inventory.BackupFreshness
 where
 
 import Crypto.Hash (Digest, SHA256, hash)
-import Data.ByteArray qualified as BA
+import Data.Char (digitToInt)
 import Data.List (foldl', sortOn)
 import Data.Ord (Down (..))
 import Data.Text (Text)
@@ -83,10 +83,11 @@ producerSchedule staggered objective name
   | staggered = staggeredRecoveryPointSchedule objective name
   | otherwise = recoveryPointSchedule objective
 
--- | The first eight bytes of SHA-256 of the CronJob name, big-endian, modulo 15.
+-- | The first eight bytes of SHA-256 of the CronJob name, big-endian, modulo 15
+-- (read from the digest's hexadecimal text, so no byte-array instance is needed).
 hourlyScheduleOffset :: Text -> Int
 hourlyScheduleOffset name =
-  fromInteger (foldl' (\acc byte -> acc * 256 + toInteger byte) 0 (take 8 (BA.unpack digest)) `mod` 15)
+  fromInteger (foldl' (\acc digit -> acc * 16 + toInteger (digitToInt digit)) 0 (take 16 (show digest)) `mod` 15)
   where
     digest = hash (TE.encodeUtf8 name) :: Digest SHA256
 
