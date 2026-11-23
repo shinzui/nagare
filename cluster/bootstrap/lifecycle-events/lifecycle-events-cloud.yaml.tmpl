@@ -142,13 +142,15 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # The work intranet's worker exceeded 512Mi in its collection cycle on 2026-11-23
+          # (OOMKilled within minutes of activation); 2Gi bounds it while that is profiled.
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: "1"
-              memory: 512Mi
+              memory: 2Gi
           # The first activation may need a cold download of the inventory journal.
           startupProbe:
             httpGet:
