@@ -125,6 +125,7 @@ export class NagareLifecycleWorker extends pulumi.ComponentResource {
 // any other prefix gets `-lifecycle/v1` appended.
 export function lifecyclePrefix(inventoryPrefix: string): string {
     const trimmed = inventoryPrefix.replace(/\/+$/, "");
+    if (trimmed === "inventory") return "lifecycle/v1";
     return trimmed.endsWith("/inventory")
         ? `${trimmed.slice(0, -"/inventory".length)}/lifecycle/v1`
         : `${trimmed}-lifecycle/v1`;

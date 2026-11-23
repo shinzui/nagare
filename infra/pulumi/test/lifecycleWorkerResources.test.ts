@@ -116,6 +116,7 @@ async function main(): Promise<void> {
     assert(lifecyclePrefix("nagare/intranet/inventory") === "nagare/intranet/lifecycle/v1", "the feed prefix differs from the inventory's sibling");
     assert(lifecyclePrefix("nagare/intranet/inventory/") === "nagare/intranet/lifecycle/v1", "a trailing slash changes the feed prefix");
     assert(lifecyclePrefix("nagare/intranet/store") === "nagare/intranet/store-lifecycle/v1", "a non-inventory prefix does not get the -lifecycle/v1 suffix");
+    assert(lifecyclePrefix("inventory") === "lifecycle/v1", "a bare inventory prefix does not map to the worker's feed at the bucket root");
     process.stdout.write("lifecycle worker resources: OK\n");
 }
 

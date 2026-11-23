@@ -10,6 +10,8 @@
 module Nagare.Inventory.ScheduleHistory
   ( convergedScheduleRevisions
   , convergedScheduleRevisionsIn
+  , convergedReviewDocuments
+  , convergedScheduleRevisionsFromReviews
   , convergedReviews
   )
 where
@@ -18,13 +20,13 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Events.ChangeOutcome (loadReviewDocument)
 import Nagare.Inventory.Journal (JournalEvent (..), OperationState (Completed), decodeJournalEvent)
 import Nagare.Inventory.ObservationNative (ObservationNativeError (..), loadObservationNativeChecked, observationKubernetes)
-import Nagare.Inventory.Plan.Publication (loadPublishedReview)
-import Nagare.Inventory.Plan.Types (ReviewDocument (..), reviewBundleDocument, reviewBundleScopes)
+import Nagare.Inventory.Plan.Types (ReviewDocument (reviewDesiredRevisions))
 import Nagare.Inventory.ScopeMember (decodeScopeMember)
 import Nagare.Inventory.Store (HeadManifest (headSequence), InventoryStore, readJournalPrefix, readObject, revisionDigest, scopeKey)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource, ResourceBundle (declarations), scopeBundles)
@@ -44,32 +46,34 @@ convergedScheduleRevisions store headValue cron = do
 -- caller resolving several schedules reads the journal once (EP-233).
 convergedScheduleRevisionsIn :: InventoryStore -> [JournalEvent] -> ManagedResource -> IO (Either Text [ByteString])
 convergedScheduleRevisionsIn store events cron = do
-  revisions <- traverse revisionIn (convergedReviews events)
-  pure (nub . catMaybes <$> sequence revisions)
+  reviews <- convergedReviewDocuments store events
+  either (pure . Left) (\docs -> convergedScheduleRevisionsFromReviews store docs cron) reviews
+
+-- | Read each converged review's digest-verified document once. The callers
+-- that resolve several schedules share the decoded documents.
+convergedReviewDocuments :: InventoryStore -> [JournalEvent] -> IO (Either Text [ReviewDocument])
+convergedReviewDocuments store = fmap sequence . traverse (loadReviewDocument store) . convergedReviews
+
+convergedScheduleRevisionsFromReviews :: InventoryStore -> [ReviewDocument] -> ManagedResource -> IO (Either Text [ByteString])
+convergedScheduleRevisionsFromReviews store reviews cron = do
+  let revisions = nub (mapMaybe (Map.lookup owner . reviewDesiredRevisions) reviews)
+  loaded <- traverse (revisionIn . revisionDigest) revisions
+  pure (nub . catMaybes <$> sequence loaded)
   where
     owner = cron ^. #owner
 
-    revisionIn digest = do
-      loaded <- loadPublishedReview store digest
-      case loaded of
-        Left err -> pure (Left ("a converged review cannot be read: " <> T.pack (show err)))
-        Right bundle -> case Map.lookup owner (reviewDesiredRevisions (reviewBundleDocument bundle)) of
-          Nothing -> pure (Right Nothing)
-          Just revision -> do
-            let scopeDigest = revisionDigest revision
-            found <- case Map.lookup scopeDigest (reviewBundleScopes bundle) of
-              Just bytes -> pure (Right (Just bytes))
-              Nothing -> readObject store (scopeKey scopeDigest)
-            case first (T.pack . show) found >>= first (T.pack . show) . decodeScopeMember owner scopeDigest of
-              Left err -> pure (Left ("a converged revision of the schedule's scope cannot be read: " <> err))
-              Right scope -> case [member | bundle' <- scopeBundles scope, Managed member <- declarations bundle', member ^. #identity == cron ^. #identity] of
-                [member] -> do
-                  native <- loadObservationNativeChecked store [member]
-                  pure $ case native of
-                    Right observed -> Right (snd <$> Map.lookup (cron ^. #identity) (observationKubernetes observed))
-                    Left (ObservationNativeMissing _) -> Right Nothing
-                    Left (ObservationNativeInvalid reason) -> Left ("a converged revision of the schedule has invalid native bytes: " <> reason)
-                _ -> pure (Right Nothing)
+    revisionIn scopeDigest = do
+      found <- readObject store (scopeKey scopeDigest)
+      case first (T.pack . show) found >>= first (T.pack . show) . decodeScopeMember owner scopeDigest of
+        Left err -> pure (Left ("a converged revision of the schedule's scope cannot be read: " <> err))
+        Right scope -> case [member | bundle <- scopeBundles scope, Managed member <- declarations bundle, member ^. #identity == cron ^. #identity] of
+          [member] -> do
+            native <- loadObservationNativeChecked store [member]
+            pure $ case native of
+              Right observed -> Right (snd <$> Map.lookup (cron ^. #identity) (observationKubernetes observed))
+              Left (ObservationNativeMissing _) -> Right Nothing
+              Left (ObservationNativeInvalid reason) -> Left ("a converged revision of the schedule has invalid native bytes: " <> reason)
+          _ -> pure (Right Nothing)
 
 -- | The reviews whose transactions converged, in journal order: a
 -- transaction-level 'Completed' event names its review. A transaction that

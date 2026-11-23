@@ -149,6 +149,14 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+          # The first activation may need a cold download of the inventory journal.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: probes
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 90
           livenessProbe:
             httpGet:
               path: /health/live

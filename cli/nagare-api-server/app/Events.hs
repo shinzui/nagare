@@ -12,8 +12,8 @@
 -- @/metrics@ report the last iteration of each loop and never read a store.
 module Main (main) where
 
-import Control.Concurrent.Async (withAsync)
-import Control.Concurrent.MVar (newEmptyMVar, readMVar, tryPutMVar)
+import Control.Concurrent.Async (link, withAsync)
+import Control.Concurrent.MVar (MVar, isEmptyMVar, newEmptyMVar, readMVar, tryPutMVar)
 import Crypto.Random (getRandomBytes)
 import Data.ByteArray.Encoding (Base (Base16), convertToBase)
 import Data.ByteString (ByteString)
@@ -34,8 +34,9 @@ import Nagare.Events.SigningKeys (inClusterSecrets)
 import Nagare.Events.Store (FeedStore, feedLocation, filesystemObjectOps, newFeedStore)
 import Nagare.Events.Webhook.Subscription (webhookTransport)
 import Nagare.Events.Webhook.Transport (httpSend, productionAddressPolicy, webhookFactory)
-import Nagare.Inventory.Store (InventoryStore, openFilesystemStoreReadOnly)
+import Nagare.Inventory.Store (InventoryStore, openFilesystemStoreReadOnly, openObjectStoreReadOnly)
 import Nagare.Inventory.Store.Gogol (StorageEnv, gogolObjectOpsWithEnv, gogolVersionedReader, inventoryManagerSettings)
+import Nagare.Inventory.Store.ObjectOps (ObjectOps (getObjects, listObjects))
 import Nagare.Inventory.Store.S3 (S3Credentials (..), readCredentialFile, s3HttpTransport, s3VersionedReader)
 import Nagare.Inventory.Store.Service (ServiceStore (..), ServiceStoreConfig (..), openServiceStore, serviceWriterEnv)
 import Nagare.Resource.Types (ContextBinding (..), PhysicalIdentity, mkContextId, mkName, mkPhysicalIdentity, nameText)
@@ -129,12 +130,16 @@ main = do
           , budget = defaultDeliveryBudget
           }
       config = WorkerConfig binding inventory feed access (if opts ^. #deliver then Just deliveryEnv else Nothing) (opts ^. #intervals) getCurrentTime pause stopping
-  when (opts ^. #activateAtStart) (activate config >>= either (die . Text.unpack . ("nagare-events: activation failed: " <>)) pure)
   status <- newWorkerStatus
-  let stop = void (tryPutMVar stopping ())
-  _ <- installHandler sigTERM (Catch stop) Nothing
-  _ <- installHandler sigINT (Catch stop) Nothing
-  withAsync (runSettings (setHost (fromString (opts ^. #host)) (setPort (opts ^. #port) defaultSettings)) (probes status)) $ \_ ->
+  activated <- newEmptyMVar
+  let settings = setHost (fromString (opts ^. #host)) (setPort (opts ^. #port) defaultSettings)
+  withAsync (runSettings settings (probes activated status)) $ \server -> do
+    link server
+    when (opts ^. #activateAtStart) (activate config >>= either (die . Text.unpack . ("nagare-events: activation failed: " <>)) pure)
+    let stop = void (tryPutMVar stopping ())
+    _ <- installHandler sigTERM (Catch stop) Nothing
+    _ <- installHandler sigINT (Catch stop) Nothing
+    void (tryPutMVar activated ())
     runWorker config status
   putStrLn "nagare-events: stopped"
   where
@@ -151,10 +156,27 @@ openStores binding = \case
     pure (inventory, feed, Nothing)
   CloudStore url number credentials cache -> do
     service <- openServiceStore (ServiceStoreConfig binding number url credentials cache inventoryManagerSettings id) >>= either (die . show) pure
+    -- Verify the bucket's project with the existing service reader, then keep its
+    -- read-only transport and allow journal listings through the worker's own IAM.
+    void (service ^. #freshHead >>= either (die . show) pure)
     writer <- serviceWriterEnv credentials inventoryManagerSettings >>= either (die . show) pure
-    lifecycle <- either (die . Text.unpack) pure (gogolObjectOpsWithEnv writer (nameText (binding ^. #project)) (feedLocation url))
+    let project = nameText (binding ^. #project)
+    inventoryReads <- either (die . show) pure ((service ^. #objectsAt) url)
+    inventoryListing <- either (die . Text.unpack) pure (gogolObjectOpsWithEnv writer project url)
+    inventory <-
+      openObjectStoreReadOnly
+        ( inventoryReads
+            { getObjects = getObjects inventoryListing
+            , listObjects = listObjects inventoryListing
+            }
+        )
+        binding
+        "events-worker"
+        cache
+        >>= either (die . show) pure
+    lifecycle <- either (die . Text.unpack) pure (gogolObjectOpsWithEnv writer project (feedLocation url))
     feed <- newFeedStore lifecycle
-    pure (service ^. #store, feed, Just writer)
+    pure (inventory, feed, Just writer)
 
 backupAccess :: Backups -> Maybe StorageEnv -> (SigningRef -> IO (Either Text (Text, PhysicalIdentity))) -> IO (Maybe BackupAccess)
 backupAccess choice gcsEnv signing = case choice of
@@ -180,11 +202,12 @@ onOff = eitherReader $ \case
   "off" -> Right False
   _ -> Left "on or off"
 
-probes :: WorkerStatus -> Application
-probes status request respond = case pathInfo request of
+probes :: MVar () -> WorkerStatus -> Application
+probes activated status request respond = case pathInfo request of
   ["health", "live"] -> respond (responseLBS status200 [] "live")
   ["health", "ready"] -> do
-    verdict <- ready status
+    starting <- isEmptyMVar activated
+    verdict <- if starting then pure (Left "initializing the lifecycle worker") else ready status
     respond (either (\why -> responseLBS status503 [] (LBS.fromStrict (TE.encodeUtf8 why))) (const (responseLBS status200 [] "ready")) verdict)
   ["metrics"] -> renderMetrics status >>= respond . responseLBS status200 [("Content-Type", "text/plain; version=0.0.4")]
   _ -> respond (responseLBS status404 [] "")

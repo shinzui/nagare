@@ -33,10 +33,10 @@ import Nagare.Inventory.AcceptedNative (loadObservedAcceptedNativeSelected)
 import Nagare.Inventory.AppDatabase (AppDatabaseScheduleSource (..), appDatabaseScheduleSource)
 import Nagare.Inventory.Backup (ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.BackupReceipt (scheduledAppDatabaseReceiptExpectationFromCronJob)
-import Nagare.Inventory.Journal (JournalEvent, decodeJournalEvent)
+import Nagare.Inventory.Journal (decodeJournalEvent)
 import Nagare.Inventory.Plan.History (loadInventoryHistoryAt)
-import Nagare.Inventory.Plan.Types (InventoryHistory (..), historyReservations)
-import Nagare.Inventory.ScheduleHistory (convergedScheduleRevisionsIn)
+import Nagare.Inventory.Plan.Types (InventoryHistory (..), ReviewDocument, historyReservations)
+import Nagare.Inventory.ScheduleHistory (convergedReviewDocuments, convergedScheduleRevisionsFromReviews)
 import Nagare.Inventory.ScheduledStatus (ScheduledStatusKind (..), ScheduledStatusSource (..), scheduledStatusSources)
 import Nagare.Inventory.Store (HeadManifest (..), InventoryStore, readHead, readJournalPrefix, revisionGeneration)
 import Nagare.Resource.Inventory
@@ -67,15 +67,19 @@ loadBackupSchedules store backend = do
                 (Left err, _) -> pure (Left err)
                 (_, Left err) -> pure (Left ("the journal cannot be read for schedule revisions: " <> err))
                 (Right (accepted, _), Right events) -> do
-                  built <- traverse (build accepted events) sources
-                  pure (Right ([schedule | Right schedule <- built], [problem | Left problem <- built]))
+                  loadedReviews <- convergedReviewDocuments store events
+                  case loadedReviews of
+                    Left err -> pure (Left err)
+                    Right reviews -> do
+                      built <- traverse (build accepted reviews) sources
+                      pure (Right ([schedule | Right schedule <- built], [problem | Left problem <- built]))
   where
-    build :: Map ResourceId (ManagedResource, ByteString) -> [JournalEvent] -> (Text, Either Text Resolved) -> IO (Either (Text, Text) BackupSchedule)
+    build :: Map ResourceId (ManagedResource, ByteString) -> [ReviewDocument] -> (Text, Either Text Resolved) -> IO (Either (Text, Text) BackupSchedule)
     build _ _ (label', Left reason) = pure (Left (label', reason))
-    build accepted events (label', Right found) = case Map.lookup (found ^. #cron . #identity) accepted of
+    build accepted reviews (label', Right found) = case Map.lookup (found ^. #cron . #identity) accepted of
       Nothing -> pure (Left (label', "the accepted CronJob has no native bytes"))
       Just (_, cronBytes) -> do
-        historical <- convergedScheduleRevisionsIn store events (found ^. #cron)
+        historical <- convergedScheduleRevisionsFromReviews store reviews (found ^. #cron)
         let expect = expectationFor found
         pure $ do
           current <- first ((,) label') (expect cronBytes)

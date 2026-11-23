@@ -318,6 +318,10 @@ initTests =
         let whole = enabled & #nixCacheNarSizeThreshold .~ 0
         assertBool "threshold not rendered" (T.isInfixOf "export NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD=0\n" (renderTargetEnv whole))
         profileFromContextMap (parseContextEnv (renderTargetEnv whole)) ^. #nixCacheNarSizeThreshold @?= 0
+    , testCase "init renders the declared En tenants, so a re-rendered context keeps them" $ do
+        let declared = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_EN_TENANTS=kotei\nexport NAGARE_EN_TENANT_KOTEI_SCHEMA=/etc/en/kotei.yaml\n")
+        length (declared ^. #enTenants) @?= 1
+        profileFromContextMap (parseContextEnv (renderTargetEnv declared)) ^. #enTenants @?= declared ^. #enTenants
     , testCase "Google CDN is cloud-only, round-trips, and seeds the apex-preserving keys (F43)" $ do
         let enabled = initProfile & #cdnEnabled .~ True
         validateNixCacheMode enabled @?= Right ()

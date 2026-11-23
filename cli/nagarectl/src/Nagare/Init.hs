@@ -77,6 +77,7 @@ import Nagare.Target
   , shellQuote
   )
 import Nagare.Target.AuthIssuer (authIssuerText, authIssuerVariable)
+import Nagare.Target.EnTenants (renderEnTenantDeclarations)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -366,6 +367,7 @@ renderTargetEnv tp =
     ]
       <> ["export NAGARE_RETAINED_DNS_NAME=" <> shellQuote (tp ^. #retainedDnsName) | not (T.null (tp ^. #retainedDnsName))]
       <> maybe [] (\deployer -> ["export NAGARE_DEPLOYER=" <> shellQuote deployer]) (tp ^. #deployer)
+      <> ["export " <> variable <> "=" <> shellQuote value | (variable, value) <- renderEnTenantDeclarations (tp ^. #enTenants)]
       <> maybe [] (\operator -> ["export NAGARE_OPERATOR=" <> shellQuote operator]) (tp ^. #operatorName)
       <> maybe [] (\member -> ["export NAGARE_PULUMI_BACKEND_MEMBER=" <> shellQuote member]) (tp ^. #pulumiBackendMember)
       <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
