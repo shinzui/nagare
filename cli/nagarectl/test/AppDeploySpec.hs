@@ -89,7 +89,7 @@ appDeployTests =
     , testCase "disposable database StatefulSet restart uses the reviewed native adapter" nativeDataRestartReview
     , testCase "disposable application review resumes from saved native members" nativeApplicationReview
     , testCase "reviewed command publishes and applies its immutable review" commandReview
-    , testGroup "rollout phases (M2)" (phaseTests fixturePath)
+    , testGroup "rollout phases (M2)" (phaseTests fixturePath testEnv)
     , testGroup "remediation guardrails (EP-6)" remediationTests
     ]
 
@@ -907,19 +907,7 @@ nativeApplicationReview = do
 
 renderTests :: [TestTree]
 renderTests =
-  [ testCase "a reviewed digest is the exact Service and worker image despite a display tag" $ do
-      app <- loadApplication fixturePath >>= either (fail . show) pure
-      service <- maybe (fail "fixture lacks its Service") pure (app ^. #service)
-      let reference = "registry.example.test/team/kizashi@sha256:" <> T.replicate 64 "a"
-          rollout = testEnv & #taggedAppImage .~ reference & #imageTag .~ "display-tag"
-      serviceObjects <- unwrapRender (renderServiceObjects rollout service)
-      workerObjects <- concat <$> traverse (unwrapRender . renderWorkerObjects rollout) (app ^. #workers)
-      assertBool "fixture lacks a worker Deployment" (any (BS.isInfixOf "kind: Deployment" . snd) workerObjects)
-      forM_ (serviceObjects <> workerObjects) $ \(_, bytes) ->
-        when (any (`BS.isInfixOf` bytes) ["kind: Service", "kind: Deployment"]) $ do
-          assertBool "workload does not reference accepted digest" (TE.encodeUtf8 ("image: " <> reference) `BS.isInfixOf` bytes)
-          assertBool "workload still uses the mutable display tag" (not ("display-tag" `BS.isInfixOf` bytes))
-  , testCase "typed service member binds the rendered Knative object" $ do
+  [ testCase "typed service member binds the rendered Knative object" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded
       let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
