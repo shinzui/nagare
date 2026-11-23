@@ -282,6 +282,7 @@ inventoryObservabilityTests =
               "backups"
               HourlyRecoveryPoint
               "nix-cache-bucket"
+              65536
               "abcdef123456"
               (ok (mkContentDigest (T.replicate 64 "a")))
               (contentDigest "fixture-archive")

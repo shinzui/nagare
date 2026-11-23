@@ -13,6 +13,7 @@ module Nagare.Target.Kinds
   , parseBackupRecoveryPoint
   , IngressMode (..)
   , parseIngressMode
+  , parseNixCacheNarSizeThreshold
   , ingressModeToken
   , checkIngressMode
   , hostShapeFor
@@ -20,11 +21,14 @@ module Nagare.Target.Kinds
   )
 where
 
-import Data.Char (toLower)
+import Data.Char (isDigit, toLower)
 import Data.Text (Text, pack)
+import Data.Text qualified as T
+import Data.Word (Word64)
 import Nagare.Deploy.Host (HostShape (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
+import Text.Read (readMaybe)
 
 -- | The deploy target's mode (MasterPlan 16, EP-83; this is Integration Point 2's
 -- public type — EP-84 and EP-85 import it and must not re-derive the mode from the
@@ -100,6 +104,20 @@ parseIngressMode raw = case raw of
   Just "direct" -> Right IngressDirect
   Just "cloudflare-tunnel" -> Right IngressCloudflareTunnel
   Just other -> Left ("NAGARE_INGRESS must be direct or cloudflare-tunnel, not " <> pack other)
+
+-- | Parse @NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD@: missing or empty is Attic's packaged @65536@; anything
+-- else must be plain decimal bytes that fit a 'Word64'. @0@ disables chunking (BUG-11). Like
+-- 'parseIngressMode' it refuses rather than defaults, since a typo would silently keep the slow layout.
+parseNixCacheNarSizeThreshold :: Maybe Text -> Either Text Word64
+parseNixCacheNarSizeThreshold raw = case raw of
+  Nothing -> Right 65536
+  Just "" -> Right 65536
+  Just digits
+    | T.all isDigit digits
+    , Just n <- readMaybe (T.unpack digits) :: Maybe Integer
+    , n <= toInteger (maxBound :: Word64) ->
+        Right (fromInteger n)
+  Just other -> Left ("NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD must be a whole number of bytes, not " <> other)
 
 -- | One informational line on a direct cloud context (EP-244). @NAGARE_INGRESS_NOTICE=off@ in the context
 -- silences it; it is never a check, so it makes no call and changes no exit code.

@@ -52,6 +52,7 @@ import Nagare.Target
   , mkContextName
   , parseContextEnv
   , parseMode
+  , parseNixCacheNarSizeThreshold
   , profileFromContextMap
   , readContextProfile
   , readCurrentContext
@@ -310,6 +311,7 @@ targetProfileTests =
       , "NAGARE_NIX_CACHE_ENABLED"
       , "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
       , "NAGARE_NIX_CACHE_BUCKET"
+      , "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD"
       , "NAGARE_BASE_DOMAIN"
       , "NAGARE_INSTANCE_NAME"
       , "NAGARE_MACHINE_TYPE"
@@ -330,7 +332,14 @@ contextResolutionTests :: TestTree
 contextResolutionTests =
   testGroup
     "Nagare.Target contexts (EP-87)"
-    [ testCase "writeContextPlatformVersion keeps a symlinked context file a symlink (EP-116)" $ do
+    [ testCase "the Attic NAR size threshold is plain decimal bytes (BUG-11)" $ do
+        parseNixCacheNarSizeThreshold Nothing @?= Right 65536
+        parseNixCacheNarSizeThreshold (Just "") @?= Right 65536
+        parseNixCacheNarSizeThreshold (Just "0") @?= Right 0
+        parseNixCacheNarSizeThreshold (Just "18446744073709551615") @?= Right maxBound
+        forM_ ["-1", "64K", " 0", "0 ", "+1", "18446744073709551616"] $ \raw ->
+          assertBool ("accepted " <> T.unpack raw) (isLeft (parseNixCacheNarSizeThreshold (Just raw)))
+    , testCase "writeContextPlatformVersion keeps a symlinked context file a symlink (EP-116)" $ do
         saved <- lookupEnv "XDG_CONFIG_HOME"
         withSystemTempDirectory "nagare-context-link" $ \root ->
           flip finally (maybe (unsetEnv "XDG_CONFIG_HOME") (setEnv "XDG_CONFIG_HOME") saved) $ do
@@ -392,11 +401,13 @@ contextResolutionTests =
               setEnv "NAGARE_PULUMI_BACKEND_URL" "gs://foreign-state/nagare/labs"
               setEnv "NAGARE_NIX_CACHE_ENABLED" "1"
               setEnv "NAGARE_NIX_CACHE_BUCKET" "foreign-cache"
+              setEnv "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD" "0"
               pinned <- resolveActiveTarget Nothing
               pinned ^. #profile . #pulumiBackend @?= PulumiBackendLocal
               pinned ^. #profile . #pulumiBackendUrl @?= "file:///labs/state"
               pinned ^. #profile . #nixCacheEnabled @?= False
               pinned ^. #profile . #nixCacheBucket @?= "labs-proj-nagare-nix-cache"
+              pinned ^. #profile . #nixCacheNarSizeThreshold @?= 65536
               clearResolutionEnv
               setEnv "NAGARE_CONTEXT" "labs"
 

@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-23T05:03:41Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-23T05:45:07Z
+      mode: "implement"
+      note: "M1 implemented; M2 docs and reseed rehearsal"
 ---
 
 # Let a context choose the Attic NAR size threshold so GCS cache hits redirect
@@ -44,12 +50,18 @@ the build that uses the public substituter alone.
 
 ## Progress
 
-- [ ] M1: A context can choose the threshold. `NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD` (bytes; default
+- [x] M1 (2026-11-22): A context can choose the threshold. `NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD` (bytes; default
   `65536`; `0` disables chunking) is parsed and validated, stored in context files, pinned to the
   stored context like `NAGARE_NIX_CACHE_BUCKET`, and rendered into `server.toml`. Unit tests show
   four things. The default renders a server config byte-identical to v0.27.0's. Zero renders
   `nar-size-threshold = 0` with a different revision. Malformed values are refused. An environment
   override cannot change a named context's value. `just gate-commit` is green.
+  Evidence: `default NAR size threshold renders the v0.27.0 server config`, `zero NAR size
+  threshold disables chunking under a new revision`, `the Attic NAR size threshold is plain decimal
+  bytes (BUG-11)` and the extended pinned-profile and Init round-trip tests pass; `just
+  gate-commit` green (nagarectl suite, 121 s). The parser lives in `Nagare.Target.Kinds` and the
+  context-map lookups moved to `Nagare.Target.ContextFile`, because the architecture audit refuses
+  modules over 1000 lines.
 - [ ] M2: Documentation and reseed procedure. `docs/user/reference.md`,
   `docs/user/nix-binary-cache.md`, `cluster/bootstrap/nix-cache/README.md` and an ADR 21 amendment
   describe the choice and its trade-off. The user guide gains a reseed procedure that preserves the

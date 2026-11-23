@@ -75,6 +75,7 @@ import Nagare.Target
   , parseAcmeDirectory
   , parseIngressMode
   , parseInventoryStoreKind
+  , parseNixCacheNarSizeThreshold
   , parsePulumiBackendKind
   , profileFromContextMap
   , setCurrentContext
@@ -139,6 +140,7 @@ runNamedInit o contextName = do
   acmeEmail <- either dieT pure (validateAcmeEmail acmeEmailRaw)
   let acmeDirectoryRaw = maybe (storedDefaults ^. #acmeDirectory) T.pack (o ^. #acmeDirectory)
   acmeDirectory <- either dieT (pure . acmeDirectoryToken) (parseAcmeDirectory acmeDirectoryRaw)
+  mapM_ (either dieT (const (pure ())) . parseNixCacheNarSizeThreshold . Just . T.pack) (o ^. #nixCacheNarSizeThreshold)
 
   let resolvedOpts =
         o
@@ -262,6 +264,11 @@ runLegacyInit mctx o = do
   acmeEmail <- either dieT pure (validateAcmeEmail acmeEmailRaw)
   let acmeDirectoryRaw = maybe (defs ^. #acmeDirectory) T.pack (o ^. #acmeDirectory)
   acmeDirectory <- either dieT (pure . acmeDirectoryToken) (parseAcmeDirectory acmeDirectoryRaw)
+  narSizeThreshold <-
+    maybe
+      (pure (defs ^. #nixCacheNarSizeThreshold))
+      (either dieT pure . parseNixCacheNarSizeThreshold . Just . T.pack)
+      (o ^. #nixCacheNarSizeThreshold)
 
   -- Preflight (unless skipped). Runs AFTER we know the project but BEFORE any
   -- write/enable/seed, so a failure leaves nothing changed.
@@ -294,6 +301,8 @@ runLegacyInit mctx o = do
           .~ maybe (defs ^. #cdnEnabled) (== "1") (o ^. #cdnEnabled)
           & #nixCacheBucket
           .~ maybe (project <> "-nagare-nix-cache") T.pack (o ^. #nixCacheBucket)
+          & #nixCacheNarSizeThreshold
+          .~ narSizeThreshold
   contextName <- case o ^. #contextName of
     Just rawName -> parseContextNameOrDie rawName
     Nothing -> parseContextNameOrDie "default"

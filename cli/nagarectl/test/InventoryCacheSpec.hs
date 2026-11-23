@@ -1,11 +1,14 @@
 module InventoryCacheSpec (inventoryCacheTests) where
 
 import Control.Monad (forM_, when)
+import Data.Aeson (Value (..), decodeStrict')
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Prelude
@@ -59,6 +62,7 @@ inventoryCacheTests =
               "backups"
               HourlyRecoveryPoint
               "nix-cache-bucket"
+              65536
               >>= expectRight
           assertBool "released cache scope has no native members" (Map.size native >= 15)
           assertBool
@@ -97,6 +101,7 @@ inventoryCacheTests =
               "backups"
               HourlyRecoveryPoint
               "nix-cache-bucket"
+              65536
           assertBool "malformed Attic archive reached review" (either (const True) (const False) invalidArchive)
           let archiveDigest = contentDigest "fixture-archive"
               imageDigest = ok (mkContentDigest "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -109,6 +114,7 @@ inventoryCacheTests =
               "backups"
               HourlyRecoveryPoint
               "nix-cache-bucket"
+              65536
               "abcdef123456"
               imageDigest
               archiveDigest
@@ -148,6 +154,17 @@ inventoryCacheTests =
         assertBool "unsafe bucket was accepted" (either (const True) (const False) unsafeBucket)
         missingTemplate <- compileCacheNative (renderInput {renderTemplateRoot = "../../cluster/bootstrap/missing-cache-assets"})
         assertBool "missing packaged templates were accepted" (either (const True) (const False) missingTemplate)
+    , testCase "default NAR size threshold renders the v0.27.0 server config" $ do
+        (_, native) <- compileCacheNative renderInput >>= expectRight
+        serverToml native @?= Just v027ServerToml
+    , testCase "zero NAR size threshold disables chunking under a new revision" $ do
+        (_, defaultNative) <- compileCacheNative renderInput >>= expectRight
+        (_, zeroNative) <- compileCacheNative (renderInput {renderNarSizeThreshold = 0}) >>= expectRight
+        assertBool
+          "zero threshold not rendered"
+          (maybe False (T.isInfixOf "nar-size-threshold = 0\n") (serverToml zeroNative))
+        assertBool "default revision missing" (not (null (migrationJobNames defaultNative)))
+        assertBool "zero threshold kept the default revision" (migrationJobNames zeroNative /= migrationJobNames defaultNative)
     , testCase "database, migration, workload, and logical cache compose as one scope" $ do
         let databaseSpec =
               Database
@@ -352,6 +369,7 @@ renderInput =
     workload
     ("registry.example/cache@sha256:" <> "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     "example-cache-bucket"
+    65536
     "../../cluster/bootstrap/nix-cache"
     Nothing
 
@@ -379,3 +397,57 @@ ok = either (error . show) id
 
 expectRight :: (Show e) => Either e a -> IO a
 expectRight = either (\err -> assertFailure (show err) >> pure (error "unreachable")) pure
+
+-- | The packaged server.toml as v0.27.0 rendered it for 'renderInput'. A literal, so a template edit
+-- that changes the default context's ConfigMap (and so rolls its Attic out) cannot pass unnoticed.
+v027ServerToml :: Text
+v027ServerToml =
+  T.unlines
+    [ "listen = \"[::]:8080\""
+    , "allowed-hosts = ["
+    , "  \"nix-cache.nagare-system.svc.cluster.local\","
+    , "  \"nix-cache.nagare-system.svc.cluster.local:80\","
+    , "  \"nix-cache-internal.nagare-system.svc.cluster.local:8080\","
+    , "  \"127.0.0.1:18080\","
+    , "]"
+    , "api-endpoint = \"http://127.0.0.1:18080/\""
+    , "substituter-endpoint = \"http://nix-cache-internal.nagare-system.svc.cluster.local:8080/\""
+    , ""
+    , "[database]"
+    , "heartbeat = true"
+    , ""
+    , "[storage]"
+    , "type = \"s3\""
+    , "region = \"auto\""
+    , "bucket = \"example-cache-bucket\""
+    , "endpoint = \"https://storage.googleapis.com\""
+    , ""
+    , "[chunking]"
+    , "nar-size-threshold = 65536"
+    , "min-size = 16384"
+    , "avg-size = 65536"
+    , "max-size = 262144"
+    , ""
+    , "[compression]"
+    , "type = \"zstd\""
+    , ""
+    , "[garbage-collection]"
+    , "interval = \"0 seconds\""
+    ]
+
+nativeObjects :: Map.Map ResourceId (ManagedResource, BC.ByteString) -> [KM.KeyMap Value]
+nativeObjects native = [o | (_, bytes) <- Map.elems native, Just (Object o) <- [decodeStrict' bytes]]
+
+objectName :: KM.KeyMap Value -> Maybe Text
+objectName o = case KM.lookup "metadata" o of
+  Just (Object metadata) | Just (String name) <- KM.lookup "name" metadata -> Just name
+  _ -> Nothing
+
+serverToml :: Map.Map ResourceId (ManagedResource, BC.ByteString) -> Maybe Text
+serverToml native =
+  case [text | o <- nativeObjects native, objectName o == Just "nagare-nix-cache-server", Just (Object d) <- [KM.lookup "data" o], Just (String text) <- [KM.lookup "server.toml" d]] of
+    [text] -> Just text
+    _ -> Nothing
+
+migrationJobNames :: Map.Map ResourceId (ManagedResource, BC.ByteString) -> [Text]
+migrationJobNames native = [name | o <- nativeObjects native, Just name <- [objectName o], "nix-cache-migrate-" `T.isPrefixOf` name]

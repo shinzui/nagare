@@ -44,6 +44,7 @@ import Nagare.Target
   , nagareStateDir
   , parseAcmeDirectory
   , parseIngressMode
+  , parseNixCacheNarSizeThreshold
   , profileFromContextMap
   , pulumiEnvFor
   , readContextMap
@@ -111,6 +112,7 @@ runContext mctx = \case
     mapM_ (either dieT (const (pure ())) . validateAcmeEmail . T.pack) (o ^. #acmeEmail)
     mapM_ (either dieT (const (pure ())) . parseAcmeDirectory . T.pack) (o ^. #acmeDirectory)
     either dieT (const (pure ())) (parseIngressMode (o ^. #ingress))
+    mapM_ (either dieT (const (pure ())) . parseNixCacheNarSizeThreshold . Just . T.pack) (o ^. #nixCacheNarSizeThreshold)
     (_, workspace) <- resolvePlatformWorkspace name
     path <- contextFilePath name
     -- EP-121: --force merges onto the stored context rather than resetting every

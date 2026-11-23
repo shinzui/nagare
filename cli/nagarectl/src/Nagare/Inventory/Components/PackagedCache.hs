@@ -17,6 +17,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Word (Word64)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (Database (..), Engine (Postgres), mkDatabaseName)
 import Nagare.Dsl.Prelude
@@ -43,12 +44,13 @@ compilePackagedCache ::
   Text ->
   RecoveryPointObjective ->
   Text ->
+  Word64 ->
   IO
     ( Either
         (NonEmpty InventoryError)
         (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
     )
-compilePackagedCache root foundation project registryPrefix backupBucket objective cacheBucket = do
+compilePackagedCache root foundation project registryPrefix backupBucket objective cacheBucket narSizeThreshold = do
   let cacheRoot = root </> "cluster/bootstrap/nix-cache"
       pinPath = cacheRoot </> "attic-pin.json"
       archivePath = cacheRoot </> "attic-server-image.tar.gz"
@@ -65,7 +67,7 @@ compilePackagedCache root foundation project registryPrefix backupBucket objecti
           Left reason -> pure (Left (single (invalid ("Attic payload image archive is invalid: " <> reason))))
           Right (archiveDigest, manifestDigest)
             | manifestDigest /= digest -> pure (Left (single (invalid "Attic payload image digest differs from its release pin")))
-            | otherwise -> compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket objective cacheBucket commit digest archiveDigest
+            | otherwise -> compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket objective cacheBucket narSizeThreshold commit digest archiveDigest
 
 -- | The production entry point above proves the archive bytes and OCI
 -- manifest first. Fixtures can exercise composition with those verified
@@ -78,6 +80,7 @@ compilePackagedCacheWithVerifiedImage ::
   Text ->
   RecoveryPointObjective ->
   Text ->
+  Word64 ->
   Text ->
   ContentDigest ->
   ContentDigest ->
@@ -86,7 +89,7 @@ compilePackagedCacheWithVerifiedImage ::
         (NonEmpty InventoryError)
         (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
     )
-compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket objective cacheBucket commit digest archiveDigest = do
+compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket objective cacheBucket narSizeThreshold commit digest archiveDigest = do
   let cacheRoot = root </> "cluster/bootstrap/nix-cache"
       pinPath = cacheRoot </> "attic-pin.json"
   let owner = knownScope "cache"
@@ -148,6 +151,7 @@ compilePackagedCacheWithVerifiedImage root foundation project registryPrefix bac
           credentialId
           image
           cacheBucket
+          narSizeThreshold
           cacheRoot
           (Just namespaceId)
   cache <- compileCacheComponent direct (DatabaseBackupTarget (GcsBackend project backupBucket) objective) render

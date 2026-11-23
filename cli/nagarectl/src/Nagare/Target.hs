@@ -17,6 +17,7 @@ module Nagare.Target
   , vmShapeOf
   , validateVmShape
   , validateNixCacheMode
+  , parseNixCacheNarSizeThreshold
   , Mode (..)
   , AcmeDirectory (..)
   , PulumiEnv (..)
@@ -85,6 +86,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Word (Word64)
 import Nagare.Cluster.GcsJob
   ( MinioRef (..)
   , StoreBackend (..)
@@ -98,7 +100,7 @@ import Nagare.Inventory.BackupFreshness
   )
 import Nagare.Target.Acme
 import Nagare.Target.AuthIssuer (AuthIssuer, authIssuerText, authIssuerVariable, parseAuthIssuer)
-import Nagare.Target.ContextFile (parseContextEnv, shellQuote)
+import Nagare.Target.ContextFile (ctxOr, ctxRaw, mapOr, mapRaw, parseContextEnv, shellQuote)
 import Nagare.Target.EnTenants (EnTenantDeclaration, parseEnTenantDeclarations, renderEnTenantDeclarations)
 import Nagare.Target.Kinds
 import Nagare.Target.VmShape (VmShape (..), defaultVmShape, validateVmShape)
@@ -337,6 +339,9 @@ data TargetProfile = TargetProfile
   -- compares with the state bucket's owner. Empty when the API is off.
   , nixCacheBucket :: !Text
   -- ^ NAGARE_NIX_CACHE_BUCKET, default @"\<project>-nagare-nix-cache"@
+  , nixCacheNarSizeThreshold :: !Word64
+  -- ^ NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD, default @65536@ bytes: Attic chunks a new NAR at least this
+  -- large. @0@ never chunks, so every cache hit is a redirect to the object store (BUG-11).
   , baseDomain :: !Text
   -- ^ NAGARE_BASE_DOMAIN, default @"apps.example.com"@
   , externalDomainTlsEnabled :: !Bool
@@ -521,6 +526,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_PROJECT_NUMBER" (tp ^. #projectNumber)
     , line "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" (boolToken (tp ^. #externalDomainTlsEnabled))
     , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
+    , line "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD" (T.pack (show (tp ^. #nixCacheNarSizeThreshold)))
     , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
     , line "NAGARE_INSTANCE_NAME" (tp ^. #instanceName)
     , line "NAGARE_SERVICE_ACCOUNT_ID" (tp ^. #serviceAccountId)
@@ -666,37 +672,6 @@ inRepoMap = do
     (True, Just kv) -> Map.union kv base
     _ -> base
 
--- | Resolve one field with precedence: process env > context map > default. An
--- env var or context value set to empty is treated as unset.
-ctxOr :: Map String Text -> String -> Text -> IO Text
-ctxOr ctx name def = do
-  m <- lookupEnv name
-  pure $ case m of
-    Just v | not (null v) -> T.pack v
-    _ -> case Map.lookup name ctx of
-      Just v | not (T.null v) -> v
-      _ -> def
-
--- | Raw field lookup with env > context precedence for parsers like 'parseMode'.
-ctxRaw :: Map String Text -> String -> IO (Maybe String)
-ctxRaw ctx name = do
-  m <- lookupEnv name
-  pure $ case m of
-    Just v | not (null v) -> Just v
-    _ -> case Map.lookup name ctx of
-      Just v | not (T.null v) -> Just (T.unpack v)
-      _ -> Nothing
-
-mapOr :: Map String Text -> String -> Text -> Text
-mapOr ctx name def = case Map.lookup name ctx of
-  Just v | not (T.null v) -> v
-  _ -> def
-
-mapRaw :: Map String Text -> String -> Maybe String
-mapRaw ctx name = case Map.lookup name ctx of
-  Just v | not (T.null v) -> Just (T.unpack v)
-  _ -> Nothing
-
 -- | Build a fully-derived profile from a context file or @context create@ field
 -- map alone. Unlike 'resolveProfileFrom', this does not inspect process
 -- environment, so creating/showing a stored context is not polluted by ambient
@@ -729,6 +704,7 @@ profileFromContextMap ctx =
       lifecycleDelivery = mapRaw ctx "NAGARE_LIFECYCLE_DELIVERY" == Just "1"
       projectNumber = mapOr ctx "NAGARE_PROJECT_NUMBER" ""
       nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
+      nixCacheNarSizeThreshold = either (error . T.unpack) id (parseNixCacheNarSizeThreshold (T.pack <$> mapRaw ctx "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD"))
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
       ingress = either (error . T.unpack) id (parseIngressMode (mapRaw ctx "NAGARE_INGRESS"))
@@ -770,6 +746,7 @@ profileFromContextMap ctx =
         , lifecycleDelivery = lifecycleDelivery
         , projectNumber = projectNumber
         , nixCacheBucket = nixCacheBucket
+        , nixCacheNarSizeThreshold = nixCacheNarSizeThreshold
         , baseDomain = baseDomain
         , externalDomainTlsEnabled = externalDomainTlsEnabled
         , ingress = ingress
@@ -814,6 +791,7 @@ resolveProfileFrom ctx = do
   lifecycleDelivery <- (== Just "1") <$> ctxRaw ctx "NAGARE_LIFECYCLE_DELIVERY"
   projectNumber <- ctxOr ctx "NAGARE_PROJECT_NUMBER" ""
   nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
+  nixCacheNarSizeThreshold <- either (ioError . userError . T.unpack) pure . parseNixCacheNarSizeThreshold . fmap T.pack =<< ctxRaw ctx "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD"
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
   ingress <- either (ioError . userError . T.unpack) pure . parseIngressMode =<< ctxRaw ctx "NAGARE_INGRESS"
@@ -858,6 +836,7 @@ resolveProfileFrom ctx = do
       , lifecycleDelivery = lifecycleDelivery
       , projectNumber = projectNumber
       , nixCacheBucket = nixCacheBucket
+      , nixCacheNarSizeThreshold = nixCacheNarSizeThreshold
       , baseDomain = baseDomain
       , externalDomainTlsEnabled = externalDomainTlsEnabled
       , ingress = ingress
@@ -926,6 +905,8 @@ resolveActiveTarget arg = do
                 .~ (storedProfile ^. #projectNumber)
                 & #nixCacheBucket
                 .~ (storedProfile ^. #nixCacheBucket)
+                & #nixCacheNarSizeThreshold
+                .~ (storedProfile ^. #nixCacheNarSizeThreshold)
                 & #inventoryStore
                 .~ (storedProfile ^. #inventoryStore)
                 & #inventoryStoreUrl

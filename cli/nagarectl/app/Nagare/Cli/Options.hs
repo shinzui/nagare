@@ -522,6 +522,7 @@ data ContextCreateOpts = ContextCreateOpts
   , lifecycleDelivery :: !(Maybe String)
   , projectNumber :: !(Maybe String)
   , nixCacheBucket :: !(Maybe String)
+  , nixCacheNarSizeThreshold :: !(Maybe String)
   , instanceName :: !(Maybe String)
   , serviceAccountId :: !(Maybe String)
   , targetPlatform :: !(Maybe String)

@@ -314,6 +314,10 @@ initTests =
         let parsed = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_NIX_CACHE_ENABLED=1\n")
         parsed ^. #nixCacheEnabled @?= True
         parsed ^. #nixCacheBucket @?= "acme-prod-nagare-nix-cache"
+        parsed ^. #nixCacheNarSizeThreshold @?= 65536
+        let whole = enabled & #nixCacheNarSizeThreshold .~ 0
+        assertBool "threshold not rendered" (T.isInfixOf "export NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD=0\n" (renderTargetEnv whole))
+        profileFromContextMap (parseContextEnv (renderTargetEnv whole)) ^. #nixCacheNarSizeThreshold @?= 0
     , testCase "Google CDN is cloud-only, round-trips, and seeds the apex-preserving keys (F43)" $ do
         let enabled = initProfile & #cdnEnabled .~ True
         validateNixCacheMode enabled @?= Right ()
@@ -554,6 +558,7 @@ defaultInitOpts =
     , nixCacheEnabled = Nothing
     , cdnEnabled = Nothing
     , nixCacheBucket = Nothing
+    , nixCacheNarSizeThreshold = Nothing
     , pulumiBackend = Nothing
     , pulumiBackendUrl = Nothing
     , inventoryStore = Nothing

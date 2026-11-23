@@ -99,6 +99,7 @@ data InitOpts = InitOpts
   , nixCacheEnabled :: !(Maybe String)
   , cdnEnabled :: !(Maybe String)
   , nixCacheBucket :: !(Maybe String)
+  , nixCacheNarSizeThreshold :: !(Maybe String)
   , pulumiBackend :: !(Maybe String)
   , pulumiBackendUrl :: !(Maybe String)
   , inventoryStore :: !(Maybe String)
@@ -134,6 +135,7 @@ initFlagPairs o =
     , pair "NAGARE_NIX_CACHE_ENABLED" (o ^. #nixCacheEnabled)
     , pair "NAGARE_CDN_ENABLED" (o ^. #cdnEnabled)
     , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
+    , pair "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD" (o ^. #nixCacheNarSizeThreshold)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
     , pair "NAGARE_PULUMI_BACKEND_MEMBER" (o ^. #pulumiBackendMember)
@@ -227,6 +229,7 @@ renderInitSummary context tp =
     , "  Nix cache: " <> if tp ^. #nixCacheEnabled then "enabled" else "disabled"
     , "  Google CDN: " <> if tp ^. #cdnEnabled then "enabled" else "disabled"
     , "  Nix cache bucket: " <> tp ^. #nixCacheBucket
+    , "  Nix cache NAR size threshold: " <> T.pack (show (tp ^. #nixCacheNarSizeThreshold)) <> " bytes"
     , "  instance name: " <> tp ^. #instanceName
     , "  Pulumi backend: " <> pulumiBackendToken backend
     , "  Pulumi backend URL: " <> backendUrl
@@ -341,6 +344,7 @@ renderTargetEnv tp =
     , "export NAGARE_PROJECT_NUMBER=" <> tp ^. #projectNumber
     , "export NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=" <> boolToken (tp ^. #externalDomainTlsEnabled)
     , "export NAGARE_NIX_CACHE_BUCKET=" <> tp ^. #nixCacheBucket
+    , "export NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD=" <> T.pack (show (tp ^. #nixCacheNarSizeThreshold))
     , "export NAGARE_BASE_DOMAIN=" <> tp ^. #baseDomain
     , "export NAGARE_ACME_EMAIL=" <> tp ^. #acmeEmail
     , "export NAGARE_ACME_DIRECTORY=" <> tp ^. #acmeDirectory

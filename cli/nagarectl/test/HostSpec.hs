@@ -476,6 +476,7 @@ fixtureProfile =
     , lifecycleDelivery = False
     , projectNumber = ""
     , nixCacheBucket = "labs-project-nagare-nix-cache"
+    , nixCacheNarSizeThreshold = 65536
     , baseDomain = "apps.example.com"
     , externalDomainTlsEnabled = False
     , ingress = IngressDirect

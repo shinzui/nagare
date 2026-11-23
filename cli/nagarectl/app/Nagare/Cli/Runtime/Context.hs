@@ -163,6 +163,7 @@ contextEnvPairs o =
     , pair "NAGARE_LIFECYCLE_DELIVERY" (o ^. #lifecycleDelivery)
     , pair "NAGARE_PROJECT_NUMBER" (o ^. #projectNumber)
     , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
+    , pair "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD" (o ^. #nixCacheNarSizeThreshold)
     , pair "NAGARE_INSTANCE_NAME" (o ^. #instanceName)
     , pair "NAGARE_SERVICE_ACCOUNT_ID" (o ^. #serviceAccountId)
     , pair "NAGARE_TARGET_PLATFORM" (o ^. #targetPlatform)

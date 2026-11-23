@@ -21,6 +21,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Word (Word64)
 import Nagare.Dsl.Database (Database (..), Engine (Postgres))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
@@ -46,6 +47,7 @@ data CacheRenderInput = CacheRenderInput
   , renderCredential :: !ResourceId
   , renderImage :: !Text
   , renderBucket :: !Text
+  , renderNarSizeThreshold :: !Word64
   , renderTemplateRoot :: !FilePath
   , renderNamespaceId :: !(Maybe ResourceId)
   }
@@ -181,7 +183,13 @@ compileCacheNative input = case validateInputs input of
       unless
         (T.count "${NAGARE_NIX_CACHE_BUCKET}" serverText == 1)
         (Left (single (invalid "cache server template must contain one bucket placeholder")))
-      let serverConfigText = T.replace "${NAGARE_NIX_CACHE_BUCKET}" (renderBucket input) serverText
+      unless
+        (T.count "${NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD}" serverText == 1)
+        (Left (single (invalid "cache server template must contain one NAR size threshold placeholder")))
+      let serverConfigText =
+            T.replace "${NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD}" (T.pack (show (renderNarSizeThreshold input)))
+              . T.replace "${NAGARE_NIX_CACHE_BUCKET}" (renderBucket input)
+              $ serverText
           serverDigest = contentDigest (TE.encodeUtf8 serverConfigText)
           configMap =
             object

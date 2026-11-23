@@ -263,6 +263,7 @@ buildPlatformCandidate current active paths workspace snapshot = do
                   (profile ^. #backupBucket)
                   (profile ^. #backupRecoveryPoint)
                   (profile ^. #nixCacheBucket)
+                  (profile ^. #nixCacheNarSizeThreshold)
                   >>= either (dieT . T.pack . show) pure
               )
       else pure Nothing
