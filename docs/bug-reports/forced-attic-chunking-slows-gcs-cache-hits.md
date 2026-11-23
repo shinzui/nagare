@@ -6,11 +6,12 @@ generated:
   by: process:codex
   at: "2026-11-23T04:12:13Z"
 bugId: BUG-11
-status: reported
+status: fixed
 severity: degraded
 origin: mori://tan/tan-ng-labs/plans/23-enable-the-shared-attic-cache-on-labs
 affects: mori://shinzui/nagare/packages/nagarectl
 affectedVersion: "0.27.0"
+fixedVersion: 0.28.1
 environment: >-
   Nagare v0.27.0 on the amd64 Labs Kubernetes node. The managed Attic instance
   uses PostgreSQL and a private GCS bucket in us-west1 through the S3 API.

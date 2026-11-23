@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-23
+
+* **Update**: FRIC-20 accepted: Triaged at EP-278 completion: accepted, the workaround is documented and the image is not changed for a local tool.
+
 * **Addition**: FRIC-20 records detour environment friction with mori://shinzui/nagare: Apple containers cannot start the pinned Attic image
 
 ## 2026-11-22

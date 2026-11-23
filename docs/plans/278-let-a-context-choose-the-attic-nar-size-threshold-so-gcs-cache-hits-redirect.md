@@ -15,6 +15,11 @@ provenance:
       at: 2026-11-23T05:45:07Z
       mode: "implement"
       note: "M1 implemented; M2 docs and reseed rehearsal"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-23T21:18:33Z
+      mode: "implement"
+      note: "M3 Labs rollout, measurements and retrospective"
 ---
 
 # Let a context choose the Attic NAR size threshold so GCS cache hits redirect
@@ -77,12 +82,25 @@ the build that uses the public substituter alone.
   60-path closure copied into a fresh store with `require-sigs`, `--max-jobs 0` and `fallback false`,
   `nix store verify --sigs-needed 1 -r` passed, and a wrong key was refused as untrusted. The pinned
   image would not start under Apple containers as published ([FRIC-20](../friction-log/20-apple-containers-cannot-start-the-pinned-attic-image.md)).
-- [ ] M3: Labs rollout, which needs the operator's go-ahead. A release containing M1 is upgraded onto
+- [x] M3 (2026-11-23): Labs rollout, which needs the operator's go-ahead. A release containing M1 is upgraded onto
   Labs. Labs sets the threshold to `0` and bootstraps, and the reseed runs. From a fresh Job, the
   Bun 1.4.2 and Caddy 2.11.7 NARs return 307 and download in under 1 second, and signed pulls pass
   with builders and fallback disabled. A fresh Kotei UI console-image build of
   `c8d465d16d00fac0a69d6d1ec23c721caceba56f` with Attic preferred is timed and compared against the
   67-second public-only baseline. BUG-11 records the fixed version.
+  Evidence: Labs runs v0.28.1 (tag on `88e56402`). A reviewed context change set the threshold to
+  `0` (`contexts/intranet.env`, `mori://tan/tan-ng-labs` commit `d216d67`) and bootstrap
+  `tx-fb3c6f88…` converged with `nar-size-threshold = 0`. The reseed removed 14 chunked entries
+  (178 MiB), collection left `0` chunked NARs, and the repush used the Attic client with
+  `--ignore-upstream-cache-filter` (`nagarectl nix-cache push` skipped all 14 as upstream paths); all
+  16 entries are single-chunk and the key stayed `nagare-cache:9QGNGEwah…`. From a fresh Job in
+  `personal`, Bun returned `307` and downloaded in 0.24–0.45 s (0.23–0.35 s from cache.nixos.org; 23.75 s
+  before) and Caddy `307` in 0.15–0.26 s (0.17–0.24 s; 14.30 s before). A signed copy of Bun's
+  closure from Attic alone with `require-sigs`, `max-jobs 0` and `fallback false` took 1 s, and a
+  wrong key was refused ("lacks a signature by a trusted key"). Two fresh pods built with Kotei's
+  hardened forge layout and the pilot's limits built the console image in 69 s with the public cache
+  and 68 s with Attic preferred (`?priority=30`), copying 15 paths from Attic and 64 from
+  cache.nixos.org; the pilot measured 67 s and 102 s. BUG-11 records `fixedVersion: 0.28.1`.
 
 
 ## Surprises & Discoveries
@@ -92,6 +110,14 @@ the build that uses the public substituter alone.
   reseed's delete back in place. This changed the reseed's rollback; see the Decision Log.
 - Attic's collector prints only its banner at the default log level, so the procedure checks
   `SELECT count(*) FROM nar WHERE num_chunks > 1` instead of a `Deleted N orphan NARs` line.
+- Opting an admitted context in failed twice on Labs, so v0.28.1 was cut. The reviewed context
+  change refused the threshold as an identity change (it was missing from the operational fields in
+  `Nagare.Context.Review`), and bootstrap refused the previous revision's
+  `nix-cache-config-check-<revision>` Job with `retirement-required`: BUG-9's supersession covered
+  the migration Job but not the config-check Job it runs after. Both are fixed in 0.28.1.
+- `nagarectl nix-cache push` lets Attic skip paths that cache.nixos.org also serves, so the
+  reseed's repush of nixpkgs outputs uploads nothing. The Labs repush ran the packaged Attic client
+  with `--ignore-upstream-cache-filter`.
 
 
 ## Decision Log
@@ -137,7 +163,18 @@ the build that uses the public substituter alone.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+A context can now store Attic NARs whole, and on Labs every cache hit is a redirect to GCS: Bun and
+Caddy download from Attic as fast as from cache.nixos.org, and a Kotei UI build with Attic
+preferred takes 68 s instead of 102 s. The rollout also found and fixed, in v0.28.0 and v0.28.1,
+defects outside this plan's scope that blocked it: hand-staggered backup schedules owned by
+`kubectl-patch` (EP-238 M3 plus a hand `managedFields` cleanup; the reviewed path is EP-280), the
+lifecycle worker's memory (archives downloaded whole, reviews held together; EP-281 continues),
+stopped-scope convergence missing admission validations, and the two opt-in defects above.
+Remaining: the reseed's repush needs the upstream-filter flag that `nagarectl nix-cache push` does
+not pass, and `nagare nix-cache-status` still expects an unversioned migration Job. The threshold
+choice is already in the ADR 21 amendment. [FRIC-20](../friction-log/20-apple-containers-cannot-start-the-pinned-attic-image.md)
+is triaged as accepted: the extracted-layer workaround is recorded in the entry, and Apple
+containers remain a local rehearsal tool, not a gate.
 
 
 ## Context and Orientation
