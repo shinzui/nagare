@@ -27,6 +27,7 @@ import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), RecoveryClass (VerifyBeforeRetry), RetirementIntent (..), Sensitivity (Public))
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
@@ -42,6 +43,7 @@ inventoryContributionRetirementTests =
         "superseded migration Jobs (BUG-9)"
         [ testCase "a new migration Job image retains the previous Job without a decision" supersededJob
         , testCase "any other removed member still needs a lifecycle decision" unrelatedRemoval
+        , testCase "the previous migration Job's own prerequisite Job is retained with it" supersededPrerequisite
         ]
     , testGroup
         "superseded release images (EP-237)"
@@ -73,6 +75,26 @@ supersededJob = do
   retained <- loadInventoryHistory store >>= expectRight
   fmap (retainedPhysical . fst) (Map.lookup (authJobId "shomei-migrate-old") (historyRetained retained))
     @?= Just oldJobPhysical
+
+-- The cache's config-check Job runs before its migration Job under the same revision suffix;
+-- a new Attic configuration renames both.
+supersededPrerequisite :: Assertion
+supersededPrerequisite = do
+  let after check job = case authJob job of
+        Managed resource -> Managed resource {dependencies = [OrderedAfter (authJobId check)]}
+        other -> other
+  store <- acceptedAuth [authJob "check-old", after "check-old" "migrate-old"] [authMigration "migrate-old"]
+  history <- loadInventoryHistory store >>= expectRight
+  let next = authReplacement history [authJob "check-new", after "check-new" "migrate-new"] [authMigration "migrate-new"]
+      observed =
+        ok
+          ( observationSet
+              ( [(authJobId name, ObservedPresent oldJobPhysical) | name <- ["check-old", "migrate-old"]]
+                  <> [(authJobId name, ConfirmedAbsent (contentDigest "absent")) | name <- ["check-new", "migrate-new"]]
+              )
+          )
+  proposal <- expectRight (planChanges next noLifecycleDecisions history observed)
+  assertBool "a previous Job was deleted" (RetireResource `notElem` map plannedAction (proposalOperations proposal))
 
 unrelatedRemoval :: Assertion
 unrelatedRemoval = do

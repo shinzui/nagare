@@ -394,16 +394,13 @@ removingScopes candidate =
 -- an image change cannot strand it. Only a stateless member that an accepted
 -- schema migration ran on qualifies, and only under 'ReplaceScope'.
 supersededMigrationJobs :: CompositionCandidate -> InventoryHistory -> Set ResourceId
-supersededMigrationJobs candidate history =
-  Set.fromList
-    [ resource ^. #identity
-    | Managed resource <- historyDeclarations history
-    , Set.notMember (resource ^. #identity) desired
-    , Set.member (resource ^. #owner) replaced
-    , resource ^. #dataPolicy == Stateless
-    , Set.member (resource ^. #identity) migrated
-    ]
+supersededMigrationJobs candidate history = jobs <> Set.fromList [p | Managed r <- old, Set.member (r ^. #identity) jobs, OrderedAfter p <- r ^. #dependencies, Set.member p prerequisites]
   where
+    -- A superseded migration Job's own prerequisite Job (the cache's config check) goes with it.
+    old = historyDeclarations history
+    supersedable resource = Set.notMember (resource ^. #identity) desired && Set.member (resource ^. #owner) replaced && resource ^. #dataPolicy == Stateless
+    jobs = Set.fromList [resource ^. #identity | Managed resource <- old, supersedable resource, Set.member (resource ^. #identity) migrated]
+    prerequisites = Set.fromList [resource ^. #identity | Managed resource <- old, supersedable resource, Kubernetes _ "batch" kind _ _ <- [resource ^. #address], nameText kind == "job"]
     desired = Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))
     replaced = Set.fromList [scopeId scope | ReplaceScope scope <- NE.toList (candidateChanges candidate)]
     migrated =
