@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-24
+* **Addition**: Filed [IR-55](provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md) from mori://shinzui/hanmoto for app object storage with per-workload access, an isolated wildcard content domain, and rotating signing keys.
 * **Update**: Accept [IR-54](resume-inventory-transactions-in-the-configured-local-object-store.md) and record its target plan: docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md.
 * **Addition**: Filed [IR-54](resume-inventory-transactions-in-the-configured-local-object-store.md) to resume local object-store transactions, promoted from mori://shinzui/kotei/okf/friction-log/concepts/FRIC-108.
 
