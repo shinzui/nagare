@@ -112,13 +112,14 @@ decision made at plan time: take it over, or declare it.
   skip note, and the stage was saved, so the platform candidate builds and prepares before an
   earlier stage is accepted. The refusing case on a real host stage is first seen on the next
   intranet candidate.
-- [ ] M4: `docs/runbooks/inventory-operations.md` ("Repair configuration drift"),
+- [x] M4: `docs/runbooks/inventory-operations.md` ("Repair configuration drift"),
   `docs/runbooks/releases.md` and `docs/user/reference.md` describe the plan-time refusal, the
   transition preflight and which commands accept the opt-in; the F37 note that `inventory plan`
   lacks the opt-in is removed. `just mutation-check` passes on the range, and the change is landed
   with the full gate green.
   Documents written 2026-11-23. `just mutation-check` killed all 19 records the range selects at
-  224a34ff and all 3 at 05e15b01. Open: `just gate-fast`, `just land`, the full gate.
+  224a34ff and all 3 at 05e15b01. `just gate-fast` was green at 8362a438, `just land` put it on
+  master on 2026-11-23, and its full gate is green (843 s, 38 and 37 flake checks realised).
 
 
 ## Surprises & Discoveries
@@ -220,7 +221,18 @@ decision made at plan time: take it over, or declare it.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-11-23. A plan that would update a Kubernetes object another writer partly owns now
+refuses before a review exists and names the object, the writer and its fields;
+`platform transition plan`, `platform bootstrap plan` and `inventory plan` accept
+`--take-over-fields`, as does `just release-candidate`; and a release transition prepares the
+platform stage before it plans an earlier one. All four milestones passed, natively on a disposable
+local context and in the transition rehearsal from v0.28.1. What remains is evidence, not work: the
+preflight refusing ahead of a real host stage is first seen on the next intranet candidate, and the
+parser wiring has no unit test. Each planned update now costs one more live read. Friction: FRIC-21
+(the command audit hides its error in the gate log, a recurrence of FRIC-2) accepted; FRIC-22 (no
+bootstrapped local context for a native run) accepted, with the way to build one in Concrete Steps.
+Nothing moves to an ADR: the refusal is the executor's existing rule applied earlier, and ADR 6 and
+ADR 26 hold as written.
 
 
 ## Context and Orientation
