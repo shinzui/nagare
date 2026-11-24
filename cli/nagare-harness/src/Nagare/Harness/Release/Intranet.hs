@@ -63,6 +63,8 @@ data IntranetOptions = IntranetOptions
   , run :: !(Maybe FilePath)
   , context :: !(Maybe Text)
   , revision :: !(Maybe Text)
+  , takeOverFields :: !Bool
+  -- ^ EP-280: the operator's reviewed field-takeover opt-in, passed to every stage's plan.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -77,6 +79,7 @@ data Setup = Setup
   , operator :: !FilePath
   , tracked :: ![FilePath]
   , clean :: ![(String, String)]
+  , takeOverFields :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
@@ -130,6 +133,7 @@ setup runtime options = do
       , operator = operator'
       , tracked = tracked'
       , clean = cleanEnvironment runtime
+      , takeOverFields = options ^. #takeOverFields
       }
 
 -- | The operator repository whose dev shell runs the intranet's nagarectl.
@@ -364,7 +368,7 @@ converge runtime s index reviews previous n
           stage = "intranet-" <> showText n
           planTrace = review <> ".plan.trace.json"
       removePathForcibly review
-      planned <- succeeds runtime (traced planTrace (nagarectl s ["platform", "transition", "plan", "--out", review, "--summary", summaryFile]) & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
+      planned <- succeeds runtime (traced planTrace (nagarectl s (["platform", "transition", "plan", "--out", review, "--summary", summaryFile] <> ["--take-over-fields" | s ^. #takeOverFields])) & #stdoutTo .~ WriteTo planLog & #stderrTo .~ SameAsStdout)
       recordPins runtime s (generatedPins s)
       unless planned $ do
         logged <- readLenient planLog
@@ -378,7 +382,7 @@ converge runtime s index reviews previous n
       work <- readReviewWork review >>= either refuse pure
       when (not done && previous == Just work) (refuse (noProgress "intranet" n work))
       plannedAt' <- runtime ^. #now
-      addStage index (StageEntry stage "intranet" n (relativeIn index review) (relativeIn index planLog) (Just (relativeIn index summaryFile)) operations' moves done plannedAt' [] (Just (relativeIn index planTrace)))
+      addStage index (StageEntry stage "intranet" n (relativeIn index review) (relativeIn index planLog) (Just (relativeIn index summaryFile)) operations' moves done plannedAt' [] (Just (relativeIn index planTrace)) (Just (s ^. #takeOverFields)))
       step runtime ("stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts " <> showText moves <> " scopes")
       unless done $ do
         applied <- attempt runtime s index stage "apply" (nagarectl s ["inventory", "apply", review, "--yes", "--contract", "1"]) (review <> ".apply.json") (WriteTo applyLog)

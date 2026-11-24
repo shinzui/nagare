@@ -175,7 +175,7 @@ releasePublish outer options = do
     Right found | found ^. #version == Just version' && found ^. #revision == Just rev -> pure ()
     _ -> refuse ("github:" <> repository <> "/" <> tag <> "#nagarectl does not report " <> version' <> " at " <> rev)
   -- 7. the operator repository names the tag instead of the revision
-  transitionPinTag runtime (IntranetOptions version' (Just run') Nothing (Just rev))
+  transitionPinTag runtime (IntranetOptions version' (Just run') Nothing (Just rev) False)
   step runtime (tag <> " is published")
 
 lenient :: BS.ByteString -> Text

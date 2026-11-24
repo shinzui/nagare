@@ -22,6 +22,7 @@ module Nagare.Inventory.Command
   , planInventoryCandidateWithRetirements
   , planInventoryCandidateWithRetirementsPayload
   , prepareInventoryCandidateWithRetirementsPayload
+  , inventoryCandidateRefusalWithRetirementsPayload
   , writePlannedReview
   , planInventoryCandidateWith
   , planInventoryCandidateLoaded
@@ -315,6 +316,20 @@ prepareInventoryCandidateWithRetirementsPayload registryFor identity target cand
   (_, bundle, digest) <- prepareInventoryCandidateWithDeciderPayload registryFor (decideMemberRetirement resources candidate) identity target candidate
   pure (bundle, digest)
 
+-- | The refusal that planning this candidate would end in, or 'Nothing' when it would be reviewed.
+-- The review is neither published nor written (EP-280: the release transition's preflight of the
+-- platform stage).
+inventoryCandidateRefusalWithRetirementsPayload ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  T.Text ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  [ResourceId] ->
+  IO (Maybe Text)
+inventoryCandidateRefusalWithRetirementsPayload registryFor identity target candidate resources = do
+  opened <- openCandidateInventory target candidate
+  either Just (const Nothing) <$> tryReviewInventoryCandidateLoaded registryFor (decideMemberRetirement resources candidate) identity target opened candidate
+
 -- | Versioned adoption proposals name a compiled candidate and exact
 -- observed incarnations. The decision is validated after fresh observation.
 planInventoryAdoptionWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> FilePath -> IO ()
@@ -588,14 +603,19 @@ tryPrepareInventoryCandidateWithDeciderPayload ::
   ActiveTarget ->
   CompositionCandidate ->
   IO (Either Text (InventoryStore, ReviewBundle, ContentDigest))
-tryPrepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate = do
+tryPrepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate =
+  openCandidateInventory target candidate >>= \opened -> tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target opened candidate
+
+-- | The target's inventory at its head, for planning the candidate.
+openCandidateInventory :: ActiveTarget -> CompositionCandidate -> IO OpenedInventory
+openCandidateInventory target candidate = do
   rejectReentry
   validateTarget target candidate
   (store, observed) <- openTargetStoreAtHead target
   let binding = inventoryBinding (candidateInventory candidate)
   headValue <- initializeStoreFrom store binding (clientIdentity target) observed >>= either (dieText . showText) pure
   history <- loadInventoryHistoryAt store headValue >>= either (dieText . showText) pure
-  tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target (OpenedInventory store headValue history) candidate
+  pure (OpenedInventory store headValue history)
 
 -- | Plan a candidate against an inventory the command already opened, at the
 -- head it pinned: no second open, head read, history load or listing
@@ -608,7 +628,23 @@ tryPrepareInventoryCandidateLoaded ::
   OpenedInventory ->
   CompositionCandidate ->
   IO (Either Text (InventoryStore, ReviewBundle, ContentDigest))
-tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target opened proposed = do
+tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target opened proposed =
+  tryReviewInventoryCandidateLoaded registryFor decide payloadIdentity target opened proposed >>= \case
+    Left reason -> pure (Left reason)
+    Right (store, bundle) -> do
+      digest <- tracePhase "review publication" (publishReview store bundle) >>= either (dieText . showText) pure
+      pure (Right (store, bundle, digest))
+
+-- | 'tryPrepareInventoryCandidateLoaded' up to its review, which is not published.
+tryReviewInventoryCandidateLoaded ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  T.Text ->
+  ActiveTarget ->
+  OpenedInventory ->
+  CompositionCandidate ->
+  IO (Either Text (InventoryStore, ReviewBundle))
+tryReviewInventoryCandidateLoaded registryFor decide payloadIdentity target opened proposed = do
   rejectReentry
   validateTarget target proposed
   -- EP-247: a deployer's candidate is stamped and bounded before any write.
@@ -634,11 +670,7 @@ tryPrepareInventoryCandidateLoaded registryFor decide payloadIdentity target ope
     Left reason -> pure (Left reason)
     Right proposal -> do
       prepared <- tracePhase "review preparation" (prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal)
-      case attributeReview actor source <$> prepared of
-        Left errors -> pure (Left (showText (NE.toList errors)))
-        Right bundle -> do
-          digest <- tracePhase "review publication" (publishReview store bundle) >>= either (dieText . showText) pure
-          pure (Right (store, bundle, digest))
+      pure (bimap (showText . NE.toList) (store,) (attributeReview actor source <$> prepared))
 
 applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventory = applyInventoryWith executionBlockedRegistry

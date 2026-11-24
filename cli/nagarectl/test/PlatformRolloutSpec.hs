@@ -126,7 +126,7 @@ updateDeployments chained stuckAt = withSystemTempDirectory "platform-rollout" $
 execution :: KubernetesRuntimeConfig -> ReviewBundle -> IO AdapterRegistry
 execution config bundle = do
   specs <- either (fail . T.unpack) pure (kubernetesSpecsFromReview bundle)
-  adapter <- kubernetesExecutionAdapter False config noCache specs (map reviewPlannedOperation (reviewValidations (reviewBundleDocument bundle)))
+  adapter <- kubernetesExecutionAdapter config noCache specs (map reviewPlannedOperation (reviewValidations (reviewBundleDocument bundle)))
   either (fail . show) pure (mkAdapterRegistry [adapter] >>= withOverlapCapability KubernetesExecutor (kubernetesOverlapAddress specs))
 
 noCache :: Resource.ResourceId -> IO (Either Text Text)

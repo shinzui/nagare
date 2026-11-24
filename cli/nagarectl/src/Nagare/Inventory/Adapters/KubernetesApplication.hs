@@ -21,7 +21,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (Adapter (..), OperationAction (CreateResource, UpdateResource), OperationResources (SingleResource), PlannedOperation (..), operationResources)
-import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithObservations)
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..), mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (runtimePodOps)
 import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
@@ -31,22 +31,23 @@ import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Policy (DataPolicy (Stateless))
 import Nagare.Resource.Types (ProviderAddress (Kubernetes), ResourceId, nameText)
 
--- | With the operator's explicit takeover opt-in, planning records foreign
--- field managers of drifted objects in the review (F37). Execution needs no
--- opt-in; it follows what the saved review recorded.
+-- | What planning an update does about another writer's fields: with the
+-- operator's explicit takeover opt-in it records them in the review (F37),
+-- without it it refuses the plan (EP-280). Execution reads none; it follows
+-- what the saved review recorded.
 kubernetesApplicationAdapter ::
-  Bool ->
+  ForeignFieldPlanning () ->
   KubernetesRuntimeConfig ->
   (ResourceId -> IO (Either Text Text)) ->
   Map ResourceId (ManagedResource, ByteString) ->
   Adapter
-kubernetesApplicationAdapter takeover config cacheKey specs =
+kubernetesApplicationAdapter foreignFields config cacheKey specs =
   let (ops, observeBatch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config cacheKey specs
       receipt = readBackupReceiptFromCompletedPod config specs
       scratch = restoreScratchPodFailed config specs
    in -- EP-181: the pod operations find and replace a member StatefulSet's
-      -- stuck pod. The takeover reader enables reviewed field takeover (F37).
-      mkKubernetesAdapterWithObservations specs ops (runtimePodOps config specs) observeBatch receipt scratch (if takeover then Just guardedLiveObject else Nothing)
+      -- stuck pod.
+      mkKubernetesAdapterWithObservations specs ops (runtimePodOps config specs) observeBatch receipt scratch (guardedLiveObject <$ foreignFields)
   where
     guardedLiveObject target = do
       guarded <- runtimeGuard config
@@ -56,7 +57,8 @@ kubernetesApplicationAdapter takeover config cacheKey specs =
 -- its members in grouped reads of one observation epoch, after the guard
 -- admits, and the plan's later reads of those members (preparing each
 -- operation's before-state) are answered from that epoch. A plan writes
--- nothing; apply builds its own adapter, whose every read is fresh.
+-- nothing; apply builds its own adapter, whose every read is fresh. The flag
+-- is the takeover opt-in; without it a foreign field owner refuses the plan.
 kubernetesPlanningAdapter ::
   Bool ->
   KubernetesRuntimeConfig ->
@@ -65,7 +67,7 @@ kubernetesPlanningAdapter ::
   IO Adapter
 kubernetesPlanningAdapter takeover config cacheKey specs = do
   phase <- newPhaseEpoch
-  let adapter = kubernetesApplicationAdapter takeover (phaseRuntime config phase) cacheKey specs
+  let adapter = kubernetesApplicationAdapter (if takeover then ForeignFieldsTakenOver () else ForeignFieldsRefused ()) (phaseRuntime config phase) cacheKey specs
       observe resources = do
         guarded <- runtimeGuard config
         when (isRight guarded) (beginPhase config phase [declaration ^. #address | resource <- resources, Just (declaration, _) <- [Map.lookup resource specs]])
@@ -83,16 +85,15 @@ data ValidationPhase = Pending | Proving | Ended
 -- transaction, an observation, a recovery) ends that phase for good, before
 -- any write, so every later read is fresh. Validations never write.
 kubernetesExecutionAdapter ::
-  Bool ->
   KubernetesRuntimeConfig ->
   (ResourceId -> IO (Either Text Text)) ->
   Map ResourceId (ManagedResource, ByteString) ->
   [PlannedOperation] ->
   IO Adapter
-kubernetesExecutionAdapter takeover config cacheKey specs validations = do
+kubernetesExecutionAdapter config cacheKey specs validations = do
   phase <- newPhaseEpoch
   state <- newIORef Pending
-  let adapter = kubernetesApplicationAdapter takeover (phaseRuntime config phase) cacheKey specs
+  let adapter = kubernetesApplicationAdapter ForeignFieldsUnread (phaseRuntime config phase) cacheKey specs
       validating = Set.fromList (map plannedOperationId validations)
       addresses = [declaration ^. #address | validation <- validations, resource <- NE.toList (plannedResources validation), Just (declaration, _) <- [Map.lookup resource specs]]
       end = do

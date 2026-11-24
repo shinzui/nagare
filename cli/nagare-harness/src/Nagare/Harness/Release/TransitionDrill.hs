@@ -466,7 +466,7 @@ reviewedLoopWith drill loop afterApply = do
           when (not done && previous == Just work) $
             refuse (noProgress (T.pack (loop ^. #label)) n work)
           plannedAt' <- drill ^. #runtime . #now
-          addStage index (StageEntry stage (T.pack (loop ^. #label)) n (relativeIn index review) (relativeIn index planLog) (if typed then Just (relativeIn index summaryFile) else Nothing) operations' (counts ^. #reaccepted) done plannedAt' [] (if typed then Just (relativeIn index planTrace) else Nothing))
+          addStage index (StageEntry stage (T.pack (loop ^. #label)) n (relativeIn index review) (relativeIn index planLog) (if typed then Just (relativeIn index summaryFile) else Nothing) operations' (counts ^. #reaccepted) done plannedAt' [] (if typed then Just (relativeIn index planTrace) else Nothing) Nothing)
           say' drill (T.pack (loop ^. #label) <> " stage " <> showText n <> ": " <> showText operations' <> " operations, re-accepts scopes: " <> showText (counts ^. #reaccepted))
           if done
             then pure acc

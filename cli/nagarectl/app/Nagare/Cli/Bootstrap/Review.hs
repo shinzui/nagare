@@ -35,9 +35,10 @@ import Nagare.Target
   )
 
 -- | Plan the pending foundation stage, or else the next pending platform stage, under the review
--- identity @identityFor payloadId@.
-planStageReview :: ActiveTarget -> (Text -> Text) -> FilePath -> IO ()
-planStageReview active identityFor output = do
+-- identity @identityFor payloadId@. The flag is the reviewed field-takeover opt-in of the platform
+-- stage (F37, EP-280).
+planStageReview :: Bool -> ActiveTarget -> (Text -> Text) -> FilePath -> IO ()
+planStageReview takeOver active identityFor output = do
   stageTarget <- foundationStageTarget active
   (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
@@ -53,7 +54,7 @@ planStageReview active identityFor output = do
         stageTarget
         candidate
         output
-    else planNextStage FreshBootstrap active paths workspace identity output
+    else planNextStage FreshBootstrap takeOver active paths workspace identity output
 
 -- | Apply a saved stage review whose payload identity @accepted@ admits, refusing with @refusal@
 -- otherwise.

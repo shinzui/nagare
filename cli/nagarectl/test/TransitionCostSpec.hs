@@ -22,6 +22,7 @@ import Data.Text qualified as T
 import Nagare.Contract.Trace
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (Adapter (adapterObserve), AdapterRegistry, ResourceObservation (ObservedDrifted), lookupAdapter, mkAdapterRegistry, observationMap)
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..))
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesExecutionAdapter, kubernetesPlanningAdapter)
 import Nagare.Inventory.Bootstrap (bootstrapPreservedScopeVectorDigest, changedPlatformScopes, compileBootstrapStamp, composePlatformChanges)
 import Nagare.Inventory.Command (applyInventoryWithFactory, convergeInventoryCandidateResult, loadTargetSnapshot, openTargetStore, planInventoryCandidateWith)
@@ -199,7 +200,7 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
     lastApplied <- newIORef Nothing
     let members = 205
         plan registry candidate output = planInventoryCandidateWith (\_ _ -> registry) target candidate output
-        registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
+        registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter ForeignFieldsUnread (worldConfig cluster) (const (pure (Left "no cache"))) specs]
         planRegistry declared = planningRegistry cluster (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared])
         applyFactory _ bundle = do
           registry <- executionRegistry cluster bundle
@@ -270,11 +271,12 @@ productionCosts = withSystemTempDirectory "transition-cost" $ \root -> do
       -- EP-226 M2: a plan reads its members in two grouped reads (206 names
       -- in chunks of 128) and answers every single read from them. EP-227
       -- M2: admission proves the validations from two more; only the
-      -- updates read alone.
+      -- updates read alone. EP-280: a plan also reads each update's live
+      -- object once, for the managed fields the grouped reads omit.
       @?= [ ("unchanged", (Summary 0 0 0 0 0 0 208 2 0 206, emptySummary))
-          , ("sweep", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 416 6 1 410))
-          , ("one", (Summary 0 1 205 0 0 0 414 2 0 412, Summary 0 0 0 0 1 205 416 6 1 410))
-          , ("four", (Summary 0 3 203 0 0 0 414 2 0 412, Summary 0 0 0 0 3 203 420 14 3 406))
+          , ("sweep", (Summary 0 1 205 0 0 0 416 3 0 413, Summary 0 0 0 0 1 205 416 6 1 410))
+          , ("one", (Summary 0 1 205 0 0 0 416 3 0 413, Summary 0 0 0 0 1 205 416 6 1 410))
+          , ("four", (Summary 0 3 203 0 0 0 420 5 0 415, Summary 0 0 0 0 3 203 420 14 3 406))
           ]
     -- Every executed operation is one root span labelled with its operation;
     -- validations are not operations.
@@ -413,7 +415,7 @@ sweepGrowth members unrelated = withSystemTempDirectory "transition-growth" $ \r
     cluster <- newCluster emptyServer =<< newAdversary []
     store <- openTargetStore target
     _ <- initializeStore store (Resource.ContextBinding context (ok (Resource.mkName "project"))) "transition-growth" >>= either (fail . show) pure
-    let registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
+    let registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter ForeignFieldsUnread (worldConfig cluster) (const (pure (Left "no cache"))) specs]
         registryOf declared = planningRegistry cluster (Map.fromList [(member ^. #identity, (member, native)) | (member, native) <- declared])
         applyFactory _ = executionRegistry cluster
         others =
@@ -464,8 +466,9 @@ structuralGrowth = do
   (smallValidations, largeValidations) @?= (205, 2050)
   largePuts @?= smallPuts
   -- EP-226 M2: planning reads grow by chunks of 128 names, not by members.
-  (smallReads, largeReads) @?= (2, 17)
-  largeReads @?= (2051 + 127) `div` 128
+  -- EP-280: one more reads the marker update's managed fields.
+  (smallReads, largeReads) @?= (3, 18)
+  largeReads @?= (2051 + 127) `div` 128 + 1
   beside @?= small
 
 -- * A moved workspace (EP-225 M3)
@@ -493,7 +496,7 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
         platform = ok (Resource.mkScopeId Resource.Platform "cluster-fixture")
         workspace name = root </> "platform" </> name
         release name changed = [configMapOf platform ("member-" <> T.pack (show n)) (if n <= changed then "changed" else "value") (T.pack (workspace name </> "cluster/Config.hs")) | n <- [1 .. members]]
-        registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs]
+        registryFor specs = mkAdapterRegistry [kubernetesApplicationAdapter ForeignFieldsUnread (worldConfig cluster) (const (pure (Left "no cache"))) specs]
         applyFactory _ = executionRegistry cluster
         compiled releaseId declared = do
           snapshot <- loadTargetSnapshot target
@@ -528,7 +531,7 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     -- it moves, and every member it covers is proved, not journaled.
     (selected, _, _) <- compiled "0.11.1" (release "nagare-0.11.1-bbbb" 0)
     selected @?= []
-    planned "move" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 1 members 0 0 0 (reads + 2) 2 0 reads)
+    planned "move" "0.11.1" (release "nagare-0.11.1-bbbb" 0) >>= (@?= Summary 0 1 members 0 0 0 (reads + 4) 3 0 (reads + 1))
     -- A second review of the same move, planned from the same head, goes stale
     -- once the first applies.
     _ <- planned "stale" "0.11.1" (release "nagare-0.11.1-bbbb" 0)
@@ -545,7 +548,7 @@ movedWorkspace = withSystemTempDirectory "transition-moved" $ \root -> do
     -- One changed member: its update and the stamp's; the others are proved.
     (changedScopes, _, _) <- compiled "0.11.2" (release "nagare-0.11.2-dddd" 1)
     changedScopes @?= [platform]
-    planned "one" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 2 (members - 1) 0 0 0 (reads + 2) 2 0 reads)
+    planned "one" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 2 (members - 1) 0 0 0 (reads + 6) 4 0 (reads + 2))
     apply "one" >>= (@?= Summary 0 0 0 0 2 (members - 1) (reads + 5) 9 2 (reads - 4))
     planned "one-replan" "0.11.2" (release "nagare-0.11.2-dddd" 1) >>= (@?= Summary 0 0 0 0 0 0 (settled + 2) 2 0 settled)
   where
@@ -576,5 +579,5 @@ planningRegistry cluster specs = do
 executionRegistry :: Cluster -> ReviewBundle -> IO AdapterRegistry
 executionRegistry cluster bundle = do
   specs <- either (fail . T.unpack) pure (kubernetesSpecsFromReview bundle)
-  adapter <- kubernetesExecutionAdapter False (worldConfig cluster) (const (pure (Left "no cache"))) specs (map reviewPlannedOperation (reviewValidations (reviewBundleDocument bundle)))
+  adapter <- kubernetesExecutionAdapter (worldConfig cluster) (const (pure (Left "no cache"))) specs (map reviewPlannedOperation (reviewValidations (reviewBundleDocument bundle)))
   either (fail . show) pure (mkAdapterRegistry [adapter])

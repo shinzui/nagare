@@ -31,6 +31,7 @@ import Nagare.Cli.Runtime.Pulumi (selectReviewedPulumiForContext)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.ForeignOwnerPreflight (afterForeignOwnerPreflight)
 import Nagare.Inventory.Plan (ReviewDocument (reviewOperations), reviewBaseRevisions, reviewBundleDocument, reviewDesiredRevisions)
 import Nagare.Inventory.Store (HeadManifest (..))
 import Nagare.Platform.Paths (PlatformPaths)
@@ -49,8 +50,14 @@ import System.Environment (setEnv)
 -- publishing a new image, which only fresh installations use. A transition
 -- whose platform scopes have no work left then re-declares the accepted routes
 -- to the access enforcer that lack Kourier's HTTP/1.1 annotation (EP-273).
-planNextStage :: StageMode -> ActiveTarget -> PlatformPaths -> PlatformWorkspace -> Text -> FilePath -> IO ()
-planNextStage mode active paths workspace identity output = do
+--
+-- The flag is the reviewed field-takeover opt-in of the platform stage (F37). Without it that
+-- stage's plan refuses an update of an object another writer partly owns, and a transition stage
+-- that precedes it is planned only after the platform stage's plan, prepared against the cluster
+-- as it is, shows no such refusal (EP-280): the host is not changed for a release that would stop
+-- at the platform stage.
+planNextStage :: StageMode -> Bool -> ActiveTarget -> PlatformPaths -> PlatformWorkspace -> Text -> FilePath -> IO ()
+planNextStage mode takeOver active paths workspace identity output = do
   (snapshot, headValue) <- Inventory.loadTargetSnapshotWithHead active
   -- EP-243: one posture for every stage of this plan, from the head the snapshot came from.
   let ingress = postureOf active (headMove headValue)
@@ -59,20 +66,54 @@ planNextStage mode active paths workspace identity output = do
     (void (selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)))
   localStage <- buildLocalSubstrateCandidate mode active workspace snapshot
   case localStage of
-    Just candidate -> plan candidate
+    Just candidate -> plan ingress snapshot candidate
     Nothing -> do
       cloudStage <- buildCloudStageCandidate ingress active workspace snapshot
       case cloudStage of
-        Just candidate -> plan candidate
+        Just candidate -> plan ingress snapshot candidate
         Nothing -> afterCloud ingress snapshot
   where
-    plan candidate =
+    plan ingress snapshot candidate
+      | mode == ReleaseTransition && not takeOver =
+          afterForeignOwnerPreflight (platformRefusal ingress snapshot) (planStage candidate) >>= either dieT pure
+      | otherwise = planStage candidate
+    planStage candidate =
       Inventory.planInventoryCandidateWithPayloadIdentity
         (inventoryPlanRegistry active workspace)
         identity
         active
         candidate
         output
+    -- The refusal the platform stage's plan would end in now, with nothing published or written.
+    platformRefusal ingress snapshot = do
+      (candidate, native, droppedRoutes) <- platformStage ingress snapshot
+      Inventory.inventoryCandidateRefusalWithRetirementsPayload
+        (inventoryPlanRegistryWithNative active workspace native)
+        identity
+        active
+        candidate
+        droppedRoutes
+    platformStage ingress snapshot = do
+      when (active ^. #profile . #mode == Local) $ do
+        selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
+        exists <- doesFileExist selectedKubeconfig
+        unless exists (dieT "reviewed local context kubeconfig is missing")
+        setEnv "KUBECONFIG" selectedKubeconfig
+      (candidate, native) <- buildPlatformCandidate ingress active paths workspace snapshot
+      -- EP-246: a route the admin API no longer declares (an old base's, once its grants are
+      -- retired) is retired by its own decision; a context move's retirement then collects it.
+      let desired = Set.fromList [resource ^. #identity | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory candidate)]
+          droppedRoutes =
+            [ resource ^. #identity
+            | (owner, (_, scope)) <- Map.toList (ResourceInventory.snapshotScopes snapshot)
+            , Resource.scopeIdText owner == "platform:admin-api"
+            , bundle <- ResourceInventory.scopeBundles scope
+            , ResourceInventory.Managed resource <- bundle ^. #declarations
+            , Resource.Kubernetes _ "serving.knative.dev" kind _ _ <- [resource ^. #address]
+            , Resource.nameText kind == "domainmapping"
+            , Set.notMember (resource ^. #identity) desired
+            ]
+      pure (candidate, native, droppedRoutes)
     afterCloud ingress snapshot = do
       hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
       -- Once the host is accepted, installation media is no longer a prerequisite
@@ -84,48 +125,30 @@ planNextStage mode active paths workspace identity output = do
         else do
           imageBuild <- buildImageBuildStageCandidate active workspace snapshot
           case imageBuild of
-            Just candidate -> plan candidate
+            Just candidate -> plan ingress snapshot candidate
             Nothing -> do
               imagePublication <- buildImagePublicationStageCandidate active workspace snapshot
               case imagePublication of
-                Just candidate -> plan candidate
+                Just candidate -> plan ingress snapshot candidate
                 Nothing -> afterImages ingress snapshot
     afterImages ingress snapshot = do
       hostStage <- buildHostStageCandidate mode paths active workspace snapshot
       case hostStage of
-        Just candidate -> plan candidate
+        Just candidate -> plan ingress snapshot candidate
         Nothing -> do
           kubeconfigStage <- buildKubeconfigStageCandidate active workspace snapshot
           case kubeconfigStage of
-            Just candidate -> plan candidate
+            Just candidate -> plan ingress snapshot candidate
             Nothing -> afterKubeconfig ingress snapshot
     afterKubeconfig ingress snapshot = do
       zoneStage <- buildCloudflareZoneStageCandidate ingress active workspace snapshot
       case zoneStage of
-        Just candidate -> plan candidate
+        Just candidate -> plan ingress snapshot candidate
         Nothing -> do
-          when (active ^. #profile . #mode == Local) $ do
-            selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
-            exists <- doesFileExist selectedKubeconfig
-            unless exists (dieT "reviewed local context kubeconfig is missing")
-            setEnv "KUBECONFIG" selectedKubeconfig
-          (candidate, native) <- buildPlatformCandidate ingress active paths workspace snapshot
-          -- EP-246: a route the admin API no longer declares (an old base's, once its grants are
-          -- retired) is retired by its own decision; a context move's retirement then collects it.
-          let desired = Set.fromList [resource ^. #identity | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory candidate)]
-              droppedRoutes =
-                [ resource ^. #identity
-                | (owner, (_, scope)) <- Map.toList (ResourceInventory.snapshotScopes snapshot)
-                , Resource.scopeIdText owner == "platform:admin-api"
-                , bundle <- ResourceInventory.scopeBundles scope
-                , ResourceInventory.Managed resource <- bundle ^. #declarations
-                , Resource.Kubernetes _ "serving.knative.dev" kind _ _ <- [resource ^. #address]
-                , Resource.nameText kind == "domainmapping"
-                , Set.notMember (resource ^. #identity) desired
-                ]
+          (candidate, native, droppedRoutes) <- platformStage ingress snapshot
           (bundle, digest) <-
             Inventory.prepareInventoryCandidateWithRetirementsPayload
-              (inventoryPlanRegistryWithNative active workspace native)
+              (inventoryPlanRegistryWithTakeover takeOver active workspace native)
               identity
               active
               candidate

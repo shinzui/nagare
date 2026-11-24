@@ -52,6 +52,8 @@ data CandidateOptions = CandidateOptions
   , revision :: !Text
   , rehearsal :: !Bool
   , run :: !(Maybe FilePath)
+  , takeOverFields :: !Bool
+  -- ^ EP-280: plan the intranet's transition stages with @--take-over-fields@.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -232,7 +234,7 @@ releaseCandidate outer options = do
           else do
             phase "intranet" "the intranet"
             setChild index "intranet" (run </> "intranet-index.json")
-            require runtime "the intranet move failed" (invocation (worktree </> "scripts/release-intranet.sh") [T.unpack version', "--run", run])
+            require runtime "the intranet move failed" (invocation (worktree </> "scripts/release-intranet.sh") ([T.unpack version', "--run", run] <> ["--take-over-fields" | options ^. #takeOverFields]))
         setRecord index "intranet" moved
         step runtime ("v" <> version' <> " is ready to publish: just release-publish " <> version')
 

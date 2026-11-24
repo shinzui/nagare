@@ -19,7 +19,7 @@ import Nagare.Database.Secret (b64encode)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (..), RecoveryDecision (..))
 import Nagare.Inventory.Adapters.EnTenants (TenantVerdict (..), enDeclaredTenants, enMetricsRequest, lastUnavailableReason, proveEnTenants, tenantAvailability)
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations)
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..), KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), noPodOps)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), dispatchKubectl, runKubectlWith, withKubectlInterpreter)
 import Nagare.Resource.Types (mkContextId)
@@ -77,7 +77,7 @@ inventoryEnTenantsTests =
       state <- newIORef (KubernetesAbsent K.absence)
       calls <- newIORef 0
       let ops = K.ops state calls
-          adapter = mkKubernetesAdapterWithObservations K.specs ops pods (traverse (kubernetesObserve ops)) (\_ _ -> pure (Left "no receipt")) (\_ _ -> pure (Right False)) Nothing
+          adapter = mkKubernetesAdapterWithObservations K.specs ops pods (traverse (kubernetesObserve ops)) (\_ _ -> pure (Left "no receipt")) (\_ _ -> pure (Right False)) ForeignFieldsUnread
       prepared <- adapterPrepare adapter K.createOperation >>= K.expectRight
       adapterExecute adapter K.createOperation prepared >>= (@?= AdapterEffectCompleted)
       pure (adapter, prepared)

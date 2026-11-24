@@ -258,6 +258,7 @@ library
     Nagare.Inventory.EnForward
     Nagare.Inventory.Environment
     Nagare.Inventory.Execute
+    Nagare.Inventory.ForeignOwnerPreflight
     Nagare.Inventory.Foundation
     Nagare.Inventory.HelmReview
     Nagare.Inventory.Host

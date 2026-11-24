@@ -65,6 +65,7 @@ import Nagare.Inventory.Adapters.Helm
   , mkHelmAdapter
   )
 import Nagare.Inventory.Adapters.HelmRuntime (helmObservation)
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (ForeignFieldsUnread))
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
@@ -285,7 +286,7 @@ runInventoryStatus mctx requested json gcOutput scopeArg = do
       else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedCdn)
   let observedKubernetes runtime specs
         | Map.null specs = Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor
-        | otherwise = kubernetesApplicationAdapter False runtime cacheKey specs
+        | otherwise = kubernetesApplicationAdapter ForeignFieldsUnread runtime cacheKey specs
       observeHelm specs =
         helmObservation
           (contextNameText (active ^. #contextName))

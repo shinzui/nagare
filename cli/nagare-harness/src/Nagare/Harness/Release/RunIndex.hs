@@ -115,6 +115,9 @@ data StageEntry = StageEntry
   , attempts :: ![Attempt]
   , trace :: !(Maybe FilePath)
   -- ^ EP-224: the command trace of the stage's plan.
+  , takeOverFields :: !(Maybe Bool)
+  -- ^ EP-280: whether the stage was planned with @--take-over-fields@; absent in earlier indexes
+  -- and for loops that never pass it.
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)

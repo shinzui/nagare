@@ -132,7 +132,7 @@ runInfraPreview :: Maybe String -> InfraPreviewOpts -> IO ()
 runInfraPreview mctx options = case options ^. #inventory of
   Just candidate -> do
     when (options ^. #allowReplacement) (dieT "--allow-replacement belongs to the reviewed lifecycle decision; it cannot be attached to an inventory preview")
-    runInventoryPlan mctx candidate [] (options ^. #savePlan)
+    runInventoryPlan mctx candidate [] False (options ^. #savePlan)
   Nothing -> do
     (active, workspace) <- prepareInfraMutation mctx
     result <- saveReviewedPlan active workspace (options ^. #savePlan) (options ^. #allowReplacement)

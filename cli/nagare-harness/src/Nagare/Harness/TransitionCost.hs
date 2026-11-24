@@ -306,7 +306,7 @@ writeFixture directory at' = do
   if not (null present)
     then pure (Left ("refusing to write a fixture into the non-empty " <> T.pack directory))
     else do
-      let stage n operations' trace' attempts' = StageEntry ("transition-" <> T.pack (show n)) "transition" n ("reviews/transition-" <> show n) ("reviews/transition-" <> show n <> ".plan.log") Nothing operations' 0 (null attempts') at' attempts' (Just trace')
+      let stage n operations' trace' attempts' = StageEntry ("transition-" <> T.pack (show n)) "transition" n ("reviews/transition-" <> show n) ("reviews/transition-" <> show n <> ".plan.log") Nothing operations' 0 (null attempts') at' attempts' (Just trace') Nothing
           attempt = Attempt "transition-1/apply" "apply" (Just "tx-fixture") "converged" "reviews/transition-1.apply.log" Nothing at' at' (Just "reviews/transition-1.apply.trace.json")
           index =
             newRunIndex "drill" "local-rehearsal" at'

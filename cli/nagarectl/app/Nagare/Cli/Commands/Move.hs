@@ -272,7 +272,7 @@ retireBase mctx active = do
               ("nagare-bootstrap:" `T.isPrefixOf`)
               "the platform's"
               (moves </> "retire-platform-routes")
-              (planStageReview active ("nagare-bootstrap:" <>) (moves </> "retire-platform-routes") >> pure True)
+              (planStageReview False active ("nagare-bootstrap:" <>) (moves </> "retire-platform-routes") >> pure True)
           )
       NamesRetired
         | committed -> do
@@ -397,7 +397,7 @@ perform mctx active store marker direction step
     reviewStep dir' stepNow = do
       directory <- reviewDirectory active (moveKind marker) dir' stepNow
       MoveReview.reviewStep
-        (stageReviewOps mctx active store (isStep stepNow) ("the move's " <> moveStepToken stepNow) directory (planStageReview active (identityFor stepNow) directory >> pure True))
+        (stageReviewOps mctx active store (isStep stepNow) ("the move's " <> moveStepToken stepNow) directory (planStageReview False active (identityFor stepNow) directory >> pure True))
     isStep stepNow identity = case parseMoveReviewIdentity identity of
       Just (kind, reviewed, _) -> kind == moveKind marker && reviewed == stepNow
       Nothing -> False

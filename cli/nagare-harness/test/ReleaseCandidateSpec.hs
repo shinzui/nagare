@@ -107,7 +107,7 @@ candidateTests =
           root' <- canonicalizePath raw
           pathless <- withoutPython root'
           (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root' calm
-          releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing)
+          releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing False)
           calls' <- recorded world
           rendered root' calls' @?= candidateOrder True
           let runDir = root' </> "state/nagare/releases/v9.8.7/rehearsal-" <> T.unpack rev
@@ -120,7 +120,7 @@ candidateTests =
           root' <- canonicalizePath raw
           pathless <- withoutPython root'
           (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root' calm
-          releaseCandidate runtime (CandidateOptions version' "HEAD" False Nothing)
+          releaseCandidate runtime (CandidateOptions version' "HEAD" False Nothing False)
           rendered root' <$> recorded world >>= (@?= candidateOrder False)
           index <- eitherDecodeFileStrict @Value (root' </> "state/nagare/releases/v9.8.7" </> T.unpack rev </> "index.json") >>= either fail pure
           fieldAt index ["status"] @?= Just (Aeson.String "passed")
@@ -132,12 +132,13 @@ candidateTests =
           pathless <- withoutPython root'
           let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless
           (stopped, _) <- fake environment' =<< candidateWorld root' (calm & #intranetPasses .~ False)
-          refused (releaseCandidate stopped (CandidateOptions version' "HEAD" False Nothing)) >>= assertMentions "the intranet move failed"
+          refused (releaseCandidate stopped (CandidateOptions version' "HEAD" False Nothing False)) >>= assertMentions "the intranet move failed"
           (runtime, world) <- fake environment' =<< candidateWorld root' calm
-          releaseCandidate runtime (CandidateOptions version' "HEAD" False Nothing)
+          -- EP-280: the rerun's reviewed field-takeover opt-in reaches the intranet move.
+          releaseCandidate runtime (CandidateOptions version' "HEAD" False Nothing True)
           calls' <- rendered root' <$> recorded world
           [call | call <- calls', any (`isInfixOf` call) ["release-rehearse.sh", "mktemp", "just gate "]] @?= []
-          [call | call <- calls', "release-intranet.sh" `isInfixOf` call] @?= [runOf False <> "/worktree/scripts/release-intranet.sh 9.8.7 --run " <> runOf False]
+          [call | call <- calls', "release-intranet.sh" `isInfixOf` call] @?= [runOf False <> "/worktree/scripts/release-intranet.sh 9.8.7 --run " <> runOf False <> " --take-over-fields"]
           index <- eitherDecodeFileStrict @Value (root' </> "state/nagare/releases/v9.8.7" </> T.unpack rev </> "index.json") >>= either fail pure
           [status | (Just "rehearsal", status) <- stepsOf index] @?= [Just "passed", Just "kept"]
           [status | (Just "intranet", status) <- stepsOf index] @?= [Just "failed", Just "passed"]
@@ -150,7 +151,7 @@ candidateTests =
           createDirectoryIfMissing True runDir
           BL.writeFile (runDir </> "candidate.json") (Aeson.encode (object ["version" .= version', "revision" .= ("f" <> T.drop 1 rev), "previous" .= ("9.10.0" :: Text)]))
           (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root' calm
-          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False (Just runDir))) >>= assertMentions "not this candidate"
+          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False (Just runDir) False)) >>= assertMentions "not this candidate"
           calls' <- rendered root' <$> recorded world
           assertBool "a step ran" (not (any (\call -> "git worktree" `isPrefixOf` call || "just" `isPrefixOf` call) calls'))
     , testCase "without a landed full-gate record the full gate runs in the background and must leave a green record" $
@@ -158,28 +159,28 @@ candidateTests =
           root' <- canonicalizePath raw
           pathless <- withoutPython root'
           (runtime, world) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root' (calm & #gateRecord .~ False)
-          releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing)
+          releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing False)
           calls' <- recorded world
           [(unwords (call ^. #arguments), call ^. #background) | call <- calls', call ^. #program == "just"]
             @?= [("gate-verify " <> T.unpack rev, False), ("gate " <> T.unpack rev, True), ("gate-verify " <> T.unpack rev, False)]
           respond <- candidateWorld root' (calm & #gateRecord .~ False)
           let red command = if command ^. #arguments == ["gate", T.unpack rev] then pure (1, "gate: red\n") else respond command
           (redRuntime, redWorld) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "red")] <> pathless) red
-          refused (releaseCandidate redRuntime (CandidateOptions version' "HEAD" False Nothing)) >>= assertMentions "the full gate failed"
+          refused (releaseCandidate redRuntime (CandidateOptions version' "HEAD" False Nothing False)) >>= assertMentions "the full gate failed"
           filter ("release-intranet.sh" `isInfixOf`) . rendered root' <$> recorded redWorld >>= (@?= [])
     , testCase "notes that do not begin with their release's title refuse before any step" $
         withSystemTempDirectory "candidate" $ \raw -> do
           root' <- canonicalizePath raw
           pathless <- withoutPython root'
           (runtime, _) <- fake ([("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless) =<< candidateWorld root' (calm & #notes .~ "Preface\n# Nagare 9.8.7\n")
-          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing)) >>= assertMentions "does not begin # Nagare 9.8.7"
+          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing False)) >>= assertMentions "does not begin # Nagare 9.8.7"
     , testCase "a release with images pushes them to the cache before the rehearsal, with no registry call, and a rerun keeps the receipt" $
         withSystemTempDirectory "candidate" $ \raw -> do
           root' <- canonicalizePath raw
           pathless <- withoutPython root'
           let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state"), ("CACHIX_AUTH_TOKEN", "secret")] <> pathless
           (runtime, world) <- fake environment' =<< candidateWorld root' (calm & #images .~ True)
-          releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing)
+          releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing False)
           calls' <- rendered root' <$> recorded world
           let cut = dropWhile (/= "just gate-verify " <> T.unpack rev) calls'
           takeWhile (not . isPrefixOf "mktemp") (drop 1 cut)
@@ -192,7 +193,7 @@ candidateTests =
           assertBool "the candidate called a registry" (not (any ("skopeo" `isPrefixOf`) calls'))
           assertBool "a rehearsal read the operator shell" (not (any ("direnv" `isPrefixOf`) calls'))
           (again, againWorld) <- fake environment' =<< candidateWorld root' (calm & #images .~ True)
-          releaseCandidate again (CandidateOptions version' "HEAD" True Nothing)
+          releaseCandidate again (CandidateOptions version' "HEAD" True Nothing False)
           filter (\call -> "cachix" `isPrefixOf` call || "release-rehearse" `isInfixOf` call) . rendered root' <$> recorded againWorld >>= (@?= [])
     , testCase "a release with images refuses before anything runs while the operator shell exports a pin, naming it" $
         withSystemTempDirectory "candidate" $ \raw -> do
@@ -201,21 +202,21 @@ candidateTests =
           pathless <- withoutPython root'
           let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state"), ("CACHIX_AUTH_TOKEN", "secret"), ("NAGARE_RELEASE_OPERATOR_REPO", root' </> "operator")] <> pathless
           (runtime, world) <- fake environment' =<< candidateWorld root' (calm & #images .~ True & #pinned .~ "NAGARE_AUTH_EN_IMAGE\nNAGARE_ADMIN_API_IMAGE\n")
-          reason <- refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False Nothing))
+          reason <- refused (releaseCandidate runtime (CandidateOptions version' "HEAD" False Nothing False))
           assertMentions "NAGARE_AUTH_EN_IMAGE, NAGARE_ADMIN_API_IMAGE" reason
           calls' <- rendered root' <$> recorded world
           assertBool "the run went on after the refusal" (not (any (\call -> "git worktree" `isPrefixOf` call || "just" `isPrefixOf` call) calls'))
           (runtime', _) <- fake environment' =<< candidateWorld root' (calm & #images .~ True)
-          releaseCandidate runtime' (CandidateOptions version' "HEAD" False Nothing)
+          releaseCandidate runtime' (CandidateOptions version' "HEAD" False Nothing False)
     , testCase "a release without images reads no token and no operator shell, and a release with images needs the token" $
         withSystemTempDirectory "candidate" $ \raw -> do
           root' <- canonicalizePath raw
           pathless <- withoutPython root'
           let environment' = [("HOME", root' </> "home"), ("XDG_STATE_HOME", root' </> "state")] <> pathless
           (runtime, _) <- fake environment' =<< candidateWorld root' (calm & #images .~ True)
-          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing)) >>= assertMentions "CACHIX_AUTH_TOKEN"
+          refused (releaseCandidate runtime (CandidateOptions version' "HEAD" True Nothing False)) >>= assertMentions "CACHIX_AUTH_TOKEN"
           (runtime', world') <- fake environment' =<< candidateWorld root' calm
-          releaseCandidate runtime' (CandidateOptions version' "HEAD" True Nothing)
+          releaseCandidate runtime' (CandidateOptions version' "HEAD" True Nothing False)
           calls' <- rendered root' <$> recorded world'
           assertBool "a release without images read the operator shell" (not (any ("direnv" `isPrefixOf`) calls'))
     ]

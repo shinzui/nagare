@@ -13,10 +13,10 @@ import Nagare.Dsl.Prelude
 -- | Build the production cloud adapter from the same composed declarations the
 -- generic planner sees. Other domains retain their refusing adapters until
 -- their production runtimes are registered by this child or later children.
-runPlatformBootstrapPlan :: Maybe String -> FilePath -> IO ()
-runPlatformBootstrapPlan mctx output = do
+runPlatformBootstrapPlan :: Maybe String -> Bool -> FilePath -> IO ()
+runPlatformBootstrapPlan mctx takeOver output = do
   active <- activeTarget mctx
-  planStageReview active ("nagare-bootstrap:" <>) output
+  planStageReview takeOver active ("nagare-bootstrap:" <>) output
 
 runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
 runPlatformBootstrapApply mctx reviewDirectory yes = do

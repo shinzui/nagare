@@ -5,6 +5,7 @@
 -- resourceVersion.
 module InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests) where
 
+import Control.Exception (throwIO)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -23,6 +24,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesProof (requireWriteTarget)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOps)
 import Nagare.Inventory.Digest
+import Nagare.Inventory.ForeignOwnerPreflight (afterForeignOwnerPreflight)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Kubernetes
 import Nagare.Inventory.KubernetesConfiguration
@@ -34,7 +36,7 @@ import Nagare.Resource.Policy (LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Support.Kubernetes qualified as K
-import System.Exit (ExitCode (..))
+import System.Exit (ExitCode (..), exitWith)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -42,13 +44,51 @@ kubernetesFieldTakeoverTests :: TestTree
 kubernetesFieldTakeoverTests =
   testGroup
     "reviewed Kubernetes field takeover (F37)"
-    [ testCase "without the opt-in the review stays strict and apply refuses the foreign manager" $ do
+    [ testCase "an adapter without a live reader plans a strict review and apply refuses the foreign manager" $ do
         mutation <- prepared Nothing
         mutationVersion mutation @?= 1
         mutationTakeover mutation @?= Nothing
         (result, applies) <- transport mutation (live "kubernetes-uid-1" "4" [own, patch "t2"]) Nothing
         assertKnownNoEffect "another writer: kubectl-patch" result
         applies @?= 0
+    , testCase "planning without the opt-in refuses a foreign owner and names the object, the writer and its fields (EP-280)" $ do
+        state <- newIORef drifted
+        calls <- newIORef (0 :: Int)
+        let reader entries _ = pure (Right (live "kubernetes-uid-1" "4" entries))
+            refusing entries = mkKubernetesAdapterRefusingForeignFields bound (K.ops state calls) (traverse (kubernetesObserve (K.ops state calls))) noReceipt noScratch (reader entries)
+        adapterPrepare (refusing [own, patch "t1", entry "kubectl-edit" "Update" "t4" extraField]) K.updateOperation >>= \case
+          Left (PrepareRefused operation reason) -> do
+            operation @?= plannedOperationId K.updateOperation
+            assertBool ("no marker: " <> T.unpack reason) (foreignOwnerRefusalMarker `T.isPrefixOf` reason)
+            traverse_
+              (\expected -> assertBool (T.unpack expected <> " is not named in: " <> T.unpack reason) (expected `T.isInfixOf` reason))
+              [resourceIdText K.resource, "settings", "kubectl-patch owns data.mode", "kubectl-edit owns data.extra", "--take-over-fields", "declare the change"]
+          other -> assertFailure ("expected the plan-time refusal, got: " <> show (void other))
+        -- An object only Nagare and status writers own plans exactly as it does with no live read.
+        unread <- adapterPrepare (mkKubernetesAdapterWithRecoveryProbes bound (K.ops state calls) (traverse (kubernetesObserve (K.ops state calls))) noReceipt noScratch) K.updateOperation >>= K.expectRight
+        checked <- adapterPrepare (refusing [own, status]) K.updateOperation >>= K.expectRight
+        checked @?= unread
+        -- A live read that fails refuses the plan, as it does under the opt-in.
+        unreadable <- adapterPrepare (mkKubernetesAdapterRefusingForeignFields bound (K.ops state calls) (traverse (kubernetesObserve (K.ops state calls))) noReceipt noScratch (\_ -> pure (Left "could not read Kubernetes field ownership"))) K.updateOperation
+        assertBool "an unreadable live object was planned" (isLeft unreadable)
+    , testCase "a stage ahead of the platform stage is planned only when the platform plan refuses no foreign owner (EP-280)" $ do
+        state <- newIORef drifted
+        calls <- newIORef (0 :: Int)
+        planned <- newIORef (0 :: Int)
+        let runtime = K.ops state calls
+            refusing = mkKubernetesAdapterRefusingForeignFields bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch (\_ -> pure (Right (live "kubernetes-uid-1" "4" [own, patch "t1"])))
+            -- The platform stage's plan, refused as the planner renders its prepare errors.
+            platformPlan = either (\refused -> Just (T.pack (show [refused]))) (const Nothing) <$> adapterPrepare refusing K.updateOperation
+            hostStage = modifyIORef' planned (+ 1)
+        afterForeignOwnerPreflight platformPlan hostStage >>= \case
+          Left refusal -> assertBool ("no marker: " <> T.unpack refusal) (foreignOwnerRefusalMarker `T.isInfixOf` refusal && "kubectl-patch" `T.isInfixOf` refusal)
+          Right () -> assertFailure "the host stage was planned over a foreign owner in the platform stage"
+        readIORef planned >>= (@?= 0)
+        -- No refusal, another refusal, a command refusal and a failure all leave the platform stage to its own plan.
+        traverse_
+          (\preflight -> afterForeignOwnerPreflight preflight hostStage >>= (@?= Right ()))
+          [pure Nothing, pure (Just "Kubernetes observation unavailable: cluster guard refused"), exitWith (ExitFailure 1), throwIO (userError "kubectl is missing")]
+        readIORef planned >>= (@?= 4)
     , testCase "a reviewed takeover records the foreign entries and forces only while they are unchanged" $ do
         mutation <- prepared (Just (\_ -> pure (Right (live "kubernetes-uid-1" "4" [own, patch "t1"]))))
         mutationVersion mutation @?= 3

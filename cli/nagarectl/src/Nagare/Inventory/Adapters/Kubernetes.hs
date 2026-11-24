@@ -6,6 +6,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   ( KubernetesState (..)
   , KubernetesMutation (..)
   , FieldTakeover (..)
+  , ForeignFieldPlanning (..)
   , KubernetesAdapterOps (..)
   , kubernetesObserve
   , unstamped
@@ -13,6 +14,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   , mkKubernetesAdapterWithBackupReceipt
   , mkKubernetesAdapterWithRecoveryProbes
   , mkKubernetesAdapterWithFieldTakeover
+  , mkKubernetesAdapterRefusingForeignFields
   , mkKubernetesAdapterWithBackupReceiptAndBatch
   , mkKubernetesAdapterWithObservations
   , settleMutation
@@ -50,7 +52,7 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Inventory.KubernetesConfiguration (foreignFieldManagers, liveIdentity)
+import Nagare.Inventory.KubernetesConfiguration (foreignFieldManagers, foreignOwnerRefusal, liveIdentity)
 import Nagare.Inventory.Prune (manualPruneJobBackupPin)
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins, volumeRestoreJobSourcePins)
 import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
@@ -69,6 +71,18 @@ data KubernetesAdapterOps = KubernetesAdapterOps
     -- the API server. A local compare followed by unrestricted apply is unsafe.
     kubernetesMutateConditional :: !(KubernetesMutation -> IO AdapterExecution)
   }
+
+-- | What planning an update does about fields another writer manages on the live object. The
+-- reader returns the live object with its managed fields.
+data ForeignFieldPlanning reader
+  = -- | No live read: the executor's check at apply time is the only one. Execution adapters, which
+    -- never prepare, and adapters without a live reader use it.
+    ForeignFieldsUnread
+  | -- | Planning refuses the update and names the object, its writers and their fields (EP-280).
+    ForeignFieldsRefused !reader
+  | -- | The operator's takeover opt-in: the review records the exact entries (F37).
+    ForeignFieldsTakenOver !reader
+  deriving stock (Functor)
 
 -- | The object's state alone.
 kubernetesObserve :: KubernetesAdapterOps -> ResourceId -> IO KubernetesState
@@ -110,7 +124,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   Adapter
 mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupReceipt =
-  mkKubernetesAdapterWithObservations specs ops noPodOps observeBatch readBackupReceipt noScratchFailureProbe Nothing
+  mkKubernetesAdapterWithObservations specs ops noPodOps observeBatch readBackupReceipt noScratchFailureProbe ForeignFieldsUnread
 
 -- | Without a runtime pod probe, a failed restore scratch workload is never
 -- proved terminal; recovery stays unresolved, as before.
@@ -127,7 +141,7 @@ mkKubernetesAdapterWithRecoveryProbes ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Adapter
 mkKubernetesAdapterWithRecoveryProbes specs ops batch receipt scratch =
-  mkKubernetesAdapterWithObservations specs ops noPodOps batch receipt scratch Nothing
+  mkKubernetesAdapterWithObservations specs ops noPodOps batch receipt scratch ForeignFieldsUnread
 
 -- | Planning with an explicit operator opt-in to reviewed field takeover. An
 -- update whose live object has foreign managed fields records those exact
@@ -142,11 +156,25 @@ mkKubernetesAdapterWithFieldTakeover ::
   (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
 mkKubernetesAdapterWithFieldTakeover specs ops batch receipt scratch reader =
-  mkKubernetesAdapterWithObservations specs ops noPodOps batch receipt scratch (Just reader)
+  mkKubernetesAdapterWithObservations specs ops noPodOps batch receipt scratch (ForeignFieldsTakenOver reader)
+
+-- | Planning without the takeover opt-in: an update whose live object has
+-- foreign managed fields is refused before a review exists (EP-280).
+mkKubernetesAdapterRefusingForeignFields ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps ->
+  ([ResourceId] -> IO [KubernetesState]) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
+  (ProviderAddress -> IO (Either Text Value)) ->
+  Adapter
+mkKubernetesAdapterRefusingForeignFields specs ops batch receipt scratch reader =
+  mkKubernetesAdapterWithObservations specs ops noPodOps batch receipt scratch (ForeignFieldsRefused reader)
 
 -- | Every observation and recovery input. The pod operations find a member
 -- StatefulSet's stuck pod (EP-181); the other constructors install none.
--- The takeover reader enables reviewed field takeover (F37).
+-- The foreign-field planning decides what an update's plan does about
+-- another writer's fields (F37, EP-280).
 mkKubernetesAdapterWithObservations ::
   Map ResourceId (ManagedResource, ByteString) ->
   KubernetesAdapterOps ->
@@ -154,9 +182,9 @@ mkKubernetesAdapterWithObservations ::
   ([ResourceId] -> IO [KubernetesState]) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
-  Maybe (ProviderAddress -> IO (Either Text Value)) ->
+  ForeignFieldPlanning (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
-mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceipt scratchFailed takeoverReader =
+mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceipt scratchFailed foreignFields =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -251,8 +279,9 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
       Right (resource, declaration, _)
         | plannedAction operation == ReplaceStuckPod -> preparePodReplacement pods operation resource (address declaration)
       Right (resource, declaration, native) -> do
-        takeover <- case takeoverReader of
-          Just reader | plannedAction operation == UpdateResource -> prepareTakeover reader operation resource declaration
+        takeover <- case foreignFields of
+          ForeignFieldsTakenOver reader | plannedAction operation == UpdateResource -> prepareTakeover True reader operation resource declaration
+          ForeignFieldsRefused reader | plannedAction operation == UpdateResource -> prepareTakeover False reader operation resource declaration
           _ -> pure (Right Nothing)
         (before, beforeStamp) <- case takeover of
           Right (Just (_, observed, stamp)) -> pure (observed, stamp)
@@ -270,7 +299,9 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
           pure (PreparedNative bytes (summary mutation))
     -- The exact object observation and its live managed fields must name the
     -- same UID and resourceVersion; otherwise the object moved between reads.
-    prepareTakeover reader operation resource declaration = do
+    -- Without the opt-in the same foreign entries refuse the plan, as the
+    -- executor would refuse its apply (EP-280).
+    prepareTakeover optedIn reader operation resource declaration = do
       (observed, stamp) <- kubernetesObserveStamped ops resource
       live <- reader (address declaration)
       pure $ first (PrepareRefused (plannedOperationId operation)) $ do
@@ -279,6 +310,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
         others <- foreignFieldManagers (Just (address declaration)) value
         case observed of
           _ | null others -> Right Nothing
+          _ | not optedIn -> Left (foreignOwnerRefusal resource (address declaration) others)
           KubernetesPresent physical observedRevision _ _
             | physicalIdentityText physical == uid && observedRevision == revision ->
                 Right (Just (FieldTakeover physical revision others, observed, stamp))

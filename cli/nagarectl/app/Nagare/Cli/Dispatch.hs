@@ -118,9 +118,9 @@ dispatch (mctx, cmd0) = case cmd0 of
   PlatformVersions refreshing asJson contract -> runPlatformVersionsCommand mctx refreshing asJson contract
   PlatformGuard -> runPlatformGuard mctx
   PlatformStamp -> runPlatformStamp mctx
-  PlatformBootstrapPlan output -> runPlatformBootstrapPlan mctx output
+  PlatformBootstrapPlan takeOver output -> runPlatformBootstrapPlan mctx takeOver output
   PlatformBootstrapApply review yes -> runPlatformBootstrapApply mctx review yes
-  PlatformTransitionPlan output summary -> runPlatformTransitionPlan mctx output summary
+  PlatformTransitionPlan takeOver output summary -> runPlatformTransitionPlan mctx takeOver output summary
   PlatformTransitionCommit yes -> runPlatformTransitionCommit mctx yes
   PlatformAdopt version yes asJson -> runPlatformAdopt mctx version yes asJson
   PlatformRepin version yes -> runPlatformRepin mctx version yes
@@ -178,7 +178,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Cleanup o -> runCleanup mctx o
   NixCache ncmd -> runNixCache mctx ncmd
   InventoryCompile input output json -> Inventory.compileInventory input output json
-  InventoryPlan input retained output -> runInventoryPlan mctx input retained output
+  InventoryPlan input retained takeOver output -> runInventoryPlan mctx input retained takeOver output
   InventoryAdopt input output -> runInventoryAdopt mctx input output
   InventoryRebuildDecisions points snapshots runs fresh bucket store credentials output -> runInventoryRebuildDecisions mctx points snapshots runs fresh bucket store credentials output
   InventoryRebuild input output -> runInventoryRebuild mctx input output

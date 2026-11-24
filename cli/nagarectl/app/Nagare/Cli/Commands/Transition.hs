@@ -53,9 +53,9 @@ import System.IO.Temp (withSystemTempDirectory)
 -- | Review the next stage that moves the context to this payload's release.
 -- Planning is read-only apart from the saved review; the first admitted stage
 -- opens the head's transition marker.
-runPlatformTransitionPlan :: Maybe String -> FilePath -> Maybe FilePath -> IO ()
-runPlatformTransitionPlan mctx output summary = do
-  pair <- planTransitionStage mctx output
+runPlatformTransitionPlan :: Maybe String -> Bool -> FilePath -> Maybe FilePath -> IO ()
+runPlatformTransitionPlan mctx takeOver output summary = do
+  pair <- planTransitionStage mctx takeOver output
   impact <- transitionImpact output
   for_ summary (\path -> BL.writeFile path (encode impact))
   -- EP-228 M1: why the stage is selected, in its effects, re-accepted
@@ -79,8 +79,8 @@ runPlatformTransitionPlan mctx output summary = do
     )
 
 -- | Save the next transition stage's review in @output@.
-planTransitionStage :: Maybe String -> FilePath -> IO TransitionPair
-planTransitionStage mctx output = do
+planTransitionStage :: Maybe String -> Bool -> FilePath -> IO TransitionPair
+planTransitionStage mctx takeOver output = do
   active <- activeTarget mctx
   (paths, workspace) <- tracePhase "workspace resolution" (resolvePlatformWorkspace (active ^. #contextName))
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
@@ -122,7 +122,7 @@ planTransitionStage mctx output = do
         current <- Inventory.loadTargetSnapshot stageTarget
         candidate <- buildCloudFoundationCandidate moved paths workspace current
         Inventory.planInventoryCandidateWithPayloadIdentity (inventoryPlanRegistry moved workspace) identity stageTarget candidate output
-      else planNextStage ReleaseTransition moved paths workspace identity output
+      else planNextStage ReleaseTransition takeOver moved paths workspace identity output
   pure pair
 
 -- | Pin the context to this release and close the transition. Refuses unless
@@ -172,7 +172,7 @@ runPlatformTransitionCommit mctx yes = do
     TIO.putStrLn "The cluster marker is an earlier release's or no stage was admitted; planning this payload's next stage to confirm it has no work"
     impact <- withSystemTempDirectory "nagare-transition-commit" $ \directory -> do
       let review = directory </> "review"
-      _ <- planTransitionStage mctx review
+      _ <- planTransitionStage mctx False review
       transitionImpact review
     unless (impact ^. #operationCount == 0 && null (impact ^. #reaccepted)) $
       dieT

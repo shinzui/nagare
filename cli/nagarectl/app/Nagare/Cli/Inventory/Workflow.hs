@@ -36,7 +36,7 @@ import Nagare.Cli.Inventory.Execution
   , inventoryExecutionRegistry
   , inventoryExecutionRegistryIn
   )
-import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inventoryPlanRegistry)
+import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inventoryPlanRegistry, inventoryPlanRegistryWithTakeover)
 import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutation
   )
@@ -81,8 +81,8 @@ import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
-runInventoryPlan :: Maybe String -> FilePath -> [String] -> FilePath -> IO ()
-runInventoryPlan mctx candidateDirectory retained output = do
+runInventoryPlan :: Maybe String -> FilePath -> [String] -> Bool -> FilePath -> IO ()
+runInventoryPlan mctx candidateDirectory retained takeOver output = do
   target <- activeTarget mctx
   candidate <- Inventory.loadCandidate candidateDirectory >>= either dieT pure
   let inventory = ResourceInventory.candidateInventory candidate
@@ -163,7 +163,7 @@ runInventoryPlan mctx candidateDirectory retained output = do
             when
               (not (Set.isSubsetOf currentInfra preflightInfra))
               (dieT "selected infrastructure changed since preflight; replan")
-            inventoryPlanRegistry active workspace selected history
+            inventoryPlanRegistryWithTakeover takeOver active workspace Map.empty selected history
       Inventory.planInventoryWithRetirements
         registryFor
         target

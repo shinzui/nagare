@@ -52,6 +52,7 @@ inventoryCmd =
                                 <> help "Retain one removed member without deleting its live provider object; repeat as needed"
                             )
                         )
+                      <*> switch (long "take-over-fields" <> help "Record fields another writer manages on the objects this plan updates, so the reviewed apply takes them over; without it such a plan is refused")
                       <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper
                   )
                   (progDesc "Prepare and publish a digest-bound inventory review")

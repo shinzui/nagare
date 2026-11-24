@@ -11,6 +11,8 @@ module Nagare.Inventory.KubernetesConfiguration
   , confirmTakeoverSettled
   , takeoverSettlementPatch
   , foreignFieldManagers
+  , foreignOwnerRefusal
+  , foreignOwnerRefusalMarker
   , liveIdentity
   )
 where
@@ -201,6 +203,36 @@ takeoverSettlementPatch target reviewed uid observed = do
 -- foreign.
 foreignFieldManagers :: Maybe ProviderAddress -> Value -> Either Text [Value]
 foreignFieldManagers target observed = map untimed <$> (managedFieldEntries observed >>= foreignEntries target)
+
+-- | How every plan-time refusal of a foreign field owner starts (EP-280). The release transition's
+-- preflight of the platform stage recognises the refusal by it.
+foreignOwnerRefusalMarker :: Text
+foreignOwnerRefusalMarker = "Kubernetes object has fields managed by another writer"
+
+-- | The plan-time refusal of an update whose live object has the given foreign managed-field
+-- entries ('foreignFieldManagers'): the object, each writer with the fields it owns, and the two
+-- remedies. The executor refuses the same object at apply time; planning says so before a review
+-- exists (EP-280).
+foreignOwnerRefusal :: ResourceId -> ProviderAddress -> [Value] -> Text
+foreignOwnerRefusal resource target entries =
+  foreignOwnerRefusalMarker
+    <> ": "
+    <> resourceIdText resource
+    <> " at "
+    <> T.pack (show target)
+    <> ": "
+    <> T.intercalate "; " (map owner entries)
+    <> ". Replan with --take-over-fields (platform transition plan, platform bootstrap plan, inventory plan, app deploy --save-plan) to take these fields back in a reviewed update, or declare the change (a context value or an overlay) so Nagare renders it"
+  where
+    owner entry = fromMaybe "unknown" (managerOf entry) <> " owns " <> fields entry
+    fields = \case
+      Object entry
+        | Just (Object owned) <- KM.lookup "fieldsV1" entry
+        , paths@(_ : _) <- filter (not . T.null) (map path (managedPaths [] owned)) ->
+            T.intercalate ", " (take shown paths) <> (if length paths > shown then " and " <> T.pack (show (length paths - shown)) <> " more" else "")
+      _ -> "unnamed fields"
+    path = T.intercalate "." . map (\segment -> fromMaybe segment (T.stripPrefix "f:" segment)) . filter (/= ".")
+    shown = 8
 
 liveIdentity :: Value -> Either Text (Text, Text)
 liveIdentity observed = do

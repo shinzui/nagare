@@ -24,7 +24,7 @@ import InventoryStuckPodSpec (acceptedStore, pgBound, planCluster, planId, planO
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations, unstamped)
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..), KubernetesAdapterOps (..), KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations, unstamped)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), noPodOps)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -103,7 +103,7 @@ roundTrip action resource state = do
   let (declared, _) = pgBound
       ops = KubernetesAdapterOps fixtureContext (unstamped (\_ -> pure state)) (\_ -> pure AdapterEffectCompleted)
       pods = noPodOps {readStuckPod = \_ -> pure (Right (Just (reviewedPod & #statefulSetUid .~ planUid)))}
-      adapter = mkKubernetesAdapterWithObservations specs ops pods (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing
+      adapter = mkKubernetesAdapterWithObservations specs ops pods (traverse (kubernetesObserve ops)) noReceipt noScratch ForeignFieldsUnread
       registry = ok (withAdapterFence (ok (mkAdapterRegistry [adapter])) KubernetesExecutor stubFence)
   (store, candidate, history) <- acceptedStore declared declared
   snapshot <- readStoreSnapshot store >>= expectRight

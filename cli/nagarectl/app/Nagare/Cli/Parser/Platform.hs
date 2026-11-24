@@ -166,7 +166,7 @@ bootstrapCommandParser =
     ( command
         "plan"
         ( info
-            (PlatformBootstrapPlan <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper)
+            (PlatformBootstrapPlan <$> switch (long "take-over-fields" <> help "Record fields another writer manages on the objects this plan updates, so the reviewed apply takes them over; without it such a plan is refused") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper)
             (progDesc "Compile and publish a reviewed bootstrap plan")
         )
         <> command
@@ -187,7 +187,8 @@ transitionCommandParser =
         "plan"
         ( info
             ( PlatformTransitionPlan
-                <$> strOption (long "out" <> metavar "DIRECTORY")
+                <$> switch (long "take-over-fields" <> help "Record fields another writer manages on the objects this plan updates, so the reviewed apply takes them over; without it such a plan is refused")
+                <*> strOption (long "out" <> metavar "DIRECTORY")
                 <*> optional (strOption (long "summary" <> metavar "FILE" <> help "Also write the saved review's operation counts by action and re-accepted scopes as JSON (the release runner reads it)"))
                   <**> helper
             )

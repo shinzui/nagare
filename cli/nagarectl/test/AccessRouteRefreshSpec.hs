@@ -21,6 +21,7 @@ import Nagare.Access.ProtectedRouteRefresh
 import Nagare.Access.Resolve (RouteTarget (..), disableHttp2Annotation, renderAccessDomainMapping)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..))
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
@@ -113,7 +114,7 @@ converge takeover run members changes = do
       candidate = ok (composeInventory snapshot changes)
   adapter <-
     if takeover
-      then pure (kubernetesApplicationAdapter True (clusterConfig (fixtureBinding ^. #identity) (Cluster (runWorld run) (runAdversary run))) (\_ -> pure (Left "the world has no cache client")) members)
+      then pure (kubernetesApplicationAdapter (ForeignFieldsTakenOver ()) (clusterConfig (fixtureBinding ^. #identity) (Cluster (runWorld run) (runAdversary run))) (\_ -> pure (Left "the world has no cache client")) members)
       else worldKubernetesAdapter (fixtureBinding ^. #identity) members (runWorld run) (runAdversary run)
   reviewed <- asOperator run (planned (ok (mkAdapterRegistry [adapter])) candidate) >>= either (assertFailure . T.unpack) pure
   applyRegistry <- reviewRegistryFor run (fst reviewed)

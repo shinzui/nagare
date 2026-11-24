@@ -13,7 +13,6 @@ module Nagare.Cli.Inventory.Adapters
   , inventoryHostAdapter
   , inventoryPlanningHostAdapter
   , inventoryKubernetesAdapter
-  , inventoryKubernetesAdapterWith
   , inventoryKubernetesPlanningAdapter
   , inventoryKubernetesExecutionAdapter
   , inventoryControllerCollectionAdapter
@@ -102,6 +101,7 @@ import Nagare.Inventory.Adapters.HostRuntime
   , mkHostRuntimeOps
   , mkPlanningHostRuntimeOps
   )
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (ForeignFieldsUnread))
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter, kubernetesExecutionAdapter, kubernetesPlanningAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (KubernetesRuntimeConfig))
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
@@ -152,19 +152,13 @@ import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
 inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
-inventoryKubernetesAdapter = inventoryKubernetesAdapterWith False
-
--- | With the operator's explicit takeover opt-in, planning records foreign
--- field managers of drifted objects in the review (F37); see
--- 'kubernetesApplicationAdapter'.
-inventoryKubernetesAdapterWith :: Bool -> ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
-inventoryKubernetesAdapterWith takeover active binding cacheKey specs
+inventoryKubernetesAdapter active binding cacheKey specs
   | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor)
   | otherwise = do
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
       unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
-      pure (kubernetesApplicationAdapter takeover config cacheKey specs)
+      pure (kubernetesApplicationAdapter ForeignFieldsUnread config cacheKey specs)
 
 -- | The Kubernetes adapter of one admitted review: admission proves its
 -- validations from one grouped epoch (EP-227 M2).
@@ -174,10 +168,11 @@ inventoryKubernetesExecutionAdapter active binding cacheKey specs validations
   | otherwise = do
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
       unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
-      kubernetesExecutionAdapter False (KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))) cacheKey specs validations
+      kubernetesExecutionAdapter (KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))) cacheKey specs validations
 
 -- | The Kubernetes adapter of one plan: its observations and preparations
--- read one observation epoch (EP-226 M2).
+-- read one observation epoch (EP-226 M2). The flag is the takeover opt-in
+-- (F37); without it a foreign field owner refuses the plan (EP-280).
 inventoryKubernetesPlanningAdapter :: Bool -> ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
 inventoryKubernetesPlanningAdapter takeover active binding cacheKey specs
   | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor)

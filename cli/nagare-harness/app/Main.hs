@@ -74,6 +74,7 @@ releaseParser =
                   <*> (T.pack <$> strOption (long "revision" <> metavar "REV" <> value "HEAD" <> showDefault <> help "The candidate revision, on origin/master"))
                   <*> switch (long "rehearsal" <> help "Run every step but the intranet")
                   <*> optional (strOption (long "run" <> metavar "DIR" <> help "The run directory (default: releases/vVERSION/REV under the state directory); a rerun continues it"))
+                  <*> switch (long "take-over-fields" <> help "Plan the intranet's transition stages with --take-over-fields: the reviews take back fields another writer (a kubectl patch) owns on the objects they update. Without it such a stage is refused before the first stage is applied")
             )
             (progDesc "Everything up to the tag: the landing check, the images, the transition rehearsal and the intranet; a rerun keeps each finished step (scripts/release-candidate.sh)")
         )
@@ -145,6 +146,7 @@ transitionParser =
         <*> optional (strOption (long "run" <> metavar "DIR" <> help "The candidate run (required)"))
         <*> optional (T.pack <$> strOption (long "context" <> metavar "NAME" <> help "Default: NAGARE_RELEASE_CONTEXT, else intranet"))
         <*> optional (T.pack <$> strOption (long "revision" <> metavar "REV" <> help "Refuse unless the run is for this revision"))
+        <*> switch (long "take-over-fields" <> help "Plan the intranet's transition stages with --take-over-fields: the reviews take back fields another writer (a kubectl patch) owns on the objects they update. Without it such a stage is refused before the first stage is applied")
 
 versionArgument :: Parser Text
 versionArgument = T.pack <$> strArgument (metavar "VERSION" <> help "major.minor.patch")

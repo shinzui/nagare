@@ -311,7 +311,7 @@ data Command
   | ReleasePublish String String FilePath Bool
   | ReleaseCleanupStarter String String FilePath Integer Integer String Bool
   | InventoryCompile FilePath FilePath Bool
-  | InventoryPlan FilePath [String] FilePath
+  | InventoryPlan FilePath [String] Bool FilePath
   | InventoryAdopt FilePath FilePath
   | -- | --recovery-point, --volume-snapshot, --volume-run, --fresh, --bucket, --offline-object-store, --offline-credentials, --out (EP-183 M4, M3)
     InventoryRebuildDecisions [String] [String] [String] [String] (Maybe String) (Maybe String) (Maybe FilePath) FilePath
@@ -342,9 +342,9 @@ data Command
     PlatformVersions Bool Bool (Maybe Int)
   | PlatformGuard
   | PlatformStamp
-  | PlatformBootstrapPlan FilePath
+  | PlatformBootstrapPlan Bool FilePath
   | PlatformBootstrapApply FilePath Bool
-  | PlatformTransitionPlan FilePath (Maybe FilePath)
+  | PlatformTransitionPlan Bool FilePath (Maybe FilePath)
   | PlatformTransitionCommit Bool
   | PlatformAdopt String Bool Bool
   | PlatformRepin String Bool

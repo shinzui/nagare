@@ -42,7 +42,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (Adapter)
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps, KubernetesState)
+import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..), KubernetesAdapterOps, KubernetesState)
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey)
 import Nagare.Inventory.Journal (OperationId)
@@ -381,7 +381,7 @@ clusterOps context cluster = mkKubernetesRuntimeOpsAndBatchWithCacheKey (cluster
 -- | The application-scope adapter production runs (without takeover), over
 -- the fake cluster: the CLI and the model share 'kubernetesApplicationAdapter'.
 clusterAdapter :: ContextId -> Cluster -> Map.Map ResourceId (ManagedResource, ByteString) -> Adapter
-clusterAdapter context cluster = kubernetesApplicationAdapter False (clusterConfig context cluster) noCache
+clusterAdapter context cluster = kubernetesApplicationAdapter ForeignFieldsUnread (clusterConfig context cluster) noCache
 
 noCache :: ResourceId -> IO (Either Text Text)
 noCache _ = pure (Left "the world has no cache client")

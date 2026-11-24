@@ -18,7 +18,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text qualified as T
 import Nagare.Contract.V1 (Outcome (..))
 import Nagare.Harness.Prelude hiding ((.=))
@@ -27,6 +27,7 @@ import Nagare.Harness.Release.Intranet
 import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Rehearse
 import Nagare.Harness.Release.Review
+import Nagare.Harness.Release.RunIndex (RunIndex)
 import ReleaseCandidateSpec (candidateTests, publishTests)
 import ReleaseFake
 import ReleaseRehearsalSpec (drillTests, rehearseTests)
@@ -174,7 +175,8 @@ intranetWorld o knobs = do
     ("direnv", "exec" : _ : "nagarectl" : "--context" : _ : rest) -> case rest of
       ["version", "--json"] -> ok (versionDocument version' (if knobs ^. #wrongCli then "another" else rev))
       ["inventory", "store", "status", "--json"] -> ok (encodeText (object ["activeTransaction" .= (if knobs ^. #activeTransaction then Just ("tx-open" :: Text) else Nothing)]))
-      ["platform", "transition", "plan", "--out", out, "--summary", summary']
+      "platform" : "transition" : "plan" : "--out" : out : "--summary" : summary' : takeOver
+        | takeOver `notElem` [[], ["--take-over-fields"]] -> fails ("fake nagarectl: unexpected plan arguments " <> T.pack (unwords takeOver) <> "\n")
         | knobs ^. #compileError -> fails "apps/Databases.hs:3:5: error: missing field privileges\n"
         | knobs ^. #endless -> writeReview out ["VerifyResource"] 0 >> writeSummary out summary' >> ok "Saved the next transition stage\n"
         | otherwise -> do
@@ -209,7 +211,7 @@ intranetWorld o knobs = do
     other -> assertFailure ("unexpected invocation " <> show other) >> fails ""
 
 intranetOptions :: Operator -> IntranetOptions
-intranetOptions o = IntranetOptions {version = version', run = Just (o ^. #run), context = Nothing, revision = Nothing}
+intranetOptions o = IntranetOptions {version = version', run = Just (o ^. #run), context = Nothing, revision = Nothing, takeOverFields = False}
 
 nagare :: [String] -> String
 nagare rest = unwords (["direnv", "exec", "$T/operator", "nagarectl", "--context", "intranet"] <> rest)
@@ -349,6 +351,15 @@ intranetTests =
           refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "apply 1 failed: stopped tx-ef56 at op-1 (the provider refused)"
           calls' <- rendered (o ^. #root) <$> recorded world
           filter (isPrefixOf (nagare ["inventory", "resume"])) calls' @?= []
+    , testCase "--take-over-fields reaches every stage's plan and its index entry (EP-280)" $
+        withOperator $ \o -> do
+          (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm
+          transitionRun runtime ((intranetOptions o) {takeOverFields = True})
+          plans <- filter (isPrefixOf (nagare ["platform", "transition", "plan"])) . rendered (o ^. #root) <$> recorded world
+          assertBool "no stage was planned" (not (null plans))
+          assertBool ("a plan lacks the opt-in: " <> show plans) (all (isSuffixOf " --take-over-fields") plans)
+          index <- eitherDecodeFileStrict @RunIndex (o ^. #run </> "intranet-index.json") >>= either fail pure
+          map (^. #takeOverFields) (index ^. #stages) @?= replicate (length plans) (Just True)
     , testCase "a transition that plans the same work again after applying it stops at the repeat (EP-228 M3)" $
         withOperator $ \o -> do
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {endless = True}
