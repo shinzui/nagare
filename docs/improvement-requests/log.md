@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-24
+* **Addition**: Filed [IR-54](resume-inventory-transactions-in-the-configured-local-object-store.md) to resume local object-store transactions, promoted from mori://shinzui/kotei/okf/friction-log/concepts/FRIC-108.
+
 ## 2026-11-23
 
 * **Addition**: Filed [IR-53](review-an-existing-application-image-by-registry-digest.md) for reviewed deployment of an existing registry digest.
