@@ -218,12 +218,17 @@ foreignOwnerRefusal resource target entries =
   foreignOwnerRefusalMarker
     <> ": "
     <> resourceIdText resource
-    <> " at "
-    <> T.pack (show target)
-    <> ": "
+    <> " ("
+    <> object
+    <> "): "
     <> T.intercalate "; " (map owner entries)
     <> ". Replan with --take-over-fields (platform transition plan, platform bootstrap plan, inventory plan, app deploy --save-plan) to take these fields back in a reviewed update, or declare the change (a context value or an overlay) so Nagare renders it"
   where
+    -- The object as kubectl names it.
+    object = case target of
+      Kubernetes _ group kind namespace name ->
+        nameText kind <> (if T.null group then "" else "." <> group) <> "/" <> nameText name <> maybe "" ((" in " <>) . nameText) namespace
+      _ -> T.pack (show target)
     owner entry = fromMaybe "unknown" (managerOf entry) <> " owns " <> fields entry
     fields = \case
       Object entry

@@ -605,7 +605,7 @@ tool leaves that tool as the field manager of what it changed. Every plan that
 would update such an object is then refused before a review exists:
 
 ```text
-Kubernetes object has fields managed by another writer: <resource ID> at <address>: kubectl-patch owns spec.schedule. Replan with --take-over-fields (…) to take these fields back in a reviewed update, or declare the change (a context value or an overlay) so Nagare renders it
+Kubernetes object has fields managed by another writer: <resource ID> (cronjob.batch/<name> in <namespace>): kubectl-patch owns spec.schedule. Replan with --take-over-fields (…) to take these fields back in a reviewed update, or declare the change (a context value or an overlay) so Nagare renders it
 ```
 
 The refusal names each object, each writer and the fields it owns. Nothing is
