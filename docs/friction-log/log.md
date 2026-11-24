@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-11-24
+
+* **Addition**: FRIC-22 records blocked environment friction with mori://shinzui/nagare/docs/user/local-development.md: No bootstrapped local context exists to confirm a planner change natively
+
+* **Addition**: FRIC-21 records detour process friction with mori://shinzui/nagare/scripts/test-managed-command-audit.sh: The command audit's failure is hidden in the gate log, again for a library call and the catalogue snapshot
+
 ## 2026-11-23
 
 * **Update**: FRIC-20 accepted: Triaged at EP-278 completion: accepted, the workaround is documented and the image is not changed for a local tool.

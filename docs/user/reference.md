@@ -104,7 +104,7 @@ and `platform transition commit`; see
 | --- | --- |
 | `nagarectl platform status [--json]` | Compare CLI, payload, context, host, and cluster release identities. |
 | `nagarectl platform adopt --version VERSION --yes` | Confirm observations and assign the first explicit release to a legacy context. |
-| `nagarectl platform transition plan --out DIR` | Review the next stage that moves an admitted context from its pinned release to this payload's (EP-172). Apply it with `inventory apply DIR --yes` and plan again until the review has no operations. The first admitted stage opens a transition marker in the store head; until the commit, only this payload's `nagarectl` applies, resumes, recovers or closes. |
+| `nagarectl platform transition plan --out DIR [--take-over-fields]` | Review the next stage that moves an admitted context from its pinned release to this payload's (EP-172). Apply it with `inventory apply DIR --yes` and plan again until the review has no operations. A platform object whose fields another writer owns refuses the plan before the first stage is applied; `--take-over-fields` records those fields so the reviewed apply takes them over ([Repair configuration drift](../runbooks/inventory-operations.md#repair-configuration-drift)). The first admitted stage opens a transition marker in the store head; until the commit, only this payload's `nagarectl` applies, resumes, recovers or closes. |
 | `nagarectl platform transition commit --yes` | Pin the context to this release once the inventory is idle, every platform scope has converged, and the payload, host and cluster report it; then close the transition. |
 | `nagarectl platform upgrade --to VERSION --dry-run [--json]` | Persist Nix, Pulumi, and Kubernetes preflight results without mutating the target. |
 | `nagarectl platform upgrade --apply --resume ID --yes` | Apply or resume a reviewed transaction; advance the context pin last. |
@@ -124,6 +124,14 @@ boundaries.
 `nagarectl inventory export --out DIRECTORY` writes a private, digest-checked
 history backup. `nagarectl inventory restore --from DIRECTORY` reviews its
 context/project binding; `--yes` restores only into an empty local store.
+
+Every command that plans a Kubernetes update refuses, before a review exists,
+an object whose non-status fields another writer owns (a `kubectl patch`, say),
+naming the object, the writer and its fields. `nagarectl inventory plan`,
+`platform bootstrap plan`, `platform transition plan` and `app deploy
+--save-plan` accept `--take-over-fields`, which records those fields in the
+review so its apply takes them over; see
+[Repair configuration drift](../runbooks/inventory-operations.md#repair-configuration-drift).
 
 `nagarectl inventory plan --inventory DIRECTORY --retain-resource RESOURCE_ID
 --out REVIEW` can review a compiled candidate that removes one accepted member

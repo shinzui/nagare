@@ -592,7 +592,8 @@ local-secret-scope-smoke context:
 # from the newest release the candidate accepts, and the intranet on the
 # candidate. A run lives in ${XDG_STATE_HOME:-~/.local/state}/nagare/releases/vVERSION/REV
 # (or --run DIR), and a rerun keeps every step it already finished. Takes
-# --revision REV (default HEAD) and --rehearsal (leaves the intranet alone).
+# --revision REV (default HEAD), --rehearsal (leaves the intranet alone) and
+# --take-over-fields (the intranet's stages take back fields a kubectl edit owns).
 # Prepare a release candidate up to the tag.
 [group('release')]
 release-candidate version *args:

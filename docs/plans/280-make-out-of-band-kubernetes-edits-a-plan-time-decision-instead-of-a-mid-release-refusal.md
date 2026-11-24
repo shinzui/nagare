@@ -21,6 +21,11 @@ provenance:
       at: 2026-11-24T05:38:42Z
       mode: "update"
       note: "Add the transition preflight of the platform stage (M3), scope the refusal and the flag, fix Concrete Steps to the shomei Deployment"
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-24T06:05:35Z
+      mode: "implement"
+      note: "M1 to M3 code and unit tests, M4 documents; native confirmation and landing open"
 ---
 
 # Make out-of-band Kubernetes edits a plan-time decision instead of a mid-release refusal
@@ -79,23 +84,45 @@ decision made at plan time: take it over, or declare it.
   plans with the writer named in the review summary, applies, and afterwards lists only
   `nagare-inventory` (and status writers) in `managedFields`. Unit tests cover the flag reaching
   the plan registry for each command.
+  Code done 2026-11-23 (commit 224a34ff): the three parsers carry the flag (`--help` shows it) and
+  it reaches `inventoryPlanRegistryWithTakeover`. Open: the native run. No local context on this
+  machine is bootstrapped on this payload (FRIC-22).
 - [ ] M2: without the opt-in, a plan that updates an object with a foreign owner refuses at plan
   time naming object, writer and fields; a plan with no foreign owners is byte-identical to
   today's; an adapter built without a live-object reader behaves as today.
+  Code and unit tests done 2026-11-23 (commit 224a34ff): `InventoryKubernetesFieldTakeoverSpec`,
+  "planning without the opt-in refuses a foreign owner…" and "an adapter without a live reader…",
+  pass under `just gate-commit` (green in 159 s). Open: the native refusal (`/tmp/ep280-2`).
 - [ ] M3: `platform transition plan` prepares the platform stage before it plans an earlier stage
   and refuses on a foreign owner, with no review written. The release harness accepts
   `--take-over-fields`, passes it to the intranet's transition plan and records it in the run
   index.
+  Code and unit tests done 2026-11-23 (commit 224a34ff): "a stage ahead of the platform stage is
+  planned only when the platform plan refuses no foreign owner" (nagarectl) and
+  "--take-over-fields reaches every stage's plan and its index entry" (nagare-harness, 128 tests
+  pass). Open: the bounded prototype on a local context (FRIC-22).
 - [ ] M4: `docs/runbooks/inventory-operations.md` ("Repair configuration drift"),
   `docs/runbooks/releases.md` and `docs/user/reference.md` describe the plan-time refusal, the
   transition preflight and which commands accept the opt-in; the F37 note that `inventory plan`
   lacks the opt-in is removed. `just mutation-check` passes on the range, and the change is landed
   with the full gate green.
+  Documents written 2026-11-23. Open: the mutation check's result, `just gate-fast`, `just land`.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The CLI's parsers, `planNextStage` and the plan registry are in the executable's private `app/`
+  tree, which no test suite imports. M1's "parser sets the flag" tests and M3's "transition whose
+  pending stage is the host stage" test cannot be written there. The preflight's decision moved to
+  the library (`afterForeignOwnerPreflight`) so it has a unit test; the flag's path through the
+  parsers is covered by the native run alone. See the Decision Log.
+- The transition cost tests pin a plan's Kubernetes reads. The plan-time check costs one
+  `kubectl get --show-managed-fields` per updated object, because the planning epoch's grouped
+  reads omit managed fields. Evidence: `TransitionCostSpec`, "sweep" plan went from 2 transport
+  reads to 3, "four" (three updates) from 2 to 5. The budgets were raised by that read.
+- `prepareInventoryCandidateWithRetirementsPayload` publishes the review to the inventory store
+  before it returns it. A preflight built on it would have published a platform review on every
+  host-stage plan, so the preflight uses a variant that stops before publication.
 
 
 ## Decision Log
@@ -147,6 +174,37 @@ decision made at plan time: take it over, or declare it.
   Rationale: it runs on a disposable context that nobody patches by hand.
   Date: 2026-11-23.
 
+- Decision: The preflight's decision is a library function,
+  `Nagare.Inventory.ForeignOwnerPreflight.afterForeignOwnerPreflight`, which takes the platform
+  plan's refusal and the stage to plan. `planNextStage` supplies both. The parser and registry
+  wiring has no unit test.
+  Rationale: tests import only the library; the wiring is three positional arguments that the
+  native run exercises. A test that imports the executable's modules would need a new test
+  component, which is more ceremony than the risk.
+  Date: 2026-11-23.
+
+- Decision: The preflight runs with the contract sink off and catches a command refusal (an exit)
+  as well as a returned refusal. When it is skipped, one `note:` line on stderr says so.
+  Rationale: `buildPlatformCandidate` and the store calls refuse by exiting, and "ignore every
+  other outcome" has to cover them. A refusal that exits has already printed its own line, so the
+  note tells the reader that line did not stop the plan.
+  Date: 2026-11-23.
+
+- Decision: The preflight is skipped when `--take-over-fields` is given, and it covers the stages
+  `planNextStage` plans. The transition's cloud-foundation stage, planned in
+  `planTransitionStage` before `planNextStage`, has no preflight.
+  Rationale: with the opt-in the platform stage records the takeover, so there is nothing to
+  refuse. The foundation stage is pending only after a delegation or context edit with no
+  bootstrap since, and it changes no host; a refusal after it is the M2 refusal in the next plan.
+  Date: 2026-11-23.
+
+- Decision: A plan pays one more live read for each object it updates; the transition cost budgets
+  in `cli/nagarectl/test/TransitionCostSpec.hs` were raised by exactly that read.
+  Rationale: the plan reuses `prepareTakeover`'s read, as written. Answering it from the planning
+  epoch would mean reading managed fields for every member in the grouped reads, which changes
+  what every observation parses; that is a separate change if the cost is felt.
+  Date: 2026-11-23.
+
 
 ## Outcomes & Retrospective
 
@@ -171,11 +229,14 @@ Where the pieces are:
   and `prepareTakeover`, which, at plan time and only for `UpdateResource`, read the live object and
   record a `FieldTakeover` (UID, resourceVersion, foreign entries) in the mutation; the summary line
   "takes over fields from …" is built near the end of the module.
-  The reader is a `Maybe`: `kubernetesApplicationAdapter` in
-  `cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesApplication.hs` passes `Just` only when the
-  opt-in is on. `Nothing` is also what the execution adapter (`kubernetesExecutionAdapter False`)
-  and the test builders (`mkKubernetesAdapter`) use. `adapterPrepare` is called only while planning
-  (`cli/nagarectl/src/Nagare/Inventory/Plan/Prepare.hs`).
+  Before this plan the reader was a `Maybe`, `Just` only under the opt-in. Since commit 224a34ff
+  it is `ForeignFieldPlanning`: `ForeignFieldsUnread` (the execution adapter and the test builders
+  such as `mkKubernetesAdapter`), `ForeignFieldsRefused` (every planning adapter without the
+  opt-in) and `ForeignFieldsTakenOver` (the opt-in). `kubernetesPlanningAdapter` in
+  `cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesApplication.hs` chooses between the last
+  two. `adapterPrepare` is called only while planning
+  (`cli/nagarectl/src/Nagare/Inventory/Plan/Prepare.hs`). The refusal text and its marker are
+  `foreignOwnerRefusal` and `foreignOwnerRefusalMarker` in `KubernetesConfiguration.hs`.
 - `cli/nagarectl/app/Nagare/Cli/Inventory/Planning.hs`: `inventoryPlanRegistryWithTakeover :: Bool -> …`
   is the opt-in; `inventoryPlanRegistryWithNative` passes `False`, and `inventoryPlanRegistry` is
   that with no supplied native bytes. About 25 command modules under

@@ -102,7 +102,12 @@ run already holds and runs the rest; `index.json` lists each invocation's steps 
    only while each changed pin file holds what the run left, and any other change (an edit beside
    the pin in `flake.nix`, say) refuses, naming the file, and stays in the working tree. It never
    edits app config: a config the candidate does not compile stops the plan with the compiler's
-   message, and the fix is the operator's.
+   message, and the fix is the operator's. It never takes over fields either: when a platform
+   object was changed by hand (`kubectl patch`, `edit`, `annotate`), the first plan refuses,
+   naming each object, writer and field, before any stage is applied. Declare the change, or
+   rerun with `just release-candidate X.Y.Z --take-over-fields`, which plans every stage with
+   that opt-in and records it in each stage's entry of `intranet-index.json`; see
+   [Repair configuration drift](inventory-operations.md#repair-configuration-drift).
 
 `--rehearsal` runs steps 1 to 4 for a tagged or unreleased revision in
 `releases/vX.Y.Z/rehearsal-<revision>/` and leaves the intranet alone.

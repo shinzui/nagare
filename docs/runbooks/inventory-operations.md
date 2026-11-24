@@ -187,7 +187,9 @@ Typical stops:
   landed (F56). The target is gone and close keeps the scope; the next review plans from the
   replacement.
 - **Refused preflight.** An object appeared at an address the review creates (F35), or another
-  field manager owns some of the object's fields (F37). The operation is refused with no effect.
+  field manager took some of the object's fields after the review was planned (F37; a plan made
+  while the writer already owned them is refused instead, see
+  [Repair configuration drift](#repair-configuration-drift)). The operation is refused with no effect.
   If the conflicting object is legitimately someone else's, do not delete it to make progress.
 - **Refused verification.** A verification stopped ambiguous because its target was replaced
   just after it ran (F57). Resume retries it, since a verification writes nothing; a refused retry
@@ -598,17 +600,42 @@ example the same `app deploy --save-plan` that created it. When Nagare's field
 manager (`nagare-inventory`) still owns every non-status field, that update
 restores the reviewed bytes.
 
-An edit made with `kubectl edit`, `kubectl patch` or another tool leaves that
-tool as the field manager of what it changed. The update then stops with
-`KnownNoEffect "Kubernetes object has fields managed by another writer: …"`
-before any write. Close the stopped transaction with `inventory close` (see above), then decide whether Nagare should take those fields back. To take
-them back, save the repair with the explicit opt-in:
+An edit made with `kubectl edit`, `kubectl patch`, `kubectl annotate` or another
+tool leaves that tool as the field manager of what it changed. Every plan that
+would update such an object is then refused before a review exists:
+
+```text
+Kubernetes object has fields managed by another writer: <resource ID> at <address>: kubectl-patch owns spec.schedule. Replan with --take-over-fields (…) to take these fields back in a reviewed update, or declare the change (a context value or an overlay) so Nagare renders it
+```
+
+The refusal names each object, each writer and the fields it owns. Nothing is
+written and no transaction is opened, so there is nothing to close. Decide per
+edit:
+
+- **Keep the edit.** Declare it (a context value or an overlay) so Nagare renders
+  it, and plan again. Nagare never imports a hand edit as accepted state.
+- **Take the fields back.** Plan again with the explicit opt-in. Four commands
+  accept it: `platform transition plan`, `platform bootstrap plan`,
+  `inventory plan` and `app deploy --save-plan`.
 
 ```bash
 nagarectl --context "$CONTEXT" app deploy -f "$CONFIG" --save-plan "$REVIEW" \
   --take-over-fields  # plus the deploy's usual reviewed inputs
 nagarectl --context "$CONTEXT" inventory apply "$REVIEW" --yes
 ```
+
+Every other command that plans a Kubernetes update (database, task, worker,
+site, broker, environment, restore, backup) refuses the same way and has no
+opt-in: repair the object through the command that owns its scope's ordinary
+replan, or one of the four above.
+
+A release transition plans one stage at a time and the host stage comes first.
+Before `platform transition plan` plans a stage that precedes the platform
+stage, it prepares the platform stage against the cluster as it is and stops on
+this refusal, so the host is not changed for a release that would stop at a
+patched object. That preflight publishes and writes nothing. If the platform
+stage cannot be prepared yet for any other reason, a `note:` line says the
+check was skipped and the platform stage's own plan makes it.
 
 Planning reads the object's managed fields and records the exact foreign entries
 (manager, operation and fields, without timestamps) together with the object's
@@ -623,10 +650,12 @@ than reporting success. A forced apply takes a field from another writer only wh
 it changes the field's value, so a field the other writer had already set to the
 declared value stays owned by both. After the apply, Nagare therefore removes the
 fields its own apply owns from each recorded writer's managed-field entry, with a
-patch bound to the object's UID and resourceVersion that changes no field. Without `--take-over-fields` the refusal stays, and
-objects without foreign managers plan exactly as before. Saved reviews from
-earlier releases keep their strict semantics. `inventory plan` does not yet accept
-the opt-in (finding F37).
+patch bound to the object's UID and resourceVersion that changes no field.
+Objects without foreign managers plan exactly as before. A review saved by an
+earlier release keeps its strict semantics: its apply still stops with
+`KnownNoEffect "Kubernetes object has fields managed by another writer: …"`
+before any write; close that transaction with `inventory close` (see above) and
+plan again.
 
 ## Synchronize a newly protected backend
 
