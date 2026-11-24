@@ -7,7 +7,8 @@ generated:
   by: codex-cli/gpt-6.2-sol
   at: "2026-11-24T16:39:55Z"
 requestId: IR-54
-status: proposed
+status: accepted
+targetPlan: docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md
 origin: mori://shinzui/kotei/okf/friction-log/concepts/FRIC-108
 originPlan: mori://shinzui/kotei/plans/159-authorize-repository-admission-and-environment-delivery-operations
 reviews:
