@@ -6,13 +6,18 @@ generated:
   by: "claude-code/claude-fable-5-2"
   at: "2026-11-24T06:04:54Z"
 frictionId: FRIC-21
-status: logged
+status: "accepted"
 impact: detour
 kind: process
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare/scripts/test-managed-command-audit.sh"
 plan: "docs/plans/280-make-out-of-band-kubernetes-edits-a-plan-time-decision-instead-of-a-mid-release-refusal.md"
 workaround: "Ran scripts/audit-managed-commands.py directly, registered the call in LIBRARY_CALLS, then ran it with --update-catalogue"
+resolution: "A recurrence of FRIC-2's surface; running scripts/audit-managed-commands.py prints the error and --update-catalogue refreshes the snapshot."
+amended:
+  - by: "claude-code/claude-fable-5-2"
+    at: "2026-11-24T07:12:12Z"
+    change: "Accepted: the house rule is to remove steps, not add a check; the recurrence is recorded."
 ---
 # The command audit's failure is hidden in the gate log, again for a library call and the catalogue snapshot
 

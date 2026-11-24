@@ -79,34 +79,46 @@ decision made at plan time: take it over, or declare it.
 
 ## Progress
 
-- [ ] M1: `platform transition plan`, `platform bootstrap plan` and `inventory plan` accept
+- [x] M1: `platform transition plan`, `platform bootstrap plan` and `inventory plan` accept
   `--take-over-fields`. On a local context, the `shomei` Deployment patched with `kubectl patch`
   plans with the writer named in the review summary, applies, and afterwards lists only
   `nagare-inventory` (and status writers) in `managedFields`. Unit tests cover the flag reaching
   the plan registry for each command.
-  Code done 2026-11-23 (commit 224a34ff): the three parsers carry the flag (`--help` shows it) and
-  it reaches `inventoryPlanRegistryWithTakeover`. Open: the native run. No local context on this
-  machine is bootstrapped on this payload (FRIC-22).
-- [ ] M2: without the opt-in, a plan that updates an object with a foreign owner refuses at plan
+  Passed 2026-11-23 (commits 224a34ff, 05e15b01) on a disposable context `ep280` bootstrapped
+  from this tree on the nagare-mp23 daemon: after `kubectl patch deploy shomei` (replicas 2),
+  `platform bootstrap plan --take-over-fields` saved a one-operation review whose summary says
+  "takes over fields from kubectl-patch"; `inventory apply` converged; `shomei` then listed
+  `nagare-inventory Apply` and `k3s Update status` only, with replicas back at 1. The three
+  commands show the flag in `--help`; the parsers have no unit test (Decision Log).
+- [x] M2: without the opt-in, a plan that updates an object with a foreign owner refuses at plan
   time naming object, writer and fields; a plan with no foreign owners is byte-identical to
   today's; an adapter built without a live-object reader behaves as today.
   Code and unit tests done 2026-11-23 (commit 224a34ff): `InventoryKubernetesFieldTakeoverSpec`,
   "planning without the opt-in refuses a foreign owner…" and "an adapter without a live reader…",
-  pass under `just gate-commit` (green in 159 s). Open: the native refusal (`/tmp/ep280-2`).
-- [ ] M3: `platform transition plan` prepares the platform stage before it plans an earlier stage
+  pass under `just gate-commit` (green in 159 s). Native, same context: without the flag the
+  plan exited 1, wrote no review directory and printed "Kubernetes object has fields managed by
+  another writer: platform:auth/auth/object-0a2b… (deployment.apps/shomei in nagare-system):
+  kubectl-patch owns spec.replicas. Replan with --take-over-fields (…)".
+- [x] M3: `platform transition plan` prepares the platform stage before it plans an earlier stage
   and refuses on a foreign owner, with no review written. The release harness accepts
   `--take-over-fields`, passes it to the intranet's transition plan and records it in the run
   index.
   Code and unit tests done 2026-11-23 (commit 224a34ff): "a stage ahead of the platform stage is
   planned only when the platform plan refuses no foreign owner" (nagarectl) and
   "--take-over-fields reaches every stage's plan and its index entry" (nagare-harness, 128 tests
-  pass). Open: the bounded prototype on a local context (FRIC-22).
+  pass). Prototype 2026-11-23: `scripts/release-rehearse.sh 05e15b01 0.28.1` passed. Its first
+  transition stage re-accepts `platform:local-substrate`, a stage ahead of the platform stage;
+  the plan's trace holds two observation phases (the preflight's and the stage's), its log has no
+  skip note, and the stage was saved, so the platform candidate builds and prepares before an
+  earlier stage is accepted. The refusing case on a real host stage is first seen on the next
+  intranet candidate.
 - [ ] M4: `docs/runbooks/inventory-operations.md` ("Repair configuration drift"),
   `docs/runbooks/releases.md` and `docs/user/reference.md` describe the plan-time refusal, the
   transition preflight and which commands accept the opt-in; the F37 note that `inventory plan`
   lacks the opt-in is removed. `just mutation-check` passes on the range, and the change is landed
   with the full gate green.
-  Documents written 2026-11-23. Open: the mutation check's result, `just gate-fast`, `just land`.
+  Documents written 2026-11-23. `just mutation-check` killed all 19 records the range selects at
+  224a34ff and all 3 at 05e15b01. Open: `just gate-fast`, `just land`, the full gate.
 
 
 ## Surprises & Discoveries
@@ -337,7 +349,10 @@ change touches an adapter), `just gate-fast`, `just land`, full gate green.
 
 ## Concrete Steps
 
-From the repository root, on a local context (`just local-up`):
+From the repository root, on a local context (`just local-up`). A disposable one comes from
+`NAGARE_DRILL_BOOTSTRAP_ONLY=1 scripts/site-access-drill.sh`; with a dev-tree `nagarectl`, link the
+built `net-certmanager-controller-image` archive into `cluster/bootstrap/net-certmanager/` first
+and do not edit the tree until the steps end (FRIC-22):
 
 ```bash
 nagarectl platform bootstrap plan --out /tmp/ep280-1 && nagarectl inventory apply /tmp/ep280-1 --yes

@@ -6,13 +6,18 @@ generated:
   by: "claude-code/claude-fable-5-2"
   at: "2026-11-24T06:04:56Z"
 frictionId: FRIC-22
-status: logged
+status: "accepted"
 impact: blocked
 kind: environment
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare/docs/user/local-development.md"
 plan: "docs/plans/280-make-out-of-band-kubernetes-edits-a-plan-time-decision-instead-of-a-mid-release-refusal.md"
 workaround: "None; the native confirmation waits for the operator to name or allow rebuilding a disposable context"
+resolution: "A disposable context was bootstrapped on the nagare-mp23 daemon with NAGARE_DRILL_BOOTSTRAP_ONLY=1 scripts/site-access-drill.sh after the operator allowed replacing its cluster. A dev tree also needs the built net-certmanager controller archive linked in before the first stage and no edit until the native steps end, because either changes the payload identity the bootstrap is bound to."
+amended:
+  - by: "claude-code/claude-fable-5-2"
+    at: "2026-11-24T07:12:13Z"
+    change: "Accepted: the drill bootstrap is the way to get a disposable context; this entry records its two undocumented conditions."
 ---
 # No bootstrapped local context exists to confirm a planner change natively
 

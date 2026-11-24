@@ -2,6 +2,12 @@
 
 ## 2026-11-24
 
+* **Update**: FRIC-22 accepted: Accepted: the drill bootstrap is the way to get a disposable context; this entry records its two undocumented conditions.
+
+
+* **Update**: FRIC-21 accepted: Accepted: the house rule is to remove steps, not add a check; the recurrence is recorded.
+
+
 * **Addition**: FRIC-22 records blocked environment friction with mori://shinzui/nagare/docs/user/local-development.md: No bootstrapped local context exists to confirm a planner change natively
 
 * **Addition**: FRIC-21 records detour process friction with mori://shinzui/nagare/scripts/test-managed-command-audit.sh: The command audit's failure is hidden in the gate log, again for a library call and the catalogue snapshot
