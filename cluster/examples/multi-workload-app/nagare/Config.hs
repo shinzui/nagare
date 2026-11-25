@@ -126,6 +126,7 @@ applicationConfig = do
         , serviceAccount = Nothing
         , managedEnv = InheritManagedEnv
         , appDatabases = []
+        , buckets = []
         }
 
   mkApplication

@@ -70,9 +70,14 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     `just gate-commit` green. The Knative admission transcript is not recorded: the only local
     cluster, `nagare-local`, has no running Knative webhook (its pods are evicted or pending), so a
     server-side dry run could not reach admission. It needs a working disposable local cluster.
-- [ ] M2. A bucket and its bindings exist in the typed model and round-trip through the config
+- [x] M2. A bucket and its bindings exist in the typed model and round-trip through the config
   program and the rendered document; existing goldens and config digests are unchanged. Evidence:
   `nagare-dsl` tests.
+  - 2026-11-25: done. `Nagare.Dsl.ObjectBucket`, `emitObjectBuckets`, `loadObjectBuckets` and
+    `buckets` on `Deployment`, `Worker` and `Task` (33 literals migrated). nagare-dsl: 568 tests
+    pass with every earlier golden unchanged, including the `object bucket` group (11), which
+    loads the example. The example is two files, as app databases are: `nagare/Config.hs` (the
+    application, named `content`) and `nagare/Buckets.hs` (the bucket document).
 - [ ] M3. `nagarectl bucket plan` produces a reviewed standalone scope whose members create the
   MinIO bucket, its expiry rules and one store user per grant; no review carries a credential.
   Evidence: interpreter tests.
@@ -251,9 +256,10 @@ Smart constructors refuse: a bucket name that is not a DNS label of at most 30 c
 expiry prefix that is empty or does not end in `/`, a non-positive day count, and two grants for
 the same namespace and workload.
 
-Create the example `cluster/examples/content-app/nagare/Config.hs`: a web service `content-app`
-with a read-write, signing grant and a worker `content-gateway` with a read-only grant on a bucket
-`publications` that expires `staging/` after one day.
+Create the example under `cluster/examples/content-app/nagare/`: `Buckets.hs` declares the bucket
+`publications`, which expires `staging/` after one day and grants a web service `content-app`
+read-write with signing and a worker `content-gateway` read-only; `Config.hs` declares the
+application whose two workloads bind it.
 
 ### M3. The bucket scope on MinIO
 

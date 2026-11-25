@@ -213,6 +213,7 @@ taskResolveTests =
             , serviceAccount = Nothing
             , managedEnv = InheritManagedEnv
             , appDatabases = []
+            , buckets = []
             }
     ownImageTask =
       unsafe $

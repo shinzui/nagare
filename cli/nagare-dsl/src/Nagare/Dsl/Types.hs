@@ -115,6 +115,12 @@ module Nagare.Dsl.Types
   , appDatabaseBinding
   , validateAppDatabaseBindings
 
+    -- * BucketName
+  , BucketName
+  , mkBucketName
+  , bucketNameText
+  , BucketBinding (..)
+
     -- * MountPath
   , MountPath
   , mkMountPath
@@ -692,6 +698,34 @@ mkAppDatabaseName t
 appDatabaseNameText :: AppDatabaseName -> Text
 appDatabaseNameText (AppDatabaseName t) = t
 
+-- | An app object bucket's name (EP-283): a DNS label of 1 to 30 characters
+-- that starts with a letter. The bound keeps the store bucket
+-- @nagare-app-\<name\>@ and the per-workload object names within their
+-- limits. Lives here, like 'AppDatabaseName', so 'Deployment' can carry a
+-- @buckets@ field; 'Nagare.Dsl.ObjectBucket' re-exports it. Constructor
+-- hidden; use 'mkBucketName'.
+newtype BucketName = BucketName Text
+  deriving stock (Eq, Ord, Show)
+
+mkBucketName :: Text -> Either Text BucketName
+mkBucketName t
+  | Text.null t = Left "bucket name must not be empty"
+  | Text.length t > 30 =
+      Left ("bucket name too long (" <> tshow (Text.length t) <> " chars, max 30)")
+  | not (maybe False (isAsciiLower . fst) (Text.uncons t)) = Left ("bucket name must start with a letter: " <> t)
+  | Text.isSuffixOf "-" t = Left "bucket name must not end with a hyphen"
+  | not (Text.all (\c -> isAsciiLower c || isDigit c || c == '-') t) =
+      Left ("bucket name contains invalid characters (allowed: a-z, 0-9, -): " <> t)
+  | otherwise = Right (BucketName t)
+
+bucketNameText :: BucketName -> Text
+bucketNameText (BucketName t) = t
+
+-- | A workload's or task's binding of one app object bucket (EP-283). The
+-- bucket must grant the workload, by namespace and name.
+newtype BucketBinding = BucketBinding {name :: BucketName}
+  deriving stock (Generic, Eq, Show)
+
 -- | A workload's or task's binding of one app database (EP-259). Without a
 -- 'urlVariable' it injects the engine's fixed connection variables; with one
 -- it injects only that variable, holding the connection URL.
@@ -833,6 +867,8 @@ data Deployment = Deployment
   -- ^ App databases on shared servers this app connects to (EP-202). A deploy
   -- injects only each one's runtime Secret, under the fixed connection
   -- variables or one named URL variable (EP-259). Empty by default.
+  , buckets :: ![BucketBinding]
+  -- ^ app object buckets this workload binds (EP-283); each must grant it
   , appDatabaseReaders :: ![AppDatabaseReaderRef]
   -- ^ App database readers this app connects to (EP-206); each injects only
   -- its own reader Secret. Empty by default.

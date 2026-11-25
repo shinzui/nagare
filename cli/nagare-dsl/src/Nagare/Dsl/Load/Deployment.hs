@@ -32,6 +32,7 @@ import Nagare.Dsl.Load.Fields
   ( JsonAccessPolicy (..)
   , JsonAppDatabaseBinding
   , JsonAppDatabaseReaderRef
+  , JsonBucketBinding
   , JsonBuildSpec (..)
   , JsonDomainEntry (..)
   , JsonEnvEntry (..)
@@ -43,6 +44,7 @@ import Nagare.Dsl.Load.Fields
   , toAccessPolicy
   , toAppDatabaseBinding
   , toAppDatabaseReaderRef
+  , toBucketBinding
   , toBuildSpec
   , toDomainSpecs
   , toEnvEntry
@@ -91,6 +93,7 @@ data JsonDeployment = JsonDeployment
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
   , appDatabases :: ![JsonAppDatabaseBinding]
+  , buckets :: ![JsonBucketBinding]
   , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
   , access :: !(Maybe JsonAccessPolicy)
@@ -122,6 +125,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "appDatabases" .!= []
+      <*> o .:? "buckets" .!= []
       <*> o .:? "appDatabaseReaders" .!= []
       <*> o .:? "brokers" .!= []
       <*> o .:? "access"
@@ -151,6 +155,7 @@ toDeployment jd = do
   vols' <- toVolumes (jd ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jd ^. #databases)
   appDbRefs' <- traverse toAppDatabaseBinding (jd ^. #appDatabases)
+  buckets' <- traverse toBucketBinding (jd ^. #buckets)
   readerRefs' <- traverse toAppDatabaseReaderRef (jd ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (jd ^. #brokers)
   access' <- traverse toAccessPolicy (jd ^. #access)
@@ -195,6 +200,7 @@ toDeployment jd = do
       , volumes = vols'
       , databases = dbRefs'
       , appDatabases = appDbRefs'
+      , buckets = buckets'
       , appDatabaseReaders = readerRefs'
       , brokers = brokerRefs'
       , access = access'

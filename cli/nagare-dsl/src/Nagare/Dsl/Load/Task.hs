@@ -21,9 +21,11 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Load.Fields
   ( JsonAppDatabaseBinding
+  , JsonBucketBinding
   , JsonEnvEntry (..)
   , JsonKindEnvelope (..)
   , toAppDatabaseBinding
+  , toBucketBinding
   , toEnvEntry
   , toManagedEnv
   )
@@ -78,6 +80,7 @@ data JsonTask = JsonTask
   , serviceAccount :: !(Maybe Text)
   , managedEnv :: !(Maybe Text)
   , appDatabases :: ![JsonAppDatabaseBinding]
+  , buckets :: ![JsonBucketBinding]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -108,6 +111,7 @@ instance FromJSON JsonTask where
       <*> o .:? "serviceAccount"
       <*> o .:? "managedEnv"
       <*> o .:? "appDatabases" .!= []
+      <*> o .:? "buckets" .!= []
 
 -- | Re-validate a decoded task: re-run every smart constructor, decode the
 -- enum tokens, default the numeric fields, and finally re-check the assembled
@@ -143,6 +147,7 @@ toTask j = do
   serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (j ^. #serviceAccount)
   managedEnv' <- toManagedEnv (j ^. #managedEnv)
   appDbRefs' <- traverse toAppDatabaseBinding (j ^. #appDatabases)
+  buckets' <- traverse toBucketBinding (j ^. #buckets)
   first (MarshalError "task") $
     mkTask
       Task
@@ -166,6 +171,7 @@ toTask j = do
         , serviceAccount = serviceAccount'
         , managedEnv = managedEnv'
         , appDatabases = appDbRefs'
+        , buckets = buckets'
         }
 
 -- | A task names exactly one of a cron @schedule@ or @trigger: release-only@.

@@ -42,6 +42,7 @@ library
     Nagare.Dsl.Load.Fields
     Nagare.Dsl.Load.File
     Nagare.Dsl.Load.Job
+    Nagare.Dsl.Load.ObjectBucket
     Nagare.Dsl.Load.Process
     Nagare.Dsl.Load.Rendered
     Nagare.Dsl.Load.ServerSite
@@ -68,6 +69,7 @@ library
     Nagare.Dsl.Job.Render
     Nagare.Dsl.Load
     Nagare.Dsl.Mounts
+    Nagare.Dsl.ObjectBucket
     Nagare.Dsl.Path
     Nagare.Dsl.Prelude
     Nagare.Dsl.Presets
@@ -142,6 +144,7 @@ test-suite nagare-dsl-test
     JobSpec
     LoadSpec
     MountsSpec
+    ObjectBucketSpec
     QuantitySpec
     RenderedSpec
     ResourceInventorySpec

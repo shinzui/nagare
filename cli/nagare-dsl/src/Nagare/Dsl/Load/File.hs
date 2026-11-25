@@ -4,6 +4,7 @@ module Nagare.Dsl.Load.File
   , loadBroker
   , loadDatabase
   , loadAppDatabases
+  , loadObjectBuckets
   , loadDeployment
   , loadJob
   , loadServerSite
@@ -31,12 +32,14 @@ import Nagare.Dsl.Load.Error
   , defaultConfigTimeout
   )
 import Nagare.Dsl.Load.Job (decodeJob)
+import Nagare.Dsl.Load.ObjectBucket (decodeObjectBuckets)
 import Nagare.Dsl.Load.Process (runConfig, runConfigWith)
 import Nagare.Dsl.Load.ServerSite (decodeServerSite)
 import Nagare.Dsl.Load.Site (SiteConfig (..), decodeSite)
 import Nagare.Dsl.Load.StaticSite (decodeStaticSite)
 import Nagare.Dsl.Load.Task (decodeTask)
 import Nagare.Dsl.Load.Worker (decodeWorker)
+import Nagare.Dsl.ObjectBucket (ObjectBucket)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (StaticSite)
@@ -94,6 +97,12 @@ loadDatabase path = fmap (>>= decodeDatabase) (runConfig path)
 -- @nagarectl db app-database plan --config@.
 loadAppDatabases :: FilePath -> IO (Either LoadError [AppDatabase])
 loadAppDatabases path = fmap (>>= decodeAppDatabases) (runConfig path)
+
+-- | Load an app's object buckets from a Haskell config-as-program source file
+-- (EP-283). The config must print its JSON via
+-- 'Nagare.Dsl.Config.emitObjectBuckets'. Used by @nagarectl bucket plan@.
+loadObjectBuckets :: FilePath -> IO (Either LoadError [ObjectBucket])
+loadObjectBuckets path = fmap (>>= decodeObjectBuckets) (runConfig path)
 
 -- | Load a 'StaticSite' from a Haskell config-as-program source file. The config
 -- must print its JSON via 'Nagare.Dsl.Config.emitStaticSite'. A config that

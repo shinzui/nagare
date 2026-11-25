@@ -53,6 +53,7 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( AppDatabaseBinding
+  , BucketBinding
   , EnvName
   , ImageRef
   , ManagedEnv (..)
@@ -312,6 +313,8 @@ data Task = Task
   -- ^ App databases the task connects to (EP-259), each injecting the runtime
   -- Secret (or the migration Secret when the app database names the task in
   -- @owners@) under the fixed variables or one named URL variable.
+  , buckets :: ![BucketBinding]
+  -- ^ app object buckets this workload binds (EP-283); each must grant it
   }
   deriving stock (Generic, Eq, Show)
 
@@ -376,6 +379,7 @@ scheduledTask nameT scheduleT imageT commandT = do
       , serviceAccount = Nothing
       , managedEnv = InheritManagedEnv
       , appDatabases = []
+      , buckets = []
       }
 
 -- | Build a release-only pre-deploy hook for an Application's @tasks@ list from
@@ -408,6 +412,7 @@ releaseHook nameT appT commandT = do
       , serviceAccount = Nothing
       , managedEnv = NoManagedEnv
       , appDatabases = []
+      , buckets = []
       }
 
 -- ---------------------------------------------------------------------------

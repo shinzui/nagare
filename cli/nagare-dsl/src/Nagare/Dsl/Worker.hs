@@ -58,6 +58,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( AppDatabaseBinding
   , AppDatabaseReaderRef
+  , BucketBinding
   , DatabaseName
   , EnvName
   , HealthScheme (..)
@@ -232,6 +233,8 @@ data Worker = Worker
   , appDatabases :: ![AppDatabaseBinding]
   -- ^ app databases on shared servers (EP-202); only their runtime Secrets are
   -- bound, under the fixed variables or one named URL variable (EP-259).
+  , buckets :: ![BucketBinding]
+  -- ^ app object buckets this workload binds (EP-283); each must grant it
   , appDatabaseReaders :: ![AppDatabaseReaderRef]
   -- ^ app database readers (EP-206); only each reader's own Secret is bound.
   , brokers :: ![BrokerBinding]
@@ -278,6 +281,7 @@ webWorker nameText imageText = do
       , volumes = []
       , databases = []
       , appDatabases = []
+      , buckets = []
       , appDatabaseReaders = []
       , brokers = []
       , liveness = Nothing

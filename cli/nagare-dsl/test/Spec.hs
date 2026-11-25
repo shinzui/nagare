@@ -49,6 +49,7 @@ import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnref
 import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types (ScopeKind (..), SourceLocation (SourceLocation), mintResourceId, mkContentDigest, mkLogicalKey, mkName, mkScopeId)
+import ObjectBucketSpec (objectBucketTests)
 import QuantitySpec (quantityTests)
 import RenderedSpec (renderedTests)
 import ResourceInventorySpec (resourceInventoryTests)
@@ -84,6 +85,7 @@ main =
       , imageTests
       , loadTests
       , mountsTests
+      , objectBucketTests
       , renderedTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
@@ -395,6 +397,7 @@ helloDep =
     , volumes = []
     , databases = []
     , appDatabases = []
+    , buckets = []
     , appDatabaseReaders = []
     , brokers = []
     , access = Nothing

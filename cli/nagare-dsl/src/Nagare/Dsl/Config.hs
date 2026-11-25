@@ -14,6 +14,8 @@ module Nagare.Dsl.Config
   , encodeDatabase
   , emitAppDatabases
   , encodeAppDatabases
+  , emitObjectBuckets
+  , encodeObjectBuckets
   , emitStaticSite
   , encodeStaticSite
   , emitServerSite
@@ -45,6 +47,7 @@ import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
 import Nagare.Dsl.Job
+import Nagare.Dsl.ObjectBucket
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -188,6 +191,41 @@ appDatabaseJSON db =
         <> ["ownership" .= (db ^. #ownership) | db ^. #ownership /= NagareManaged]
     )
 
+-- | Serialize an app's object buckets to JSON and write them to stdout: a
+-- @"kind": "ObjectBuckets"@ document whose @buckets@ array holds every
+-- declaration. Used by @nagarectl bucket plan@.
+emitObjectBuckets :: [ObjectBucket] -> IO ()
+emitObjectBuckets buckets = LBS.putStr (encodeObjectBuckets buckets)
+
+-- | The exact JSON bytes 'emitObjectBuckets' writes (exposed for the round-trip test).
+encodeObjectBuckets :: [ObjectBucket] -> LBS.ByteString
+encodeObjectBuckets buckets =
+  encode (object ["kind" .= ("ObjectBuckets" :: Text), "buckets" .= map objectBucketJSON buckets])
+
+objectBucketJSON :: ObjectBucket -> Value
+objectBucketJSON bucket =
+  object
+    ( [ "name" .= bucketNameText (bucket ^. #name)
+      , "expire" .= [object ["prefix" .= objectPrefixText (rule ^. #prefix), "afterDays" .= positiveDaysInt (rule ^. #afterDays)] | rule <- bucket ^. #expire]
+      , "grants"
+          .= [ object
+                 [ "namespace" .= namespaceText (grant ^. #namespace)
+                 , "workload" .= serviceNameText (grant ^. #workload)
+                 , "access" .= bucketAccessToken (grant ^. #access)
+                 , "signUrls" .= (grant ^. #signUrls)
+                 ]
+             | grant <- bucket ^. #grants
+             ]
+      ]
+        <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (bucket ^. #logicalKey)
+    )
+
+-- | Emitted only when present, so a workload or task that binds no bucket
+-- keeps the exact bytes (and config digest) it had before EP-283.
+bucketsJSON :: [BucketBinding] -> [(Key, Value)]
+bucketsJSON [] = []
+bucketsJSON bindings = ["buckets" .= [object ["name" .= bucketNameText (binding ^. #name)] | binding <- bindings]]
+
 -- | Emitted only when present, so a workload or task without app databases
 -- keeps the exact bytes (and config digest) it had before EP-202. Each
 -- binding emits @urlVariable@ only when set (EP-259).
@@ -249,6 +287,7 @@ taskJSON t =
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (t ^. #logicalKey)
       <> managedEnvJSON (t ^. #managedEnv)
       <> appDatabasesJSON (t ^. #appDatabases)
+      <> bucketsJSON (t ^. #buckets)
       <> triggerJSON (t ^. #trigger)
   where
     res = t ^. #resources
@@ -409,6 +448,7 @@ workerJSON w =
       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (w ^. #logicalKey)
       <> managedEnvJSON (w ^. #managedEnv)
       <> appDatabasesJSON (w ^. #appDatabases)
+      <> bucketsJSON (w ^. #buckets)
       <> appDatabaseReadersJSON (w ^. #appDatabaseReaders)
   where
     res = w ^. #resources
@@ -516,6 +556,7 @@ deploymentJSON dep =
       <> managedEnvJSON (dep ^. #managedEnv)
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
       <> appDatabasesJSON (dep ^. #appDatabases)
+      <> bucketsJSON (dep ^. #buckets)
       <> appDatabaseReadersJSON (dep ^. #appDatabaseReaders)
   where
     resources = dep ^. #resources

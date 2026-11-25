@@ -68,6 +68,7 @@ deployment = first show $ do
         , serviceAccount = Nothing
         , managedEnv = InheritManagedEnv
         , appDatabases = []
+        , buckets = []
         }
   pure (dep & #databases .~ [db] & #tasks .~ [cleanup])
 

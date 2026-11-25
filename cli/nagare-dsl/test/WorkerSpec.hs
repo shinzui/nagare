@@ -336,6 +336,7 @@ brokerExampleWorker =
     , volumes = []
     , databases = []
     , appDatabases = []
+    , buckets = []
     , appDatabaseReaders = []
     , brokers =
         [ BrokerBinding
@@ -577,6 +578,7 @@ helloDep =
     , volumes = []
     , databases = []
     , appDatabases = []
+    , buckets = []
     , appDatabaseReaders = []
     , brokers = []
     , access = Nothing

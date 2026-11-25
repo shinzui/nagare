@@ -11,6 +11,8 @@ module Nagare.Dsl.Load.Fields
   , toAppDatabaseReaderRef
   , JsonAppDatabaseBinding (..)
   , toAppDatabaseBinding
+  , JsonBucketBinding (..)
+  , toBucketBinding
   , toManagedEnv
   , checkTaskApp
   , firstDuplicate
@@ -48,6 +50,7 @@ import Nagare.Dsl.Types
   ( AccessMode (ReadWriteOnce)
   , AppDatabaseBinding (..)
   , AppDatabaseReaderRef (..)
+  , BucketBinding (..)
   , DomainSpec
   , EnvName
   , EnvScope (..)
@@ -60,6 +63,7 @@ import Nagare.Dsl.Types
   , Volume (..)
   , WebProbes (..)
   , mkAppDatabaseName
+  , mkBucketName
   , mkDomains
   , mkEnvName
   , mkHttpCheck
@@ -512,3 +516,14 @@ toAppDatabaseBinding j =
   AppDatabaseBinding
     <$> first (MarshalError "appDatabases") (mkAppDatabaseName (j ^. #name))
     <*> traverse (first (MarshalError "appDatabases.urlVariable") . mkEnvName) (j ^. #urlVariable)
+
+-- | A workload's or task's @buckets@ entry (EP-283): an object naming the
+-- app object bucket.
+newtype JsonBucketBinding = JsonBucketBinding {name :: Text}
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonBucketBinding where
+  parseJSON = withObject "BucketBinding" $ \o -> JsonBucketBinding <$> o .: "name"
+
+toBucketBinding :: JsonBucketBinding -> Either LoadError BucketBinding
+toBucketBinding j = BucketBinding <$> first (MarshalError "buckets") (mkBucketName (j ^. #name))

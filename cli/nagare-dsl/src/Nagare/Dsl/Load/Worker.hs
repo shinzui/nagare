@@ -28,12 +28,14 @@ import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Load.Fields
   ( JsonAppDatabaseBinding
   , JsonAppDatabaseReaderRef
+  , JsonBucketBinding
   , JsonBuildSpec (..)
   , JsonEnvEntry (..)
   , JsonKindEnvelope (..)
   , JsonVolume (..)
   , toAppDatabaseBinding
   , toAppDatabaseReaderRef
+  , toBucketBinding
   , toBuildSpec
   , toEnvEntry
   , toManagedEnv
@@ -88,6 +90,7 @@ data JsonWorker = JsonWorker
   , volumes :: ![JsonVolume]
   , databases :: ![Text]
   , appDatabases :: ![JsonAppDatabaseBinding]
+  , buckets :: ![JsonBucketBinding]
   , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
   , liveness :: !(Maybe JsonWorkerProbe)
@@ -116,6 +119,7 @@ instance FromJSON JsonWorker where
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "appDatabases" .!= []
+      <*> o .:? "buckets" .!= []
       <*> o .:? "appDatabaseReaders" .!= []
       <*> o .:? "brokers" .!= []
       <*> o .:? "liveness"
@@ -222,6 +226,7 @@ toWorker j = do
   vols' <- toVolumes (j ^. #volumes)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (j ^. #databases)
   appDbRefs' <- traverse toAppDatabaseBinding (j ^. #appDatabases)
+  buckets' <- traverse toBucketBinding (j ^. #buckets)
   readerRefs' <- traverse toAppDatabaseReaderRef (j ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
   liveness' <- traverse (toWorkerProbe "liveness") (j ^. #liveness)
@@ -243,6 +248,7 @@ toWorker j = do
       , volumes = vols'
       , databases = dbRefs'
       , appDatabases = appDbRefs'
+      , buckets = buckets'
       , appDatabaseReaders = readerRefs'
       , brokers = brokerRefs'
       , liveness = liveness'

@@ -41,6 +41,7 @@ task = first show $ do
       , serviceAccount = Nothing
       , managedEnv = InheritManagedEnv
       , appDatabases = []
+      , buckets = []
       }
 
 main :: IO ()
