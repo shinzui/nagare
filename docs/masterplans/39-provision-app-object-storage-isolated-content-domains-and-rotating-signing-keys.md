@@ -243,13 +243,20 @@ EP-1, EP-3 and EP-4 are in progress; EP-2 waits for EP-1. One gate is not owned 
   and the `inventory collect` review that follows deletes them and carries the "This review
   removes:" lines; the retire command prints that next step. Collection is extended to the Kourier
   Ingress and the cert-manager Certificate. Collecting a content Certificate also deletes the
-  Secret cert-manager wrote for it (cert-manager here sets no owner reference on it, so it would
-  outlive the Certificate with the private key); the Secret is the Certificate's reserved derived
-  address, so no other member can hold it. The key set's Secret is declared `Stateless`, since a
+  Secret cert-manager wrote for it (see the owner-reference decision below). The key set's Secret is declared `Stateless`, since a
   rebuilt cluster regenerates it (EP-286's no-escrow decision), which makes it collectable. Each
   new collectable kind gets its `KindCollect` row and a mutation record.
   Rationale: a retirement that leaves the Ingress serving or the private keys in place would
   make the review's removal lines false; ADR 22 keeps deletion a separate reviewed authority.
+  Date: 2026-11-25
+
+- Decision (operator, 2026-11-25): cert-manager runs with `--enable-certificate-owner-ref=true`
+  on every context, so a Certificate owns the Secret it writes and a Background collection of a
+  content Certificate deletes its private key. The flag is applied as a reviewed container-args
+  override of the vendored cert-manager controller, not by editing the pinned manifest.
+  Rationale: one platform rule, reusing the existing Background collection path, instead of a
+  content-route Secret kind whose data another controller owns. Every Certificate's Secret now
+  goes with its Certificate, including Knative route certificates and the local CA's.
   Date: 2026-11-25
 
 ## Outcomes & Retrospective

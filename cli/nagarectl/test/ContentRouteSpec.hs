@@ -15,6 +15,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import InventoryTransactionSpec (fixtureBinding)
 import ManagedEnvScopeSpec (input, scopedApp)
@@ -26,8 +27,10 @@ import Nagare.Dsl.Types (HealthScheme (HTTP))
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (defaultProbeTiming, mkHttpProbe, webWorker)
 import Nagare.Dsl.Worker qualified as Dsl
+import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
 import Nagare.Inventory.Adapters.KubernetesReadiness (readinessForAddress)
 import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, compileStandaloneWorkerWithDependencies)
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Inventory
@@ -86,6 +89,18 @@ contentRouteTests =
     , testCase "a standalone worker with a port is refused" $
         either (map (^. #code) . NE.toList) (const []) (standalone (worker & #http ?~ WorkerHttp port8080 Nothing))
           @?= ["worker-http-needs-application"]
+    , testCase "a content route's members are collectable, and the Certificate goes with its Secret" $ do
+        (_, native) <- compiled (routedApp [])
+        let service = fst (memberAt ("", "service", "scoped-worker") native)
+            certificate = fst (memberAt ("cert-manager.io", "certificate", "nagare-content-scoped-worker") native)
+            ingress = fst (memberAt ("networking.internal.knative.dev", "ingress", "nagare-content-scoped-worker") native)
+            uid = ok (mkPhysicalIdentity "uid-1")
+        assertBool "a route member is not collectable" (all supportsRetainedCollection [service, certificate, ingress])
+        (certificateArgs, certificateBody) <- either (assertFailure . T.unpack) pure (collectionDeleteRequest (certificate ^. #address) uid "7")
+        certificateArgs @?= ["delete", "--raw", "/apis/cert-manager.io/v1/namespaces/personal/certificates/nagare-content-scoped-worker", "-f", "-"]
+        assertBool "the Certificate is not deleted in the Background" ("\"propagationPolicy\":\"Background\"" `T.isInfixOf` certificateBody)
+        (ingressArgs, _) <- either (assertFailure . T.unpack) pure (collectionDeleteRequest (ingress ^. #address) uid "7")
+        ingressArgs @?= ["delete", "--raw", "/apis/networking.internal.knative.dev/v1alpha1/namespaces/personal/ingresses/nagare-content-scoped-worker", "-f", "-"]
     , testCase "an Ingress is ready only once Kourier has observed its generation and reports Ready" $ do
         let address = Kubernetes testCluster "networking.internal.knative.dev" (ok (mkName "ingress")) (Just (ok (mkName "personal"))) (ok (mkName "nagare-content-scoped-worker"))
             status generation observed ready =

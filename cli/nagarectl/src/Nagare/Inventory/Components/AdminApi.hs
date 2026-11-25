@@ -196,6 +196,7 @@ compileAdminApi input declarations = case validated of
         , upstreamConfigMapData = Map.empty
         , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
+        , upstreamContainerArgs = Map.empty
         , upstreamGenerated = generated
         , upstreamAfter =
             Map.fromList [(deployment, [policy] <> [secret | cloud]), (service, [deployment])]

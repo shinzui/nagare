@@ -250,6 +250,7 @@ compileLocalObjectStore root foundation store images
         , upstreamConfigMapData = Map.empty
         , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
+        , upstreamContainerArgs = Map.empty
         , upstreamGenerated = []
         , upstreamAfter =
             Map.fromList

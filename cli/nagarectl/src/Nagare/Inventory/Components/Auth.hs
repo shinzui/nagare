@@ -152,6 +152,7 @@ compileAuth input = do
                   , upstreamConfigMapData = Map.empty
                   , upstreamClusterIpServices = Set.empty
                   , upstreamImageOverrides = Map.empty
+                  , upstreamContainerArgs = Map.empty
                   , upstreamGenerated =
                       objects
                         <> map

@@ -56,6 +56,7 @@ compileObservabilityExtras root foundation metricsRelease = do
               , upstreamConfigMapData = Map.empty
               , upstreamClusterIpServices = Set.empty
               , upstreamImageOverrides = Map.empty
+              , upstreamContainerArgs = Map.empty
               , upstreamGenerated = objects
               , upstreamAfter = Map.empty
               , upstreamExternalAfter =

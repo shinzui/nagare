@@ -33,7 +33,20 @@ inventoryUpstreamTests :: TestTree
 inventoryUpstreamTests =
   testGroup
     "pinned upstream bootstrap manifests"
-    [ testCase "host credential delegation binds only the actual Serving account" $ do
+    [ testCase "cert-manager makes each Certificate own its Secret, and a repeated or misdirected argument is refused (EP-285)" $ do
+        certManager <- case [input | input <- pinnedUpstreamInputs fixtureCluster "../..", upstreamOwner input == componentOwner "cert-manager"] of
+          [input] -> pure input
+          _ -> assertFailure "cert-manager input missing" >> pure (error "unreachable")
+        (_, native) <- compileUpstream certManager >>= expectRight
+        let controller = [bytes | (resource, bytes) <- Map.elems native, Kubernetes _ "apps" kind _ name <- [resource ^. #address], nameText kind == "deployment", nameText name == "cert-manager"]
+        case controller of
+          [bytes] -> assertBool "the controller lacks the owner-reference flag" ("\"--enable-certificate-owner-ref=true\"" `BS.isInfixOf` bytes)
+          _ -> assertFailure "the cert-manager controller Deployment is missing"
+        let address = head (Map.keys (upstreamContainerArgs certManager))
+            refused args = either (const True) (const False) <$> compileUpstream certManager {upstreamContainerArgs = Map.singleton address args}
+        refused (Map.singleton "cert-manager-controller" ["--v=4"]) >>= assertBool "a repeated flag was accepted"
+        refused (Map.singleton "sidecar" ["--x=1"]) >>= assertBool "an absent container was accepted"
+    , testCase "host credential delegation binds only the actual Serving account" $ do
         configured <-
           expectRight
             ( bindHostRegistryCredentials
@@ -770,7 +783,7 @@ inventoryUpstreamTests =
     ]
 
 component :: Text -> [(FilePath, ContentDigest)] -> UpstreamInput
-component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Set.empty Map.empty [] Map.empty Map.empty True Map.empty
+component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Set.empty Map.empty Map.empty [] Map.empty Map.empty True Map.empty
 
 componentOwner :: Text -> ScopeId
 componentOwner name = ok (mkScopeId Platform name)

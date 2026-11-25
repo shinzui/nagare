@@ -117,6 +117,7 @@ compileObservabilitySecrets foundation objects = case traverse validate objects 
               , upstreamConfigMapData = Map.empty
               , upstreamClusterIpServices = Set.empty
               , upstreamImageOverrides = Map.empty
+              , upstreamContainerArgs = Map.empty
               , upstreamGenerated = normalized
               , upstreamAfter = Map.empty
               , upstreamExternalAfter = Map.empty

@@ -39,8 +39,8 @@ collectionDeleteRequest address uid revision = case address of
                 <> "/namespaces/"
                 <> T.unpack (nameText namespace)
                 <> "/"
-                <> T.unpack (nameText kind)
-                <> "s/"
+                <> T.unpack (plural (nameText kind))
+                <> "/"
                 <> T.unpack (nameText name)
         pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
   _ -> Left "conditional collection does not support this Kubernetes kind"
@@ -51,6 +51,8 @@ collectionDeleteRequest address uid revision = case address of
 collectionPropagation :: Text -> Text -> Text
 collectionPropagation "batch" "job" = "Background"
 collectionPropagation "apps" "statefulset" = "Background"
+-- EP-285: cert-manager owns the Certificate's Secret; Orphan would keep the private key.
+collectionPropagation "cert-manager.io" "certificate" = "Background"
 collectionPropagation _ _ = "Orphan"
 
 -- | The (API group, kind) pairs a reviewed collection can delete. The
@@ -64,6 +66,8 @@ collectionKinds =
       , ("rbac.authorization.k8s.io", ["role", "rolebinding"])
       , ("batch", ["cronjob", "job"])
       , ("serving.knative.dev", ["service"])
+      , ("cert-manager.io", ["certificate"])
+      , ("networking.internal.knative.dev", ["ingress"])
       ]
   , kind <- kinds
   ]
@@ -77,4 +81,12 @@ collectionPathPrefix "rbac.authorization.k8s.io" kind
 collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
 collectionPathPrefix "batch" "job" = Just "/apis/batch/v1"
 collectionPathPrefix "serving.knative.dev" "service" = Just "/apis/serving.knative.dev/v1"
+collectionPathPrefix "cert-manager.io" "certificate" = Just "/apis/cert-manager.io/v1"
+collectionPathPrefix "networking.internal.knative.dev" "ingress" = Just "/apis/networking.internal.knative.dev/v1alpha1"
 collectionPathPrefix _ _ = Nothing
+
+-- | The resource's plural in its API path.
+plural :: Text -> Text
+plural kind
+  | "s" `T.isSuffixOf` kind = kind <> "es"
+  | otherwise = kind <> "s"

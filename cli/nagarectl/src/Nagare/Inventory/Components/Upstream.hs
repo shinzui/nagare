@@ -17,7 +17,7 @@ where
 
 import Control.Exception (IOException, try)
 import Control.Monad (foldM)
-import Data.Aeson (Value (..), encode)
+import Data.Aeson (Value (..), encode, toJSON)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -61,6 +61,9 @@ data UpstreamInput = UpstreamInput
   , upstreamClusterIpServices :: !(Set.Set ProviderAddress)
   -- ^ Services rendered as @ClusterIP@ in a tunnel context, so ServiceLB binds no host port.
   , upstreamImageOverrides :: !(Map ProviderAddress (Map Text Text))
+  , upstreamContainerArgs :: !(Map ProviderAddress (Map Text [Text]))
+  -- ^ Arguments appended to named containers of a pinned Deployment, so a
+  -- reviewed flag never edits the vendored manifest.
   , upstreamGenerated :: ![(SourceLocation, Value)]
   , upstreamAfter :: !(Map ProviderAddress [ProviderAddress])
   , upstreamExternalAfter :: !(Map ProviderAddress [ResourceId])
@@ -123,10 +126,17 @@ bindNetCertManagerControllerImage cluster image publication inputs = do
 -- scope may contain custom resources served by an earlier release.
 pinnedUpstreamInputs :: ResourceId -> FilePath -> [UpstreamInput]
 pinnedUpstreamInputs cluster root =
-  [ component
-      "cert-manager"
-      [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", "1ce11cae912adecc69e6bb623435fafc9ed21505f9efff98bd71d7b80f01db1f")]
-      Set.empty
+  [ ( component
+        "cert-manager"
+        [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", "1ce11cae912adecc69e6bb623435fafc9ed21505f9efff98bd71d7b80f01db1f")]
+        Set.empty
+    )
+      { -- EP-285: a Certificate owns the Secret it writes, so collecting it deletes its private key.
+        upstreamContainerArgs =
+          Map.singleton
+            (either (error . T.unpack) id (kubernetesAddress cluster "apps/v1" "Deployment" (Just "cert-manager") "cert-manager"))
+            (Map.singleton "cert-manager-controller" ["--enable-certificate-owner-ref=true"])
+      }
   , component
       "serving"
       [ ("cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml", "b7876869026e571fe41cef6c7345f37f8190a80f6a23b45010981347f97f97bc")
@@ -161,6 +171,7 @@ pinnedUpstreamInputs cluster root =
         , upstreamConfigMapData = Map.empty
         , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
+        , upstreamContainerArgs = Map.empty
         , upstreamGenerated = []
         , upstreamAfter =
             if name == "serving"
@@ -417,6 +428,7 @@ issuerComponent cluster root mode = do
         , upstreamConfigMapData = Map.empty
         , upstreamClusterIpServices = Set.empty
         , upstreamImageOverrides = Map.empty
+        , upstreamContainerArgs = Map.empty
         , upstreamGenerated = objects
         , upstreamAfter = ordering
         , upstreamExternalAfter = Map.empty
@@ -464,6 +476,12 @@ compileUpstream input = do
             [resource ^. #address | (resource, _) <- uniqueMembers]
       )
       (Left (single (invalid "image override target is absent from the pinned release")))
+    unless
+      ( Map.keysSet (upstreamContainerArgs input)
+          `Set.isSubsetOf` Set.fromList
+            [resource ^. #address | (resource, _) <- uniqueMembers]
+      )
+      (Left (single (invalid "container argument target is absent from the pinned release")))
     unless
       ( Map.keysSet (upstreamAfter input)
           `Set.isSubsetOf` Set.fromList
@@ -545,9 +563,12 @@ compileUpstream input = do
       imaged <- case Map.lookup (probed ^. #address) (upstreamImageOverrides input) of
         Nothing -> Right configured
         Just images -> first (single . invalid) (setDeploymentImages images configured)
-      delegated <- case Map.lookup (probed ^. #address) (upstreamRegistryDelegations input) of
+      argued <- case Map.lookup (probed ^. #address) (upstreamContainerArgs input) of
         Nothing -> Right imaged
-        Just host -> first (single . invalid) (registryGrant host imaged)
+        Just extra -> first (single . invalid) (appendDeploymentArgs extra imaged)
+      delegated <- case Map.lookup (probed ^. #address) (upstreamRegistryDelegations input) of
+        Nothing -> Right argued
+        Just host -> first (single . invalid) (registryGrant host argued)
       native <- first (single . invalid) (canonicalValue delegated)
       identity <-
         first
@@ -711,6 +732,40 @@ setDeploymentImages images (Object root)
           && T.all (`elem` (['0' .. '9'] <> ['a' .. 'f'])) digest
       _ -> False
 setDeploymentImages _ _ = Left "image override targets a non-Deployment object"
+
+-- | Append arguments to named containers of a Deployment. Each container must
+-- exist and must not already carry the argument's flag.
+appendDeploymentArgs :: Map Text [Text] -> Value -> Either Text Value
+appendDeploymentArgs extra (Object root)
+  | KM.lookup "kind" root == Just (String "Deployment") = do
+      spec <- field "spec" root
+      template <- field "template" spec
+      podSpec <- field "spec" template
+      containers <- case KM.lookup "containers" podSpec of
+        Just (Array entries) -> Right entries
+        _ -> Left "container argument Deployment has no container array"
+      let named = [name | Object container <- V.toList containers, Just (String name) <- [KM.lookup "name" container]]
+      unless (Map.keysSet extra `Set.isSubsetOf` Set.fromList named) (Left "container argument names a container absent from the Deployment")
+      updated <- traverse append containers
+      let podSpec' = KM.insert "containers" (Array updated) podSpec
+          template' = KM.insert "spec" (Object podSpec') template
+      pure (Object (KM.insert "spec" (Object (KM.insert "template" (Object template') spec)) root))
+  where
+    field name parent = case KM.lookup name parent of
+      Just (Object value) -> Right value
+      _ -> Left ("container argument Deployment lacks " <> Key.toText name)
+    append (Object container) = case KM.lookup "name" container >>= \case String name -> Map.lookup name extra; _ -> Nothing of
+      Nothing -> Right (Object container)
+      Just added -> do
+        existing <- case KM.lookup "args" container of
+          Nothing -> Right []
+          Just (Array values) -> traverse (\case String arg -> Right arg; _ -> Left "container argument is not a string") (V.toList values)
+          Just _ -> Left "container args are not a list"
+        let flag = T.takeWhile (/= '=')
+        when (any ((`elem` map flag existing) . flag) added) (Left "container argument repeats a flag the pinned release sets")
+        pure (Object (KM.insert "args" (toJSON (existing <> added)) container))
+    append _ = Left "container argument Deployment has a malformed container"
+appendDeploymentArgs _ _ = Left "container argument targets a non-Deployment object"
 
 mergeConfigMapData :: Map Text (Maybe Text) -> Value -> Either Text Value
 mergeConfigMapData entries (Object root)

@@ -43,6 +43,12 @@ supportsRetainedCollection declaration =
         nameText kind `elem` ["cronjob", "job"]
       (KubernetesExecutor, Kubernetes _ "serving.knative.dev" kind (Just _) _) ->
         nameText kind `elem` ["domainmapping", "service"]
+      -- EP-285: a content route's members. cert-manager owns the Certificate's
+      -- Secret, so its Background deletion takes the private key with it.
+      (KubernetesExecutor, Kubernetes _ "cert-manager.io" kind (Just _) _) ->
+        nameText kind == "certificate"
+      (KubernetesExecutor, Kubernetes _ "networking.internal.knative.dev" kind (Just _) _) ->
+        nameText kind == "ingress"
       _ -> False
 
 -- | Knative does not block orphaning a DomainMapping's controller children, so
