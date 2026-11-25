@@ -184,6 +184,15 @@ host=share.CONTENT_DOMAIN
   Ingress, the Certificate and its Secret in the same review (adding the two kinds to collection,
   with the kind table's `KindCollect` and a mutation record), or retires them and states that the
   hosts stay served until a collect.
+- The first cloud run stopped before creating anything (2026-11-25): the first `platform bootstrap
+  plan` of the fresh context `ep285` refused `unverified-owner` on
+  `platform:cloud-foundation/pulumi-stack/ep285`. The drill's setup had run `nagarectl context
+  env`, which prepared Pulumi with "create a missing stack" and ran `pulumi stack init`, so the
+  foundation stage found a stack with no accepted history. The `nagare` launcher runs `context env`
+  before every command, so any fresh cloud context bootstrapped through it would stop the same
+  way. Fixed: `context env` now selects the stack only when it exists
+  (`StackPolicy`/`LeaveMissingStack` in `cli/nagarectl/app/Nagare/Cli/Runtime/Pulumi.hs`); a
+  scratch cloud context then ran `context env` and held no stack file.
 
 ## Decision Log
 

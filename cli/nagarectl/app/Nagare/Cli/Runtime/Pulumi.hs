@@ -4,6 +4,8 @@ module Nagare.Cli.Runtime.Pulumi
   , ensurePulumiForActiveContext
   , ensurePulumiForContext
   , ensurePulumiForContextWithDependencies
+  , ensurePulumiForContextWithStack
+  , StackPolicy (..)
   , ensurePulumiForContextWithInstallNotice
   , ensurePulumiInWorkspace
   , ensurePulumiInWorkspaceWithDependencies
@@ -61,13 +63,27 @@ ensurePulumiForContextWithPolicy :: Bool -> Bool -> ContextName -> TargetProfile
 ensurePulumiForContextWithPolicy = ensurePulumiForContextWithDependencies True
 
 ensurePulumiForContextWithDependencies :: Bool -> Bool -> Bool -> ContextName -> TargetProfile -> IO PlatformWorkspace
-ensurePulumiForContextWithDependencies installDependencies announceInstall createMissing name tp = do
+ensurePulumiForContextWithDependencies installDependencies announceInstall createMissing =
+  ensurePulumiForContextWithStack installDependencies announceInstall (if createMissing then CreateMissingStack else RequireStack)
+
+-- | What preparing a context's Pulumi does when its stack does not exist yet.
+data StackPolicy
+  = CreateMissingStack
+  | RequireStack
+  | -- | Select the stack when it exists and otherwise leave it absent: a
+    -- fresh cloud context's stack is created by its reviewed foundation
+    -- stage, which refuses a stack that exists without accepted history.
+    LeaveMissingStack
+  deriving stock (Eq, Show)
+
+ensurePulumiForContextWithStack :: Bool -> Bool -> StackPolicy -> ContextName -> TargetProfile -> IO PlatformWorkspace
+ensurePulumiForContextWithStack installDependencies announceInstall policy name tp = do
   (paths, workspace) <- resolvePlatformWorkspace name
   -- EP-121: a source checkout's own `just` recipes run Pulumi in its infra/pulumi,
   -- so it must read the same context-owned stack config as the workspace.
   when (paths ^. #rootSource == SourceRoot) $
     linkContextStackConfig name (paths ^. #pulumiDir) >>= either dieT (const (pure ()))
-  ensurePulumiInWorkspaceWithDependencies installDependencies announceInstall createMissing name tp workspace
+  ensurePulumiInWorkspaceWithStack installDependencies announceInstall policy name tp workspace
   pure workspace
 
 ensurePulumiInWorkspace :: ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
@@ -81,7 +97,11 @@ ensurePulumiInWorkspaceWithPolicy :: Bool -> Bool -> ContextName -> TargetProfil
 ensurePulumiInWorkspaceWithPolicy = ensurePulumiInWorkspaceWithDependencies True
 
 ensurePulumiInWorkspaceWithDependencies :: Bool -> Bool -> Bool -> ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
-ensurePulumiInWorkspaceWithDependencies installDependencies announceInstall createMissing name tp workspace = do
+ensurePulumiInWorkspaceWithDependencies installDependencies announceInstall createMissing =
+  ensurePulumiInWorkspaceWithStack installDependencies announceInstall (if createMissing then CreateMissingStack else RequireStack)
+
+ensurePulumiInWorkspaceWithStack :: Bool -> Bool -> StackPolicy -> ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
+ensurePulumiInWorkspaceWithStack installDependencies announceInstall policy name tp workspace = do
   stateRoot <- nagareStateDir
   let penv = pulumiEnvFor stateRoot (contextNameText name) tp
       stack = penv ^. #stack
@@ -113,12 +133,12 @@ ensurePulumiInWorkspaceWithDependencies installDependencies announceInstall crea
   setEnv "PULUMI_CONFIG_PASSPHRASE_FILE" passphraseFile
   setEnv "NAGARE_PULUMI_STACK" (T.unpack stack)
   selected <- pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack]
-  case selected of
-    ExitSuccess -> pure ()
-    ExitFailure _
-      | not createMissing ->
-          dieT "reviewed Pulumi stack is absent or unavailable; plan and apply the cloud foundation stage"
-    ExitFailure _ -> do
+  case (selected, policy) of
+    (ExitSuccess, _) -> pure ()
+    (ExitFailure _, LeaveMissingStack) -> pure ()
+    (ExitFailure _, RequireStack) ->
+      dieT "reviewed Pulumi stack is absent or unavailable; plan and apply the cloud foundation stage"
+    (ExitFailure _, CreateMissingStack) -> do
       _ <- pulumiQuiet ["-C", pulumiDir, "stack", "init", T.unpack stack]
       void (pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack])
 

@@ -21,7 +21,9 @@ import Nagare.Cli.Runtime.ContextReview (guardRemovedContext, runContextReview, 
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ProjectGuard (runContextGuard)
 import Nagare.Cli.Runtime.Pulumi
-  ( ensurePulumiForContextWithDependencies
+  ( StackPolicy (LeaveMissingStack)
+  , ensurePulumiForContextWithDependencies
+  , ensurePulumiForContextWithStack
   , selectReviewedPulumiForContext
   )
 import Nagare.Cli.Runtime.Target
@@ -181,6 +183,8 @@ runContextEnv mctx = do
   -- The launcher evaluates this on every call. It prepares the Pulumi home,
   -- state and stack link only; a command that runs Pulumi installs the
   -- program's Node dependencies itself.
-  _ <- ensurePulumiForContextWithDependencies False True True name tp
+  -- It never creates the stack: the launcher runs this before every command, and a
+  -- stack it created would make the first cloud foundation review refuse (EP-285 M4).
+  _ <- ensurePulumiForContextWithStack False True LeaveMissingStack name tp
   stateRoot <- nagareStateDir
   TIO.putStr (renderContextShellEnv name tp (pulumiEnvFor stateRoot (contextNameText name) tp))
