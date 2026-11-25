@@ -148,6 +148,14 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
 - [ ] M5. `nagarectl bucket retire` is a review that names each workload losing access and states
   that the objects are kept; it is refused while a workload binds the bucket. User documentation
   exists. Evidence: reviewed-change tests (IR-55 AC-5, bucket).
+  - 2026-11-25: the command and its tests are done; the documentation is not. `bucket retire`
+    plans the bucket with no grant and refuses `bucket-still-bound`. nagarectl `bucket scope`
+    asserts the exact effect lines for a dropped grant, a narrowed grant and a retirement, and
+    `boundBy`; `bucket binding` shows a bound Application makes the bucket bound;
+    `action publication totality` covers the `SavedReview.effects` projection. A bucket the config
+    no longer declares is left as it is, so there is no removal to refuse. Open:
+    `docs/user/object-storage.md`, the capability page, `config-reference.md` and
+    `local-development.md`, to be written after the M4 smoke confirms the commands natively.
 
 
 ## Surprises & Discoveries
