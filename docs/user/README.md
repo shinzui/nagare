@@ -99,8 +99,9 @@ you can observe.
      a reviewed transition, inspect release identity, and upgrade the node and
      PostgreSQL majors. ✅
    - [Resizing the VM](resizing-the-vm.md) — vertical scale to a bigger machine
-     type: bump `machineType`, `pulumi up`, ~1–3 min stop/start. Disks and IP
-     persist. 🟡
+     type or data disk: edit the context line, then two reviewed
+     `platform bootstrap` stages (stack config, then the VM). About 5 minutes of
+     downtime; disks and IP persist. ✅
 7. [Cluster bootstrap](cluster-bootstrap.md) — Knative Serving, Kourier ingress,
    cert-manager, and wildcard DNS/TLS wiring. ✅
    - [In-cluster Nix binary cache](nix-binary-cache.md) — optionally transport

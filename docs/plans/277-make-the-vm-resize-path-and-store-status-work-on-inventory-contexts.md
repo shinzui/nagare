@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-25T14:01:28Z
       mode: "update"
       note: "Apply review findings: testable status report in the library, version-3 future-head test, land HEAD, M3 narrowed to README and log, takeover refusal in the runbook"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-25T14:31:47Z
+      mode: "implement"
+      note: "M1 status fix, M2 runbook and M3 summary/log implemented"
 ---
 
 # Make the VM resize path and store status work on inventory contexts
@@ -60,25 +65,36 @@ binding, generation, active transaction and executor claim, the same as on a ver
 
 ## Progress
 
-- [ ] `inventory store status` decodes every head schema the store reader supports. The report is
+- [x] `inventory store status` decodes every head schema the store reader supports. The report is
   built by a pure library function. A unit test gives it a version-2 head with an active
   transaction and an executor claim, and the report names both. A version-3 head still reports
   `unsupported-schema`. The existing "future head" test uses version 3. `just gate-commit` is
-  green.
-- [ ] `docs/user/resizing-the-vm.md` gives the inventory-context procedure for both the machine type
+  green. (2026-11-25, 44b6400e. `supportedHeadSchemaVersion` in `Manifest.hs`;
+  `Nagare.Inventory.StoreStatus` holds `storeStatusReport`, `storeStatusLine` and `publicDataFence`.
+  The test is "store status reports a version 2 head in full and only a version 3 head as
+  unsupported" in `EventsSourceSpec.hs`. It fails with the old `schema > 1` condition (`expected:
+  Nothing, but got: Just (String "unsupported-schema")`) and passes with the shared range.
+  `just gate-commit` green in 161 s. Against the local context the command prints
+  `{"state":null,"activeTransaction":null,"executorClaim":null,"generation":2}`, but that head is
+  version 1, so only the unit test covers version 2.)
+- [x] `docs/user/resizing-the-vm.md` gives the inventory-context procedure for both the machine type
   and the data-disk size: the context line, then the stage-1 and stage-2 bootstrap reviews with
   what each must contain, then the checks. The legacy `infra preview`/`infra-up` path stays as a
   short section for contexts without inventory history. The status banner and the downtime
-  estimate carry the measured Labs numbers.
-- [ ] The summary that repeats the old path is corrected: the "Resizing the VM" entry in
+  estimate carry the measured Labs numbers. (2026-11-25; `just docs-validate` OK.)
+- [x] The summary that repeats the old path is corrected: the "Resizing the VM" entry in
   `docs/user/README.md` (lines 101 to 103). `docs/user/log.md` has an entry for DOC-30.
+  (2026-11-25.)
 - [ ] Landed: `just gate-fast` clean, then `just land HEAD`, with the full gate green on the landed
   commit.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `InventoryObjectOpsSpec.hs` is at its size allowance (1045 lines in
+  `scripts/haskell-size-allowances.json`), so the architecture audit refused the new test there.
+  It went into the "wire" group of `cli/nagarectl/test/EventsSourceSpec.hs`, next to the test
+  that decodes heads at versions 1, 2 and 3. The "future head" test stayed where it was.
 
 
 ## Decision Log
@@ -101,6 +117,10 @@ binding, generation, active transaction and executor claim, the same as on a ver
   Rationale: the `nagarectl-test` suite builds only from `cli/nagarectl/test` against the library.
   No spec can import `Nagare.Cli.Commands.Inventory.Store`, so the report as written has no test and
   cannot get one. The command keeps the store reads, the repeated-read check and the printing.
+  Date: 2026-11-25
+- Decision: delete `cli/nagarectl/app/Nagare/Cli/Inventory/PublicEvidence.hs` instead of keeping it
+  as a re-export. Its only other user, `Nagare.Cli.Commands.Inventory.Status`, now imports
+  `publicDataFence` from `Nagare.Inventory.StoreStatus`.
   Date: 2026-11-25
 - Decision: leave `docs/user/upgrades.md` and `docs/user/resource-inventory.md` unchanged.
   Rationale: the `upgrades.md` paragraph describes a head newer than the CLI supports, which stays

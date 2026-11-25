@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-25
+* **Update**: DOC-30: resize the VM and grow the data disk on an inventory context through the context line and two reviewed `platform bootstrap` stages, with the measured Labs downtime; the legacy `infra-up` path stays for contexts without inventory history.
+
 ## 2026-11-17
 * **Update**: DOC-45: run the lifecycle worker (`--enable-lifecycle-events`, `--enable-lifecycle-delivery`), and what export and restore carry.
 * **Add**: DOC-45: lifecycle events and webhooks — subscriptions, the v1 signing protocol with a published vector, receiver deduplication, retry semantics, inspection and replay.
