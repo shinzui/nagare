@@ -14,6 +14,7 @@ module Nagare.Cli.Move.Observe
   , observeParentDelegates
   , observeResolverNameServers
   , observeCloudDnsNameServers
+  , describeZoneNameServers
   , observeRenewals
   , observeConnectors
   , probeDirect
@@ -137,15 +138,20 @@ observeResolverNameServers name =
 observeCloudDnsNameServers :: MoveEnv -> IO (Either Text [Text])
 observeCloudDnsNameServers env = case env ^. #dnsZoneName of
   Nothing -> pure (Left "the stack has no dnsZoneName output; the Cloud DNS zone is not retained")
-  Just zone ->
-    captureTool
-      "gcloud"
-      ["dns", "managed-zones", "describe", T.unpack zone, "--project=" <> T.unpack (env ^. #project), "--format=value(nameServers)"]
-      <&> \case
-        Nothing -> Left ("gcloud could not describe the Cloud DNS zone " <> zone)
-        Just bytes -> case T.split (\c -> c == ';' || c == ',' || c == '\n') (TE.decodeUtf8 bytes) of
-          names | servers@(_ : _) <- filter (not . T.null) (map T.strip names) -> Right servers
-          _ -> Left ("the Cloud DNS zone " <> zone <> " lists no name servers")
+  Just zone -> describeZoneNameServers (env ^. #project) zone
+
+-- | One Cloud DNS zone's name servers, read with an explicit @--project@ so the read stays in the context's
+-- project.
+describeZoneNameServers :: Text -> Text -> IO (Either Text [Text])
+describeZoneNameServers project zone =
+  captureTool
+    "gcloud"
+    ["dns", "managed-zones", "describe", T.unpack zone, "--project=" <> T.unpack project, "--format=value(nameServers)"]
+    <&> \case
+      Nothing -> Left ("gcloud could not describe the Cloud DNS zone " <> zone)
+      Just bytes -> case T.split (\c -> c == ';' || c == ',' || c == '\n') (TE.decodeUtf8 bytes) of
+        names | servers@(_ : _) <- filter (not . T.null) (map T.strip names) -> Right servers
+        _ -> Left ("the Cloud DNS zone " <> zone <> " lists no name servers")
 
 -- | Every cert-manager Certificate's renewal time, through the context's admitted cluster.
 observeRenewals :: IO (Either Text [(Text, Maybe UTCTime)])

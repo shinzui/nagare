@@ -25,6 +25,8 @@ module Nagare.Inventory.Cloud
   , withCloudInstanceName
   , withDelegatedDeployers
   , delegatedDeployerComponentName
+  , withContentDomains
+  , contentDomainComponentName
   , withTunnelPerimeter
   , tunnelWebRuleKeys
   , cloudCatalogUrn
@@ -128,6 +130,11 @@ data CloudCatalog = CloudCatalog
   -- its names; 'withDelegatedDeployers' instantiates it per delegation.
   , catalogDelegatedDeployers :: ![CloudCatalogEntry]
   -- ^ The instantiated entries, empty until 'withDelegatedDeployers'.
+  , catalogContentDomainTemplate :: ![CloudCatalogTemplateEntry]
+  -- ^ One content domain's zone, records and solver grant (EP-285), with
+  -- @{domain}@ in its names; 'withContentDomains' instantiates it per domain.
+  , catalogContentDomains :: ![CloudCatalogEntry]
+  -- ^ The instantiated entries, empty until 'withContentDomains'.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -168,10 +175,13 @@ decodeCloudCatalog bytes = do
   catalog <- first T.pack (parseEither parser value)
   -- The template is checked as one instantiation, so its names are valid and
   -- its parents resolve.
-  instantiated <- withDelegatedDeployers ["example"] catalog
+  instantiated <- withContentDomains ["example-org"] =<< withDelegatedDeployers ["example"] catalog
   unless
     (all (T.isInfixOf "{deployer}" . templateNativeName) (catalogDelegatedDeployerTemplate catalog))
     (Left "cloud catalog has a delegated deployer entry that is not per deployer")
+  unless
+    (all (T.isInfixOf "{domain}" . templateNativeName) (catalogContentDomainTemplate catalog))
+    (Left "cloud catalog has a content domain entry that is not per domain")
   let allEntries = catalogEntries instantiated
       keys = map catalogKey allEntries
       byKey = Map.fromList [(catalogKey entry, entry) | entry <- allEntries]
@@ -200,6 +210,8 @@ decodeCloudCatalog bytes = do
         <*> o .:? "lifecycleWorkerEnabled" .!= []
         <*> o .:? "delegatedDeployerEnabled" .!= []
         <*> pure []
+        <*> o .:? "contentDomainEnabled" .!= []
+        <*> pure []
 
 -- | Every entry the catalog holds, instantiated delegated deployers included.
 catalogEntries :: CloudCatalog -> [CloudCatalogEntry]
@@ -211,6 +223,7 @@ catalogEntries catalog =
     <> catalogAdminApiReaderEnabled catalog
     <> catalogLifecycleWorkerEnabled catalog
     <> catalogDelegatedDeployers catalog
+    <> catalogContentDomains catalog
 
 -- | The Pulumi name of one delegated deployer's component, as
 -- @infra/pulumi/index.ts@ names it.
@@ -221,14 +234,29 @@ delegatedDeployerComponentName deployer = "nagare-delegated-deployer-" <> deploy
 -- @nagare:delegatedDeployers@ declares them (EP-248 D6).
 withDelegatedDeployers :: [Text] -> CloudCatalog -> Either Text CloudCatalog
 withDelegatedDeployers deployers catalog = do
-  entries <- forM deployers $ \deployer -> forM (catalogDelegatedDeployerTemplate catalog) $ \entry -> do
-    let fill = T.replace "{deployer}" deployer
-        named field value = first (\reason -> "delegated deployer " <> deployer <> " has an invalid catalog " <> field <> ": " <> reason) (mkName (fill value))
+  entries <- instantiateTemplate "{deployer}" "delegated deployer" deployers (catalogDelegatedDeployerTemplate catalog)
+  pure catalog {catalogDelegatedDeployers = entries}
+
+-- | The Pulumi name of one content domain's component, as
+-- @infra/pulumi/index.ts@ names it from the domain's slug.
+contentDomainComponentName :: Text -> Text
+contentDomainComponentName slug = "nagare-content-" <> slug
+
+-- | Instantiate the content domain template once per domain slug, as
+-- @nagare:contentDomains@ lists them (EP-285).
+withContentDomains :: [Text] -> CloudCatalog -> Either Text CloudCatalog
+withContentDomains slugs catalog = do
+  entries <- instantiateTemplate "{domain}" "content domain" slugs (catalogContentDomainTemplate catalog)
+  pure catalog {catalogContentDomains = entries}
+
+instantiateTemplate :: Text -> Text -> [Text] -> [CloudCatalogTemplateEntry] -> Either Text [CloudCatalogEntry]
+instantiateTemplate placeholder label values template =
+  fmap concat . forM values $ \value -> forM template $ \entry -> do
+    let named field raw = first (\reason -> label <> " " <> value <> " has an invalid catalog " <> field <> ": " <> reason) (mkName (T.replace placeholder value raw))
     key <- named "key" (templateKey entry)
     nativeName <- named "name" (templateNativeName entry)
     parent <- traverse (named "parent") (templateParent entry)
     pure (CloudCatalogEntry key (templateNativeType entry) nativeName parent (templateLayer entry))
-  pure catalog {catalogDelegatedDeployers = concat entries}
 
 selectedCloudCatalog :: Bool -> Bool -> Bool -> Bool -> Bool -> CloudCatalog -> [CloudCatalogEntry]
 selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled lifecycleEnabled catalog =
@@ -239,6 +267,7 @@ selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled lifecy
     <> (if adminApiEnabled then catalogAdminApiReaderEnabled catalog else [])
     <> (if lifecycleEnabled then catalogLifecycleWorkerEnabled catalog else [])
     <> catalogDelegatedDeployers catalog
+    <> catalogContentDomains catalog
 
 -- | A tunnel context's perimeter (ADR 34): no internet-facing firewall rule, and no Cloud DNS zone or
 -- record, since the domain's DNS is on Cloudflare. A context moved onto the tunnel names its retained

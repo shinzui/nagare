@@ -478,6 +478,7 @@ fixtureProfile =
     , nixCacheBucket = "labs-project-nagare-nix-cache"
     , nixCacheNarSizeThreshold = 65536
     , baseDomain = "apps.example.com"
+    , contentDomains = []
     , externalDomainTlsEnabled = False
     , ingress = IngressDirect
     , retainedDnsName = ""

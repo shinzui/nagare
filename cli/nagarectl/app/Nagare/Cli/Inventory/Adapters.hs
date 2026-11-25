@@ -42,8 +42,10 @@ import Nagare.Cli.Runtime.Posture (ActivePosture (..), activePosture)
 import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiInWorkspaceWithDependencies)
 import Nagare.Context.Posture (WebRules (WebRulesAbsent))
+import Nagare.Dsl.ContentDomain (contentDomainSlug)
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir, readContextHostName)
+import Nagare.Init (servedContentDomains)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.AppDatabase (AppDatabaseMember, mkAppDatabaseAdapter)
 import Nagare.Inventory.Adapters.AppDatabaseRuntime qualified as AppDatabaseRuntime
@@ -581,12 +583,13 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
           either
             dieT
             pure
-            ( InventoryCloud.withDelegatedDeployers
-                (map (^. #name) (cloudDelegatedDeployers profile scopes))
-                ( InventoryCloud.withCloudInstanceName
-                    (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
-                    rawCatalog
-                )
+            ( InventoryCloud.withContentDomains (map contentDomainSlug (servedContentDomains profile ingressPosture))
+                =<< InventoryCloud.withDelegatedDeployers
+                  (map (^. #name) (cloudDelegatedDeployers profile scopes))
+                  ( InventoryCloud.withCloudInstanceName
+                      (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
+                      rawCatalog
+                  )
             )
         bookkeeping <-
           either

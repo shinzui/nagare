@@ -5,6 +5,7 @@ import { NagareNixCache } from "./src/components/NagareNixCache";
 import { NagareAdminApiReader } from "./src/components/NagareAdminApiReader";
 import { NagareLifecycleWorker } from "./src/components/NagareLifecycleWorker";
 import { NagareDelegatedDeployer, delegatedRepositoryId, parseDelegatedDeployers } from "./src/components/NagareDelegatedDeployer";
+import { NagareContentDomain, contentDomainSlug, parseContentDomains } from "./src/components/NagareContentDomain";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
@@ -59,6 +60,10 @@ const tunnelCfg = cfg.get("ingress") === "cloudflare-tunnel";
 // move to a new base domain sets it from its flip, while the context is still direct, so the zone keeps
 // the old name. Empty is absent.
 const retainedDnsNameCfg = cfg.get("retainedDnsName") || undefined;
+// EP-285: the context's content domains, each with its own zone. nagarectl derives the list from
+// NAGARE_CONTENT_DOMAINS and never on a tunnel context; absent, so an existing stack previews unchanged.
+const contentDomainsCfg = parseContentDomains(cfg.get("contentDomains"));
+if (tunnelCfg && contentDomainsCfg.length > 0) throw new Error("a tunnel context serves no content domain");
 // EP-243: set only while a move has disabled the web rules; absent, the rules are unchanged.
 const webRulesDisabledCfg = cfg.getBoolean("webRulesDisabled") ?? false;
 
@@ -189,6 +194,18 @@ for (const deployer of delegatedDeployersCfg) {
         inventoryBucket: stateBucketCfg,
         inventoryPrefix: adminApiInventoryPrefixCfg,
         deployer,
+    }, { dependsOn: apiServices });
+}
+
+// No stack output, as the delegated deployers have none: `nagarectl domains check` describes the
+// zone by its fixed name, and a new output would change every existing stack's preview.
+for (const domain of contentDomainsCfg) {
+    const name = `nagare-content-${contentDomainSlug(domain)}`;
+    if (shouldDeclareResource("nagare:env:NagareContentDomain", name)) new NagareContentDomain(name, {
+        gcpProject,
+        domain,
+        vmAddress: perimeter.publicIp,
+        serviceAccountEmail: perimeter.serviceAccountEmail,
     }, { dependsOn: apiServices });
 }
 

@@ -41,6 +41,7 @@ import Nagare.Target
   , readContextProfile
   , registryPrefix
   )
+import Nagare.Target.ContentDomains (contentDomainsVariable, renderContentDomains)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (setEnv, unsetEnv)
 import System.IO (hFlush, hIsTerminalDevice, stdin, stdout)
@@ -62,6 +63,7 @@ exportProfileEnv name tp = mapM_ (uncurry setOrUnset) fields
       , ("NAGARE_IMAGE_BUCKET", tp ^. #imageBucket)
       , ("NAGARE_BACKUP_BUCKET", tp ^. #backupBucket)
       , ("NAGARE_BASE_DOMAIN", tp ^. #baseDomain)
+      , (T.unpack contentDomainsVariable, renderContentDomains (tp ^. #contentDomains))
       , ("NAGARE_ACME_EMAIL", tp ^. #acmeEmail)
       , ("NAGARE_ACME_DIRECTORY", tp ^. #acmeDirectory)
       , ("NAGARE_INSTANCE_NAME", tp ^. #instanceName)

@@ -5,6 +5,7 @@ module Nagare.Cli.Commands.Domains
 where
 
 import Control.Concurrent.Async (concurrently, mapConcurrently)
+import Control.Monad (forM, forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Generics.Labels ()
@@ -13,6 +14,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Nagare.Cli.Application.Config (appNamespace)
+import Nagare.Cli.Move.Observe (describeZoneNameServers, observeResolverNameServers)
 import Nagare.Cli.Options (DomainsCommand (..), DomainsListOpts (..), DomainsTlsOpts (..))
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -22,6 +24,7 @@ import Nagare.Cli.Runtime.Target
   , activeTarget
   , resolveBaseDomain
   )
+import Nagare.Dsl.ContentDomain (contentDomainText)
 import Nagare.Dsl.Prelude
 import Nagare.Ops.CertificateChain
   ( chainReportValue
@@ -48,6 +51,7 @@ import Nagare.Ops.Domains
 import Nagare.Ops.Pulumi (stackOutputs)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (IngressMode (..), Mode (Cloud, Local), contextNameText)
+import Nagare.Target.ContentDomains (contentDelegationProblem, contentDomainZoneName)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (stderr)
 
@@ -109,10 +113,32 @@ runDomainsInventory checking mctx o = do
              | (namespace, NotFound) <- zip nss observations
              ]
           <> [namespace <> ": " <> detail | (namespace, Unavailable detail) <- zip nss observations]
-      failures = inventoryFailures <> domainCheckFailures rows
+  -- EP-285: a cloud context's content domains are delegated by the operator at a registrar; report
+  -- whether public DNS sends each one to its zone. A local or tunnel context owns no content zone.
+  delegations <-
+    if tp ^. #mode == Cloud && tp ^. #ingress == IngressDirect
+      then forM (tp ^. #contentDomains) $ \domain -> do
+        zone <- describeZoneNameServers (tp ^. #project) (contentDomainZoneName domain)
+        resolvers <- observeResolverNameServers (contentDomainText domain)
+        pure (contentDomainText domain, zone, contentDelegationProblem zone resolvers)
+      else pure []
+  let delegationFailures = [domain <> ": " <> problem | (domain, _, Just problem) <- delegations]
+      failures = inventoryFailures <> domainCheckFailures rows <> delegationFailures
   if o ^. #json
     then LBC.putStrLn (Aeson.encode (domainReportValue inventoryFailures rows))
-    else TIO.putStr (formatDomainList rows)
+    else do
+      TIO.putStr (formatDomainList rows)
+      unless (null delegations) $ do
+        TIO.putStrLn "Content domains:"
+        forM_ delegations $ \(domain, zone, problem) ->
+          TIO.putStrLn
+            ( "  "
+                <> domain
+                <> "  zone name servers: "
+                <> either id (T.intercalate ", ") zone
+                <> "  delegation: "
+                <> maybe "matches" ("does not match: " <>) problem
+            )
   unless (checking || null inventoryFailures) $ do
     TIO.hPutStrLn stderr "Domain inventory is partial:"
     mapM_ (TIO.hPutStrLn stderr . ("  " <>)) inventoryFailures

@@ -23,6 +23,7 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("retained") && !variant.includes("tunnel")) config["nagare:baseDomain"] = "new.example.org";
     if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
     if (variant.includes("lifecycle-worker")) config["nagare:enableLifecycleWorker"] = "true";
+    if (variant.includes("content-domain")) config["nagare:contentDomains"] = "example.org";
     if (variant.includes("delegated-deployer")) {
         config["nagare:delegatedDeployers"] = JSON.stringify([
             { name: "example", accountId: "nagare-deployer-example", imageRepository: "us-west1-docker.pkg.dev/example-project/example-images" },
@@ -174,6 +175,7 @@ async function main(): Promise<void> {
     const foundationManagedAdminApi = runVariant("foundation-managed-admin-api");
     const foundationManagedDeployer = runVariant("foundation-managed-delegated-deployer");
     const foundationManagedLifecycleWorker = runVariant("foundation-managed-lifecycle-worker");
+    const foundationManagedContentDomain = runVariant("foundation-managed-content-domain");
     // ADR 34: a tunnel context keeps only the IAP SSH rule and declares no Cloud DNS.
     const tunnel = runVariant("foundation-managed-image-tunnel");
     const tunnelNames = names(tunnel);
@@ -229,6 +231,7 @@ async function main(): Promise<void> {
     verifyGuardedVariant("foundation-managed-admin-api", foundationManagedAdminApi);
     verifyGuardedVariant("foundation-managed-delegated-deployer", foundationManagedDeployer);
     verifyGuardedVariant("foundation-managed-lifecycle-worker", foundationManagedLifecycleWorker);
+    verifyGuardedVariant("foundation-managed-content-domain", foundationManagedContentDomain);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
@@ -246,6 +249,7 @@ async function main(): Promise<void> {
         adminApiReaderEnabled: CatalogEntry[];
         delegatedDeployerEnabled: CatalogEntry[];
         lifecycleWorkerEnabled: CatalogEntry[];
+        contentDomainEnabled: CatalogEntry[];
     };
     assert(catalog.version === 1, "cloud resource catalog version changed");
     const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
@@ -316,7 +320,28 @@ async function main(): Promise<void> {
     const baseOutputs = runOutputs("foundation-managed");
     assert(JSON.stringify(runOutputs("foundation-managed-lifecycle-worker")) === JSON.stringify(baseOutputs), "the lifecycle worker changes the stack outputs");
     assert(!baseOutputs.some((output) => output.toLowerCase().includes("lifecycle")), "the program exports a lifecycle worker output");
-    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled, deployerEntries, catalog.lifecycleWorkerEnabled);
+    // EP-285: the content domain section is a template, instantiated once per listed domain by
+    // nagarectl with the domain's slug for {domain}: exactly what one nagare:contentDomains entry adds.
+    // An existing context lists a domain later, so its layers sit above every other section's.
+    const contentEntries = catalog.contentDomainEnabled.map((entry) => ({
+        ...entry,
+        key: (entry.key ?? entry.name).replace(/\{domain\}/g, "example-org"),
+        name: entry.name.replace(/\{domain\}/g, "example-org"),
+        parent: entry.parent === null ? null : entry.parent.replace(/\{domain\}/g, "example-org"),
+    }));
+    assert(catalog.contentDomainEnabled.every((entry) => entry.name.includes("{domain}")), "a content domain catalog entry is not per domain");
+    const contentNames = catalog.foundationManaged.concat(contentEntries).map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeContentNames = foundationManagedContentDomain.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(contentNames) === JSON.stringify(nativeContentNames),
+        "reviewed cloud content domain catalog differs from registrations in the actual Pulumi program");
+    const contentFloor = Math.min(...contentEntries.map((entry) => entry.layer));
+    assert(contentFloor > Math.max(...otherLayers, ...catalog.adminApiReaderEnabled.map((entry) => entry.layer), ...deployerEntries.map((entry) => entry.layer), ...catalog.lifecycleWorkerEnabled.map((entry) => entry.layer)),
+        "a content domain layer is not above every other catalog layer");
+    assert(JSON.stringify(runOutputs("foundation-managed-content-domain")) === JSON.stringify(baseOutputs), "a content domain changes the stack outputs");
+    let tunnelRefused = false;
+    try { runVariant("foundation-managed-image-tunnel-content-domain"); } catch { tunnelRefused = true; }
+    assert(tunnelRefused, "a tunnel context declared a content domain");
+    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled, deployerEntries, catalog.lifecycleWorkerEnabled, contentEntries);
     const byKey = new Map(allEntries.map((entry) => [entry.key ?? entry.name, entry]));
     assert(byKey.size === allEntries.length, "cloud catalog has duplicate logical keys");
     for (const entry of allEntries) {

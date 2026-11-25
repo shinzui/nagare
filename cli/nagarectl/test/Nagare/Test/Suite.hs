@@ -20,6 +20,7 @@ import AppDatabaseWorldSpec (appDatabaseWorldTests)
 import AppDeploySpec (appDeployTests)
 import AppOwnedDatabaseSpec (appOwnedDatabaseTests)
 import CertificateMigrationSpec (certificateMigrationTests)
+import ContentDomainContextSpec (contentDomainContextTests)
 import Data.ByteString qualified as BS
 import DataFenceSpec (dataFenceTests)
 import DomainBindingSpec (domainBindingTests)
@@ -276,6 +277,7 @@ main = do
             , inventoryEnTenantsTests
             , inventoryAuthTenantsTests
             , inventoryAuthIssuerTests
+            , contentDomainContextTests
             , inventoryCloseTests
             , inventoryTransferScriptTests
             , inventoryRefusedPreflightRecoveryTests

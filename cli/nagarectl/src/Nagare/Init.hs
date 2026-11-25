@@ -24,6 +24,7 @@ module Nagare.Init
   , pulumiConfigSetArgs
   , seedKeys
   , seedKeysFor
+  , servedContentDomains
   , adminApiInventoryKeys
   , nextStepsText
   , operatorRoles
@@ -49,6 +50,7 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
 import Nagare.Context.Posture (IngressPosture, WebRules (..), postureFor)
+import Nagare.Dsl.ContentDomain (ContentDomain)
 import Nagare.Dsl.Prelude
 import Nagare.Gcp.Adc (adcEnvFromProcess, observeAdc, validateAdc)
 import Nagare.Inventory.BackupFreshness (recoveryPointObjectiveText)
@@ -77,6 +79,7 @@ import Nagare.Target
   , shellQuote
   )
 import Nagare.Target.AuthIssuer (authIssuerText, authIssuerVariable)
+import Nagare.Target.ContentDomains (contentDomainsVariable, renderContentDomains)
 import Nagare.Target.EnTenants (renderEnTenantDeclarations)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (setEnv, unsetEnv)
@@ -372,6 +375,7 @@ renderTargetEnv tp =
       <> maybe [] (\member -> ["export NAGARE_PULUMI_BACKEND_MEMBER=" <> shellQuote member]) (tp ^. #pulumiBackendMember)
       <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
       <> maybe [] (\issuer -> ["export " <> authIssuerVariable <> "=" <> authIssuerText issuer]) (tp ^. #authIssuer)
+      <> ["export " <> contentDomainsVariable <> "=" <> renderContentDomains domains | let domains = tp ^. #contentDomains, not (null domains)]
   where
     modeToken Cloud = "cloud"
     modeToken Local = "local"
@@ -411,6 +415,9 @@ seedKeysFor tp posture retained =
   ]
     -- MasterPlan 32: absent for direct, so an existing stack previews unchanged.
     <> [("nagare:ingress", ingressModeToken IngressCloudflareTunnel) | posture ^. #webRules == WebRulesAbsent]
+    -- EP-285: each content domain's zone, records and solver grant. Absent when none is listed, so an
+    -- existing stack previews unchanged; a tunnel context serves no content route, so it creates none.
+    <> [("nagare:contentDomains", renderContentDomains domains) | let domains = servedContentDomains tp posture, not (null domains)]
     -- EP-243: a move disables the web rules in place; only its commit removes them. Seeding sets keys
     -- and never removes one, so inside a move the key is explicit both ways: undoing the firewall step
     -- writes false. A direct context with no move seeds nothing, so its stack previews unchanged.
@@ -442,6 +449,12 @@ seedKeysFor tp posture retained =
            then adminApiInventoryKeys (tp ^. #inventoryStoreUrl)
            else []
        )
+
+-- | EP-285: the content domains whose zones a posture declares; none on a tunnel context.
+servedContentDomains :: TargetProfile -> IngressPosture -> [ContentDomain]
+servedContentDomains tp posture
+  | posture ^. #webRules == WebRulesAbsent = []
+  | otherwise = tp ^. #contentDomains
 
 -- | The reader's bucket and prefix from an explicit @gs://bucket/prefix@
 -- inventory URL; none for the default location, which the program derives.

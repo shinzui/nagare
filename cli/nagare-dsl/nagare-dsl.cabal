@@ -62,6 +62,7 @@ library
     Nagare.Dsl.Cdn.Types
     Nagare.Dsl.Command
     Nagare.Dsl.Config
+    Nagare.Dsl.ContentDomain
     Nagare.Dsl.Database
     Nagare.Dsl.Database.Render
     Nagare.Dsl.Image

@@ -378,8 +378,10 @@ library
     Nagare.Storage.Restore
     Nagare.Target
     Nagare.Target.Acme
+    Nagare.Target.ContentDomains
     Nagare.Target.ContextFile
     Nagare.Target.EnTenants
+    Nagare.Target.ImageReference
     Nagare.Target.Kinds
     Nagare.Target.VmShape
     Nagare.Task.Delete
@@ -717,6 +719,7 @@ test-suite nagarectl-test
     AppOwnedDatabaseSpec
     CertificateMigrationSpec
     ClusterSessionSpec
+    ContentDomainContextSpec
     ContextReviewSpec
     DataFenceSpec
     DomainBindingSpec

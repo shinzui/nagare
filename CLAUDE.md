@@ -52,7 +52,7 @@ become anything but fail-closed.
    `NAGARE_IMAGE_BUCKET`, `NAGARE_BACKUP_BUCKET`, `NAGARE_BASE_DOMAIN`,
    `NAGARE_INSTANCE_NAME`, `NAGARE_TARGET_PLATFORM`, `NAGARE_MODE`, `NAGARE_INGRESS`, and
    `NAGARE_LOCAL_OBJECT_STORE`, `NAGARE_INVENTORY_STORE`,
-   `NAGARE_INVENTORY_STORE_URL`, and `NAGARE_BACKUP_RECOVERY_POINT`. Selection precedence: `--context` /
+   `NAGARE_INVENTORY_STORE_URL`, `NAGARE_BACKUP_RECOVERY_POINT`, and `NAGARE_CONTENT_DOMAINS`. Selection precedence: `--context` /
    `NAGARE_CONTEXT` > current-context pointer > in-repo profile > built-in
    default. Per-field precedence: environment > context/profile > default.
 

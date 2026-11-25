@@ -97,6 +97,21 @@ host=share.CONTENT_DOMAIN
 - [ ] M2. A context lists content domains; on a cloud context the Pulumi program owns each
   domain's zone, its wildcard and apex records and the solver's grant. Evidence: `nagarectl` and
   `npm test` tests.
+  - 2026-11-25: done. `NAGARE_CONTENT_DOMAINS` is `contentDomains` on the profile, read from the
+    context file (`Nagare.Target.ContentDomains`, with `ContentDomain` in
+    `cli/nagare-dsl/src/Nagare/Dsl/ContentDomain.hs`); loading refuses a domain equal to, under or
+    containing the base domain, a repeat, two domains whose zone names collide, and a name over 48
+    characters (the zone name `nagare-content-<slug>` must fit Cloud DNS). A direct cloud context
+    seeds `nagare:contentDomains`; a tunnel context seeds nothing and the program throws if it
+    gets one. `NagareContentDomain` (`infra/pulumi/src/components/`) is one zone, `*.D` and `D`
+    A records to the VM address and `roles/dns.admin` on that zone for the VM account; the catalog
+    template `contentDomainEnabled` (`{domain}` is the slug, layers 21-23, above every other
+    section) is instantiated by `withContentDomains` at both catalog sites. No stack output, so an
+    existing stack previews unchanged. `domains list|check` prints each zone's name servers and
+    whether public resolvers delegate the domain to them; `check` fails while they do not.
+    Evidence: nagarectl `content domain context` (7 tests); `npm test` with the new
+    `contentDomainResources` test and the parity test's content-domain and tunnel variants;
+    `just gate-commit` green.
 - [ ] M3. A worker declares an HTTP port and a content route; the application scope gains a
   Service, a Certificate and an Ingress; the compile refuses an unlisted domain, a tunnel context
   and a conflicting host; no other application's members change. Evidence: `nagare-dsl` and

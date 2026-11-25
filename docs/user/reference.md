@@ -178,6 +178,7 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_NIX_CACHE_BUCKET` | `tan-nb-exp-nagare-nix-cache` | `<project>-nagare-nix-cache` |
 | `NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD` | `65536` | bytes; Attic splits a newly pushed NAR this large or larger into chunks. `0` stores every NAR whole, so a cache hit redirects to GCS. A malformed value is an error. See [Choose the chunking threshold](nix-binary-cache.md#choose-the-chunking-threshold). |
 | `NAGARE_BASE_DOMAIN` | `apps.example.com` | wildcard apps domain |
+| `NAGARE_CONTENT_DOMAINS` | — (none) | comma-separated content domains, each a registrable domain that must not equal, contain or be under the base domain. A direct cloud context creates a Cloud DNS zone, `*.D` and `D` records and the DNS-01 solver's grant per domain (`nagare:contentDomains`); a tunnel context creates none. `nagarectl domains check` reports each zone's name servers and whether public DNS delegates the domain to them. |
 | `NAGARE_ACME_EMAIL` | — (none) | Let's Encrypt contact for the cluster's ACME account. **No default**; rendering the `letsencrypt-dns` ClusterIssuer refuses without it. See [ACME identity](contexts.md#acme-identity). |
 | `NAGARE_ACME_DIRECTORY` | `production` | ACME service: `production`, `staging` (untrusted certs, looser rate limits), or an absolute `https://` directory URL. An unrecognized value is an error, not a fallback. |
 | `NAGARE_INSTANCE_NAME` | `nagare-01` | the VM instance name |

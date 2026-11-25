@@ -74,5 +74,12 @@
     {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-feed", "parent": "nagare-lifecycle-worker", "layer": 20},
     {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-backups", "parent": "nagare-lifecycle-worker", "layer": 20},
     {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-lifecycle-worker-backups-bucket", "parent": "nagare-lifecycle-worker", "layer": 20}
+  ],
+  "contentDomainEnabled": [
+    {"type": "nagare:env:NagareContentDomain", "name": "nagare-content-{domain}", "parent": null, "layer": 21},
+    {"type": "gcp:dns/managedZone:ManagedZone", "name": "nagare-content-{domain}-zone", "parent": "nagare-content-{domain}", "layer": 22},
+    {"type": "gcp:dns/dnsManagedZoneIamMember:DnsManagedZoneIamMember", "name": "nagare-content-{domain}-iam-dns-zone", "parent": "nagare-content-{domain}", "layer": 23},
+    {"type": "gcp:dns/recordSet:RecordSet", "name": "nagare-content-{domain}-apex", "parent": "nagare-content-{domain}", "layer": 23},
+    {"type": "gcp:dns/recordSet:RecordSet", "name": "nagare-content-{domain}-wildcard", "parent": "nagare-content-{domain}", "layer": 23}
   ]
 }

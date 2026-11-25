@@ -17,8 +17,9 @@ import Nagare.Cli.Inventory.Foundation (foundationDeployerKeys, foundationImageL
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (ActivePosture (..))
 import Nagare.Context.Posture (WebRules (WebRulesAbsent))
+import Nagare.Dsl.ContentDomain (contentDomainSlug)
 import Nagare.Dsl.Prelude
-import Nagare.Init (seedKeysFor)
+import Nagare.Init (seedKeysFor, servedContentDomains)
 import Nagare.Inventory.Adapters.PulumiRuntime
   ( decodePhysicalResources
   )
@@ -59,12 +60,13 @@ buildCloudStageCandidate current active workspace snapshot
         either
           dieT
           pure
-          ( InventoryCloud.withDelegatedDeployers
-              (map (^. #name) (cloudDelegatedDeployers profile acceptedScopes))
-              ( InventoryCloud.withCloudInstanceName
-                  (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
-                  rawCatalog
-              )
+          ( InventoryCloud.withContentDomains (map contentDomainSlug (servedContentDomains profile ingressPosture))
+              =<< InventoryCloud.withDelegatedDeployers
+                (map (^. #name) (cloudDelegatedDeployers profile acceptedScopes))
+                ( InventoryCloud.withCloudInstanceName
+                    (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName)))
+                    rawCatalog
+                )
           )
       imageLink <-
         foundationImageLink

@@ -93,6 +93,7 @@ import Nagare.Cluster.GcsJob
   , StoreBackend (..)
   , parseLocalObjectStore
   )
+import Nagare.Dsl.ContentDomain (ContentDomain)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Inventory.Actor (actorFromNames)
 import Nagare.Inventory.BackupFreshness
@@ -102,8 +103,10 @@ import Nagare.Inventory.BackupFreshness
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target.Acme
 import Nagare.Target.AuthIssuer (AuthIssuer, authIssuerText, authIssuerVariable, parseAuthIssuer)
+import Nagare.Target.ContentDomains (contentDomainsVariable, parseContentDomains, renderContentDomains)
 import Nagare.Target.ContextFile (ctxOr, ctxRaw, mapOr, mapRaw, parseContextEnv, shellQuote)
 import Nagare.Target.EnTenants (EnTenantDeclaration, parseEnTenantDeclarations, renderEnTenantDeclarations)
+import Nagare.Target.ImageReference (parseImageDigestReference)
 import Nagare.Target.Kinds
 import Nagare.Target.VmShape (VmShape (..), defaultVmShape, validateVmShape)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
@@ -346,6 +349,8 @@ data TargetProfile = TargetProfile
   -- large. @0@ never chunks, so every cache hit is a redirect to the object store (BUG-11).
   , baseDomain :: !Text
   -- ^ NAGARE_BASE_DOMAIN, default @"apps.example.com"@
+  , contentDomains :: ![ContentDomain]
+  -- ^ NAGARE_CONTENT_DOMAINS (EP-285), read from the context file only: the domains whose zones the context owns.
   , externalDomainTlsEnabled :: !Bool
   -- ^ NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED; opt in to reviewed cloud-domain TLS
   -- after DNS delegation. Local bootstrap enables its own local TLS policy.
@@ -530,6 +535,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
     , line "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD" (T.pack (show (tp ^. #nixCacheNarSizeThreshold)))
     , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
+    , line contentDomainsVariable (renderContentDomains (tp ^. #contentDomains))
     , line "NAGARE_INSTANCE_NAME" (tp ^. #instanceName)
     , line "NAGARE_SERVICE_ACCOUNT_ID" (tp ^. #serviceAccountId)
     , line "NAGARE_MACHINE_TYPE" (tp ^. #machineType)
@@ -592,32 +598,6 @@ imageDestinationAllowed tp destination =
       Cloud
         | isJust (tp ^. #deployer) -> tp ^. #registryHost <> "/" <> tp ^. #project
         | otherwise -> registryPrefix tp
-
-parseImageDigestReference :: Text -> Either Text (Text, Resource.ContentDigest)
-parseImageDigestReference reference = case T.splitOn "@sha256:" reference of
-  [repository, digest] | validRepository repository -> (repository,) <$> Resource.mkContentDigest digest
-  _ -> Left "image reference must be a qualified repository followed by @sha256 and a manifest digest"
-  where
-    validRepository repository =
-      T.length repository <= 512 && case T.splitOn "/" repository of
-        host : path@(_ : _) -> validHost host && all component path
-        _ -> False
-    validHost host = case T.splitOn ":" host of
-      [name] -> all component (T.splitOn "." name)
-      [name, port] -> all component (T.splitOn "." name) && validPort port
-      _ -> False
-    validPort port =
-      not (T.null port)
-        && T.length port <= 5
-        && T.all digit port
-        && let value = read (T.unpack port) :: Int in value > 0 && value <= 65535
-    digit c = c >= '0' && c <= '9'
-    alphanumeric c = isAsciiLower c || digit c
-    component name =
-      not (T.null name)
-        && alphanumeric (T.head name)
-        && alphanumeric (T.last name)
-        && T.all (\c -> alphanumeric c || c `elem` ("._-" :: String)) name
 
 -- | Read a context file into a variable map, or 'Nothing' if the path is absent.
 readContextMap :: FilePath -> IO (Maybe (Map String Text))
@@ -734,6 +714,7 @@ profileFromContextMap ctx =
       nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
       nixCacheNarSizeThreshold = either (error . T.unpack) id (parseNixCacheNarSizeThreshold (T.pack <$> mapRaw ctx "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD"))
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
+      contentDomains = either (error . T.unpack) id (parseContentDomains baseDomain ctx)
       externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
       ingress = either (error . T.unpack) id (parseIngressMode (mapRaw ctx "NAGARE_INGRESS"))
       retainedDnsName = mapOr ctx "NAGARE_RETAINED_DNS_NAME" ""
@@ -776,6 +757,7 @@ profileFromContextMap ctx =
         , nixCacheBucket = nixCacheBucket
         , nixCacheNarSizeThreshold = nixCacheNarSizeThreshold
         , baseDomain = baseDomain
+        , contentDomains = contentDomains
         , externalDomainTlsEnabled = externalDomainTlsEnabled
         , ingress = ingress
         , retainedDnsName = retainedDnsName
@@ -821,6 +803,7 @@ resolveProfileFrom ctx = do
   nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
   nixCacheNarSizeThreshold <- either (ioError . userError . T.unpack) pure . parseNixCacheNarSizeThreshold . fmap T.pack =<< ctxRaw ctx "NAGARE_NIX_CACHE_NAR_SIZE_THRESHOLD"
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
+  contentDomains <- either (ioError . userError . T.unpack) pure (parseContentDomains baseDomain ctx)
   externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
   ingress <- either (ioError . userError . T.unpack) pure . parseIngressMode =<< ctxRaw ctx "NAGARE_INGRESS"
   retainedDnsName <- ctxOr ctx "NAGARE_RETAINED_DNS_NAME" ""
@@ -866,6 +849,7 @@ resolveProfileFrom ctx = do
       , nixCacheBucket = nixCacheBucket
       , nixCacheNarSizeThreshold = nixCacheNarSizeThreshold
       , baseDomain = baseDomain
+      , contentDomains = contentDomains
       , externalDomainTlsEnabled = externalDomainTlsEnabled
       , ingress = ingress
       , retainedDnsName = retainedDnsName
