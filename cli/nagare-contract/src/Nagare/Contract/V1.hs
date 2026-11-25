@@ -139,6 +139,9 @@ data SavedReview = SavedReview
   , scopes :: ![Text]
   , rebinds :: ![Text]
   , rebuilds :: ![Text]
+  , effects :: !(Maybe [Text])
+  -- ^ What applying the review takes away, one sentence each. Absent when
+  -- the review takes nothing away.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -483,9 +486,9 @@ instance FromJSON ReviewLocation where parseJSON = genericParseJSON recordOption
 
 instance ToSchema ReviewLocation where declareNamedSchema = recordSchema
 
-instance ToJSON SavedReview where toJSON = genericToJSON recordOptions
+instance ToJSON SavedReview where toJSON = genericToJSON versionOptions
 
-instance FromJSON SavedReview where parseJSON = genericParseJSON recordOptions
+instance FromJSON SavedReview where parseJSON = genericParseJSON versionOptions
 
 instance ToSchema SavedReview where declareNamedSchema = recordSchema
 

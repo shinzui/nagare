@@ -66,6 +66,11 @@ accepted scope carries the same digest and inputs. Under a deployer the accepted
 `delegation.deployer`, which planning adds after the preview. `--contract` on either deploy needs
 `--dry-run` or `--save-plan`; a live deploy has no contract document.
 
+**What a review takes away.** A `saved-review` whose review removes something a workload relies on
+lists it in `effects`, one `RESOURCE: sentence` string per loss, in the order the review prints them
+under `This review removes:` ([sample](samples/saved-review-retirement.json)). The field is absent
+when the review takes nothing away.
+
 The item types `ScopeState`, `Finding` and `Publication` are shared by the CLI documents and the
 admin API's paginated responses, so an item has one shape everywhere.
 

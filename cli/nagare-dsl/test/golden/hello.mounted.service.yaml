@@ -1,0 +1,55 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: '0'
+        autoscaling.knative.dev/max-scale: '3'
+    spec:
+      containers:
+      - image: gcr.io/knative-samples/helloworld-go:20260602-120000
+        ports:
+        - containerPort: 8080
+        env:
+        - name: TARGET
+          value: Nagare
+        envFrom:
+        - configMapRef:
+            name: nagare-env-hello-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-hello-runtime
+            optional: true
+        resources:
+          requests:
+            cpu: 250m
+            memory: 128Mi
+        volumeMounts:
+        - name: nagare-identity
+          mountPath: /var/run/nagare/identity
+          readOnly: true
+        - name: nagare-keys
+          mountPath: /var/run/nagare/keys
+          readOnly: true
+      volumes:
+      - name: nagare-identity
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              audience: nagare-workload-identity
+              expirationSeconds: 3600
+          - configMap:
+              name: nagare-identity-content-app
+      - name: nagare-keys
+        projected:
+          sources:
+          - secret:
+              name: nagare-keyset-grants
+      automountServiceAccountToken: false

@@ -16,10 +16,12 @@ module Nagare.Inventory.Plan.Types
   , RebindProof (..)
   , renderPlanErrors
   , renderRebind
+  , renderReviewEffects
   , RebuildProof (..)
   , RetentionProof (..)
   , ReviewBundle (..)
   , ReviewDocument (..)
+  , ReviewEffect (..)
   , ReviewError (..)
   , ReviewOperation (..)
   , ReviewedPlan (..)
@@ -33,6 +35,7 @@ module Nagare.Inventory.Plan.Types
   , reviewBundleNative
   , reviewBundleScopes
   , reviewDigest
+  , withReviewEffects
   , reviewPrivateDigests
   , reviewAdapterOperations
   , reviewedDocument
@@ -308,8 +311,39 @@ data ReviewDocument = ReviewDocument
   -- so an operator review keeps the bytes and digest it had before.
   , reviewSource :: !(Maybe ReviewSource)
   -- ^ EP-247: the repository, commit and CI run the change came from.
+  , reviewEffects :: ![ReviewEffect]
+  -- ^ EP-283: what applying this review takes away, for the operator to read.
+  -- It is not written when empty, so other reviews keep their bytes and digest.
   }
   deriving stock (Eq, Show, Generic)
+
+-- | One thing a review takes away: the resource and a sentence naming the loss.
+data ReviewEffect = ReviewEffect
+  { resource :: !ResourceId
+  , loses :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance ToJSON ReviewEffect where
+  toJSON effect = object ["resource" .= (effect ^. #resource), "loses" .= (effect ^. #loses)]
+
+instance FromJSON ReviewEffect where
+  parseJSON = withObject "ReviewEffect" $ \o -> do
+    unless (all (`elem` ["resource", "loses"]) (KM.keys o)) (fail "review effect has an unknown field")
+    ReviewEffect <$> o .: "resource" <*> o .: "loses"
+
+-- | Record what a review takes away. The planner calls this before the review
+-- is published, so the lines are part of the reviewed digest.
+withReviewEffects :: [ReviewEffect] -> ReviewBundle -> ReviewBundle
+withReviewEffects effects bundle =
+  bundle {bundleDocument = (bundleDocument bundle) {reviewEffects = effects}}
+
+-- | The lines an operator reads before approving: a heading, then one line per
+-- loss. A review that takes nothing away has no lines.
+renderReviewEffects :: ReviewDocument -> [Text]
+renderReviewEffects document = case reviewEffects document of
+  [] -> []
+  effects -> "This review removes:" : ["  " <> resourceIdText (effect ^. #resource) <> ": " <> (effect ^. #loses) | effect <- effects]
 
 -- | ADR 27 §3: a reviewed rebind records a member's live object as its
 -- accepted incarnation. The recorded identity it supersedes is absent for a
@@ -562,6 +596,7 @@ instance ToJSON ReviewDocument where
              ]
           <> ["actor" .= reviewActor document | reviewActor document /= anonymousOperator]
           <> ["source" .= source | Just source <- [reviewSource document]]
+          <> ["effects" .= reviewEffects document | not (null (reviewEffects document))]
       )
     where
       retentionEntries entries =
@@ -575,7 +610,7 @@ instance ToJSON ReviewDocument where
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "validations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds", "rebuilds", "actor", "source"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "validations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds", "rebuilds", "actor", "source", "effects"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
@@ -607,6 +642,7 @@ instance FromJSON ReviewDocument where
       <*> pure rebuilds
       <*> pure actor
       <*> pure source
+      <*> o .:? "effects" .!= []
     where
       parseRetentions values = do
         entries <- traverse (withObject "retention entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values

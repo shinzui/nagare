@@ -540,6 +540,7 @@ printPlannedReview bundle digest = do
   TIO.putStrLn (digestText digest)
   mapM_ (TIO.putStrLn . uncurry renderRebind) (Map.toAscList (reviewRebinds (reviewBundleDocument bundle)))
   mapM_ (TIO.putStrLn . uncurry renderRebuild) (Map.toAscList (reviewRebuilds (reviewBundleDocument bundle)))
+  mapM_ TIO.putStrLn (renderReviewEffects (reviewBundleDocument bundle))
 
 -- | Apply a standard create/update review in the same invocation. The review
 -- is published first, then reloaded so execution has only immutable evidence.

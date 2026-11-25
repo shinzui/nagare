@@ -200,6 +200,7 @@ samples =
   , Sample "transaction-outcome-stopped.json" stoppedSample
   , Sample "transaction-outcome-refused.json" refusedSample
   , Sample "saved-review.json" savedReviewSample
+  , Sample "saved-review-retirement.json" savedReviewSample {effects = Just ["kubernetes:content:secret:nagare-bucket-publications-content-gateway: workload content-gateway in content loses read-only access to bucket publications"]}
   , Sample "image-publication-result.json" imagePublicationSample
   , Sample "site-publish-result.json" sitePublishSample
   , Sample "nix-cache-endpoint.json" nixCacheEndpointSample
@@ -612,6 +613,7 @@ savedReviewSample =
     , scopes = ["application:kizashi"]
     , rebinds = []
     , rebuilds = []
+    , effects = Nothing
     }
 
 imagePublicationSample :: ImagePublicationResult

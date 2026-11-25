@@ -45,6 +45,9 @@ module Nagare.Inventory.Plan
   , RebindProof (..)
   , renderPlanErrors
   , renderRebind
+  , renderReviewEffects
+  , ReviewEffect (ReviewEffect)
+  , withReviewEffects
   , RetentionProof (..)
   , AbsenceProof (..)
   , MigrationProof (..)
@@ -135,6 +138,7 @@ import Nagare.Inventory.Plan.Types
   , RetentionProof (..)
   , ReviewBundle (..)
   , ReviewDocument (..)
+  , ReviewEffect (ReviewEffect)
   , ReviewError (..)
   , ReviewOperation (..)
   , ReviewedPlan (..)
@@ -146,6 +150,7 @@ import Nagare.Inventory.Plan.Types
   , historyReservations
   , renderPlanErrors
   , renderRebind
+  , renderReviewEffects
   , reviewAdapterOperations
   , reviewBundleDocument
   , reviewBundleFenceRecord
@@ -155,6 +160,7 @@ import Nagare.Inventory.Plan.Types
   , reviewedDocument
   , reviewedFenceRecord
   , reviewedNativeBundles
+  , withReviewEffects
   )
 import Nagare.Inventory.Plan.Validation
   ( verifyActiveReview

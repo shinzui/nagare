@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queue-consumer
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/worker: queue-consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      nagare.dev/worker: queue-consumer
+  template:
+    metadata:
+      labels:
+        nagare.dev/worker: queue-consumer
+    spec:
+      containers:
+      - name: queue-consumer
+        image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/queue-consumer:latest
+        envFrom:
+        - configMapRef:
+            name: nagare-env-queue-consumer-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-queue-consumer-runtime
+            optional: true
+        volumeMounts:
+        - name: nagare-identity
+          mountPath: /var/run/nagare/identity
+          readOnly: true
+        - name: nagare-keys
+          mountPath: /var/run/nagare/keys
+          readOnly: true
+      volumes:
+      - name: nagare-identity
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              audience: nagare-workload-identity
+              expirationSeconds: 3600
+          - configMap:
+              name: nagare-identity-content-app
+      - name: nagare-keys
+        projected:
+          sources:
+          - secret:
+              name: nagare-keyset-grants
+      automountServiceAccountToken: false

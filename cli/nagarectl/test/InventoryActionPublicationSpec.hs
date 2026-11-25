@@ -6,7 +6,8 @@
 module InventoryActionPublicationSpec (inventoryActionPublicationTests) where
 
 import Control.Monad (forM_)
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (ToJSON (toJSON), Value (Object), object, (.=))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.IORef (newIORef)
@@ -22,6 +23,7 @@ import GHC.Generics
 import InventoryPostgresRenameSpec (plannedRenameThrough, recordOldIncarnations)
 import InventoryStuckPodSpec (acceptedStore, pgBound, planCluster, planId, planOwner, planUid, reviewedPod)
 import InventoryTransactionSpec (fixtureBinding)
+import Nagare.Contract.Project (savedReview)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..), KubernetesAdapterOps (..), KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations, unstamped)
@@ -58,6 +60,36 @@ inventoryActionPublicationTests =
           sort (nub stages) @?= sort (constructorNames (Proxy :: Proxy (Rep MigrationStage)))
           loaded <- loadPublishedReview store (contentDigest (encodeReviewDocument document)) >>= expectRight
           reviewBundleDocument loaded @?= document
+    , testCase "a review that takes nothing away has no effects member, line or contract field" $ do
+        (_, bundle) <- preparedReview CreateResource configId (KubernetesAbsent (contentDigest "absent"))
+        let document = reviewBundleDocument bundle
+        case toJSON document of
+          Object members -> KM.member "effects" members @?= False
+          other -> assertFailure ("the review is not an object: " <> show other)
+        renderReviewEffects document @?= []
+        (savedReview "/review" bundle (reviewDigest bundle) ^. #effects) @?= Nothing
+    , testCase "a review's effects are reviewed bytes, printed lines and a contract field" $ do
+        (store, bare) <- preparedReview CreateResource configId (KubernetesAbsent (contentDigest "absent"))
+        let lost =
+              [ ReviewEffect planId "workload content-gateway in content loses read-only access to bucket publications"
+              , ReviewEffect configId "the bucket and its objects are kept"
+              ]
+            bundle = withReviewEffects lost bare
+            document = reviewBundleDocument bundle
+        assertBool "the effects are part of the review digest" (reviewDigest bundle /= reviewDigest bare)
+        digest <- publishReview store bundle >>= expectRight
+        loaded <- loadPublishedReview store digest >>= expectRight
+        reviewBundleDocument loaded @?= document
+        renderReviewEffects document
+          @?= [ "This review removes:"
+              , "  " <> resourceIdText planId <> ": workload content-gateway in content loses read-only access to bucket publications"
+              , "  " <> resourceIdText configId <> ": the bucket and its objects are kept"
+              ]
+        (savedReview "/review" bundle digest ^. #effects)
+          @?= Just
+            [ resourceIdText planId <> ": workload content-gateway in content loses read-only access to bucket publications"
+            , resourceIdText configId <> ": the bucket and its objects are kept"
+            ]
     ]
 
 -- | One action of each constructor; every migration stage is published by
@@ -100,6 +132,17 @@ kubernetesFixture = \case
 -- back.
 roundTrip :: OperationAction -> ResourceId -> KubernetesState -> Assertion
 roundTrip action resource state = do
+  (store, bundle) <- preparedReview action resource state
+  published <- publishReview store bundle
+  either (\err -> assertFailure (show action <> " did not publish: " <> show err)) (const (pure ())) published
+  loaded <- loadPublishedReview store (contentDigest (encodeReviewDocument (reviewBundleDocument bundle))) >>= either (\err -> assertFailure (show action <> " did not load: " <> show err) >> pure (error "unreachable")) pure
+  map (plannedAction . reviewPlannedOperation) (reviewOperations (reviewBundleDocument loaded)) @?= [action]
+  (reviewBundleDocument loaded, reviewBundleNative loaded) @?= (reviewBundleDocument bundle, reviewBundleNative bundle)
+
+-- | A review of @action@ on @resource@, prepared by the real adapter and not
+-- yet published.
+preparedReview :: OperationAction -> ResourceId -> KubernetesState -> IO (InventoryStore, ReviewBundle)
+preparedReview action resource state = do
   let (declared, _) = pgBound
       ops = KubernetesAdapterOps fixtureContext (unstamped (\_ -> pure state)) (\_ -> pure AdapterEffectCompleted)
       pods = noPodOps {readStuckPod = \_ -> pure (Right (Just (reviewedPod & #statefulSetUid .~ planUid)))}
@@ -113,11 +156,7 @@ roundTrip action resource state = do
     other -> assertFailure ("the base plan has " <> show (length other) <> " operations") >> pure (error "unreachable")
   let operation = base {plannedAction = action, plannedResources = resource :| []}
   bundle <- prepareReview registry snapshot planned {proposalOperations = [operation]} >>= either (\err -> assertFailure (show action <> " did not prepare: " <> show err) >> pure (error "unreachable")) pure
-  published <- publishReview store bundle
-  either (\err -> assertFailure (show action <> " did not publish: " <> show err)) (const (pure ())) published
-  loaded <- loadPublishedReview store (contentDigest (encodeReviewDocument (reviewBundleDocument bundle))) >>= either (\err -> assertFailure (show action <> " did not load: " <> show err) >> pure (error "unreachable")) pure
-  map (plannedAction . reviewPlannedOperation) (reviewOperations (reviewBundleDocument loaded)) @?= [action]
-  (reviewBundleDocument loaded, reviewBundleNative loaded) @?= (reviewBundleDocument bundle, reviewBundleNative bundle)
+  pure (store, bundle)
 
 -- | A reviewed data fence for the database data operations, which prepare
 -- only under one. It is never executed here.

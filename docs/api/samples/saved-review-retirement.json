@@ -1,0 +1,16 @@
+{
+  "contractVersion": 1,
+  "document": "saved-review",
+  "effects": [
+    "kubernetes:content:secret:nagare-bucket-publications-content-gateway: workload content-gateway in content loses read-only access to bucket publications"
+  ],
+  "rebinds": [],
+  "rebuilds": [],
+  "review": {
+    "directory": "/tmp/kizashi-review",
+    "sha256": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+  },
+  "scopes": [
+    "application:kizashi"
+  ]
+}

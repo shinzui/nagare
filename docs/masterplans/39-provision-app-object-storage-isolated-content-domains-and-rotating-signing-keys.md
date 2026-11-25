@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-25T16:08:21Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-25T16:37:48Z
+      mode: "implement"
+      note: "EP-1 started"
 ---
 
 # Provision app object storage, isolated content domains and rotating signing keys
@@ -92,7 +98,7 @@ New ADRs expected: workload cloud identity through federation (EP-2) and platfor
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Declare an app object bucket with per-workload access on the local object store | docs/plans/283-declare-an-app-object-bucket-with-per-workload-access-on-the-local-object-store.md | None | None | Not Started |
+| 1 | Declare an app object bucket with per-workload access on the local object store | docs/plans/283-declare-an-app-object-bucket-with-per-workload-access-on-the-local-object-store.md | None | None | In Progress |
 | 2 | Give each granted workload a keyless cloud identity on a GCS bucket | docs/plans/284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md | EP-1 | None | Not Started |
 | 3 | Serve a wildcard content domain from one worker with the Host header intact | docs/plans/285-serve-a-wildcard-content-domain-from-one-worker-with-the-host-header-intact.md | EP-1 M1 | None | Not Started |
 | 4 | Generate and rotate an Ed25519 signing key set that workloads read from files | docs/plans/286-generate-and-rotate-an-ed25519-signing-key-set-that-workloads-read-from-files.md | EP-1 M1 | None | Not Started |
@@ -142,7 +148,7 @@ applications (in EP-2's and EP-4's ADRs); a bucket is never deleted by Nagare (E
 
 ## Progress
 
-No child plan started. One gate is not owned by a child:
+EP-1 is in progress; the others have not started. One gate is not owned by a child:
 
 - [ ] Final gate. `cluster/examples/content-app` deploys with all three declarations on a local
   context and on the disposable cloud context; IR-55's five criteria each point at recorded

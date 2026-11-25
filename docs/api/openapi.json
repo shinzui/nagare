@@ -2759,6 +2759,12 @@
             ],
             "type": "string"
           },
+          "effects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "rebinds": {
             "items": {
               "type": "string"

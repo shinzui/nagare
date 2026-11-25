@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nagare-task-cleanup
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/task: cleanup
+spec:
+  schedule: 0 3 * * *
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            nagare.dev/managed-by: nagarectl
+            nagare.dev/task: cleanup
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: cleanup
+            image: gcr.io/myproject/notes
+            command:
+            - python
+            - manage.py
+            - cleanup
+            env:
+            - name: DRY_RUN
+              value: 'false'
+            volumeMounts:
+            - name: nagare-identity
+              mountPath: /var/run/nagare/identity
+              readOnly: true
+            - name: nagare-keys
+              mountPath: /var/run/nagare/keys
+              readOnly: true
+          automountServiceAccountToken: false
+          volumes:
+          - name: nagare-identity
+            projected:
+              sources:
+              - serviceAccountToken:
+                  audience: nagare-workload-identity
+                  expirationSeconds: 3600
+                  path: token
+              - configMap:
+                  name: nagare-identity-content-app
+          - name: nagare-keys
+            projected:
+              sources:
+              - secret:
+                  name: nagare-keyset-grants

@@ -19,6 +19,7 @@
 -- Log.)
 module Nagare.Dsl.Render
   ( renderService
+  , knativeConfig
   , renderServiceIn
   , renderServiceWithImageIn
   , renderDomainMappings

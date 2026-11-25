@@ -19,6 +19,7 @@ module Nagare.Dsl.Worker.Render
   , renderWorkerIn
   , renderWorkerWithImageIn
   , renderWorkerDeployment
+  , workerConfig
   , workerDeploymentName
   )
 where

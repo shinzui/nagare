@@ -100,6 +100,7 @@ prepareReviewWithPayloadIdentity payloadIdentity registry headValue proposal = d
               , reviewRebuilds = proposalRebuilds proposal
               , reviewActor = anonymousOperator
               , reviewSource = Nothing
+              , reviewEffects = []
               }
       pure (Right (ReviewBundle document (proposalScopes proposal) native))
   where

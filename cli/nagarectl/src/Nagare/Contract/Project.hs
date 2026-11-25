@@ -114,6 +114,9 @@ savedReview directory bundle digest =
     , scopes = [scopeIdText scope | scope <- Map.keys (Map.union base desired), Map.lookup scope base /= Map.lookup scope desired]
     , rebinds = map (uncurry renderRebind) (Map.toAscList (reviewRebinds reviewed))
     , rebuilds = map (uncurry renderRebuild) (Map.toAscList (reviewRebuilds reviewed))
+    , effects = case reviewEffects reviewed of
+        [] -> Nothing
+        lost -> Just [resourceIdText (effect ^. #resource) <> ": " <> (effect ^. #loses) | effect <- lost]
     }
   where
     reviewed = reviewBundleDocument bundle

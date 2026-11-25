@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-25T16:08:21Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-25T16:37:48Z
+      mode: "implement"
+      note: "M1 review effects and platform mounts implemented"
 ---
 
 # Declare an app object bucket with per-workload access on the local object store
@@ -57,6 +63,13 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
   platform mounts and renders them for a Knative Service, a worker and a task; a transcript shows
   Knative admitting a Service with those mounts. Evidence: `nagare-dsl` and `nagarectl` tests and
   the transcript here.
+  - 2026-11-25: code done, transcript open. `reviewEffects`, `withReviewEffects` and
+    `renderReviewEffects` are in `Plan/Types.hs`; `SavedReview.effects` is absent when empty.
+    `Nagare.Dsl.Mounts` renders and applies mounts. Tests: nagare-dsl `platform mounts` (9), nagarectl
+    `action publication totality` (two effect cases) and the `saved-review-retirement.json` sample;
+    `just gate-commit` green. The Knative admission transcript is not recorded: the only local
+    cluster, `nagare-local`, has no running Knative webhook (its pods are evicted or pending), so a
+    server-side dry run could not reach admission. It needs a working disposable local cluster.
 - [ ] M2. A bucket and its bindings exist in the typed model and round-trip through the config
   program and the rendered document; existing goldens and config digests are unchanged. Evidence:
   `nagare-dsl` tests.
@@ -101,6 +114,19 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
   S3-compatible interface needs HMAC keys, which are exported long-lived credentials.
   Date: 2026-11-25
 
+
+- Decision: `applyPlatformMounts` lives in `cli/nagare-dsl/src/Nagare/Dsl/Mounts.hs` with the
+  renderer, not in `Application/Bindings.hs`. A service-account token source writes the file
+  `token` under the mount path.
+  Rationale: Each workload kind has its own YAML key order, and the encoders are in `nagare-dsl`.
+  The applier is pure, so its goldens sit beside the renderers' goldens.
+  Date: 2026-11-25
+
+- Decision: A planner sets a review's effects with `withReviewEffects` on the prepared bundle,
+  before it is published. `ChangeProposal` and `LifecycleDecisions` are unchanged.
+  Rationale: The effects are sentences a command writes, not something the change planner derives.
+  Setting them before publication puts them under the review digest.
+  Date: 2026-11-25
 
 ## Outcomes & Retrospective
 

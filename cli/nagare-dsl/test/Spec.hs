@@ -20,6 +20,7 @@ import DeploymentMeaningSpec (deploymentMeaningTests)
 import ImageSpec (imageTests)
 import JobSpec (jobTests)
 import LoadSpec (loadTests)
+import MountsSpec (mountsTests)
 import Nagare.Dsl.Access
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render (renderBrokerPvc, renderBrokerService, renderBrokerStatefulSet)
@@ -82,6 +83,7 @@ main =
       , testGroup "Nagare.Dsl Deployment tasks (EP-52)" deploymentTaskTests
       , imageTests
       , loadTests
+      , mountsTests
       , renderedTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
