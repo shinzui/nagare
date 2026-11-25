@@ -95,6 +95,17 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
 - [ ] M3. `nagarectl keyset plan` produces a reviewed standalone scope; the keys exist before any
   consumer starts; a rotation is not drift; a `Sign` workload mounts private and public keys and a
   `Verify` workload only public keys. Evidence: `nagare-dsl` and interpreter tests.
+  - 2026-11-25: the typed part is done; the scope, the adapter's delegated data, the CLI and the
+    bindings are not. `KeySet` and `RotationPolicy` (`cli/nagare-dsl/src/Nagare/Dsl/KeySet.hs`),
+    `KeySetName`, `KeySetUse` and `KeySetBinding` (`.../KeySet/Binding.hs`, apart so `Types.hs` can
+    hold it), `emitKeySets` and `loadKeySets` (document kind `KeySets`), and `keySets` on
+    `Deployment`, `Worker` and `Task` (30 literals migrated; the key is omitted when empty, so no
+    golden moved). nagare-dsl `key set (EP-286)` (5); `just gate-commit` green. Next: the
+    Kubernetes adapter does not read a resource's `delegations` today
+    (`cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs` reports any other field
+    manager as a foreign writer and compares the whole spec), so the Secret's `private.json` and
+    the ConfigMap's `public.json` need a delegation the adapter honours before the scope can
+    exist; that is adapter code and needs `just mutation-check`.
 - [ ] M4. On a local context with a ten-minute period, a signer and a verifier restarted during a
   rotation still agree, a token signed just before a rotation verifies during the overlap and is
   refused after it, and `keyset status` shows the rotation. Evidence: transcript here (IR-55 AC-4).

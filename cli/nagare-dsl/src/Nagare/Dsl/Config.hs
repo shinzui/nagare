@@ -16,6 +16,8 @@ module Nagare.Dsl.Config
   , encodeAppDatabases
   , emitObjectBuckets
   , encodeObjectBuckets
+  , emitKeySets
+  , encodeKeySets
   , emitStaticSite
   , encodeStaticSite
   , emitServerSite
@@ -48,6 +50,7 @@ import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.ContentDomain (WorkerHttp, contentDomainText)
 import Nagare.Dsl.Database
 import Nagare.Dsl.Job
+import Nagare.Dsl.KeySet
 import Nagare.Dsl.ObjectBucket
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Server.Types
@@ -195,6 +198,30 @@ appDatabaseJSON db =
 -- | Serialize an app's object buckets to JSON and write them to stdout: a
 -- @"kind": "ObjectBuckets"@ document whose @buckets@ array holds every
 -- declaration. Used by @nagarectl bucket plan@.
+-- | Serialize an app's signing key sets to JSON and write them to stdout: a
+-- @"kind": "KeySets"@ document. Used by @nagarectl keyset plan@ (EP-286).
+emitKeySets :: [KeySet] -> IO ()
+emitKeySets keySets = LBS.putStr (encodeKeySets keySets)
+
+-- | The exact JSON bytes 'emitKeySets' writes (exposed for the round-trip test).
+encodeKeySets :: [KeySet] -> LBS.ByteString
+encodeKeySets keySets =
+  encode
+    ( object
+        [ "kind" .= ("KeySets" :: Text)
+        , "keySets"
+            .= [ object
+                   ( [ "name" .= keySetNameText (keySet ^. #name)
+                     , "namespace" .= namespaceText (keySet ^. #namespace)
+                     , "rotation" .= object ["periodMinutes" .= minutesInt (keySet ^. #rotation . #period), "overlapMinutes" .= minutesInt (keySet ^. #rotation . #overlap)]
+                     ]
+                       <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (keySet ^. #logicalKey)
+                   )
+               | keySet <- keySets
+               ]
+        ]
+    )
+
 emitObjectBuckets :: [ObjectBucket] -> IO ()
 emitObjectBuckets buckets = LBS.putStr (encodeObjectBuckets buckets)
 
@@ -226,6 +253,12 @@ objectBucketJSON bucket =
 bucketsJSON :: [BucketBinding] -> [(Key, Value)]
 bucketsJSON [] = []
 bucketsJSON bindings = ["buckets" .= [object ["name" .= bucketNameText (binding ^. #name)] | binding <- bindings]]
+
+-- | Emitted only when present, so a workload or task that binds no key set
+-- keeps the exact bytes (and config digest) it had before EP-286.
+keySetsJSON :: [KeySetBinding] -> [(Key, Value)]
+keySetsJSON [] = []
+keySetsJSON bindings = ["keySets" .= [object ["name" .= keySetNameText (binding ^. #name), "use" .= keySetUseToken (binding ^. #use)] | binding <- bindings]]
 
 -- | Emitted only when present, so a workload or task without app databases
 -- keeps the exact bytes (and config digest) it had before EP-202. Each
@@ -289,6 +322,7 @@ taskJSON t =
       <> managedEnvJSON (t ^. #managedEnv)
       <> appDatabasesJSON (t ^. #appDatabases)
       <> bucketsJSON (t ^. #buckets)
+      <> keySetsJSON (t ^. #keySets)
       <> triggerJSON (t ^. #trigger)
   where
     res = t ^. #resources
@@ -450,6 +484,7 @@ workerJSON w =
       <> managedEnvJSON (w ^. #managedEnv)
       <> appDatabasesJSON (w ^. #appDatabases)
       <> bucketsJSON (w ^. #buckets)
+      <> keySetsJSON (w ^. #keySets)
       <> workerHttpJSON (w ^. #http)
       <> appDatabaseReadersJSON (w ^. #appDatabaseReaders)
   where
@@ -577,6 +612,7 @@ deploymentJSON dep =
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
       <> appDatabasesJSON (dep ^. #appDatabases)
       <> bucketsJSON (dep ^. #buckets)
+      <> keySetsJSON (dep ^. #keySets)
       <> appDatabaseReadersJSON (dep ^. #appDatabaseReaders)
   where
     resources = dep ^. #resources

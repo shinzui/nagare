@@ -55,6 +55,7 @@ import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Command (Command (..), commandArgvList, mkCommand)
 import Nagare.Dsl.ContentDomain (WorkerHttp)
+import Nagare.Dsl.KeySet.Binding (KeySetBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( AppDatabaseBinding
@@ -236,6 +237,8 @@ data Worker = Worker
   -- bound, under the fixed variables or one named URL variable (EP-259).
   , buckets :: ![BucketBinding]
   -- ^ app object buckets this workload binds (EP-283); each must grant it
+  , keySets :: ![KeySetBinding]
+  -- ^ signing key sets this workload binds (EP-286); a Sign binding mounts the private keys
   , http :: !(Maybe WorkerHttp)
   -- ^ an HTTP port and, optionally, a content route (EP-285). 'Nothing' keeps
   -- the worker unreachable, as before.
@@ -286,6 +289,7 @@ webWorker nameText imageText = do
       , databases = []
       , appDatabases = []
       , buckets = []
+      , keySets = []
       , http = Nothing
       , appDatabaseReaders = []
       , brokers = []

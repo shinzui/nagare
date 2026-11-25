@@ -59,6 +59,7 @@ applicationConfig = do
         , managedEnv = InheritManagedEnv
         , appDatabases = []
         , buckets = []
+        , keySets = []
         }
   mkApplication
     Application

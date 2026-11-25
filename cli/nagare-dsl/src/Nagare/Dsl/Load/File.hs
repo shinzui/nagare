@@ -5,6 +5,7 @@ module Nagare.Dsl.Load.File
   , loadDatabase
   , loadAppDatabases
   , loadObjectBuckets
+  , loadKeySets
   , loadDeployment
   , loadJob
   , loadServerSite
@@ -21,6 +22,7 @@ import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker (Broker)
 import Nagare.Dsl.Database (Database)
 import Nagare.Dsl.Job (Job)
+import Nagare.Dsl.KeySet (KeySet)
 import Nagare.Dsl.Load.AppDatabase (decodeAppDatabases)
 import Nagare.Dsl.Load.Application (decodeApplication)
 import Nagare.Dsl.Load.Broker (decodeBroker)
@@ -32,6 +34,7 @@ import Nagare.Dsl.Load.Error
   , defaultConfigTimeout
   )
 import Nagare.Dsl.Load.Job (decodeJob)
+import Nagare.Dsl.Load.KeySet (decodeKeySets)
 import Nagare.Dsl.Load.ObjectBucket (decodeObjectBuckets)
 import Nagare.Dsl.Load.Process (runConfig, runConfigWith)
 import Nagare.Dsl.Load.ServerSite (decodeServerSite)
@@ -103,6 +106,12 @@ loadAppDatabases path = fmap (>>= decodeAppDatabases) (runConfig path)
 -- 'Nagare.Dsl.Config.emitObjectBuckets'. Used by @nagarectl bucket plan@.
 loadObjectBuckets :: FilePath -> IO (Either LoadError [ObjectBucket])
 loadObjectBuckets path = fmap (>>= decodeObjectBuckets) (runConfig path)
+
+-- | Load an app's signing key sets from a Haskell config-as-program source
+-- file (EP-286). The config must print its JSON via
+-- 'Nagare.Dsl.Config.emitKeySets'. Used by @nagarectl keyset plan@.
+loadKeySets :: FilePath -> IO (Either LoadError [KeySet])
+loadKeySets path = fmap (>>= decodeKeySets) (runConfig path)
 
 -- | Load a 'StaticSite' from a Haskell config-as-program source file. The config
 -- must print its JSON via 'Nagare.Dsl.Config.emitStaticSite'. A config that

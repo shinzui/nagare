@@ -61,6 +61,7 @@ dep = first show $ do
         , managedEnv = InheritManagedEnv
         , appDatabases = []
         , buckets = []
+        , keySets = []
         }
   pure
     Deployment
@@ -81,6 +82,7 @@ dep = first show $ do
       , databases = []
       , appDatabases = []
       , buckets = []
+      , keySets = []
       , appDatabaseReaders = []
       , tasks = [syncTask]
       , cdn = Nothing

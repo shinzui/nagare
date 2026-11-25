@@ -42,6 +42,7 @@ task = first show $ do
       , managedEnv = InheritManagedEnv
       , appDatabases = []
       , buckets = []
+      , keySets = []
       }
 
 main :: IO ()

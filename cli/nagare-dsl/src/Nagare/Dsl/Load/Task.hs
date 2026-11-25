@@ -23,10 +23,12 @@ import Nagare.Dsl.Load.Fields
   ( JsonAppDatabaseBinding
   , JsonBucketBinding
   , JsonEnvEntry (..)
+  , JsonKeySetBinding
   , JsonKindEnvelope (..)
   , toAppDatabaseBinding
   , toBucketBinding
   , toEnvEntry
+  , toKeySetBinding
   , toManagedEnv
   )
 import Nagare.Dsl.Prelude
@@ -81,6 +83,7 @@ data JsonTask = JsonTask
   , managedEnv :: !(Maybe Text)
   , appDatabases :: ![JsonAppDatabaseBinding]
   , buckets :: ![JsonBucketBinding]
+  , keySets :: ![JsonKeySetBinding]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -112,6 +115,7 @@ instance FromJSON JsonTask where
       <*> o .:? "managedEnv"
       <*> o .:? "appDatabases" .!= []
       <*> o .:? "buckets" .!= []
+      <*> o .:? "keySets" .!= []
 
 -- | Re-validate a decoded task: re-run every smart constructor, decode the
 -- enum tokens, default the numeric fields, and finally re-check the assembled
@@ -148,6 +152,7 @@ toTask j = do
   managedEnv' <- toManagedEnv (j ^. #managedEnv)
   appDbRefs' <- traverse toAppDatabaseBinding (j ^. #appDatabases)
   buckets' <- traverse toBucketBinding (j ^. #buckets)
+  keySets' <- traverse toKeySetBinding (j ^. #keySets)
   first (MarshalError "task") $
     mkTask
       Task
@@ -172,6 +177,7 @@ toTask j = do
         , managedEnv = managedEnv'
         , appDatabases = appDbRefs'
         , buckets = buckets'
+        , keySets = keySets'
         }
 
 -- | A task names exactly one of a cron @schedule@ or @trigger: release-only@.

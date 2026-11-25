@@ -13,6 +13,8 @@ module Nagare.Dsl.Load.Fields
   , toAppDatabaseBinding
   , JsonBucketBinding (..)
   , toBucketBinding
+  , JsonKeySetBinding (..)
+  , toKeySetBinding
   , toManagedEnv
   , checkTaskApp
   , firstDuplicate
@@ -42,6 +44,7 @@ import Nagare.Dsl.Access
   , mkAudience
   )
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
+import Nagare.Dsl.KeySet.Binding (KeySetBinding (..), mkKeySetName, parseKeySetUse)
 import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Types (mkFilePathText)
@@ -527,3 +530,20 @@ instance FromJSON JsonBucketBinding where
 
 toBucketBinding :: JsonBucketBinding -> Either LoadError BucketBinding
 toBucketBinding j = BucketBinding <$> first (MarshalError "buckets") (mkBucketName (j ^. #name))
+
+-- | A workload's or task's @keySets@ entry (EP-286): the key set's name and
+-- whether the workload signs or only verifies.
+data JsonKeySetBinding = JsonKeySetBinding
+  { name :: !Text
+  , use :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonKeySetBinding where
+  parseJSON = withObject "KeySetBinding" $ \o -> JsonKeySetBinding <$> o .: "name" <*> o .: "use"
+
+toKeySetBinding :: JsonKeySetBinding -> Either LoadError KeySetBinding
+toKeySetBinding j =
+  KeySetBinding
+    <$> first (MarshalError "keySets") (mkKeySetName (j ^. #name))
+    <*> maybe (Left (MarshalError "keySets.use" ("unknown use: " <> j ^. #use <> " (expected sign or verify)"))) Right (parseKeySetUse (j ^. #use))

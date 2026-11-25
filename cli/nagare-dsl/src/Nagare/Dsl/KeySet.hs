@@ -2,10 +2,11 @@
 -- rotates for an application, which a signing workload reads as private keys
 -- and a verifying workload as public keys, from files that change in place.
 module Nagare.Dsl.KeySet
-  ( -- * Names
-    KeySetName
-  , mkKeySetName
-  , keySetNameText
+  ( -- * Names and bindings
+    module Nagare.Dsl.KeySet.Binding
+
+    -- * The document
+  , KeySet (..)
 
     -- * Rotation
   , Minutes
@@ -18,28 +19,12 @@ module Nagare.Dsl.KeySet
   )
 where
 
-import Data.Char (isAsciiLower, isDigit)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
+import Nagare.Dsl.KeySet.Binding
 import Nagare.Dsl.Prelude
-
--- | A DNS label of at most 30 characters that starts with a letter, so the
--- Secret @nagare-keyset-\<name\>@ and the ConfigMap
--- @nagare-keyset-\<name\>-public@ are valid object names. Constructor hidden;
--- use 'mkKeySetName'.
-newtype KeySetName = KeySetName Text
-  deriving stock (Eq, Ord, Show)
-
-mkKeySetName :: Text -> Either Text KeySetName
-mkKeySetName t
-  | Text.null t || Text.length t > 30 = Left ("key set name must have 1 to 30 characters: " <> t)
-  | not (isAsciiLower (Text.head t)) = Left ("key set name must start with a lower-case letter: " <> t)
-  | Text.last t == '-' = Left ("key set name must not end with -: " <> t)
-  | not (Text.all (\c -> isAsciiLower c || isDigit c || c == '-') t) = Left ("key set name must be lower-case letters, digits and -: " <> t)
-  | otherwise = Right (KeySetName t)
-
-keySetNameText :: KeySetName -> Text
-keySetNameText (KeySetName t) = t
+import Nagare.Dsl.Types (Namespace)
+import Nagare.Resource.Types (LogicalKey)
 
 -- | A whole number of minutes, at least one. Constructor hidden; use
 -- 'mkMinutes'.
@@ -76,3 +61,13 @@ mkRotationPolicy period' overlap'
   | minutesInt overlap' < minimumOverlap = Left ("a rotation overlap must be at least " <> Text.show minimumOverlap <> " minutes, got " <> Text.show (minutesInt overlap'))
   | overlap' > period' = Left "a rotation overlap must not be longer than its period"
   | otherwise = Right (RotationPolicy period' overlap')
+
+-- | A key set, a standalone document like an app database: its keys outlive
+-- the applications that use them, and a workload binds it by name.
+data KeySet = KeySet
+  { name :: !KeySetName
+  , logicalKey :: !(Maybe LogicalKey)
+  , namespace :: !Namespace
+  , rotation :: !RotationPolicy
+  }
+  deriving stock (Generic, Eq, Show)

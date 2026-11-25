@@ -33,6 +33,7 @@ import Nagare.Dsl.Load.Fields
   , JsonBucketBinding
   , JsonBuildSpec (..)
   , JsonEnvEntry (..)
+  , JsonKeySetBinding
   , JsonKindEnvelope (..)
   , JsonVolume (..)
   , toAppDatabaseBinding
@@ -40,6 +41,7 @@ import Nagare.Dsl.Load.Fields
   , toBucketBinding
   , toBuildSpec
   , toEnvEntry
+  , toKeySetBinding
   , toManagedEnv
   , toVolumes
   )
@@ -94,6 +96,7 @@ data JsonWorker = JsonWorker
   , databases :: ![Text]
   , appDatabases :: ![JsonAppDatabaseBinding]
   , buckets :: ![JsonBucketBinding]
+  , keySets :: ![JsonKeySetBinding]
   , http :: !(Maybe JsonWorkerHttp)
   , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
@@ -124,6 +127,7 @@ instance FromJSON JsonWorker where
       <*> o .:? "databases" .!= []
       <*> o .:? "appDatabases" .!= []
       <*> o .:? "buckets" .!= []
+      <*> o .:? "keySets" .!= []
       <*> o .:? "http"
       <*> o .:? "appDatabaseReaders" .!= []
       <*> o .:? "brokers" .!= []
@@ -232,6 +236,7 @@ toWorker j = do
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (j ^. #databases)
   appDbRefs' <- traverse toAppDatabaseBinding (j ^. #appDatabases)
   buckets' <- traverse toBucketBinding (j ^. #buckets)
+  keySets' <- traverse toKeySetBinding (j ^. #keySets)
   http' <- traverse toWorkerHttp (j ^. #http)
   readerRefs' <- traverse toAppDatabaseReaderRef (j ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
@@ -260,6 +265,7 @@ toWorker j = do
       , databases = dbRefs'
       , appDatabases = appDbRefs'
       , buckets = buckets'
+      , keySets = keySets'
       , http = http'
       , appDatabaseReaders = readerRefs'
       , brokers = brokerRefs'

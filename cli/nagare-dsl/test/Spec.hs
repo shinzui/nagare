@@ -20,6 +20,7 @@ import Data.Yaml qualified as Yaml
 import DeploymentMeaningSpec (deploymentMeaningTests)
 import ImageSpec (imageTests)
 import JobSpec (jobTests)
+import KeySetSpec (keySetTests)
 import LoadSpec (loadTests)
 import MountsSpec (mountsTests)
 import Nagare.Dsl.Access
@@ -88,6 +89,7 @@ main =
       , mountsTests
       , objectBucketTests
       , contentRouteTests
+      , keySetTests
       , renderedTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
@@ -400,6 +402,7 @@ helloDep =
     , databases = []
     , appDatabases = []
     , buckets = []
+    , keySets = []
     , appDatabaseReaders = []
     , brokers = []
     , access = Nothing

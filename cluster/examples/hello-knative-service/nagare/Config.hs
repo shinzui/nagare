@@ -47,6 +47,7 @@ deployment = do
       , databases = []
       , appDatabases = []
       , buckets = []
+      , keySets = []
       , appDatabaseReaders = []
       , brokers = []
       , access = Nothing

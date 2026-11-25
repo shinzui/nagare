@@ -42,6 +42,7 @@ library
     Nagare.Dsl.Load.Fields
     Nagare.Dsl.Load.File
     Nagare.Dsl.Load.Job
+    Nagare.Dsl.Load.KeySet
     Nagare.Dsl.Load.ObjectBucket
     Nagare.Dsl.Load.Process
     Nagare.Dsl.Load.Rendered
@@ -69,6 +70,7 @@ library
     Nagare.Dsl.Job
     Nagare.Dsl.Job.Render
     Nagare.Dsl.KeySet
+    Nagare.Dsl.KeySet.Binding
     Nagare.Dsl.Load
     Nagare.Dsl.Mounts
     Nagare.Dsl.ObjectBucket
@@ -146,6 +148,7 @@ test-suite nagare-dsl-test
     DeploymentMeaningSpec
     ImageSpec
     JobSpec
+    KeySetSpec
     LoadSpec
     MountsSpec
     ObjectBucketSpec

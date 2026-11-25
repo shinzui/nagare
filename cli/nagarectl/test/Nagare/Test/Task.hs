@@ -214,6 +214,7 @@ taskResolveTests =
             , managedEnv = InheritManagedEnv
             , appDatabases = []
             , buckets = []
+            , keySets = []
             }
     ownImageTask =
       unsafe $

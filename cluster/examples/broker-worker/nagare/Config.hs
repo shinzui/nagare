@@ -49,6 +49,7 @@ worker = do
       , databases = []
       , appDatabases = []
       , buckets = []
+      , keySets = []
       , http = Nothing
       , appDatabaseReaders = []
       , brokers = [BrokerBinding {name = broker, topics = [topic]}]

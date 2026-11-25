@@ -22,6 +22,8 @@ module Nagare.Dsl.Load
   , decodeAppDatabases
   , loadObjectBuckets
   , decodeObjectBuckets
+  , loadKeySets
+  , decodeKeySets
   , loadStaticSite
   , loadStaticSiteWith
   , decodeStaticSite
@@ -65,6 +67,7 @@ import Nagare.Dsl.Load.File
   , loadDatabase
   , loadDeployment
   , loadJob
+  , loadKeySets
   , loadObjectBuckets
   , loadServerSite
   , loadSite
@@ -74,6 +77,7 @@ import Nagare.Dsl.Load.File
   , loadWorker
   )
 import Nagare.Dsl.Load.Job (decodeJob)
+import Nagare.Dsl.Load.KeySet (decodeKeySets)
 import Nagare.Dsl.Load.ObjectBucket (decodeObjectBuckets)
 import Nagare.Dsl.Load.Process (runConfigUntil, runConfigWith)
 import Nagare.Dsl.Load.Rendered (RenderedKind (..), configDigestText, decodeRendered, renderedDocument, renderedDocumentName, renderedKindText)

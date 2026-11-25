@@ -100,6 +100,7 @@ migrateTask =
         , managedEnv = InheritManagedEnv
         , appDatabases = []
         , buckets = []
+        , keySets = []
         }
 
 -- | The raw (unvalidated) record for the valid multi-workload app. 'mkApplication'

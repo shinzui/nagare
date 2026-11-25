@@ -63,6 +63,7 @@ deployment = first show $ do
         , managedEnv = InheritManagedEnv
         , appDatabases = []
         , buckets = []
+        , keySets = []
         }
   pure (dep & #tasks .~ [heartbeat])
 

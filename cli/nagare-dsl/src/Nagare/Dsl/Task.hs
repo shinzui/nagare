@@ -50,6 +50,7 @@ import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
+import Nagare.Dsl.KeySet.Binding (KeySetBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( AppDatabaseBinding
@@ -315,6 +316,8 @@ data Task = Task
   -- @owners@) under the fixed variables or one named URL variable.
   , buckets :: ![BucketBinding]
   -- ^ app object buckets this workload binds (EP-283); each must grant it
+  , keySets :: ![KeySetBinding]
+  -- ^ signing key sets this workload binds (EP-286); a Sign binding mounts the private keys
   }
   deriving stock (Generic, Eq, Show)
 
@@ -380,6 +383,7 @@ scheduledTask nameT scheduleT imageT commandT = do
       , managedEnv = InheritManagedEnv
       , appDatabases = []
       , buckets = []
+      , keySets = []
       }
 
 -- | Build a release-only pre-deploy hook for an Application's @tasks@ list from
@@ -413,6 +417,7 @@ releaseHook nameT appT commandT = do
       , managedEnv = NoManagedEnv
       , appDatabases = []
       , buckets = []
+      , keySets = []
       }
 
 -- ---------------------------------------------------------------------------

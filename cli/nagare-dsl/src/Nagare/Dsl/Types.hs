@@ -150,6 +150,7 @@ import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
 import Nagare.Dsl.Cdn.Types (Cdn)
+import Nagare.Dsl.KeySet.Binding (KeySetBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Quantity (canonicalQuantity)
 import {-# SOURCE #-} Nagare.Dsl.Task (Task)
@@ -869,6 +870,8 @@ data Deployment = Deployment
   -- variables or one named URL variable (EP-259). Empty by default.
   , buckets :: ![BucketBinding]
   -- ^ app object buckets this workload binds (EP-283); each must grant it
+  , keySets :: ![KeySetBinding]
+  -- ^ signing key sets this workload binds (EP-286); a Sign binding mounts the private keys
   , appDatabaseReaders :: ![AppDatabaseReaderRef]
   -- ^ App database readers this app connects to (EP-206); each injects only
   -- its own reader Secret. Empty by default.

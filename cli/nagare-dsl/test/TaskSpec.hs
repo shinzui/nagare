@@ -54,6 +54,7 @@ standaloneTask =
         , managedEnv = InheritManagedEnv
         , appDatabases = []
         , buckets = []
+        , keySets = []
         }
 
 -- | A task associated with the @notes@ app: it inherits @notes@'s image
