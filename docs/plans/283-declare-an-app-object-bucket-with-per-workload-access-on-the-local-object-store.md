@@ -1,0 +1,403 @@
+---
+id: 283
+slug: declare-an-app-object-bucket-with-per-workload-access-on-the-local-object-store
+title: "Declare an app object bucket with per-workload access on the local object store"
+kind: exec-plan
+created_at: 2026-11-25T16:08:21Z
+intention: "intention_01m89q6asjedws62wy3n95r4e7"
+master_plan: "docs/masterplans/39-provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md"
+provenance:
+  created_by:
+    model: "claude-fable-5-2"
+    harness: "claude-code"
+    at: 2026-11-25T16:08:21Z
+---
+
+# Declare an app object bucket with per-workload access on the local object store
+
+This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
+Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
+If durable project context changes, update or create ADRs in docs/adr/ in the same change.
+Record friction met while implementing in the friction-log bundle as it occurs (see FRICTION.md).
+
+This plan implements part of IR-55,
+[`docs/improvement-requests/provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md`](../improvement-requests/provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md),
+requested by `mori://shinzui/hanmoto` (specification `mori://shinzui/hanmoto/docs/initial-spec`,
+sections 5, 6 and 9). It is a child of [MasterPlan 39](../masterplans/39-provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md), which holds the order of the four
+child plans and the artifacts they share.
+
+
+## Purpose / Big Picture
+
+An application cannot declare object storage today; every bucket is platform-owned. After this
+plan a `nagare/Config.hs` declares a bucket with expiry rules and a list of grants, and each
+granted workload gets its own credential with read-write or read-only access. This plan delivers
+it on a local context, on the packaged MinIO store. The GCS backend is the sibling plan
+[284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md](284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md).
+
+It also delivers two shared pieces the sibling plans use: a review that lists what a retirement
+loses, and platform-mounted files in workloads.
+
+```bash
+just local-bucket-smoke CTX
+nagarectl --context CTX bucket status publications
+```
+
+```text
+api: put ok, get ok
+gateway: get ok, put AccessDenied
+PASS
+publications  s3  nagare-app-publications  content-app=read-write content-gateway=read-only
+```
+
+
+## Progress
+
+- [ ] M1. Shared groundwork. A review can carry effect lines and prints them; a workload can carry
+  platform mounts and renders them for a Knative Service, a worker and a task; a transcript shows
+  Knative admitting a Service with those mounts. Evidence: `nagare-dsl` and `nagarectl` tests and
+  the transcript here.
+- [ ] M2. A bucket and its bindings exist in the typed model and round-trip through the config
+  program and the rendered document; existing goldens and config digests are unchanged. Evidence:
+  `nagare-dsl` tests.
+- [ ] M3. `nagarectl bucket plan` produces a reviewed standalone scope whose members create the
+  MinIO bucket, its expiry rules and one store user per grant; no review carries a credential.
+  Evidence: interpreter tests.
+- [ ] M4. A bound workload reads and writes through its own credential and a read-only workload's
+  write is refused, through the example `Config.hs`. Evidence: `just local-bucket-smoke CTX`
+  transcript (IR-55 AC-1, local half).
+- [ ] M5. `nagarectl bucket retire` is a review that names each workload losing access and states
+  that the objects are kept; it is refused while a workload binds the bucket. User documentation
+  exists. Evidence: reviewed-change tests (IR-55 AC-5, bucket).
+
+
+## Surprises & Discoveries
+
+(None yet.)
+
+
+## Decision Log
+
+- Decision: A bucket is a standalone document with its own scope, like an app database, not a
+  field of `Application`.
+  Rationale: Its objects must outlive an application retirement, and two workloads hold different
+  rights on it. A standalone scope gives it a `plan` and a `retire` review of its own.
+  Date: 2026-11-25
+
+- Decision: The bucket declaration lists its grants (namespace, workload, access, signing). A
+  workload binds the bucket by name and the compile refuses a binding with no accepted grant.
+  Rationale: The grant is where trust is given, so it belongs to the bucket's review. Brokers and
+  app databases are bound the same way.
+  Date: 2026-11-25
+
+- Decision: Retiring a bucket removes access and keeps the bucket and every object. Nothing in
+  this plan deletes a bucket.
+  Rationale: ADR 22: durable data defaults to retention.
+  Date: 2026-11-25
+
+- Decision: The workload learns its backend from `NAGARE_BUCKET_<NAME>_BACKEND` (`s3` here, `gcs`
+  on a cloud context) and must hold an adapter for each.
+  Rationale: IR-55 asks for the same declaration on both, not the same wire protocol. GCS's
+  S3-compatible interface needs HMAC keys, which are exported long-lived credentials.
+  Date: 2026-11-25
+
+
+## Outcomes & Retrospective
+
+(To be filled at completion.)
+
+
+## Context and Orientation
+
+Nagare runs applications on one k3s node: a GCE VM running NixOS on a cloud context, or a k3d cluster
+on a local context (`mode=local`). An application is a typed Haskell program, `nagare/Config.hs`,
+that prints JSON documents. `nagarectl` loads them, compiles them into reviewed inventory scopes,
+and applies a saved review with `nagarectl inventory apply DIR --yes`.
+
+Terms used below:
+
+- A scope is a set of resources with one owner and its own revision history
+  (`cli/nagare-dsl/src/Nagare/Resource/Types.hs`: `ScopeKind = Platform | Application | Standalone
+  | Publication`). A standalone scope holds one data service, such as an app database
+  (`cli/nagare-core/src/Nagare/Inventory/AppDatabase.hs`, `compileStandaloneAppDatabase`).
+- A managed resource is `ManagedResource` in
+  `cli/nagare-dsl/src/Nagare/Resource/Inventory/Types.hs`: an identity, an owner scope, an executor
+  (`KubernetesExecutor`, `PulumiExecutor` and others), a provider address, a lifecycle policy
+  (`Retain | DeleteWhenUnreferenced | Protect`) and a data policy (`Stateless | Durable`).
+- A review is the saved plan, `review.json` (`ReviewDocument` in
+  `cli/nagare-core/src/Nagare/Inventory/Plan/Types.hs`). Its `--contract 1` projection is
+  `SavedReview` in `cli/nagare-contract/src/Nagare/Contract/V1.hs`.
+- Retirement removes a resource from the desired state under an explicit decision
+  (`ApproveRetirement`). Removing a member without one refuses with `retirement-required`
+  (`cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs`). Retirement deletes nothing at the
+  provider; deletion is a separate `inventory collect` review that refuses durable data.
+- A credential template is a reviewed Secret with no data. The adapter fills it with generated
+  values at creation and afterwards compares only its key set
+  (`cli/nagarectl/src/Nagare/Inventory/Adapters/CredentialTemplate.hs`). A `Delegation`
+  (`cli/nagare-dsl/src/Nagare/Resource/Policy.hs`) names another writer allowed to change fields.
+- The interpreter tests run the real planner, executor and adapters against an in-memory world
+  (`cli/nagarectl/test/Nagare/Test/World/`). New `*Spec` modules are registered in
+  `cli/nagarectl/test/Nagare/Test/Suite.hs`.
+
+The application model (`cli/nagare-dsl/src/Nagare/Dsl/Application.hs`) has one web workload,
+`service :: Maybe Deployment` (a Knative Service, `cli/nagare-dsl/src/Nagare/Dsl/Types.hs`), plus
+`workers :: [Worker]` (plain Deployments, `cli/nagare-dsl/src/Nagare/Dsl/Worker.hs`) and
+`tasks :: [Task]` (CronJobs, `cli/nagare-dsl/src/Nagare/Dsl/Task.hs`). Workloads are named by their
+`ServiceName`. In Hanmoto's shape the API is the `service` and the gateway is a worker.
+
+Object storage today. On a local context the store is MinIO (`cluster/local/minio/minio.yaml`,
+reviewed by `cli/nagarectl/src/Nagare/Inventory/Components/LocalObjectStore.hs`), selected by
+`NAGARE_LOCAL_OBJECT_STORE` and parsed into `StoreBackend = GcsBackend | MinioBackend`
+(`cli/nagare-core/src/Nagare/Cluster/GcsJob.hs`; resolved by
+`cli/nagarectl/app/Nagare/Cli/Runtime/ObjectStore.hs`). Its one bucket, `nagare-backups`, is made
+by a reviewed Job running `mc mb`. Two precedents give one identity its own store user:
+`cli/nagarectl/src/Nagare/Inventory/DeployerStoreAccess.hs` (a policy document and a grant Job
+running `mc admin`) and `minioUserCredentialKind` in `CredentialTemplate.hs` (a template Secret
+whose access key is the user name and whose secret key is generated). Nothing in `nagare-dsl`
+refers to a bucket.
+
+Reviews today. `ReviewDocument` lists operations, retentions, collections, rebinds and rebuilds.
+`printPlannedReview` in `cli/nagarectl/src/Nagare/Inventory/Command.hs` prints the digest and the
+rebind and rebuild lines. No field says what a retirement loses. `docs/api/README.md` states that
+a new optional field keeps contract version 1.
+
+Mounts today. The only volume a workload can declare is a PVC (`Volume` in `Types.hs`). Secrets
+reach workloads only as environment variables (`cli/nagare-dsl/src/Nagare/Dsl/Render.hs`). A
+workload with `serviceAccount = Nothing` renders `automountServiceAccountToken: false`
+(`serviceAccountPairs`). Knative feature flags are in
+`cluster/bootstrap/knative-serving/config-features.yaml`.
+
+Relevant ADRs:
+
+- [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md): one owner
+  per resource; generated credentials are data-free templates; durable data is retained.
+- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md): each
+  adapter path is driven by an interpreter test before the local smoke.
+- [ADR 38](../adr/0038-a-workload-inherits-its-app-s-managed-store-unless-it-opts-out.md): a
+  workload receives only the Secrets it is entitled to; only a granted workload references its
+  bucket credential.
+
+Module line caps (`scripts/check-haskell-architecture.py`,
+`scripts/haskell-size-allowances.json`) will force new modules; create them up front. A new CLI
+command is registered in `scripts/audit-managed-commands.py` and
+`docs/architecture/managed-resource-coverage.md`. Changes to the planner, executor or adapters need
+`just mutation-check REV BASE` before landing.
+
+
+## Plan of Work
+
+### M1. Shared groundwork
+
+Review effects. Add `reviewEffects :: [ReviewEffect]` (a resource ID and one sentence) to
+`ReviewDocument`, with its JSON key, and thread it from planning. Print it in `printPlannedReview`
+under the heading `This review removes:`. Add the optional `effects :: [Text]` to `SavedReview`
+and its builder in `cli/nagarectl/src/Nagare/Contract/Project.hs`, and document it in
+`docs/api/README.md`. A review with no effects prints and encodes exactly as before. This plan
+fills it only in M5; test it now with a hand-built review.
+
+Platform mounts. Add `cli/nagare-dsl/src/Nagare/Dsl/Mounts.hs` with `PlatformMount` (see
+Interfaces and Dependencies) and a renderer that yields the `volumes` and `volumeMounts` entries.
+It is not part of the user's typed surface or the JSON wire format: the inventory compilers add
+mounts to a workload's manifest after rendering, as they add binding variables today
+(`cli/nagarectl/src/Nagare/Inventory/Application/Bindings.hs`). Add a helper there that applies a
+list of mounts to a rendered Knative Service, Deployment or CronJob. Tests: one golden per kind
+with all three sources, and that no mount means byte-identical output.
+
+Admission check. On a disposable local context, apply by hand a Knative Service with
+`automountServiceAccountToken: false`, a named ServiceAccount, a projected volume with a
+`serviceAccountToken` source and a custom audience, a ConfigMap volume and a Secret volume. Pass:
+admitted, and the three files are readable in the container. If a `config-features` flag is
+required, add it to `cluster/bootstrap/knative-serving/config-features.yaml` in this milestone. If
+Knative refuses, record it in Surprises & Discoveries and in MasterPlan 39: the sibling plans
+would then support only workers and tasks, which needs a scope decision.
+
+### M2. Typed declaration
+
+Add `cli/nagare-dsl/src/Nagare/Dsl/ObjectBucket.hs`, its loader under `Load/`, and
+`emitObjectBuckets` in `Config.hs` beside `emitAppDatabases`. Add
+`buckets :: [BucketBinding]` to `Deployment`, `Worker` and `Task`. Adding a strict field means migrating every literal of that record in the libraries,
+tests, `cluster/examples/` and `fixtures/inventory-release/`. The new JSON key is omitted when
+empty so no accepted config digest moves, as `managedEnv` did; a regression fixture proves a
+pre-change Application encodes to the same bytes. The other child plans of MasterPlan 39 add
+fields to the same records, so rebase on the landed tree before migrating.
+
+Smart constructors refuse: a bucket name that is not a DNS label of at most 30 characters, an
+expiry prefix that is empty or does not end in `/`, a non-positive day count, and two grants for
+the same namespace and workload.
+
+Create the example `cluster/examples/content-app/nagare/Config.hs`: a web service `content-app`
+with a read-write, signing grant and a worker `content-gateway` with a read-only grant on a bucket
+`publications` that expires `staging/` after one day.
+
+### M3. The bucket scope on MinIO
+
+Add `cli/nagare-dsl/src/Nagare/Resource/ObjectBucket.hs` (resource identities; scope
+`bucket-<logicalKey or name>`) and `cli/nagare-core/src/Nagare/Inventory/ObjectBucket.hs` with
+`compileStandaloneBucket`, taking the `StoreBackend`. A `GcsBackend` refuses with
+`bucket-backend-unsupported` until the sibling plan lands. For a `MinioBackend` the members are
+Kubernetes objects in `nagare-system` unless noted:
+
+- a Job that runs `mc mb --ignore-existing local/nagare-app-<name>` and, per expiry rule,
+  `mc ilm rule add --prefix P --expire-days N`. The bucket is declared `Durable` with lifecycle
+  `Protect`;
+- per grant, a credential-template Secret `nagare-bucket-<bucket>-<workload>` in the workload's
+  namespace (the `minioUserCredentialKind` template), a policy ConfigMap, and a grant Job ordered
+  after the bucket Job and the Secret. Read-write allows `s3:GetObject`, `s3:PutObject`,
+  `s3:DeleteObject` on the bucket's objects and `s3:ListBucket`; read-only allows `s3:GetObject`
+  only. Dropping a grant adds a revoke Job, as `DeployerStoreAccess.hs` does.
+
+CLI: `nagarectl bucket plan --file CONFIG --save-plan DIR` and `nagarectl bucket status [NAME]`
+in `cli/nagarectl/app/Nagare/Cli/{Commands,Options,Parser}/Bucket.hs`, modelled on the
+`AppDatabase` trio.
+
+Interpreter tests in `cli/nagarectl/test/ObjectBucketSpec.hs` and `ObjectBucketWorldSpec.hs`:
+create; lost acknowledgement of the Secret create; a grant Job that fails; a second identical plan
+that changes nothing and does not regenerate a credential; adding and dropping a grant; and that
+no byte of the review contains a secret key.
+
+### M4. Bindings and the local smoke
+
+In `cli/nagarectl/src/Nagare/Inventory/Application/` (`Bindings.hs`, and the service, worker and
+task paths), a workload with `BucketBinding publications` gets `NAGARE_BUCKET_PUBLICATIONS_BACKEND=s3`,
+`_NAME`, `_ENDPOINT`, and `_ACCESS_KEY_ID` and `_SECRET_ACCESS_KEY` as `secretKeyRef` to its own
+Secret, and a dependency on its grant Job. The compile refuses `bucket-grant-missing` when the
+accepted head has no grant for that namespace and workload, and the same for a standalone
+workload. Tests: the variables, the refusal, and that an unbound workload's manifest names no
+bucket Secret.
+
+Add `scripts/local-bucket-smoke.sh` and the recipe `just local-bucket-smoke CTX`, modelled on
+`scripts/local-secret-scope-smoke.sh`. It plans and applies the bucket, deploys the example with a
+small image that has an S3 client, and from each workload's pod puts and gets one object, printing
+the lines shown in Purpose. Complete
+[`docs/runbooks/before-a-native-run.md`](../runbooks/before-a-native-run.md) first.
+
+### M5. Retirement and documentation
+
+`nagarectl bucket retire NAME --save-plan DIR` retires the scope's members under
+`ApproveRetirement` and fills `reviewEffects` with one line per grant ("workload W in N loses
+read-write access to bucket B") and one line stating that the bucket and its objects are kept. It
+refuses `bucket-still-bound` while an accepted workload binds the bucket. The store users are
+removed by the revoke Jobs; the bucket and its objects are not touched. Removing the document
+without `retire` keeps the `retirement-required` refusal. Tests assert the exact lines, the
+`SavedReview.effects` projection and both refusals.
+
+Write `docs/user/object-storage.md` and a capability page under `docs/capabilities/`, and add the
+types to `docs/user/config-reference.md` and the store to `docs/user/local-development.md`.
+
+
+## Concrete Steps
+
+All commands run from the repository root.
+
+```bash
+just gate-commit                 # per Haskell commit
+just mutation-check HEAD BASE    # before landing planner, executor or adapter changes
+just gate-fast && just land HEAD
+```
+
+Focused runs:
+
+```bash
+cabal test nagare-dsl-test --project-dir=cli/nagare-dsl --test-show-details=direct
+cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p /bucket/' --test-show-details=direct
+```
+
+Local confirmation (M4), on a disposable `mode=local` context `CTX` built per
+[`docs/user/local-development.md`](../user/local-development.md):
+
+```bash
+just local-bucket-smoke CTX
+nagarectl --context CTX bucket status publications
+```
+
+Expected output is in Purpose. Record the transcript under Progress.
+
+
+## Validation and Acceptance
+
+IR-55 AC-1 (local half): M2's round trips, M3's review tests, and M4's smoke through the example
+`Config.hs`. IR-55 AC-5 (bucket): M5's effect-line tests. The shared groundwork is accepted by M1's
+tests and transcript, which the sibling plans rely on.
+
+The plan is accepted when `just gate-fast` is green on the landed commit, the post-land full gate
+is green, and the M1 and M4 transcripts are under Progress.
+
+
+## Idempotence and Recovery
+
+Every change is a saved review; reapply one from its own directory and prepare a new one in a new
+directory. The bucket Job uses `--ignore-existing` and the rule and grant commands are safe to
+repeat. A credential is generated once and never regenerated by a re-plan. A failed grant Job
+stops the review with the bucket in place; fix and retry the same review. The smoke uses a
+disposable context; delete it to clean up.
+
+
+## Interfaces and Dependencies
+
+In `cli/nagare-dsl/src/Nagare/Dsl/ObjectBucket.hs`:
+
+```haskell
+data BucketAccess = ReadOnly | ReadWrite
+  deriving stock (Generic, Eq, Show)
+
+data BucketGrant = BucketGrant
+  { namespace :: !Namespace
+  , workload :: !ServiceName
+  , access :: !BucketAccess
+  , signUrls :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Delete objects under a prefix after a number of days.
+data ExpireRule = ExpireRule
+  { prefix :: !ObjectPrefix
+  , afterDays :: !PositiveDays
+  }
+  deriving stock (Generic, Eq, Show)
+
+data ObjectBucket = ObjectBucket
+  { name :: !BucketName
+  , logicalKey :: !(Maybe LogicalKey)
+  , expire :: ![ExpireRule]
+  , grants :: ![BucketGrant]
+  }
+  deriving stock (Generic, Eq, Show)
+
+newtype BucketBinding = BucketBinding {name :: BucketName}
+  deriving stock (Generic, Eq, Show)
+```
+
+`signUrls` has no effect on the S3 backend, where any credential can presign.
+
+In `cli/nagare-dsl/src/Nagare/Dsl/Mounts.hs`:
+
+```haskell
+data MountSource
+  = ConfigMapSource !Text
+  | SecretSource !Text
+  | ServiceAccountTokenSource !Text !Int   -- audience, expiry in seconds
+  deriving stock (Generic, Eq, Show)
+
+data PlatformMount = PlatformMount
+  { volume :: !Text
+  , mountPath :: !Text
+  , sources :: !(NonEmpty MountSource)   -- rendered as one read-only projected volume
+  }
+  deriving stock (Generic, Eq, Show)
+```
+
+In `cli/nagare-core/src/Nagare/Inventory/Plan/Types.hs`:
+
+```haskell
+data ReviewEffect = ReviewEffect
+  { resource :: !ResourceId
+  , loses :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+```
+
+A bound workload sees `NAGARE_BUCKET_<NAME>_BACKEND`, `_NAME`, `_ENDPOINT`, `_ACCESS_KEY_ID` and
+`_SECRET_ACCESS_KEY`, where `<NAME>` is the bucket name upper-cased with `-` as `_`.
+
+Consumers: [284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md](284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md) adds the `gcs` backend and needs this whole plan.
+[285-serve-a-wildcard-content-domain-from-one-worker-with-the-host-header-intact.md](285-serve-a-wildcard-content-domain-from-one-worker-with-the-host-header-intact.md) and [286-generate-and-rotate-an-ed25519-signing-key-set-that-workloads-read-from-files.md](286-generate-and-rotate-an-ed25519-signing-key-set-that-workloads-read-from-files.md) need only M1.
