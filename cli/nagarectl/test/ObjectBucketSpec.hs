@@ -1,7 +1,17 @@
 -- | EP-283 M3: an app object bucket's standalone scope on the local object
 -- store. The members, their order, the absence of any key in the reviewed
 -- bytes, and how a changed or dropped grant changes the scope.
-module ObjectBucketSpec (objectBucketTests) where
+module ObjectBucketSpec
+  ( objectBucketTests
+  , compile
+  , publications
+  , apiGrant
+  , gatewayGrant
+  , values
+  , member
+  , located
+  )
+where
 
 import Data.Aeson (Value (..))
 import Data.Aeson.Key qualified as Key
@@ -16,6 +26,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
+import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..))
 import Nagare.Dsl.ObjectBucket
 import Nagare.Dsl.Prelude
@@ -120,6 +131,33 @@ objectBucketTests =
         either (^. #code) (const "") (bucketStoreFor (GcsBackend "project" "bucket") "client") @?= "bucket-backend-unsupported"
         bucketStoreFor (MinioBackend (MinioRef "http://minio.nagare-system.svc.cluster.local:9000" "nagare-backups" "nagare-minio-credentials")) "client"
           @?= Right (BucketStore "http://minio.nagare-system.svc.cluster.local:9000" "client")
+    , testCase "a review lists each workload that loses access, and a retirement says the objects are kept" $ do
+        accepted@(_, native) <- expectRight (compile [] publications)
+        let snapshot = snapshotOf [fst accepted]
+            credential workload' = resourceIdText (member' ("secret", "personal", "nagare-bucket-publications-" <> workload') native ^. #identity)
+            lines' declared = [resourceIdText (effect ^. #resource) <> ": " <> (effect ^. #loses) | effect <- bucketReviewEffects snapshot (fst (ok (compile (values native) declared)))]
+        lines' publications @?= []
+        lines' (publications & #expire .~ []) @?= []
+        lines' (publications & #grants .~ [apiGrant])
+          @?= [credential "content-gateway" <> ": workload content-gateway in personal loses read-only access to bucket publications"]
+        lines' (publications & #grants .~ [apiGrant & #access .~ ReadOnly, gatewayGrant])
+          @?= [credential "content-app" <> ": workload content-app in personal loses write access to bucket publications and keeps read-only access"]
+        retiredBucket publications @?= (publications & #grants .~ [])
+        lines' (retiredBucket publications)
+          @?= [ credential "content-app" <> ": workload content-app in personal loses read-write access to bucket publications"
+              , credential "content-gateway" <> ": workload content-gateway in personal loses read-only access to bucket publications"
+              , resourceIdText (member "make" native ^. #identity) <> ": no object: bucket nagare-app-publications and its objects are kept"
+              ]
+        bucketReviewEffects (snapshotOf []) (fst accepted) @?= []
+    , testCase "a bucket is bound while another scope's member is ordered after one of its members" $ do
+        (scope, native) <- expectRight (compile [] publications)
+        let grant = member ("grant-" <> T.drop 14 gatewayUser) native ^. #identity
+            consumerOwner = ok (mkScopeId Application "content")
+            consumer after = member "make" native & #identity .~ mintResourceId consumerOwner (ok (mkLogicalKey "content")) (ok (mkName "worker")) & #owner .~ consumerOwner & #dependencies .~ after
+            other after = ok (mkScopeDeclaration consumerOwner [ResourceBundle [Managed (consumer after)] [] [] [] [] []])
+        boundBy (snapshotOf [scope]) scope @?= []
+        boundBy (snapshotOf [scope, other [OrderedAfter personal]]) scope @?= []
+        boundBy (snapshotOf [scope, other [OrderedAfter grant]]) scope @?= [consumer [] ^. #identity]
     ]
   where
     apiUser = bucketUser (publications ^. #name) (apiGrant ^. #namespace) (apiGrant ^. #workload)
@@ -157,6 +195,14 @@ fixtureCluster = mintResourceId (ok (mkScopeId Platform "cluster")) (ok (mkLogic
 systemNs = mintResourceId (ok (mkScopeId Platform "foundation")) (ok (mkLogicalKey "foundation")) (ok (mkName "namespace-nagare-system"))
 personal = mintResourceId (ok (mkScopeId Platform "foundation")) (ok (mkLogicalKey "foundation")) (ok (mkName "namespace-personal"))
 storeJob = mintResourceId (ok (mkScopeId Platform "local-object-store")) (ok (mkLogicalKey "local-object-store")) (ok (mkName "bucket"))
+
+snapshotOf :: [ScopeDeclaration] -> ScopeSnapshot
+snapshotOf scopes = ok (mkScopeSnapshot fixtureBinding (Map.fromList [(scopeId scope, (ok (mkScopeGeneration 1), scope)) | scope <- scopes]) Map.empty)
+
+member' :: (Text, Text, Text) -> Map ResourceId (ManagedResource, ByteString) -> ManagedResource
+member' wanted native = case [resource | (resource, _) <- Map.elems native, located resource == wanted] of
+  [found] -> found
+  other -> error ("member at " <> show wanted <> ": " <> show (map (^. #identity) other))
 
 values :: Map ResourceId (ManagedResource, ByteString) -> [Value]
 values native = [Object (root bytes) | (_, bytes) <- Map.elems native]

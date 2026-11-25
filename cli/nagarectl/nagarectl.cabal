@@ -210,6 +210,7 @@ library
     Nagare.Inventory.Collection.Runtime
     Nagare.Inventory.CollectionPolicy
     Nagare.Inventory.Command
+    Nagare.Inventory.Command.Effects
     Nagare.Inventory.Command.Open
     Nagare.Inventory.Components.AdminApi
     Nagare.Inventory.Components.Auth
@@ -536,6 +537,7 @@ executable nagarectl
     Nagare.Cli.Commands.Application
     Nagare.Cli.Commands.Bootstrap
     Nagare.Cli.Commands.Broker
+    Nagare.Cli.Commands.Bucket
     Nagare.Cli.Commands.Cdn
     Nagare.Cli.Commands.Context
     Nagare.Cli.Commands.Database
@@ -602,6 +604,7 @@ executable nagarectl
     Nagare.Cli.Options
     Nagare.Cli.Options.Access
     Nagare.Cli.Options.AppDatabase
+    Nagare.Cli.Options.Bucket
     Nagare.Cli.Options.Cdn
     Nagare.Cli.Options.Delegation
     Nagare.Cli.Options.Events
@@ -612,6 +615,7 @@ executable nagarectl
     Nagare.Cli.Parser.Access
     Nagare.Cli.Parser.AppDatabase
     Nagare.Cli.Parser.Application
+    Nagare.Cli.Parser.Bucket
     Nagare.Cli.Parser.Common
     Nagare.Cli.Parser.Context
     Nagare.Cli.Parser.Data
@@ -914,6 +918,7 @@ test-suite nagarectl-test
     Nagare.Test.World.Store
     Nagare.Test.World.Validation
     ObjectBucketSpec
+    ObjectBucketWorldSpec
     PlatformCutoverSpec
     PlatformFinalizeSpec
     PlatformIncrementalSpec

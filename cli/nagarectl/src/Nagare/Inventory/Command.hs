@@ -8,6 +8,8 @@ module Nagare.Inventory.Command
   , loadTargetSnapshotWithHead
   , loadTargetSnapshotReadOnly
   , OpenedInventory (..)
+  , openCandidateInventory
+  , tryReviewInventoryCandidateLoaded
   , openInventoryForPlanning
   , openedSnapshot
   , openTargetStore

@@ -103,6 +103,7 @@ import Nagare.Cli.Options.Access
   , TeamMemberOpts (..)
   )
 import Nagare.Cli.Options.AppDatabase (AppDatabaseCommand)
+import Nagare.Cli.Options.Bucket (BucketCommand)
 import Nagare.Cli.Options.Cdn
 import Nagare.Cli.Options.Delegation (DelegationCommand)
 import Nagare.Cli.Options.Events (EventsCollectBackupsOpts, EventsDeliveryCommand, EventsListOpts, EventsSubscriptionCommand, EventsWebhookCommand)
@@ -401,6 +402,8 @@ data Command
   | Cleanup CleanupOpts
   | NixCache NixCacheCommand
   | Delegation DelegationCommand
+  | -- | App object buckets (EP-283).
+    Bucket BucketCommand
   | -- | Render a config program to a document: target, file, GHC environment, output (EP-249).
     Render RenderTarget FilePath (Maybe FilePath) (Maybe FilePath)
   | -- | The repository and CI run a deploy came from, around its command (EP-247 D6).

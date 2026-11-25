@@ -78,7 +78,7 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     pass with every earlier golden unchanged, including the `object bucket` group (11), which
     loads the example. The example is two files, as app databases are: `nagare/Config.hs` (the
     application, named `content`) and `nagare/Buckets.hs` (the bucket document).
-- [ ] M3. `nagarectl bucket plan` produces a reviewed standalone scope whose members create the
+- [x] M3. `nagarectl bucket plan` produces a reviewed standalone scope whose members create the
   MinIO bucket, its expiry rules and one store user per grant; no review carries a credential.
   Evidence: interpreter tests.
   - 2026-11-25: the scope compiler and the credential copy are done; the CLI and the interpreter
@@ -88,6 +88,15 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     `mc` commands were run against the packaged MinIO and client images in two throwaway
     containers: bucket creation and rule import repeat safely, a read-only user's put and list are
     refused, and removing a user leaves the objects.
+  - 2026-11-25: done. `nagarectl bucket plan|status|retire` is wired
+    (`cli/nagarectl/app/Nagare/Cli/Commands/Bucket.hs`) and registered in the command audit.
+    nagarectl `bucket scope in the model world` (6 tests) drives the compiled scope through the
+    real planner, executor and Kubernetes adapter: it converges with each workload holding its own
+    user's key and no key in any reviewed byte; a second plan only verifies and keeps every key and
+    Secret UID; a failed grant Job stops the review; a lost acknowledgement at each of the seven
+    writes resumes to one set of objects; a dropped grant is retired in the review that adds its
+    revoke Job; an added grant creates three members. The command's own wiring (image selection,
+    the planning registry observing retired members) is first run by the M4 smoke.
 - [ ] M4. A bound workload reads and writes through its own credential and a read-only workload's
   write is refused, through the example `Config.hs`. Evidence: `just local-bucket-smoke CTX`
   transcript (IR-55 AC-1, local half).

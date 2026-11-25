@@ -22,6 +22,7 @@ import Nagare.Cli.Commands.Application
   )
 import Nagare.Cli.Commands.Bootstrap (runPlatformBootstrapApply, runPlatformBootstrapPlan)
 import Nagare.Cli.Commands.Broker (runBroker)
+import Nagare.Cli.Commands.Bucket (runBucket)
 import Nagare.Cli.Commands.Cdn (runCdn)
 import Nagare.Cli.Commands.Context (runContext)
 import Nagare.Cli.Commands.Database (runDb)
@@ -205,5 +206,6 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryStoreStatus json -> runInventoryStoreStatus mctx json
   InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes
   Delegation command -> runDelegation mctx command
+  Bucket command -> runBucket mctx command
   Render target file ghc out -> runRender target file ghc out
   WithReviewSource source inner -> withCommandSource source inner (dispatch (mctx, inner))

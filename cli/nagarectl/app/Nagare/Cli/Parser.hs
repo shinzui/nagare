@@ -13,6 +13,7 @@ import Nagare.Cli.Parser.Application
   , taskCmd
   , workerCmd
   )
+import Nagare.Cli.Parser.Bucket (bucketCmd)
 import Nagare.Cli.Parser.Context (contextCmd, initCmd)
 import Nagare.Cli.Parser.Data (brokerCmd, dbCmd, storageCmd)
 import Nagare.Cli.Parser.Delegation (delegationCmd)
@@ -109,4 +110,5 @@ commandParser =
         <> command "cleanup" cleanupCmd
         <> command "nix-cache" nixCacheCmd
         <> command "delegation" delegationCmd
+        <> command "bucket" bucketCmd
     )

@@ -18,6 +18,8 @@ module Nagare.Inventory.ObjectBucket
   , BucketInput (..)
   , bucketScopeId
   , bucketDeclarationKey
+  , bucketBackendKey
+  , bucketEndpointKey
   , storeBucketName
   , bucketUser
   , bucketCredentialSecretName
@@ -25,6 +27,10 @@ module Nagare.Inventory.ObjectBucket
   , compileStandaloneBucket
   , scopeBucket
   , scopeGrantJob
+  , scopeNativeObjects
+  , retiredBucket
+  , bucketReviewEffects
+  , boundBy
   )
 where
 
@@ -37,7 +43,7 @@ import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -51,6 +57,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (Namespace, ServiceName, namespaceText, serviceNameText)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Plan.Types (ReviewEffect (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Protect, Retain), Sensitivity (Private, Secret))
@@ -102,6 +109,12 @@ bucketScopeId declared = do
 -- and status read the accepted grants.
 bucketDeclarationKey :: Text
 bucketDeclarationKey = "bucket.declaration"
+
+-- | The scope overrides naming the backend a bound workload must speak
+-- (@s3@ here) and the endpoint it reaches the bucket at.
+bucketBackendKey, bucketEndpointKey :: Text
+bucketBackendKey = "bucket.backend"
+bucketEndpointKey = "bucket.endpoint"
 
 -- | The bucket on the store.
 storeBucketName :: BucketName -> Text
@@ -230,7 +243,9 @@ compileStandaloneBucket input = do
       record = LBS.toStrict (encodeObjectBuckets [declared])
   scope <- mkScopeDeclaration owner [ResourceBundle [Managed resource | (resource, _) <- members] [] [] [] [] []]
   pure
-    ( withScopeConfigDigest (contentDigest record) (withScopeOverrides (Map.singleton bucketDeclarationKey (TE.decodeUtf8 record)) scope)
+    ( withScopeConfigDigest
+        (contentDigest record)
+        (withScopeOverrides (Map.fromList [(bucketDeclarationKey, TE.decodeUtf8 record), (bucketBackendKey, "s3"), (bucketEndpointKey, input ^. #store . #endpoint)]) scope)
     , Map.fromList [(resource ^. #identity, (resource, native)) | (resource, native) <- members]
     )
   where
@@ -399,3 +414,69 @@ jobObject store' name labels script userSecret =
   where
     secretEnv :: Text -> Text -> Text -> Value
     secretEnv variable secretName secretKey = object ["name" .= variable, "valueFrom" .= object ["secretKeyRef" .= object ["name" .= secretName, "key" .= secretKey]]]
+
+-- | The declaration that retires a bucket: no workload has access. The
+-- bucket Job and the revoke Jobs stay, so the bucket and its objects do.
+retiredBucket :: ObjectBucket -> ObjectBucket
+retiredBucket declared = declared & #grants .~ []
+
+-- | What replacing a bucket's accepted scope with @desired@ takes away: one
+-- line per workload that loses access or the right to write, and, when no
+-- grant is left, one line saying that the bucket and its objects are kept.
+bucketReviewEffects :: ScopeSnapshot -> ScopeDeclaration -> [ReviewEffect]
+bucketReviewEffects snapshot desired = case (Map.lookup (scopeId desired) (snapshotScopes snapshot), scopeBucket desired) of
+  (Just (_, accepted), Just after)
+    | Just before <- scopeBucket accepted ->
+        let label = bucketNameText (before ^. #name)
+            members = [resource | bundle <- scopeBundles accepted, Managed resource <- declarations bundle]
+            memberNamed kind ns named =
+              listToMaybe
+                [ resource ^. #identity
+                | resource <- members
+                , Kubernetes _ _ nativeKind nativeNamespace nativeName <- [resource ^. #address]
+                , nameText nativeKind == kind
+                , fmap nameText nativeNamespace == Just ns
+                , named (nameText nativeName)
+                ]
+            lost grant = do
+              credential <- memberNamed "secret" (namespaceText (grant ^. #namespace)) (== bucketCredentialSecretName (before ^. #name) (grant ^. #workload))
+              let who = "workload " <> serviceNameText (grant ^. #workload) <> " in " <> namespaceText (grant ^. #namespace)
+              case bucketGrantFor (grant ^. #namespace) (grant ^. #workload) after of
+                Nothing -> Just (ReviewEffect credential (who <> " loses " <> bucketAccessToken (grant ^. #access) <> " access to bucket " <> label))
+                Just kept
+                  | grant ^. #access == ReadWrite && kept ^. #access == ReadOnly ->
+                      Just (ReviewEffect credential (who <> " loses write access to bucket " <> label <> " and keeps read-only access"))
+                _ -> Nothing
+            effects = mapMaybe lost (before ^. #grants)
+            kept =
+              [ ReviewEffect make ("no object: bucket " <> storeBucketName (before ^. #name) <> " and its objects are kept")
+              | not (null effects)
+              , null (after ^. #grants)
+              , Just make <- [memberNamed "job" "nagare-system" (("nagare-bucket-" <> label <> "-make-") `T.isPrefixOf`)]
+              ]
+         in effects <> kept
+  _ -> []
+
+-- | The accepted members of other scopes that are ordered after a member of
+-- this bucket scope: the workloads that bind the bucket.
+boundBy :: ScopeSnapshot -> ScopeDeclaration -> [ResourceId]
+boundBy snapshot scope =
+  [ resource ^. #identity
+  | (owner, (_, other)) <- Map.toList (snapshotScopes snapshot)
+  , owner /= scopeId scope
+  , bundle <- scopeBundles other
+  , Managed resource <- declarations bundle
+  , any (\dependency -> Set.member (dependencyProducer dependency) own) (resource ^. #dependencies)
+  ]
+  where
+    own = Set.fromList [resource ^. #identity | bundle <- scopeBundles scope, Managed resource <- declarations bundle]
+
+-- | The accepted native objects of one scope, which a recompile reads its
+-- earlier Jobs from.
+scopeNativeObjects :: ScopeId -> Map ResourceId (ManagedResource, ByteString) -> [Value]
+scopeNativeObjects owner native =
+  [ value
+  | (resource, bytes) <- Map.elems native
+  , resource ^. #owner == owner
+  , Right value <- [Yaml.decodeEither' bytes :: Either Yaml.ParseException Value]
+  ]

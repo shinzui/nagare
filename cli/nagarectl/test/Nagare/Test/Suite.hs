@@ -162,6 +162,7 @@ import Nagare.Test.Task (taskDiscoverTests, taskResolveTests, taskRunTests)
 import Nagare.Test.Version (versionTests)
 import Nagare.Test.Webhook (webhookTests)
 import ObjectBucketSpec (objectBucketTests)
+import ObjectBucketWorldSpec (objectBucketWorldTests)
 import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
 import PlatformTransitionSpec (platformTransitionTests)
@@ -252,6 +253,7 @@ main = do
             , eventsStoreTests
             , lifecycleCredentialTests
             , objectBucketTests
+            , objectBucketWorldTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
             , testGroup "AppDatabase" [appDatabaseTests, appDatabaseCredentialTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appDatabaseTaskTests, appOwnedDatabaseTests]
