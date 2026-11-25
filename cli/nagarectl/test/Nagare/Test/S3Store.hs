@@ -20,16 +20,18 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import InventoryTransactionSpec (exerciseStore, fixtureBinding)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Command (objectMigrationTarget)
+import Nagare.Inventory.Command (objectMigrationTarget, selectFoundationStore, selectResumeStore)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Inventory.Store.ObjectTarget
 import Nagare.Inventory.Store.S3
 import Nagare.Target (ActiveTarget (..), InventoryStoreKind (..), Mode (..), effectiveInventoryStore, mkContextName)
+import Nagare.Test.Support.Environment (withTestEnv)
 import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Test.World.ObjectStore (fakeObjectOps, fakeObjectState)
 import Network.HTTP.Types (methodGet, methodPut)
+import System.Directory (doesPathExist)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -142,6 +144,18 @@ s3StoreTests =
         migrating ^. #profile . #inventoryStoreUrl @?= "http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/mp33"
         effectiveInventoryStore (migrating ^. #profile) @?= InventoryStoreObject
         fmap (^. #prefix) (objectStoreEndpoint (migrating ^. #profile)) @?= Right "mp33"
+    , testCase "a local context's object store is its own foundation and resume store (IR-54)" $
+        withSystemTempDirectory "ir54-selection" $ \directory -> do
+          let state = directory </> "state"
+          withTestEnv [("XDG_STATE_HOME", Just state), ("XDG_CONFIG_HOME", Just (directory </> "config")), ("CLOUDSDK_CORE_PROJECT", Nothing)] $ do
+            context <- either (assertFailure . T.unpack) pure (mkContextName "ir54")
+            let object = initProfile & #mode .~ Local & #inventoryStore .~ InventoryStoreObject & #inventoryStoreUrl .~ "http://127.0.0.1:19000/nagare-inventory/ir54"
+                transaction = "tx-" <> T.replicate 64 "a"
+            forM_' [object, object & #inventoryStore .~ InventoryStoreLocal] $ \profile -> do
+              let target = ActiveTarget context profile
+              selectFoundationStore target >>= (@?= Right target)
+              selectResumeStore target transaction >>= (@?= target)
+            doesPathExist state >>= assertBool "selection creates no state" . not
     , testCase "only an operator's initializing opening creates the bucket; a deployer's never does (EP-248)" $ do
         let sources = CredentialSources Nothing Nothing Nothing False
         [ensuresBucket initialize (sources & #deployer .~ deployer') | initialize <- [True, False], deployer' <- [False, True]] @?= [True, False, False, False]

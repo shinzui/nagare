@@ -26,7 +26,6 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Nagare.Cli.Bootstrap.Foundation (foundationStageTarget)
 import Nagare.Cli.Inventory.Adapters
   ( inventoryHelmAdapter
   , inventoryKubernetesAdapter
@@ -289,7 +288,7 @@ runInventoryApply mctx reviewDirectory yes = do
 runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
 runInventoryResume mctx transaction yes takeOver = do
   target <- activeTarget mctx
-  selected <- foundationResumeTarget target transaction
+  selected <- Inventory.selectResumeStore target transaction
   withContextEnSession target $ \en ->
     Inventory.resumeInventoryWithFactoryTakeover (requireAccessKey (inventoryExecutionRegistryIn (Just en) mctx)) selected transaction yes takeOver
   when
@@ -314,48 +313,6 @@ requireAccessKey :: (InventoryPlan.ReviewInventory -> InventoryPlan.ReviewBundle
 requireAccessKey registryFor inventory bundle = do
   key <- lookupEnv "NAGARE_EN_API_KEY"
   maybe (registryFor inventory bundle) dieT (accessKeyRefusal key bundle)
-
--- The first foundation transaction precedes the remote inventory format. Only
--- its exact immutable review can authorize recovery from the local journal.
-foundationResumeTarget :: ActiveTarget -> Text -> IO ActiveTarget
-foundationResumeTarget target transaction
-  | effectiveInventoryStore (target ^. #profile) == InventoryStoreLocal = pure target
-  | otherwise = do
-      selected <- foundationStageTarget target
-      if effectiveInventoryStore (selected ^. #profile) == InventoryStoreGcs
-        then pure selected
-        else do
-          store <- Inventory.openTargetStoreReadOnly selected >>= either (dieT . T.pack . show) pure
-          headValue <-
-            InventoryStore.readHead store
-              >>= either (dieT . T.pack . show) pure
-              >>= maybe (dieT refusal) pure
-          unless
-            (InventoryStore.headActiveTransaction headValue == Just transaction)
-            (dieT refusal)
-          digest <- either dieT pure (Resource.mkContentDigest (T.drop 3 transaction))
-          bundle <- InventoryPlan.loadPublishedReview store digest >>= either (dieT . T.pack . show) pure
-          owner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud-foundation")
-          let document = InventoryPlan.reviewBundleDocument bundle
-              operations = InventoryPlan.reviewOperations document
-          unless
-            ( target ^. #profile . #mode == Cloud
-                && "nagare-bootstrap:" `T.isPrefixOf` InventoryPlan.reviewPayloadIdentity document
-                && Map.null (InventoryPlan.reviewBaseRevisions document)
-                && Map.keysSet (InventoryPlan.reviewDesiredRevisions document) == Set.singleton owner
-                && InventoryPlan.reviewDesiredRevisions document == InventoryStore.headAccepted headValue
-                && not (null operations)
-                && all
-                  ( (== ResourceInventory.CloudFoundationExecutor)
-                      . InventoryAdapter.plannedExecutor
-                      . InventoryPlan.reviewPlannedOperation
-                  )
-                  operations
-            )
-            (dieT refusal)
-          pure selected
-  where
-    refusal = "local inventory recovery requires the exact active initial cloud foundation review"
 
 runInventoryRecover :: Maybe String -> Text -> Text -> FilePath -> Bool -> IO ()
 runInventoryRecover mctx transaction operation decisionFile takeOver = do

@@ -7,6 +7,7 @@ module Nagare.Inventory.Command.Open
   , openInventoryForPlanning
   , openedSnapshot
   , selectFoundationStore
+  , selectResumeStore
   , loadTargetSnapshot
   , loadTargetSnapshotWithHead
   , loadTargetSnapshotReadOnly
@@ -126,9 +127,14 @@ openTargetStoreObserving wantHead target = do
 
 -- | Select authority once before bootstrap work. This probe never creates local
 -- state, remote format/head, cache, or client identity; migration stays explicit.
+-- Only a GCS context can have a first foundation transaction journalled in the
+-- workstation directory before its remote store exists. A local context's
+-- workstation or object store is its only authority and is returned as is;
+-- 'openTargetStore' refuses unmigrated workstation history before an object
+-- store is used (IR-54).
 selectFoundationStore :: ActiveTarget -> IO (Either StoreError ActiveTarget)
 selectFoundationStore target
-  | effectiveInventoryStore (target ^. #profile) == InventoryStoreLocal = pure (Right target)
+  | effectiveInventoryStore (target ^. #profile) /= InventoryStoreGcs = pure (Right target)
   | otherwise = do
       bounded <- timeout 60000000 discover
       pure (fromMaybe (Left (StoreIoError "inventory discovery exceeded 60 seconds; remote absence is not proved")) bounded)
@@ -186,6 +192,43 @@ selectFoundationStore target
       Left reason -> refused reason
       Right UseLocalFoundation -> Right localTarget
       Right UseRemoteHistory -> Right target
+
+-- | The store a resume of TRANSACTION opens. A local context's store is
+-- returned as is. A GCS context's first foundation transaction precedes the
+-- remote inventory format, so it resumes from its workstation journal only
+-- under its exact immutable initial review.
+selectResumeStore :: ActiveTarget -> Text -> IO ActiveTarget
+selectResumeStore target transaction
+  | effectiveInventoryStore (target ^. #profile) /= InventoryStoreGcs = pure target
+  | otherwise = do
+      selected <- selectFoundationStore target >>= either (dieText . showText) pure
+      if effectiveInventoryStore (selected ^. #profile) == InventoryStoreGcs
+        then pure selected
+        else do
+          store <- openTargetStoreReadOnly selected >>= either (dieText . showText) pure
+          headValue <-
+            readHead store
+              >>= either (dieText . showText) pure
+              >>= maybe (dieText refusal) pure
+          unless (headActiveTransaction headValue == Just transaction) (dieText refusal)
+          digest <- either dieText pure (mkContentDigest (T.drop 3 transaction))
+          bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
+          owner <- either dieText pure (mkScopeId Platform "cloud-foundation")
+          let document = reviewBundleDocument bundle
+              operations = reviewOperations document
+          unless
+            ( target ^. #profile . #mode == Cloud
+                && "nagare-bootstrap:" `T.isPrefixOf` reviewPayloadIdentity document
+                && Map.null (reviewBaseRevisions document)
+                && Map.keysSet (reviewDesiredRevisions document) == Set.singleton owner
+                && reviewDesiredRevisions document == headAccepted headValue
+                && not (null operations)
+                && all ((== CloudFoundationExecutor) . plannedExecutor . reviewPlannedOperation) operations
+            )
+            (dieText refusal)
+          pure selected
+  where
+    refusal = "local inventory recovery requires the exact active initial cloud foundation review"
 
 -- | Use the accepted complete scopes as the base of a freshly compiled
 -- component candidate. The planner still checks unresolved transactions.

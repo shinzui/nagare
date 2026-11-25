@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-25
+* **Addition**: FRIC-23 records slowdown tooling friction with mori://shinzui/nagare/scripts/audit-managed-commands.py: The command audit's unregistered library call is hidden in the gate log again
+
 ## 2026-11-24
 
 * **Update**: FRIC-22 accepted: Accepted: the drill bootstrap is the way to get a disposable context; this entry records its two undocumented conditions.

@@ -14,6 +14,7 @@ module Nagare.Inventory.Command
   , openTargetStoreReadOnly
   , openProfileReviewStoreReadOnly
   , selectFoundationStore
+  , selectResumeStore
   , migrateTargetStore
   , objectMigrationTarget
   , planInventory
