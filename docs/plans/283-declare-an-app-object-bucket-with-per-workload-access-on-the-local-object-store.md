@@ -59,7 +59,7 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
 
 ## Progress
 
-- [ ] M1. Shared groundwork. A review can carry effect lines and prints them; a workload can carry
+- [x] M1. Shared groundwork. A review can carry effect lines and prints them; a workload can carry
   platform mounts and renders them for a Knative Service, a worker and a task; a transcript shows
   Knative admitting a Service with those mounts. Evidence: `nagare-dsl` and `nagarectl` tests and
   the transcript here.
@@ -70,6 +70,38 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     `just gate-commit` green. The Knative admission transcript is not recorded: the only local
     cluster, `nagare-local`, has no running Knative webhook (its pods are evicted or pending), so a
     server-side dry run could not reach admission. It needs a working disposable local cluster.
+  - 2026-11-25: done. Knative Serving 1.22.0 admits the mounts with no feature flag beyond the two
+    Nagare already sets, and the container reads all three files. Run on a throwaway k3d cluster
+    (k3s v1.34.6, the vendored `cluster/bootstrap/vendor/serving-{crds,core}-v1.22.0.yaml` and
+    `knative-serving/config-features.yaml`), then deleted. The Service had a named ServiceAccount,
+    `automountServiceAccountToken: false`, a projected volume with a service-account token
+    (audience `nagare-workload-identity`) and a ConfigMap, and a projected Secret volume:
+
+    ```text
+    == knative
+    1.22.0
+    == feature flags Nagare sets
+      kubernetes.podspec-persistent-volume-claim = enabled
+      kubernetes.podspec-persistent-volume-write = enabled
+    == server-side dry run
+    service.serving.knative.dev/mount-probe created (server dry run)
+    == apply
+    service.serving.knative.dev/mount-probe created
+    == pod spec as admitted
+      automountServiceAccountToken: False  serviceAccountName: mount-probe
+      volume nagare-identity ['serviceAccountToken', 'configMap']
+      volume nagare-keys ['secret']
+    == files the container sees
+    /var/run/nagare/identity:
+    credential-configuration.json -> ..data/credential-configuration.json
+    token -> ..data/token
+    /var/run/nagare/keys:
+    current.jwk -> ..data/current.jwk
+    == token audience
+       "aud":["nagare-workload-identity"]
+    == no default token
+    ls: /var/run/secrets/kubernetes.io/serviceaccount: No such file or directory
+    ```
 - [x] M2. A bucket and its bindings exist in the typed model and round-trip through the config
   program and the rendered document; existing goldens and config digests are unchanged. Evidence:
   `nagare-dsl` tests.
@@ -104,11 +136,15 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     (`acceptedBucketBindings`, `ObjectBucketBinding` in
     `cli/nagarectl/src/Nagare/Inventory/Application/`): nagarectl `bucket binding` (4 tests) covers
     the five variables, the ordering after the grant Job and the credential, the
-    `bucket-grant-missing` refusals and an unbound worker's manifest. Open: (a) whether an
-    Application's own service and workers may bind a bucket (see Surprises & Discoveries; they are
-    refused with `bucket-not-bindable-from-application` until decided, so the example's
-    `Config.hs` does not deploy as written); (b) `scripts/local-bucket-smoke.sh` and its
-    transcript, which need a working disposable local cluster.
+    `bucket-grant-missing` refusals and an unbound worker's manifest.
+  - 2026-11-25: an Application's service and workers bind too (operator decision):
+    `scopeBucketBindings` in `ApplicationScopeInput`, resolved by `app deploy` for each workload's
+    own name. `bucket binding` now has 6 tests; the Application case checks each workload's
+    variables, its dependency on its own credential, and that `boundBy` then reports the bucket
+    bound. Open: `scripts/local-bucket-smoke.sh` and its transcript. They need a full local
+    context, and the Docker VM that hosts `nagare-local` has kubelet disk pressure (98 GB disk,
+    87% used, about 83 GB of it other projects' images), so a recreated cluster there evicts its
+    pods again. The operator has to free or grow that disk, or name another daemon.
 - [ ] M5. `nagarectl bucket retire` is a review that names each workload losing access and states
   that the objects are kept; it is refused while a workload binds the bucket. User documentation
   exists. Evidence: reviewed-change tests (IR-55 AC-5, bucket).
@@ -128,7 +164,7 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
   name would never apply a changed policy. Changed the design: see the Decision Log.
 
 - An Application's own service and workers take no binding from another scope today. The
-  application compile refuses app databases on them (`app-database-not-bindable-from-application`,
+  application compile refused every such binding: app databases on them (`app-database-not-bindable-from-application`,
   EP-202: "deploy the workload as a Deployment or Worker to bind an app database"), and only a
   standalone Deployment, a standalone Worker and a task resolve accepted bindings
   (`reviewedStandaloneDatabases`). This plan's M4 and its example assumed an Application whose
@@ -213,6 +249,12 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
   workload that loses access and that the objects are kept. It is refused while a member of
   another scope is ordered after one of the bucket's members, which is how a bound workload shows
   in accepted history.
+  Date: 2026-11-25
+
+- Decision (operator, 2026-11-25): an Application's own service and workers bind a bucket.
+  Rationale: IR-55 and Hanmoto's shape are one Application with the API as its service and the
+  gateway as a worker. The application compile takes bucket bindings; EP-202's rule for app
+  databases is unchanged.
   Date: 2026-11-25
 
 - Decision: A bucket binding is a third kind of workload binding beside a server and an app

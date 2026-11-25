@@ -103,6 +103,7 @@ import Nagare.Inventory.Application
       , scopeApplication
       , scopeBrokerServices
       , scopeBrokerTopics
+      , scopeBucketBindings
       , scopeBuildSecrets
       , scopeCdnBinding
       , scopeCluster
@@ -130,6 +131,7 @@ import Nagare.Inventory.Application
   , acceptedApplicationImageReference
   , acceptedApplicationReleaseLog
   , acceptedBrokerBindings
+  , acceptedBucketBindings
   , acceptedImageBuildSecrets
   , acceptedSecretBindings
   , applicationDatabaseRetirements
@@ -375,6 +377,13 @@ runAppDeployPlan mctx params appOptions output = do
       >>= either dieT pure
   -- EP-259: each pre-deploy hook binds its app databases for its own name.
   taskDatabaseBindings <- either dieT pure (acceptedTaskAppDatabaseBindings snapshot acceptedNative cluster appNamespaceName (app ^. #tasks))
+  -- EP-283: the service and each worker bind a bucket only through its accepted grant.
+  bucketBindings <-
+    either dieT pure . fmap Map.fromList . sequence $
+      [ (workloadName,) <$> acceptedBucketBindings snapshot acceptedNative cluster appNamespaceName workloadName bindings
+      | (workloadName, bindings) <- maybe [] (\service -> [(service ^. #name, service ^. #buckets)]) (app ^. #service) <> [(worker ^. #name, worker ^. #buckets) | worker <- app ^. #workers]
+      , not (null bindings)
+      ]
   let source =
         Resource.SourceLocation
           (maybe (T.pack (params ^. #configPath)) T.pack (appOptions ^. #source))
@@ -456,6 +465,7 @@ runAppDeployPlan mctx params appOptions output = do
           , scopeRelease = (priorReleases, release)
           , scopeHookEffects = hookEffects
           , scopeTaskDatabaseBindings = taskDatabaseBindings
+          , scopeBucketBindings = bucketBindings
           , scopeInputOverrides =
               Map.fromList
                 ( [("tag", T.pack selected) | selected <- maybe [] pure (appOptions ^. #tag)]

@@ -3,6 +3,7 @@
 -- credential Secret and an ordering edge after the Job that granted it.
 module ObjectBucketBindingSpec (objectBucketBindingTests) where
 
+import Control.Monad (forM_)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -15,18 +16,19 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import InventoryTransactionSpec (fixtureBinding)
+import ManagedEnvScopeSpec (input, scopedApp, workloadObjects)
 import Nagare.App.Deploy (RolloutEnv (..))
 import Nagare.Dsl.ObjectBucket
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (webWorker)
-import Nagare.Inventory.Application (DatabaseBinding, acceptedBucketBindings, compileStandaloneWorkerWithDependencies)
-import Nagare.Inventory.ObjectBucket (bucketUser)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedBucketBindings, compileApplicationDeployment, compileStandaloneWorkerWithDependencies)
+import Nagare.Inventory.ObjectBucket (boundBy, bucketUser)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Test.Support.Profiles (tnbProfile)
-import ObjectBucketSpec (compile, gatewayGrant, located, member, publications)
+import ObjectBucketSpec (apiGrant, compile, gatewayGrant, located, member, publications)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -71,6 +73,35 @@ objectBucketBindingTests =
         (_, compiled) <- either (assertFailure . show) pure (compileWorker "content-gateway" [] Map.empty)
         assertBool "no bucket name in the manifest" (not (any (BS.isInfixOf "nagare-bucket-" . snd) (Map.elems compiled)))
         assertBool "no bucket variable in the manifest" (not (any (BS.isInfixOf "NAGARE_BUCKET_" . snd) (Map.elems compiled)))
+    , testCase "an Application's service and worker each bind the bucket through their own grant" $ do
+        let app = scopedApp Dsl.NoManagedEnv & #service %~ fmap (#buckets .~ [binding "publications"]) & #workers %~ map (#buckets .~ [binding "publications"])
+            granted = publications & #grants .~ [apiGrant & #workload .~ service "scoped-web", gatewayGrant & #workload .~ service "scoped-worker"]
+        (bucketScope, native) <- either (assertFailure . show) pure (compile [] granted)
+        let snapshot = snapshotOf [bucketScope]
+            resolve workload' = (service workload',) <$> acceptedBucketBindings snapshot native testCluster "personal" (service workload') [binding "publications"]
+        bindings <- either (assertFailure . T.unpack) (pure . Map.fromList) (traverse resolve ["scoped-web", "scoped-worker"])
+        (scopes, compiled) <- either (assertFailure . show) pure (compileApplicationDeployment ((input app) {scopeBucketBindings = bindings}))
+        let objects = workloadObjects scopes compiled
+            secretOf kind = [Map.lookup "NAGARE_BUCKET_PUBLICATIONS_SECRET_ACCESS_KEY" (envOf bytes) | (objectKind, _, bytes) <- objects, objectKind == kind]
+        secretOf "service" @?= [Just (Left ("nagare-bucket-publications-scoped-web", "AWS_SECRET_ACCESS_KEY"))]
+        secretOf "deployment" @?= [Just (Left ("nagare-bucket-publications-scoped-worker", "AWS_SECRET_ACCESS_KEY"))]
+        [Map.lookup "NAGARE_BUCKET_PUBLICATIONS_NAME" (envOf bytes) | (objectKind, _, bytes) <- objects, objectKind `elem` ["service", "deployment"]]
+          @?= [Just (Right "nagare-app-publications"), Just (Right "nagare-app-publications")]
+        -- The hook binds nothing, so it gets no bucket variable.
+        assertBool "the hook names no bucket" (not (any (\(objectKind, _, bytes) -> objectKind `elem` ["cronjob", "job"] && BS.isInfixOf "NAGARE_BUCKET_" bytes) objects))
+        -- Each workload depends on its own credential, which is how a retirement sees the bucket is bound.
+        let credentialOf workload' = head [resource ^. #identity | (resource, _) <- Map.elems native, located resource == ("secret", "personal", "nagare-bucket-publications-" <> workload')]
+        forM_ [("service", "scoped-web"), ("deployment", "scoped-worker")] $ \(kind, workload') ->
+          assertBool (T.unpack workload' <> " is ordered after its credential") (any (\(objectKind, resource, _) -> objectKind == kind && OrderedAfter (credentialOf workload') `elem` resource ^. #dependencies) objects)
+        assertBool "the bucket is bound" (not (null (boundBy (snapshotOf (bucketScope : scopes)) bucketScope)))
+    , testCase "an Application workload that binds a bucket without its accepted grant does not compile" $ do
+        let app = scopedApp Dsl.NoManagedEnv & #workers %~ map (#buckets .~ [binding "publications"])
+        either (map (^. #message) . NE.toList) (const []) (compileApplicationDeployment (input app))
+          @?= ["database dependencies must cover exactly the workload bindings"]
+        (bucketScope, native) <- either (assertFailure . show) pure (compile [] publications)
+        bound <- either (assertFailure . T.unpack) pure (acceptedBucketBindings (snapshotOf [bucketScope]) native testCluster "personal" (service "content-gateway") [binding "publications"])
+        either (map (^. #message) . NE.toList) (const []) (compileApplicationDeployment ((input (scopedApp Dsl.NoManagedEnv)) {scopeBucketBindings = Map.singleton (service "content-gateway") bound}))
+          @?= ["bucket dependencies name a workload that binds no bucket"]
     ]
   where
     gatewayUser = bucketUser (publications ^. #name) (gatewayGrant ^. #namespace) (gatewayGrant ^. #workload)
@@ -79,7 +110,10 @@ objectBucketBindingTests =
 accepted :: IO (ScopeSnapshot, Map ResourceId (ManagedResource, ByteString))
 accepted = do
   (scope, native) <- either (assertFailure . show) pure (compile [] publications)
-  pure (ok (mkScopeSnapshot fixtureBinding (Map.singleton (scopeId scope) (ok (mkScopeGeneration 1), scope)) Map.empty), native)
+  pure (snapshotOf [scope], native)
+
+snapshotOf :: [ScopeDeclaration] -> ScopeSnapshot
+snapshotOf scopes = ok (mkScopeSnapshot fixtureBinding (Map.fromList [(scopeId scope, (ok (mkScopeGeneration 1), scope)) | scope <- scopes]) Map.empty)
 
 compileWorker :: Text -> [Dsl.BucketBinding] -> Map Dsl.DatabaseName DatabaseBinding -> Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileWorker name buckets bindings =

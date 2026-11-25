@@ -759,11 +759,8 @@ nativeApplicationReview = do
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
               , scopeTaskDatabaseBindings = Map.empty
-              , scopeInputOverrides =
-                  Map.fromList
-                    [ ("tag", rollout ^. #imageTag)
-                    , ("imageResource", Resource.resourceIdText publication)
-                    ]
+              , scopeBucketBindings = Map.empty
+              , scopeInputOverrides = Map.fromList [("tag", rollout ^. #imageTag), ("imageResource", Resource.resourceIdText publication)]
               , scopeSource = Resource.SourceLocation "absent-source/Config.hs" "application"
               }
           (scope, native) = checked (compileApplicationScope input)
@@ -1825,6 +1822,7 @@ renderTests =
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
               , scopeTaskDatabaseBindings = Map.empty
+              , scopeBucketBindings = Map.empty
               , scopeInputOverrides =
                   Map.fromList
                     [ ("tag", testEnv ^. #imageTag)

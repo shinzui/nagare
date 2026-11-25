@@ -205,6 +205,7 @@ webAppScopes = do
           , scopeRelease = (emptyReleaseLog, appRelease)
           , scopeHookEffects = Map.fromList [(hook, []) | hook <- hooks]
           , scopeTaskDatabaseBindings = Map.empty
+          , scopeBucketBindings = Map.empty
           , scopeInputOverrides = Map.fromList ([("tag", "v1"), ("baseDomain", "example.com"), ("imageResource", resourceIdText imageId)] <> [("hook/" <> hook, "") | hook <- hooks])
           , scopeSource = SourceLocation "test" "application"
           }

@@ -158,11 +158,12 @@ EP-1 is in progress; the others have not started. One gate is not owned by a chi
 
 ## Surprises & Discoveries
 
-- EP-1 M1's Knative admission transcript is open (2026-11-25). The only local cluster,
-  `nagare-local`, has no running Knative webhook, so even a server-side dry run cannot reach
-  admission. EP-3 and EP-4 depend on that milestone and stay blocked until a working disposable
-  local cluster confirms it. `reviewEffects` and `PlatformMount` themselves are committed
-  and tested, not yet landed.
+- EP-1 M1 is complete (2026-11-25): Knative Serving 1.22.0 admits the platform mounts with no new
+  feature flag, so EP-2 and EP-4 may mount files into a Knative Service as well as a worker and a
+  task. EP-3 and EP-4 are unblocked. The check ran on a throwaway cluster because the Docker VM
+  that hosts `nagare-local` has kubelet disk pressure (87% of 98 GB used, mostly other projects'
+  images); every full local run in this initiative (EP-1 M4's smoke, EP-3's prototype) needs that
+  disk freed or another daemon first.
 
 - A generated value that two namespaces need cannot be shared by a Secret reference or read by a
   Job: neither crosses a namespace. EP-1 solved it for a bucket credential with the adapter's copy
@@ -175,9 +176,9 @@ EP-1 is in progress; the others have not started. One gate is not owned by a chi
   standalone Deployment, a standalone Worker and a task do (EP-202's rule for app databases).
   Buckets and key sets are standalone scopes, so EP-1's bindings, EP-4's `keySets` and the shared
   example `cluster/examples/content-app` all meet this. EP-1 built bindings on the standalone paths
-  and refuses them on an Application's service and workers until the operator decides whether the
-  application compile should take them. The example is an Application and does not deploy as
-  written.
+  first; the operator then decided that an Application's service and workers bind too (Decision
+  Log), and EP-1 added `scopeBucketBindings` to the application compile. EP-4 follows the same
+  path for `keySets`.
 
 - A Kubernetes Job member never changes once created, and the planner replaces none. EP-1 names
   each Job by a digest of what it runs and retires the superseded one in the same review. EP-4's
@@ -200,6 +201,11 @@ EP-1 is in progress; the others have not started. One gate is not owned by a chi
 - Decision: A content domain is a context property and the context owns its DNS zone.
   Rationale: Delegating a registrable domain is an operator act at a registrar, and the DNS-01
   solver's write grant is per zone.
+  Date: 2026-11-25
+
+- Decision (operator, 2026-11-25): an Application's own service and workers take bucket bindings,
+  and key set bindings when EP-4 adds them. EP-202's rule for app databases is unchanged.
+  Rationale: IR-55's shape is one Application; see Surprises & Discoveries.
   Date: 2026-11-25
 
 - Decision: One intention, `intention_01m89q6asjedws62wy3n95r4e7`, covers the MasterPlan and its

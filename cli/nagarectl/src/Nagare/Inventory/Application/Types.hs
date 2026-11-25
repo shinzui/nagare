@@ -150,6 +150,9 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeTaskDatabaseBindings :: !(Map ServiceName (Map DatabaseName DatabaseBinding))
   -- ^ EP-259: each pre-deploy hook's accepted app database bindings, resolved
   -- for the hook's own name.
+  , scopeBucketBindings :: !(Map ServiceName (Map DatabaseName DatabaseBinding))
+  -- ^ EP-283: the accepted bucket bindings of the application's service and
+  -- of each worker, resolved for the workload's own name.
   , scopeInputOverrides :: !(Map T.Text T.Text)
   -- ^ Explicit public command choices retained with the config digest.
   , scopeSource :: !SourceLocation

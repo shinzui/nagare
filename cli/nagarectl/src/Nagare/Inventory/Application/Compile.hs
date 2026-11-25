@@ -44,7 +44,7 @@ import Nagare.Dsl.Types
   , serviceNameText
   )
 import Nagare.Env.Generated (mergeGenerated)
-import Nagare.Inventory.Application.Bindings (brokerEvidenceIds)
+import Nagare.Inventory.Application.Bindings (brokerEvidenceIds, bucketBindingKey)
 import Nagare.Inventory.Application.Database
   ( compileApplicationDatabases
   )
@@ -53,6 +53,7 @@ import Nagare.Inventory.Application.Environment
   , reviewedTaskImages
   , runtimeSecretNamesWithBuild
   , secretDependency
+  , standaloneDatabaseEnvironment
   , stripBuildSecretRefs
   , stripBuildSecretRollout
   )
@@ -147,18 +148,6 @@ compileApplicationScope input = do
           .~ [source]
           & (:| [])
   _ <- first invalid (mkApplication app)
-  -- EP-283: likewise for app object buckets, so a binding is never dropped
-  -- silently. A Deployment, a Worker and a task bind one.
-  unless
-    (all (null . (^. #buckets)) (maybe [] pure (app ^. #service)) && all (null . (^. #buckets)) (app ^. #workers))
-    ( Left
-        ( ( inventoryError "bucket-not-bindable-from-application" "an application's service and workers do not bind an app object bucket; deploy the workload as a Deployment or Worker to bind one"
-              & #sources
-              .~ [source]
-          )
-            :| []
-        )
-    )
   -- EP-202: an application's workloads bind only the databases it declares;
   -- only its pre-deploy hooks bind app databases (EP-259).
   unless
@@ -411,7 +400,25 @@ compileApplicationScope input = do
   unless
     (Map.keysSet (scopeEnvSecrets input) == requiredSet `Set.difference` Map.keysSet ownSecretMap)
     (Left (invalid "runtime Secret environment requires exactly its external typed dependencies"))
-  let envSecrets = Map.union ownSecretMap (scopeEnvSecrets input)
+  -- EP-283: the service's and each worker's accepted bucket bindings, as
+  -- variables and the workload's own credential Secret. The buckets are
+  -- applied by their own review before this one, so the Secret dependency is
+  -- the only edge an application workload needs.
+  let bucketWorkloads = maybe [] (\service -> [(service ^. #name, service ^. #buckets)]) (app ^. #service) <> [(worker ^. #name, worker ^. #buckets) | worker <- app ^. #workers]
+  unless
+    (Map.keysSet (Map.filter (not . Map.null) (scopeBucketBindings input)) `Set.isSubsetOf` Set.fromList [workloadName | (workloadName, bindings) <- bucketWorkloads, not (null bindings)])
+    (Left (invalid "bucket dependencies name a workload that binds no bucket"))
+  bucketEnvironments <-
+    Map.fromList
+      <$> traverse
+        ( \(workloadName, bindings) -> do
+            names <- first invalid (traverse (bucketBindingKey . (^. #name)) bindings)
+            (generated, _, secrets) <- standaloneDatabaseEnvironment (scopeCluster input) (app ^. #namespace) names [] (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input)) invalid
+            pure (workloadName, (generated, secrets))
+        )
+        bucketWorkloads
+  let bucketEnvFor workloadName = maybe Map.empty fst (Map.lookup workloadName bucketEnvironments)
+      envSecrets = Map.unions [ownSecretMap, scopeEnvSecrets input, Map.unions (map snd (Map.elems bucketEnvironments))]
   _ <-
     traverse
       ( first invalid
@@ -432,7 +439,8 @@ compileApplicationScope input = do
           pure
             ( service
                 & #env
-                %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
+                %~ mergeGenerated (bucketEnvFor (service ^. #name))
+                . mergeGenerated (mergeGenerated localBrokerEnv generated)
                 & #brokers
                 .~ []
                 & #access
@@ -451,7 +459,8 @@ compileApplicationScope input = do
           pure
             ( worker
                 & #env
-                %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
+                %~ mergeGenerated (bucketEnvFor (worker ^. #name))
+                . mergeGenerated (mergeGenerated localBrokerEnv generated)
                 & #brokers
                 .~ []
             )

@@ -154,6 +154,7 @@ input app =
     , scopeRelease = (emptyReleaseLog, StaticRelease "v1" "scoped-web" "personal" "registry.example.com/scoped" "v1" (maybe "" (`serviceUrl` "example.com") (app ^. #service)) (Just "fixture") (UTCTime (fromGregorian 2026 11 12) 0))
     , scopeHookEffects = Map.fromList [(Dsl.serviceNameText (hook ^. #name), []) | hook <- app ^. #tasks]
     , scopeTaskDatabaseBindings = Map.empty
+    , scopeBucketBindings = Map.empty
     , scopeInputOverrides = Map.fromList ([("tag", "v1"), ("baseDomain", "example.com"), ("imageResource", resourceIdText imageId)] <> [("hook/" <> Dsl.serviceNameText (hook ^. #name), "") | hook <- app ^. #tasks])
     , scopeSource = source
     }
