@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-25T16:08:21Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-25T17:59:15Z
+      mode: "implement"
+      note: "M1 prototype run"
 ---
 
 # Serve a wildcard content domain from one worker with the Host header intact
@@ -55,9 +61,39 @@ host=share.CONTENT_DOMAIN
 
 ## Progress
 
-- [ ] M1 (prototype, local, nothing committed but the transcript). Kourier serves a hand-written
+- [x] M1 (prototype, local, nothing committed but the transcript). Kourier serves a hand-written
   Knative `Ingress` with a wildcard host over TLS to a plain Service with the `Host` header intact,
   and the effect of a second overlapping host on Envoy is known. A failure stops the plan.
+  - 2026-11-25: passed. Knative Serving and net-kourier 1.22.0 from the vendored manifests with
+    `knative-serving/config-network.yaml`, on a throwaway k3d cluster (k3s v1.34.6), then deleted.
+    The Ingress had the shape in Plan of Work: class `kourier.ingress.networking.knative.dev`, hosts
+    `*.content.test` and `content.test`, `ExternalIP`, `httpOption: Redirected`, one `tls` entry
+    and one split to a plain ClusterIP Service with no `rewriteHost`. Two things differ from the
+    plan's wording and do not bear on the question: the certificates came from a private CA made
+    with `openssl`, not from the `nagare-local-ca` ClusterIssuer, and the backend answers at
+    `/cgi-bin/whoami`. Requests went to Kourier's Service address with the CA verified.
+
+    ```text
+    == part 1: wildcard Ingress
+    Ready=True
+    alpha.content.test -> host=alpha.content.test served-by=wildcard-ns
+    beta.content.test -> host=beta.content.test served-by=wildcard-ns
+    content.test -> host=content.test served-by=wildcard-ns
+    http redirect: 301 https://alpha.content.test/cgi-bin/whoami
+    unlisted other.test: curl: (35) Recv failure: Connection reset by peer
+    == part 2: an overlapping exact host in another namespace
+    Ready=True
+    x.content.test -> host=x.content.test served-by=exact-ns
+    x.content.test certificate: *  subject: CN=exact
+    alpha.content.test -> host=alpha.content.test served-by=wildcard-ns
+    == part 2b: change an unrelated route and confirm Kourier still applies it
+    a third, unrelated Ingress: Ready=True
+    elsewhere.test (certificate not checked) -> host=elsewhere.test served-by=third-ns
+    beta.content.test -> host=beta.content.test served-by=wildcard-ns-v2
+    x.content.test -> host=x.content.test served-by=exact-ns
+    == kourier controller errors
+    0
+    ```
 - [ ] M2. A context lists content domains; on a cloud context the Pulumi program owns each
   domain's zone, its wildcard and apex records and the solver's grant. Evidence: `nagarectl` and
   `npm test` tests.
@@ -75,7 +111,12 @@ host=share.CONTENT_DOMAIN
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Envoy accepts an exact host under another Ingress's wildcard and gives the exact host its
+  requests and its own certificate; the wildcard keeps every other host, and Kourier goes on
+  applying unrelated changes with no error (M1 transcript, part 2). An overlap is therefore not a
+  fault Kourier reports: without the claim rule, a second scope could take one host of a content
+  domain from the worker that owns the wildcard. M3's rule stands as written, a wildcard claim
+  excludes every other host under `D`, and the compile is the only place that enforces it.
 
 
 ## Decision Log
