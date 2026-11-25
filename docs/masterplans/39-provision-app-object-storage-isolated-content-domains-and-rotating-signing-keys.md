@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-25T16:37:48Z
       mode: "implement"
       note: "EP-1 started"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-25T19:25:59Z
+      mode: "implement"
+      note: "EP-3 M2-M3 and EP-4 M1-M2 landed locally; cross-plan retirement finding"
 ---
 
 # Provision app object storage, isolated content domains and rotating signing keys
@@ -189,6 +194,20 @@ EP-1, EP-3 and EP-4 are in progress; EP-2 waits for EP-1. One gate is not owned 
   each Job by a digest of what it runs and retires the superseded one in the same review. EP-4's
   rotation, if it uses Jobs, needs the same rule.
 
+- A retirement removes a member from the desired state and leaves the object live; only an
+  `ApproveCollection` deletes, and `collectionKinds`
+  (`cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesCollection.hs`) admits neither a Kourier
+  Ingress, a cert-manager Certificate nor a Secret (2026-11-25, EP-3's Surprises). EP-3 M5 says
+  its retirement stops the hosts being served and destroys the certificate key; EP-4 M5 says its
+  retirement destroys the private keys. Neither holds as written. One decision should cover both:
+  collect the members in the retiring review (extending collection to those kinds, with the
+  recovery model's `KindCollect` rows and mutation records), or retire them and state that the
+  hosts and keys stay until a collect.
+
+- The recovery model's world holds a kind in line only with traces recorded from a real cluster,
+  and the recording (`docs/audits/k8s-semantics-2026-10-06/experiments/record-traces.sh`) covers
+  neither net-kourier nor cert-manager. EP-3 keeps both as documented limits and confirms them
+  natively (its Decision Log). EP-4's kinds (Secret, ConfigMap, RBAC, CronJob, Job) are in line.
 
 ## Decision Log
 

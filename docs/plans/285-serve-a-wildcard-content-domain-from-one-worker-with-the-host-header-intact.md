@@ -17,6 +17,11 @@ provenance:
       at: 2026-11-25T17:59:15Z
       mode: "implement"
       note: "M1 prototype run"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-25T19:25:59Z
+      mode: "implement"
+      note: "M2 and M3 implemented; M5 retirement needs a collection decision"
 ---
 
 # Serve a wildcard content domain from one worker with the Host header intact

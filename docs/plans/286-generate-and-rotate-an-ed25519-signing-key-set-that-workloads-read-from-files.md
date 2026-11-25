@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-25T16:08:21Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-25T19:25:59Z
+      mode: "implement"
+      note: "M1 rotation step and M2 rotator implemented"
 ---
 
 # Generate and rotate an Ed25519 signing key set that workloads read from files
