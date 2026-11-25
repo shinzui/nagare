@@ -5,6 +5,8 @@
 module KeySetRotatorSpec (keySetRotatorTests) where
 
 import Control.Monad (forM_)
+import Crypto.Error (eitherCryptoError)
+import Crypto.PubKey.Ed25519 qualified as Ed25519
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
@@ -24,6 +26,7 @@ import Nagare.Dsl.KeySet
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.KeySet
 import Nagare.KeySet.Rotator
+import Numeric (readHex)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -80,6 +83,21 @@ keySetRotatorTests =
         edit server' "secrets" privateFileKey (String "bm90IGpzb24=")
         rotateAt server' start >>= expectLeft
         writeCount server' >>= (@?= 0)
+    , testCase "a seed's public key is RFC 8032's, and crypton's signature with that seed verifies under it" $ do
+        let hex = BS.pack . pairs . T.unpack
+            pairs (a : b : rest) = fst (head (readHex [a, b])) : pairs rest
+            pairs _ = []
+            seed = hex "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
+        pair <- either (assertFailure . T.unpack) pure (keyPairFromSeed seed)
+        pair ^. #public @?= hex "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+        generated <- generateKeyPair
+        forM_ [pair, generated] $ \candidate -> do
+          secretKey <- either (assertFailure . show) pure (eitherCryptoError (Ed25519.secretKey (candidate ^. #secret)))
+          publicKey <- either (assertFailure . show) pure (eitherCryptoError (Ed25519.publicKey (candidate ^. #public)))
+          let message = "a grant token" :: ByteString
+          Ed25519.toPublic secretKey @?= publicKey
+          assertBool "the signature does not verify" (Ed25519.verify publicKey message (Ed25519.sign secretKey publicKey message))
+        assertBool "a short seed was accepted" (either (const True) (const False) (keyPairFromSeed (BS.take 31 seed)))
     , testCase "a policy round-trips, and one the DSL refuses is refused" $ do
         decodePolicy (encodePolicy policy) @?= Right policy
         assertBool "an overlap over the period was accepted" (either (const True) (const False) (decodePolicy "{\"periodMinutes\":10,\"overlapMinutes\":20}"))

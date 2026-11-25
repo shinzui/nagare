@@ -190,7 +190,7 @@ let
                 --replace-fail "../../cluster/" "${sourceForTests}/cluster/"
               substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
                 --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
-              substituteInPlace test/InventoryCloudSpec.hs \
+              substituteInPlace test/InventoryCloudSpec.hs test/ContentDomainContextSpec.hs \
                 --replace-fail "../../infra/pulumi/resource-catalog.json" "${../infra/pulumi/resource-catalog.json}"
               substituteInPlace \
                 test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
@@ -236,7 +236,7 @@ let
   checkedNagareDsl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagare-dsl (_old: {
       postPatch = ''
-        substituteInPlace test/ApplicationSpec.hs test/WorkerSpec.hs test/Spec.hs \
+        substituteInPlace test/ApplicationSpec.hs test/WorkerSpec.hs test/Spec.hs test/ObjectBucketSpec.hs \
           --replace-fail "../../cluster/examples" "${../cluster/examples}"
         substituteInPlace test/ResourceInventorySpec.hs \
           --replace-fail "../../cluster/bootstrap/nix-cache" "${../cluster/bootstrap/nix-cache}"

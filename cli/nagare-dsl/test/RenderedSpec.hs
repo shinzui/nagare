@@ -72,7 +72,9 @@ renderedTests =
         forM_ (take 400 (inputs (toStrict (encodeApplication multiApp)))) $ \input -> do
           let results = [void (decodeApplication input), void (decodeWorker input), void (decodeSite input), void (decodeRendered "0.18.0" [minBound .. maxBound] input)]
           forM_ results $ \result -> result `seq` pure ()
-    , testCase "a deployer's process refuses every config program before starting one" $
+    , -- It sets NAGARE_DEPLOYER for the whole process, so it runs once every other
+      -- test has finished: a config loaded meanwhile would be refused.
+      after AllFinish "!/a deployer's process refuses every config program before starting one/" . testCase "a deployer's process refuses every config program before starting one" $
         withSystemTempDirectory "ep249-refusal" $ \directory -> do
           let marker = directory </> "ran"
               program = directory </> "Config.hs"

@@ -18,6 +18,7 @@ module Nagare.KeySet.Rotator
   , policyFileKey
   , rotateOnce
   , generateKeyPair
+  , keyPairFromSeed
   , inClusterObjects
   , decodePolicy
   , encodePolicy
@@ -25,14 +26,17 @@ module Nagare.KeySet.Rotator
 where
 
 import Control.Exception (SomeException, try)
-import Crypto.PubKey.Ed25519 qualified as Ed25519
+import Crypto.ECC.Edwards25519 qualified as Edwards25519
+import Crypto.Error (eitherCryptoError)
+import Crypto.Hash (SHA512 (..), hashWith)
+import Crypto.Random (getRandomBytes)
 import Data.Aeson (Value (..), eitherDecodeStrict, object, withObject, (.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (parseEither)
-import Data.ByteArray qualified as BA
-import Data.ByteArray.Encoding (Base (Base64), convertFromBase, convertToBase)
+import Data.Bits ((.&.), (.|.))
+import Data.ByteArray.Encoding (Base (Base16, Base64), convertFromBase, convertToBase)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -175,8 +179,26 @@ withField encoded name value = \case
 -- | A fresh Ed25519 key: the public key and the 32-byte seed.
 generateKeyPair :: IO KeyPair
 generateKeyPair = do
-  secretKey <- Ed25519.generateSecretKey
-  pure (KeyPair (BA.convert (Ed25519.toPublic secretKey)) (BA.convert secretKey))
+  seed <- getRandomBytes 32
+  either (ioError . userError . T.unpack) pure (keyPairFromSeed seed)
+
+-- | The key pair of a 32-byte seed, as RFC 8032 section 5.1.5 derives it:
+-- the low half of SHA-512(seed), clamped, is the scalar, and the public key
+-- is the encoded point. It is written with crypton's polymorphic encoders so
+-- that no byte-array class is named: the Nix build's crypton is built on
+-- @memory@ and the cabal build's on @ram@, and their classes differ.
+keyPairFromSeed :: ByteString -> Either Text KeyPair
+keyPairFromSeed seed = do
+  when (BS.length seed /= 32) (Left "an Ed25519 seed has 32 bytes")
+  digest <- first T.pack (convertFromBase Base16 (TE.encodeUtf8 (T.pack (show (hashWith SHA512 seed)))) :: Either String ByteString)
+  let low = BS.take 32 digest
+      clamped = BS.pack (zipWith clamp [0 :: Int ..] (BS.unpack low))
+      clamp index byte
+        | index == 0 = byte .&. 248
+        | index == 31 = (byte .&. 127) .|. 64
+        | otherwise = byte
+  scalar <- first (T.pack . show) (eitherCryptoError (Edwards25519.scalarDecodeLong clamped))
+  pure (KeyPair (Edwards25519.pointEncode (Edwards25519.toPoint scalar)) seed)
 
 -- | The in-cluster client, from the ServiceAccount's mounted token and CA.
 inClusterObjects :: IO (Either Text KubeObjects)
