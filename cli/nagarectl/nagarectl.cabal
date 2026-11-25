@@ -37,6 +37,7 @@ library
   other-modules:
     Nagare.Inventory.Application.Bindings
     Nagare.Inventory.Application.Compile
+    Nagare.Inventory.Application.ContentRoute
     Nagare.Inventory.Application.Database
     Nagare.Inventory.Application.Environment
     Nagare.Inventory.Application.Ownership
@@ -720,6 +721,7 @@ test-suite nagarectl-test
     CertificateMigrationSpec
     ClusterSessionSpec
     ContentDomainContextSpec
+    ContentRouteSpec
     ContextReviewSpec
     DataFenceSpec
     DomainBindingSpec

@@ -787,6 +787,13 @@ validateGraph :: Map ScopeId ScopeDeclaration -> [Declaration] -> Map CanonicalC
 validateGraph ss ds reservations =
   [issue "duplicate-id" "duplicate logical identity" [d | d <- ds, declarationId d == r] [] | r <- duplicates (map declarationId ds <> map (^. #identity) ops)]
     <> [issue "claim-conflict" "canonical address claimed by multiple resources" holders [c] | (c, holders) <- Map.toList claims, length holders > 1, not (pairedDnsRouteClaim c holders)]
+    <> [ issue "content-domain-claimed" "a host under a content domain is claimed by another resource" [d, other] [canonicalClaim (Hostname host)]
+       | (d, apex) <- contentRoutes
+       , other <- ds
+       , declarationId other /= declarationId d
+       , Hostname host <- hostnamesOf other
+       , ("." <> apex) `Data.Text.isSuffixOf` nameText host
+       ]
     <> [issue "reserved-claim" "address held by retained, candidate, or unresolved history" [d] [c] & #scopes %~ (s :) & #resources %~ (r :) | (c, ClaimHolder s r _ _) <- Map.toList reservations, d <- Map.findWithDefault [] c claims, declarationId d /= r]
     <> concatMap validateDeclaration ds
     <> [ issue "dangling-reference" "dependency producer is absent" [d] [] & #resources %~ (p :)
@@ -859,6 +866,19 @@ validateGraph ss ds reservations =
     dependencyRefProducer (SomeRef ref) = refProducer ref
     isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]
     claims = Map.fromListWith (<>) [(c, [d]) | d <- ds, participates d, (_, c) <- NE.toList (claimsOf d)]
+    hostnamesOf = \case
+      Managed resource -> resource ^. #address : resource ^. #aliases
+      External _ address _ _ -> [address]
+      ObservedChild {} -> []
+    -- EP-285: a content route's Knative Ingress claims its domain's apex as an
+    -- alias and serves every host under it, so its alias covers them all.
+    contentRoutes =
+      [ (Managed resource, nameText apex)
+      | Managed resource <- ds
+      , Kubernetes _ "networking.internal.knative.dev" kind _ _ <- [resource ^. #address]
+      , nameText kind == "ingress"
+      , Hostname apex <- resource ^. #aliases
+      ]
     -- An External declaration reserves its address just like a managed one:
     -- another scope cannot acquire that provider object by compiling a native
     -- member. Observed children intentionally share a parent's derived claim.

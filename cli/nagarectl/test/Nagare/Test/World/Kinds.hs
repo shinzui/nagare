@@ -171,6 +171,13 @@ kindTable =
   , -- Platform bootstrap kinds are not in release line (b).
     platform ("apiextensions.k8s.io", "customresourcedefinition") CanBeUnready
   , platform ("cert-manager.io", "certificate") CanBeUnready
+  , -- EP-285: a content route's Kourier Ingress. Its controller is net-kourier,
+    -- whose semantics RES-4 did not record; the content route's native run
+    -- confirms its readiness.
+    (inLine ("networking.internal.knative.dev", "ingress") updatable CanBeUnready)
+      { status = DocumentedLimit "content route Ingress outside release line (b); its readiness is confirmed natively (EP-285 M4)"
+      , semantics = Nothing
+      }
   , platform ("cert-manager.io", "clusterissuer") CanBeUnready
   ]
     <> [ KindRow

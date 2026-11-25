@@ -5,6 +5,7 @@ module Main (main) where
 import AppDatabaseBindingSpec (appDatabaseBindingTests)
 import ApplicationSpec (applicationTests)
 import CdnSpec (cdnTests)
+import ContentRouteSpec (contentRouteTests)
 import Control.Lens ((&), (.~))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
@@ -86,6 +87,7 @@ main =
       , loadTests
       , mountsTests
       , objectBucketTests
+      , contentRouteTests
       , renderedTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests

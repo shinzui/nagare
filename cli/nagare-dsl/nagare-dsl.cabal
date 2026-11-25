@@ -84,6 +84,7 @@ library
     Nagare.Dsl.Task.Render
     Nagare.Dsl.Types
     Nagare.Dsl.Worker
+    Nagare.Dsl.Worker.Content
     Nagare.Dsl.Worker.Render
     Nagare.Resource.Access
     Nagare.Resource.AppDatabase
@@ -140,6 +141,7 @@ test-suite nagare-dsl-test
     AppDatabaseBindingSpec
     ApplicationSpec
     CdnSpec
+    ContentRouteSpec
     DeploymentMeaningSpec
     ImageSpec
     JobSpec

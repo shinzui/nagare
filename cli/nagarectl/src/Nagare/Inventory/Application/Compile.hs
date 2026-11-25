@@ -45,6 +45,7 @@ import Nagare.Dsl.Types
   )
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Application.Bindings (brokerEvidenceIds, bucketBindingKey)
+import Nagare.Inventory.Application.ContentRoute (compileWorkerRoutes)
 import Nagare.Inventory.Application.Database
   ( compileApplicationDatabases
   )
@@ -569,6 +570,8 @@ compileApplicationScope input = do
       (scopeWorkerVolumeRecovery input)
       envSecrets
       source
+  -- EP-285: each worker's port as a Service, and its content route.
+  (routeBundles, routeNative) <- compileWorkerRoutes scopedApp runtimeRollout owner (scopeCluster input) (scopeNamespace input) source
   (taskBundle, taskNative) <-
     compileApplicationTasks
       runtimeApp
@@ -631,18 +634,20 @@ compileApplicationScope input = do
         namespaceBundles
           <> databaseBundles
           <> cdnBundles
+          <> routeBundles
           <> map addBrokerEdges (maybe [] (pure . fst) serviceResult <> workerBundles <> [taskBundle])
       workloadNativeMaps =
-        [databaseNative]
+        [databaseNative, routeNative]
           <> maybe [] (pure . snd) serviceResult
           <> [workerNative, taskNative]
       workloadNative =
-        Map.union
-          databaseNative
-          ( Map.map
+        Map.unions
+          [ databaseNative
+          , routeNative
+          , Map.map
               (\(resource, bytes) -> (addBrokerResource resource, bytes))
               (Map.unions (maybe [] (pure . snd) serviceResult <> [workerNative, taskNative]))
-          )
+          ]
   let (prior, release) = scopeRelease input
   releaseResult <-
     compileApplicationRelease

@@ -116,6 +116,24 @@ host=share.CONTENT_DOMAIN
   Service, a Certificate and an Ingress; the compile refuses an unlisted domain, a tunnel context
   and a conflicting host; no other application's members change. Evidence: `nagare-dsl` and
   interpreter tests.
+  - 2026-11-25: done but for `domains list`. `Worker` has `http :: Maybe WorkerHttp` (port and an
+    optional `ContentRoute`, in `cli/nagare-dsl/src/Nagare/Dsl/ContentDomain.hs`); its JSON key is
+    omitted when absent, so no earlier golden or config digest moved, and the loader refuses a route
+    without a readiness probe. `Nagare.Dsl.Worker.Content` renders the Service, the Certificate
+    (label `nagare.dev/content-domain`) and the Ingress of the M1 shape; the Deployment gains a
+    named `http` container port. `Inventory/Application/ContentRoute.hs` compiles them into the
+    application scope (Ingress after Certificate and Service, alias `Hostname D`, issuer
+    `letsencrypt-dns` or `nagare-local-ca` by mode) and refuses `content-domain-not-listed`,
+    `content-route-needs-direct-ingress` and `content-domain-claimed` (the app's own host under
+    `D`, two workers on one domain). The composition refuses `content-domain-claimed` for any other
+    member's host under a content Ingress's domain, and `claim-conflict` for its apex. A standalone
+    worker with a port is refused (`worker-http-needs-application`). The Ingress is ready at
+    `observedGeneration == generation` and `Ready=True`. The certificate policy expects a
+    labelled content certificate for a listed domain, covering exactly `*.D` and `D`, in an app
+    namespace. The example's gateway serves the context's first content domain. Evidence:
+    nagare-dsl `content route (EP-285)` (9, two new goldens; 577 pass); nagarectl `content route`
+    (8) and the policy case in `certificate policy`; `just gate-commit` green. Open: `domains list`
+    does not yet show the route's hosts.
 - [ ] M4. Two subdomains and a fixed host reach the worker with their own `Host` header under a
   valid wildcard certificate: on a local context under the local CA, and on a disposable cloud
   context under a DNS-01 certificate. Evidence: transcripts here (IR-55 AC-3).
@@ -172,6 +190,16 @@ host=share.CONTENT_DOMAIN
   Cloudflare DNS credential (ADR 20, ADR 34).
   Date: 2026-11-25
 
+
+- Decision: The model world keeps the Kourier `Ingress` and the cert-manager `Certificate` as
+  documented-limit kinds; M3's tests stop at the compile, the composition and the readiness
+  predicate, and M4's native runs confirm the two controllers.
+  Rationale: An in-line kind must replay traces recorded from a real cluster
+  (`docs/audits/k8s-semantics-2026-10-06/experiments/record-traces.sh`), which records neither
+  net-kourier nor cert-manager; recording them is a project of its own. The adapter path for both
+  kinds is the generic Kubernetes apply and observe, already in line; only the Ingress readiness
+  predicate is new, and it has a unit test.
+  Date: 2026-11-25
 
 ## Outcomes & Retrospective
 

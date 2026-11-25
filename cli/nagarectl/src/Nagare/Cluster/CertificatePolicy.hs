@@ -26,6 +26,8 @@ data CertificateObservation = CertificateObservation
   , issuerName :: !Text
   , dnsNames :: ![Text]
   , isNamespaceWildcard :: !Bool
+  , contentDomain :: !(Maybe Text)
+  -- ^ the @nagare.dev/content-domain@ label of a content route's certificate (EP-285)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -49,14 +51,18 @@ parseCertificateObservations bytes = do
       String namespace <- KeyMap.lookup "namespace" metadata
       String name <- KeyMap.lookup "name" metadata
       String issuerName <- KeyMap.lookup "name" issuer
-      let isNamespaceWildcard = case KeyMap.lookup "labels" metadata of
-            Just (Object labels) -> KeyMap.member "networking.knative.dev/wildcardDomain" labels
-            _ -> False
+      let labels = case KeyMap.lookup "labels" metadata of
+            Just (Object found) -> found
+            _ -> KeyMap.empty
+          isNamespaceWildcard = KeyMap.member "networking.knative.dev/wildcardDomain" labels
+          contentDomain = case KeyMap.lookup "nagare.dev/content-domain" labels of
+            Just (String domain) -> Just domain
+            _ -> Nothing
       dnsNames <- case KeyMap.lookup "dnsNames" spec of
         Nothing -> Just []
         Just (Array dns) -> traverse textValue (Vector.toList dns)
         Just _ -> Nothing
-      pure CertificateObservation {namespace, name, issuerName, dnsNames, isNamespaceWildcard}
+      pure CertificateObservation {namespace, name, issuerName, dnsNames, isNamespaceWildcard, contentDomain}
     parseCertificate _ = Nothing
     textValue (String value) = Just value
     textValue _ = Nothing
@@ -73,10 +79,16 @@ parseLabeledNamespaces bytes = do
       pure name
     namespaceName _ = Nothing
 
-certificatePolicyViolations :: Set Text -> [CertificateObservation] -> [CertificateViolation]
-certificatePolicyViolations labeledNamespaces = concatMap inspect
+-- | The first set is the labeled application namespaces; the second, the
+-- content domains the context lists (EP-285). A content route's certificate is
+-- the one public wildcard expected outside Knative's namespace wildcards: it
+-- must name a listed domain, cover exactly @*.D@ and @D@, and live in an
+-- application namespace.
+certificatePolicyViolations :: Set Text -> Set Text -> [CertificateObservation] -> [CertificateViolation]
+certificatePolicyViolations labeledNamespaces contentDomains = concatMap inspect
   where
-    inspect observation@CertificateObservation {namespace = observationNamespace, issuerName = observationIssuer, dnsNames = observationDnsNames, isNamespaceWildcard = observationIsNamespaceWildcard}
+    inspect observation@CertificateObservation {namespace = observationNamespace, issuerName = observationIssuer, dnsNames = observationDnsNames, isNamespaceWildcard = observationIsNamespaceWildcard, contentDomain = observationContentDomain}
+      | Just domain <- observationContentDomain = contentViolations domain <> nameViolations
       | observationIsNamespaceWildcard = namespaceWildcardViolations <> nameViolations
       | observationIssuer == "letsencrypt-dns" = nameViolations
       | otherwise = []
@@ -87,6 +99,10 @@ certificatePolicyViolations labeledNamespaces = concatMap inspect
           , observationIssuer == "letsencrypt-dns"
           , not (isPublicDnsName dnsName)
           ]
+        contentViolations domain =
+          [violation observation ("content domain " <> domain <> " is not listed by the context") | domain `Set.notMember` contentDomains]
+            <> [violation observation "content certificate names hosts other than its domain and wildcard" | observationDnsNames /= ["*." <> domain, domain]]
+            <> [violation observation "content certificate is in an unlabeled namespace" | observationNamespace `Set.notMember` labeledNamespaces]
         namespaceWildcardViolations
           | observationNamespace `Set.notMember` labeledNamespaces =
               [violation observation "namespace wildcard is in an unlabeled namespace"]

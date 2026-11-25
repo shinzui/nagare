@@ -36,6 +36,7 @@ observedReady (Object root) = case (KM.lookup "apiVersion" root, KM.lookup "kind
   (_, Just (String "ClusterIssuer")) -> certificateReady (Object root)
   (Just (String "serving.knative.dev/v1"), Just (String "Service")) -> knativeReady (Object root)
   (Just (String "serving.knative.dev/v1beta1"), Just (String "DomainMapping")) -> domainMappingReady (Object root)
+  (Just (String "networking.internal.knative.dev/v1alpha1"), Just (String "Ingress")) -> knativeReady (Object root)
   (_, Just (String "Deployment")) -> deploymentAvailable (Object root)
   (Just (String "apps/v1"), Just (String "StatefulSet")) -> statefulSetReady (Object root)
   _ -> True
@@ -179,6 +180,8 @@ readinessForAddress address value = case address of
   Kubernetes _ "cert-manager.io" kind _ _ | nameText kind `elem` ["certificate", "clusterissuer"] -> Just (certificateReady value)
   Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "service" -> Just (knativeReady value)
   Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "domainmapping" -> Just (domainMappingReady value)
+  -- EP-285: a content route's Ingress, ready once Kourier has programmed this generation.
+  Kubernetes _ "networking.internal.knative.dev" kind _ _ | nameText kind == "ingress" -> Just (knativeReady value)
   Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" -> Just (deploymentAvailable value)
   Kubernetes _ "apps" kind _ _ | nameText kind == "statefulset" -> Just (statefulSetReady value)
   _ -> Nothing

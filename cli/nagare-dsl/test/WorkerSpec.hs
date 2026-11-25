@@ -337,6 +337,7 @@ brokerExampleWorker =
     , databases = []
     , appDatabases = []
     , buckets = []
+    , http = Nothing
     , appDatabaseReaders = []
     , brokers =
         [ BrokerBinding

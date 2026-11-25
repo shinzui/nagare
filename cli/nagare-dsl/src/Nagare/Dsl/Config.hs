@@ -45,6 +45,7 @@ import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
+import Nagare.Dsl.ContentDomain (WorkerHttp, contentDomainText)
 import Nagare.Dsl.Database
 import Nagare.Dsl.Job
 import Nagare.Dsl.ObjectBucket
@@ -449,9 +450,28 @@ workerJSON w =
       <> managedEnvJSON (w ^. #managedEnv)
       <> appDatabasesJSON (w ^. #appDatabases)
       <> bucketsJSON (w ^. #buckets)
+      <> workerHttpJSON (w ^. #http)
       <> appDatabaseReadersJSON (w ^. #appDatabaseReaders)
   where
     res = w ^. #resources
+
+-- | Emitted only when present, so a worker with no port keeps the exact bytes
+-- (and config digest) it had before EP-285.
+workerHttpJSON :: Maybe WorkerHttp -> [(Key, Value)]
+workerHttpJSON Nothing = []
+workerHttpJSON (Just http) =
+  [ "http"
+      .= object
+        ( ["port" .= portInt (http ^. #port)]
+            <> [ "content"
+                   .= object
+                     [ "domain" .= contentDomainText (route ^. #domain)
+                     , "fixedHosts" .= map domainText (route ^. #fixedHosts)
+                     ]
+               | Just route <- [http ^. #content]
+               ]
+        )
+  ]
 
 -- | The JSON shape of a worker probe (EP-74). A @"kind"@ discriminator
 -- (@"Exec"|"Tcp"|"Http"@) selects the per-mechanism fields; the shared timing is

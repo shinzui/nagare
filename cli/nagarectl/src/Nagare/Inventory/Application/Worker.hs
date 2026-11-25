@@ -161,6 +161,17 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
   unless
     (scopeKind owner == Standalone)
     (Left (invalid "worker requires a standalone owner"))
+  -- EP-285: a port and its content route are an application's; a standalone
+  -- worker stays unreachable.
+  unless
+    (isNothing (worker ^. #http))
+    ( Left
+        ( inventoryError "worker-http-needs-application" "a worker with an HTTP port must be one of an application's workers; deploy it with nagarectl app deploy"
+            & #sources
+            .~ [source]
+            & (:| [])
+        )
+    )
   unless
     ( rollout ^. #appName == serviceNameText (worker ^. #name)
         && rollout ^. #namespace == namespaceText (worker ^. #namespace)

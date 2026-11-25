@@ -199,7 +199,7 @@ certificatePolicyTests =
               ["get", "certificates.cert-manager.io", "-A", "-o", "json"] -> Just certificates
               ["get", "namespaces", "-l", "nagare.dev/app-namespace=true", "-o", "json"] -> Just namespaces
               _ -> Nothing
-      probe <- probeCertificatePolicyWith capture
+      probe <- probeCertificatePolicyWith Set.empty capture
       probe ^. #status @?= StatusOk
       readIORef calls
         >>= (@?=)
@@ -213,10 +213,12 @@ certificatePolicyTests =
   , testCase "accepts a public wildcard in a labeled app namespace" $
       certificatePolicyViolations
         (Set.singleton "personal")
+        Set.empty
         [namespaceWildcardCert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
         @?= []
   , testCase "ignores internal names on the self-signed issuer" $
       certificatePolicyViolations
+        Set.empty
         Set.empty
         [cert "knative-serving" "routing-serving-certs" "knative-selfsigned-issuer" ["kn-routing", "data-plane.knative.dev"]]
         @?= []
@@ -224,6 +226,7 @@ certificatePolicyTests =
       let violations =
             certificatePolicyViolations
               (Set.singleton "knative-serving")
+              Set.empty
               [cert "knative-serving" "routing-serving-certs" "letsencrypt-dns" ["kn-routing", "api.personal.svc", "api.personal.svc.cluster.local"]]
           details = renderCertificateViolations violations
       length violations @?= 3
@@ -233,13 +236,27 @@ certificatePolicyTests =
   , testCase "rejects a public wildcard in an unlabeled namespace" $
       certificatePolicyViolations
         Set.empty
+        Set.empty
         [namespaceWildcardCert "kube-system" "wildcard" "letsencrypt-dns" ["*.kube-system.apps.example.com"]]
         @?= [CertificateViolation "kube-system" "wildcard" "namespace wildcard is in an unlabeled namespace"]
   , testCase "rejects a self-signed public namespace wildcard" $
       certificatePolicyViolations
         (Set.singleton "personal")
+        Set.empty
         [namespaceWildcardCert "personal" "wildcard" "knative-selfsigned-issuer" ["*.personal.apps.example.com"]]
         @?= [CertificateViolation "personal" "wildcard" "public namespace wildcard is not using letsencrypt-dns"]
+  , testCase "a content route's wildcard is expected for a listed domain in an app namespace (EP-285)" $ do
+      parseCertificateObservations
+        "{\"items\":[{\"metadata\":{\"name\":\"nagare-content-content-gateway\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/content-domain\":\"content.example\"}},\"spec\":{\"issuerRef\":{\"name\":\"letsencrypt-dns\"},\"dnsNames\":[\"*.content.example\",\"content.example\"]}}]}"
+        @?= Just [contentCert "personal" "content.example" ["*.content.example", "content.example"]]
+      certificatePolicyViolations (Set.singleton "personal") (Set.singleton "content.example") [contentCert "personal" "content.example" ["*.content.example", "content.example"]]
+        @?= []
+      map (^. #reason) (certificatePolicyViolations (Set.singleton "personal") Set.empty [contentCert "personal" "content.example" ["*.content.example", "content.example"]])
+        @?= ["content domain content.example is not listed by the context"]
+      map (^. #reason) (certificatePolicyViolations (Set.singleton "personal") (Set.singleton "content.example") [contentCert "personal" "content.example" ["*.content.example", "content.example", "*.other.example"]])
+        @?= ["content certificate names hosts other than its domain and wildcard"]
+      map (^. #reason) (certificatePolicyViolations Set.empty (Set.singleton "content.example") [contentCert "kube-system" "content.example" ["*.content.example", "content.example"]])
+        @?= ["content certificate is in an unlabeled namespace"]
   ]
   where
     cert namespace name issuerName dnsNames =
@@ -249,6 +266,9 @@ certificatePolicyTests =
         , issuerName = issuerName
         , dnsNames = dnsNames
         , isNamespaceWildcard = False
+        , contentDomain = Nothing
         }
     namespaceWildcardCert namespace name issuerName dnsNames =
       (cert namespace name issuerName dnsNames) {isNamespaceWildcard = True}
+    contentCert namespace domain dnsNames =
+      (cert namespace "nagare-content-content-gateway" "letsencrypt-dns" dnsNames) {contentDomain = Just domain}

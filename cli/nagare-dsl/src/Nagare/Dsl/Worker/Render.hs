@@ -155,7 +155,15 @@ containerValue storeApp w imageStr =
         <> resourcesPairs (w ^. #resources)
         <> probesField (w ^. #readiness) (w ^. #liveness)
         <> volumeMountsField (w ^. #volumes)
+        <> portsPairs w
     )
+
+-- | The container's HTTP port (EP-285), named @http@; absent for a worker
+-- with none, so its bytes are unchanged.
+portsPairs :: Worker -> [Pair]
+portsPairs w = case w ^. #http of
+  Nothing -> []
+  Just http -> ["ports" .= [object ["name" .= txt "http", "containerPort" .= portInt (http ^. #port)]]]
 
 -- | The Pod's termination allowance, omitted when the worker declares none.
 shutdownPairs :: Maybe ShutdownSeconds -> [Pair]
@@ -272,6 +280,8 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("livenessProbe", 7)
       , ("startupProbe", 8)
       , ("volumeMounts", 9)
+      , ("ports", 10)
+      , ("containerPort", 1)
       , -- probe sub-object: the check mechanism first, then timings in doc order
         ("exec", 0)
       , ("tcpSocket", 0)

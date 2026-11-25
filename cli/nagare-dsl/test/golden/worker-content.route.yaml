@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/worker: content-gateway
+  name: content-gateway
+  namespace: personal
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    nagare.dev/worker: content-gateway
+  type: ClusterIP
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    nagare.dev/content-domain: content.example
+    nagare.dev/managed-by: nagarectl
+  name: nagare-content-content-gateway
+  namespace: personal
+spec:
+  dnsNames:
+  - '*.content.example'
+  - content.example
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: letsencrypt-dns
+  secretName: nagare-content-content-gateway
+---
+apiVersion: networking.internal.knative.dev/v1alpha1
+kind: Ingress
+metadata:
+  annotations:
+    networking.knative.dev/ingress.class: kourier.ingress.networking.knative.dev
+  labels:
+    nagare.dev/content-domain: content.example
+    nagare.dev/managed-by: nagarectl
+  name: nagare-content-content-gateway
+  namespace: personal
+spec:
+  httpOption: Redirected
+  rules:
+  - hosts:
+    - '*.content.example'
+    - content.example
+    http:
+      paths:
+      - splits:
+        - percent: 100
+          serviceName: content-gateway
+          serviceNamespace: personal
+          servicePort: 8080
+    visibility: ExternalIP
+  tls:
+  - hosts:
+    - '*.content.example'
+    - content.example
+    secretName: nagare-content-content-gateway
+    secretNamespace: personal

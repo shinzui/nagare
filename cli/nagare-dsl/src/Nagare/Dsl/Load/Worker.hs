@@ -18,7 +18,9 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
+import Data.Traversable (for)
 import Nagare.Dsl.Build (defaultBuild)
+import Nagare.Dsl.ContentDomain (WorkerHttp (..), mkContentDomain, mkContentRoute)
 import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load.Broker
   ( JsonBrokerBinding (..)
@@ -45,6 +47,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( HealthScheme (HTTP, HTTPS)
   , Resources (..)
+  , mkDomain
   , mkImageRef
   , mkNamespace
   , mkPort
@@ -91,6 +94,7 @@ data JsonWorker = JsonWorker
   , databases :: ![Text]
   , appDatabases :: ![JsonAppDatabaseBinding]
   , buckets :: ![JsonBucketBinding]
+  , http :: !(Maybe JsonWorkerHttp)
   , appDatabaseReaders :: ![JsonAppDatabaseReaderRef]
   , brokers :: ![JsonBrokerBinding]
   , liveness :: !(Maybe JsonWorkerProbe)
@@ -120,6 +124,7 @@ instance FromJSON JsonWorker where
       <*> o .:? "databases" .!= []
       <*> o .:? "appDatabases" .!= []
       <*> o .:? "buckets" .!= []
+      <*> o .:? "http"
       <*> o .:? "appDatabaseReaders" .!= []
       <*> o .:? "brokers" .!= []
       <*> o .:? "liveness"
@@ -227,6 +232,7 @@ toWorker j = do
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (j ^. #databases)
   appDbRefs' <- traverse toAppDatabaseBinding (j ^. #appDatabases)
   buckets' <- traverse toBucketBinding (j ^. #buckets)
+  http' <- traverse toWorkerHttp (j ^. #http)
   readerRefs' <- traverse toAppDatabaseReaderRef (j ^. #appDatabaseReaders)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
   liveness' <- traverse (toWorkerProbe "liveness") (j ^. #liveness)
@@ -234,6 +240,11 @@ toWorker j = do
   shutdown' <- traverse (first (MarshalError "shutdownSeconds") . mkShutdownSeconds) (j ^. #shutdownSeconds)
   serviceAccount' <- traverse (first (MarshalError "serviceAccount") . mkServiceAccountName) (j ^. #serviceAccount)
   managedEnv' <- toManagedEnv (j ^. #managedEnv)
+  -- EP-285: a content route sends a worker public requests, so the platform
+  -- routes to it only while it reports ready.
+  when
+    (isJust (http' >>= (^. #content)) && isNothing readiness')
+    (Left (MarshalError "http.content" "a worker with a content route must declare a readiness probe"))
   Right
     Worker
       { name = name'
@@ -249,6 +260,7 @@ toWorker j = do
       , databases = dbRefs'
       , appDatabases = appDbRefs'
       , buckets = buckets'
+      , http = http'
       , appDatabaseReaders = readerRefs'
       , brokers = brokerRefs'
       , liveness = liveness'
@@ -257,6 +269,35 @@ toWorker j = do
       , serviceAccount = serviceAccount'
       , managedEnv = managedEnv'
       }
+
+-- | A worker's @http@ entry (EP-285): its port and, optionally, the content
+-- route it serves.
+data JsonWorkerHttp = JsonWorkerHttp
+  { port :: !Int
+  , content :: !(Maybe JsonContentRoute)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonWorkerHttp where
+  parseJSON = withObject "WorkerHttp" $ \o -> JsonWorkerHttp <$> o .: "port" <*> o .:? "content"
+
+data JsonContentRoute = JsonContentRoute
+  { domain :: !Text
+  , fixedHosts :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonContentRoute where
+  parseJSON = withObject "ContentRoute" $ \o -> JsonContentRoute <$> o .: "domain" <*> o .:? "fixedHosts" .!= []
+
+toWorkerHttp :: JsonWorkerHttp -> Either LoadError WorkerHttp
+toWorkerHttp j = do
+  port' <- first (MarshalError "http.port") (mkPort (j ^. #port))
+  content' <- for (j ^. #content) $ \route -> do
+    contentDomain <- first (MarshalError "http.content.domain") (mkContentDomain (route ^. #domain))
+    hosts <- traverse (first (MarshalError "http.content.fixedHosts") . mkDomain) (route ^. #fixedHosts)
+    first (MarshalError "http.content.fixedHosts") (mkContentRoute contentDomain hosts)
+  pure (WorkerHttp port' content')
 
 toWorkerResources :: JsonWorker -> Either LoadError (Maybe Resources)
 toWorkerResources j =

@@ -293,7 +293,7 @@ runCluster globalContext = \case
               then LBC.putStrLn (Aeson.encode (Aeson.object ["guarded" Aeson..= True, "observations" Aeson..= evidence]))
               else TIO.putStrLn (renderClusterGuard inputs)
   ClusterCertificatePolicy -> do
-    probe <- probeCertificatePolicy
+    probe <- probeCertificatePolicy . (^. #profile) =<< activeTarget globalContext
     TIO.putStr (renderInventory [probe])
     case probe ^. #status of
       StatusOk -> pure ()

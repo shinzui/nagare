@@ -27,6 +27,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.List (find)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
@@ -37,6 +38,7 @@ import Nagare.Cluster.CertificatePolicy
   , parseLabeledNamespaces
   , renderCertificateViolations
   )
+import Nagare.Dsl.ContentDomain (contentDomainText)
 import Nagare.Dsl.Prelude
 import Nagare.Host.AgeKey (RemoteAgeKeyStatus (..), parseRemoteAgeKeyStatus)
 import Nagare.Ops.Probe
@@ -85,7 +87,7 @@ gatherInventory tp o = do
           -- ADR 34: a tunnel context has no DNS-01 issuer and no origin certificates, on purpose.
           <> ( if tp ^. #ingress == IngressCloudflareTunnel
                  then [probeTunnelIngress publicIp]
-                 else [probeClusterIssuer, probeKourierIp publicIp, probeTls, probeCertificatePolicy]
+                 else [probeClusterIssuer, probeKourierIp publicIp, probeTls, probeCertificatePolicy tp]
              )
           <> map (probeBackup bucket) (backupPrefixes [])
       )
@@ -222,15 +224,15 @@ probeTls = do
 -- public ACME issuer, or when a public wildcard appears outside an opted-in app
 -- namespace. Transport and parse failures remain UNKNOWN so doctor does not
 -- claim a policy violation without evidence.
-probeCertificatePolicy :: IO Probe
-probeCertificatePolicy = probeCertificatePolicyWith (captureTool "kubectl")
+probeCertificatePolicy :: TargetProfile -> IO Probe
+probeCertificatePolicy tp = probeCertificatePolicyWith (Set.fromList (map contentDomainText (tp ^. #contentDomains))) (captureTool "kubectl")
 
 -- | Probe through an injected kubectl capture function. Qualify cert-manager's
 -- Certificate resource explicitly: clusters that also install Knative expose
 -- another @Certificate@ kind, and kubectl's short-name resolution is not a
 -- stable API contract.
-probeCertificatePolicyWith :: ([String] -> IO (Maybe ByteString)) -> IO Probe
-probeCertificatePolicyWith captureKubectl = do
+probeCertificatePolicyWith :: Set.Set Text -> ([String] -> IO (Maybe ByteString)) -> IO Probe
+probeCertificatePolicyWith contentDomains captureKubectl = do
   certificates <- captureKubectl ["get", "certificates.cert-manager.io", "-A", "-o", "json"]
   namespaces <-
     captureKubectl
@@ -243,7 +245,7 @@ probeCertificatePolicyWith captureKubectl = do
       ]
   pure $ case (certificates >>= parseCertificateObservations, namespaces >>= parseLabeledNamespaces) of
     (Just observations, Just labeled) ->
-      case certificatePolicyViolations labeled observations of
+      case certificatePolicyViolations labeled contentDomains observations of
         [] -> Probe "certificate policy" StatusOk "public ACME names are confined to labeled app namespaces"
         violations -> Probe "certificate policy" StatusFail (renderCertificateViolations violations)
     _ -> Probe "certificate policy" StatusUnknown "certificate or namespace inventory not reachable"

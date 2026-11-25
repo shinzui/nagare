@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: content-gateway
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/worker: content-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      nagare.dev/worker: content-gateway
+  template:
+    metadata:
+      labels:
+        nagare.dev/worker: content-gateway
+    spec:
+      containers:
+      - name: content-gateway
+        image: registry.example/content-gateway:latest
+        envFrom:
+        - configMapRef:
+            name: nagare-env-content-gateway-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-content-gateway-runtime
+            optional: true
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+        ports:
+        - name: http
+          containerPort: 8080
+      automountServiceAccountToken: false
