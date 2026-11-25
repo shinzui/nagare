@@ -142,6 +142,13 @@ host=share.CONTENT_DOMAIN
 - [ ] M4. Two subdomains and a fixed host reach the worker with their own `Host` header under a
   valid wildcard certificate: on a local context under the local CA, and on a disposable cloud
   context under a DNS-01 certificate. Evidence: transcripts here (IR-55 AC-3).
+  - 2026-11-25 (in progress, cloud half): disposable context `ep285` in `tan-nb-exp` (direct,
+    content domain `content.topagentnetworklabs.com`) bootstrapped from the package of `3c365977`
+    and converged at stage 10; the cloud stage created only the content zone, its two records and
+    the solver grant beyond the platform's own resources. Next: the Cloudflare NS delegation, the
+    fixture deploy, the checks, retire and collect, teardown. The operator's resume notes are in
+    `~/.local/state/nagare/drills/ep285-cloud/HANDOFF.md` (outside the repository: it names local
+    secrets). The local half still needs a disposable local context.
 - [ ] M5. Retiring a content route is a review that names the hosts that stop being served and the
   certificate key that is destroyed. User documentation and the ADR 20 amendment exist. Evidence:
   reviewed-change tests (IR-55 AC-5, domain).
