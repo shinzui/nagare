@@ -4,6 +4,7 @@ slug: resume-inventory-transactions-in-the-configured-local-object-store
 title: "Resume inventory transactions in the configured local object store"
 kind: exec-plan
 created_at: 2026-11-24T18:12:35Z
+intention: "intention_01m89e375xepdrdsg6wtwcspdk"
 provenance:
   created_by:
     model: "claude-opus-5-5"
