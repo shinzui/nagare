@@ -238,6 +238,14 @@ EP-1, EP-3 and EP-4 are in progress; EP-2 waits for EP-1. One gate is not owned 
   Date: 2026-11-25
 
 
+- Decision (operator, 2026-11-25): retiring a content route or a key set deletes its objects in the
+  same review. Collection is extended to the Kourier Ingress, the cert-manager Certificate and the
+  Secrets these plans own (the key set's Secret, and the Secret cert-manager writes for the
+  certificate), with the recovery model's `KindCollect` rows and mutation records.
+  Rationale: a retirement that leaves the Ingress serving or the private keys in place would
+  make the review's "This review removes:" lines false.
+  Date: 2026-11-25
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)

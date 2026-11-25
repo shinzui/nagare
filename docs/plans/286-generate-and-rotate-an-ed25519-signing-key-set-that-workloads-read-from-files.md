@@ -162,6 +162,14 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
   Date: 2026-11-25
 
 
+- Decision (operator, 2026-11-25): retiring a content route or a key set deletes its objects in the
+  same review. Collection is extended to the Kourier Ingress, the cert-manager Certificate and the
+  Secrets these plans own (the key set's Secret, and the Secret cert-manager writes for the
+  certificate), with the recovery model's `KindCollect` rows and mutation records.
+  Rationale: a retirement that leaves the Ingress serving or the private keys in place would
+  make the review's "This review removes:" lines false.
+  Date: 2026-11-25
+
 ## Outcomes & Retrospective
 
 (To be filled at completion.)
