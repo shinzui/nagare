@@ -6,13 +6,18 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-25T03:54:42Z"
 frictionId: FRIC-24
-status: logged
+status: "accepted"
 impact: detour
 kind: tooling
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare/scripts/site-access-drill.sh"
 plan: "docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md"
 workaround: "Started the registry-forward container by hand with the drill's own docker run command and resumed the stopped transaction"
+resolution: "Start the registry-forward container with the drill's own docker run command, or rerun in a new root; the drill is a disposable-context tool."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-25T05:11:34Z"
+    change: "Accepted: one occurrence after an unusual port refusal; the workaround is recorded here."
 ---
 # A drill bootstrap that stops at the registry forward check leaves images.env, so its rerun starts no forward
 

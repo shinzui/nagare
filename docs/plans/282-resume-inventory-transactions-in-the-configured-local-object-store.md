@@ -94,8 +94,9 @@ Discoveries).
   times. AC-3: `inventory resume tx-000…000 --yes` refused with `inactive-transaction: transaction
   is not active in the store head`; status (less observation times) and catalog unchanged. A
   pre-operation stop (`tx-8bb5ba9a…`, killed during preflight) also resumed to `converged`.
-- [ ] M3: landed (`just gate-fast`, `just mutation-check`, `just land`, full gate green) and IR-54
-  marked completed with this plan as its target plan.
+- [x] M3: landed (`just gate-fast`, `just mutation-check`, `just land`, full gate green) and IR-54
+  marked completed with this plan as its target plan. (2026-11-25: landed 7cad8b43; gate-fast green;
+  mutation-check proved 0 of 206 records; post-land full gate green in 1391 s.)
 
 
 ## Surprises & Discoveries
@@ -134,7 +135,19 @@ Discoveries).
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+`nagarectl inventory resume` on a local context with an object-store history now opens that
+history and finishes the stopped transaction under its original review. Foundation store
+selection treats only a GCS context as having a workstation foundation journal, so bootstrap and
+transition planning, `kubeconfig recover` and context moves no longer reach GCS discovery on such
+a context. A unit test in the `S3 store` group proves the selection, and a disposable MinIO
+context confirmed IR-54's three criteria (27b3a468, landed with 7cad8b43). Two things remain.
+Kotei must confirm on the next released CLI. And `inventory store status` still hides the active
+transaction of every schema 2 head (Surprises & Discoveries), reported to the operator and not
+fixed here. No ADR changes: the rule narrows existing behaviour within ADR 22 and ADR 26. Friction:
+FRIC-23 accepted (a recurrence of FRIC-21's hidden audit error), FRIC-24 accepted (the drill's
+forward is not restarted after a failed first run), FRIC-25 resolved (the plan's Colima teardown
+now deletes the data disk), FRIC-26 accepted (a disposable profile needs `--vz-rosetta` for the
+linux/amd64 auth images; the plan's command now says so).
 
 
 ## Context and Orientation

@@ -2,6 +2,18 @@
 
 ## 2026-11-25
 
+* **Update**: FRIC-26 accepted: Accepted: the auth images are linux/amd64 by design; the profile flag is recorded where the next run reads it.
+
+
+* **Update**: FRIC-25 resolved: Resolved: the plan's command was the only surface that named the incomplete teardown.
+
+
+* **Update**: FRIC-24 accepted: Accepted: one occurrence after an unusual port refusal; the workaround is recorded here.
+
+
+* **Update**: FRIC-23 accepted: Accepted: the house rule removes steps rather than adding a check; the recurrence is recorded.
+
+
 * **Addition**: FRIC-26 records detour environment friction with mori://shinzui/nagare/scripts/site-access-drill.sh: A Colima daemon without Rosetta runs the linux/amd64 shomei image under QEMU and its migrate Job crashes
 
 

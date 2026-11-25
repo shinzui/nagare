@@ -6,13 +6,18 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-25T04:40:09Z"
 frictionId: FRIC-26
-status: logged
+status: "accepted"
 impact: detour
 kind: environment
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare/scripts/site-access-drill.sh"
 plan: "docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md"
 workaround: "colima start --vz-rosetta, as the nagare-mp23 profile has"
+resolution: "Start a disposable Colima profile with --vz-rosetta, as the warm nagare-mp23 profile is; the plan's substrate command now does."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-25T05:11:37Z"
+    change: "Accepted: the auth images are linux/amd64 by design; the profile flag is recorded where the next run reads it."
 ---
 # A Colima daemon without Rosetta runs the linux/amd64 shomei image under QEMU and its migrate Job crashes
 

@@ -6,13 +6,18 @@ generated:
   by: "claude-code/claude-opus-5-5"
   at: "2026-11-25T04:22:25Z"
 frictionId: FRIC-25
-status: logged
+status: "resolved"
 impact: slowdown
 kind: environment
 origin: "mori://shinzui/nagare"
 affects: "mori://shinzui/nagare/docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md"
 plan: "docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md"
 workaround: "colima delete --profile ir54 --data --force"
+resolution: "The plan's teardown now uses colima delete --profile ir54 --data --force."
+amended:
+  - by: "claude-code/claude-opus-5-5"
+    at: "2026-11-25T05:11:36Z"
+    change: "Resolved: the plan's command was the only surface that named the incomplete teardown."
 ---
 # The plan's Colima teardown keeps the daemon's data, so a recreated profile brings back the old cluster
 

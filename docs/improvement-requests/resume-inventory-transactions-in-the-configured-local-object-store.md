@@ -7,8 +7,10 @@ generated:
   by: codex-cli/gpt-6.2-sol
   at: "2026-11-24T16:39:55Z"
 requestId: IR-54
-status: accepted
+status: completed
 targetPlan: docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md
+completedAt: "2026-11-25T05:20:00Z"
+resolution: "ExecPlan 282 (commit 27b3a468) makes foundation and resume store selection treat only a GCS context as having a workstation foundation journal; a local context's workstation or object store is returned as is, and the GCS first-foundation rules are unchanged. A unit test in the S3 store group fails before the fix and passes after. On a disposable local context with a MinIO history, a publication stopped with the registry down resumed to the same transaction, review and manifest digest; one killed after the registry accepted it converged on resume with no second push, and a repeat resume changed nothing; a foreign transaction ID refused before any write. Kotei confirms on the next released CLI."
 origin: mori://shinzui/kotei/okf/friction-log/concepts/FRIC-108
 originPlan: mori://shinzui/kotei/plans/159-authorize-repository-admission-and-environment-delivery-operations
 reviews:
