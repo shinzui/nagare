@@ -12,6 +12,8 @@ module Nagare.Inventory.Adapters.CredentialTemplate
   , minioSourceData
   , generatedCredentialTemplate
   , minioUserCredentialKind
+  , minioUserCopyKind
+  , materializeMinioUserCopyWith
   , databaseCredentialKind
   , AppDatabaseCredential (..)
   , appDatabaseCredentialKind
@@ -287,7 +289,8 @@ generatedCredentialTemplate native = do
   signing <- backupSigningCredentialKind value
   appDatabase <- appDatabaseCredentialKind value
   minioUser <- minioUserCredentialKind value
-  pure (isJust auth || isJust database || isJust minio || isJust signing || isJust appDatabase || isJust minioUser)
+  minioUserCopy <- minioUserCopyKind value
+  pure (isJust auth || isJust database || isJust minio || isJust signing || isJust appDatabase || isJust minioUser || isJust minioUserCopy)
 
 -- | EP-235: a local object-store user's credential, a Secret in
 -- @nagare-system@ annotated @nagare.dev/minio-user-template: v1@ and
@@ -306,11 +309,86 @@ minioUserCredentialKind value@(Object root) | KM.lookup "kind" root == Just (Str
       namespace <- fieldText "namespace" metadata
       user <- maybe (Left "object-store user credential template names no user") Right (textAt "nagare.dev/minio-user" annotations)
       unless
-        (namespace == "nagare-system" && not (KM.member "data" root) && not (KM.member "stringData" root) && not (T.null user) && T.all (\c -> (c >= 'a' && c <= 'z') || c == '-') user)
+        (namespace == "nagare-system" && not (KM.member "data" root) && not (KM.member "stringData" root) && validMinioUser user)
         (Left "object-store user credential template has unexpected content")
       Right (Just user)
     Just _ -> Left "unsupported object-store user credential template"
 minioUserCredentialKind _ = Right Nothing
+
+-- | A store user name: lowercase letters, digits and hyphens.
+validMinioUser :: Text -> Bool
+validMinioUser user = not (T.null user) && T.all (\c -> (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') user
+
+-- | EP-283: a workload's copy of an object-store user's credential, a Secret
+-- outside @nagare-system@ annotated @nagare.dev/minio-user-copy: v1@,
+-- @nagare.dev/minio-user: NAME@ and @nagare.dev/minio-source-resource-id@
+-- with no data. At creation it receives the data of the user's own Secret,
+-- @NAME@ in @nagare-system@, so the workload holds the key the grant Job
+-- gave the user and no review carries it.
+minioUserCopyKind :: Value -> Either Text (Maybe Text)
+minioUserCopyKind value@(Object root) | KM.lookup "kind" root == Just (String "Secret") = do
+  metadata <- metadataOf value
+  let annotations = case KM.lookup "annotations" metadata of
+        Just (Object fields) -> fields
+        _ -> KM.empty
+  case textAt "nagare.dev/minio-user-copy" annotations of
+    Nothing -> Right Nothing
+    Just "v1" -> do
+      namespace <- fieldText "namespace" metadata
+      user <- maybe (Left "object-store user credential copy names no user") Right (textAt "nagare.dev/minio-user" annotations)
+      unless
+        ( namespace /= "nagare-system"
+            && not (KM.member "data" root)
+            && not (KM.member "stringData" root)
+            && validMinioUser user
+            && maybe False (not . T.null) (textAt "nagare.dev/minio-source-resource-id" annotations)
+            && isNothing (textAt "nagare.dev/minio-user-template" annotations)
+        )
+        (Left "object-store user credential copy has unexpected content")
+      Right (Just user)
+    Just _ -> Left "unsupported object-store user credential copy"
+minioUserCopyKind _ = Right Nothing
+
+-- | Fill a user credential copy from its source, read by user name. 'Nothing'
+-- when the object is not a copy. The source must be this context's own
+-- template for that user and the member the copy names.
+materializeMinioUserCopyWith ::
+  (Text -> IO (Either Text (ExitCode, String, String))) ->
+  KubernetesRuntimeConfig ->
+  Text ->
+  IO (Either Text (Maybe Text))
+materializeMinioUserCopyWith readSource config native =
+  case eitherDecodeStrict (TE.encodeUtf8 native) of
+    Left (_ :: String) -> pure (Left "reviewed Kubernetes object is malformed")
+    Right value -> case minioUserCopyKind value of
+      Left reason -> pure (Left reason)
+      Right Nothing -> pure (Right Nothing)
+      Right (Just user) -> do
+        fetched <- readSource user
+        pure $ do
+          (code, body, _) <- fetched
+          unless (code == ExitSuccess) (Left "object-store user credential is unavailable")
+          source <- first (const "object-store user credential is malformed") (eitherDecodeStrict (TE.encodeUtf8 (T.pack body)))
+          expected <- minioCopySourceId value
+          metadata <- metadataOf source
+          name <- fieldText "name" metadata
+          namespace <- fieldText "namespace" metadata
+          annotations <- case KM.lookup "annotations" metadata of
+            Just (Object fields) -> Right fields
+            _ -> Left "object-store user credential has no ownership stamps"
+          unless
+            ( name == user
+                && namespace == "nagare-system"
+                && textAt "nagare.dev/context-id" annotations == Just (contextIdText (runtimeContext config))
+                && textAt "nagare.dev/minio-user-template" annotations == Just "v1"
+                && textAt "nagare.dev/minio-user" annotations == Just user
+                && textAt "nagare.dev/resource-id" annotations == Just expected
+            )
+            (Left "object-store user credential is not the member this copy names")
+          fields <- case source of
+            Object sourceRoot | Just (Object fields) <- KM.lookup "data" sourceRoot, validMinioData fields -> Right fields
+            _ -> Left "object-store user credential lacks required data"
+          Just <$> insertMinioData value fields
 
 backupSigningCredentialKind :: Value -> Either Text (Maybe ())
 backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just (String "Secret") = do
@@ -443,11 +521,12 @@ databaseDataMatches :: Value -> Value -> Bool
 databaseDataMatches desired observed = case databaseCredentialKind desired of
   Right Nothing -> case appDatabaseCredentialKind desired of
     Right Nothing -> case minioUserCredentialKind desired of
-      Right (Just _) -> case observed of
-        Object root | Just (Object fields) <- KM.lookup "data" root -> validMinioData fields
-        _ -> False
+      Right (Just _) -> minioDataPresent observed
       Left _ -> False
-      Right Nothing -> True
+      Right Nothing -> case minioUserCopyKind desired of
+        Right (Just _) -> minioDataPresent observed
+        Left _ -> False
+        Right Nothing -> True
     Left _ -> False
     Right (Just credential) ->
       let connection = ConnectionParts "example" "example" "example" "example"
@@ -458,6 +537,11 @@ databaseDataMatches desired observed = case databaseCredentialKind desired of
     let connection = ConnectionParts defaultDbUser "example" "example" "example"
         expected = Set.fromList (map (Key.fromText . fst) (secretKeysFor engine connection))
      in dataMatches expected observed
+
+minioDataPresent :: Value -> Bool
+minioDataPresent = \case
+  Object root | Just (Object fields) <- KM.lookup "data" root -> validMinioData fields
+  _ -> False
 
 backupSigningDataMatches :: Value -> Bool
 backupSigningDataMatches (Object root) = case KM.lookup "data" root of

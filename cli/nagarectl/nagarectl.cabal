@@ -484,6 +484,7 @@ library
     Nagare.Inventory.Kubernetes,
     Nagare.Inventory.Lineage,
     Nagare.Inventory.Migration.Types,
+    Nagare.Inventory.ObjectBucket,
     Nagare.Inventory.ObservationNative,
     Nagare.Inventory.Plan.CloseRecord,
     Nagare.Inventory.Plan.History,
@@ -912,6 +913,7 @@ test-suite nagarectl-test
     Nagare.Test.World.Quantity
     Nagare.Test.World.Store
     Nagare.Test.World.Validation
+    ObjectBucketSpec
     PlatformCutoverSpec
     PlatformFinalizeSpec
     PlatformIncrementalSpec

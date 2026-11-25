@@ -85,6 +85,7 @@ library
     Nagare.Inventory.Kubernetes
     Nagare.Inventory.Lineage
     Nagare.Inventory.Migration.Types
+    Nagare.Inventory.ObjectBucket
     Nagare.Inventory.ObservationNative
     Nagare.Inventory.Plan.CloseRecord
     Nagare.Inventory.Plan.History

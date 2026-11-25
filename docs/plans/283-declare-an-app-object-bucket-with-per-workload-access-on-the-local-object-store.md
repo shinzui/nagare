@@ -81,6 +81,13 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
 - [ ] M3. `nagarectl bucket plan` produces a reviewed standalone scope whose members create the
   MinIO bucket, its expiry rules and one store user per grant; no review carries a credential.
   Evidence: interpreter tests.
+  - 2026-11-25: the scope compiler and the credential copy are done; the CLI and the interpreter
+    tests through the planner and executor are not. `compileStandaloneBucket`
+    (`cli/nagare-core/src/Nagare/Inventory/ObjectBucket.hs`): nagarectl `bucket scope` (10 tests).
+    The adapter's user-credential copy: `Lifecycle worker credential` (3 new cases). The Jobs'
+    `mc` commands were run against the packaged MinIO and client images in two throwaway
+    containers: bucket creation and rule import repeat safely, a read-only user's put and list are
+    refused, and removing a user leaves the objects.
 - [ ] M4. A bound workload reads and writes through its own credential and a read-only workload's
   write is refused, through the example `Config.hs`. Evidence: `just local-bucket-smoke CTX`
   transcript (IR-55 AC-1, local half).
@@ -91,7 +98,23 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
 
 ## Surprises & Discoveries
 
-(None yet.)
+- A Job in `nagare-system` cannot read a Secret in the workload's namespace, and the workload
+  cannot read one in `nagare-system`, so one template Secret cannot serve both the grant Job and
+  the workload. The store's client image has no TLS-verifying HTTP client to read the Kubernetes
+  API with either (BusyBox `wget` only). The existing answer is the adapter's copy template
+  (`nagare.dev/minio-credential-copy`, which fills the `personal` copy of the store's root
+  credential at creation). Changed the design: see the Decision Log.
+
+- A Kubernetes Job cannot be updated, and the planner replaces none (only superseded migration
+  Jobs leave a scope without a decision, `supersededMigrationJobs`). A grant Job that kept its
+  name would never apply a changed policy. Changed the design: see the Decision Log.
+
+- `mc ilm rule rm --all` fails on a bucket with no rules ("The lifecycle configuration does not
+  exist"), so the bucket Job lists the rules first. Evidence: the container run recorded under M3.
+
+- `DataPolicy`'s `Durable` needs a `RecoveryIntent` (a backup name and key references), which a
+  bucket does not have, and no member is the bucket itself: the member is the Job that made it.
+  The Job is `Protect` and `Stateless`. Nothing in the scope can delete the bucket or an object.
 
 
 ## Decision Log
@@ -131,6 +154,35 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
   before it is published. `ChangeProposal` and `LifecycleDecisions` are unchanged.
   Rationale: The effects are sentences a command writes, not something the change planner derives.
   Setting them before publication puts them under the review digest.
+  Date: 2026-11-25
+
+- Decision: Each grant has two Secrets. The store user's credential is a template in
+  `nagare-system` (the existing `nagare.dev/minio-user-template`), which the grant Job reads. The
+  workload's Secret `nagare-bucket-<bucket>-<workload>` in its own namespace is a copy template
+  (`nagare.dev/minio-user-copy`), which the adapter fills at creation from the user's Secret after
+  checking the context and the member it names. The store user is `nagare-bucket-<12 hex>`, a
+  digest of bucket, namespace and workload, because the three names together exceed a Job name.
+  Rationale: See Surprises & Discoveries. It reuses the copy mechanism the root credential already
+  has, adds no image and no Kubernetes API access to a Job, and still puts no key in a review.
+  Date: 2026-11-25
+
+- Decision: Every Job is named after a digest of what it runs. A changed rule or policy is a new
+  Job, and `bucket plan` retires the members that leave the scope in the same review with
+  `decideMemberRetirement`. A dropped grant's revoke Job stays in the scope until the workload is
+  granted again; that grant is a new Job. Granting again also needs the retired Secrets collected
+  first, as any redeclared retained member does.
+  Rationale: See Surprises & Discoveries. The planner is unchanged.
+  Date: 2026-11-25
+
+- Decision: The bucket Job sets the expiry rules with `mc ilm rule import`, not one
+  `mc ilm rule add` per rule.
+  Rationale: An import replaces the whole configuration, so a changed or removed rule takes effect
+  and a repeat changes nothing.
+  Date: 2026-11-25
+
+- Decision: The accepted declaration is kept in the scope override `bucket.declaration`.
+  Rationale: Bindings, `bucket status` and retirement read the accepted grants without the config
+  file, as a delegation's record is read.
   Date: 2026-11-25
 
 ## Outcomes & Retrospective
@@ -269,14 +321,16 @@ Add `cli/nagare-dsl/src/Nagare/Resource/ObjectBucket.hs` (resource identities; s
 `bucket-backend-unsupported` until the sibling plan lands. For a `MinioBackend` the members are
 Kubernetes objects in `nagare-system` unless noted:
 
-- a Job that runs `mc mb --ignore-existing local/nagare-app-<name>` and, per expiry rule,
-  `mc ilm rule add --prefix P --expire-days N`. The bucket is declared `Durable` with lifecycle
-  `Protect`;
-- per grant, a credential-template Secret `nagare-bucket-<bucket>-<workload>` in the workload's
-  namespace (the `minioUserCredentialKind` template), a policy ConfigMap, and a grant Job ordered
-  after the bucket Job and the Secret. Read-write allows `s3:GetObject`, `s3:PutObject`,
-  `s3:DeleteObject` on the bucket's objects and `s3:ListBucket`; read-only allows `s3:GetObject`
-  only. Dropping a grant adds a revoke Job, as `DeployerStoreAccess.hs` does.
+- a Job that runs `mc mb --ignore-existing root/nagare-app-<name>` and imports the expiry rules
+  with `mc ilm rule import`. It is `Protect`;
+- per grant, the store user's credential template `nagare-bucket-<digest>` in `nagare-system`
+  (the `minioUserCredentialKind` template), the workload's copy template
+  `nagare-bucket-<bucket>-<workload>` in the workload's namespace (`minioUserCopyKind`), and a
+  grant Job ordered after the bucket Job and the user's Secret, with the policy in its script.
+  Read-write allows `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on the bucket's objects and
+  `s3:ListBucket`; read-only allows `s3:GetObject` only. Dropping a grant adds a revoke Job.
+
+Each Job's name ends in a digest of its script (see the Decision Log).
 
 CLI: `nagarectl bucket plan --file CONFIG --save-plan DIR` and `nagarectl bucket status [NAME]`
 in `cli/nagarectl/app/Nagare/Cli/{Commands,Options,Parser}/Bucket.hs`, modelled on the

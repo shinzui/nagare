@@ -158,7 +158,22 @@ EP-1 is in progress; the others have not started. One gate is not owned by a chi
 
 ## Surprises & Discoveries
 
-(None yet.)
+- EP-1 M1's Knative admission transcript is open (2026-11-25). The only local cluster,
+  `nagare-local`, has no running Knative webhook, so even a server-side dry run cannot reach
+  admission. EP-3 and EP-4 depend on that milestone and stay blocked until a working disposable
+  local cluster confirms it. `reviewEffects` and `PlatformMount` themselves are committed
+  and tested, not yet landed.
+
+- A generated value that two namespaces need cannot be shared by a Secret reference or read by a
+  Job: neither crosses a namespace. EP-1 solved it for a bucket credential with the adapter's copy
+  template (`minioUserCopyKind` in
+  `cli/nagarectl/src/Nagare/Inventory/Adapters/CredentialTemplate.hs`). EP-4 has the same shape
+  when a key set's signer and verifiers are in different namespaces, and should read EP-1's
+  Decision Log before designing its Secrets.
+
+- A Kubernetes Job member never changes once created, and the planner replaces none. EP-1 names
+  each Job by a digest of what it runs and retires the superseded one in the same review. EP-4's
+  rotation, if it uses Jobs, needs the same rule.
 
 
 ## Decision Log

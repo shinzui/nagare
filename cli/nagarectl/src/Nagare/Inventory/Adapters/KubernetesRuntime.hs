@@ -655,10 +655,16 @@ completedJobContainerMessageFromPodList _ _ _ = Left "Kubernetes Pod list is not
 -- The second namespace receives those exact values after its reviewed
 -- prerequisite, without storing them in the review or a fixed manifest.
 materializeLocalObjectStoreCredential :: KubernetesRuntimeConfig -> Text -> IO (Either Text Text)
-materializeLocalObjectStoreCredential config =
-  materializeLocalObjectStoreCredentialWith
-    (invoke config ["get", "secret", "nagare-minio-credentials", "-n", "nagare-system", "-o", "json"] "")
-    config
+materializeLocalObjectStoreCredential config native =
+  -- EP-283: a workload's copy of a store user's credential is read by user name.
+  materializeMinioUserCopyWith (\user -> invoke config ["get", "secret", T.unpack user, "-n", "nagare-system", "-o", "json"] "") config native >>= \case
+    Left reason -> pure (Left reason)
+    Right (Just filled) -> pure (Right filled)
+    Right Nothing ->
+      materializeLocalObjectStoreCredentialWith
+        (invoke config ["get", "secret", "nagare-minio-credentials", "-n", "nagare-system", "-o", "json"] "")
+        config
+        native
 
 addPreconditions :: PhysicalIdentity -> Text -> Text -> Either Text Text
 addPreconditions uid revision native = do
