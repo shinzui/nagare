@@ -60,6 +60,16 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
 
 - [ ] M1. The rotation step is a pure function with property tests showing that a signer's key is
   always known to every verifier and that the overlap is honoured. Evidence: `nagare-core` tests.
+  - 2026-11-25: done. `rotateStep` in `cli/nagare-core/src/Nagare/KeySet.hs` withdraws `previous`
+    once its overlap has passed, fills an empty set with `active` and `next`, and promotes `next`
+    once `active` has served a period, `next` has been published five minutes and `previous` is
+    gone; it takes fresh keys as an argument and uses at most two. The public file is a JWK Set of
+    RFC 8037 keys with status, times, policy, serial and a 20-entry history; the private file adds
+    `d` and alone decodes to the state. `RotationPolicy` and `mkRotationPolicy` are in
+    `cli/nagare-dsl/src/Nagare/Dsl/KeySet.hs`. nagare-core has no test suite, so the tests are
+    nagarectl's `key set rotation` (8: two examples, the public file, and five QuickCheck
+    properties over generated schedules; the withdrawal property requires 40% coverage and gets
+    about two thirds), with `tasty-quickcheck` added to that suite; `just gate-commit` green.
 - [ ] M2. A `nagare-keyset` executable applies the step to a ConfigMap and a Secret in a cluster
   and survives conflicts and a crash between its two writes. Evidence: tests against the model
   API server.

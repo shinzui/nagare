@@ -511,6 +511,7 @@ library
     Nagare.Inventory.Store.S3,
     Nagare.Inventory.Store.Service,
     Nagare.Inventory.TunnelRoute,
+    Nagare.KeySet,
     Nagare.Platform.Versions,
     Nagare.Platform.Versions.Store,
     Nagare.Storage.Discover,
@@ -819,6 +820,7 @@ test-suite nagarectl-test
     InventoryVolumeRestorePinSpec
     InventoryWorldConformanceSpec
     InventoryWorldFaultsSpec
+    KeySetRotationSpec
     LifecycleCredentialSpec
     LostVmSpec
     ManagedEnvScopeSpec
@@ -966,6 +968,7 @@ test-suite nagarectl-test
     tasty >=1.4,
     tasty-golden >=2.3,
     tasty-hunit >=0.10,
+    tasty-quickcheck >=0.10,
     temporary,
     text,
     time,

@@ -151,6 +151,16 @@ host=share.CONTENT_DOMAIN
   domain from the worker that owns the wildcard. M3's rule stands as written, a wildcard claim
   excludes every other host under `D`, and the compile is the only place that enforces it.
 
+- M5 as written needs deletion, which the inventory does not yet offer for these kinds
+  (2026-11-25). A review's retirement (`ApproveRetirement`, `decideMemberRetirement` in
+  `cli/nagarectl/src/Nagare/Inventory/Lifecycle.hs`) keeps the object live, so a retired Ingress
+  would go on serving `*.D`; only an `ApproveCollection` deletes, and
+  `collectionKinds` (`cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesCollection.hs`) admits
+  neither a Kourier Ingress nor a cert-manager Certificate, and nothing collects the Secret
+  cert-manager writes. Before M5's code, decide whether the route's retirement collects the
+  Ingress, the Certificate and its Secret in the same review (adding the two kinds to collection,
+  with the kind table's `KindCollect` and a mutation record), or retires them and states that the
+  hosts stay served until a collect.
 
 ## Decision Log
 

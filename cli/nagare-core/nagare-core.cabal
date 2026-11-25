@@ -108,6 +108,7 @@ library
     Nagare.Inventory.Store.S3
     Nagare.Inventory.Store.Service
     Nagare.Inventory.TunnelRoute
+    Nagare.KeySet
     Nagare.Platform.Versions
     Nagare.Platform.Versions.Store
     Nagare.Storage.Discover
