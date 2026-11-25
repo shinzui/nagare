@@ -71,8 +71,8 @@ import Nagare.Dsl.Types
   )
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Env.Generated (mergeGenerated)
-import Nagare.Inventory.Application.Bindings (appDatabaseReaderKey, brokerEvidenceIds)
-import Nagare.Inventory.Application.Types (AppDatabaseBound (..), DatabaseBinding (..), ServerBinding (..))
+import Nagare.Inventory.Application.Bindings (appDatabaseReaderKey, brokerEvidenceIds, bucketBindingKey)
+import Nagare.Inventory.Application.Types (AppDatabaseBound (..), BucketBound (..), DatabaseBinding (..), ServerBinding (..))
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (Declaration (..), declarationId)
 import Nagare.Resource.Types
@@ -217,13 +217,15 @@ databaseConnectionEnv engine databaseName namespace = do
 -- @\<appdb\>-reader-\<name\>@), which share one key space. Named app
 -- database bindings may repeat an app database (EP-259); their URL variables
 -- must not redefine the workload's env.
-workloadDatabaseNames :: Map Dsl.EnvName ScopedEnvVar -> [DatabaseName] -> [AppDatabaseBinding] -> [AppDatabaseReaderRef] -> Either T.Text [DatabaseName]
-workloadDatabaseNames env direct apps readers = do
+workloadDatabaseNames :: Map Dsl.EnvName ScopedEnvVar -> [DatabaseName] -> [AppDatabaseBinding] -> [AppDatabaseReaderRef] -> [Dsl.BucketBinding] -> Either T.Text [DatabaseName]
+workloadDatabaseNames env direct apps readers buckets = do
   validateAppDatabaseBindings (Map.keysSet env) apps
   appKeys <- traverse (mkDatabaseName . appDatabaseNameText) (nubOrd (map (^. #name) apps))
   readerKeys <- traverse (mkDatabaseName . appDatabaseReaderKey) readers
-  let keys = direct <> appKeys <> readerKeys
-  unless (length keys == Set.size (Set.fromList keys)) (Left "a workload names one database twice across databases and appDatabases")
+  -- EP-283: buckets share the key space as bucket-<name>.
+  bucketKeys <- traverse (bucketBindingKey . (^. #name)) buckets
+  let keys = direct <> appKeys <> readerKeys <> bucketKeys
+  unless (length keys == Set.size (Set.fromList keys)) (Left "a workload names one database or bucket twice across databases, appDatabases and buckets")
   pure keys
 
 -- | Supply generated connection fields and exact resource dependencies for
@@ -263,6 +265,29 @@ standaloneDatabaseEnvironment cluster namespace names apps bindings invalid = do
       case binding of
         ServerDatabaseBinding server -> (\(fields, ids, secret) -> ([fields], ids, secret)) <$> direct name server
         AppDatabaseBinding app -> appDatabase name app
+        ObjectBucketBinding bound -> bucket bound
+    -- EP-283: the workload's own Secret is the only one it receives. It is
+    -- ordered after the Job that created its store user, so it never starts
+    -- with a key the store does not know.
+    bucket bound = do
+      let credential = bucketCredential bound
+          prefix = "NAGARE_BUCKET_" <> T.toUpper (T.replace "-" "_" (bucketLabel bound))
+      expectedCredential <- first invalid (kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (bucketCredentialName bound))
+      unless
+        (credential ^. #address == expectedCredential && scopeKind (credential ^. #owner) == Standalone)
+        (Left (invalid "bucket binding has a different credential"))
+      secretName <- first invalid (mkSecretName (bucketCredentialName bound))
+      let lit suffix value = (,runtimeScoped (EnvLiteral value)) <$> mkEnvName (prefix <> suffix)
+          ref suffix secretKey = (\variable k -> (variable, runtimeScoped (EnvSecretKeyRef secretName k))) <$> mkEnvName (prefix <> suffix) <*> mkEnvName secretKey
+      fields <-
+        first invalid . fmap Map.fromList . sequence $
+          [ lit "_BACKEND" (bucketBackend bound)
+          , lit "_NAME" (bucketStoreName bound)
+          , lit "_ENDPOINT" (bucketEndpoint bound)
+          , ref "_ACCESS_KEY_ID" "AWS_ACCESS_KEY_ID"
+          , ref "_SECRET_ACCESS_KEY" "AWS_SECRET_ACCESS_KEY"
+          ]
+      pure ([fields], [bucketGrantJob bound, credential ^. #identity], (secretName, Managed credential))
     -- EP-202: the runtime credential is the only Secret; host and port are
     -- the shared server's, and the workload waits for the users and databases.
     -- EP-259: a binding with a urlVariable injects only that variable, read
@@ -354,7 +379,7 @@ taskDatabaseEnvironment ::
   (T.Text -> NonEmpty InventoryError) ->
   Either (NonEmpty InventoryError) (Task, [ResourceId], Map SecretName Declaration)
 taskDatabaseEnvironment cluster inherited bindings task invalid = do
-  names <- first invalid (workloadDatabaseNames (Map.union (task ^. #env) inherited) [] (task ^. #appDatabases) [])
+  names <- first invalid (workloadDatabaseNames (Map.union (task ^. #env) inherited) [] (task ^. #appDatabases) [] (task ^. #buckets))
   (env, ids, secrets) <- standaloneDatabaseEnvironment cluster (task ^. #namespace) names (task ^. #appDatabases) bindings invalid
   pure (task & #env %~ mergeGenerated env & #appDatabases .~ [], ids, secrets)
 

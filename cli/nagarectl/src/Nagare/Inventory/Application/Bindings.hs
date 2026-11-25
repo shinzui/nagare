@@ -8,6 +8,8 @@ module Nagare.Inventory.Application.Bindings
   , acceptedAppDatabaseBindings
   , acceptedAppDatabaseTaskBindings
   , acceptedAppDatabaseReaderBindings
+  , acceptedBucketBindings
+  , bucketBindingKey
   , appDatabaseReaderKey
   , acceptedImageBuildSecrets
   , acceptedImageResourceForDestination
@@ -44,6 +46,7 @@ import Nagare.Dsl.Broker
   , topicNameText
   )
 import Nagare.Dsl.Database (dbSecretName, engineToken)
+import Nagare.Dsl.ObjectBucket (bucketNameText)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( AppDatabaseName
@@ -66,11 +69,13 @@ import Nagare.Inventory.AppDatabase (serverHostsAppDatabases)
 import Nagare.Inventory.Application.Types
   ( AccessBinding (..)
   , AppDatabaseBound (..)
+  , BucketBound (..)
   , DatabaseBinding (..)
   , ServerBinding (..)
   )
 import Nagare.Inventory.DeployerDelegation (acceptedDelegations)
 import Nagare.Inventory.Environment (acceptedBuildChannelMember)
+import Nagare.Inventory.ObjectBucket (bucketBackendKey, bucketCredentialSecretName, bucketEndpointKey, bucketUser, scopeBucket, scopeGrantJob, storeBucketName)
 import Nagare.Resource.Inventory
   ( ContributionGrant (BackendMapGrant, ShomeiSettingsGrant)
   , Declaration (Managed)
@@ -750,3 +755,52 @@ acceptedAppDatabaseReaderBindings snapshot native cluster namespaceName consumer
       let readerDatabases = [logicalDatabaseNameText (o ^. #database) | o <- NE.toList (grant ^. #objects)]
           databases = [member | member <- logical, DatabaseName _ db <- [member ^. #address], nameText db `elem` readerDatabases]
       pure (key, AppDatabaseBinding (AppDatabaseBound service credential (user : databases) engine secretName))
+
+-- | A bucket binding's key in a workload's bindings: @bucket-\<name\>@.
+bucketBindingKey :: Dsl.BucketName -> Either T.Text DatabaseName
+bucketBindingKey name = mkDatabaseName ("bucket-" <> bucketNameText name)
+
+-- | EP-283: a workload binds a bucket only when the accepted declaration
+-- grants it, by namespace and name. The binding names the workload's own
+-- credential Secret and the Job that gave its store user access.
+acceptedBucketBindings ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  T.Text ->
+  Dsl.ServiceName ->
+  [Dsl.BucketBinding] ->
+  Either T.Text (Map DatabaseName DatabaseBinding)
+acceptedBucketBindings snapshot native cluster namespaceName workload bindings = do
+  pairs <- traverse resolve bindings
+  let bound = Map.fromList pairs
+  unless (length pairs == Map.size bound) (Left "bucket bindings repeat a bucket")
+  pure bound
+  where
+    who = "workload " <> Dsl.serviceNameText workload <> " in namespace " <> namespaceName
+    resolve binding = do
+      let name = binding ^. #name
+          label = bucketNameText name
+      key <- bucketBindingKey name
+      (scope, declared) <- case [(scope, declared) | (_, scope) <- Map.elems (snapshotScopes snapshot), Just declared <- [scopeBucket scope], declared ^. #name == name] of
+        [found] -> Right found
+        [] -> Left ("bucket-grant-missing: bucket " <> label <> " is not an accepted bucket; plan and apply it first with nagarectl bucket plan")
+        _ -> Left ("bucket " <> label <> " has more than one accepted scope")
+      grant <- case [grant | grant <- declared ^. #grants, Dsl.namespaceText (grant ^. #namespace) == namespaceName, grant ^. #workload == workload] of
+        [found] -> Right found
+        _ -> Left ("bucket-grant-missing: bucket " <> label <> " grants no access to " <> who)
+      let secretName = bucketCredentialSecretName name workload
+          members = [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle]
+          lookupOverride overrideKey = maybe (Left ("accepted bucket " <> label <> " records no " <> overrideKey)) Right (Map.lookup overrideKey (scopeOverrides scope))
+      address <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) secretName
+      credential <- case [resource | resource <- members, resource ^. #address == address] of
+        [found] -> Right found
+        _ -> Left ("accepted bucket " <> label <> " has no credential for " <> who)
+      grantJob <-
+        maybe
+          (Left ("accepted bucket " <> label <> " has no grant Job for " <> who))
+          Right
+          (scopeGrantJob (bucketUser name (grant ^. #namespace) workload) (Map.filter ((== scopeId scope) . (^. #owner) . fst) native))
+      backend <- lookupOverride bucketBackendKey
+      endpoint <- lookupOverride bucketEndpointKey
+      pure (key, ObjectBucketBinding (BucketBound label (storeBucketName name) backend endpoint credential secretName grantJob))

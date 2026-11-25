@@ -288,7 +288,7 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
   -- EP-269: a Service's task never runs as a pre-deploy hook.
   mapM_ (first invalid . requireScheduled) (service ^. #tasks)
   let databaseBindings = Map.findWithDefault Map.empty (service ^. #name) consumerBindings
-  databaseNames <- first invalid (workloadDatabaseNames (service ^. #env) (service ^. #databases) (service ^. #appDatabases) (service ^. #appDatabaseReaders))
+  databaseNames <- first invalid (workloadDatabaseNames (service ^. #env) (service ^. #databases) (service ^. #appDatabases) (service ^. #appDatabaseReaders) (service ^. #buckets))
   (databaseEnv, databaseIds, databaseSecrets) <-
     standaloneDatabaseEnvironment
       cluster

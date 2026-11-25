@@ -171,6 +171,14 @@ EP-1 is in progress; the others have not started. One gate is not owned by a chi
   when a key set's signer and verifiers are in different namespaces, and should read EP-1's
   Decision Log before designing its Secrets.
 
+- An Application's own service and workers take no binding from another scope today; only a
+  standalone Deployment, a standalone Worker and a task do (EP-202's rule for app databases).
+  Buckets and key sets are standalone scopes, so EP-1's bindings, EP-4's `keySets` and the shared
+  example `cluster/examples/content-app` all meet this. EP-1 built bindings on the standalone paths
+  and refuses them on an Application's service and workers until the operator decides whether the
+  application compile should take them. The example is an Application and does not deploy as
+  written.
+
 - A Kubernetes Job member never changes once created, and the planner replaces none. EP-1 names
   each Job by a digest of what it runs and retires the superseded one in the same review. EP-4's
   rotation, if it uses Jobs, needs the same rule.

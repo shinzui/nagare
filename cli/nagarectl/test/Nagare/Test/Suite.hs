@@ -161,6 +161,7 @@ import Nagare.Test.Storage (storageDiscoverTests, storageSnapshotTests, volumeAr
 import Nagare.Test.Task (taskDiscoverTests, taskResolveTests, taskRunTests)
 import Nagare.Test.Version (versionTests)
 import Nagare.Test.Webhook (webhookTests)
+import ObjectBucketBindingSpec (objectBucketBindingTests)
 import ObjectBucketSpec (objectBucketTests)
 import ObjectBucketWorldSpec (objectBucketWorldTests)
 import PlatformCutoverSpec (platformCutoverTests)
@@ -254,6 +255,7 @@ main = do
             , lifecycleCredentialTests
             , objectBucketTests
             , objectBucketWorldTests
+            , objectBucketBindingTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
             , testGroup "AppDatabase" [appDatabaseTests, appDatabaseCredentialTests, appDatabaseSqlTests, appDatabaseWorldTests, appDatabasePrivilegeTests, appDatabaseRestartTests, appDatabaseTaskTests, appOwnedDatabaseTests]

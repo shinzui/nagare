@@ -100,6 +100,15 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
 - [ ] M4. A bound workload reads and writes through its own credential and a read-only workload's
   write is refused, through the example `Config.hs`. Evidence: `just local-bucket-smoke CTX`
   transcript (IR-55 AC-1, local half).
+  - 2026-11-25: bindings are done for a standalone Deployment, a standalone Worker and a task
+    (`acceptedBucketBindings`, `ObjectBucketBinding` in
+    `cli/nagarectl/src/Nagare/Inventory/Application/`): nagarectl `bucket binding` (4 tests) covers
+    the five variables, the ordering after the grant Job and the credential, the
+    `bucket-grant-missing` refusals and an unbound worker's manifest. Open: (a) whether an
+    Application's own service and workers may bind a bucket (see Surprises & Discoveries; they are
+    refused with `bucket-not-bindable-from-application` until decided, so the example's
+    `Config.hs` does not deploy as written); (b) `scripts/local-bucket-smoke.sh` and its
+    transcript, which need a working disposable local cluster.
 - [ ] M5. `nagarectl bucket retire` is a review that names each workload losing access and states
   that the objects are kept; it is refused while a workload binds the bucket. User documentation
   exists. Evidence: reviewed-change tests (IR-55 AC-5, bucket).
@@ -117,6 +126,14 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
 - A Kubernetes Job cannot be updated, and the planner replaces none (only superseded migration
   Jobs leave a scope without a decision, `supersededMigrationJobs`). A grant Job that kept its
   name would never apply a changed policy. Changed the design: see the Decision Log.
+
+- An Application's own service and workers take no binding from another scope today. The
+  application compile refuses app databases on them (`app-database-not-bindable-from-application`,
+  EP-202: "deploy the workload as a Deployment or Worker to bind an app database"), and only a
+  standalone Deployment, a standalone Worker and a task resolve accepted bindings
+  (`reviewedStandaloneDatabases`). This plan's M4 and its example assumed an Application whose
+  service and worker bind the bucket. Bindings were built on the standalone paths, which both
+  answers need; the Application path is a scope decision for the operator.
 
 - `mc ilm rule rm --all` fails on a bucket with no rules ("The lifecycle configuration does not
   exist"), so the bucket Job lists the rules first. Evidence: the container run recorded under M3.
@@ -187,6 +204,23 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
   `mc ilm rule add` per rule.
   Rationale: An import replaces the whole configuration, so a changed or removed rule takes effect
   and a repeat changes nothing.
+  Date: 2026-11-25
+
+- Decision: `bucket retire NAME` replaces the scope with the same bucket and no grant. It does
+  not retire the scope.
+  Rationale: The store users must be removed, which only a revoke Job in the scope does, and the
+  bucket Job must stay so that nothing reads the scope as collectable. The review lists each
+  workload that loses access and that the objects are kept. It is refused while a member of
+  another scope is ordered after one of the bucket's members, which is how a bound workload shows
+  in accepted history.
+  Date: 2026-11-25
+
+- Decision: A bucket binding is a third kind of workload binding beside a server and an app
+  database (`ObjectBucketBinding`, keyed `bucket-<name>`), resolved by the command from accepted
+  history and turned into variables, a Secret dependency and ordering edges by
+  `standaloneDatabaseEnvironment`.
+  Rationale: That path already carries a credential Secret of another scope into a workload with
+  the exact-dependency checks; a second path would repeat them.
   Date: 2026-11-25
 
 - Decision: The accepted declaration is kept in the scope override `bucket.declaration`.
@@ -352,8 +386,8 @@ no byte of the review contains a secret key.
 
 ### M4. Bindings and the local smoke
 
-In `cli/nagarectl/src/Nagare/Inventory/Application/` (`Bindings.hs`, and the service, worker and
-task paths), a workload with `BucketBinding publications` gets `NAGARE_BUCKET_PUBLICATIONS_BACKEND=s3`,
+In `cli/nagarectl/src/Nagare/Inventory/Application/` (`Bindings.hs`, `Environment.hs`, and the
+standalone service, worker and task paths), a workload with `BucketBinding publications` gets `NAGARE_BUCKET_PUBLICATIONS_BACKEND=s3`,
 `_NAME`, `_ENDPOINT`, and `_ACCESS_KEY_ID` and `_SECRET_ACCESS_KEY` as `secretKeyRef` to its own
 Secret, and a dependency on its grant Job. The compile refuses `bucket-grant-missing` when the
 accepted head has no grant for that namespace and workload, and the same for a standalone

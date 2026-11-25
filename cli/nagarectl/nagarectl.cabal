@@ -917,6 +917,7 @@ test-suite nagarectl-test
     Nagare.Test.World.Quantity
     Nagare.Test.World.Store
     Nagare.Test.World.Validation
+    ObjectBucketBindingSpec
     ObjectBucketSpec
     ObjectBucketWorldSpec
     PlatformCutoverSpec

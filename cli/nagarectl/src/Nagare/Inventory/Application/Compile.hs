@@ -147,6 +147,18 @@ compileApplicationScope input = do
           .~ [source]
           & (:| [])
   _ <- first invalid (mkApplication app)
+  -- EP-283: likewise for app object buckets, so a binding is never dropped
+  -- silently. A Deployment, a Worker and a task bind one.
+  unless
+    (all (null . (^. #buckets)) (maybe [] pure (app ^. #service)) && all (null . (^. #buckets)) (app ^. #workers))
+    ( Left
+        ( ( inventoryError "bucket-not-bindable-from-application" "an application's service and workers do not bind an app object bucket; deploy the workload as a Deployment or Worker to bind one"
+              & #sources
+              .~ [source]
+          )
+            :| []
+        )
+    )
   -- EP-202: an application's workloads bind only the databases it declares;
   -- only its pre-deploy hooks bind app databases (EP-259).
   unless

@@ -4,6 +4,7 @@ module Nagare.Inventory.Application.Types
   , ApplicationScopeInput (..)
   , CloudflareCdnBinding (..)
   , AppDatabaseBound (..)
+  , BucketBound (..)
   , DatabaseBinding (..)
   , ServerBinding (..)
   , GoogleCdnBinding (..)
@@ -53,6 +54,24 @@ data AccessBinding = AccessBinding
 data DatabaseBinding
   = ServerDatabaseBinding !ServerBinding
   | AppDatabaseBinding !AppDatabaseBound
+  | -- | EP-283: an app object bucket, bound by a workload its declaration
+    -- grants. It shares the key space as @bucket-\<name\>@.
+    ObjectBucketBinding !BucketBound
+  deriving stock (Eq, Show)
+
+-- | An app object bucket as one granted workload sees it: where the bucket
+-- is, the workload's own credential Secret, and the Job that gave its store
+-- user access, after which the workload is ordered.
+data BucketBound = BucketBound
+  { bucketLabel :: !Text
+  -- ^ the declared bucket name, from which the variable prefix is derived
+  , bucketStoreName :: !Text
+  , bucketBackend :: !Text
+  , bucketEndpoint :: !Text
+  , bucketCredential :: !ManagedResource
+  , bucketCredentialName :: !Text
+  , bucketGrantJob :: !ResourceId
+  }
   deriving stock (Eq, Show)
 
 -- | A server bound directly: its administrator Secret is the workload's.
