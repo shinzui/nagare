@@ -57,8 +57,9 @@ context and this review, are unchanged.
 
 To see it working: on a disposable local context with an object-store history, stop the local
 registry, apply an image publication review (it stops), start the registry again, and run
-`nagarectl inventory resume TX --yes`. It completes, and `nagarectl inventory store status` shows no
-active transaction.
+`nagarectl inventory resume TX --yes`. It completes, and `nagarectl inventory status --json` shows no
+active transaction (`inventory store status` cannot show it for a schema 2 head; see Surprises &
+Discoveries).
 
 
 ## Progress
@@ -73,27 +74,43 @@ active transaction.
   with `/= InventoryStoreGcs` it passes. `just gate-commit` green in 128 s, running the whole
   suite (every named group, 0 failures). The command audit had to register `selectResumeStore`
   as a library call and refresh the catalogue snapshot (FRIC-23).
-- [ ] M2: native confirmation on a disposable local MinIO context with the CLI built at the M1
+- [x] M2: native confirmation on a disposable local MinIO context with the CLI built at the M1
   revision: a stopped image publication resumes to the same transaction, review and image digest
   (IR-54 AC-1); a publication killed after the registry accepted it converges on resume and a second
   resume writes nothing (AC-2); a transaction ID that is not this context's refuses before any write
   (AC-3).
-  Handoff 2026-11-24: stopped before AC-1. The substrate is the drill bootstrap (FRIC-22) on
-  Colima profile `ir54`, root `~/.local/state/nagare/ir54-drill`, registry forward on
-  127.0.0.1:15513 (15213 and 15313 are other VMs' forwards), auth images `:ep280` copied from the
-  nagare-mp23 daemon, and the controller archive linked untracked into
-  `cluster/bootstrap/net-certmanager/`. Bootstrap stage 2 (`tx-0b5d8c28…bd89`, workstation
-  history) stopped: Job `nagare-system/shomei-migrate-df55245e92ec` reached its backoff limit,
-  its pod already deleted, and resume answers "the operation failed terminally …; close the
-  transaction and review the change again". Not yet closed: the project rule is to stop and
-  report.
+  Passed 2026-11-24 on the CLI at 27b3a468 (fast record green), context `ir54` bootstrapped by the
+  drill (FRIC-22) on its own Colima profile (`--vz-rosetta`) and migrated to
+  `http://minio.nagare-system.svc.cluster.local:9000/nagare-inventory/ir54`; torn down afterwards.
+  AC-1: with the registry stopped, apply of `ir54-probe:v1` stopped `tx-3d06a453…0ddc0d` at the
+  adapter preflight (`KnownNoEffect … artifact observation unavailable`); `inventory status` showed
+  it active, `resume-required`. Resume from MinIO printed `converged tx-3d06a453…` (review digest
+  `3d06a453…`), no active transaction remained, and the registry serves
+  `sha256:4184f6ec…44ecd8`, the digest the reviewed artifact address binds. AC-2: apply of
+  `ir54-probe:v4` frozen during `inventory-artifact-transport.sh publish` and killed (05:08:16)
+  after the registry's only manifest PUT for v4 (05:08:08, 201); `tx-90d0b53a…b48697` stayed
+  active; the first resume printed `converged`, the second `converged` again, with no further PUT,
+  the registry catalog unchanged and `inventory status` identical apart from its observation
+  times. AC-3: `inventory resume tx-000…000 --yes` refused with `inactive-transaction: transaction
+  is not active in the store head`; status (less observation times) and catalog unchanged. A
+  pre-operation stop (`tx-8bb5ba9a…`, killed during preflight) also resumed to `converged`.
 - [ ] M3: landed (`just gate-fast`, `just mutation-check`, `just land`, full gate green) and IR-54
   marked completed with this plan as its target plan.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `inventory store status` cannot show the active transaction of a current history: since EP-231
+  (commit 15779151) a head is schema version 2 once the journal holds a convergence event, and the
+  command still reports every `schema > 1` head as `"state": "unsupported-schema"` without
+  `activeTransaction` (`cli/nagarectl/app/Nagare/Cli/Commands/Inventory/Store.hs`). M2 first read
+  a stopped transaction as settled because of it, and then observed through `inventory status
+  --json` (`.activeTransaction`, `.transactionStatus`). The fix is out of this plan's scope and is
+  reported to the operator.
+- The plan's substrate steps (`just local-up`, `local-bootstrap`, `local-minio`) do not bootstrap a
+  dev-tree context on their own; M2 used the drill bootstrap (FRIC-22) and needed a Colima profile
+  with Rosetta for the linux/amd64 auth images (FRIC-26), `colima delete --data` to replace a
+  profile (FRIC-25) and a manually started registry forward after a failed first run (FRIC-24).
 
 
 ## Decision Log
@@ -323,7 +340,7 @@ revision:
 ```bash
 cd /Users/shinzui/Keikaku/bokuno/nagare
 just gate-fast
-colima start --profile ir54
+colima start --profile ir54 --vz-rosetta  # the auth images are linux/amd64
 export DOCKER_HOST="unix://$HOME/.colima/ir54/docker.sock"
 export PATH="$(dirname "$(cd cli/nagarectl && cabal list-bin nagarectl)"):$PATH"
 nagarectl context create ir54 --mode local \
@@ -444,7 +461,7 @@ has inventory history, so delete the whole Docker daemon, which holds the cluste
 MinIO, and the context's workstation files:
 
 ```bash
-colima delete --profile ir54 --force
+colima delete --profile ir54 --data --force
 rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/nagare/ir54" "$WORK"
 rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/ir54.env"
 ```

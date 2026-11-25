@@ -2,6 +2,12 @@
 
 ## 2026-11-25
 
+* **Addition**: FRIC-26 records detour environment friction with mori://shinzui/nagare/scripts/site-access-drill.sh: A Colima daemon without Rosetta runs the linux/amd64 shomei image under QEMU and its migrate Job crashes
+
+
+* **Addition**: FRIC-25 records slowdown environment friction with mori://shinzui/nagare/docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md: The plan's Colima teardown keeps the daemon's data, so a recreated profile brings back the old cluster
+
+
 * **Addition**: FRIC-24 records detour tooling friction with mori://shinzui/nagare/scripts/site-access-drill.sh: A drill bootstrap that stops at the registry forward check leaves images.env, so its rerun starts no forward
 
 * **Addition**: FRIC-23 records slowdown tooling friction with mori://shinzui/nagare/scripts/audit-managed-commands.py: The command audit's unregistered library call is hidden in the gate log again
