@@ -14,6 +14,7 @@ module Nagare.Inventory.Store.Manifest
   , moveReviewIdentity
   , parseMoveReviewIdentity
   , hasSubstantiveHistory
+  , supportedHeadSchemaVersion
   , transitionReviewIdentity
   , parseTransitionReviewIdentity
   )
@@ -466,14 +467,19 @@ instance ToJSON HeadManifest where
         | (resource, tombstone) <- Map.toAscList entries
         ]
 
+-- | The head schema versions this CLI decodes. EP-231: version 2 marks a
+-- store whose journal holds a convergence event, which a version 1 CLI cannot
+-- read; it refuses at decode instead. Read-only status uses the same range, so
+-- the two cannot drift apart when a version 3 arrives.
+supportedHeadSchemaVersion :: Int -> Bool
+supportedHeadSchemaVersion version = version == 1 || version == 2
+
 instance FromJSON HeadManifest where
   parseJSON = withObject "HeadManifest" $ \o -> do
     let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence", "incarnations", "transition", "move"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
     version <- o .: "version"
-    -- EP-231: version 2 marks a store whose journal holds a convergence
-    -- event, which a version 1 CLI cannot read; it refuses here instead.
-    unless (version == 1 || version == 2) (fail "unsupported inventory head schema version")
+    unless (supportedHeadSchemaVersion version) (fail "unsupported inventory head schema version")
     generation <- o .: "generation"
     sequenceNumber <- o .: "sequence"
     unless (generation >= 0 && sequenceNumber >= 0) (fail "head counters must not be negative")

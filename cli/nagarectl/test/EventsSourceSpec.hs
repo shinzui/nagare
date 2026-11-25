@@ -3,7 +3,7 @@
 -- exactly the committed ones back.
 module EventsSourceSpec (eventsSourceTests) where
 
-import Data.Aeson (Value (Null, Object), object, toJSON, (.=))
+import Data.Aeson (Value (Null, Object, String), object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Either (isLeft)
@@ -32,6 +32,7 @@ import Nagare.Inventory.Plan.CloseRecord (CloseRecord (..), ScopeDisposition (..
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Counters (Counter (RemoteGet, RemotePut), countOf, snapshotCounters)
 import Nagare.Inventory.Store.ObjectOps
+import Nagare.Inventory.StoreStatus (storeStatusLine, storeStatusReport)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
@@ -121,6 +122,27 @@ eventsSourceTests =
             fmap headSchemaVersion (decodeHead (encoded 1)) @?= Right 1
             fmap headSchemaVersion (decodeHead (encoded 2)) @?= Right 2
             assertBool "version 3 is refused" (isLeft (decodeHead (encoded 3)))
+        , testCase "store status reports a version 2 head in full and only a version 3 head as unsupported" $ do
+            store <- newMemoryStore
+            initial <- initializeStore store fixtureBinding "client-a" >>= either (assertFailure . show) pure
+            let claim = ExecutorClaim "tx-held" "client-b" 1 "2026-11-22T22:19:00Z"
+                held = initial {headSchemaVersion = 2, headActiveTransaction = Just "tx-held", headExecutorClaim = Just claim}
+                encoded headValue = either (error . T.unpack) id (canonicalValue (toJSON headValue))
+                field key report = case report of
+                  Object o -> KM.lookup key o
+                  _ -> Nothing
+            report <- either (assertFailure . show) pure (storeStatusReport "local" "local" (encoded held))
+            field "state" report @?= Nothing
+            field "activeTransaction" report @?= Just (String "tx-held")
+            field "executorClaim" report @?= Just (toJSON claim)
+            field "generation" report @?= Just (toJSON (headGeneration held))
+            line <- either (assertFailure . show) pure (storeStatusLine "local" "local" (encoded held))
+            assertBool "text report hides the transaction" ("active transaction: tx-held" `T.isInfixOf` line)
+            assertBool "text report hides the claim" ("executor claim: tx-held" `T.isInfixOf` line)
+            future <- either (assertFailure . show) pure (storeStatusReport "local" "local" (encoded held {headSchemaVersion = 3}))
+            field "state" future @?= Just (String "unsupported-schema")
+            field "schemaVersion" future @?= Just (toJSON (3 :: Int))
+            field "activeTransaction" future @?= Nothing
         , testCase "a convergence event has version 2, completes its review, and no other event has version 2" $ do
             let review = contentDigest "review"
                 base = JournalEvent 1 0 Nothing tx1 Nothing (Completed review) "2026-11-17T00:00:00Z" "transaction converged" Nothing Nothing

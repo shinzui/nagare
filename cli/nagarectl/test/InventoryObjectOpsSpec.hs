@@ -102,16 +102,16 @@ inventoryObjectOpsTests =
         createdGeneration prefix name "Created gs://example-bucket/private/inventory/journal/00000000000000000001.json#bad\n"
           @?= Nothing
     , testCase "future canonical inventory head remains discoverable without decoding ownership" $ do
-        inspectHeadSchema "{\"version\":2}" @?= Right 2
+        inspectHeadSchema "{\"version\":3}" @?= Right 3
         assertBool
           "noncanonical future head is refused"
-          (isLeft (inspectHeadSchema "{ \"version\": 2 }"))
+          (isLeft (inspectHeadSchema "{ \"version\": 3 }"))
         assertBool
           "missing schema is refused"
           (isLeft (inspectHeadSchema "{}"))
         store <- newMemoryStore
         _ <-
-          publishIfAbsent store "head.json" "{\"version\":2}"
+          publishIfAbsent store "head.json" "{\"version\":3}"
             >>= either (assertFailure . show) pure
         readHead store >>= assertBool "future head cannot be used for mutation" . isLeft
     , testCase "object-backed inventory obeys the existing conditional store contract" $ do

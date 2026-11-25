@@ -37,7 +37,6 @@ import Nagare.Cli.Inventory.Adapters
   )
 import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.Foundation (inventoryFoundationAdapter)
-import Nagare.Cli.Inventory.PublicEvidence (publicDataFence)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieCoded, dieT)
 import Nagare.Cli.Runtime.Process (currentTimestamp)
@@ -83,6 +82,7 @@ import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Publications (readImageReferences, readPublications, renderPublicationTable)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
+import Nagare.Inventory.StoreStatus (publicDataFence)
 import Nagare.Platform.Paths
   ( renderPlatformPathError
   , resolvePlatformPaths

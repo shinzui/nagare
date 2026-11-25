@@ -14,7 +14,6 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Nagare.Cli.Inventory.PublicEvidence (publicDataFence)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target (activeTarget)
 import Nagare.Dsl.Prelude
@@ -22,6 +21,7 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Store qualified as InventoryStore
+import Nagare.Inventory.StoreStatus (storeStatusLine, storeStatusReport)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target
   ( InventoryStoreKind (InventoryStoreGcs, InventoryStoreLocal, InventoryStoreObject)
@@ -89,83 +89,21 @@ runInventoryStoreStatus mctx json = do
     InventoryStore.readObject store "head.json"
       >>= either (dieT . T.pack . show) pure
       >>= maybe (dieT "inventory history is not initialized") pure
-  schema <- either (dieT . T.pack . show) pure (InventoryStore.inspectHeadSchema rawHead)
   repeated <- InventoryStore.readObject store "head.json" >>= either (dieT . T.pack . show) pure
   unless (repeated == Just rawHead) (dieT "inventory history changed during status")
   let profile = active ^. #profile
-      kind = effectiveInventoryStore profile
+      kind = inventoryStoreToken (effectiveInventoryStore profile)
       context = contextNameText (active ^. #contextName)
-      url = case kind of
+      url = case effectiveInventoryStore profile of
         InventoryStoreLocal -> "local"
         InventoryStoreGcs ->
           if T.null (profile ^. #inventoryStoreUrl)
             then defaultGcsInventoryStoreUrl context profile
             else profile ^. #inventoryStoreUrl
         InventoryStoreObject -> profile ^. #inventoryStoreUrl
-  if schema > 1
-    then do
-      let report =
-            Aeson.object
-              [ "kind" Aeson..= inventoryStoreToken kind
-              , "url" Aeson..= url
-              , "headDigest" Aeson..= InventoryDigest.contentDigest rawHead
-              , "schemaVersion" Aeson..= schema
-              , "state" Aeson..= ("unsupported-schema" :: Text)
-              ]
-      if json
-        then LBC.putStrLn (Aeson.encode report)
-        else
-          TIO.putStrLn
-            ( "Inventory store "
-                <> inventoryStoreToken kind
-                <> " at "
-                <> url
-                <> " uses unsupported head schema "
-                <> T.pack (show schema)
-                <> "; use a newer operator payload"
-            )
-    else do
-      headValue <-
-        InventoryStore.readHead store
-          >>= either (dieT . T.pack . show) pure
-          >>= maybe (dieT "inventory history head disappeared") pure
-      let report =
-            Aeson.object
-              [ "kind" Aeson..= inventoryStoreToken kind
-              , "url" Aeson..= url
-              , "binding" Aeson..= InventoryStore.headBinding headValue
-              , "headDigest" Aeson..= InventoryDigest.contentDigest rawHead
-              , "generation" Aeson..= InventoryStore.headGeneration headValue
-              , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction headValue
-              , "dataFence" Aeson..= fmap publicDataFence (InventoryStore.headDataFence headValue)
-              , "executorClaim" Aeson..= InventoryStore.headExecutorClaim headValue
-              , "migration" Aeson..= InventoryStore.headMigration headValue
-              , "transition" Aeson..= InventoryStore.headTransition headValue
-              , "accepted" Aeson..= revisions (InventoryStore.headAccepted headValue)
-              , "converged" Aeson..= revisions (InventoryStore.headConverged headValue)
-              ]
-          revisions values =
-            [ Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
-            | (scope, revision) <- Map.toAscList values
-            ]
-      if json
-        then LBC.putStrLn (Aeson.encode report)
-        else
-          TIO.putStrLn
-            ( "Inventory store "
-                <> inventoryStoreToken kind
-                <> " at "
-                <> url
-                <> ", generation "
-                <> T.pack (show (InventoryStore.headGeneration headValue))
-                <> ", active transaction: "
-                <> fromMaybe "none" (InventoryStore.headActiveTransaction headValue)
-                <> ", data fence: "
-                <> maybe
-                  "none"
-                  (T.pack . show . InventoryStore.fencePhase)
-                  (InventoryStore.headDataFence headValue)
-            )
+  if json
+    then either (dieT . T.pack . show) (LBC.putStrLn . Aeson.encode) (storeStatusReport kind url rawHead)
+    else either (dieT . T.pack . show) TIO.putStrLn (storeStatusLine kind url rawHead)
 
 runInventoryStoreMigrate :: Maybe String -> String -> Bool -> Bool -> IO ()
 runInventoryStoreMigrate mctx destination dryRun yes = do

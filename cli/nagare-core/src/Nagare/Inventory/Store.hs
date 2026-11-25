@@ -15,6 +15,7 @@ module Nagare.Inventory.Store
   , HeadManifest (..)
   , TransitionMarker (..)
   , hasSubstantiveHistory
+  , supportedHeadSchemaVersion
   , transitionReviewIdentity
   , parseTransitionReviewIdentity
   , StoreSnapshot (..)

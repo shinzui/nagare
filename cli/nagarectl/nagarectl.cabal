@@ -318,6 +318,7 @@ library
     Nagare.Inventory.Store.ObjectTarget
     Nagare.Inventory.Store.ProjectNumbers
     Nagare.Inventory.Store.Remote
+    Nagare.Inventory.StoreStatus
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
     Nagare.Inventory.Trace
@@ -587,7 +588,6 @@ executable nagarectl
     Nagare.Cli.Inventory.ImagePrune
     Nagare.Cli.Inventory.Planning
     Nagare.Cli.Inventory.PruneEvidence
-    Nagare.Cli.Inventory.PublicEvidence
     Nagare.Cli.Inventory.Rebuild
     Nagare.Cli.Inventory.SourceEvidence
     Nagare.Cli.Inventory.VmPower
