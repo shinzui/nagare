@@ -10,6 +10,18 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-23T02:04:19Z
+  reviews:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-25T13:48:42Z
+      verdict: "changes-requested"
+      note: "M1's status-report test cannot reach the executable module, and the existing version-2 'future head' test contradicts the fix; code claims otherwise match the tree"
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-25T14:01:28Z
+      mode: "update"
+      note: "Apply review findings: testable status report in the library, version-3 future-head test, land HEAD, M3 narrowed to README and log, takeover refusal in the runbook"
 ---
 
 # Make the VM resize path and store status work on inventory contexts
@@ -38,6 +50,8 @@ one refused apply. The operator's record is
    Labs included. The report omits `activeTransaction` and `executorClaim`. So the documented "no
    transaction is open" check (`jq '{activeTransaction, executorClaim}'`) prints `null`/`null` even
    while another session holds a transaction. On Labs that happened at 22:19 UTC on 2026-11-22.
+   It happened again in [plan 282](282-resume-inventory-transactions-in-the-configured-local-object-store.md),
+   whose M2 first read a stopped transaction as settled and left the fix to this plan.
 
 After this plan, an operator following `docs/user/resizing-the-vm.md` on an inventory context resizes
 the VM with no refused command. `inventory store status --json` on a version-2 head reports the
@@ -46,20 +60,19 @@ binding, generation, active transaction and executor claim, the same as on a ver
 
 ## Progress
 
-- [ ] `inventory store status` decodes every head schema the store reader supports. A unit test
-  publishes a version-2 head with an active transaction and an executor claim, and the status
-  report names both. A head above the supported range still reports `unsupported-schema`.
-  `just gate-commit` is green.
+- [ ] `inventory store status` decodes every head schema the store reader supports. The report is
+  built by a pure library function. A unit test gives it a version-2 head with an active
+  transaction and an executor claim, and the report names both. A version-3 head still reports
+  `unsupported-schema`. The existing "future head" test uses version 3. `just gate-commit` is
+  green.
 - [ ] `docs/user/resizing-the-vm.md` gives the inventory-context procedure for both the machine type
   and the data-disk size: the context line, then the stage-1 and stage-2 bootstrap reviews with
   what each must contain, then the checks. The legacy `infra preview`/`infra-up` path stays as a
   short section for contexts without inventory history. The status banner and the downtime
   estimate carry the measured Labs numbers.
-- [ ] The summaries that repeat the old path are corrected: `docs/user/README.md` (line 102),
-  `docs/user/upgrades.md` (the `inventory store status` paragraph near line 92), and
-  `docs/user/resource-inventory.md` (the `store status` description, so it matches the fixed
-  behaviour).
-- [ ] Landed: `just gate-fast` clean, then `just land`, with the full gate green on the landed
+- [ ] The summary that repeats the old path is corrected: the "Resizing the VM" entry in
+  `docs/user/README.md` (lines 101 to 103). `docs/user/log.md` has an entry for DOC-30.
+- [ ] Landed: `just gate-fast` clean, then `just land HEAD`, with the full gate green on the landed
   commit.
 
 
@@ -83,6 +96,17 @@ binding, generation, active transaction and executor claim, the same as on a ver
   versions 1 and 2. Bumping a second literal would let the two drift apart again at version 3, which
   is exactly how the command went stale after EP-231.
   Date: 2026-11-23
+- Decision: move the status report's construction out of the executable into a pure function in the
+  `nagarectl` library, and test that function.
+  Rationale: the `nagarectl-test` suite builds only from `cli/nagarectl/test` against the library.
+  No spec can import `Nagare.Cli.Commands.Inventory.Store`, so the report as written has no test and
+  cannot get one. The command keeps the store reads, the repeated-read check and the printing.
+  Date: 2026-11-25
+- Decision: leave `docs/user/upgrades.md` and `docs/user/resource-inventory.md` unchanged.
+  Rationale: the `upgrades.md` paragraph describes a head newer than the CLI supports, which stays
+  true. The `resource-inventory.md` description of `store status` already states the fixed
+  behaviour. The 2026-11-23 Progress item listed both in error.
+  Date: 2026-11-25
 
 
 ## Outcomes & Retrospective
@@ -146,9 +170,25 @@ the intranet was unavailable for about 5 minutes. `allowStoppingForUpdate: true`
 `unsupported-schema` branch whenever `schema > 1`. The `FromJSON HeadManifest` instance in
 `cli/nagare-core/src/Nagare/Inventory/Store/Manifest.hs` accepts `version == 1 || version == 2`
 (EP-231: version 2 marks a journal holding a convergence event). `readHead`, used by every other
-command, therefore decodes the Labs head. The existing `inspectHeadSchema` tests are in
-`cli/nagarectl/test/InventoryObjectOpsSpec.hs`. No mutation record under
+command, therefore decodes the Labs head. No mutation record under
 `cli/nagarectl/test/mutations/` touches these files.
+
+**Why the report has no test today.** The command module is part of the `nagarectl` executable
+(`hs-source-dirs: app` in `cli/nagarectl/nagarectl.cabal`). The `nagarectl-test` suite builds from
+`cli/nagarectl/test` and depends on the library (`cli/nagarectl/src`), so no spec imports a
+`Nagare.Cli.*` module. The report also calls `publicDataFence` from
+`cli/nagarectl/app/Nagare/Cli/Inventory/PublicEvidence.hs`, another executable module.
+`inventoryStoreToken` is already in the library (`cli/nagarectl/src/Nagare/Target/Kinds.hs`).
+
+**The existing test that names version 2 as the future.** The test "future canonical inventory head
+remains discoverable without decoding ownership" in `cli/nagarectl/test/InventoryObjectOpsSpec.hs`
+(line 104) publishes `{"version":2}` and asserts that `readHead` refuses it. After EP-231 that head
+is refused for its missing fields, not for its version, so the test passes for the wrong reason.
+
+**Foreign-owner refusal at plan time.** Since 224a34ff (after the Labs resize on 0.27.0),
+`platform bootstrap plan` refuses a plan that updates an object whose fields another writer manages,
+unless `--take-over-fields` is given. The procedure is "Repair configuration drift" in
+`docs/runbooks/inventory-operations.md`. The Labs resize did not meet this refusal.
 
 The unrelated `unsupported-schema` in `cli/nagarectl/app/Nagare/Cli/Platform/Upgrade.hs` is about
 upgrade transactions, not the head, and is out of scope.
@@ -158,17 +198,36 @@ upgrade transactions, not the head, and is out of scope.
 
 **M1, the status fix.** In `Manifest.hs`, name the supported range once (for example
 `supportedHeadSchemaVersions :: [Int]`, or a predicate), use it in `FromJSON HeadManifest`, and
-export it through `Nagare.Inventory.Store`. In `runInventoryStoreStatus`, take the
-`unsupported-schema` branch only for a version outside that range. Test both cases in
-`InventoryObjectOpsSpec.hs` or the spec that already covers store-status output, whichever exists:
-the report for a version-2 head with a transaction and a claim lists both, and a version-3 head is
-still `unsupported-schema`. Run `just gate-commit`.
+export it through `Nagare.Inventory.Store`.
+
+Add a library module, for example `cli/nagarectl/src/Nagare/Inventory/StoreStatus.hs`, listed in the
+library's `exposed-modules`. It holds one pure function that builds the JSON report from the store
+kind token, the store URL and the raw head bytes:
+
+```haskell
+storeStatusReport :: Text -> Text -> ByteString -> Either StoreError Aeson.Value
+```
+
+It calls `inspectHeadSchema`, returns the `unsupported-schema` report only for a version outside the
+supported range, and otherwise decodes the same bytes and returns the full report. Move
+`publicDataFence` into the library with it, and keep `PublicEvidence.hs` importing it if other
+executable modules use it. `runInventoryStoreStatus` keeps the two reads of `head.json`, the
+"changed during status" check and the printing, and calls the function. The text output reads its
+fields from the same result.
+
+Test the function in `InventoryObjectOpsSpec.hs`: the report for a version-2 head with a transaction
+and a claim lists both, and a version-3 head is `unsupported-schema` with no `activeTransaction`
+key. Build the version-2 head by encoding a `HeadManifest`, as the other tests in that spec do. In
+the existing "future head" test, change `{"version":2}` to `{"version":3}`. Run `just gate-commit`.
 
 **M2, the runbook.** Rewrite "Resize, step by step" in `docs/user/resizing-the-vm.md` around the path
 in Context and Orientation:
 - a preflight that confirms no transaction is open, using the fixed `store status`;
 - a disk snapshot as the restore point;
 - stage 1 and stage 2, stating what each review must contain and to stop on anything else;
+- what to do when a plan is refused because another writer manages a field: stop, and follow
+  "Repair configuration drift" in `docs/runbooks/inventory-operations.md`. Do not add
+  `--take-over-fields` as a routine part of the resize;
 - the post-resize checks: node capacity, `server status`, a database query, booted system equals
   current system.
 
@@ -179,7 +238,9 @@ line `NAGARE_DATA_DISK_SIZE_GB`, then the two stages. Keep the growfs steps as t
 refusal text so a reader knows which path applies. Replace the 🟡 status banner and the estimated
 downtime with the Labs measurements.
 
-**M3, the summaries.** Make the three docs named in Progress match.
+**M3, the summary and the log.** Rewrite the "Resizing the VM" entry in `docs/user/README.md` to
+name the context line, the two reviewed bootstrap stages and the measured downtime. Add an
+`Update` entry for DOC-30 to `docs/user/log.md` under the date of the change.
 
 
 ## Concrete Steps
@@ -189,7 +250,7 @@ From the repository root:
 ```bash
 just gate-commit                 # after M1
 just mutation-check HEAD         # expected to select no records
-just gate-fast && just land      # after M2 and M3
+just gate-fast && just land HEAD # after M2 and M3
 ```
 
 Docs-only commits (M2, M3) carry the gated ancestor's record forward.
@@ -197,8 +258,9 @@ Docs-only commits (M2, M3) carry the gated ancestor's record forward.
 
 ## Validation and Acceptance
 
-- **M1:** the new test fails before the change, because a version-2 head yields `unsupported-schema`,
-  and passes after it. Against a local context whose store has converged a transaction, so its head
+- **M1:** the version-2 assertion fails when `storeStatusReport` keeps the old `schema > 1`
+  condition, because a version-2 head yields `unsupported-schema`, and passes with the shared range.
+  Against a local context whose store has converged a transaction, so its head
   is version 2:
 
   ```bash
@@ -227,8 +289,10 @@ stores differently.
 ## Interfaces and Dependencies
 
 `Nagare.Inventory.Store` (nagare-core) gains one export naming the supported head schema versions.
-Its consumers are `Nagare.Inventory.Store.Manifest` and
-`cli/nagarectl/app/Nagare/Cli/Commands/Inventory/Store.hs`. No wire format changes. Labs gets the
+Its consumers are `Nagare.Inventory.Store.Manifest` and the new status module. The `nagarectl`
+library gains that module (`storeStatusReport`) and `publicDataFence`; the executable's
+`cli/nagarectl/app/Nagare/Cli/Commands/Inventory/Store.hs` calls it. No wire format changes, and
+the JSON report keeps its current keys. Labs gets the
 status fix when it next upgrades. Until then, its operators read
 `gs://<state-bucket>/inventory/head.json` with `jq '{activeTransaction, executorClaim}'`, as its plan 25
 records.
