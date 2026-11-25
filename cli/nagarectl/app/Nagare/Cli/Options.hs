@@ -216,6 +216,7 @@ data AppDeployOpts = AppDeployOpts
   , releaseAdoptionInput :: !(Maybe FilePath)
   , takeOverFields :: !Bool
   , retireDatabases :: ![Text]
+  , retireContentRoutes :: ![Text]
   , contract :: !(Maybe Int)
   }
   deriving stock (Generic, Show)

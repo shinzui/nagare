@@ -58,6 +58,7 @@ import Nagare.Inventory.Adapters.KubernetesMigration (kubernetesMigrationExit)
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Command.Effects (planInventoryCollectionWithEffects)
 import Nagare.Inventory.Execute qualified as InventoryExecute
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.Journal qualified as InventoryJournal
@@ -274,7 +275,9 @@ runInventoryCollect mctx rawResources output descendants = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) rawResources
-  Inventory.planInventoryCollectionsWith ((if descendants then inventoryControllerCollectionRegistry else inventoryPlanRegistry) active workspace) active resources output
+  if descendants
+    then Inventory.planInventoryCollectionsWith (inventoryControllerCollectionRegistry active workspace) active resources output
+    else planInventoryCollectionWithEffects (inventoryPlanRegistry active workspace) active resources output
 
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do

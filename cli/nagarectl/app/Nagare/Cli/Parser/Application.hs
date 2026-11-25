@@ -188,6 +188,8 @@ appDeployOptsParser defaultFile =
       (long "take-over-fields" <> help "With --save-plan: record fields another writer manages on drifted objects so the reviewed apply takes them over")
     <*> many
       (strOption (long "retire-database" <> metavar "NAME" <> help "With --save-plan: retire a database the config no longer declares, retaining every member (F87)"))
+    <*> many
+      (strOption (long "retire-content-route" <> metavar "WORKER" <> help "With --save-plan: retire the content route a worker no longer declares; inventory collect then deletes it"))
     <*> contractOpt
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts

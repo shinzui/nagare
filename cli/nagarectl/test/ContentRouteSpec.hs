@@ -29,8 +29,9 @@ import Nagare.Dsl.Worker (defaultProbeTiming, mkHttpProbe, webWorker)
 import Nagare.Dsl.Worker qualified as Dsl
 import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
 import Nagare.Inventory.Adapters.KubernetesReadiness (readinessForAddress)
-import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, compileStandaloneWorkerWithDependencies)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, compileStandaloneWorkerWithDependencies, contentRouteRetirements)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
+import Nagare.Inventory.Command.Effects (collectionEffects)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Inventory
@@ -101,6 +102,24 @@ contentRouteTests =
         assertBool "the Certificate is not deleted in the Background" ("\"propagationPolicy\":\"Background\"" `T.isInfixOf` certificateBody)
         (ingressArgs, _) <- either (assertFailure . T.unpack) pure (collectionDeleteRequest (ingress ^. #address) uid "7")
         ingressArgs @?= ["delete", "--raw", "/apis/networking.internal.knative.dev/v1alpha1/namespaces/personal/ingresses/nagare-content-scoped-worker", "-f", "-"]
+    , testCase "retiring a worker's content route selects its Certificate and Ingress, and its Service once the port goes" $ do
+        (_, routed) <- compiled (routedApp [])
+        (_, portOnly) <- compiled (scopedApp Dsl.NoManagedEnv & #workers %~ map (#http ?~ WorkerHttp port8080 Nothing))
+        (_, plain) <- compiled (scopedApp Dsl.NoManagedEnv)
+        let accepted = Map.keys routed
+            identity' key = fst (memberAt key routed) ^. #identity
+            certificate = identity' ("cert-manager.io", "certificate", "nagare-content-scoped-worker")
+            ingress = identity' ("networking.internal.knative.dev", "ingress", "nagare-content-scoped-worker")
+            service = identity' ("", "service", "scoped-worker")
+        fmap Data.Set.fromList (contentRouteRetirements accepted (Map.keys portOnly) ["scoped-worker"]) @?= Right (Data.Set.fromList [certificate, ingress])
+        fmap Data.Set.fromList (contentRouteRetirements accepted (Map.keys plain) ["scoped-worker"]) @?= Right (Data.Set.fromList [certificate, ingress, service])
+        assertBool "a still-declared route was retired" (either (const True) (const False) (contentRouteRetirements accepted accepted ["scoped-worker"]))
+        assertBool "a worker with no route was retired" (either (const True) (const False) (contentRouteRetirements (Map.keys plain) (Map.keys plain) ["scoped-worker"]))
+        -- The collect review that deletes them says what goes.
+        map (^. #loses) (collectionEffects [fst (memberAt ("networking.internal.knative.dev", "ingress", "nagare-content-scoped-worker") routed), fst (memberAt ("cert-manager.io", "certificate", "nagare-content-scoped-worker") routed), fst (memberAt ("", "service", "scoped-worker") routed)])
+          @?= [ "*.content.example and content.example stop being served (Ingress personal/nagare-content-scoped-worker)"
+              , "the certificate personal/nagare-content-scoped-worker and the Secret holding its private key are deleted"
+              ]
     , testCase "an Ingress is ready only once Kourier has observed its generation and reports Ready" $ do
         let address = Kubernetes testCluster "networking.internal.knative.dev" (ok (mkName "ingress")) (Just (ok (mkName "personal"))) (ok (mkName "nagare-content-scoped-worker"))
             status generation observed ready =

@@ -139,6 +139,7 @@ import Nagare.Inventory.Application
   , applicationVolumeRecoveryBindings
   , compileApplicationDeployment
   , compileServiceActionScope
+  , contentRouteRetirements
   , databaseRecoveryBindings
   , hookTriggerOverrides
   , legacyApplicationReleaseImport
@@ -169,6 +170,7 @@ import Nagare.Static.Release
 import Nagare.Target (TargetProfile, storeBackendFor)
 import Nagare.Target.Kinds (hostShapeFor)
 import System.Directory (doesFileExist)
+import System.IO (stderr)
 
 -- | @app list@: print a table of apps in a namespace (Nagare-managed unless
 -- @--all@). An empty managed list prints a hint to try @--all@.
@@ -189,6 +191,9 @@ runAppDeployPlan mctx params appOptions output = do
   when
     (not (null (appOptions ^. #retireDatabases)) && (isNothing (appOptions ^. #savePlan) || isJust (appOptions ^. #legacyReleaseImport)))
     (dieT "--retire-database requires --save-plan for an ordinary reviewed deploy")
+  when
+    (not (null (appOptions ^. #retireContentRoutes)) && (isNothing (appOptions ^. #savePlan) || isJust (appOptions ^. #legacyReleaseImport)))
+    (dieT "--retire-content-route requires --save-plan for an ordinary reviewed deploy")
   when
     ( isNothing (appOptions ^. #savePlan)
         && ( isJust (appOptions ^. #legacyReleaseImport)
@@ -563,7 +568,7 @@ runAppDeployPlan mctx params appOptions output = do
           active
           candidate
       (Nothing, Just _)
-        | null (appOptions ^. #retireDatabases) ->
+        | null (appOptions ^. #retireDatabases) && null (appOptions ^. #retireContentRoutes) ->
             Inventory.planInventoryCandidateWith
               (inventoryPlanRegistryWithTakeover (appOptions ^. #takeOverFields) active workspace native)
               active
@@ -573,13 +578,22 @@ runAppDeployPlan mctx params appOptions output = do
             -- F87: retain each named database's accepted members.
             let members owned = [ResourceInventory.declarationId declaration | bundle <- ResourceInventory.scopeBundles owned, declaration@(ResourceInventory.Managed _) <- ResourceInventory.declarations bundle]
                 accepted = maybe [] (members . snd) (Map.lookup (ResourceInventory.scopeId scope) (ResourceInventory.snapshotScopes snapshot))
-            retired <- either dieT pure (applicationDatabaseRetirements accepted (members scope) (appOptions ^. #retireDatabases))
+            databases <- either dieT pure (applicationDatabaseRetirements accepted (members scope) (appOptions ^. #retireDatabases))
+            -- EP-285: a content route is retired here and deleted by the collect review it prints.
+            routes <- either dieT pure (contentRouteRetirements accepted (members scope) (appOptions ^. #retireContentRoutes))
             Inventory.planInventoryCandidateWithRetirements
               (inventoryPlanRegistryWithTakeover (appOptions ^. #takeOverFields) active workspace native)
               active
               candidate
-              retired
+              (databases <> routes)
               output
+            unless (null routes) $
+              TIO.hPutStrLn
+                stderr
+                ( "After this review is applied, delete the retired content route with:\n  nagarectl inventory collect "
+                    <> T.unwords ["--resource " <> Resource.resourceIdText resource | resource <- routes]
+                    <> " --out DIR"
+                )
       (Just proposal, Just _) ->
         Inventory.planInventoryCandidateAdoptionWith
           (inventoryPlanRegistryWithNative active workspace native)

@@ -7,6 +7,7 @@ module Nagare.Inventory.Application
   , compileApplicationDeployment
   , hookTriggerOverrides
   , applicationDatabaseRetirements
+  , contentRouteRetirements
   , compileApplicationDatabases
   , compileApplicationService
   , compileStandaloneService
@@ -107,7 +108,7 @@ import Nagare.Inventory.Application.Release
   , legacyApplicationReleaseImport
   , legacyStandaloneReleaseImport
   )
-import Nagare.Inventory.Application.Retire (applicationDatabaseRetirements)
+import Nagare.Inventory.Application.Retire (applicationDatabaseRetirements, contentRouteRetirements)
 import Nagare.Inventory.Application.Service
   ( compileApplicationService
   , compileStandaloneService

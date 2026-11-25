@@ -145,6 +145,18 @@ host=share.CONTENT_DOMAIN
 - [ ] M5. Retiring a content route is a review that names the hosts that stop being served and the
   certificate key that is destroyed. User documentation and the ADR 20 amendment exist. Evidence:
   reviewed-change tests (IR-55 AC-5, domain).
+  - 2026-11-25: the code is done; the documentation and the ADR 20 amendment are not. cert-manager
+    runs with `--enable-certificate-owner-ref=true` (a reviewed `upstreamContainerArgs` override of
+    the pinned controller), a retained content Certificate is collected with Background
+    propagation so its Secret goes with it, and a retained Kourier Ingress is collectable.
+    `app deploy --save-plan DIR --retire-content-route WORKER` retires the route members the config
+    no longer declares (and the worker's Service when its port goes too), refuses a worker with no
+    accepted route or one that still declares it, and prints the `inventory collect` step; that
+    collect review carries the removal lines (`collectionEffects`: the hosts that stop being served,
+    the certificate and its private key). Evidence: nagarectl `content route` (11), the
+    cert-manager case in `pinned upstream bootstrap manifests`, mutation records
+    `EP285-certificate-orphan-collection`, `EP285-certificate-secret-unowned` and
+    `EP285-content-host-unclaimed` (3 killed); `just gate-commit` green.
 
 
 ## Surprises & Discoveries
