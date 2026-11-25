@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-25
+
+* **Addition**: FRIC-24 records detour tooling friction with mori://shinzui/nagare/scripts/site-access-drill.sh: A drill bootstrap that stops at the registry forward check leaves images.env, so its rerun starts no forward
+
 * **Addition**: FRIC-23 records slowdown tooling friction with mori://shinzui/nagare/scripts/audit-managed-commands.py: The command audit's unregistered library call is hidden in the gate log again
 
 ## 2026-11-24

@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-11-24T18:12:35Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-25T03:26:37Z
+      mode: "implement"
+      note: "M1 implemented; M2 native confirmation on a disposable ir54 context"
 ---
 
 # Resume inventory transactions in the configured local object store
@@ -57,16 +63,30 @@ active transaction.
 
 ## Progress
 
-- [ ] M1: store selection keeps a local context's object store for foundation selection and for
+- [x] M1: store selection keeps a local context's object store for foundation selection and for
   resume; the new `S3 store` unit test fails before the fix and passes after; the `S3 store`,
   `inventory object operations`, `cluster foundation inventory`, `inventory transactions`,
   `artifact inventory adapter` and `close by per-operation proof (ADR 26)` groups pass;
   `just gate-commit` green.
+  Passed 2026-11-24 (commit 27b3a468). With `selectResumeStore` moved and the guards unchanged,
+  the new case failed: `but got: Left (StoreConditionFailed "context \"ir54\" not found ...")`;
+  with `/= InventoryStoreGcs` it passes. `just gate-commit` green in 128 s, running the whole
+  suite (every named group, 0 failures). The command audit had to register `selectResumeStore`
+  as a library call and refresh the catalogue snapshot (FRIC-23).
 - [ ] M2: native confirmation on a disposable local MinIO context with the CLI built at the M1
   revision: a stopped image publication resumes to the same transaction, review and image digest
   (IR-54 AC-1); a publication killed after the registry accepted it converges on resume and a second
   resume writes nothing (AC-2); a transaction ID that is not this context's refuses before any write
   (AC-3).
+  Handoff 2026-11-24: stopped before AC-1. The substrate is the drill bootstrap (FRIC-22) on
+  Colima profile `ir54`, root `~/.local/state/nagare/ir54-drill`, registry forward on
+  127.0.0.1:15513 (15213 and 15313 are other VMs' forwards), auth images `:ep280` copied from the
+  nagare-mp23 daemon, and the controller archive linked untracked into
+  `cluster/bootstrap/net-certmanager/`. Bootstrap stage 2 (`tx-0b5d8c28…bd89`, workstation
+  history) stopped: Job `nagare-system/shomei-migrate-df55245e92ec` reached its backoff limit,
+  its pod already deleted, and resume answers "the operation failed terminally …; close the
+  transaction and review the change again". Not yet closed: the project rule is to stop and
+  report.
 - [ ] M3: landed (`just gate-fast`, `just mutation-check`, `just land`, full gate green) and IR-54
   marked completed with this plan as its target plan.
 
