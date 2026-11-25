@@ -86,7 +86,8 @@ binding, generation, active transaction and executor claim, the same as on a ver
   `docs/user/README.md` (lines 101 to 103). `docs/user/log.md` has an entry for DOC-30.
   (2026-11-25.)
 - [ ] Landed: `just gate-fast` clean, then `just land HEAD`, with the full gate green on the landed
-  commit.
+  commit. (2026-11-25: `just gate-fast` green on 4ac7aaaa; `just mutation-check 44b6400e 9d961dc3`
+  selects 0 of 206 records. Landing follows this commit; the full gate result is pending.)
 
 
 ## Surprises & Discoveries
@@ -95,6 +96,9 @@ binding, generation, active transaction and executor claim, the same as on a ver
   `scripts/haskell-size-allowances.json`), so the architecture audit refused the new test there.
   It went into the "wire" group of `cli/nagarectl/test/EventsSourceSpec.hs`, next to the test
   that decodes heads at versions 1, 2 and 3. The "future head" test stayed where it was.
+- `just mutation-check HEAD` without a base selects every record, not none: `selectRecords` in
+  `cli/nagare-harness/src/Nagare/Harness/Mutation.hs` returns all records when no range is given.
+  The run was stopped after 32 minutes, and Concrete Steps now passes the base (FRIC-27).
 
 
 ## Decision Log
@@ -131,7 +135,16 @@ binding, generation, active transaction and executor claim, the same as on a ver
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+`inventory store status` now reports the binding, generation, active transaction and executor
+claim for every head the reader decodes (versions 1 and 2), and `unsupported-schema` only for a
+newer head. The version range is defined once, so the two cannot drift apart at version 3. The
+resize runbook (DOC-30) gives the inventory-context path for both the machine type and the data
+disk: the context line, then two reviewed `platform bootstrap` stages. The legacy path stays for
+contexts without history. Still open: the full gate on the landed commit, and Labs gets the status
+fix at its next upgrade. Nothing moves to an ADR: ADR 14 and ADR 22 already state the
+context-owns-the-shape and reviewed-inventory rules the runbook now follows. Friction: FRIC-27
+(mutation-check without a base), resolved by correcting Concrete Steps; CLAUDE.md already gives
+the `REV BASE` form.
 
 
 ## Context and Orientation
@@ -269,7 +282,7 @@ From the repository root:
 
 ```bash
 just gate-commit                 # after M1
-just mutation-check HEAD         # expected to select no records
+just mutation-check HEAD 9d961dc3  # with the base; selects 0 of 206 records
 just gate-fast && just land HEAD # after M2 and M3
 ```
 

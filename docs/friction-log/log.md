@@ -2,6 +2,12 @@
 
 ## 2026-11-25
 
+* **Update**: FRIC-27 resolved: Resolved: the cause was the plan's command, now corrected
+
+
+* **Addition**: FRIC-27 records detour interface friction with mori://shinzui/nagare: mutation-check without a base proves all 206 records
+
+
 * **Update**: FRIC-26 accepted: Accepted: the auth images are linux/amd64 by design; the profile flag is recorded where the next run reads it.
 
 
