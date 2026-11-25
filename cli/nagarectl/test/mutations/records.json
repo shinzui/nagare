@@ -1234,5 +1234,23 @@
     "suite": "nagarectl",
     "pattern": "/a hand annotation becomes Nagare/ || /a field the reviewed writer shares with Nagare/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP285-certificate-orphan-collection",
+    "suite": "nagarectl",
+    "pattern": "/the Certificate goes with its Secret/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP285-certificate-secret-unowned",
+    "suite": "nagarectl",
+    "pattern": "/cert-manager makes each Certificate own its Secret/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP285-content-host-unclaimed",
+    "suite": "nagarectl",
+    "pattern": "/another scope's host under the domain, or the domain itself, is refused by the composition/",
+    "expect": "test-fails"
   }
 ]

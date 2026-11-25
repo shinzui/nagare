@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesCollection.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesCollection.hs
+index ea55035c..8681dc12 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesCollection.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesCollection.hs
+@@ -52,7 +52,6 @@ collectionPropagation :: Text -> Text -> Text
+ collectionPropagation "batch" "job" = "Background"
+ collectionPropagation "apps" "statefulset" = "Background"
+ -- EP-285: cert-manager owns the Certificate's Secret; Orphan would keep the private key.
+-collectionPropagation "cert-manager.io" "certificate" = "Background"
+ collectionPropagation _ _ = "Orphan"
+ 
+ -- | The (API group, kind) pairs a reviewed collection can delete. The

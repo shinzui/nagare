@@ -218,3 +218,6 @@ run them with `-p "application update recovery"`.
 F50's guard (a transient failed `gcloud` read in the state-bucket ownership check)
 is not reachable from the Kubernetes or store worlds; its record waits for
 EP-173 M4's cloud-foundation world.
+| `EP285-certificate-orphan-collection.diff` | a retained content Certificate is collected with Background propagation | "a content route's members are collectable, and the Certificate goes with its Secret" fails: the DELETE orphans the Secret, which keeps the private key (2026-11-25) |
+| `EP285-certificate-secret-unowned.diff` | cert-manager runs with `--enable-certificate-owner-ref=true`, so a Certificate owns its Secret | "cert-manager makes each Certificate own its Secret, and a repeated or misdirected argument is refused (EP-285)" fails: the controller carries no owner-reference flag, so a collected Certificate leaves its key behind (2026-11-25) |
+| `EP285-content-host-unclaimed.diff` | the composition refuses another member's host under a content Ingress's domain (`content-domain-claimed`) | "another scope's host under the domain, or the domain itself, is refused by the composition" fails: a DomainMapping for `x.content.example` in another scope composes, and Kourier would serve it instead of the content worker (2026-11-25) |

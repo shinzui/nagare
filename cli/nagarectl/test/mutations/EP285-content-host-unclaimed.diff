@@ -1,0 +1,12 @@
+diff --git a/cli/nagare-dsl/src/Nagare/Resource/Inventory.hs b/cli/nagare-dsl/src/Nagare/Resource/Inventory.hs
+index d4bb920d..4b92881f 100644
+--- a/cli/nagare-dsl/src/Nagare/Resource/Inventory.hs
++++ b/cli/nagare-dsl/src/Nagare/Resource/Inventory.hs
+@@ -793,6 +793,7 @@ validateGraph ss ds reservations =
+        , declarationId other /= declarationId d
+        , Hostname host <- hostnamesOf other
+        , ("." <> apex) `Data.Text.isSuffixOf` nameText host
++       , False
+        ]
+     <> [issue "reserved-claim" "address held by retained, candidate, or unresolved history" [d] [c] & #scopes %~ (s :) & #resources %~ (r :) | (c, ClaimHolder s r _ _) <- Map.toList reservations, d <- Map.findWithDefault [] c claims, declarationId d /= r]
+     <> concatMap validateDeclaration ds
