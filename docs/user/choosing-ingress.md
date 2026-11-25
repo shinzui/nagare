@@ -35,6 +35,8 @@ scan finds nothing to attack, and a mistake in a firewall rule reaches nothing. 
 - **Never turn on Bot Fight Mode or Under Attack mode.** Both challenge API clients and webhook senders, and no rule can skip them.
 - **The base domain must be the zone itself.** Cloudflare's free certificate covers the zone and one label below it, so a deeper
   custom domain needs Advanced Certificate Manager at $10 a month, which Nagare does not manage.
+- **No content domains.** A [content domain](content-domains.md), which serves untrusted uploads from a separate registrable domain,
+  needs direct ingress: the tunnel's ingress rules cover only the base zone.
 
 ## What Nagare sets on the zone
 
@@ -55,6 +57,7 @@ has the details.
 - You cannot let a third party read your traffic, for legal or contractual reasons.
 - Your domain cannot move to Cloudflare's name servers.
 - You need uploads over 100 MB.
+- You serve untrusted user content from a [content domain](content-domains.md).
 - You run a local context, which has no public ingress at all.
 
 A context on direct ingress stays supported, and can move onto the tunnel later: see [Moving an existing context onto the Cloudflare Tunnel](moving-a-context-to-the-tunnel.md). `nagarectl platform status` and `nagarectl doctor` print one line pointing here. Add

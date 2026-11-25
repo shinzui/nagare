@@ -157,6 +157,12 @@ host=share.CONTENT_DOMAIN
     cert-manager case in `pinned upstream bootstrap manifests`, mutation records
     `EP285-certificate-orphan-collection`, `EP285-certificate-secret-unowned` and
     `EP285-content-host-unclaimed` (3 killed); `just gate-commit` green.
+  - 2026-11-25: documentation done: `docs/user/content-domains.md`, `config-reference.md`,
+    `choosing-ingress.md` and `cluster-bootstrap.md` (the stale "any Cloud DNS zone in the project"
+    claim corrected), `CLAUDE.md`'s variable list and ADR 20's amendment. The capability page
+    waits for the release that ships the route, since every capability page is a shipped one.
+    Removing a domain from `NAGARE_CONTENT_DOMAINS` is not yet a reviewed retirement: the cloud
+    stage refuses while the accepted scope holds its zone; the user page says so.
 
 
 ## Surprises & Discoveries

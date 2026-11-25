@@ -155,6 +155,10 @@ you can observe.
      consumer, a stream processor) with a typed `Worker` and `nagarectl worker
      deploy`: it renders an `apps/v1` Deployment with a fixed replica count, never
      scales to zero, needs no HTTP port, and is operated with stock `kubectl`. 🟡
+   - [Serving untrusted content from a content domain](content-domains.md) — list
+     a separate registrable domain on the context, delegate it to the zone Nagare
+     creates, and route `*.D` and `D` to one worker with the request's own `Host`
+     header under a wildcard certificate. 🟡
    - [Bounded one-shot jobs](one-shot-jobs.md) — describe one finite execution
      with a typed `Job`, hardened Pod defaults, temporary scratch space, and a
      deadline-based two-slot namespace quota. The DSL and cluster contract are

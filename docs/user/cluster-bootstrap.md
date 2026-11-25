@@ -145,9 +145,10 @@ certificates explicitly use `knative-selfsigned-issuer`.
 Explicit DomainMappings can cause exact certificates in addition to the
 namespace wildcard that covers automatic Service URLs. Deploy success requires
 the certificate appropriate to every `DomainTls` policy. Automatic TLS is
-supported for the platform Cloud DNS zone and other authoritative zones in the
-active project; external DNS authority needs its own solver or a supplied
-namespace-local TLS Secret.
+supported for the platform Cloud DNS zone and the context's content-domain
+zones ([content domains](content-domains.md)), the only zones the DNS-01
+solver may write; any other DNS authority needs a supplied namespace-local TLS
+Secret.
 
 This boundary matters beyond readiness. Each unnecessary production wildcard
 spends the registered domain's issuance budget, and every publicly trusted

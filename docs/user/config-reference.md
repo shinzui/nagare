@@ -368,13 +368,16 @@ their first entry is treated as canonical and all entries use automatic TLS.
 > HTTP-redirected to the canonical one — that hard redirect remains deferred
 > future work. All listed domains serve the app directly.
 
-`AutomaticTls` is preflighted before any workload object is applied. Under the
-platform base zone it requires Knative external-domain TLS and the configured
-`ClusterIssuer` to be Ready. For another Cloud DNS zone, that zone must be in
-the active context's project. For DNS authority elsewhere, either configure a
-cert-manager solver for that authority or use `withTlsSecret`; the Secret must
-already exist in the workload namespace with `tls.crt` and `tls.key` keys.
-Nagare reads only the key names and never prints Secret data.
+`AutomaticTls` works under the platform base zone, where it requires Knative
+external-domain TLS and the configured `ClusterIssuer` to be Ready. The DNS-01
+solver may write only in the base zone and in the context's content-domain
+zones, so a host in another Cloud DNS zone, even in the same project, cannot be
+issued automatically; nothing checks this before the deploy, and the
+certificate stays pending. For any other authority use `withTlsSecret`; the
+Secret must already exist in the workload namespace with `tls.crt` and
+`tls.key` keys. Nagare reads only the key names and never prints Secret data.
+Untrusted content on a separate domain is served by a
+[content domain](content-domains.md), not a DomainMapping.
 
 ## Build modes
 

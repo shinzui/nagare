@@ -148,3 +148,21 @@ so a move refuses to start when a certificate renews within 14 days, and admissi
 `NAGARE_INGRESS` and `NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED`; a plain context review of any of them is still refused. The Cloud DNS zone
 keeps the old name as `NAGARE_RETAINED_DNS_NAME` until `context move retire` removes it, which it does only once the parent no longer
 delegates the old base. See [Moving a context to a new base domain](../user/moving-to-a-new-base-domain.md).
+
+## Amendment — 2026-11-25: content domains (EP-285)
+
+A context may list **content domains** in `NAGARE_CONTENT_DOMAINS`, beside its one base domain. A content domain is not a second base
+domain: it carries no login, no default names and no DomainMappings. It must not equal, contain or be under the base domain, so the
+login cookie, scoped to `.` plus the base domain, never reaches it. On a direct cloud context the context owns one Cloud DNS zone per
+content domain, created by the reviewed cloud stage with `*.D` and `D` A records to the VM and `roles/dns.admin` for the VM account on
+that zone only. The operator delegates the domain at its registrar or parent zone; the cluster still holds no credential for an external
+DNS provider. A tunnel context lists none it can serve.
+
+One worker of one application serves a content domain through a Nagare-authored Kourier Ingress for `*.D` and `D` and a cert-manager
+Certificate for the same names, not through DomainMappings: a DomainMapping is named after one host and rewrites `Host`. The Ingress
+claims `D` as a hostname alias, and the composition reads that alias as a claim on every host under `D`, so no other scope can take one
+host of the domain (Kourier would otherwise serve the exact host). A content route never passes the login enforcer; the application
+authorises its own requests. cert-manager runs with `--enable-certificate-owner-ref`, so a collected Certificate takes its private-key
+Secret with it. This supersedes the 2026-09-14 text that automatic TLS works for other authoritative Cloud DNS zones of the project: the
+solver's write grant has been per zone since EP-99, and a content domain is the supported way to issue for a second zone.
+

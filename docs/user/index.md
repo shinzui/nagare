@@ -29,6 +29,7 @@ okf_version: "0.2"
 - [Scheduled tasks](scheduled-tasks.md) - Declare, deploy, run, observe, and troubleshoot scheduled application tasks on Nagare.
 - [Static & full-stack site hosting](static-hosting.md) - Configure, deploy, release, preview, and troubleshoot static and full-stack sites on Nagare.
 - [Running workers](workers.md) - Define, deploy, observe, scale, pause, and test long-running worker workloads on Nagare.
+- [Serving untrusted content from a content domain](content-domains.md) - List a content domain on a context, delegate it, and route every host under it to one application worker with the request's own Host header.
 
 # Navigation
 
