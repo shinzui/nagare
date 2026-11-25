@@ -85,9 +85,9 @@ binding, generation, active transaction and executor claim, the same as on a ver
 - [x] The summary that repeats the old path is corrected: the "Resizing the VM" entry in
   `docs/user/README.md` (lines 101 to 103). `docs/user/log.md` has an entry for DOC-30.
   (2026-11-25.)
-- [ ] Landed: `just gate-fast` clean, then `just land HEAD`, with the full gate green on the landed
+- [x] Landed: `just gate-fast` clean, then `just land HEAD`, with the full gate green on the landed
   commit. (2026-11-25: `just gate-fast` green on 4ac7aaaa; `just mutation-check 44b6400e 9d961dc3`
-  selects 0 of 206 records. Landing follows this commit; the full gate result is pending.)
+  selects 0 of 206 records. Landed 0c0541c6; its full gate is green in 996 s.)
 
 
 ## Surprises & Discoveries
@@ -140,8 +140,8 @@ claim for every head the reader decodes (versions 1 and 2), and `unsupported-sch
 newer head. The version range is defined once, so the two cannot drift apart at version 3. The
 resize runbook (DOC-30) gives the inventory-context path for both the machine type and the data
 disk: the context line, then two reviewed `platform bootstrap` stages. The legacy path stays for
-contexts without history. Still open: the full gate on the landed commit, and Labs gets the status
-fix at its next upgrade. Nothing moves to an ADR: ADR 14 and ADR 22 already state the
+contexts without history. Landed as 0c0541c6 with the full gate green. Still open: Labs gets the
+status fix at its next upgrade. Nothing moves to an ADR: ADR 14 and ADR 22 already state the
 context-owns-the-shape and reviewed-inventory rules the runbook now follows. Friction: FRIC-27
 (mutation-check without a base), resolved by correcting Concrete Steps; CLAUDE.md already gives
 the `REV BASE` form.
