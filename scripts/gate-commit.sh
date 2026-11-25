@@ -114,7 +114,7 @@ for package in $packages; do
       step nagare-dsl-test cli/nagare-dsl cabal test nagare-dsl-test
       ;;
     nagare-api-server)
-      step nagare-api-server-build cli/nagarectl cabal build -v1 nagare-api-server-test exe:nagare-events
+      step nagare-api-server-build cli/nagarectl cabal build -v1 nagare-api-server-test exe:nagare-events exe:nagare-keyset
       step nagare-api-server-test cli/nagarectl cabal test nagare-api-server-test
       ;;
     nagare-core)

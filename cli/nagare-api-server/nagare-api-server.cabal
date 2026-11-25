@@ -90,6 +90,19 @@ executable nagare-events
     wai,
     warp,
 
+executable nagare-keyset
+  import: common
+  main-is: KeySet.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    nagare-contract,
+    nagare-core,
+    nagare-dsl,
+    optparse-applicative,
+    text,
+    time,
+
 executable nagare-api-server
   import: common
   main-is: Main.hs

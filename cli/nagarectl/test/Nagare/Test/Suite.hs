@@ -102,6 +102,7 @@ import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
 import InventoryWorldConformanceSpec (inventoryWorldConformanceTests)
 import InventoryWorldFaultsSpec (inventoryWorldFaultsTests)
 import KeySetRotationSpec (keySetRotationTests)
+import KeySetRotatorSpec (keySetRotatorTests)
 import LifecycleCredentialSpec (lifecycleCredentialTests)
 import ManagedEnvScopeSpec (managedEnvScopeTests)
 import Nagare.Dsl.Prelude ()
@@ -282,6 +283,7 @@ main = do
             , contentDomainContextTests
             , contentRouteTests
             , keySetRotationTests
+            , keySetRotatorTests
             , inventoryCloseTests
             , inventoryTransferScriptTests
             , inventoryRefusedPreflightRecoveryTests

@@ -73,6 +73,19 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
 - [ ] M2. A `nagare-keyset` executable applies the step to a ConfigMap and a Secret in a cluster
   and survives conflicts and a crash between its two writes. Evidence: tests against the model
   API server.
+  - 2026-11-25: done. `rotateOnce` (`cli/nagare-core/src/Nagare/KeySet/Rotator.hs`) reads the
+    Secret `nagare-keyset-<name>` (`private.json`) and the ConfigMap
+    `nagare-keyset-<name>-public` (`policy.json`, the reviewed part; `public.json`, the rotator's),
+    runs the step with two fresh `crypton` Ed25519 keys, and replaces the ConfigMap then the
+    Secret at the resourceVersions it read. With no change it writes nothing, unless the public
+    file differs from the Secret's state, which it restores. It refuses, without writing, a
+    missing object, a missing or invalid policy and an undecodable private file. The executable is
+    `nagare-keyset --namespace NS --key-set NAME` in `cli/nagare-api-server/app/KeySet.hs`.
+    Tested against an in-memory API server that enforces resourceVersion preconditions, not the
+    model world (it has neither object kind's data delegation): nagarectl `key set rotator` (7:
+    first run and an immediate rerun, a promotion, a ConfigMap conflict, a conflict and a crash
+    between the writes, a hand-edited public file, the two refusals, the policy round trip);
+    `just gate-commit` green. The image that carries the binary is M3's.
 - [ ] M3. `nagarectl keyset plan` produces a reviewed standalone scope; the keys exist before any
   consumer starts; a rotation is not drift; a `Sign` workload mounts private and public keys and a
   `Verify` workload only public keys. Evidence: `nagare-dsl` and interpreter tests.

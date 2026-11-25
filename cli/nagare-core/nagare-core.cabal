@@ -109,6 +109,7 @@ library
     Nagare.Inventory.Store.Service
     Nagare.Inventory.TunnelRoute
     Nagare.KeySet
+    Nagare.KeySet.Rotator
     Nagare.Platform.Versions
     Nagare.Platform.Versions.Store
     Nagare.Storage.Discover
