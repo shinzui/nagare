@@ -107,6 +107,14 @@ compileKubernetesObject input = do
       , aliases = case address of
           Kubernetes _ "serving.knative.dev" nativeKind _ host
             | nameText nativeKind == "domainmapping" -> [Hostname host]
+          -- EP-285: a content Ingress claims every host under its domain, which its
+          -- label names, so the claim is derived from the object as a DomainMapping's is.
+          Kubernetes _ "networking.internal.knative.dev" nativeKind _ _
+            | nameText nativeKind == "ingress"
+            , Just (Object labels) <- KeyMap.lookup "labels" metadata
+            , Just (String domain) <- KeyMap.lookup "nagare.dev/content-domain" labels
+            , Right host <- mkName domain ->
+                [Hostname host]
           _ -> []
       , spec
       , lifecycle = lifecyclePolicy input

@@ -34,6 +34,7 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Command.Effects (collectionEffects)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
@@ -90,6 +91,9 @@ contentRouteTests =
     , testCase "a standalone worker with a port is refused" $
         either (map (^. #code) . NE.toList) (const []) (standalone (worker & #http ?~ WorkerHttp port8080 Nothing))
           @?= ["worker-http-needs-application"]
+    , testCase "every member of a routed application rebinds from its own bytes, the Ingress's claim on its domain included" $ do
+        (_, native) <- compiled (routedApp [])
+        validateSuppliedKubernetesMembers (map fst (Map.elems native)) native @?= Right ()
     , testCase "a content route's members are collectable, and the Certificate goes with its Secret" $ do
         (_, native) <- compiled (routedApp [])
         let service = fst (memberAt ("", "service", "scoped-worker") native)
