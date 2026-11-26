@@ -9,6 +9,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-26T17:19:02Z
+  revisions:
+    - model: "claude-fable-5-2"
+      harness: "claude-code"
+      at: 2026-11-26T18:20:26Z
+      mode: "implement"
+      note: "M1 same-tag retry under a new hook attempt"
 ---
 
 # Recover from a failed deploy hook by deploying again
@@ -35,8 +41,10 @@ of it is left accepted and unconverged.
 
 ## Progress
 
-- [ ] M1: a same-tag redeploy after a closed failed hook plans a fresh hook run and converges.
-      Evidence: a model-world test in `cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs`.
+- [x] M1 (2026-11-26): a same-tag redeploy after a closed failed hook plans a fresh hook run and
+      converges. Evidence: "the same tag deployed again after a failed hook runs the hook afresh,
+      beside the failed Job" in `cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs` passes; the failed
+      Job keeps its UID and the retry's scopes converge.
 - [ ] M2: `app deploy` ends its own application's stopped failed-hook transaction itself, through
       the existing close, and then deploys. Evidence: a model-world test with no close call in it,
       and a unit test that a transaction of another application or with any unproved operation is
@@ -63,6 +71,14 @@ of it is left accepted and unconverged.
 
 
 ## Decision Log
+
+- Decision: the attempt is one number for the whole deploy, chosen by
+  `compileApplicationRetry` as the first attempt none of whose hook scopes is accepted and
+  unconverged. M3 must keep that true after it retires a failed attempt's scope: the retired
+  scope's retained Job still holds the attempt's Job name, so the choice has to count retained
+  hook Jobs too, or a later same-tag deploy would compile attempt 1 again and collide with it.
+  Rationale: found while testing M1; cheaper to state now than to rediscover in M3.
+  Date: 2026-11-26
 
 - Decision: keep ADR 26's close unchanged. A failed hook's transaction still closes by per-operation
   proof and keeps what had an effect.

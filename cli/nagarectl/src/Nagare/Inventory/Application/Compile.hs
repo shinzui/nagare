@@ -1,6 +1,7 @@
 -- | Compile responsibilities; internal implementation behind Nagare.Inventory.Application.
 module Nagare.Inventory.Application.Compile
   ( compileApplicationDeployment
+  , compileApplicationRetry
   , compileApplicationScope
   , hookTriggerOverrides
   )
@@ -127,6 +128,7 @@ import Nagare.Resource.Types
     , PulumiUrn
     )
   , ResourceId
+  , ScopeId
   , ScopeKind (Platform)
   , canonicalClaim
   , inventoryError
@@ -747,6 +749,22 @@ hookTriggerOverrides app =
 hookTriggerPrefix :: Text
 hookTriggerPrefix = "hookTrigger/"
 
+-- | 'compileApplicationDeployment' at the first hook attempt whose scopes are
+-- not @failed@: accepted at a revision that never converged, which is what a
+-- closed failed hook leaves. Deploying the same tag again then runs the hook
+-- afresh, beside the failed Job, instead of refusing on it.
+compileApplicationRetry ::
+  (ScopeId -> Bool) ->
+  ApplicationScopeInput ->
+  Either
+    (NonEmpty InventoryError)
+    ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
+compileApplicationRetry failed input = go 1
+  where
+    go attempt = do
+      compiled <- compileApplicationAttempt attempt input
+      if any (failed . scopeId) (drop 1 (fst compiled)) && attempt < 64 then go (attempt + 1) else pure compiled
+
 -- | Compose the application and its per-release hook scopes together. Keeping
 -- Jobs outside the application scope lets a later tag add new executions
 -- without retiring the completed Jobs from previous releases.
@@ -755,7 +773,17 @@ compileApplicationDeployment ::
   Either
     (NonEmpty InventoryError)
     ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
-compileApplicationDeployment input = do
+compileApplicationDeployment = compileApplicationAttempt 1
+
+-- | The deployment with its pre-deploy hooks compiled as their @attempt@-th
+-- run of this tag, from 1.
+compileApplicationAttempt ::
+  Int ->
+  ApplicationScopeInput ->
+  Either
+    (NonEmpty InventoryError)
+    ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
+compileApplicationAttempt attempt input = do
   let app = scopeApplication input
       hooks = app ^. #tasks
       effects = scopeHookEffects input
@@ -901,6 +929,7 @@ compileApplicationDeployment input = do
           app
           owner
           (scopeRollout input)
+          attempt
           (scopeTaskDatabaseBindings input)
           cluster
           boundTaskNative

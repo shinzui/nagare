@@ -124,6 +124,7 @@ compileApplicationHooks ::
   Application ->
   ScopeId ->
   RolloutEnv ->
+  Int ->
   Map ServiceName (Map DatabaseName DatabaseBinding) ->
   ResourceId ->
   Map ResourceId (ManagedResource, ByteString) ->
@@ -132,7 +133,7 @@ compileApplicationHooks ::
   Either
     (NonEmpty InventoryError)
     ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString), [ResourceId])
-compileApplicationHooks app appOwner rollout taskBindings cluster taskNative effects source =
+compileApplicationHooks app appOwner rollout attempt taskBindings cluster taskNative effects source =
   go Nothing (app ^. #tasks)
   where
     invalid message =
@@ -142,14 +143,12 @@ compileApplicationHooks app appOwner rollout taskBindings cluster taskNative eff
         & #sources
         .~ [source]
         & (:| [])
-    tagSuffix =
-      T.take
-        12
-        ( digestText
-            ( contentDigest
-                (TE.encodeUtf8 (rollout ^. #effectiveTag))
-            )
-        )
+    -- A first run keeps the tag's own names; a retry after a failed hook gets
+    -- its own Job and scope, so the failed Job stays where it is.
+    run
+      | attempt > 1 = rollout ^. #effectiveTag <> "#attempt-" <> T.pack (show attempt)
+      | otherwise = rollout ^. #effectiveTag
+    tagSuffix = T.take 12 (digestText (contentDigest (TE.encodeUtf8 run)))
     go _ [] = Right ([], Map.empty, [])
     go previous (task : rest) = do
       cronRole <- first invalid (mkName "cronjob")
@@ -174,7 +173,7 @@ compileApplicationHooks app appOwner rollout taskBindings cluster taskNative eff
               40
               ( digestText
                   ( contentDigest
-                      (TE.encodeUtf8 (resourceIdText cronId <> ":" <> rollout ^. #effectiveTag))
+                      (TE.encodeUtf8 (resourceIdText cronId <> ":" <> run))
                   )
               )
       owner <- first invalid (mkScopeId Standalone ("app-hook-" <> scopeSuffix))
@@ -253,10 +252,12 @@ compileApplicationHooks app appOwner rollout taskBindings cluster taskNative eff
       scope <-
         withScopeOverrides
           ( Map.fromList
-              [ ("tag", rollout ^. #effectiveTag)
-              , ("task", taskName)
-              , ("affects", T.intercalate "," (map resourceIdText affected))
-              ]
+              ( [ ("tag", rollout ^. #effectiveTag)
+                , ("task", taskName)
+                , ("affects", T.intercalate "," (map resourceIdText affected))
+                ]
+                  <> [("attempt", T.pack (show attempt)) | attempt > 1]
+              )
           )
           . withScopeConfigDigest (contentDigest canonical)
           <$> mkScopeDeclaration owner [bundle]

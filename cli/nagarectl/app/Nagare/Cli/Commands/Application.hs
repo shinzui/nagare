@@ -140,7 +140,7 @@ import Nagare.Inventory.Application
   , applicationDatabaseRetirements
   , applicationRetirementScope
   , applicationVolumeRecoveryBindings
-  , compileApplicationDeployment
+  , compileApplicationRetry
   , compileServiceActionScope
   , contentRouteRetirements
   , databaseRecoveryBindings
@@ -511,7 +511,8 @@ runAppDeployPlan mctx params appOptions output = do
     either
       (dieT . T.pack . show)
       pure
-      (compileApplicationDeployment input)
+      -- A hook scope a closed failed run left accepted and unconverged is retried under a new attempt.
+      (compileApplicationRetry (\hook -> maybe False (\(revision, _) -> Map.lookup hook (InventoryPlan.historyConverged history) /= Just revision) (Map.lookup hook (InventoryPlan.historyAccepted history))) input)
   (scope, hookScopes) <- case scopes of
     appScope : hooks -> pure (appScope, hooks)
     [] -> dieT "reviewed application compiler produced no scope"

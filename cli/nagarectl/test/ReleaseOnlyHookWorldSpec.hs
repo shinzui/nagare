@@ -24,7 +24,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Task (TaskTrigger (..), scheduledTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter (AdapterRegistry, OperationAction (..), PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
-import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, hookTriggerOverrides)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, compileApplicationRetry, hookTriggerOverrides)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (CloseInput (..), TransactionResult (..), applyReviewed, closeTransaction)
 import Nagare.Inventory.Journal (OperationId)
@@ -53,6 +53,7 @@ releaseOnlyHookWorldTests =
     , testCase "the scheduled-to-release-only review updates the CronJob in place, suspended" transitionUpdatesInPlace
     , testCase "after the transition the release-only CronJob never ticks and the scheduled one does" onlyScheduledTicks
     , testCase "a closed failed hook does not block later reviews (BUG-10)" closedHookUnblocksReviews
+    , testCase "the same tag deployed again after a failed hook runs the hook afresh, beside the failed Job" sameTagRetries
     ]
 
 -- | The EP-261 fixture with an ordinary scheduled service task beside the
@@ -281,19 +282,23 @@ sharedId = mintResourceId sharedScopeId (known (mkLogicalKey "data")) (known (mk
 -- that it changes the shared data. The shared object is bound for observation
 -- but its scope is not part of the deploy.
 releaseOf :: Text -> Text -> IO ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
-releaseOf name tag =
-  fmap (_2 %~ (`Map.union` snd sharedData)) . either (assertFailure . show) pure $
-    compileApplicationDeployment
-      base
-        { scopeRollout = (scopeRollout base) {appName = name, imageTag = tag, effectiveTag = tag, taggedAppImage = "registry.example.com/scoped:" <> tag}
-        , scopeRelease = scopeRelease base & _2 %~ ((#releaseId .~ tag) . (#siteName .~ (name <> "-web")) . (#imageTag .~ tag))
-        , scopeHookEffects = Map.fromList [(hook, [sharedId]) | hook <- hooks]
-        , scopeInputOverrides =
-            Map.fromList [("tag", tag)]
-              <> Map.fromList [("hook/" <> hook, resourceIdText sharedId) | hook <- hooks]
-              <> scopeInputOverrides base
-              <> hookTriggerOverrides app
-        }
+releaseOf name tag = withShared (compileApplicationDeployment (releaseInput name tag))
+
+withShared :: (Show e) => Either e ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString)) -> IO ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
+withShared = fmap (_2 %~ (`Map.union` snd sharedData)) . either (assertFailure . show) pure
+
+releaseInput :: Text -> Text -> ApplicationScopeInput
+releaseInput name tag =
+  base
+    { scopeRollout = (scopeRollout base) {appName = name, imageTag = tag, effectiveTag = tag, taggedAppImage = "registry.example.com/scoped:" <> tag}
+    , scopeRelease = scopeRelease base & _2 %~ ((#releaseId .~ tag) . (#siteName .~ (name <> "-web")) . (#imageTag .~ tag))
+    , scopeHookEffects = Map.fromList [(hook, [sharedId]) | hook <- hooks]
+    , scopeInputOverrides =
+        Map.fromList [("tag", tag)]
+          <> Map.fromList [("hook/" <> hook, resourceIdText sharedId) | hook <- hooks]
+          <> scopeInputOverrides base
+          <> hookTriggerOverrides app
+    }
   where
     app = renamed (scopedApp Dsl.NoManagedEnv & #tasks %~ map (#trigger .~ ReleaseOnly))
     base = input app
@@ -355,6 +360,43 @@ closedHookUnblocksReviews = do
   history <- loadInventoryHistory (store run) >>= expectRight
   Map.keysSet (Map.restrictKeys (historyAccepted history) v2HookScopes) @?= v2HookScopes
   Map.keysSet (Map.restrictKeys (historyConverged history) v2HookScopes) @?= Set.empty
+
+-- | EP-287 M1: release v2's hook fails and is closed. Deploying v2 again, the
+-- recovery after a fix outside the release, compiles the hook under a new
+-- attempt: a new Job and scope, with the failed Job left as it was.
+sameTagRetries :: Assertion
+sameTagRetries = do
+  run <- newRun
+  converged . snd =<< deploy run sharedData
+  converged . snd =<< deploy run =<< releaseOf "scoped" "v1"
+  v2 <- releaseOf "scoped" "v2"
+  let v2Members = Set.fromList [declarationId declaration | scope <- drop 1 (fst v2), bundle <- scopeBundles scope, declaration <- declarations bundle]
+      v2HookScopes = Set.fromList (map scopeId (drop 1 (fst v2)))
+  modifyIORef' (world run) (#server . #outcomes %~ Map.union (Map.fromList [(digestText (contentDigest bytes), Failed) | (identity, (_, bytes)) <- Map.toList (snd v2), Set.member identity v2Members]))
+  (_, reviewed, registry', result) <- deployReviewed run v2
+  transaction <- case result of
+    StoppedFailed tx _ _ -> pure tx
+    StoppedAmbiguous tx _ _ -> pure tx
+    other -> assertFailure ("the failed hook did not stop its transaction: " <> show other) >> error "unreachable"
+  _ <- closeTransaction (store run) registry' (CloseInput transaction (reviewDigestFor reviewed) False Nothing) >>= expectRight
+  failedJobs <- live run "job"
+  history <- loadInventoryHistory (store run) >>= expectRight
+  let failed scope = maybe False (\(revision, _) -> Map.lookup scope (historyConverged history) /= Just revision) (Map.lookup scope (historyAccepted history))
+  retry <- withShared (compileApplicationRetry failed (releaseInput "scoped" "v2"))
+  let retryHookScopes = Set.fromList (map scopeId (drop 1 (fst retry)))
+  assertBool "the retry reuses the failed hook's scope" (not (Set.null retryHookScopes) && Set.disjoint retryHookScopes v2HookScopes)
+  (proposal', retried) <- deploy run retry
+  converged retried
+  operationsOn v2Members proposal' @?= []
+  jobs <- live run "job"
+  Map.map (^. #uid) (jobs `Map.intersection` failedJobs) @?= Map.map (^. #uid) failedJobs
+  Map.size jobs @?= Map.size failedJobs + Set.size retryHookScopes
+  after <- loadInventoryHistory (store run) >>= expectRight
+  mapM_ (\scope -> Map.lookup scope (historyConverged after) @?= fmap fst (Map.lookup scope (historyAccepted after))) (Set.toList retryHookScopes <> take 1 (map scopeId (fst retry)))
+  -- A hook that completed is not run again: the same compile now keeps the attempt.
+  let failedAfter scope = maybe False (\(revision, _) -> Map.lookup scope (historyConverged after) /= Just revision) (Map.lookup scope (historyAccepted after))
+  again <- withShared (compileApplicationRetry failedAfter (releaseInput "scoped" "v2"))
+  Set.fromList (map scopeId (drop 1 (fst again))) @?= retryHookScopes
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
