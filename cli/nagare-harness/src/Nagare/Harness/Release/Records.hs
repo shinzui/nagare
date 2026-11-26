@@ -17,7 +17,8 @@ module Nagare.Harness.Release.Records
   , readDocument
   , lockedRevision
   , exactOn
-  , everyAcceptedConverged
+  , unconvergedScopes
+  , platformConverged
   , rehearsalMatches
   , intranetOn
   , writeSorted
@@ -33,6 +34,7 @@ import Data.Aeson.Types (parseEither)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Generics.Labels ()
+import Data.List (partition)
 import Data.Text qualified as T
 import Nagare.Harness.Prelude
 import System.Directory (renameFile)
@@ -64,7 +66,7 @@ data PlatformStatus = PlatformStatus
   deriving anyclass (FromJSON)
 
 -- | @inventory store status --json@: only the head's open transaction.
-newtype StoreStatus = StoreStatus {activeTransaction :: Maybe Value}
+newtype StoreStatus = StoreStatus {activeTransaction :: Maybe Text}
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON)
 
@@ -163,10 +165,21 @@ exactOn version' revision' status =
     ids = status ^. #identities
     matches identity = identity ^. #version == Just version' && identity ^. #revision == Just revision'
 
--- | No open transaction, and every accepted scope revision has converged.
-everyAcceptedConverged :: InventoryStatus -> Bool
-everyAcceptedConverged status =
-  isNothing (status ^. #activeTransaction) && all (`elem` fromMaybe [] (status ^. #converged)) (fromMaybe [] (status ^. #accepted))
+-- | The accepted scope revisions that have not converged, by name: those the
+-- release answers for, and those of an application or its deploy hook
+-- (@Standalone/app-hook-…@), which are that application's to fix.
+unconvergedScopes :: InventoryStatus -> ([Text], [Text])
+unconvergedScopes status = (map scopeLabel platform, map scopeLabel applications)
+  where
+    (applications, platform) = partition ofApplication (filter (`notElem` fromMaybe [] (status ^. #converged)) (fromMaybe [] (status ^. #accepted)))
+    ofApplication entry = scopeField "kind" entry == Just "Application" || (scopeField "kind" entry == Just "Standalone" && maybe False ("app-hook-" `T.isPrefixOf`) (scopeField "name" entry))
+    scopeField key entry = either (const Nothing) Just (parseEither (withObject "scope revision" ((.: "scope") >=> withObject "scope" (.: key))) entry) :: Maybe Text
+    scopeLabel entry = fromMaybe "?" (scopeField "kind" entry) <> "/" <> fromMaybe "?" (scopeField "name" entry)
+
+-- | No open transaction, and every accepted scope revision has converged
+-- except an application's own. Those are reported, not a refusal.
+platformConverged :: InventoryStatus -> Bool
+platformConverged status = isNothing (status ^. #activeTransaction) && null (fst (unconvergedScopes status))
 
 rehearsalMatches :: Text -> Text -> RehearsalCheck -> Bool
 rehearsalMatches revision' previous' check =

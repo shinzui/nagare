@@ -18,7 +18,8 @@
 -- command. A rerun continues only while every changed pin file holds exactly
 -- what this run left, and the commit checks the same; any other change, such
 -- as an edit to @flake.nix@ beside the pin, refuses and is left in place. Every step stops at its first refusal; an apply that stops
--- ambiguous is resumed once (@inventory resume@) by transaction id.
+-- ambiguous is resumed once (@inventory resume@) by transaction id, and a
+-- rerun first resumes the transaction this run left open.
 --
 -- nagarectl runs through the operator repository's dev shell
 -- (@direnv exec@) from an empty environment, so nothing from the calling
@@ -43,6 +44,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Generics.Labels ()
+import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -55,7 +57,7 @@ import Nagare.Harness.Release.Process
 import Nagare.Harness.Release.Records
 import Nagare.Harness.Release.Review
 import Nagare.Harness.Release.RunIndex
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, removePathForcibly)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removePathForcibly)
 import System.FilePath (dropExtension, takeDirectory, (</>))
 
 data IntranetOptions = IntranetOptions
@@ -291,11 +293,9 @@ moveIntranet runtime s index = do
     _ -> refuse notCandidate
   -- The head alone answers this; full status needs the candidate's
   -- workspace, which the first plan below prepares.
-  let activeStore = "the " <> context' <> " store has an active transaction; resume or close it with the release that opened it"
-  store <- capture runtime activeStore (nagarectl s ["inventory", "store", "status", "--json"])
-  case decodeDocument @StoreStatus "inventory store status --json" store of
-    Right found | isNothing (found ^. #activeTransaction) -> pure ()
-    _ -> refuse activeStore
+  store <- capture runtime ("cannot read the " <> context' <> " store's head") (nagarectl s ["inventory", "store", "status", "--json"])
+  found <- either refuse pure (decodeDocument @StoreStatus "inventory store status --json" store)
+  forM_ (found ^. #activeTransaction) (resumeOwn runtime s reviews)
   -- 2. plan and apply until a plan has no operations, then commit. A rerun
   -- after the context already moved to this candidate has nothing to plan.
   moved <- alreadyExact runtime s version' revision'
@@ -320,8 +320,11 @@ moveIntranet runtime s index = do
     refuse ("platform status is not exact on " <> version' <> " at " <> revision' <> ": " <> compactStatus (status' ^. _1))
   inventoryBytes <- capture runtime "inventory status failed" (nagarectl s ["inventory", "status", "--json"])
   inventory <- either refuse pure (decodeDocument @InventoryStatus "inventory status --json" inventoryBytes)
-  unless (everyAcceptedConverged inventory) $
-    refuse ("the " <> context' <> " inventory has an active transaction or an accepted scope that has not converged")
+  unless (platformConverged inventory) $
+    refuse ("the " <> context' <> " inventory has an active transaction or an accepted scope that has not converged: " <> T.intercalate ", " (fst (unconvergedScopes inventory)))
+  let elsewhere = snd (unconvergedScopes inventory)
+  unless (null elsewhere) $
+    step runtime ("an application's, so not blocking: " <> T.intercalate ", " elsewhere <> " accepted but not converged")
   answer <- invoke runtime (invocation "curl" ["-sS", "-o", "/dev/null", "-m", "30", "-w", "%{http_code} %{redirect_url}\n", T.unpack protected] & #stdoutTo .~ Capture)
   let (code, location) = case T.lines (lenient (answer ^. #output)) of
         firstLine : _ -> let (c, rest) = T.break (== ' ') (T.strip firstLine) in (c, T.strip rest)
@@ -334,7 +337,7 @@ moveIntranet runtime s index = do
     runtime
     s
     ("feat(nagare): upgrade the " <> context' <> " to the " <> s ^. #tag <> " candidate")
-    ("Moved the " <> context' <> " to Nagare " <> version' <> " at " <> revision' <> " with just release-candidate: platform status is exact, every accepted scope has converged, and " <> protected <> " redirects to the login page.")
+    ("Moved the " <> context' <> " to Nagare " <> version' <> " at " <> revision' <> " with just release-candidate: platform status is exact, every accepted platform scope has converged, and " <> protected <> " redirects to the login page.")
     (s ^. #tracked)
   moment <- runtime ^. #now
   let statusCode = fromMaybe 0 (readInt code)
@@ -346,12 +349,31 @@ moveIntranet runtime s index = do
         , "context" .= context'
         , "checkedAt" .= T.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" moment)
         , "status" .= (status' ^. _1)
-        , "inventory" .= object ["activeTransaction" .= (inventory ^. #activeTransaction), "accepted" .= length (fromMaybe [] (inventory ^. #accepted)), "converged" .= True]
+        , "inventory" .= object ["activeTransaction" .= (inventory ^. #activeTransaction), "accepted" .= length (fromMaybe [] (inventory ^. #accepted)), "converged" .= True, "unconvergedApplicationScopes" .= elsewhere]
         , "protected" .= object ["url" .= protected, "status" .= statusCode, "location" .= location]
         ]
     )
   setRecord index "intranet" (s ^. #run </> "intranet.json")
   step runtime ("the " <> context' <> " runs " <> version' <> " at " <> revision' <> "; record " <> T.pack (s ^. #run </> "intranet.json"))
+
+-- | A rerun resumes the transaction an earlier attempt of this run left open,
+-- named by an outcome document in the run's reviews. Another transaction is
+-- not this run's to resume.
+resumeOwn :: Runtime -> Setup -> FilePath -> Text -> IO ()
+resumeOwn runtime s reviews transaction = do
+  documents <- filter (\file -> any (`isSuffixOf` file) [".apply.json", ".resume.json"]) <$> listDirectory reviews
+  own <- forM documents (\file -> (\(_, opened, _) -> opened) <$> readApplyOutcome (reviews </> file))
+  unless (Just transaction `elem` own) $
+    refuse ("the " <> s ^. #context <> " store has the active transaction " <> transaction <> ", which this run did not open; resume or close it with the release that opened it")
+  step runtime ("resuming " <> transaction <> ", which this run left open")
+  let document' = reviews </> "rerun.resume.json"
+      logFile = reviews </> "rerun.resume.log"
+  _ <- invoke runtime (traced (reviews </> "rerun.resume.trace.json") (nagarectl s ["inventory", "resume", T.unpack transaction, "--yes", "--contract", "1"]) & #stdoutTo .~ WriteTo document' & #stderrTo .~ WriteTo logFile)
+  recordPins runtime s (generatedPins s)
+  (resumed, _, _) <- readApplyOutcome document'
+  unless (resumed == AppliedConverged) $ do
+    logged <- readLenient logFile
+    refuse ("resume of " <> transaction <> " failed: " <> describeOutcome resumed <> ": " <> lastLines 5 logged)
 
 -- | Plan stage @n@; stop when its summary counts no operation and no
 -- re-accepted scope, otherwise apply it, resuming an ambiguous stop once.

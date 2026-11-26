@@ -94,9 +94,11 @@ run already holds and runs the rest; `index.json` lists each invocation's steps 
    ([`scripts/release-intranet.sh`](../../scripts/release-intranet.sh)) pins the operator
    repository (`mori://tan/tan-ng-labs`, or `NAGARE_RELEASE_OPERATOR_REPO`) to the candidate
    revision, plans and applies the platform transition through that repository's dev shell until a
-   plan has no operations, resuming an ambiguous stop once, and commits the transition. It requires
-   an exact platform status on the candidate, every accepted scope converged and the protected URL
-   answering 302 to the login page. Then it commits the pin files by path,
+   plan has no operations, resuming an ambiguous stop once, and commits the transition. A rerun
+   first resumes the transaction the run left open, so recovery from a stop is the same command
+   again. It requires an exact platform status on the candidate, every accepted scope converged and
+   the protected URL answering 302 to the login page. An application's own scope or deploy hook
+   scope (`Standalone/app-hook-…`) that has not converged is reported and does not block. Then it commits the pin files by path,
    `feat(nagare): upgrade the intranet to the vX.Y.Z candidate`, and writes `intranet.json`. It
    records the git blob of every pin file it changes in `intranet/pins.json`; a rerun continues
    only while each changed pin file holds what the run left, and any other change (an edit beside

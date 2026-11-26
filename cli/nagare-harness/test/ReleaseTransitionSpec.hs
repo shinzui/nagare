@@ -107,16 +107,17 @@ data Knobs = Knobs
   , dirtyPin :: !Bool
   , wrongCli :: !Bool
   , wrongLock :: !Bool
-  , activeTransaction :: !Bool
+  , activeTransaction :: !(Maybe Text)
   , compileError :: !Bool
   , hostSkew :: !Bool
   , unconverged :: !Bool
   , unprotected :: !Bool
+  , failedHook :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
 calm :: Knobs
-calm = Knobs False False False False False False False False False False False False
+calm = Knobs False False False False False False False Nothing False False False False False
 
 data Operator = Operator
   { root :: !FilePath
@@ -174,7 +175,7 @@ intranetWorld o knobs = do
     ("direnv", ["exec", _, "printenv", "NAGARE_BASE_DOMAIN"]) -> ok "example.test\n"
     ("direnv", "exec" : _ : "nagarectl" : "--context" : _ : rest) -> case rest of
       ["version", "--json"] -> ok (versionDocument version' (if knobs ^. #wrongCli then "another" else rev))
-      ["inventory", "store", "status", "--json"] -> ok (encodeText (object ["activeTransaction" .= (if knobs ^. #activeTransaction then Just ("tx-open" :: Text) else Nothing)]))
+      ["inventory", "store", "status", "--json"] -> ok (encodeText (object ["activeTransaction" .= (knobs ^. #activeTransaction)]))
       "platform" : "transition" : "plan" : "--out" : out : "--summary" : summary' : takeOver
         | takeOver `notElem` [[], ["--take-over-fields"]] -> fails ("fake nagarectl: unexpected plan arguments " <> T.pack (unwords takeOver) <> "\n")
         | knobs ^. #compileError -> fails "apps/Databases.hs:3:5: error: missing field privileges\n"
@@ -205,8 +206,9 @@ intranetWorld o knobs = do
             else object ["compatibility" .= ("minor-upgrade-required" :: Text), "identities" .= object ["cli" .= at' version', "payload" .= at' version', "host" .= at' "9.8.6", "cluster" .= at' "9.8.6", "context" .= at' "9.8.6"]]
       ["platform", "transition", "commit", "--yes"] -> writeIORef committed True >> modifyIORef' changed (<> ["contexts/intranet.env"]) >> ok "committed\n"
       ["inventory", "status", "--json"] -> do
-        let scope = object ["scope" .= object ["kind" .= ("platform" :: Text), "name" .= ("auth" :: Text)], "revision" .= object ["generation" .= (2 :: Int), "digest" .= ("d" :: Text)]]
-        ok (encodeText (object ["activeTransaction" .= Aeson.Null, "accepted" .= [scope], "converged" .= [scope | not (knobs ^. #unconverged)], "findings" .= ([] :: [Value])]))
+        let scope = object ["scope" .= object ["kind" .= ("Platform" :: Text), "name" .= ("auth" :: Text)], "revision" .= object ["generation" .= (2 :: Int), "digest" .= ("d" :: Text)]]
+            hook = object ["scope" .= object ["kind" .= ("Standalone" :: Text), "name" .= ("app-hook-a702" :: Text)], "revision" .= object ["generation" .= (1 :: Int), "digest" .= ("h" :: Text)]]
+        ok (encodeText (object ["activeTransaction" .= Aeson.Null, "accepted" .= ([scope] <> [hook | knobs ^. #failedHook]), "converged" .= [scope | not (knobs ^. #unconverged)], "findings" .= ([] :: [Value])]))
       _ -> fails ("fake nagarectl: unexpected " <> T.pack (unwords rest) <> "\n")
     other -> assertFailure ("unexpected invocation " <> show other) >> fails ""
 
@@ -270,7 +272,7 @@ intranetOrder =
     <> [ "git -C $T/operator add -- flake.nix flake.lock hosts/intranet/flake.nix contexts/intranet.env"
        , "git -C $T/operator commit -q -m feat(nagare): upgrade the intranet to the v9.8.7 candidate -m Moved the intranet to Nagare 9.8.7 at "
            <> T.unpack rev
-           <> " with just release-candidate: platform status is exact, every accepted scope has converged, and https://protected-hello.example.test/ redirects to the login page. --only -- flake.nix flake.lock hosts/intranet/flake.nix contexts/intranet.env"
+           <> " with just release-candidate: platform status is exact, every accepted platform scope has converged, and https://protected-hello.example.test/ redirects to the login page. --only -- flake.nix flake.lock hosts/intranet/flake.nix contexts/intranet.env"
        , "git -C $T/operator rev-parse --short HEAD"
        ]
 
@@ -337,6 +339,25 @@ intranetTests =
           refused (transitionRun runtime (intranetOptions o)) >>= assertMentions "the pin files flake.nix in"
           assertNothingLanded o . rendered (o ^. #root) =<< recorded world
           readFile (o ^. #operator </> "flake.nix") >>= assertMentions "# the operator's own edit" . T.pack
+    , testCase "a rerun resumes the transaction its own run left open and goes on, with no step in between" $
+        withOperator $ \o -> do
+          (stopped, _) <- fake (o ^. #environment) =<< intranetWorld o calm {ambiguous = True, resumeFails = True}
+          refused (transitionRun stopped (intranetOptions o)) >>= assertMentions "resume of tx-ab12 failed"
+          (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {dirtyPin = True, activeTransaction = Just "tx-ab12"}
+          transitionRun runtime (intranetOptions o)
+          calls' <- rendered (o ^. #root) <$> recorded world
+          length (filter (isPrefixOf (nagare ["inventory", "resume", "tx-ab12"])) calls') @?= 1
+          said' <- lines' world
+          assertBool "no resume line" (any ("resuming tx-ab12, which this run left open" `T.isInfixOf`) said')
+          doesFileExist (o ^. #run </> "intranet.json") >>= assertBool "no record"
+    , testCase "another scope's failed deploy hook is reported and does not stop the platform release" $
+        withOperator $ \o -> do
+          (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {failedHook = True}
+          transitionRun runtime (intranetOptions o)
+          said' <- lines' world
+          assertBool "the scope is not reported" (any ("Standalone/app-hook-a702 accepted but not converged" `T.isInfixOf`) said')
+          record <- eitherDecodeFileStrict @Value (o ^. #run </> "intranet.json") >>= either fail pure
+          fieldAt record ["inventory", "unconvergedApplicationScopes"] @?= Just (Aeson.toJSON ["Standalone/app-hook-a702" :: Text])
     , testCase "a second ambiguous stop is not resumed again" $
         withOperator $ \o -> do
           (runtime, world) <- fake (o ^. #environment) =<< intranetWorld o calm {ambiguous = True, resumeFails = True}
@@ -389,10 +410,10 @@ intranetTests =
         [ refusal "pin files this run did not change" calm {dirtyPin = True} "have changes this run did not make"
         , refusal "the wrong CLI" calm {wrongCli = True} ("nagarectl is not 9.8.7 at " <> rev)
         , refusal "a lock on another revision" calm {wrongLock = True} ("does not resolve github:shinzui/nagare/" <> rev <> " to " <> rev)
-        , refusal "an active transaction" calm {activeTransaction = True} "has an active transaction"
+        , refusal "an active transaction" calm {activeTransaction = Just "tx-open"} "has the active transaction tx-open, which this run did not open"
         , refusal "an operator config the candidate does not compile" calm {compileError = True} "missing field privileges"
         , refusal "host skew" calm {hostSkew = True} ("platform status is not exact on 9.8.7 at " <> rev)
-        , refusal "an unconverged scope" calm {unconverged = True} "an accepted scope that has not converged"
+        , refusal "an unconverged scope" calm {unconverged = True} "an accepted scope that has not converged: Platform/auth"
         , refusal "an unprotected URL" calm {unprotected = True} "answered 200"
         ]
     ]
