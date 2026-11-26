@@ -55,6 +55,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Managed databases | Reviewed CronJob every 15 minutes → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL and ClickHouse scratch restore Jobs, and Redis scratch instances | 🟡 (live-target restore and complete cloud provider proof pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / reviewed `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
+| Signing key sets ([Signing keys](signing-keys.md)) | **None by design**: a rebuilt cluster generates new keys on each key set's first run, and outstanding short-lived tokens fail once | Regenerated |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
 | Victoria metrics/logs/traces data | Optional — usually not worth backing up | — |
 

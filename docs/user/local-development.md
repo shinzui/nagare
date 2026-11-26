@@ -202,6 +202,16 @@ snapshot and scratch restore also require saved reviews and an accepted source
 PVC. New live database and volume overwrite reviews are deferred. An earlier
 admitted live restore retains its exact fence and evidence-bound recovery path.
 
+### App object buckets, content domains and signing keys
+
+The packaged MinIO store also serves [app object buckets](object-storage.md) on a local context.
+A [content domain](content-domains.md) on a local context is served under the local CA's wildcard
+certificate, so list one with `NAGARE_CONTENT_DOMAINS` (for example `content.test`) and reach its
+hosts through Kourier with that CA. [Signing key sets](signing-keys.md) run their rotator from the
+admin API image, which a local context publishes when the lifecycle worker or the admin API is
+enabled. `scripts/local-content-app-smoke.sh` exercises all three on
+`cluster/examples/content-app`.
+
 ## Optional: the auth plane
 
 Skip this unless you want to test a **require-login** app. The smoke test and

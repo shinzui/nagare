@@ -580,6 +580,40 @@ renderer always disables the API token, runs as non-root UID 65532, makes the
 root filesystem read-only, drops all capabilities, supplies size-limited
 scratch space, and emits a default-deny ingress/egress policy.
 
+## App object buckets
+
+`Nagare.Dsl.ObjectBucket` declares a private bucket with expiry rules and per-workload grants (see
+[Object storage](object-storage.md)). `emitObjectBuckets` prints the document that
+`nagarectl bucket plan` reads.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `name` | `BucketName` | The bucket's name; the store bucket is `nagare-app-<name>` |
+| `logicalKey` | `Maybe LogicalKey` | The scope key, `bucket-<key>`; the name when absent |
+| `expire` | `[ExpireRule]` | `ExpireRule prefix afterDays`: objects under the prefix are deleted after that many days; one rule per prefix |
+| `grants` | `[BucketGrant]` | `BucketGrant namespace workload access signUrls`, `access` is `ReadWrite` or `ReadOnly`; one grant per workload |
+
+A `Deployment`, `Worker` or `Task` binds buckets with `buckets :: [BucketBinding]`; the key is
+omitted from the JSON when the list is empty.
+
+## Signing key sets
+
+`Nagare.Dsl.KeySet` declares a key set the platform generates and rotates (see
+[Signing keys](signing-keys.md)). `emitKeySets` prints the `KeySets` document that
+`nagarectl keyset plan` reads.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `name` | `KeySetName` | A DNS label of at most 30 characters that starts with a letter (`mkKeySetName`) |
+| `logicalKey` | `Maybe LogicalKey` | The scope key, `keyset-<key>`; the name when absent |
+| `namespace` | `Namespace` | Where the key set's objects live; only workloads there can bind it |
+| `rotation` | `RotationPolicy` | `mkRotationPolicy period overlap`: a period of at least 10 minutes, an overlap of at least 5 and no longer than the period |
+
+A `Deployment`, `Worker` or `Task` binds key sets with `keySets :: [KeySetBinding]`, where
+`KeySetBinding name Sign` mounts the public and private files and `KeySetBinding name Verify` only
+the public one, at `/var/run/nagare/keysets/NAME/`, with `NAGARE_KEYSET_NAME_DIR`. The key is
+omitted from the JSON when the list is empty.
+
 ## Reusable presets
 
 `Nagare.Dsl.Presets` lets two apps share one definition. The pattern: start from
