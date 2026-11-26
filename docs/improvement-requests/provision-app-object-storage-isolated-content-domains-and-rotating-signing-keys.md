@@ -6,7 +6,11 @@ generated:
   by: process:claude-code
   at: "2026-11-24T00:00:00Z"
 requestId: IR-55
-status: proposed
+status: completed
+acceptedAt: "2026-11-24T00:00:00Z"
+completedAt: "2026-11-26T08:55:00Z"
+resolution: "MasterPlan 39 delivered all three capabilities at 9fa0b262. An app object bucket is a typed standalone scope with expiry rules and per-workload read-write or read-only access: MinIO users on a local context, and on a cloud context a private GCS bucket (uniform access, enforced public access prevention) reached by each workload's own Google service account through workload identity federation, with signing as itself and no key (ADR 42). A content domain on its own registrable domain routes a wildcard, its apex and fixed hosts to one worker with the Host header intact under a DNS-01 wildcard certificate. A generated Ed25519 key set rotates in place through three slots, signers and verifiers reading files (ADR 41). Each retirement is a review naming what it destroys. Evidence: mp39 (local) and ep285 (cloud) transcripts in EP-283 to EP-286. Key sets need a release whose admin API image carries nagare-keyset."
+targetPlan: mori://shinzui/nagare/masterplans/39-provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys
 origin: mori://shinzui/hanmoto
 acceptanceCriteria:
   - id: AC-1

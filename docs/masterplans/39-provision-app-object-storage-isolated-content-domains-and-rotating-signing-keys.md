@@ -26,6 +26,11 @@ provenance:
       at: 2026-11-26T01:47:28Z
       mode: "implement"
       note: "EP-4 M3 landed locally; PlatformMount consumption finding"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-26T08:53:52Z
+      mode: "implement"
+      note: "EP-284 and EP-285 complete; final gate passed; outcomes written"
 ---
 
 # Provision app object storage, isolated content domains and rotating signing keys
@@ -109,7 +114,7 @@ New ADRs expected: workload cloud identity through federation (EP-2) and platfor
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Declare an app object bucket with per-workload access on the local object store | docs/plans/283-declare-an-app-object-bucket-with-per-workload-access-on-the-local-object-store.md | None | None | Complete |
-| 2 | Give each granted workload a keyless cloud identity on a GCS bucket | docs/plans/284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md | EP-1 | None | In Progress |
+| 2 | Give each granted workload a keyless cloud identity on a GCS bucket | docs/plans/284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md | EP-1 | None | Complete |
 | 3 | Serve a wildcard content domain from one worker with the Host header intact | docs/plans/285-serve-a-wildcard-content-domain-from-one-worker-with-the-host-header-intact.md | EP-1 M1 | None | Complete |
 | 4 | Generate and rotate an Ed25519 signing key set that workloads read from files | docs/plans/286-generate-and-rotate-an-ed25519-signing-key-set-that-workloads-read-from-files.md | EP-1 M1 | None | Complete |
 
@@ -158,14 +163,17 @@ applications (in EP-2's and EP-4's ADRs); a bucket is never deleted by Nagare (E
 
 ## Progress
 
-EP-1, EP-3 and EP-4 are complete. EP-2 M1 to M3 are done (derived config, Pulumi components, the
-Kubernetes side with its review order and retirement); its cloud run (M4) runs on `ep285`, which
-EP-3's cloud run left up. One gate is not owned by a child:
+All four child plans are complete, and so is the final gate:
 
-- [ ] Final gate. `cluster/examples/content-app` deploys with all three declarations on a local
+- [x] Final gate. `cluster/examples/content-app` deploys with all three declarations on a local
   context and on the disposable cloud context; IR-55's five criteria each point at recorded
   evidence; IR-55's file and `docs/improvement-requests/log.md` are marked completed with the
   landed revision; Hanmoto is told the revision to qualify.
+  - 2026-11-26: local on `mp39` (EP-283, EP-285 and EP-286 transcripts) and cloud on `ep285`
+    (EP-284 M4's transcript: the bucket, the signed URL and the refused write, both key set mounts
+    and the three content hosts in one deploy of the example). IR-55's criteria: AC-1 EP-283 M4
+    and EP-284 M2/M4; AC-2 EP-284 M4; AC-3 EP-285 M4 (both halves); AC-4 EP-286 M4; AC-5 EP-283
+    M5, EP-284 M5, EP-285 M5 (cloud transcript) and EP-286 M5.
 
 
 ## Surprises & Discoveries
@@ -291,4 +299,17 @@ EP-3's cloud run left up. One gate is not owned by a child:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Complete (2026-11-26). An application's configuration can now declare a private object bucket with
+expiry rules and per-workload access (MinIO users on a local context; on a cloud context a GCS
+bucket reached by each workload's own Google account through workload identity federation, with no
+key), a wildcard content domain on a registrable domain of its own served by one worker with the
+`Host` header intact under a DNS-01 wildcard, and a rotating Ed25519 key set read from files that
+change in place. Each is reviewed, and each retirement names what it destroys. The native runs found
+defects that no interpreter test had: a rebind that lost an Ingress's claim, readiness that did not
+wait for an Ingress, Kourier's named-port gap, collect reviews that needed waves, a perpetual diff
+on the provider's JWKS, and a key set first-run lookup that picked a retired Job; each was fixed with
+a test. What remains: key sets need a release whose admin API image carries `nagare-keyset` (until
+then `NAGARE_ADMIN_API_IMAGE`); a workload binds at most one cloud bucket; removing a content domain
+from a context is not yet a reviewed retirement; disposable cloud runs need a reusable Tailscale key,
+the node signed during its host activation and its Tailscale SSH check approved. ADRs 41 and 42,
+and the amendments to ADRs 20 and 36, hold the durable decisions.

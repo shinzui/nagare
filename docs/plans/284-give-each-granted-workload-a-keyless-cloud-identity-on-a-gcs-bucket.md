@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-2"
     harness: "claude-code"
     at: 2026-11-25T16:08:21Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-26T08:53:52Z
+      mode: "implement"
+      note: "EP-284 M3-M5 implemented and confirmed on ep285; complete"
 ---
 
 # Give each granted workload a keyless cloud identity on a GCS bucket
@@ -68,17 +74,61 @@ The third command prints nothing.
   refusal before and acceptance after federation, the bound worker's account, mount and variables,
   the own-account and two-bucket refusals, retirement) pass, with `bucket binding` and
   `key set binding` unchanged.
-- [ ] M4. On a disposable cloud context the API workload writes an object and returns a signed URL
+- [x] M4. On a disposable cloud context the API workload writes an object and returns a signed URL
   that accepts an upload, the gateway workload's write is refused, neither account has a
   user-managed key, and the bucket shows uniform access, enforced public access prevention and the
   prefix rule. Evidence: transcript here (IR-55 AC-1 cloud half, AC-2).
-- [ ] M5. Retiring a bucket on a cloud context disables its accounts and keeps the bucket; the
+  - 2026-11-26: passed on the disposable context `ep285` (`tan-nb-exp`), left up by EP-285's cloud
+    run, with the package of `9fa0b262`. Reviews in order: the key set, the bucket (4 creates: each
+    grant's ServiceAccount and credential ConfigMap), the cloud review (the pool, its provider, the
+    bucket, two accounts, their federation members, the API account's signer, two bucket roles; the
+    `sts` API enabled), then `cluster/examples/content-app` with the probe (`probe/`, Google's
+    storage client unchanged) standing in for whoami:
+
+    ```text
+    == api put-and-sign
+    wrote gs://tan-nb-exp-ep285-publications/staging/probe-20261126T085203.txt
+    signed url https://storage.googleapis.com/tan-nb-exp-ep285-publications/staging/signed-20261126T085203.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=…
+    signed PUT: 200
+    == gateway try-put
+    content-gateway-68c6fdd985-zrcr9: get ok, put 403
+    == user-managed keys of each grant's account
+    nagare-wl-c1d8017e4633191dc89e@tan-nb-exp.iam.gserviceaccount.com: []
+    nagare-wl-162e0c70f004360a938a@tan-nb-exp.iam.gserviceaccount.com: []
+    == bucket
+    True	enforced	rule=[{'action': {'type': 'Delete'}, 'condition': {'age': 1, 'matchesPrefix': ['staging/']}}]
+    public members: []
+    roles/storage.objectUser serviceAccount:nagare-wl-c1d8017e4633191dc89e@tan-nb-exp.iam.gserviceaccount.com
+    roles/storage.objectViewer serviceAccount:nagare-wl-162e0c70f004360a938a@tan-nb-exp.iam.gserviceaccount.com
+    == pods hold no API token and no key
+    content-app-00002-deployment-c965dbf9f-rhpvs sa=nagare-wl-content-app volumes=keyset-view-grants,nagare-identity
+    content-gateway-68c6fdd985-zrcr9 sa=nagare-wl-content-gateway volumes=keyset-view-grants,nagare-identity
+    ```
+
+    (The bucket's other bindings are Google's legacy project-role bindings every bucket carries.) The
+    same run is MasterPlan 39's cloud gate: the key set's files (`private.json` and `public.json`
+    for the signer, `public.json` only for the verifier) and the three content hosts answered too.
+    Two defects were found and fixed: the provider's uploaded JWKS was a perpetual diff, because
+    Google stores it in its own layout (`9fa0b262`, the program now sends that layout; the stuck
+    review was closed, accepting nothing), and the probe asked for a storage-only OAuth scope, which
+    IAM `signBlob` refuses (the probe now asks for `cloud-platform`).
+- [x] M5. Retiring a bucket on a cloud context disables its accounts and keeps the bucket; the
   review says so. User documentation and two ADR changes exist. Evidence: tests (IR-55 AC-5).
+  - 2026-11-26: done. A retired bucket records its last grants (`bucket.retired-grants`), so the
+    derived config keeps their accounts with `retired: true` and Pulumi disables them
+    (`appBucketResources`: a retired bucket changes only the accounts' `disabled` flag); the review
+    names each workload and account and that the Google bucket and its objects are kept
+    (`BucketCloudScopeSpec`). `docs/user/object-storage.md` (cloud section),
+    `backups-and-disaster-recovery.md` (rerun the cloud review after a rebuild), ADR 42 and ADR 36's
+    amendment exist.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Google re-serializes a pool provider's uploaded JWKS (protobuf JSON layout) and returns it so,
+  which made `oidc.jwksJson` a perpetual diff and the first cloud review ambiguous on `ep285`.
+  Evidence: the stack's input was compact JSON, its output the same keys pretty-printed; fixed in
+  `9fa0b262`.
 
 
 ## Decision Log
@@ -141,7 +191,15 @@ The third command prints nothing.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Complete (2026-11-26). On a cloud context an app bucket is a private Google bucket, and each granted
+workload reaches it as its own Google service account through workload identity federation, with
+no key anywhere: proven on `ep285` by a write, a V4 signed URL that accepted an upload, a refused
+read-only write and empty key lists. The three reviews run in order and the application review
+refuses until the cloud review has federated the grant; retirement disables the accounts and keeps
+the bucket. What remains: a workload binds at most one cloud bucket and a task none (one account
+holding several grants is a later change); exported keys elsewhere in the platform (lifecycle
+worker, admin API) could move to the same federation; application pods keep their route to the
+metadata server. ADR 42 and ADR 36's amendment record the durable decisions.
 
 
 ## Context and Orientation

@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-26
+* **Update**: Complete [IR-55](provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md) through docs/masterplans/39-provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md (commit 9fa0b262): app object buckets with keyless per-workload cloud identities, isolated wildcard content domains, and rotating signing key sets.
+
 ## 2026-11-24
 * **Update**: Complete [IR-54](resume-inventory-transactions-in-the-configured-local-object-store.md) through docs/plans/282-resume-inventory-transactions-in-the-configured-local-object-store.md (commit 27b3a468): resume opens a local context's object store.
 * **Addition**: Filed [IR-55](provision-app-object-storage-isolated-content-domains-and-rotating-signing-keys.md) from mori://shinzui/hanmoto for app object storage with per-workload access, an isolated wildcard content domain, and rotating signing keys.

@@ -27,6 +27,11 @@ provenance:
       at: 2026-11-26T01:47:28Z
       mode: "update"
       note: "M2 checkbox reconciled with its recorded evidence"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-26T08:53:52Z
+      mode: "implement"
+      note: "EP-285 M4 cloud half confirmed on ep285; complete"
 ---
 
 # Serve a wildcard content domain from one worker with the Host header intact
