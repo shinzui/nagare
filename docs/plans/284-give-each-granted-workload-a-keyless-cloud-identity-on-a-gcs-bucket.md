@@ -56,15 +56,18 @@ The third command prints nothing.
 
 ## Progress
 
-- [ ] M1. From the accepted head `nagarectl` derives `nagare:appBuckets` and
+- [x] M1. From the accepted head `nagarectl` derives `nagare:appBuckets` and
   `nagare:workloadIdentity`, and the cloud catalog expands one set of entries per bucket and grant.
-  Evidence: `nagarectl` tests.
-- [ ] M2. The Pulumi program creates the identity pool, the bucket and the per-grant accounts and
+  Evidence: `BucketCloudAccessSpec` (5 tests) pass; commits 33abcd7c, c712818b.
+- [x] M2. The Pulumi program creates the identity pool, the bucket and the per-grant accounts and
   bindings, with no key, no public member and no project-level role. Evidence: `npm test` in
-  `infra/pulumi`.
-- [ ] M3. On a `GcsBackend` the bucket scope holds one ServiceAccount and one credential
+  `infra/pulumi` passes; commit b95918a0.
+- [x] M3. On a `GcsBackend` the bucket scope holds one ServiceAccount and one credential
   configuration per grant, a bound workload mounts them, and an application review is refused until
-  the cloud review has converged. Evidence: interpreter tests.
+  the cloud review has converged. Evidence: `BucketCloudScopeSpec` (6 tests: manifests, no key,
+  refusal before and acceptance after federation, the bound worker's account, mount and variables,
+  the own-account and two-bucket refusals, retirement) pass, with `bucket binding` and
+  `key set binding` unchanged.
 - [ ] M4. On a disposable cloud context the API workload writes an object and returns a signed URL
   that accepts an upload, the gateway workload's write is refused, neither account has a
   user-managed key, and the bucket shows uniform access, enforced public access prevention and the
@@ -116,6 +119,19 @@ The third command prints nothing.
   `cli/nagarectl/src/Nagare/Inventory/CloudCollection.hs` does not collect buckets. A disabled
   account refuses every credential at once.
   Date: 2026-11-25
+
+- Decision: On a cloud context a workload binds at most one bucket, and a task none.
+  Rationale: A workload runs as one Kubernetes account, `nagare-wl-WORKLOAD`, and a second bucket's
+  scope would declare the same account; its credential configuration impersonates one Google account.
+  One account holding several grants is a later change. This replaces "a workload with two buckets has
+  one account holding both grants" in M3.
+  Date: 2026-11-26
+
+- Decision: A bucket with no grant left records the grants it last had (`bucket.retired-grants`), and
+  the cloud review keeps their accounts, disabled.
+  Rationale: Retiring clears the declaration's grants, so the derived config would otherwise drop the
+  accounts and Pulumi would delete them instead of disabling them. Found while writing M5's tests.
+  Date: 2026-11-26
 
 - Decision: Application pods keep their route to the VM's metadata server.
   Rationale: The node account has no role on an application bucket, so the grants hold. Closing

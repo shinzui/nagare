@@ -13,8 +13,9 @@ generated:
 
 An app object bucket is a private bucket that Nagare creates for an application, with expiry rules
 for prefixes and one credential per workload it grants. On a local context the bucket lives in the
-packaged MinIO store. (A GCS backend for cloud contexts is MasterPlan 39's EP-284; until it lands a
-cloud context refuses with `bucket-backend-unsupported`.)
+packaged MinIO store. On a cloud context it is a Google Cloud Storage bucket, and each granted
+workload reaches it through its own Google service account with no key at all (see
+[On a cloud context](#on-a-cloud-context)).
 
 ## Declare the bucket
 
@@ -102,3 +103,60 @@ nagarectl bucket status
 ```
 
 lists each accepted bucket with its backend, store bucket and grants.
+
+## On a cloud context
+
+The declaration and the bindings are the same; what they create differs. A cloud context needs the
+project's number in its context (`NAGARE_PROJECT_NUMBER`, from
+`gcloud projects describe PROJECT --format 'value(projectNumber)'`).
+
+Three reviews run in order:
+
+1. **The bucket review** (`nagarectl bucket plan`) creates, in each granted workload's namespace, a
+   Kubernetes ServiceAccount `nagare-wl-WORKLOAD` with no RBAC and no API token, and a ConfigMap
+   `nagare-bucket-BUCKET-WORKLOAD` holding an `external_account` credential configuration. Neither
+   holds a key.
+2. **The cloud review** (`nagarectl platform bootstrap plan`, its cloud stage) creates the Google
+   side from the accepted buckets: a workload identity pool for the context that trusts the
+   cluster's service-account signing keys (uploaded, so the cluster needs no public issuer), the
+   bucket `PROJECT-CONTEXT-NAME` with uniform access, enforced public access prevention and the
+   declared expiry rules, and per grant one Google service account that holds exactly one role on
+   that bucket (`roles/storage.objectUser` for `ReadWrite`, `roles/storage.objectViewer` for
+   `ReadOnly`) and admits only that workload's Kubernetes account. A grant with `signUrls = True`
+   may also sign as itself, for V4 signed URLs. Nothing is granted at project level.
+3. **The application review** binds the bucket. It is refused with `bucket-cloud-identity-missing`
+   until the cloud review has created that grant's identity, so a workload never starts with an
+   identity Google would refuse.
+
+A bound workload runs as `nagare-wl-WORKLOAD` and mounts `/var/run/nagare/identity/`: the credential
+configuration and a short-lived token whose audience is the pool. It receives:
+
+| Variable | Value |
+| --- | --- |
+| `NAGARE_BUCKET_NAME_BACKEND` | `gcs` |
+| `NAGARE_BUCKET_NAME_NAME` | the Google bucket, `PROJECT-CONTEXT-NAME` |
+| `NAGARE_BUCKET_NAME_ENDPOINT` | `https://storage.googleapis.com` |
+| `NAGARE_BUCKET_NAME_SERVICE_ACCOUNT` | the grant's Google account, which signs URLs |
+| `NAGARE_BUCKET_NAME_CREDENTIALS` | `/var/run/nagare/identity/credentials.json` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | the same file |
+
+Google's client libraries read `GOOGLE_APPLICATION_CREDENTIALS` unchanged. To sign a URL, refresh
+the default credentials and pass the account and its token to the library's V4 signer; the probe in
+`cluster/examples/content-app/probe/server.py` shows both.
+
+A workload runs as one account, so on a cloud context it binds at most one bucket, and it may not
+also name its own `serviceAccount`; both are refused when the app is planned. A task cannot bind a
+cloud bucket.
+
+Changing access works as on a local context, followed by the cloud review: a dropped grant's Google
+account is deleted. Retiring a bucket keeps the Google bucket, its objects and its accounts, and the
+next cloud review **disables** those accounts, which refuses every credential at once:
+
+```text
+This review removes:
+  workload content-gateway in personal loses read-only access to bucket publications; the next cloud review disables its Google account nagare-wl-…@PROJECT.iam.gserviceaccount.com
+  no object: Google bucket PROJECT-CONTEXT-publications and its objects are kept; Nagare never deletes a bucket
+```
+
+After a cluster rebuild the cluster signs tokens with new keys: run the cloud review again before
+workloads can reach their buckets (see [Backups and disaster recovery](backups-and-disaster-recovery.md)).

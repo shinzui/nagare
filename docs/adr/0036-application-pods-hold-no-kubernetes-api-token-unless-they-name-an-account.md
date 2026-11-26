@@ -38,3 +38,11 @@ refused at load because Knative would rewrite it silently. A worker's shutdown a
 Every existing workload's rendered bytes change on its next deploy, visible in the saved review, and a workload that
 reads the Kubernetes API must name an account first. A Knative Service naming a missing account is refused at admission,
 while a worker or task Pod waits unscheduled until the account exists.
+
+## Amendment (2026-11-26, EP-284)
+
+On a cloud context a workload that binds an app object bucket runs as the account Nagare authors for
+it, `nagare-wl-WORKLOAD`, which has no RBAC and `automountServiceAccountToken: false`. The pod mounts
+no Kubernetes API token: only a projected token whose audience is the context's workload identity
+pool, which the Kubernetes API does not accept. Such a workload cannot also name its own
+`serviceAccount`; the plan refuses it. See [ADR 42](0042-workloads-reach-google-cloud-through-identity-federation-never-a-key.md).

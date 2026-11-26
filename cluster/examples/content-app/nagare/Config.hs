@@ -17,7 +17,9 @@
 -- shows the @Host@ header the gateway received.
 --
 -- A bound workload receives @NAGARE_BUCKET_PUBLICATIONS_BACKEND@, @_NAME@,
--- @_ENDPOINT@, @_ACCESS_KEY_ID@ and @_SECRET_ACCESS_KEY@.
+-- @_ENDPOINT@, @_ACCESS_KEY_ID@ and @_SECRET_ACCESS_KEY@. On a cloud context it receives
+-- @_SERVICE_ACCOUNT@, @_CREDENTIALS@ and @GOOGLE_APPLICATION_CREDENTIALS@ instead of the keys, and runs
+-- as its own account @nagare-wl-WORKLOAD@ (EP-284).
 --
 -- The key set @view-grants@ is declared in @KeySets.hs@ beside this file. The
 -- web Service signs with it and the Worker verifies with it: each reads
@@ -55,17 +57,19 @@ import System.Environment (lookupEnv)
 
 -- | The one shared image every workload runs, @traefik/whoami@, which answers with the request it
 -- received, its @Host@ header included. A reviewed deploy names the image the context published,
--- so @CONTENT_APP_IMAGE@ overrides the reference; the tag is the release's.
+-- so @CONTENT_APP_IMAGE@ overrides the reference and @CONTENT_APP_TAG@ the tag. On a cloud
+-- context the probe in @../probe/@ stands in for whoami: it also answers with the @Host@ header, and
+-- reaches the bucket with Google's storage client.
 defaultImage, imageTag :: Text
 defaultImage = "docker.io/traefik/whoami"
 imageTag = "v1.11.0"
 
-applicationConfig :: Text -> Text -> Either Text Application
-applicationConfig sharedImage contentDomainName = do
+applicationConfig :: Text -> Text -> Text -> Either Text Application
+applicationConfig sharedImage sharedTag contentDomainName = do
   appNm <- mkServiceName "content"
   ns <- mkNamespace "personal"
   img <- mkImageRef sharedImage
-  tag <- mkTag imageTag
+  tag <- mkTag sharedTag
   portVar <- mkEnvName "WHOAMI_PORT_NUMBER"
   publications <- BucketBinding <$> mkBucketName "publications"
   viewGrants <- mkKeySetName "view-grants"
@@ -105,4 +109,5 @@ main = do
         first' : _ -> first'
         [] -> "content.test"
   image <- maybe defaultImage Text.pack <$> lookupEnv "CONTENT_APP_IMAGE"
-  either (ioError . userError . Text.unpack) emitApplication (applicationConfig image domain)
+  tag <- maybe imageTag Text.pack <$> lookupEnv "CONTENT_APP_TAG"
+  either (ioError . userError . Text.unpack) emitApplication (applicationConfig image tag domain)
