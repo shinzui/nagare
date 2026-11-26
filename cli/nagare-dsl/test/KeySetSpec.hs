@@ -11,10 +11,10 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Config (encodeKeySets, encodeTask, encodeWorker)
 import Nagare.Dsl.KeySet
-import Nagare.Dsl.Load (decodeKeySets, decodeTask, decodeWorker)
+import Nagare.Dsl.Load (decodeKeySets, decodeTask, decodeWorker, loadApplication, loadKeySets)
 import Nagare.Dsl.Prelude hiding ((&), (.~))
 import Nagare.Dsl.Task (scheduledTask)
-import Nagare.Dsl.Types (mkNamespace)
+import Nagare.Dsl.Types (mkNamespace, serviceNameText)
 import Nagare.Dsl.Worker (webWorker)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -43,6 +43,12 @@ keySetTests =
             task = ok (scheduledTask "issue" "0 * * * *" "registry.example/api" "issue") & #keySets .~ [binding Sign]
         decodeWorker (toStrict (encodeWorker worker)) @?= Right worker
         decodeTask (toStrict (encodeTask task)) @?= Right task
+    , testCase "the content-app example declares the key set its service signs and its worker verifies with" $ do
+        keySets <- loadKeySets "../../cluster/examples/content-app/nagare/KeySets.hs" >>= either (assertFailure . show) pure
+        map (keySetNameText . (^. #name)) keySets @?= ["view-grants"]
+        app <- loadApplication "../../cluster/examples/content-app/nagare/Config.hs" >>= either (assertFailure . show) pure
+        let uses = [(serviceNameText (service ^. #name), binding ^. #use) | Just service <- [app ^. #service], binding <- service ^. #keySets] <> [(serviceNameText (worker ^. #name), binding ^. #use) | worker <- app ^. #workers, binding <- worker ^. #keySets]
+        uses @?= [("content-app", Sign), ("content-gateway", Verify)]
     , testCase "a workload that binds no key set has no keySets key" $
         assertBool "keySets emitted" (not (BS.isInfixOf "keySets" (toStrict (encodeWorker (ok' (webWorker "content-gateway" "registry.example/gateway"))))))
     ]

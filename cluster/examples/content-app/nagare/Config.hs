@@ -16,6 +16,11 @@
 -- A bound workload receives @NAGARE_BUCKET_PUBLICATIONS_BACKEND@, @_NAME@,
 -- @_ENDPOINT@, @_ACCESS_KEY_ID@ and @_SECRET_ACCESS_KEY@.
 --
+-- The key set @view-grants@ is declared in @KeySets.hs@ beside this file. The
+-- web Service signs with it and the Worker verifies with it: each reads
+-- @NAGARE_KEYSET_VIEW_GRANTS_DIR@, where the Service finds @public.json@ and
+-- @private.json@ and the Worker only @public.json@.
+--
 -- The content domain is the first one the context lists in
 -- @NAGARE_CONTENT_DOMAINS@, or @content.test@ when it lists none; deploying
 -- the route needs the context to list it. @share.D@ is a fixed host of the
@@ -23,6 +28,8 @@
 --
 -- Provision it with:
 --   nagarectl bucket plan --file cluster/examples/content-app/nagare/Buckets.hs --save-plan DIR
+--   nagarectl inventory apply DIR --yes
+--   nagarectl keyset plan --file cluster/examples/content-app/nagare/KeySets.hs --save-plan DIR
 --   nagarectl inventory apply DIR --yes
 --   nagarectl app deploy -f cluster/examples/content-app/nagare/Config.hs
 module Main (main) where
@@ -35,6 +42,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Config (emitApplication)
+import Nagare.Dsl.KeySet (KeySetBinding (..), KeySetUse (..), mkKeySetName)
 import Nagare.Dsl.ContentDomain (WorkerHttp (..), contentDomainText, mkContentDomain, mkContentRoute)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (BucketBinding (..), HealthScheme (HTTP), mkBucketName, mkDomain, mkImageRef, mkNamespace, mkPort, mkServiceName)
@@ -51,6 +59,7 @@ applicationConfig contentDomainName = do
   ns <- mkNamespace "personal"
   img <- mkImageRef sharedImage
   publications <- BucketBinding <$> mkBucketName "publications"
+  viewGrants <- mkKeySetName "view-grants"
   api <- webService "content-app" sharedImage
   gateway <- first Text.pack (webWorker "content-gateway" sharedImage)
   port <- mkPort 8080
@@ -68,10 +77,11 @@ applicationConfig contentDomainName = do
       , databases = []
       , brokers = []
       , access = Nothing
-      , service = Just (api & #buckets .~ [publications])
+      , service = Just (api & #buckets .~ [publications] & #keySets .~ [KeySetBinding viewGrants Sign])
       , workers =
           [ gateway
               & #buckets .~ [publications]
+              & #keySets .~ [KeySetBinding viewGrants Verify]
               & #http ?~ WorkerHttp {port = port, content = Just route}
               & #readiness ?~ ready
           ]
