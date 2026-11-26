@@ -99,7 +99,7 @@ host=share.CONTENT_DOMAIN
     == kourier controller errors
     0
     ```
-- [ ] M2. A context lists content domains; on a cloud context the Pulumi program owns each
+- [x] M2. A context lists content domains; on a cloud context the Pulumi program owns each
   domain's zone, its wildcard and apex records and the solver's grant. Evidence: `nagarectl` and
   `npm test` tests.
   - 2026-11-25: done. `NAGARE_CONTENT_DOMAINS` is `contentDomains` on the profile, read from the

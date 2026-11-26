@@ -64,7 +64,7 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
 
 ## Progress
 
-- [ ] M1. The rotation step is a pure function with property tests showing that a signer's key is
+- [x] M1. The rotation step is a pure function with property tests showing that a signer's key is
   always known to every verifier and that the overlap is honoured. Evidence: `nagare-core` tests.
   - 2026-11-25: done. `rotateStep` in `cli/nagare-core/src/Nagare/KeySet.hs` withdraws `previous`
     once its overlap has passed, fills an empty set with `active` and `next`, and promotes `next`
@@ -76,7 +76,7 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
     nagarectl's `key set rotation` (8: two examples, the public file, and five QuickCheck
     properties over generated schedules; the withdrawal property requires 40% coverage and gets
     about two thirds), with `tasty-quickcheck` added to that suite; `just gate-commit` green.
-- [ ] M2. A `nagare-keyset` executable applies the step to a ConfigMap and a Secret in a cluster
+- [x] M2. A `nagare-keyset` executable applies the step to a ConfigMap and a Secret in a cluster
   and survives conflicts and a crash between its two writes. Evidence: tests against the model
   API server.
   - 2026-11-25: done. `rotateOnce` (`cli/nagare-core/src/Nagare/KeySet/Rotator.hs`) reads the
@@ -106,6 +106,25 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
     manager as a foreign writer and compares the whole spec), so the Secret's `private.json` and
     the ConfigMap's `public.json` need a delegation the adapter honours before the scope can
     exist; that is adapter code and needs `just mutation-check`.
+  - 2026-11-25: the scope, the adapter rule and the CLI are done; the bindings are not.
+    `compileStandaloneKeySet` (`cli/nagare-core/src/Nagare/Inventory/KeySet.hs`) binds seven
+    retained, stateless members in the key set's namespace: the data-free Secret, the ConfigMap
+    with `policy.json`, the ServiceAccount, a Role that may `get` and `update` only those two
+    names, its RoleBinding, the CronJob (`*/5`, `Forbid`) and a first-run Job named after a
+    digest of its pod, which waits for the other five. The rotator writes as field manager
+    `nagare-keyset`, and `expectedControllerFields`
+    (`cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs`) accepts that manager
+    owning exactly `data.private.json` of `nagare-keyset-*` Secrets and `data.public.json` of
+    `nagare-keyset-*-public` ConfigMaps. `nagarectl keyset plan|status` is wired and in the
+    command audit; `nix/release-images.nix` puts `nagare-keyset` in the admin-api image.
+    Evidence: nagarectl `key set scope` (10) and `key set scope in the model world` (7: converge
+    with no key in reviewed bytes, the rotator's writes then a re-plan that changes nothing, a
+    policy update that keeps `public.json`, a third writer that stops it, a failed first run,
+    a lost acknowledgement at each of the seven writes, an image change that replaces the Job
+    and keeps the keys); mutation records `EP286-keyset-rotator-foreign` and
+    `EP286-keyset-rotator-any-field`; `just gate-commit` green. Next: the bindings. No
+    workload compiler applies a `PlatformMount` yet, so the `Sign` and `Verify` mounts need
+    `applyPlatformMounts` threaded into the service, worker and task compiles.
 - [ ] M4. On a local context with a ten-minute period, a signer and a verifier restarted during a
   rotation still agree, a token signed just before a rotation verifies during the overlap and is
   refused after it, and `keyset status` shows the rotation. Evidence: transcript here (IR-55 AC-4).
@@ -174,6 +193,29 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
   new collectable kind gets its `KindCollect` row and a mutation record.
   Rationale: a retirement that leaves the Ingress serving or the private keys in place would
   make the review's removal lines false; ADR 22 keeps deletion a separate reviewed authority.
+  Date: 2026-11-25
+
+- Decision: The rotator writes as field manager `nagare-keyset`, and the adapter's
+  expected-controller rule accepts that manager owning exactly the key file of a key set's
+  Secret or public ConfigMap. The members' `delegations` record the same authority.
+  Rationale: the adapter decides foreign writers from the address alone (as it does for k3s and
+  Knative), and threading declarations into every ownership check was a larger change to
+  guarded code for the same result. Any other field the rotator owns, or any other writer of a
+  key file, still refuses an update.
+  Date: 2026-11-25
+
+- Decision: The key set's Secret is an ordinary data-free Secret, not a generated-credential
+  template, so its reviewed metadata can change in place.
+  Rationale: Nagare never writes its data, and server-side apply keeps the fields another
+  manager owns, so a metadata update cannot clear the private file.
+  Date: 2026-11-25
+
+- Decision: The rotator runs from the admin API image: `NAGARE_ADMIN_API_IMAGE` when set,
+  otherwise the image the context's release-images scope publishes, after whose publication
+  the rotator is ordered. With neither, `keyset plan` refuses `keyset-image-unpublished`.
+  Rationale: the rotator is a third executable of `nagare-api-server`. A context publishes that
+  image only with the admin API or the lifecycle worker enabled; publishing it for a key set
+  from the platform bootstrap is left until a context needs a key set without either.
   Date: 2026-11-25
 
 ## Outcomes & Retrospective
