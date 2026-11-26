@@ -186,4 +186,7 @@ renderErrors :: NE.NonEmpty Resource.InventoryError -> Text
 renderErrors = T.intercalate "; " . map renderError . NE.toList
 
 renderError :: Resource.InventoryError -> Text
-renderError err = err ^. #code <> ": " <> err ^. #message
+renderError err = err ^. #code <> ": " <> err ^. #message <> named (err ^. #resources)
+  where
+    named [] = ""
+    named ids = " (" <> T.intercalate ", " (map Resource.resourceIdText ids) <> ")"

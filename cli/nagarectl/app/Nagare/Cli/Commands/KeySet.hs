@@ -111,8 +111,8 @@ acceptedKeySetScopes snapshot =
   , Just declared <- [scopeKeySet scope]
   ]
 
--- | Every key set becomes its own scope, composed into one candidate. A
--- superseded first-run Job is retired in the same review.
+-- | Every key set becomes its own scope, composed into one candidate. An
+-- accepted key set keeps its first-run Job.
 planKeySets :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Text -> [KeySet] -> Maybe FilePath -> IO ()
 planKeySets active snapshot source keySets output = do
   accepted <- loadAcceptedNative active snapshot
@@ -128,6 +128,7 @@ planKeySets active snapshot source keySets output = do
           , cluster = cluster
           , namespace = namespace'
           , source = Resource.SourceLocation source (keySetNameText (declared ^. #name))
+          , acceptedFirstRun = acceptedFirstRunOf accepted snapshot declared
           }
   changes <- maybe (dieT "no key set to plan") pure (NE.nonEmpty (map (ResourceInventory.ReplaceScope . fst) compiled))
   candidate <- either (dieT . renderErrors) pure (ResourceInventory.composeInventory snapshot changes)
@@ -143,6 +144,15 @@ planKeySets active snapshot source keySets output = do
       case InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle) of
         [] -> TIO.putStrLn "no operations"
         operations -> mapM_ (TIO.putStrLn . InventoryPlan.reviewPublicSummary) operations
+
+-- | The first-run Job the accepted scope of this key set declares, which a
+-- re-plan keeps so a bound workload's ordering after it still holds.
+acceptedFirstRunOf :: Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.ScopeSnapshot -> KeySet -> Maybe (ResourceInventory.ManagedResource, ByteString)
+acceptedFirstRunOf accepted snapshot declared = do
+  owner <- either (const Nothing) Just (keySetScopeId declared)
+  (_, scope) <- Map.lookup owner (ResourceInventory.snapshotScopes snapshot)
+  firstRun <- keySetFirstRunJob accepted scope
+  Map.lookup firstRun accepted
 
 -- | The image that holds the rotator: the admin API's. An explicit
 -- @NAGARE_ADMIN_API_IMAGE@ wins; otherwise the image the context's accepted
@@ -192,4 +202,8 @@ collectSteps what waves =
     <> T.concat ["\n  nagarectl inventory collect " <> T.unwords ["--resource " <> Resource.resourceIdText resource | resource <- wave] <> " --out DIR-" <> T.show step | (step, wave) <- zip [1 :: Int ..] waves]
 
 renderErrors :: NE.NonEmpty Resource.InventoryError -> Text
-renderErrors = T.intercalate "; " . map (\err -> err ^. #code <> ": " <> err ^. #message) . NE.toList
+renderErrors = T.intercalate "; " . map render . NE.toList
+  where
+    render err = err ^. #code <> ": " <> err ^. #message <> named (err ^. #resources)
+    named [] = ""
+    named ids = " (" <> T.intercalate ", " (map Resource.resourceIdText ids) <> ")"

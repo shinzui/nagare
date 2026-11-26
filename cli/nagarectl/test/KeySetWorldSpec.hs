@@ -20,7 +20,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding)
-import KeySetSpec (compileKeySet, rotatorImage, viewGrants)
+import KeySetSpec (compileKeySet, compileKeySetKeeping, rotatorImage, viewGrants)
 import Nagare.Database.Secret (b64encode)
 import Nagare.Dsl.KeySet
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -28,7 +28,7 @@ import Nagare.Inventory.Adapter (AdapterRegistry, ObservationSet, OperationActio
 import Nagare.Inventory.CollectionPolicy (collectionWaves)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
-import Nagare.Inventory.KeySet (keySetScopeId)
+import Nagare.Inventory.KeySet (keySetFirstRunJob, keySetScopeId)
 import Nagare.Inventory.Lifecycle (decideCollection, decideMemberRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status (kubernetesMembersForReview)
@@ -115,16 +115,15 @@ keySetWorldTests =
             other -> assertFailure ("write " <> show ordinal <> " did not resume: " <> show other)
           forM_ ["secret", "configmap", "serviceaccount", "role", "rolebinding", "cronjob", "job"] $ \kind ->
             Map.size <$> live run kind >>= (@?= 1)
-    , testCase "a new image replaces the first-run Job in one review and keeps the keys" $ do
+    , testCase "a new image updates only the CronJob of an accepted key set, keeps its first-run Job and its keys" $ do
         run <- newRun []
         (native, _, result) <- plan run Map.empty rotatorImage viewGrants
         converged result
         rotate run
         (_, proposal', result') <- planned run native ("k3d-registry.localhost:5000/nagare-admin-api@sha256:" <> T.replicate 64 "d") viewGrants
         converged result'
-        assertBool "the new Job is created" (CreateResource `elem` changing proposal')
-        assertBool "the CronJob is updated" (UpdateResource `elem` changing proposal')
-        Map.size <$> live run "job" >>= (@?= 2)
+        changing proposal' @?= [UpdateResource]
+        Map.size <$> live run "job" >>= (@?= 1)
         dataOf run secretKey >>= (@?= Map.fromList [("private.json", String (b64 privateKey))])
     , testCase "a retired key set keeps its objects, and collecting it deletes all seven, its private keys included" $ do
         run <- newRun []
@@ -213,10 +212,15 @@ reviewedPlan run previous image' declared = (\(native, _, review, registry, resu
 -- scope, and apply it, as @keyset plan --save-plan@ then @inventory apply@ do.
 reviewedProposal :: Run -> Members -> Text -> KeySet -> IO (Members, ChangeProposal, ReviewBundle, AdapterRegistry, TransactionResult)
 reviewedProposal run previous image' declared = do
-  (scope, members) <- forWorld <$> expectRight (compileKeySet image' declared)
   history <- loadInventoryHistory (store run) >>= expectRight
   let base = Map.map (\(revision, accepted) -> (revisionGeneration revision, accepted)) (historyAccepted history)
-      candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding base (historyReservations history))) (ReplaceScope scope NE.:| []))
+      -- As keyset plan does: an accepted key set keeps its first-run Job.
+      kept = do
+        (_, accepted) <- Map.lookup (ok (keySetScopeId declared)) base
+        firstRun <- keySetFirstRunJob previous accepted
+        Map.lookup firstRun previous
+  (scope, members) <- forWorld <$> expectRight (compileKeySetKeeping image' kept declared)
+  let candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding base (historyReservations history))) (ReplaceScope scope NE.:| []))
       leaving = [resource ^. #identity | (_, accepted) <- Map.elems base, bundle <- scopeBundles accepted, Managed resource <- declarations bundle, Map.notMember (resource ^. #identity) members]
   planning <- loadInventoryPlanningHistory (store run) candidate >>= expectRight
   adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (Map.union members previous) (world run) (adversary run)

@@ -39,7 +39,7 @@ import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, addUTCTime)
@@ -71,6 +71,10 @@ data KeySetInput = KeySetInput
   , namespace :: !ResourceId
   -- ^ The accepted namespace member of the key set's namespace.
   , source :: !SourceLocation
+  , acceptedFirstRun :: !(Maybe (ManagedResource, ByteString))
+  -- ^ The first-run Job the accepted scope declares, with its native object.
+  -- It is kept as it is: its work is done once the first keys exist, and a
+  -- bound workload is ordered after it, so a new image must not rename it.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -211,7 +215,7 @@ compileStandaloneKeySet input = do
       Private
       ready
       []
-  firstRun <-
+  compiledFirstRun <-
     bind
       ("first-" <> T.takeEnd 8 firstName)
       ( object
@@ -224,7 +228,8 @@ compileStandaloneKeySet input = do
       Private
       ready
       []
-  let members = [private, public, account, role, binding, rotate, firstRun]
+  let firstRun = fromMaybe compiledFirstRun (input ^. #acceptedFirstRun)
+      members = [private, public, account, role, binding, rotate, firstRun]
       record = LBS.toStrict (encodeKeySets [declared])
   scope <- mkScopeDeclaration owner [ResourceBundle [Managed resource | (resource, _) <- members] [] [] [] [] []]
   pure

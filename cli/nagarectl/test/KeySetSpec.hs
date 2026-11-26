@@ -3,6 +3,7 @@
 module KeySetSpec
   ( keySetTests
   , compileKeySet
+  , compileKeySetKeeping
   , viewGrants
   , keySetNamespace
   , rotatorImage
@@ -100,6 +101,13 @@ keySetTests =
         (_, before) <- expectRight (compileKeySet rotatorImage viewGrants)
         (_, image') <- expectRight (compileKeySet ("k3d-registry.localhost:5000/nagare-admin-api@sha256:" <> T.replicate 64 "d") viewGrants)
         assertBool "the Job is renamed" (firstSuffix before /= firstSuffix image')
+        -- An accepted key set keeps its first-run Job, so a workload ordered after it still composes.
+        let job = memberOf "job" before
+            newImage = "k3d-registry.localhost:5000/nagare-admin-api@sha256:" <> T.replicate 64 "d"
+        (kept, keptNative) <- expectRight (compileKeySetKeeping newImage (Just (job, snd (before Map.! (job ^. #identity)))) viewGrants)
+        firstSuffix keptNative @?= firstSuffix before
+        keySetFirstRunJob keptNative kept @?= Just (job ^. #identity)
+        assertBool "the CronJob takes the new image" (newImage `T.isInfixOf` bytesAt "cronjob" keptNative)
         let slower = viewGrants & #rotation .~ ok (mkRotationPolicy (ok (mkMinutes 120)) (ok (mkMinutes 10)))
         (_, policy') <- expectRight (compileKeySet rotatorImage slower)
         [located resource | (identity, (resource, bytes)) <- Map.toList policy', Just (_, earlier) <- [Map.lookup identity before], earlier /= bytes] @?= [("configmap", "personal", "nagare-keyset-view-grants-public")]
@@ -190,7 +198,10 @@ keySetTests =
     toJSONList = Array . V.fromList
 
 compileKeySet :: Text -> KeySet -> Either (NE.NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileKeySet image' declared =
+compileKeySet image' = compileKeySetKeeping image' Nothing
+
+compileKeySetKeeping :: Text -> Maybe (ManagedResource, ByteString) -> KeySet -> Either (NE.NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileKeySetKeeping image' firstRun declared =
   compileStandaloneKeySet
     KeySetInput
       { keySet = declared
@@ -199,6 +210,7 @@ compileKeySet image' declared =
       , cluster = mintResourceId (ok (mkScopeId Platform "cluster")) (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
       , namespace = keySetNamespace
       , source = SourceLocation "KeySets.hs" "view-grants"
+      , acceptedFirstRun = firstRun
       }
 
 viewGrants :: KeySet
