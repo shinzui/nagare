@@ -13,6 +13,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.App.Deploy (rolloutDigestReference)
@@ -50,7 +51,8 @@ import Nagare.Inventory.Application.Database
   ( compileApplicationDatabases
   )
 import Nagare.Inventory.Application.Environment
-  ( declaredConnectionEnv
+  ( cloudBucketIdentity
+  , declaredConnectionEnv
   , reviewedTaskImages
   , runtimeSecretNamesWithBuild
   , secretDependency
@@ -73,8 +75,9 @@ import Nagare.Inventory.Application.Tasks
   )
 import Nagare.Inventory.Application.Types
   ( ApplicationScopeInput (..)
+  , CloudBucketBound (..)
   , CloudflareCdnBinding (..)
-  , DatabaseBinding (KeySetBinding)
+  , DatabaseBinding (CloudBucketBinding, KeySetBinding)
   , GoogleCdnBinding (..)
   , KeySetBound (..)
   , ReviewedCdnBinding (..)
@@ -422,6 +425,16 @@ compileApplicationScope input = do
             pure (workloadName, (generated, secrets))
         )
         bucketWorkloads
+  -- EP-284: a workload with a cloud bucket binding runs as its grant's account with the identity mount.
+  identities <-
+    Map.fromList . catMaybes
+      <$> traverse
+        ( \(workloadName, own) ->
+            fmap (workloadName,) <$> first invalid (cloudBucketIdentity own (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input)))
+        )
+        (maybe [] (\service -> [(service ^. #name, service ^. #serviceAccount)]) (app ^. #service) <> [(worker ^. #name, worker ^. #serviceAccount) | worker <- app ^. #workers])
+  let identityFor workloadName = fst <$> Map.lookup workloadName identities
+      withIdentityMounts rollout' = rollout' & #platformMounts %~ Map.unionWith (<>) (Map.fromList [(serviceNameText workloadName, [mount]) | (workloadName, (_, mount)) <- Map.toList identities])
   let bucketEnvFor workloadName = maybe Map.empty fst (Map.lookup workloadName bucketEnvironments)
       envSecrets = Map.unions [ownSecretMap, scopeEnvSecrets input, Map.unions (map snd (Map.elems bucketEnvironments))]
   _ <-
@@ -434,7 +447,7 @@ compileApplicationScope input = do
       )
       requiredEnvSecrets
   let runtimeApp = stripBuildSecretRefs app
-      runtimeRollout = stripBuildSecretRollout (scopeRollout input)
+      runtimeRollout = withIdentityMounts (stripBuildSecretRollout (scopeRollout input))
   serviceWithConnection <-
     traverse
       ( \service -> do
@@ -443,6 +456,8 @@ compileApplicationScope input = do
           _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
           pure
             ( service
+                & #serviceAccount
+                %~ maybe id (const . Just) (identityFor (service ^. #name))
                 & #env
                 %~ mergeGenerated (bucketEnvFor (service ^. #name))
                 . mergeGenerated (mergeGenerated localBrokerEnv generated)
@@ -463,6 +478,8 @@ compileApplicationScope input = do
           _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
           pure
             ( worker
+                & #serviceAccount
+                %~ maybe id (const . Just) (identityFor (worker ^. #name))
                 & #env
                 %~ mergeGenerated (bucketEnvFor (worker ^. #name))
                 . mergeGenerated (mergeGenerated localBrokerEnv generated)
@@ -598,7 +615,15 @@ compileApplicationScope input = do
               ]
           )
       appBrokerIds = brokerIdsFor (app ^. #brokers)
-      keySetDependencies workloadName = [keySetFirstRun bound | KeySetBinding bound <- Map.elems (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input))]
+      keySetDependencies workloadName =
+        concat
+          [ case binding of
+              KeySetBinding bound -> [keySetFirstRun bound]
+              -- EP-284: the credential configuration and the account the workload runs as.
+              CloudBucketBinding bound -> [cloudBucketCredentials bound ^. #identity, cloudBucketAccount bound ^. #identity]
+              _ -> []
+          | binding <- Map.elems (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input))
+          ]
       addBrokerResource resource
         | brokerConsumer (resource ^. #address) =
             resource & #dependencies %~ (<> map OrderedAfter (brokerDependencies resource))

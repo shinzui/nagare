@@ -53,7 +53,7 @@ import Nagare.Dsl.Database (Database (..), engineVersionText)
 import Nagare.Dsl.Database.Render (databaseCredentialTemplate, renderDatabase)
 import Nagare.Dsl.KeySet.Binding (KeySetBinding)
 import Nagare.Dsl.KeySet.Mount (keySetEnv, keySetMounts)
-import Nagare.Dsl.Mounts (applyPlatformMounts)
+import Nagare.Dsl.Mounts (PlatformMount, applyPlatformMounts)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (renderDomainMappings, renderServiceIn, renderServiceWithImageIn, renderVolumeClaims)
 import Nagare.Dsl.Task (Task)
@@ -63,6 +63,7 @@ import Nagare.Dsl.Types
   , ImageRef
   , RetentionPolicy (Delete)
   , ScopedEnvVar
+  , ServiceName
   , databaseNameText
   , imageRefText
   , namespaceText
@@ -115,6 +116,9 @@ data RolloutEnv = RolloutEnv
   , namespace :: !Text
   , baseDomain :: !Text
   , targetProfile :: !TargetProfile
+  , platformMounts :: !(Map Text [PlatformMount])
+  -- ^ EP-284: files the platform mounts into a workload, by its name, from its accepted
+  -- bindings (a GCS bucket's identity); a workload's own key set mounts come from its record.
   }
   deriving stock (Generic)
 
@@ -198,7 +202,7 @@ renderServiceObjects env svc0 = do
   let svc1 = svc0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
   svc <- (\vars -> svc1 & #env .~ vars) <$> withKeySetEnv (svc1 ^. #keySets) (svc1 ^. #env)
   workload <-
-    applyPlatformMounts (keySetMounts (svc ^. #keySets)) $
+    applyPlatformMounts (keySetMounts (svc ^. #keySets) <> boundMounts env (svc ^. #name)) $
       maybe
         (renderServiceIn (env ^. #appName) svc (env ^. #imageTag))
         (renderServiceWithImageIn (env ^. #appName) svc)
@@ -221,7 +225,7 @@ renderWorkerObjects env w0 = do
           (renderWorkerWithImageIn (env ^. #appName) w)
           (rolloutDigestReference env)
   -- Only the Deployment runs the worker; its PVCs take no mount.
-  mounted <- traverse (\bytes -> if renderedKind bytes == Just "Deployment" then applyPlatformMounts (keySetMounts (w ^. #keySets)) bytes else Right bytes) manifests
+  mounted <- traverse (\bytes -> if renderedKind bytes == Just "Deployment" then applyPlatformMounts (keySetMounts (w ^. #keySets) <> boundMounts env (w ^. #name)) bytes else Right bytes) manifests
   traverse (stamp env "worker") mounted
 
 rolloutDigestReference :: RolloutEnv -> Maybe Text
@@ -240,7 +244,7 @@ renderTaskObjects :: RolloutEnv -> Task -> Either Text [(Text, ByteString)]
 renderTaskObjects env t0 = do
   let t1 = t0 & #env %~ flowEnv env
   t <- (\vars -> t1 & #env .~ vars) <$> withKeySetEnv (t1 ^. #keySets) (t1 ^. #env)
-  cronJob <- applyPlatformMounts (keySetMounts (t ^. #keySets)) (renderResolvedTask (env ^. #taggedAppImage) (env ^. #effectiveTag) withPredef t)
+  cronJob <- applyPlatformMounts (keySetMounts (t ^. #keySets) <> boundMounts env (t ^. #name)) (renderResolvedTask (env ^. #taggedAppImage) (env ^. #effectiveTag) withPredef t)
   traverse (stamp env "hook") [cronJob]
   where
     withPredef tk = tk & #env %~ mergeGenerated (predefinedTaskEnv tk)
@@ -249,6 +253,10 @@ renderTaskObjects env t0 = do
 -- declared variable of the same name, as other generated variables do.
 withKeySetEnv :: [KeySetBinding] -> Map EnvName ScopedEnvVar -> Either Text (Map EnvName ScopedEnvVar)
 withKeySetEnv bindings own = (`mergeGenerated` own) <$> keySetEnv bindings
+
+-- | The mounts a workload's accepted bindings give it (EP-284).
+boundMounts :: RolloutEnv -> ServiceName -> [PlatformMount]
+boundMounts env name = Map.findWithDefault [] (serviceNameText name) (env ^. #platformMounts)
 
 -- | The @kind@ of a rendered manifest.
 renderedKind :: ByteString -> Maybe Text
@@ -368,6 +376,7 @@ resolveAppRolloutWithBrokerEnv p app brokerEnv = do
       , namespace = namespaceText (app ^. #namespace)
       , baseDomain = fromMaybe (tp ^. #baseDomain) (p ^. #baseDomain)
       , targetProfile = tp
+      , platformMounts = mempty
       }
   where
     tp = p ^. #targetProfile

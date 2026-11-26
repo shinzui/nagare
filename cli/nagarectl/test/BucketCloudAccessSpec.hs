@@ -4,6 +4,7 @@ module BucketCloudAccessSpec (bucketCloudAccessTests) where
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
@@ -11,6 +12,7 @@ import Nagare.Dsl.ObjectBucket
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkNamespace, mkServiceName)
 import Nagare.Inventory.BucketCloudAccess
+import Nagare.Resource.Inventory (scopeOverrides, withScopeOverrides)
 import ObjectBucketSpec (apiGrant, compile, gatewayGrant, publications)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -37,8 +39,8 @@ bucketCloudAccessTests =
         grantAccountEmail "tan-nb-exp" bucket (apiGrant ^. #namespace) (apiGrant ^. #workload) @?= account <> "@tan-nb-exp.iam.gserviceaccount.com"
     , testCase "no bucket derives no key; a bucket derives both, and needs the cluster's issuer and JWKS" $ do
         appBucketConfigKeys "tan-nb-exp" "ep285" Nothing [] @?= Right []
-        assertBool "a bucket without federation inputs was accepted" (either (const True) (const False) (appBucketConfigKeys "tan-nb-exp" "ep285" Nothing [publications]))
-        keys <- either (assertFailure . T.unpack) pure (appBucketConfigKeys "tan-nb-exp" "ep285" (Just ("https://kubernetes.default.svc.cluster.local", jwks)) [publications])
+        assertBool "a bucket without federation inputs was accepted" (either (const True) (const False) (appBucketConfigKeys "tan-nb-exp" "ep285" Nothing [CloudAppBucket publications False]))
+        keys <- either (assertFailure . T.unpack) pure (appBucketConfigKeys "tan-nb-exp" "ep285" (Just ("https://kubernetes.default.svc.cluster.local", jwks)) [CloudAppBucket publications False])
         map fst keys @?= ["nagare:appBuckets", "nagare:workloadIdentity"]
         buckets <- decoded "nagare:appBuckets" keys
         case buckets of
@@ -54,17 +56,27 @@ bucketCloudAccessTests =
           other -> assertFailure (show other)
         identity <- decoded "nagare:workloadIdentity" keys
         identity @?= object ["issuer" .= ("https://kubernetes.default.svc.cluster.local" :: Text), "jwks" .= jwks]
-    , testCase "a retired bucket is kept, retired, with no grant" $ do
-        keys <- either (assertFailure . T.unpack) pure (appBucketConfigKeys "tan-nb-exp" "ep285" (Just ("https://issuer", jwks)) [publications & #grants .~ []])
+    , testCase "a retired bucket keeps its last grants, so the cloud review disables their accounts" $ do
+        keys <- either (assertFailure . T.unpack) pure (appBucketConfigKeys "tan-nb-exp" "ep285" (Just ("https://issuer", jwks)) [CloudAppBucket publications True])
         buckets <- decoded "nagare:appBuckets" keys
         case buckets of
           Array found | [Object bucket] <- V.toList found -> do
             KM.lookup "retired" bucket @?= Just (Bool True)
-            KM.lookup "grants" bucket @?= Just (toArray [])
+            fmap length (case KM.lookup "grants" bucket of Just (Array grants) -> Just grants; _ -> Nothing) @?= Just 2
           other -> assertFailure (show other)
+        -- The bucket scope a retirement compiles records the grants it had, and keeps them.
+        let retired = publications & #grants .~ []
+        record <- maybe (assertFailure "no record") pure (retiredGrantsRecord retired (publications ^. #grants))
+        (scope, _) <- either (assertFailure . show) pure (compile [] retired)
+        let kept = withScopeOverrides (Map.insert retiredGrantsKey record (scopeOverrides scope)) scope
+        cloudAppBuckets [kept] @?= [CloudAppBucket publications True]
+        scopeRetiredGrants kept @?= publications ^. #grants
+        catalogAppBucketGrants (cloudAppBuckets [kept]) @?= catalogAppBucketGrants [CloudAppBucket publications False]
+        retiredGrantsRecord publications (publications ^. #grants) @?= Nothing
+        retiredGrantsRecord retired [] @?= Nothing
     , testCase "cloudAppBuckets reads the accepted bucket scopes" $ do
         (scope, _) <- either (assertFailure . show) pure (compile [] publications)
-        map (^. #name) (cloudAppBuckets [scope]) @?= [publications ^. #name]
+        cloudAppBuckets [scope] @?= [CloudAppBucket publications False]
     ]
   where
     jwks = object ["keys" .= [object ["kty" .= ("RSA" :: Text), "kid" .= ("k" :: Text)]]]

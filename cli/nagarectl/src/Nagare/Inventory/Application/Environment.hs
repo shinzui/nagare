@@ -8,6 +8,7 @@ module Nagare.Inventory.Application.Environment
   , secretDependency
   , standaloneBrokerEnvironment
   , standaloneDatabaseEnvironment
+  , cloudBucketIdentity
   , taskDatabaseEnvironment
   , workloadDatabaseNames
   , appDatabaseReaderKey
@@ -47,6 +48,7 @@ import Nagare.Dsl.Broker
   )
 import Nagare.Dsl.Database (Engine (..), dbSecretName)
 import Nagare.Dsl.KeySet.Binding (KeySetBinding)
+import Nagare.Dsl.Mounts (MountSource (..), PlatformMount (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
@@ -73,7 +75,8 @@ import Nagare.Dsl.Types
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Application.Bindings (appDatabaseReaderKey, brokerEvidenceIds, bucketBindingKey, keySetBindingKey)
-import Nagare.Inventory.Application.Types (AppDatabaseBound (..), BucketBound (..), DatabaseBinding (..), KeySetBound (..), ServerBinding (..))
+import Nagare.Inventory.Application.Types (AppDatabaseBound (..), BucketBound (..), CloudBucketBound (..), DatabaseBinding (..), KeySetBound (..), ServerBinding (..))
+import Nagare.Inventory.BucketCloudScope (credentialsFileKey, identityMountPath)
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (Declaration (..), declarationId)
 import Nagare.Resource.Types
@@ -269,7 +272,24 @@ standaloneDatabaseEnvironment cluster namespace names apps bindings invalid = do
         ServerDatabaseBinding server -> (\(fields, ids, secret) -> ([fields], ids, [secret])) <$> direct name server
         AppDatabaseBinding app -> (\(fields, ids, secret) -> (fields, ids, [secret])) <$> appDatabase name app
         KeySetBinding bound -> pure ([], [keySetFirstRun bound], [])
+        CloudBucketBinding bound -> cloudBucket bound
         ObjectBucketBinding bound -> bucket bound
+    -- EP-284: a cloud bucket's variables name the Google bucket and the grant's account, and
+    -- the credential configuration the identity mount holds; no Secret and no key.
+    cloudBucket bound = do
+      let prefix = "NAGARE_BUCKET_" <> T.toUpper (T.replace "-" "_" (cloudBucketLabel bound))
+          path = identityMountPath <> "/" <> credentialsFileKey
+          lit variable value = (,runtimeScoped (EnvLiteral value)) <$> mkEnvName variable
+      fields <-
+        first invalid . fmap Map.fromList . sequence $
+          [ lit (prefix <> "_BACKEND") "gcs"
+          , lit (prefix <> "_NAME") (cloudBucketGoogleName bound)
+          , lit (prefix <> "_ENDPOINT") "https://storage.googleapis.com"
+          , lit (prefix <> "_SERVICE_ACCOUNT") (cloudBucketAccountEmail bound)
+          , lit (prefix <> "_CREDENTIALS") path
+          , lit "GOOGLE_APPLICATION_CREDENTIALS" path
+          ]
+      pure ([fields], [(cloudBucketCredentials bound) ^. #identity, (cloudBucketAccount bound) ^. #identity], [])
     -- EP-283: the workload's own Secret is the only one it receives. It is
     -- ordered after the Job that created its store user, so it never starts
     -- with a key the store does not know.
@@ -384,6 +404,8 @@ taskDatabaseEnvironment ::
   Either (NonEmpty InventoryError) (Task, [ResourceId], Map SecretName Declaration)
 taskDatabaseEnvironment cluster inherited bindings task invalid = do
   names <- first invalid (workloadDatabaseNames (Map.union (task ^. #env) inherited) [] (task ^. #appDatabases) [] (task ^. #buckets) (task ^. #keySets))
+  -- EP-284: a task runs as no bucket account yet, so it cannot hold a cloud bucket grant.
+  unless (null [() | CloudBucketBinding _ <- Map.elems bindings]) (Left (invalid "a task cannot bind a bucket on a cloud context; bind it from a service or a worker"))
   (env, ids, secrets) <- standaloneDatabaseEnvironment cluster (task ^. #namespace) names (task ^. #appDatabases) bindings invalid
   pure (task & #env %~ mergeGenerated env & #appDatabases .~ [], ids, secrets)
 
@@ -456,3 +478,20 @@ standaloneBrokerEnvironment cluster namespaceName bindings brokerServices broker
       bindings
   env <- first invalid (mergeBrokerConnectionEnvs brokerEnvs)
   pure (env, Set.toList (Set.fromList (concat ids)))
+
+-- | EP-284: the Kubernetes account and the identity mount a workload's cloud
+-- bucket binding gives it, or nothing without one. A workload runs as one
+-- account, so it binds at most one cloud bucket, and it may not name its own.
+cloudBucketIdentity :: Maybe Dsl.ServiceAccountName -> Map DatabaseName DatabaseBinding -> Either T.Text (Maybe (Dsl.ServiceAccountName, PlatformMount))
+cloudBucketIdentity own bindings = case [bound | CloudBucketBinding bound <- Map.elems bindings] of
+  [] -> Right Nothing
+  [bound] -> do
+    when (isJust own) (Left "a workload bound to a cloud bucket runs as its bucket account and cannot name its own serviceAccount")
+    account <- case cloudBucketAccount bound ^. #address of
+      Kubernetes _ _ _ _ name -> Dsl.mkServiceAccountName (nameText name)
+      _ -> Left "a cloud bucket's account has no Kubernetes address"
+    credentials <- case cloudBucketCredentials bound ^. #address of
+      Kubernetes _ _ _ _ name -> Right (nameText name)
+      _ -> Left "a cloud bucket's credential configuration has no Kubernetes address"
+    pure (Just (account, PlatformMount "nagare-identity" identityMountPath (ConfigMapSource credentials :| [ServiceAccountTokenSource (cloudBucketTokenAudience bound) 3600])))
+  _ -> Left "a workload can bind one cloud bucket: it runs as one account"

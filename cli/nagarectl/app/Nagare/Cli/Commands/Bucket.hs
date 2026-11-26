@@ -20,10 +20,13 @@ import Nagare.Cli.Options.Bucket
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
+import Nagare.Cluster.GcsJob (StoreBackend (..))
 import Nagare.Dsl.Load (loadObjectBuckets, renderLoadError)
 import Nagare.Dsl.ObjectBucket
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (namespaceText, serviceNameText)
+import Nagare.Inventory.BucketCloudAccess (scopeRetiredGrants)
+import Nagare.Inventory.BucketCloudScope (CloudBucketInput (..), CloudBucketTarget (..), cloudBucketGoogleNameKey, cloudBucketReviewEffects, compileStandaloneCloudBucket)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Command.Effects (planInventoryCandidateWithEffects)
 import Nagare.Inventory.Components.LocalObjectStore (readLocalRegistryDigest, selectLocalMinioImages)
@@ -31,10 +34,11 @@ import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Kubernetes (kubernetesObjectIdentity)
 import Nagare.Inventory.ObjectBucket
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.Plan.Types (ReviewEffect)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (ActiveTarget, storeBackendFor)
+import Nagare.Target (ActiveTarget, contextNameText, storeBackendFor)
 import System.Environment (lookupEnv)
 import System.IO.Temp (withSystemTempDirectory)
 
@@ -58,15 +62,15 @@ runBucket mctx = \case
   BucketStatus selected -> do
     active <- activeTarget mctx
     snapshot <- Inventory.loadTargetSnapshotReadOnly active
-    let accepted = [declared | (name, (_, declared)) <- acceptedBuckets snapshot, maybe True ((== name) . T.pack) selected]
+    let accepted = [(scope, declared) | (name, (scope, declared)) <- acceptedBuckets snapshot, maybe True ((== name) . T.pack) selected]
     when (null accepted) (dieT (maybe "no accepted bucket" (\name -> "no accepted bucket is named " <> T.pack name) selected))
-    forM_ accepted $ \declared ->
+    forM_ accepted $ \(scope, declared) ->
       TIO.putStrLn
         ( T.intercalate
             "  "
             [ bucketNameText (declared ^. #name)
-            , "s3"
-            , storeBucketName (declared ^. #name)
+            , Map.findWithDefault "s3" bucketBackendKey (ResourceInventory.scopeOverrides scope)
+            , Map.findWithDefault (storeBucketName (declared ^. #name)) cloudBucketGoogleNameKey (ResourceInventory.scopeOverrides scope)
             , case declared ^. #grants of
                 [] -> "retired"
                 grants -> T.unwords [serviceNameText (grant ^. #workload) <> "=" <> bucketAccessToken (grant ^. #access) | grant <- grants]
@@ -88,6 +92,36 @@ planBuckets :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Text -> [Objec
 planBuckets active snapshot source buckets output = do
   let profile = active ^. #profile
   accepted <- loadAcceptedNative active snapshot
+  backend <- either dieT pure (storeBackendFor profile (profile ^. #backupBucket))
+  case backend of
+    GcsBackend _ _ -> planCloudBuckets active snapshot source buckets output accepted
+    MinioBackend _ -> planLocalBuckets active snapshot source buckets output accepted
+
+-- | EP-284: on a cloud context a bucket's scope holds each grant's Kubernetes account and
+-- credential configuration; the bucket and its Google accounts are the cloud review's.
+planCloudBuckets :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Text -> [ObjectBucket] -> Maybe FilePath -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO ()
+planCloudBuckets active snapshot source buckets output accepted = do
+  let profile = active ^. #profile
+  when (T.null (profile ^. #projectNumber)) (dieT "an app bucket on a cloud context needs the project's number: set NAGARE_PROJECT_NUMBER in the context")
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot "nagare-system")
+  compiled <- forM buckets $ \declared -> do
+    namespaces <- fmap Map.fromList . forM (nub [namespaceText (grant ^. #namespace) | grant <- declared ^. #grants]) $ \ns ->
+      (ns,) . snd <$> either dieT pure (acceptedFoundationNamespace snapshot ns)
+    either (dieT . renderErrors) pure $
+      compileStandaloneCloudBucket
+        CloudBucketInput
+          { bucket = declared
+          , target = CloudBucketTarget (profile ^. #project) (contextNameText (active ^. #contextName)) (profile ^. #projectNumber)
+          , cluster = cluster
+          , namespaces = namespaces
+          , source = Resource.SourceLocation source (bucketNameText (declared ^. #name))
+          , kept = maybe [] (scopeRetiredGrants . fst) (lookup (bucketNameText (declared ^. #name)) (acceptedBuckets snapshot))
+          }
+  finishBucketPlan cloudBucketReviewEffects active snapshot compiled output accepted
+
+planLocalBuckets :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Text -> [ObjectBucket] -> Maybe FilePath -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO ()
+planLocalBuckets active snapshot source buckets output accepted = do
+  let profile = active ^. #profile
   backend <- either dieT pure (storeBackendFor profile (profile ^. #backupBucket))
   serverImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
   clientImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MC_IMAGE"
@@ -117,13 +151,19 @@ planBuckets active snapshot source buckets output = do
           , previous = scopeNativeObjects owner accepted
           , source = Resource.SourceLocation source (bucketNameText (declared ^. #name))
           }
+  finishBucketPlan bucketReviewEffects active snapshot compiled output accepted
+
+-- | Compose the compiled bucket scopes and save or print their review; members that leave
+-- a scope are retired in the same review, which lists the access each workload loses.
+finishBucketPlan :: (ResourceInventory.ScopeSnapshot -> ResourceInventory.ScopeDeclaration -> [ReviewEffect]) -> ActiveTarget -> ResourceInventory.ScopeSnapshot -> [(ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))] -> Maybe FilePath -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO ()
+finishBucketPlan reviewEffects active snapshot compiled output accepted = do
   changes <- maybe (dieT "no bucket to plan") pure (NE.nonEmpty (map (ResourceInventory.ReplaceScope . fst) compiled))
   candidate <- either (dieT . renderErrors) pure (ResourceInventory.composeInventory snapshot changes)
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   let native = Map.unions (map snd compiled)
       owners = Set.fromList (map (ResourceInventory.scopeId . fst) compiled)
       leaving = [resource ^. #identity | (resource, _) <- Map.elems accepted, Set.member (resource ^. #owner) owners, Map.notMember (resource ^. #identity) native]
-      effects = concat [bucketReviewEffects snapshot scope | (scope, _) <- compiled]
+      effects = concat [reviewEffects snapshot scope | (scope, _) <- compiled]
       registry = inventoryPlanRegistryWithNative active workspace native
   case output of
     Just directory -> planInventoryCandidateWithEffects registry active candidate leaving effects directory

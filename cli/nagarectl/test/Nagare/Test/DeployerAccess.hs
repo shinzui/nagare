@@ -271,6 +271,7 @@ rollout app =
     , namespace = "personal"
     , baseDomain = "example.com"
     , targetProfile = initProfile
+    , platformMounts = mempty
     }
 
 -- ---------------------------------------------------------------------------

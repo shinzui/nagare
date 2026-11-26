@@ -127,6 +127,7 @@ input app =
           , namespace = "personal"
           , baseDomain = "example.com"
           , targetProfile = tnbProfile
+          , platformMounts = mempty
           }
     , scopeCluster = testCluster
     , scopeNamespace = mintResourceId foundation (known (mkLogicalKey "foundation")) (known (mkName "namespace-personal"))

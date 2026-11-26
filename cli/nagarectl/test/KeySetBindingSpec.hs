@@ -112,6 +112,7 @@ compileWorker keySets bindings =
       , namespace = "personal"
       , baseDomain = "apps.example.com"
       , targetProfile = tnbProfile
+      , platformMounts = mempty
       }
     (mintResourceId (ok (mkScopeId Platform "cluster")) (ok (mkLogicalKey "cluster")) (ok (mkName "cluster")))
     (mintResourceId (ok (mkScopeId Platform "foundation")) (ok (mkLogicalKey "foundation")) (ok (mkName "namespace-personal")))

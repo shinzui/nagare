@@ -130,6 +130,7 @@ compileWorker name buckets bindings =
       , namespace = "personal"
       , baseDomain = "apps.example.com"
       , targetProfile = tnbProfile
+      , platformMounts = mempty
       }
     testCluster
     (mintResourceId (ok (mkScopeId Platform "foundation")) (ok (mkLogicalKey "foundation")) (ok (mkName "namespace-personal")))

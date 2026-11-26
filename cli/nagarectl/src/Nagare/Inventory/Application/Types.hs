@@ -6,6 +6,7 @@ module Nagare.Inventory.Application.Types
   , AppDatabaseBound (..)
   , BucketBound (..)
   , KeySetBound (..)
+  , CloudBucketBound (..)
   , DatabaseBinding (..)
   , ServerBinding (..)
   , GoogleCdnBinding (..)
@@ -62,6 +63,22 @@ data DatabaseBinding
     -- or Secret here: the renderer mounts its files, and the workload is
     -- ordered after the key set's first-run Job, so its keys exist.
     KeySetBinding !KeySetBound
+  | -- | EP-284: an app object bucket on a cloud context, as @bucket-\<name\>@.
+    -- The workload runs as the grant's Kubernetes account and reads the
+    -- credential configuration that federates it to the grant's Google account.
+    CloudBucketBinding !CloudBucketBound
+  deriving stock (Eq, Show)
+
+data CloudBucketBound = CloudBucketBound
+  { cloudBucketLabel :: !Text
+  , cloudBucketGoogleName :: !Text
+  , cloudBucketAccountEmail :: !Text
+  , cloudBucketCredentials :: !ManagedResource
+  -- ^ the ConfigMap holding the credential configuration
+  , cloudBucketAccount :: !ManagedResource
+  -- ^ the Kubernetes ServiceAccount the workload runs as
+  , cloudBucketTokenAudience :: !Text
+  }
   deriving stock (Eq, Show)
 
 -- | An accepted key set as a bound workload sees it.

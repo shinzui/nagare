@@ -392,6 +392,7 @@ testEnv =
     , namespace = "personal"
     , baseDomain = "apps.example.com"
     , targetProfile = testProfile
+    , platformMounts = mempty
     }
 
 testProfile :: TargetProfile

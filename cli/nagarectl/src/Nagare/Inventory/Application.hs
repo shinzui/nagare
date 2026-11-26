@@ -44,6 +44,9 @@ module Nagare.Inventory.Application
   , legacyApplicationReleaseImport
   , legacyStandaloneReleaseImport
   , DatabaseBinding
+  , CloudBucketBound (..)
+  , cloudBucketBound
+  , cloudBucketIdentity
   , acceptedDatabaseBindings
   , acceptedAppDatabaseBindings
   , acceptedAppDatabaseTaskBindings
@@ -85,7 +88,8 @@ import Nagare.Inventory.Application.Database
   ( compileApplicationDatabases
   )
 import Nagare.Inventory.Application.Environment
-  ( reviewedTaskImages
+  ( cloudBucketIdentity
+  , reviewedTaskImages
   )
 import Nagare.Inventory.Application.Ownership
   ( applicationNativeOwned
@@ -125,6 +129,7 @@ import Nagare.Inventory.Application.Tasks
 import Nagare.Inventory.Application.Types
   ( AccessBinding (..)
   , ApplicationScopeInput (..)
+  , CloudBucketBound (..)
   , CloudflareCdnBinding (..)
   , DatabaseBinding (..)
   , GoogleCdnBinding (..)
@@ -137,3 +142,9 @@ import Nagare.Inventory.Application.Worker
   , compileStandaloneWorkerWithDependencies
   , compileStandaloneWorkerWithDependenciesAndBuild
   )
+
+-- | A binding's cloud bucket, when it is one (EP-284).
+cloudBucketBound :: DatabaseBinding -> Maybe CloudBucketBound
+cloudBucketBound = \case
+  CloudBucketBinding bound -> Just bound
+  _ -> Nothing

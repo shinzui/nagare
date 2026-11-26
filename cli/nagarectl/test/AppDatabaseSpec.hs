@@ -892,6 +892,7 @@ compileWorkerWith app names readers bindings =
         , namespace = "personal"
         , baseDomain = "apps.example.com"
         , targetProfile = tnbProfile
+        , platformMounts = mempty
         }
 
 -- | Every @secretKeyRef.name@ in a native object.

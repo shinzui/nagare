@@ -21,7 +21,8 @@ module Nagare.Inventory.Application.Bindings
 where
 
 import Control.Monad (forM_)
-import Data.Aeson (Value (Object, String))
+import Data.Aeson (Value (Object, String), eitherDecodeStrict)
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -30,6 +31,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Access.Resolve (backendConfigMapNamespace)
 import Nagare.Broker.Connection
@@ -73,10 +75,13 @@ import Nagare.Inventory.Application.Types
   ( AccessBinding (..)
   , AppDatabaseBound (..)
   , BucketBound (..)
+  , CloudBucketBound (..)
   , DatabaseBinding (..)
   , KeySetBound (..)
   , ServerBinding (..)
   )
+import Nagare.Inventory.BucketCloudAccess (grantAccountEmail, grantAccountId, workloadAccountName)
+import Nagare.Inventory.BucketCloudScope (cloudBucketGoogleNameKey, cloudBucketProjectKey, credentialsFileKey)
 import Nagare.Inventory.DeployerDelegation (acceptedDelegations)
 import Nagare.Inventory.Environment (acceptedBuildChannelMember)
 import Nagare.Inventory.KeySet (keySetFirstRunJob, scopeKeySet)
@@ -99,7 +104,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
   ( Name
-  , ProviderAddress (Artifact, BrokerTopic, DatabaseName, DatabaseUser, Kubernetes)
+  , ProviderAddress (Artifact, BrokerTopic, DatabaseName, DatabaseUser, Kubernetes, PulumiUrn)
   , ResourceId
   , ScopeId
   , ScopeKind (Platform, Publication, Standalone)
@@ -111,6 +116,7 @@ import Nagare.Resource.Types
   , mkScopeId
   , nameText
   , resourceIdText
+  , scopeIdText
   , scopeKind
   , scopeName
   )
@@ -797,6 +803,14 @@ acceptedBucketBindings snapshot native cluster namespaceName workload bindings =
       let secretName = bucketCredentialSecretName name workload
           members = [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle]
           lookupOverride overrideKey = maybe (Left ("accepted bucket " <> label <> " records no " <> overrideKey)) Right (Map.lookup overrideKey (scopeOverrides scope))
+          memberAt kind objectName = do
+            wanted <- kubernetesAddress cluster "v1" kind (Just namespaceName) objectName
+            case [resource | resource <- members, resource ^. #address == wanted] of
+              [found] -> Right found
+              _ -> Left ("accepted bucket " <> label <> " has no " <> kind <> " " <> objectName <> " for " <> who)
+      backend' <- lookupOverride bucketBackendKey
+      if backend' == "gcs" then cloudBinding key name label scope memberAt lookupOverride grant else minioBinding key name label scope members lookupOverride grant secretName
+    minioBinding key name label scope members lookupOverride grant secretName = do
       address <- kubernetesAddress cluster "v1" "Secret" (Just namespaceName) secretName
       credential <- case [resource | resource <- members, resource ^. #address == address] of
         [found] -> Right found
@@ -809,6 +823,37 @@ acceptedBucketBindings snapshot native cluster namespaceName workload bindings =
       backend <- lookupOverride bucketBackendKey
       endpoint <- lookupOverride bucketEndpointKey
       pure (key, ObjectBucketBinding (BucketBound label (storeBucketName name) backend endpoint credential secretName grantJob))
+    -- EP-284: on a cloud context the workload runs as its grant's Kubernetes account, reads
+    -- the credential configuration, and binds only once the cloud review created the grant's
+    -- federation member, so its token is never refused at Google.
+    cloudBinding key name label scope memberAt lookupOverride grant = do
+      credentials <- memberAt "ConfigMap" (bucketCredentialSecretName name workload)
+      account <- memberAt "ServiceAccount" (workloadAccountName workload)
+      googleName <- lookupOverride cloudBucketGoogleNameKey
+      project <- lookupOverride cloudBucketProjectKey
+      let accountId = grantAccountId name (grant ^. #namespace) workload
+          federation = "::nagare-bucket-" <> label <> "-" <> accountId <> "-federation"
+          federated =
+            not . null $
+              [ ()
+              | (owner, (_, cloudScope)) <- Map.toList (snapshotScopes snapshot)
+              , scopeIdText owner == "platform:cloud"
+              , bundle <- scopeBundles cloudScope
+              , Managed resource <- declarations bundle
+              , PulumiUrn urn <- [resource ^. #address]
+              , federation `T.isSuffixOf` urn
+              ]
+      unless federated (Left ("bucket-cloud-identity-missing: the cloud review has not created bucket " <> label <> "'s identity for " <> who <> "; plan and apply the platform bootstrap (its cloud stage) first"))
+      audience <- case Map.lookup (credentials ^. #identity) native of
+        Just (_, bytes)
+          | Right (Object root) <- eitherDecodeStrict bytes
+          , Just (Object fields) <- KM.lookup "data" root
+          , Just (String configuration) <- KM.lookup (Key.fromText credentialsFileKey) fields
+          , Right (Object parsed) <- eitherDecodeStrict (TE.encodeUtf8 configuration)
+          , Just (String found) <- KM.lookup "audience" parsed ->
+              Right ("https:" <> found)
+        _ -> Left ("accepted bucket " <> label <> "'s credential configuration for " <> who <> " names no audience")
+      pure (key, CloudBucketBinding (CloudBucketBound label googleName (grantAccountEmail project name (grant ^. #namespace) workload) credentials account audience))
 
 -- | A key set binding's key in a workload's bindings: @keyset-\<name\>@.
 keySetBindingKey :: KeySetName -> Either T.Text DatabaseName

@@ -49,7 +49,8 @@ import Nagare.Dsl.Types
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Application.Environment
-  ( databaseDependencies
+  ( cloudBucketIdentity
+  , databaseDependencies
   , runtimeSecretNames
   , runtimeSecretNamesWithBuild
   , secretDependency
@@ -305,8 +306,12 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
       brokerServices
       brokerTopics
       invalid
+  -- EP-284: a cloud bucket binding runs the service as its grant's account with the identity mount.
+  identity <- first invalid (cloudBucketIdentity (service ^. #serviceAccount) databaseBindings)
   let service' =
         service
+          & #serviceAccount
+          %~ maybe id (const . Just . fst) identity
           & #env
           %~ mergeGenerated (mergeGenerated brokerEnv databaseEnv)
           & #brokers
@@ -334,7 +339,7 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
     compileServiceMembers
       owner
       service'
-      rollout
+      (maybe rollout (\(_, mount) -> rollout & #platformMounts %~ Map.insertWith (<>) (serviceNameText (service ^. #name)) [mount]) identity)
       cluster
       namespaceId
       imageId

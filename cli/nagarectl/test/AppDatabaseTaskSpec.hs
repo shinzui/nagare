@@ -251,6 +251,7 @@ rollout app appEnv' =
     , namespace = "personal"
     , baseDomain = "example.com"
     , targetProfile = tnbProfile
+    , platformMounts = mempty
     }
 
 namespaceId, imageId :: ResourceId
