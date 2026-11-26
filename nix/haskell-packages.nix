@@ -236,7 +236,7 @@ let
   checkedNagareDsl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagare-dsl (_old: {
       postPatch = ''
-        substituteInPlace test/ApplicationSpec.hs test/WorkerSpec.hs test/Spec.hs test/ObjectBucketSpec.hs \
+        substituteInPlace test/ApplicationSpec.hs test/WorkerSpec.hs test/Spec.hs test/ObjectBucketSpec.hs test/KeySetSpec.hs \
           --replace-fail "../../cluster/examples" "${../cluster/examples}"
         substituteInPlace test/ResourceInventorySpec.hs \
           --replace-fail "../../cluster/bootstrap/nix-cache" "${../cluster/bootstrap/nix-cache}"
