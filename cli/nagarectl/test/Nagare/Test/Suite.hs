@@ -19,6 +19,7 @@ import AppDatabaseTaskSpec (appDatabaseTaskTests)
 import AppDatabaseWorldSpec (appDatabaseWorldTests)
 import AppDeploySpec (appDeployTests)
 import AppOwnedDatabaseSpec (appOwnedDatabaseTests)
+import BucketCloudAccessSpec (bucketCloudAccessTests)
 import CertificateMigrationSpec (certificateMigrationTests)
 import ContentDomainContextSpec (contentDomainContextTests)
 import ContentRouteSpec (contentRouteTests)
@@ -262,6 +263,7 @@ main = do
             , lifecycleCredentialTests
             , objectBucketTests
             , objectBucketWorldTests
+            , bucketCloudAccessTests
             , objectBucketBindingTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests

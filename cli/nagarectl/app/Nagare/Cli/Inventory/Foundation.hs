@@ -2,6 +2,7 @@
 module Nagare.Cli.Inventory.Foundation
   ( foundationBucketNames
   , foundationDeployerKeys
+  , foundationBucketKeys
   , foundationImageLink
   , foundationPulumiBucket
   , foundationStackAddress
@@ -11,10 +12,14 @@ module Nagare.Cli.Inventory.Foundation
 where
 
 import Control.Monad (forM)
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as AesonKeyMap
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (ActivePosture (..), activePosture)
 import Nagare.Dsl.Prelude
@@ -28,9 +33,11 @@ import Nagare.Inventory.Adapters.FoundationRuntime
   ( mkFoundationRuntimeOps
   , realGcloudRunner
   )
+import Nagare.Inventory.BucketCloudAccess (appBucketConfigKeys, cloudAppBuckets)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DeployerCloudAccess (cloudDelegatedDeployers, delegatedDeployerConfigKeys)
 import Nagare.Inventory.Foundation qualified as InventoryFoundation
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Ops.PulumiBackend
   ( gcsBucketOfUrl
   , pulumiStateBackendUrl
@@ -49,6 +56,7 @@ import Nagare.Target
   , nagareStateDir
   , pulumiEnvFor
   )
+import System.Exit (ExitCode (..))
 
 inventoryFoundationAdapter ::
   InventoryFoundation.FoundationTargetUse ->
@@ -138,6 +146,7 @@ foundationStackTarget active workspace imageLink scopes = do
   stack <- either dieT pure (Resource.mkName context)
   bucket <- foundationPulumiBucket active
   deployerKeys <- foundationDeployerKeys active scopes
+  bucketKeys <- foundationBucketKeys active scopes
   -- The posture reads the head the foundation uses: a fresh context's history is local until its first stage makes the bucket.
   selected <- Inventory.selectFoundationStore active >>= either (dieT . T.pack . show) pure
   ActivePosture {posture = ingressPosture, retainedDnsName = retained} <- activePosture selected
@@ -154,6 +163,7 @@ foundationStackTarget active workspace imageLink scopes = do
         ( seeded
             <> maybe [] (\link -> [("nagare:nagareImageSelfLink", link)]) imageLink
             <> filter ((`notElem` map fst seeded) . fst) deployerKeys
+            <> filter ((`notElem` map fst seeded) . fst) bucketKeys
         )
     )
 
@@ -165,6 +175,29 @@ foundationDeployerKeys active scopes =
     dieT
     pure
     (delegatedDeployerConfigKeys (contextNameText (active ^. #contextName)) (active ^. #profile) (cloudDelegatedDeployers (active ^. #profile) scopes))
+
+-- | EP-284: @nagare:appBuckets@ and @nagare:workloadIdentity@ from the accepted
+-- bucket scopes, and the cluster's service-account issuer and JWKS, read through
+-- the context's guarded kubectl only when a bucket exists.
+foundationBucketKeys :: ActiveTarget -> [ResourceInventory.ScopeDeclaration] -> IO [(Text, Text)]
+foundationBucketKeys active scopes = case cloudAppBuckets scopes of
+  [] -> pure []
+  buckets -> do
+    context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+    let clusterGuard = fmap (fmap (const ())) (guardKubernetesContext active)
+        runtime = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) clusterGuard
+        raw path = do
+          result <- invokeKubectl runtime ["get", "--raw", path] ""
+          case result of
+            Right (ExitSuccess, body, _) -> either (\reason -> dieT ("the cluster's " <> T.pack path <> " is not JSON: " <> T.pack reason)) pure (Aeson.eitherDecodeStrict (TE.encodeUtf8 (T.pack body)))
+            _ -> dieT ("could not read the cluster's " <> T.pack path <> "; an app bucket's identities need it")
+    clusterGuard >>= either dieT pure
+    discovery <- raw "/.well-known/openid-configuration"
+    issuer <- case discovery of
+      Aeson.Object root | Just (Aeson.String found) <- AesonKeyMap.lookup "issuer" root -> pure found
+      _ -> dieT "the cluster's OpenID configuration names no issuer"
+    jwks <- raw "/openid/v1/jwks"
+    either dieT pure (appBucketConfigKeys (active ^. #profile . #project) (contextNameText (active ^. #contextName)) (Just (issuer, jwks)) buckets)
 
 foundationImageLink :: ActiveTarget -> [ResourceInventory.Declaration] -> IO (Maybe Text)
 foundationImageLink active declarations = do

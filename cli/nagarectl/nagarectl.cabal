@@ -200,6 +200,7 @@ library
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.BootstrapRegistryRecovery
     Nagare.Inventory.BootstrapRegistryTransport
+    Nagare.Inventory.BucketCloudAccess
     Nagare.Inventory.Cache
     Nagare.Inventory.CdnPurge
     Nagare.Inventory.Cleanup
@@ -724,6 +725,7 @@ test-suite nagarectl-test
     AppDeployPhaseSpec
     AppDeploySpec
     AppOwnedDatabaseSpec
+    BucketCloudAccessSpec
     CertificateMigrationSpec
     ClusterSessionSpec
     ContentDomainContextSpec
