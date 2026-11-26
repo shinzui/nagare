@@ -2,6 +2,7 @@
 -- Pulumi config and reviewed cloud catalog carry one zone per domain.
 module ContentDomainContextSpec (contentDomainContextTests) where
 
+import Data.Aeson (object, (.=))
 import Data.ByteString.Char8 qualified as BC
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
@@ -10,7 +11,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Context.Posture (WebRules (..), directPosture)
 import Nagare.Dsl.ContentDomain (contentDomainSlug, contentDomainText)
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Init (renderTargetEnv, seedKeysFor, servedContentDomains)
 import Nagare.Inventory.Cloud
 import Nagare.Resource.Types (mkName, nameText)
@@ -91,6 +92,15 @@ contentDomainContextTests =
           Nothing -> assertFailure "another registrar's servers matched"
         contentDelegationProblem (Left "gcloud could not describe") [["x"]] @?= Just "gcloud could not describe"
         assertBool "the slug check" (not ("." `isInfixOf` T.unpack (contentDomainZoneName (head (withDomains "a.b.example" ^. #contentDomains)))))
+    , testCase "domains list names each content route's Ingress and the hosts it serves" $ do
+        let ingress labels hosts =
+              object
+                [ "metadata" .= object ["name" .= ("nagare-content-content-gateway" :: Text), "namespace" .= ("personal" :: Text), "labels" .= labels]
+                , "spec" .= object ["rules" .= [object ["hosts" .= (hosts :: [Text])], object ["hosts" .= (["share.content.test"] :: [Text])]]]
+                ]
+            list = object ["items" .= [ingress (object ["nagare.dev/content-domain" .= ("content.test" :: Text)]) ["*.content.test", "content.test"], ingress (object []) ["other.test"]]]
+        servedContentHosts list @?= [("content.test", "personal/nagare-content-content-gateway", ["*.content.test", "content.test", "share.content.test"])]
+        servedContentHosts (object []) @?= []
     ]
   where
     withDomains :: Text -> TargetProfile

@@ -51,7 +51,7 @@ import Nagare.Ops.Domains
 import Nagare.Ops.Pulumi (stackOutputs)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (IngressMode (..), Mode (Cloud, Local), contextNameText)
-import Nagare.Target.ContentDomains (contentDelegationProblem, contentDomainZoneName)
+import Nagare.Target.ContentDomains (contentDelegationProblem, contentDomainZoneName, servedContentHosts)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (stderr)
 
@@ -122,12 +122,24 @@ runDomainsInventory checking mctx o = do
         resolvers <- observeResolverNameServers (contentDomainText domain)
         pure (contentDomainText domain, zone, contentDelegationProblem zone resolvers)
       else pure []
+  -- EP-285: the hosts each content route serves, from the cluster's content Ingresses.
+  routes <-
+    if null (tp ^. #contentDomains)
+      then pure []
+      else
+        systemToolRunner "kubectl" ["get", "ingresses.networking.internal.knative.dev", "--all-namespaces", "-l", "nagare.dev/content-domain", "-o", "json"] <&> \case
+          Observed bytes -> maybe [] servedContentHosts (Aeson.decodeStrict bytes)
+          _ -> []
   let delegationFailures = [domain <> ": " <> problem | (domain, _, Just problem) <- delegations]
       failures = inventoryFailures <> domainCheckFailures rows <> delegationFailures
   if o ^. #json
     then LBC.putStrLn (Aeson.encode (domainReportValue inventoryFailures rows))
     else do
       TIO.putStr (formatDomainList rows)
+      unless (null routes) $ do
+        TIO.putStrLn "Content routes:"
+        forM_ routes $ \(domain, ingress, hosts) ->
+          TIO.putStrLn ("  " <> domain <> "  served by " <> ingress <> "  hosts: " <> T.intercalate ", " hosts)
       unless (null delegations) $ do
         TIO.putStrLn "Content domains:"
         forM_ delegations $ \(domain, zone, problem) ->

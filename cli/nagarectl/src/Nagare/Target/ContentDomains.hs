@@ -11,12 +11,18 @@ module Nagare.Target.ContentDomains
   , renderContentDomains
   , contentDomainZoneName
   , contentDelegationProblem
+  , servedContentHosts
   )
 where
 
+import Data.Aeson (Value (..))
+import Data.Aeson.KeyMap qualified as KM
+import Data.Containers.ListUtils (nubOrd)
+import Data.Foldable (toList)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Context.MoveChecks (sameNameServers)
@@ -80,3 +86,25 @@ contentDelegationProblem zone resolvers = case zone of
     | otherwise -> Just ("public resolvers answer NS " <> T.intercalate ", " (concat answered) <> ", not the zone's " <> T.intercalate ", " servers)
   where
     answered = filter (not . null) resolvers
+
+-- | The hosts each content Ingress in a @kubectl get -o json@ list serves, by
+-- its @nagare.dev/content-domain@ label: the domain, the Ingress as
+-- @namespace/name@, and its hosts in order. An object without the label is
+-- not a content route.
+servedContentHosts :: Value -> [(Text, Text, [Text])]
+servedContentHosts = \case
+  Object root | Just (Array items) <- KM.lookup "items" root -> mapMaybe route (toList items)
+  _ -> []
+  where
+    route item = do
+      Object metadata <- field "metadata" item
+      Object labels <- KM.lookup "labels" metadata
+      String domain <- KM.lookup "nagare.dev/content-domain" labels
+      String name <- KM.lookup "name" metadata
+      String namespace <- KM.lookup "namespace" metadata
+      Array rules <- field "spec" item >>= \spec -> field "rules" spec
+      let hosts = nubOrd [host | Object rule <- toList rules, Just (Array listed) <- [KM.lookup "hosts" rule], String host <- toList listed]
+      pure (domain, namespace <> "/" <> name, hosts)
+    field key = \case
+      Object object' -> KM.lookup key object'
+      _ -> Nothing
