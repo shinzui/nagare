@@ -1270,5 +1270,17 @@
     "suite": "nagarectl",
     "pattern": "/a verifier mounts only the public file and its manifest never names the key set's Secret/ || /an Application's service signs and its worker verifies, each after the first run/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP285-content-ingress-claim-not-derived",
+    "suite": "nagarectl",
+    "pattern": "/every member of a routed application rebinds from its own bytes/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP286-any-secret-collectable",
+    "suite": "nagarectl",
+    "pattern": "/only a key set's own Secret among Secrets/",
+    "expect": "test-fails"
   }
 ]

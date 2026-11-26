@@ -1,0 +1,13 @@
+diff --git a/cli/nagare-dsl/src/Nagare/Resource/Kubernetes.hs b/cli/nagare-dsl/src/Nagare/Resource/Kubernetes.hs
+index d6fd6b17..27025bc5 100644
+--- a/cli/nagare-dsl/src/Nagare/Resource/Kubernetes.hs
++++ b/cli/nagare-dsl/src/Nagare/Resource/Kubernetes.hs
+@@ -114,7 +114,7 @@ compileKubernetesObject input = do
+             , Just (Object labels) <- KeyMap.lookup "labels" metadata
+             , Just (String domain) <- KeyMap.lookup "nagare.dev/content-domain" labels
+             , Right host <- mkName domain ->
+-                [Hostname host]
++                []
+           _ -> []
+       , spec
+       , lifecycle = lifecyclePolicy input
