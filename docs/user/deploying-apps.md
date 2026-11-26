@@ -144,7 +144,11 @@ declares a stable Job and a completion operation listing its affected resources.
 Jobs run in declared order, after
 their CronJob and affected resource updates; the Service, workers, and scheduled
 tasks wait for completion. Retrying the same accepted tag verifies the completed
-Job rather than rerunning it. A later tag leaves the old hook scope in accepted
+Job rather than rerunning it. When a hook fails, the release before it keeps
+serving and the recovery is `app deploy` again, with the same tag or a new one:
+the deploy closes its own stopped transaction and runs the hook as a new
+attempt, in a new Job beside the failed one, which is kept for inspection. A
+stopped transaction that is not this application's deploy still refuses. A later tag leaves the old hook scope in accepted
 history. Changing the hook or its effects under the same tag refuses; choose a
 new tag. A hook may bind an app database through its `appDatabases`; when the app database names
 the hook in `owners` it receives the migration credential, or an app-owned database's owner

@@ -1,6 +1,7 @@
 -- | Tasks responsibilities; internal implementation behind Nagare.Inventory.Application.
 module Nagare.Inventory.Application.Tasks
   ( compileApplicationHooks
+  , ownStoppedDeploy
   , compileApplicationTasks
   , compileTaskMembers
   )
@@ -51,7 +52,9 @@ import Nagare.Resource.Inventory
   , ResourceBundle (ResourceBundle)
   , ScopeDeclaration
   , declarationId
+  , declarations
   , mkScopeDeclaration
+  , scopeBundles
   , withScopeConfigDigest
   , withScopeOverrides
   )
@@ -76,7 +79,11 @@ import Nagare.Resource.Types
   , mkLogicalKey
   , mkName
   , mkScopeId
+  , nameText
   , resourceIdText
+  , scopeIdText
+  , scopeKind
+  , scopeName
   )
 import Nagare.Resource.Wire (canonicalValue)
 
@@ -270,6 +277,24 @@ compileApplicationHooks app appOwner rollout attempt taskBindings cluster taskNa
         , Map.insert jobId (member, native) laterNative
         , proofId : laterProofs
         )
+
+-- | Whether a review is a deploy of this application and nothing else: every
+-- scope it changes is the application's own, or a pre-deploy hook scope whose
+-- Job is ordered after a member of the application. Only then may a new
+-- deploy of the application end the review's stopped transaction itself.
+ownStoppedDeploy :: (Eq revision) => ScopeId -> (ScopeId -> Maybe ScopeDeclaration) -> Map ScopeId revision -> Map ScopeId revision -> Bool
+ownStoppedDeploy app declared base desired = not (null changed) && all own changed
+  where
+    changed = Map.keys (Map.filterWithKey (\scope revision -> Map.lookup scope base /= Just revision) desired) <> Map.keys (Map.difference base desired)
+    own scope = scope == app || (hook scope && maybe False ofApp (declared scope))
+    hook scope = scopeKind scope == Standalone && "app-hook-" `T.isPrefixOf` nameText (scopeName scope)
+    ofApp declaration =
+      or
+        [ (scopeIdText app <> "/") `T.isPrefixOf` resourceIdText after
+        | bundle <- scopeBundles declaration
+        , Managed member <- declarations bundle
+        , OrderedAfter after <- member ^. #dependencies
+        ]
 
 compileTaskMembers ::
   ScopeId ->

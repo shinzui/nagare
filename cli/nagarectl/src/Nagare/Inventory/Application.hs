@@ -6,6 +6,7 @@ module Nagare.Inventory.Application
   , compileApplicationScope
   , compileApplicationDeployment
   , compileApplicationRetry
+  , ownStoppedDeploy
   , hookTriggerOverrides
   , applicationDatabaseRetirements
   , contentRouteRetirements
@@ -127,6 +128,7 @@ import Nagare.Inventory.Application.Service
   )
 import Nagare.Inventory.Application.Tasks
   ( compileApplicationTasks
+  , ownStoppedDeploy
   )
 import Nagare.Inventory.Application.Types
   ( AccessBinding (..)

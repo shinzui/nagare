@@ -24,7 +24,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Task (TaskTrigger (..), scheduledTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter (AdapterRegistry, OperationAction (..), PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
-import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, compileApplicationRetry, hookTriggerOverrides)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationDeployment, compileApplicationRetry, hookTriggerOverrides, ownStoppedDeploy)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (CloseInput (..), TransactionResult (..), applyReviewed, closeTransaction)
 import Nagare.Inventory.Journal (OperationId)
@@ -378,6 +378,20 @@ sameTagRetries = do
     StoppedFailed tx _ _ -> pure tx
     StoppedAmbiguous tx _ _ -> pure tx
     other -> assertFailure ("the failed hook did not stop its transaction: " <> show other) >> error "unreachable"
+  -- EP-287 M2: the stopped review is this application's own deploy, so a new deploy of it may
+  -- close the transaction; another application's deploy, or a review that also changes
+  -- another scope, may not.
+  stopped <- loadInventoryHistory (store run) >>= expectRight
+  let document = reviewedDocument reviewed
+      declared scope = snd <$> Map.lookup scope (historyAccepted stopped)
+      own app desired = ownStoppedDeploy app declared (reviewBaseRevisions document) desired
+      appScope = scopeId (head (fst v2))
+  other <- scopeId . head . fst <$> releaseOf "other" "v1"
+  own appScope (reviewDesiredRevisions document) @?= True
+  own other (reviewDesiredRevisions document) @?= False
+  own appScope (Map.insert sharedScopeId (snd (Map.findMin (reviewDesiredRevisions document))) (reviewDesiredRevisions document)) @?= False
+  -- Only the hook scopes changed, as in a failed retry of the same tag: still this application's.
+  own appScope (Map.union (Map.restrictKeys (reviewDesiredRevisions document) v2HookScopes) (reviewBaseRevisions document)) @?= True
   _ <- closeTransaction (store run) registry' (CloseInput transaction (reviewDigestFor reviewed) False Nothing) >>= expectRight
   failedJobs <- live run "job"
   history <- loadInventoryHistory (store run) >>= expectRight

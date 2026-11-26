@@ -4,6 +4,7 @@ module Nagare.Cli.Application.Inputs
   , boundAppDatabases
   , parseHookEffects
   , reviewedStandaloneDatabases
+  , stoppedOwnDeploy
   , validateInlinePreviewAdoption
   , validateInlineReleaseAdoption
   )
@@ -41,11 +42,13 @@ import Nagare.Inventory.Application
   , acceptedBucketBindings
   , acceptedDatabaseBindings
   , acceptedKeySetBindings
+  , ownStoppedDeploy
   )
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Application qualified as ResourceApplication
 import Nagare.Resource.Database qualified as ResourceDatabase
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -231,3 +234,25 @@ validateInlinePreviewAdoption scope proposal = do
           proposed
     )
     (dieT "preview adoption can target only distinct unowned resources in its selected scope")
+
+-- | The store's stopped transaction and its review, when that review is a
+-- deploy of this application alone ('ownStoppedDeploy'). A new deploy of the
+-- application ends it through the ordinary close, so recovering from a failed
+-- pre-deploy hook is deploying again.
+stoppedOwnDeploy :: ActiveTarget -> Resource.ScopeId -> IO (Maybe (Text, Text))
+stoppedOwnDeploy active app = do
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  current <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
+  case current >>= InventoryStore.headActiveTransaction of
+    Nothing -> pure Nothing
+    Just transaction -> case T.stripPrefix "tx-" transaction >>= either (const Nothing) Just . Resource.mkContentDigest of
+      Nothing -> pure Nothing
+      Just review -> do
+        loaded <- InventoryPlan.loadPublishedReview store review
+        history <- InventoryPlan.loadInventoryHistory store
+        pure $ case (loaded, history) of
+          (Right bundle, Right accepted)
+            | let document = InventoryPlan.reviewBundleDocument bundle
+            , ownStoppedDeploy app (\scope -> snd <$> Map.lookup scope (InventoryPlan.historyAccepted accepted)) (InventoryPlan.reviewBaseRevisions document) (InventoryPlan.reviewDesiredRevisions document) ->
+                Just (transaction, Resource.digestText review)
+          _ -> Nothing

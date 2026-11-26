@@ -45,10 +45,12 @@ of it is left accepted and unconverged.
       converges. Evidence: "the same tag deployed again after a failed hook runs the hook afresh,
       beside the failed Job" in `cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs` passes; the failed
       Job keeps its UID and the retry's scopes converge.
-- [ ] M2: `app deploy` ends its own application's stopped failed-hook transaction itself, through
-      the existing close, and then deploys. Evidence: a model-world test with no close call in it,
-      and a unit test that a transaction of another application or with any unproved operation is
-      left alone and refuses as today.
+- [x] M2 (2026-11-26): `app deploy` ends its own application's stopped failed-hook transaction
+      itself, through the existing close, and then deploys. Evidence: `ownStoppedDeploy` holds for
+      the application's own stopped deploy and for a hook-only retry, and not for another
+      application or a review that changes another scope (assertions in the same-tag test of
+      `cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs`). The command path
+      (`stoppedOwnDeploy` in `cli/nagarectl/app/Nagare/Cli/Application/Inputs.hs`, then `runInventoryClose`) has no test of its own; M4 runs it.
 - [ ] M3: a converged deploy leaves no accepted, unconverged hook scope of that application; the
       failed Jobs keep their UIDs. Evidence: the BUG-10 test's last two assertions inverted, with
       its three follow-ups (corrected release, rollback, another application) still converging.

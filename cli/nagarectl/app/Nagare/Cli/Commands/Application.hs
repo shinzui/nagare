@@ -53,6 +53,7 @@ import Nagare.Cli.Application.Inputs
   ( acceptedTaskAppDatabaseBindings
   , boundAppDatabases
   , parseHookEffects
+  , stoppedOwnDeploy
   , validateInlineReleaseAdoption
   )
 import Nagare.Cli.Inventory.Execution
@@ -63,6 +64,7 @@ import Nagare.Cli.Inventory.Planning
   , inventoryPlanRegistryWithNative
   , inventoryPlanRegistryWithTakeover
   )
+import Nagare.Cli.Inventory.Workflow (runInventoryClose)
 import Nagare.Cli.Options
   ( AppCheckOpts
   , AppDeleteOpts
@@ -155,6 +157,7 @@ import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
@@ -254,6 +257,11 @@ runAppDeployPlan mctx params appOptions output = do
       )
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  -- EP-287: a stopped transaction that is this application's own deploy (a failed pre-deploy
+  -- hook) is closed here, by the ordinary close, so the recovery is deploying again.
+  unless (appOptions ^. #dryRun) $ do
+    appScope <- either dieT pure (applicationScopeId app)
+    stoppedOwnDeploy active appScope >>= mapM_ (\(transaction, review) -> runInventoryClose mctx transaction review Nothing False)
   snapshot <- Inventory.loadTargetSnapshot active
   cdnBinding <-
     reviewedCdnBinding
