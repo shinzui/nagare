@@ -28,7 +28,6 @@ import Data.UUID.V4 (nextRandom)
 import GHC.Clock (getMonotonicTime)
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
-import Hasql.Pool qualified as HasqlPool
 import Hasql.Session qualified as Session
 import Hasql.Statement (Statement, preparable)
 import Nagare.Access.App (appWithRuntime)
@@ -52,6 +51,7 @@ import Shomei.Account.Dto qualified as ShomeiAccountDTO
 import Shomei.Account.User.Dto (UserResponse (..))
 import Shomei.Client qualified as ShomeiClient
 import Shomei.Id (UserId, parseId, userIdToUUID)
+import Shomei.Persistence.Pool.Postgres qualified as HasqlPool
 import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 import System.Timeout (timeout)
@@ -112,6 +112,7 @@ runHarness = do
               AccessServices
                 { verifyCredential = verifyShomeiCredentialCached jwksCache authPlane
                 , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessAllowed)
+                , authorizeDelegation = \_ _ -> pure (AuthorizationDecision AccessDenied)
                 , forwardAuthorized = proxyForwarder manager
                 , loginUser = loginWithShomei shomeiEnv
                 , completeMfa = completeMfaWithShomei shomeiEnv

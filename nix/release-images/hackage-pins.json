@@ -27,6 +27,10 @@
     "version": "0.2.2.1",
     "sha256": "0v2lasxp0v77albi3dwd9c2l6q0jy73hwmby71xfj69jr61yb8ry"
   },
+  "case-insensitive": {
+    "version": "1.2.2.0",
+    "sha256": "1s17d9zhrmxd7hhbmrq01ngm3c0q4kcspd6zgjsydaqr6nn18p66"
+  },
   "crypto-token": {
     "version": "0.2.1",
     "sha256": "16ln02j03d5rhz10jnbf7wmdpfqmnkcwh6nsdnpi62jiiqnb6yxd"
@@ -55,6 +59,10 @@
     "version": "1.9.1",
     "sha256": "1c5c3jxqmskq6q8rd0ac7ljg0nimqixi776lsbyarwn20mb9zav0"
   },
+  "easy-file": {
+    "version": "0.2.6",
+    "sha256": "02bfn0vvbf2wcnj2wajx18nb15rdzv8hgis9gwsrlnscaajm1pxy"
+  },
   "ech-config": {
     "version": "0.0.2",
     "sha256": "158jbm4ks60brq9n3j0n3pf5v10h35wyyf021hvlsby3y89sy2a5"
@@ -72,8 +80,8 @@
     "sha256": "0sr8xpglwkzk6bgxdm9n1zdndjdqp49sks57ck97525vj6m83z6h"
   },
   "fast-logger": {
-    "version": "3.2.9",
-    "sha256": "17di2731azfmbs07rp5h009pkw36j3zsfps6km87615nfsic3f44"
+    "version": "3.3.0",
+    "sha256": "01y92f7yk0w4nsbxv7pfx8dgxzyxa9xhkg2bvl43701gs743l3rj"
   },
   "generic-lens": {
     "version": "2.3.0.0",
@@ -88,20 +96,20 @@
     "sha256": "1fd1rkwq7jihkvvbnri4x4aa5rkhf49izljn06jjk4kzqs0x1sbw"
   },
   "hasql-dynamic-statements": {
-    "version": "0.5.1.2",
-    "sha256": "1d8y0vcp0w1hhzm5qwk2amijp231299i8lhg1nvyqg0ms6r2gwk8"
+    "version": "0.5.1.3",
+    "sha256": "1csr9mgsmhh1fsarz9kpczmi43na9wihmrxhg05v22758wzq4hz8"
   },
   "hasql-implicits": {
-    "version": "0.2.0.3",
-    "sha256": "19zffkzwdqvlkj0akh68avgxfb1dmqshy0r3c0i8vranhrp3m3gy"
+    "version": "0.2.0.4",
+    "sha256": "08v41s27c3k74h9p1icz3vmrb5x5p9skc2p2hnxjlyy8fpz9gyac"
   },
   "hasql-pool": {
     "version": "1.4.2.3",
     "sha256": "1f0ki9slw7lhrwk5ccmwpcmmlanffnxwc02xglfvw4rcl826l9x6"
   },
   "hasql-transaction": {
-    "version": "1.2.3.1",
-    "sha256": "05jn4ci65sbzi9316rqzy0pz93j2yv0fgzqvicbq61q952fq9mqj"
+    "version": "1.2.3.2",
+    "sha256": "0vgc36xghslfwpfbhrmvcgb64cs30n9frwdm3la20j0siv6kn5mz"
   },
   "hpke": {
     "version": "0.2.0",
@@ -180,20 +188,20 @@
     "sha256": "1qgwh3zip36pbjn7c5pn1l6zv044d6l77mnariz66bdhwy9hrx1s"
   },
   "http-date": {
-    "version": "0.0.12",
-    "sha256": "0fak72vq40sr85pp9crdnzn3aj7m2882b5q05669sjml17mv3411"
+    "version": "0.0.13",
+    "sha256": "1r4yma45yrniq5bp14zsirgi1w36lydqbl267143xgjq5j2wbndy"
   },
   "http-semantics": {
-    "version": "0.4.1",
-    "sha256": "0pl6fm4q11j2i9li736i4ynrrzbcvyn3fd7q34ckslmlsq860cwg"
+    "version": "0.4.2",
+    "sha256": "0yy5fnrggil2dp1mp71cg1j601i62cgsy2j0cj9q47xy13x7izab"
   },
   "http-types": {
     "version": "0.12.6",
     "sha256": "1f5jgdalm09lw9bda9fwdlylm29f1nc6lx04ax2m6gv76r8xaskc"
   },
   "http2": {
-    "version": "5.4.10",
-    "sha256": "1lvhii3jz9xw78jwwgachkfairr6jycsn8yc3y5al56c760py84l"
+    "version": "5.4.14",
+    "sha256": "00zpq57jdx36ydm1ay5v5bca0w2lkbbgk150w0s272yg53089fz0"
   },
   "indexed-traversable": {
     "version": "0.1.5",
@@ -224,12 +232,12 @@
     "sha256": "0rwawa7zrqqhld83y6h64v3010y8wray6kw94vp2ah4m7al9wicc"
   },
   "network": {
-    "version": "3.2.9.0",
-    "sha256": "1vabvmmyypr8p2y7skw62i3q7m0dl9ia930x8ivfd3ad4nd5a92n"
+    "version": "3.2.16.0",
+    "sha256": "1j723ia6hvll81dvv4jkvrf0h149cpgf4yj8kglmllpxdmqd350y"
   },
   "network-byte-order": {
-    "version": "0.1.9",
-    "sha256": "0pn9gkmcm8qm0jqf14kwgm2aglblrx5h15li7hx0ph2v0r684rn6"
+    "version": "0.1.10",
+    "sha256": "1f30ibr76jjkgjga3yc2jvd3bm2k2b736nfi6l104c0mhrm8k7kj"
   },
   "openapi-hs": {
     "version": "5.0.0",
@@ -276,8 +284,8 @@
     "sha256": "1cv0ga2l6r43zv7kivgg1hpd9ccahrlxyz7iqypvmv0rff25av1k"
   },
   "recv": {
-    "version": "0.1.2",
-    "sha256": "12cs8cibkx6mz6593x708j3wj4iv76ga90sc7v31bg0dzzgphpdd"
+    "version": "0.1.3",
+    "sha256": "0sd2wf11c85xii2rizn2yzdy7268f1f9gyplxqpdc4sprihyxvjn"
   },
   "regex-tdfa": {
     "version": "1.3.2.7",
@@ -311,9 +319,13 @@
     "version": "5.1.0",
     "sha256": "19mvvlzfk7ffh5gbmqhpy587rjjd0xcgydbkcy1b48wxx061h8im"
   },
+  "simple-sendfile": {
+    "version": "0.2.33",
+    "sha256": "174hb5f4pcq34dyrbn303l4sjlwkqlf42q20qkw6kypgygvcksl0"
+  },
   "smtp-mail": {
-    "version": "0.5.0.1",
-    "sha256": "1a4pmaaama768i67w521ap8riivbs04gixyhkxsxf8czza19mig1"
+    "version": "0.5.1.0",
+    "sha256": "0rjcn4iyg4id2pvdyilz2plzr3fv68sxx2zvcvps5bwxwqqx8zw2"
   },
   "some": {
     "version": "1.1",
@@ -336,8 +348,8 @@
     "sha256": "1h1myhp1g5y6iwzx0m29w5s7vpay9cm3c83jr4g2c4mpjjyqixil"
   },
   "text-builder": {
-    "version": "1.0.0.5",
-    "sha256": "1xwjqzrybi84njr4vlr0d29xphmsjljg46974qvx74rdrkv5z4vk"
+    "version": "1.0.0.6",
+    "sha256": "0qldvkw1134p9f94mqsqfg8rs5da0l4vd32hyi419mv5f9kimynd"
   },
   "text-builder-core": {
     "version": "0.1.1.3",
@@ -379,6 +391,10 @@
     "version": "0.3.2.0",
     "sha256": "09ls8s60x88866cdsw3249dhw01ri60865d38c1lqxp8jkg53lnp"
   },
+  "vector-algorithms": {
+    "version": "0.9.1.1",
+    "sha256": "1kjf5fb8cvdziqj3cqj48vxahv9lza1gxxz1n2ir086jwznbhpa7"
+  },
   "wai": {
     "version": "3.2.5",
     "sha256": "17ay74pj72jhzvs60xqmhx50qrc0779mac3a1f4vfnfmp57z8s1y"
@@ -392,7 +408,19 @@
     "sha256": "0px0rkpaphi8f65664sw0b0zd63qy11s0ldkq31hcyq050f0scm0"
   },
   "warp": {
-    "version": "3.4.17",
-    "sha256": "0av860kkjjsb63cqz804xvkyd7zrnnml924yd2yr3nq91avrkar7"
+    "version": "3.4.22",
+    "sha256": "1kbj0khdcdd3nahrmzaay4f83wrrp3hi3myyf05kmyh09ckbxdly"
+  },
+  "warp-tls": {
+    "version": "3.4.19",
+    "sha256": "1h47w1fmrh7lzc25qns21v48hz2hzw57zdybfasyc6gga1if6l59"
+  },
+  "webauthn": {
+    "version": "0.12.0.0",
+    "sha256": "148y3bpwyyzqr69xl3fz08dlm4f60rz39y90vqk7zsklxkhx4s5z"
+  },
+  "word8": {
+    "version": "0.1.4",
+    "sha256": "1v88hyzhhli0sy18hz6m1p5g4irjm54lwr47vw9snyq2c5lcl0rv"
   }
 }

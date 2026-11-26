@@ -18,7 +18,6 @@ import Data.Text.IO qualified as TIO
 import Data.UUID (UUID)
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
-import Hasql.Pool qualified as HasqlPool
 import Hasql.Session qualified as Session
 import Hasql.Statement (Statement, preparable)
 import Nagare.Access.Config (AuthPlaneConfig (..))
@@ -32,6 +31,8 @@ import Shomei.Account.Dto qualified as ShomeiAccountDTO
 import Shomei.Account.User.Dto (UserResponse (..))
 import Shomei.Client qualified as ShomeiClient
 import Shomei.Id (UserId, parseId, userIdToUUID)
+import Shomei.Mfa.Totp.Postgres (migrateTotpEnvelopeBatch, totpEncryptionKeyFromBytes)
+import Shomei.Persistence.Pool.Postgres qualified as HasqlPool
 import Shomei.Session.Dto qualified as ShomeiSessionDTO
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -50,6 +51,9 @@ passkeyMoveTests =
           run pool (insertPasskey carol "old phone")
           run pool (insertConfirmedTotp bob)
           run pool (insertConfirmedTotp carol)
+          -- Shomei 0.4 reads only bound envelopes: convert the legacy ones as an upgrade does.
+          converted <- migrateTotpEnvelopeBatch (either (error . show) id (totpEncryptionKeyFromBytes (BS.replicate 32 0))) pool
+          converted @?= Right 2
           -- Before the move every holder is asked for a second factor.
           loginState env "alice" >>= (@?= Left ["passkey"])
           loginState env "bob" >>= (@?= Left ["totp"])

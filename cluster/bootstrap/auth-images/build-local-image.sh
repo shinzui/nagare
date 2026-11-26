@@ -193,11 +193,6 @@ esac
 
 write_common_cabal_tail() {
   cat <<'EOF'
-source-repository-package
-  type: git
-  location: https://github.com/shinzui/webauthn.git
-  tag: c274e23a5e31aac8932bac6398b65e8bca584a99
-
 package webauthn
   tests: False
   benchmarks: False

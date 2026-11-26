@@ -6,7 +6,6 @@ module RealShomei (withRealShomeiServer, withRealShomeiServerAndPool, withOidcSh
 import Control.Exception (bracket)
 import Data.ByteString qualified as BS
 import Data.IORef (newIORef)
-import Hasql.Pool qualified as HasqlPool
 import Nagare.Access.Prelude
 import Network.HTTP.Client qualified as HC
 import Network.Wai.Handler.Warp (testWithApplication)
@@ -18,7 +17,8 @@ import Shomei.Mfa.Totp.Postgres (TotpEncryptionKey, totpEncryptionKeyFromBytes)
 import Shomei.Migrations.TestSupport (withShomeiMigratedDatabase)
 import Shomei.Notify (noNotifierSecrets)
 import Shomei.Notify.Queue (newNotifierQueue)
-import Shomei.Persistence.Pool.Postgres (acquirePool)
+import Shomei.Persistence.Database.Postgres (defaultTransactionRetryPolicy)
+import Shomei.Persistence.Pool.Postgres qualified as HasqlPool
 import Shomei.Servant.Api (shomeiThrottledRoutes)
 import Shomei.Server.App qualified as ShomeiServer
 import Shomei.Server.Boot qualified as ShomeiBoot
@@ -52,7 +52,7 @@ withOidcShomeiServer issuer =
 withShomeiServer :: ShomeiConfig -> Bool -> (ShomeiServer.Env -> Int -> IO a) -> IO a
 withShomeiServer shomeiCfg limited action =
   withShomeiMigratedDatabase $ \connStr ->
-    bracket (acquirePool 4 10 defaultDbStatementTimeoutMs connStr) HasqlPool.release $ \pool -> do
+    bracket (HasqlPool.acquirePool 4 10 defaultDbStatementTimeoutMs connStr) HasqlPool.release $ \pool -> do
       keys <- newIORef =<< bootstrapKeys testKek ES256 pool
       manager <- HC.newManager HC.defaultManagerSettings
       limiter <- newHashingLimiter 2
@@ -60,6 +60,7 @@ withShomeiServer shomeiCfg limited action =
       let env =
             ShomeiServer.Env
               { ShomeiServer.envPool = pool
+              , ShomeiServer.envDbRetryPolicy = defaultTransactionRetryPolicy
               , ShomeiServer.envConfig = shomeiCfg
               , ShomeiServer.envKeys = keys
               , ShomeiServer.envKek = testKek

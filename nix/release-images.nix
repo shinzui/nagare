@@ -30,8 +30,8 @@ let
       location = "https://github.com/shinzui/shomei.git";
       owner = "shinzui";
       repo = "shomei";
-      rev = "6179d5678747aeb8ee3c45423c2bf59385dbda88";
-      hash = "sha256-J6Zelww6jerTB8Hws7udwiOFE1YkqxanbPNNER9H6gA=";
+      rev = "4d41e8c213f70cd4aa3790cf57fe8b3d18d3b2e1";
+      hash = "sha256-JWsenvv7/UWre51n7G3MjDmxSV/A3Wf0DuQheM08m7Q=";
     };
     en = {
       location = "https://github.com/shinzui/en.git";
@@ -39,13 +39,6 @@ let
       repo = "en";
       rev = "5bb3f80d2bd54854c2d875bd89183d08d59b2106";
       hash = "sha256-mn3cxWwrNFc1XrPHmjmQLfa/WGFx0zh8CbvrTgW+IiA=";
-    };
-    webauthn = {
-      location = "https://github.com/shinzui/webauthn.git";
-      owner = "shinzui";
-      repo = "webauthn";
-      rev = "c274e23a5e31aac8932bac6398b65e8bca584a99";
-      hash = "sha256-ODP0Jnug7NAWQrJ3x11Qz5d4tQpSqUK48EPX+2VitHA=";
     };
     biscuit-haskell = {
       location = "https://github.com/eclipse-biscuit/biscuit-haskell.git";
@@ -115,7 +108,6 @@ let
       // {
         # cabal.project: allow-newer en-migrations:pg-migrate{,-cli,-embed}.
         en-migrations = hl.doJailbreak (sourcePackage hfinal "en-migrations" "${sources.en}/en-migrations");
-        webauthn = hl.doJailbreak (sourcePackage hfinal "webauthn" sources.webauthn);
         biscuit-haskell = hl.doJailbreak (sourcePackage hfinal "biscuit-haskell" "${sources.biscuit-haskell}/biscuit");
         hs-opentelemetry-instrumentation-servant =
           hl.doJailbreak (sourcePackage hfinal "hs-opentelemetry-instrumentation-servant" sources.hs-opentelemetry-instrumentation-servant);
