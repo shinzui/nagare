@@ -5,6 +5,7 @@ module Nagare.Inventory.Application.Types
   , CloudflareCdnBinding (..)
   , AppDatabaseBound (..)
   , BucketBound (..)
+  , KeySetBound (..)
   , DatabaseBinding (..)
   , ServerBinding (..)
   , GoogleCdnBinding (..)
@@ -57,6 +58,17 @@ data DatabaseBinding
   | -- | EP-283: an app object bucket, bound by a workload its declaration
     -- grants. It shares the key space as @bucket-\<name\>@.
     ObjectBucketBinding !BucketBound
+  | -- | EP-286: a signing key set, as @keyset-\<name\>@. It adds no variable
+    -- or Secret here: the renderer mounts its files, and the workload is
+    -- ordered after the key set's first-run Job, so its keys exist.
+    KeySetBinding !KeySetBound
+  deriving stock (Eq, Show)
+
+-- | An accepted key set as a bound workload sees it.
+data KeySetBound = KeySetBound
+  { keySetLabel :: !Text
+  , keySetFirstRun :: !ResourceId
+  }
   deriving stock (Eq, Show)
 
 -- | An app object bucket as one granted workload sees it: where the bucket

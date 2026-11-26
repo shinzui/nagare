@@ -47,7 +47,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.X509.CertificateStore (readCertificateStore)
-import Nagare.Dsl.KeySet (KeySetName, RotationPolicy, keySetNameText, minutesInt, mkMinutes, mkRotationPolicy)
+import Nagare.Dsl.KeySet (KeySetName, RotationPolicy, minutesInt, mkMinutes, mkRotationPolicy)
+import Nagare.Dsl.KeySet.Mount (keySetPublicName, keySetSecretName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.KeySet
 import Network.Connection qualified as NC
@@ -79,12 +80,6 @@ data RotationRun
     PublicRestored
   | Rotated ![RotationEvent]
   deriving stock (Eq, Show)
-
-keySetSecretName :: KeySetName -> Text
-keySetSecretName name = "nagare-keyset-" <> keySetNameText name
-
-keySetPublicName :: KeySetName -> Text
-keySetPublicName name = keySetSecretName name <> "-public"
 
 -- | The field manager the rotator writes as. The inventory adapter accepts
 -- this manager owning exactly the key file of each object, and nothing else.

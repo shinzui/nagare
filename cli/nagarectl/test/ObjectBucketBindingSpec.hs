@@ -101,7 +101,7 @@ objectBucketBindingTests =
         (bucketScope, native) <- either (assertFailure . show) pure (compile [] publications)
         bound <- either (assertFailure . T.unpack) pure (acceptedBucketBindings (snapshotOf [bucketScope]) native testCluster "personal" (service "content-gateway") [binding "publications"])
         either (map (^. #message) . NE.toList) (const []) (compileApplicationDeployment ((input (scopedApp Dsl.NoManagedEnv)) {scopeBucketBindings = Map.singleton (service "content-gateway") bound}))
-          @?= ["bucket dependencies name a workload that binds no bucket"]
+          @?= ["bucket or key set dependencies name a workload that binds neither"]
     ]
   where
     gatewayUser = bucketUser (publications ^. #name) (gatewayGrant ^. #namespace) (gatewayGrant ^. #workload)

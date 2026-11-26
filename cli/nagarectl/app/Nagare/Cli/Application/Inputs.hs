@@ -18,6 +18,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Dsl.Application (Application (..))
+import Nagare.Dsl.KeySet.Binding (KeySetBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
@@ -38,6 +39,7 @@ import Nagare.Inventory.Application
   , acceptedAppDatabaseTaskBindings
   , acceptedBucketBindings
   , acceptedDatabaseBindings
+  , acceptedKeySetBindings
   )
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
@@ -109,10 +111,11 @@ reviewedStandaloneDatabases ::
   ServiceName ->
   [AppDatabaseReaderRef] ->
   [BucketBinding] ->
+  [KeySetBinding] ->
   [Task] ->
   IO (Map ServiceName (Map DatabaseName DatabaseBinding))
-reviewedStandaloneDatabases active snapshot cluster namespaceName names appBindings consumer readerRefs buckets tasks
-  | null names && null appBindings && null readerRefs && null buckets && all (\task -> null (task ^. #appDatabases) && null (task ^. #buckets)) tasks = pure Map.empty
+reviewedStandaloneDatabases active snapshot cluster namespaceName names appBindings consumer readerRefs buckets keySets tasks
+  | null names && null appBindings && null readerRefs && null buckets && null keySets && all (\task -> null (task ^. #appDatabases) && null (task ^. #buckets) && null (task ^. #keySets)) tasks = pure Map.empty
   | otherwise = do
       store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
       history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -133,8 +136,10 @@ reviewedStandaloneDatabases active snapshot cluster namespaceName names appBindi
       unless (Map.disjoint direct apps && Map.disjoint (Map.union direct apps) readers) (dieT "a workload names one database twice across databases, appDatabases and appDatabaseReaders")
       -- EP-283: a bucket binds only for a workload its accepted declaration grants.
       bound <- either dieT pure (acceptedBucketBindings snapshot native cluster namespaceName consumer buckets)
+      -- EP-286: a key set binds only when one of that name is accepted in the namespace.
+      signing <- either dieT pure (acceptedKeySetBindings snapshot native namespaceName consumer keySets)
       taskBindings <- either dieT pure (acceptedTaskAppDatabaseBindings snapshot native cluster namespaceName tasks)
-      pure (Map.insert consumer (Map.unions [direct, apps, readers, bound]) taskBindings)
+      pure (Map.insert consumer (Map.unions [direct, apps, readers, bound, signing]) taskBindings)
 
 -- | Each task's app database bindings (EP-259), resolved against @owners@ for
 -- the task's own name, and its bucket bindings (EP-283), resolved against the
@@ -150,12 +155,13 @@ acceptedTaskAppDatabaseBindings snapshot native cluster namespaceName tasks =
   Map.fromList
     <$> sequence
       [ (task ^. #name,)
-          <$> ( Map.union
+          <$> ( (\a b c -> Map.unions [a, b, c])
                   <$> acceptedAppDatabaseTaskBindings snapshot native cluster namespaceName (task ^. #name) (boundAppDatabases (task ^. #appDatabases))
                   <*> acceptedBucketBindings snapshot native cluster namespaceName (task ^. #name) (task ^. #buckets)
+                  <*> acceptedKeySetBindings snapshot native namespaceName (task ^. #name) (task ^. #keySets)
               )
       | task <- tasks
-      , not (null (task ^. #appDatabases) && null (task ^. #buckets))
+      , not (null (task ^. #appDatabases) && null (task ^. #buckets) && null (task ^. #keySets))
       ]
 
 -- | The distinct app databases a list of bindings names.

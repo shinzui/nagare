@@ -198,6 +198,7 @@ runDeployPlan mctx options output = do
       (service ^. #name)
       (service ^. #appDatabaseReaders)
       (service ^. #buckets)
+      (service ^. #keySets)
       (service ^. #tasks)
   let params =
         AppDeployParams

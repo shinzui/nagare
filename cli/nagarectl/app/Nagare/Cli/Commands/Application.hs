@@ -133,6 +133,7 @@ import Nagare.Inventory.Application
   , acceptedBrokerBindings
   , acceptedBucketBindings
   , acceptedImageBuildSecrets
+  , acceptedKeySetBindings
   , acceptedSecretBindings
   , applicationDatabaseRetirements
   , applicationRetirementScope
@@ -385,9 +386,9 @@ runAppDeployPlan mctx params appOptions output = do
   -- EP-283: the service and each worker bind a bucket only through its accepted grant.
   bucketBindings <-
     either dieT pure . fmap Map.fromList . sequence $
-      [ (workloadName,) <$> acceptedBucketBindings snapshot acceptedNative cluster appNamespaceName workloadName bindings
-      | (workloadName, bindings) <- maybe [] (\service -> [(service ^. #name, service ^. #buckets)]) (app ^. #service) <> [(worker ^. #name, worker ^. #buckets) | worker <- app ^. #workers]
-      , not (null bindings)
+      [ (workloadName,) <$> (Map.union <$> acceptedBucketBindings snapshot acceptedNative cluster appNamespaceName workloadName buckets <*> acceptedKeySetBindings snapshot acceptedNative appNamespaceName workloadName keySets)
+      | (workloadName, buckets, keySets) <- maybe [] (\service -> [(service ^. #name, service ^. #buckets, service ^. #keySets)]) (app ^. #service) <> [(worker ^. #name, worker ^. #buckets, worker ^. #keySets) | worker <- app ^. #workers]
+      , not (null buckets && null keySets)
       ]
   let source =
         Resource.SourceLocation

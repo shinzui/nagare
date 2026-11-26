@@ -51,6 +51,9 @@ import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Build (BuildSpec, resolveImageTag)
 import Nagare.Dsl.Database (Database (..), engineVersionText)
 import Nagare.Dsl.Database.Render (databaseCredentialTemplate, renderDatabase)
+import Nagare.Dsl.KeySet.Binding (KeySetBinding)
+import Nagare.Dsl.KeySet.Mount (keySetEnv, keySetMounts)
+import Nagare.Dsl.Mounts (applyPlatformMounts)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (renderDomainMappings, renderServiceIn, renderServiceWithImageIn, renderVolumeClaims)
 import Nagare.Dsl.Task (Task)
@@ -191,32 +194,35 @@ waitResult what (ExitFailure code) =
 -- Knative Service, and DomainMappings, and stamp the app label on each. The
 -- service inherits the rollout app's managed store, as a worker does.
 renderServiceObjects :: RolloutEnv -> Deployment -> Either Text [(Text, ByteString)]
-renderServiceObjects env svc0 =
-  traverse
-    (stamp env "service")
-    (renderVolumeClaims svc <> [workload] <> renderDomainMappings svc)
-  where
-    svc = svc0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
-    workload =
+renderServiceObjects env svc0 = do
+  let svc1 = svc0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
+  svc <- (\vars -> svc1 & #env .~ vars) <$> withKeySetEnv (svc1 ^. #keySets) (svc1 ^. #env)
+  workload <-
+    applyPlatformMounts (keySetMounts (svc ^. #keySets)) $
       maybe
         (renderServiceIn (env ^. #appName) svc (env ^. #imageTag))
         (renderServiceWithImageIn (env ^. #appName) svc)
         (rolloutDigestReference env)
+  traverse
+    (stamp env "service")
+    (renderVolumeClaims svc <> [workload] <> renderDomainMappings svc)
 
 -- | Apply the shared image + shared env to a worker, render its PVCs + Deployment,
 -- and stamp the app label on each. The worker inherits the rollout app's managed
 -- store: the Application's for an Application's worker, and its own for a
 -- standalone worker, whose rollout app is the worker itself.
 renderWorkerObjects :: RolloutEnv -> Worker -> Either Text [(Text, ByteString)]
-renderWorkerObjects env w0 =
-  traverse (stamp env "worker") manifests
-  where
-    w = w0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
-    manifests =
-      maybe
-        (renderWorkerIn (env ^. #appName) w (env ^. #imageTag))
-        (renderWorkerWithImageIn (env ^. #appName) w)
-        (rolloutDigestReference env)
+renderWorkerObjects env w0 = do
+  let w1 = w0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
+  w <- (\vars -> w1 & #env .~ vars) <$> withKeySetEnv (w1 ^. #keySets) (w1 ^. #env)
+  let manifests =
+        maybe
+          (renderWorkerIn (env ^. #appName) w (env ^. #imageTag))
+          (renderWorkerWithImageIn (env ^. #appName) w)
+          (rolloutDigestReference env)
+  -- Only the Deployment runs the worker; its PVCs take no mount.
+  mounted <- traverse (\bytes -> if renderedKind bytes == Just "Deployment" then applyPlatformMounts (keySetMounts (w ^. #keySets)) bytes else Right bytes) manifests
+  traverse (stamp env "worker") mounted
 
 rolloutDigestReference :: RolloutEnv -> Maybe Text
 rolloutDigestReference env = do
@@ -231,13 +237,24 @@ rolloutReleaseImage env = fromMaybe (imageRefText (env ^. #qualifiedImage)) (rol
 -- app's resolved image substituted (an inheriting task runs the app's code), then
 -- stamp the app label.
 renderTaskObjects :: RolloutEnv -> Task -> Either Text [(Text, ByteString)]
-renderTaskObjects env t0 =
-  traverse
-    (stamp env "hook")
-    [renderResolvedTask (env ^. #taggedAppImage) (env ^. #effectiveTag) withPredef t]
+renderTaskObjects env t0 = do
+  let t1 = t0 & #env %~ flowEnv env
+  t <- (\vars -> t1 & #env .~ vars) <$> withKeySetEnv (t1 ^. #keySets) (t1 ^. #env)
+  cronJob <- applyPlatformMounts (keySetMounts (t ^. #keySets)) (renderResolvedTask (env ^. #taggedAppImage) (env ^. #effectiveTag) withPredef t)
+  traverse (stamp env "hook") [cronJob]
   where
-    t = t0 & #env %~ flowEnv env
     withPredef tk = tk & #env %~ mergeGenerated (predefinedTaskEnv tk)
+
+-- | EP-286: each bound key set's directory variable, which wins over a
+-- declared variable of the same name, as other generated variables do.
+withKeySetEnv :: [KeySetBinding] -> Map EnvName ScopedEnvVar -> Either Text (Map EnvName ScopedEnvVar)
+withKeySetEnv bindings own = (`mergeGenerated` own) <$> keySetEnv bindings
+
+-- | The @kind@ of a rendered manifest.
+renderedKind :: ByteString -> Maybe Text
+renderedKind bytes = case Yaml.decodeEither' bytes of
+  Right (Object root) | Just (String kind) <- KM.lookup "kind" root -> Just kind
+  _ -> Nothing
 
 -- | Merge the app's shared env under a workload's own env (the workload's own
 -- entries win on a key collision; 'mergeGenerated' is left-biased).

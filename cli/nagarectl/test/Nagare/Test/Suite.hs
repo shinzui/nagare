@@ -101,6 +101,7 @@ import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
 import InventoryWorldConformanceSpec (inventoryWorldConformanceTests)
 import InventoryWorldFaultsSpec (inventoryWorldFaultsTests)
+import KeySetBindingSpec (keySetBindingTests)
 import KeySetRotationSpec (keySetRotationTests)
 import KeySetRotatorSpec (keySetRotatorTests)
 import KeySetSpec (keySetTests)
@@ -284,6 +285,7 @@ main = do
             , inventoryAuthIssuerTests
             , contentDomainContextTests
             , contentRouteTests
+            , keySetBindingTests
             , keySetRotationTests
             , keySetRotatorTests
             , keySetTests

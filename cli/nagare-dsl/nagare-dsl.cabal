@@ -71,6 +71,7 @@ library
     Nagare.Dsl.Job.Render
     Nagare.Dsl.KeySet
     Nagare.Dsl.KeySet.Binding
+    Nagare.Dsl.KeySet.Mount
     Nagare.Dsl.Load
     Nagare.Dsl.Mounts
     Nagare.Dsl.ObjectBucket

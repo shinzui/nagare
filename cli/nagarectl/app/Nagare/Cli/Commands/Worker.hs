@@ -166,6 +166,7 @@ runWorkerPlan mctx options output = do
         (worker ^. #name)
         (worker ^. #appDatabaseReaders)
         (worker ^. #buckets)
+        (worker ^. #keySets)
         []
   let app =
         Application

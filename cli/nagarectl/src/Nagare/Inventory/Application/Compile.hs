@@ -44,7 +44,7 @@ import Nagare.Dsl.Types
   , serviceNameText
   )
 import Nagare.Env.Generated (mergeGenerated)
-import Nagare.Inventory.Application.Bindings (brokerEvidenceIds, bucketBindingKey)
+import Nagare.Inventory.Application.Bindings (brokerEvidenceIds, bucketBindingKey, keySetBindingKey)
 import Nagare.Inventory.Application.ContentRoute (compileWorkerRoutes)
 import Nagare.Inventory.Application.Database
   ( compileApplicationDatabases
@@ -74,7 +74,9 @@ import Nagare.Inventory.Application.Tasks
 import Nagare.Inventory.Application.Types
   ( ApplicationScopeInput (..)
   , CloudflareCdnBinding (..)
+  , DatabaseBinding (KeySetBinding)
   , GoogleCdnBinding (..)
+  , KeySetBound (..)
   , ReviewedCdnBinding (..)
   )
 import Nagare.Inventory.Application.VolumeBackup (compileVolumeBackups)
@@ -405,15 +407,17 @@ compileApplicationScope input = do
   -- variables and the workload's own credential Secret. The buckets are
   -- applied by their own review before this one, so the Secret dependency is
   -- the only edge an application workload needs.
-  let bucketWorkloads = maybe [] (\service -> [(service ^. #name, service ^. #buckets)]) (app ^. #service) <> [(worker ^. #name, worker ^. #buckets) | worker <- app ^. #workers]
+  -- EP-286: a key set binding shares the map as keyset-<name> and adds an
+  -- edge to the key set's first-run Job (keySetDependencies).
+  let bucketWorkloads = maybe [] (\service -> [(service ^. #name, (service ^. #buckets, service ^. #keySets))]) (app ^. #service) <> [(worker ^. #name, (worker ^. #buckets, worker ^. #keySets)) | worker <- app ^. #workers]
   unless
-    (Map.keysSet (Map.filter (not . Map.null) (scopeBucketBindings input)) `Set.isSubsetOf` Set.fromList [workloadName | (workloadName, bindings) <- bucketWorkloads, not (null bindings)])
-    (Left (invalid "bucket dependencies name a workload that binds no bucket"))
+    (Map.keysSet (Map.filter (not . Map.null) (scopeBucketBindings input)) `Set.isSubsetOf` Set.fromList [workloadName | (workloadName, (buckets, keySets)) <- bucketWorkloads, not (null buckets && null keySets)])
+    (Left (invalid "bucket or key set dependencies name a workload that binds neither"))
   bucketEnvironments <-
     Map.fromList
       <$> traverse
-        ( \(workloadName, bindings) -> do
-            names <- first invalid (traverse (bucketBindingKey . (^. #name)) bindings)
+        ( \(workloadName, (buckets, keySets)) -> do
+            names <- first invalid ((<>) <$> traverse (bucketBindingKey . (^. #name)) buckets <*> traverse (keySetBindingKey . (^. #name)) keySets)
             (generated, _, secrets) <- standaloneDatabaseEnvironment (scopeCluster input) (app ^. #namespace) names [] (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input)) invalid
             pure (workloadName, (generated, secrets))
         )
@@ -594,6 +598,7 @@ compileApplicationScope input = do
               ]
           )
       appBrokerIds = brokerIdsFor (app ^. #brokers)
+      keySetDependencies workloadName = [keySetFirstRun bound | KeySetBinding bound <- Map.elems (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input))]
       addBrokerResource resource
         | brokerConsumer (resource ^. #address) =
             resource & #dependencies %~ (<> map OrderedAfter (brokerDependencies resource))
@@ -606,12 +611,13 @@ compileApplicationScope input = do
                     | nameText kind == "service" ->
                         appBrokerIds
                           <> maybe [] (brokerIdsFor . (^. #brokers)) (app ^. #service)
+                          <> maybe [] (keySetDependencies . (^. #name)) (app ^. #service)
                   Kubernetes _ "apps" kind _ name
                     | nameText kind == "deployment" ->
                         appBrokerIds
                           <> maybe
                             []
-                            (brokerIdsFor . (^. #brokers))
+                            (\worker -> brokerIdsFor (worker ^. #brokers) <> keySetDependencies (worker ^. #name))
                             (find ((== nameText name) . serviceNameText . (^. #name)) (app ^. #workers))
                   Kubernetes _ "batch" kind _ _ | nameText kind == "cronjob" -> appBrokerIds
                   _ -> []

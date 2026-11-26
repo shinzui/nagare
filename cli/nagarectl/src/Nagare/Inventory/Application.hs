@@ -49,6 +49,7 @@ module Nagare.Inventory.Application
   , acceptedAppDatabaseTaskBindings
   , acceptedAppDatabaseReaderBindings
   , acceptedBucketBindings
+  , acceptedKeySetBindings
   , applicationVolumeRecoveryBindings
   , standaloneWorkerVolumeRecoveryBindings
   , applicationRetirementScope
@@ -72,6 +73,7 @@ import Nagare.Inventory.Application.Bindings
   , acceptedDatabaseBindings
   , acceptedImageBuildSecrets
   , acceptedImageResourceForDestination
+  , acceptedKeySetBindings
   , acceptedSecretBindings
   )
 import Nagare.Inventory.Application.Compile

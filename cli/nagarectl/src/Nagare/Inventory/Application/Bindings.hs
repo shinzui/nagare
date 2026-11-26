@@ -10,6 +10,8 @@ module Nagare.Inventory.Application.Bindings
   , acceptedAppDatabaseReaderBindings
   , acceptedBucketBindings
   , bucketBindingKey
+  , keySetBindingKey
+  , acceptedKeySetBindings
   , appDatabaseReaderKey
   , acceptedImageBuildSecrets
   , acceptedImageResourceForDestination
@@ -46,6 +48,7 @@ import Nagare.Dsl.Broker
   , topicNameText
   )
 import Nagare.Dsl.Database (dbSecretName, engineToken)
+import Nagare.Dsl.KeySet.Binding (KeySetBinding, KeySetName, keySetNameText)
 import Nagare.Dsl.ObjectBucket (bucketNameText)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
@@ -71,10 +74,12 @@ import Nagare.Inventory.Application.Types
   , AppDatabaseBound (..)
   , BucketBound (..)
   , DatabaseBinding (..)
+  , KeySetBound (..)
   , ServerBinding (..)
   )
 import Nagare.Inventory.DeployerDelegation (acceptedDelegations)
 import Nagare.Inventory.Environment (acceptedBuildChannelMember)
+import Nagare.Inventory.KeySet (keySetFirstRunJob, scopeKeySet)
 import Nagare.Inventory.ObjectBucket (bucketBackendKey, bucketCredentialSecretName, bucketEndpointKey, bucketUser, scopeBucket, scopeGrantJob, storeBucketName)
 import Nagare.Resource.Inventory
   ( ContributionGrant (BackendMapGrant, ShomeiSettingsGrant)
@@ -804,3 +809,33 @@ acceptedBucketBindings snapshot native cluster namespaceName workload bindings =
       backend <- lookupOverride bucketBackendKey
       endpoint <- lookupOverride bucketEndpointKey
       pure (key, ObjectBucketBinding (BucketBound label (storeBucketName name) backend endpoint credential secretName grantJob))
+
+-- | A key set binding's key in a workload's bindings: @keyset-\<name\>@.
+keySetBindingKey :: KeySetName -> Either T.Text DatabaseName
+keySetBindingKey name = mkDatabaseName ("keyset-" <> keySetNameText name)
+
+-- | EP-286: a workload binds a key set only when one of that name is accepted
+-- in its own namespace; it is ordered after the key set's first-run Job.
+acceptedKeySetBindings ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  T.Text ->
+  Dsl.ServiceName ->
+  [KeySetBinding] ->
+  Either T.Text (Map DatabaseName DatabaseBinding)
+acceptedKeySetBindings snapshot native namespaceName workload bindings = do
+  pairs <- traverse resolve bindings
+  let bound = Map.fromList pairs
+  unless (length pairs == Map.size bound) (Left "key set bindings repeat a key set")
+  pure bound
+  where
+    resolve binding = do
+      let name = binding ^. #name
+          label = keySetNameText name
+      key <- keySetBindingKey name
+      scope <- case [scope | (_, scope) <- Map.elems (snapshotScopes snapshot), Just declared <- [scopeKeySet scope], declared ^. #name == name, Dsl.namespaceText (declared ^. #namespace) == namespaceName] of
+        [found] -> Right found
+        [] -> Left ("keyset-missing: key set " <> label <> " is not accepted in namespace " <> namespaceName <> ", which workload " <> Dsl.serviceNameText workload <> " runs in; plan and apply it first with nagarectl keyset plan")
+        _ -> Left ("key set " <> label <> " has more than one accepted scope")
+      firstRun <- maybe (Left ("accepted key set " <> label <> " has no first-run Job")) Right (keySetFirstRunJob native (scopeId scope))
+      pure (key, KeySetBinding (KeySetBound label firstRun))
