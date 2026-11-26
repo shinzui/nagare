@@ -88,7 +88,7 @@ appDatabaseTaskTests =
         assertBool "the task is not ordered after its Secret and its app database" (all (`elem` migrateDependencies) (map OrderedAfter (secretOf ownedScopes "alpha-pg-migration" : membersIn ownedScopes "appdb-alpha")))
         -- A task that binds an app database cannot share its Deployment's name.
         refused "name other than" (compileStandaloneServiceWithDependencies (known (mkScopeId Standalone "service-alpha")) (service & #tasks .~ [hookTask "alpha" [Dsl.appDatabaseBinding (db "beta-pg")]]) (rollout "alpha" Map.empty) testCluster namespaceId imageId Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Nothing (SourceLocation "test" "service"))
-    , testCase "a pre-deploy hook binds an app database under its variable, its Job ordered after the Secret; the service and workers still may not" $ do
+    , testCase "a pre-deploy hook binds an app database under its variable, its Job ordered after the Secret; the service and workers bind theirs" $ do
         let hook = hookTask "alpha-migrate" [named "alpha-pg" "KOTEI_RELEASE_MAINTENANCE_DATABASE_URL"]
             service = known (webService "alpha" "registry.example.com/alpha")
             worker = either error id (webWorker "alpha-worker" "registry.example.com/alpha")
@@ -101,12 +101,23 @@ appDatabaseTaskTests =
         assertBool "the hook Job is not ordered after the bound Secret" (all (`elem` jobDependencies) (map OrderedAfter (secretOf appScopes "alpha-pg-runtime" : membersIn appScopes "appdb-alpha")))
         let workloads = [bytes | (member, bytes) <- Map.elems appNative, Kubernetes _ group _ _ _ <- [member ^. #address], group `elem` ["serving.knative.dev", "apps"]]
         assertBool "a long-running Pod references the hook's Secret" (not (null workloads) && not (any (BS.isInfixOf "alpha-pg-runtime") workloads))
-        -- The service, its tasks and the workers keep the EP-202 refusal.
+        -- The service and a worker bind an app database through their accepted bindings, as a
+        -- standalone workload does: its runtime Secret, and an edge to it.
         let bound = [Dsl.appDatabaseBinding (db "alpha-pg")]
-        forM_ [app & #service %~ fmap (#appDatabases .~ bound), app & #workers %~ map (#appDatabases .~ bound), app & #service %~ fmap (#tasks .~ [hookTask "alpha-report" bound])] $ \refusedApp ->
-          case compileApplicationDeployment (applicationInput refusedApp Map.empty) of
-            Left errors -> assertBool (show errors) (any ((== "app-database-not-bindable-from-application") . (^. #code)) (NE.toList errors))
-            Right _ -> assertFailure "an application workload bound an app database"
+            boundApp = app & #service %~ fmap (#appDatabases .~ bound) & #workers %~ map (#appDatabases .~ bound)
+        workloadBindings <- Map.fromList <$> traverse (\name' -> (name',) <$> expectRight (acceptedAppDatabaseBindings accepted native testCluster "personal" name' [db "alpha-pg"])) [service ^. #name, worker ^. #name]
+        (boundScopes, boundNative) <- expectRight (compileApplicationDeployment ((applicationInput boundApp (Map.singleton (hook ^. #name) hookBindings)) {scopeBucketBindings = workloadBindings}))
+        let longRunning = [(member, bytes) | (member, bytes) <- Map.elems boundNative, Kubernetes _ group _ _ _ <- [member ^. #address], group `elem` ["serving.knative.dev", "apps"]]
+            runtimeSecret = secretOf appScopes "alpha-pg-runtime"
+        length longRunning @?= 2
+        forM_ longRunning $ \(member, bytes) -> do
+          assertBool "a bound workload does not read the app database's runtime Secret" ("alpha-pg-runtime" `elem` [secret | (_, secret, _) <- secretEnv bytes])
+          let edges = concat [declared ^. #dependencies | scope <- boundScopes, bundle <- scopeBundles scope, Managed declared <- declarations bundle, declared ^. #identity == member ^. #identity]
+          assertBool "a bound workload is not ordered after the Secret" (OrderedAfter runtimeSecret `elem` edges)
+        -- A task of the service inherits the service's environment; its own binding is refused.
+        case compileApplicationDeployment (applicationInput (app & #service %~ fmap (#tasks .~ [hookTask "alpha-report" bound])) Map.empty) of
+          Left errors -> assertBool (show errors) (any ((== "app-database-not-bindable-from-application") . (^. #code)) (NE.toList errors))
+          Right _ -> assertFailure "a task of an application's service bound an app database"
     , testCase "EP-259 M2: a hook named in an app-owned database's owners receives only the owner credential; no web or worker Pod references it" $ do
         let hook = hookTask "alpha-migrate" [named "alpha-pg" "KOTEI_RELEASE_MAINTENANCE_DATABASE_URL"]
             service = known (webService "alpha" "registry.example.com/alpha")

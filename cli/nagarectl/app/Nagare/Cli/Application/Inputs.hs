@@ -1,6 +1,7 @@
 -- | Application / Inputs. Executable-private CLI boundary.
 module Nagare.Cli.Application.Inputs
   ( acceptedTaskAppDatabaseBindings
+  , boundAppDatabases
   , parseHookEffects
   , reviewedStandaloneDatabases
   , validateInlinePreviewAdoption

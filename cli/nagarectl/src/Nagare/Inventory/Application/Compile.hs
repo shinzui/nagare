@@ -59,6 +59,7 @@ import Nagare.Inventory.Application.Environment
   , standaloneDatabaseEnvironment
   , stripBuildSecretRefs
   , stripBuildSecretRollout
+  , workloadDatabaseNames
   )
 import Nagare.Inventory.Application.Policy (configDigestOf)
 import Nagare.Inventory.Application.Release
@@ -154,12 +155,13 @@ compileApplicationScope input = do
           .~ [source]
           & (:| [])
   _ <- first invalid (mkApplication app)
-  -- EP-202: an application's workloads bind only the databases it declares;
-  -- only its pre-deploy hooks bind app databases (EP-259).
+  -- The service and the workers bind app databases through their accepted
+  -- bindings, as a standalone workload does; pre-deploy hooks bind their own
+  -- (EP-259). A service's scheduled task inherits the service's environment.
   unless
-    (all (null . (^. #appDatabases)) (maybe [] pure (app ^. #service)) && all (null . (^. #appDatabases)) (maybe [] (^. #tasks) (app ^. #service)) && all (null . (^. #appDatabases)) (app ^. #workers))
+    (all (null . (^. #appDatabases)) (maybe [] (^. #tasks) (app ^. #service)))
     ( Left
-        ( ( inventoryError "app-database-not-bindable-from-application" "an application's workloads bind only the databases the application declares; deploy the workload as a Deployment or Worker to bind an app database"
+        ( ( inventoryError "app-database-not-bindable-from-application" "a task of an application's service inherits the service's environment; bind the app database on the service"
               & #sources
               .~ [source]
           )
@@ -412,17 +414,17 @@ compileApplicationScope input = do
   -- the only edge an application workload needs.
   -- EP-286: a key set binding shares the map as keyset-<name> and adds an
   -- edge to the key set's first-run Job (keySetDependencies).
-  let bucketWorkloads = maybe [] (\service -> [(service ^. #name, (service ^. #buckets, service ^. #keySets))]) (app ^. #service) <> [(worker ^. #name, (worker ^. #buckets, worker ^. #keySets)) | worker <- app ^. #workers]
+  let bucketWorkloads = maybe [] (\service -> [(service ^. #name, (service ^. #env, service ^. #appDatabases, service ^. #buckets, service ^. #keySets))]) (app ^. #service) <> [(worker ^. #name, (worker ^. #env, worker ^. #appDatabases, worker ^. #buckets, worker ^. #keySets)) | worker <- app ^. #workers]
   unless
-    (Map.keysSet (Map.filter (not . Map.null) (scopeBucketBindings input)) `Set.isSubsetOf` Set.fromList [workloadName | (workloadName, (buckets, keySets)) <- bucketWorkloads, not (null buckets && null keySets)])
+    (Map.keysSet (Map.filter (not . Map.null) (scopeBucketBindings input)) `Set.isSubsetOf` Set.fromList [workloadName | (workloadName, (_, apps, buckets, keySets)) <- bucketWorkloads, not (null apps && null buckets && null keySets)])
     (Left (invalid "bucket or key set dependencies name a workload that binds neither"))
   bucketEnvironments <-
     Map.fromList
       <$> traverse
-        ( \(workloadName, (buckets, keySets)) -> do
-            names <- first invalid ((<>) <$> traverse (bucketBindingKey . (^. #name)) buckets <*> traverse (keySetBindingKey . (^. #name)) keySets)
-            (generated, _, secrets) <- standaloneDatabaseEnvironment (scopeCluster input) (app ^. #namespace) names [] (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input)) invalid
-            pure (workloadName, (generated, secrets))
+        ( \(workloadName, (env, apps, buckets, keySets)) -> do
+            names <- first invalid (workloadDatabaseNames env [] apps [] buckets keySets)
+            (generated, ids, secrets) <- standaloneDatabaseEnvironment (scopeCluster input) (app ^. #namespace) names apps (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input)) invalid
+            pure (workloadName, (generated, secrets, [resource | not (null apps), resource <- ids]))
         )
         bucketWorkloads
   -- EP-284: a workload with a cloud bucket binding runs as its grant's account with the identity mount.
@@ -435,8 +437,8 @@ compileApplicationScope input = do
         (maybe [] (\service -> [(service ^. #name, service ^. #serviceAccount)]) (app ^. #service) <> [(worker ^. #name, worker ^. #serviceAccount) | worker <- app ^. #workers])
   let identityFor workloadName = fst <$> Map.lookup workloadName identities
       withIdentityMounts rollout' = rollout' & #platformMounts %~ Map.unionWith (<>) (Map.fromList [(serviceNameText workloadName, [mount]) | (workloadName, (_, mount)) <- Map.toList identities])
-  let bucketEnvFor workloadName = maybe Map.empty fst (Map.lookup workloadName bucketEnvironments)
-      envSecrets = Map.unions [ownSecretMap, scopeEnvSecrets input, Map.unions (map snd (Map.elems bucketEnvironments))]
+  let bucketEnvFor workloadName = maybe Map.empty (\(generated, _, _) -> generated) (Map.lookup workloadName bucketEnvironments)
+      envSecrets = Map.unions [ownSecretMap, scopeEnvSecrets input, Map.unions [secrets | (_, secrets, _) <- Map.elems bucketEnvironments]]
   _ <-
     traverse
       ( first invalid
@@ -616,14 +618,15 @@ compileApplicationScope input = do
           )
       appBrokerIds = brokerIdsFor (app ^. #brokers)
       keySetDependencies workloadName =
-        concat
-          [ case binding of
-              KeySetBinding bound -> [keySetFirstRun bound]
-              -- EP-284: the credential configuration and the account the workload runs as.
-              CloudBucketBinding bound -> [cloudBucketCredentials bound ^. #identity, cloudBucketAccount bound ^. #identity]
-              _ -> []
-          | binding <- Map.elems (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input))
-          ]
+        maybe [] (\(_, _, ids) -> ids) (Map.lookup workloadName bucketEnvironments)
+          <> concat
+            [ case binding of
+                KeySetBinding bound -> [keySetFirstRun bound]
+                -- EP-284: the credential configuration and the account the workload runs as.
+                CloudBucketBinding bound -> [cloudBucketCredentials bound ^. #identity, cloudBucketAccount bound ^. #identity]
+                _ -> []
+            | binding <- Map.elems (Map.findWithDefault Map.empty workloadName (scopeBucketBindings input))
+            ]
       addBrokerResource resource
         | brokerConsumer (resource ^. #address) =
             resource & #dependencies %~ (<> map OrderedAfter (brokerDependencies resource))

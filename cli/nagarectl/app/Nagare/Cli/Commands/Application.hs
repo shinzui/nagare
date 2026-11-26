@@ -51,6 +51,7 @@ import Nagare.Cli.Application.Cdn (reviewedCdnBinding)
 import Nagare.Cli.Application.Config (appNamespace)
 import Nagare.Cli.Application.Inputs
   ( acceptedTaskAppDatabaseBindings
+  , boundAppDatabases
   , parseHookEffects
   , validateInlineReleaseAdoption
   )
@@ -128,6 +129,7 @@ import Nagare.Inventory.Application
   , ReviewedCdnBinding (CloudflareCdnBindingFor, GoogleCdnBindingFor)
   , ServiceAction (..)
   , acceptedAccessBinding
+  , acceptedAppDatabaseBindings
   , acceptedApplicationImageReference
   , acceptedApplicationReleaseLog
   , acceptedBrokerBindings
@@ -384,12 +386,18 @@ runAppDeployPlan mctx params appOptions output = do
       >>= either dieT pure
   -- EP-259: each pre-deploy hook binds its app databases for its own name.
   taskDatabaseBindings <- either dieT pure (acceptedTaskAppDatabaseBindings snapshot acceptedNative cluster appNamespaceName (app ^. #tasks))
-  -- EP-283: the service and each worker bind a bucket only through its accepted grant.
+  -- EP-283: the service and each worker bind a bucket only through its accepted grant, and an
+  -- app database through its accepted scope, as a standalone workload does.
   bucketBindings <-
     either dieT pure . fmap Map.fromList . sequence $
-      [ (workloadName,) <$> (Map.union <$> acceptedBucketBindings snapshot acceptedNative cluster appNamespaceName workloadName buckets <*> acceptedKeySetBindings snapshot acceptedNative appNamespaceName workloadName keySets)
-      | (workloadName, buckets, keySets) <- maybe [] (\service -> [(service ^. #name, service ^. #buckets, service ^. #keySets)]) (app ^. #service) <> [(worker ^. #name, worker ^. #buckets, worker ^. #keySets) | worker <- app ^. #workers]
-      , not (null buckets && null keySets)
+      [ (workloadName,)
+          <$> ( (\a b c -> Map.unions [a, b, c])
+                  <$> acceptedAppDatabaseBindings snapshot acceptedNative cluster appNamespaceName workloadName (boundAppDatabases appDatabases)
+                  <*> acceptedBucketBindings snapshot acceptedNative cluster appNamespaceName workloadName buckets
+                  <*> acceptedKeySetBindings snapshot acceptedNative appNamespaceName workloadName keySets
+              )
+      | (workloadName, appDatabases, buckets, keySets) <- maybe [] (\service -> [(service ^. #name, service ^. #appDatabases, service ^. #buckets, service ^. #keySets)]) (app ^. #service) <> [(worker ^. #name, worker ^. #appDatabases, worker ^. #buckets, worker ^. #keySets) | worker <- app ^. #workers]
+      , not (null appDatabases && null buckets && null keySets)
       ]
   let source =
         Resource.SourceLocation

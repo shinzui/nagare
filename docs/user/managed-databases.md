@@ -758,9 +758,10 @@ binding already defines, and one app database bound twice without a
 `urlVariable`. A workload or task sees the migration credential only when the
 app database names it in `owners` (see "Privileges inside the app's own
 databases"). An `Application`'s top-level `databases` cannot name an app
-database. Of an `Application`, only the pre-deploy hooks (its top-level `tasks`)
-bind app databases; its service, the service's tasks and its workers are refused
-with `app-database-not-bindable-from-application`.
+database. Its service, its workers and its pre-deploy hooks (its top-level
+`tasks`) each bind app databases with `appDatabases`, as a standalone workload
+does. A scheduled task of the service inherits the service's environment; its
+own `appDatabases` is refused with `app-database-not-bindable-from-application`.
 
 **Rotation.** `nagarectl db app-database rotate NAME --user runtime|migration
 --save-plan DIR`, then `inventory apply`. The review writes the new password to
