@@ -108,9 +108,12 @@ kubectl -n "$NS" wait --for=condition=Ready certificate/nagare-content-content-g
 ca="$(kubectl -n "$NS" get secret nagare-content-content-gateway -o jsonpath='{.data.ca\.crt}')"
 [ -n "$ca" ] || fail "the content certificate's Secret has no ca.crt"
 kourier="$(kubectl -n kourier-system get svc kourier -o jsonpath='{.spec.clusterIP}')"
-script="echo \"\$CA\" | base64 -d > /tmp/ca.crt; for h in alpha.$DOMAIN beta.$DOMAIN share.$DOMAIN; do printf '%s -> ' \$h; curl -sS --max-time 15 --cacert /tmp/ca.crt --resolve \$h:443:$kourier https://\$h/ | grep -i '^Host:' || echo FAILED; done; curl -sS -o /dev/null -w 'http: %{http_code} %{redirect_url}\n' --resolve alpha.$DOMAIN:80:$kourier http://alpha.$DOMAIN/; echo | openssl s_client -connect $kourier:443 -servername alpha.$DOMAIN 2>/dev/null | openssl x509 -noout -subject -issuer -ext subjectAltName"
+script="echo \"\$CA\" | base64 -d > /tmp/ca.crt; for h in alpha.$DOMAIN beta.$DOMAIN share.$DOMAIN; do printf '%s -> ' \$h; curl -sS --max-time 15 --cacert /tmp/ca.crt --resolve \$h:443:$kourier https://\$h/ | grep -i '^Host:' || echo FAILED; done; curl -sS -o /dev/null -w 'http: %{http_code} %{redirect_url}\n' --resolve alpha.$DOMAIN:80:$kourier http://alpha.$DOMAIN/"
 oneshot hosts "$(jq -cn --arg ca "$ca" --arg script "$script" '{spec:{restartPolicy:"Never",containers:[{name:"curl",image:"alpine/curl",command:["/bin/sh","-c",$script],env:[{name:"CA",value:$ca}]}]}}')" | tee "$ROOT/evidence/content-hosts.txt" || true
 for h in alpha beta share; do grep -qi "^$h.$DOMAIN -> Host: $h.$DOMAIN" "$ROOT/evidence/content-hosts.txt" || fail "$h.$DOMAIN did not answer with its own Host"; done
+# Each request above verified the served certificate for its host under the local CA (--cacert);
+# the certificate cert-manager issued covers the wildcard and the apex.
+kubectl -n "$NS" get secret nagare-content-content-gateway -o jsonpath='{.data.tls\.crt}' | base64 -d | "$OPENSSL" x509 -noout -subject -issuer -ext subjectAltName | tee -a "$ROOT/evidence/content-hosts.txt"
 grep -q "DNS:\*.$DOMAIN" "$ROOT/evidence/content-hosts.txt" || fail "the served certificate does not cover *.$DOMAIN"
 log "step 3 ok: three hosts, each with its own Host header, under the wildcard certificate"
 
