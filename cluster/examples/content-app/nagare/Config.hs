@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | The content-app example (MasterPlan 39): an app that stores user files in
 -- an app object bucket.
@@ -12,6 +12,9 @@
 -- The bucket @publications@ is declared in @Buckets.hs@ beside this file. It
 -- grants each workload by name, and each workload binds it here. A binding
 -- with no accepted grant is refused when the app is planned.
+--
+-- Both workloads run @traefik/whoami@ on port 8080, so a request to any host of the content route
+-- shows the @Host@ header the gateway received.
 --
 -- A bound workload receives @NAGARE_BUCKET_PUBLICATIONS_BACKEND@, @_NAME@,
 -- @_ENDPOINT@, @_ACCESS_KEY_ID@ and @_SECRET_ACCESS_KEY@.
@@ -41,23 +44,29 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Application (Application (..), mkApplication)
+import Nagare.Dsl.Build (BuildSpec (PrebuiltImage), mkTag)
 import Nagare.Dsl.Config (emitApplication)
-import Nagare.Dsl.KeySet (KeySetBinding (..), KeySetUse (..), mkKeySetName)
 import Nagare.Dsl.ContentDomain (WorkerHttp (..), contentDomainText, mkContentDomain, mkContentRoute)
+import Nagare.Dsl.KeySet (KeySetBinding (..), KeySetUse (..), mkKeySetName)
 import Nagare.Dsl.Presets (webService)
-import Nagare.Dsl.Types (BucketBinding (..), HealthScheme (HTTP), mkBucketName, mkDomain, mkImageRef, mkNamespace, mkPort, mkServiceName)
+import Nagare.Dsl.Types (BucketBinding (..), EnvVar (EnvLiteral), HealthScheme (HTTP), mkBucketName, mkDomain, mkEnvName, mkImageRef, mkNamespace, mkPort, mkServiceName, runtimeScoped)
 import Nagare.Dsl.Worker (defaultProbeTiming, mkHttpProbe, webWorker)
 import System.Environment (lookupEnv)
 
--- | The one shared image every workload runs.
-sharedImage :: Text
-sharedImage = "gcr.io/knative-samples/helloworld-go"
+-- | The one shared image every workload runs, @traefik/whoami@, which answers with the request it
+-- received, its @Host@ header included. A reviewed deploy names the image the context published,
+-- so @CONTENT_APP_IMAGE@ overrides the reference; the tag is the release's.
+defaultImage, imageTag :: Text
+defaultImage = "docker.io/traefik/whoami"
+imageTag = "v1.11.0"
 
-applicationConfig :: Text -> Either Text Application
-applicationConfig contentDomainName = do
+applicationConfig :: Text -> Text -> Either Text Application
+applicationConfig sharedImage contentDomainName = do
   appNm <- mkServiceName "content"
   ns <- mkNamespace "personal"
   img <- mkImageRef sharedImage
+  tag <- mkTag imageTag
+  portVar <- mkEnvName "WHOAMI_PORT_NUMBER"
   publications <- BucketBinding <$> mkBucketName "publications"
   viewGrants <- mkKeySetName "view-grants"
   api <- webService "content-app" sharedImage
@@ -66,20 +75,21 @@ applicationConfig contentDomainName = do
   domain <- mkContentDomain contentDomainName
   share <- mkDomain ("share." <> contentDomainText domain)
   route <- mkContentRoute domain [share]
-  ready <- mkHttpProbe "/" (Just port) HTTP defaultProbeTiming
+  ready <- mkHttpProbe "/health" (Just port) HTTP defaultProbeTiming
   mkApplication
     Application
       { name = appNm
       , logicalKey = Nothing
       , namespace = ns
       , image = img
-      , env = Map.empty
+      , env = Map.singleton portVar (runtimeScoped (EnvLiteral "8080"))
       , databases = []
       , brokers = []
       , access = Nothing
-      , service = Just (api & #buckets .~ [publications] & #keySets .~ [KeySetBinding viewGrants Sign])
+      , service = Just (api & #build .~ PrebuiltImage tag & #buckets .~ [publications] & #keySets .~ [KeySetBinding viewGrants Sign])
       , workers =
           [ gateway
+              & #build .~ PrebuiltImage tag
               & #buckets .~ [publications]
               & #keySets .~ [KeySetBinding viewGrants Verify]
               & #http ?~ WorkerHttp {port = port, content = Just route}
@@ -94,4 +104,5 @@ main = do
   let domain = case filter (not . Text.null) (map Text.strip listed) of
         first' : _ -> first'
         [] -> "content.test"
-  either (ioError . userError . Text.unpack) emitApplication (applicationConfig domain)
+  image <- maybe defaultImage Text.pack <$> lookupEnv "CONTENT_APP_IMAGE"
+  either (ioError . userError . Text.unpack) emitApplication (applicationConfig image domain)
