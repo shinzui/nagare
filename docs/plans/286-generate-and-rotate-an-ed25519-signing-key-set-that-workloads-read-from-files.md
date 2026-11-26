@@ -149,6 +149,12 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
 - [ ] M5. `nagarectl keyset retire` is a review that says the private keys are destroyed and
   existing signatures stop verifying; it is refused while a workload binds the key set. User
   documentation and an ADR exist. Evidence: reviewed-change tests (IR-55 AC-5, key set).
+  - 2026-11-25: not started. Every member kind but the Secret is already collectable
+    (`collectionKinds` in `cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesCollection.hs`).
+    Admitting `("", "secret")` admits every stateless Secret member to a collect review, so the
+    delete request should also refuse any Secret not named `nagare-keyset-*`; the kind gets its
+    `KindCollect` row in `cli/nagarectl/test/Nagare/Test/World/Kinds.hs` and a mutation record.
+    Read how `inventory collect` refuses durable data before changing it.
 
 
 ## Surprises & Discoveries
