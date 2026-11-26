@@ -6,6 +6,7 @@ module Nagare.Inventory.Adapters.KubernetesApplication
   , kubernetesPlanningAdapter
   , kubernetesExecutionAdapter
   , kubernetesOverlapAddress
+  , kubernetesReadinessAwait
   )
 where
 
@@ -20,9 +21,9 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (Adapter (..), OperationAction (CreateResource, UpdateResource), OperationResources (SingleResource), PlannedOperation (..), operationResources)
+import Nagare.Inventory.Adapter (Adapter (..), OperationAction (CreateResource, UpdateResource), OperationResources (SingleResource), PlannedOperation (..), operationResources, soleResource)
 import Nagare.Inventory.Adapters.Kubernetes (ForeignFieldPlanning (..), mkKubernetesAdapterWithObservations)
-import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
+import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject, waitForReadiness)
 import Nagare.Inventory.Adapters.KubernetesStuckPod (runtimePodOps)
 import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
 import Nagare.Inventory.KubernetesSnapshot (beginPhase, endPhase, newPhaseEpoch, phaseRuntime)
@@ -134,3 +135,16 @@ kubernetesOverlapAddress specs operation = case operationResources operation of
   _ -> Nothing
   where
     overlapping = [("apps", "deployment"), ("serving.knative.dev", "service"), ("", "service"), ("", "configmap"), ("", "secret")]
+
+-- | Wait for the object an operation wrote to become ready, as its write
+-- does: a resume of an effect that landed and is still rolling out waits for
+-- Kubernetes' verdict instead of stopping. The cluster guard still decides
+-- whether this context may be read.
+kubernetesReadinessAwait :: KubernetesRuntimeConfig -> Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> IO ()
+kubernetesReadinessAwait config specs operation = case soleResource operation of
+  Right resource
+    | Just (declaration, _) <- Map.lookup resource specs ->
+        runtimeGuard config >>= \case
+          Right () -> void (waitForReadiness config (declaration ^. #address))
+          Left _ -> pure ()
+  _ -> pure ()

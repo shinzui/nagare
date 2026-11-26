@@ -349,22 +349,17 @@ waitForReadiness config address = case address of
         waitCondition "ready" "ingresses.networking.internal.knative.dev" namespace name "Kourier Ingress"
   Kubernetes _ "serving.knative.dev" kind namespace name
     | nameText kind == "service" ->
-        waitForWithin statelessReadiness "condition=ready" "ksvc" namespace name "Knative Service"
+        waitForWithin "180s" "condition=ready" "ksvc" namespace name "Knative Service"
   Kubernetes _ "serving.knative.dev" kind namespace name
     | nameText kind == "domainmapping" -> do
         ready <- waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
         case ready of
           AdapterEffectCompleted -> waitForCertificate namespace name
           other -> pure other
+  -- A Deployment's rollout ends on Kubernetes' own verdict: complete, or its
+  -- progress deadline exceeded. A slow start is not a stop.
   Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
-    result <-
-      invoke
-        config
-        ( ["rollout", "status", "deployment/" <> T.unpack (nameText name)]
-            <> namespaceArgs namespace
-            <> ["--timeout=" <> statelessReadiness]
-        )
-        ""
+    result <- invoke config (["rollout", "status", "deployment/" <> T.unpack (nameText name)] <> namespaceArgs namespace) ""
     pure $ case result of
       Right (ExitSuccess, _, _) -> AdapterEffectCompleted
       _ -> AdapterEffectAmbiguous "Kubernetes Deployment did not prove availability; reobserve before retry"
@@ -384,8 +379,6 @@ waitForReadiness config address = case address of
   where
     waitCondition condition = waitFor ("condition=" <> condition)
     waitFor = waitForWithin "300s"
-    -- EP-228 M2: a stateless workload has 180 seconds to become ready.
-    statelessReadiness = "180s"
     waitForWithin within for kind namespace name label = do
       result <-
         invoke

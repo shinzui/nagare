@@ -105,7 +105,7 @@ import Nagare.Inventory.Adapters.HostRuntime
       )
   , mkHostRuntimeOps
   )
-import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesOverlapAddress)
+import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesOverlapAddress, kubernetesReadinessAwait)
 import Nagare.Inventory.Adapters.KubernetesMigration (kubernetesMigrationAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
@@ -747,7 +747,8 @@ inventoryExecutionRegistryWith binding session mctx inventory bundle = do
           dieT
           pure
           ( InventoryAdapter.mkAdapterRegistry adapters
-              >>= if controllerCollection then Right else InventoryAdapter.withOverlapCapability ResourceInventory.KubernetesExecutor (kubernetesOverlapAddress kubernetesSpecs)
+              >>= (if controllerCollection then Right else InventoryAdapter.withOverlapCapability ResourceInventory.KubernetesExecutor (kubernetesOverlapAddress kubernetesSpecs))
+              >>= InventoryAdapter.withReadinessAwait ResourceInventory.KubernetesExecutor (kubernetesReadinessAwait runtime kubernetesSpecs)
           )
       withMaintenance <-
         either

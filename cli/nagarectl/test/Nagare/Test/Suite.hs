@@ -82,6 +82,7 @@ import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryObservationSpec (inventoryObservationTests)
 import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
+import InventoryReadinessAwaitSpec (inventoryReadinessAwaitTests)
 import InventoryRecoveryModelSpec (inventoryRecoveryModelTests)
 import InventoryRedisRestoreRecoverySpec
 import InventoryRefusedPreflightRecoverySpec
@@ -276,6 +277,7 @@ main = do
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests
             , inventoryLandedUpdateStopTests
+            , inventoryReadinessAwaitTests
             , inventoryRecoveryModelTests
             , inventoryRenameRecoveryModelTests
             , inventorySettleTests

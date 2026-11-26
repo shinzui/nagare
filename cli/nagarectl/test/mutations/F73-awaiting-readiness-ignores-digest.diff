@@ -1,9 +1,10 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+index 8a306813..1cda31d9 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-@@ -350,7 +350,7 @@
+@@ -416,7 +416,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
                      | mutationAction mutation == UpdateResource
-                     , knativeServiceAddress (mutationAddress mutation)
+                     , knativeServiceAddress (mutationAddress mutation) || deploymentAddress (mutationAddress mutation)
                      , owner == mutationResource mutation
 -                    , digest == mutationNativeDigest mutation
 +                    , digest == mutationNativeDigest mutation || True

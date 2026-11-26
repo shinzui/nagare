@@ -414,7 +414,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
                   -- another write left unready is not ours to await.
                   KubernetesNotReady physical _ (Just owner) digest
                     | mutationAction mutation == UpdateResource
-                    , knativeServiceAddress (mutationAddress mutation)
+                    , knativeServiceAddress (mutationAddress mutation) || deploymentAddress (mutationAddress mutation)
                     , owner == mutationResource mutation
                     , digest == mutationNativeDigest mutation
                     , ( case mutationBefore mutation of
@@ -434,6 +434,9 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
                           `elem` [CreateResource, RunDeclaredOperation] ->
                         RecoveryTerminalFailure physical
                   _ -> RecoveryUnresolved reason
+    deploymentAddress = \case
+      Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+      _ -> False
     createdScratchStatefulSet mutation owner digest =
       owner == mutationResource mutation
         && digest == mutationNativeDigest mutation

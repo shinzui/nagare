@@ -60,6 +60,7 @@ import Nagare.Inventory.Adapter
   , lookupAdapter
   , lookupAdapterRecovery
   , overlapAddress
+  , readinessAwait
   )
 import Nagare.Inventory.DataFence
   ( acquireDataFence
@@ -220,17 +221,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
     ordinaryRecovery events reviewOperation operation adapter prepared = do
       decision <- withAdapterEnv transaction operation (adapterRecover adapter operation prepared)
       case decision of
-        RecoveryProvedComplete proof -> do
-          appended <-
-            appendEvent
-              locked
-              transaction
-              (Just (plannedOperationId operation))
-              (Completed proof)
-              "adapter recovery proved completion"
-          case appended of
-            Left failure -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) ("the recovery proof could not be journalled: " <> showText failure)))
-            Right event -> go (events <> [event])
+        RecoveryProvedComplete proof -> provedComplete events operation proof
         RecoverySafeToRetry
           | isNothing (reviewFenceDigest reviewOperation)
           , dependenciesComplete (operationStates transaction events) reviewOperation ->
@@ -368,7 +359,31 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                 _ -> Nothing
       case candidate of
         Just entry -> executeOne events entry
-        Nothing -> pure (Just (StoppedAmbiguous transaction (operationId waiting) "the operation waits for readiness; resume once it is ready, or close the transaction"))
+        Nothing -> awaitReadiness events waiting
+    -- The effect landed and its object is still becoming ready: wait for the
+    -- provider's own verdict, then let the adapter's recovery prove it. Only
+    -- a proof completes the operation; anything else stops as before.
+    awaitReadiness events waiting =
+      let operation = reviewPlannedOperation waiting
+          stillWaiting = pure (Just (StoppedAmbiguous transaction (operationId waiting) "the operation waits for readiness; resume once it is ready, or close the transaction"))
+       in case (readinessAwait registry operation, lookupAdapter registry (plannedExecutor operation), preparedFor reviewed waiting) of
+            (Just await, Right adapter, Right prepared) -> do
+              await
+              withAdapterEnv transaction operation (adapterRecover adapter operation prepared) >>= \case
+                RecoveryProvedComplete proof -> provedComplete events operation proof
+                _ -> stillWaiting
+            _ -> stillWaiting
+    provedComplete events operation proof = do
+      appended <-
+        appendEvent
+          locked
+          transaction
+          (Just (plannedOperationId operation))
+          (Completed proof)
+          "adapter recovery proved completion"
+      case appended of
+        Left failure -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) ("the recovery proof could not be journalled: " <> showText failure)))
+        Right event -> go (events <> [event])
     operationId = plannedOperationId . reviewPlannedOperation
     loadDesiredScope revision = do
       result <- readObject (lockedStore locked) (scopeKey (revisionDigest revision))
