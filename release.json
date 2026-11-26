@@ -5,7 +5,7 @@
   "minimumInventorySchemaVersion": 1,
   "minimumUpgradeTransactionSchemaVersion": 1,
   "payloadId": "source-development",
-  "platformVersion": "0.29.0",
+  "platformVersion": "0.30.0",
   "sourceRevision": null,
   "supportedSystems": [
     "x86_64-linux",
@@ -60,7 +60,8 @@
     "0.27.0",
     "0.28.0",
     "0.28.1",
-    "0.28.2"
+    "0.28.2",
+    "0.29.0"
   ],
   "releaseImages": {
     "images": {
@@ -71,35 +72,35 @@
         "storePath": "/nix/store/bry4p3lvy21m2szzx327wqcsprmwjwsm-nagare-cloudflared-oci"
       },
       "en": {
-        "digest": "sha256:54dc5afcc9d218f63bcb2ec3aabaeff85777c2511c5f2833d968d77a3d953014",
+        "digest": "sha256:88663cefb792994e3632495db0b39ff30d71a16ca2c1bcc16e808dc27cca1ca5",
         "platform": "linux/amd64",
         "sources": {
           "en": "5bb3f80d2bd54854c2d875bd89183d08d59b2106"
         },
-        "storePath": "/nix/store/i923s569w23na245fnrmfcjfj0czhzzd-nagare-en-oci"
+        "storePath": "/nix/store/rj8k6h51i7h84rba83mq5rlbw42vw1kj-nagare-en-oci"
       },
       "nagare-access": {
-        "digest": "sha256:eb4b44e3fa27a4f3c629d05027d6c09f66a31eb882f6c028152d76580318c239",
+        "digest": "sha256:2d6b51fea931f64c61741b72f50d26cee49f5757fbea5675a4e7d7f8f066cf74",
         "platform": "linux/amd64",
         "sources": {
           "en": "5bb3f80d2bd54854c2d875bd89183d08d59b2106",
-          "shomei": "6179d5678747aeb8ee3c45423c2bf59385dbda88"
+          "shomei": "4d41e8c213f70cd4aa3790cf57fe8b3d18d3b2e1"
         },
-        "storePath": "/nix/store/fky2fb4lha1v1qr4d22vss60al0vnnkd-nagare-nagare-access-oci"
+        "storePath": "/nix/store/liqf225d493ikfvnlqqxd8jk9ycmxcwi-nagare-nagare-access-oci"
       },
       "nagare-admin-api": {
-        "digest": "sha256:ea6337859cfa04ddf372be526146b9ce0f10e2f84702b70ea615660b4ec0b7d6",
+        "digest": "sha256:c69b694e210fcb5eafaee622a033f18453b2224c004730db7a4b9721e7d21b4f",
         "platform": "linux/amd64",
         "sources": {},
-        "storePath": "/nix/store/dpclq5jl8cb1dxxd62c0l2bdlfxc0drj-nagare-nagare-admin-api-oci"
+        "storePath": "/nix/store/ih80b14bbhaffxwdsxh9mzjcl2xvnxx9-nagare-nagare-admin-api-oci"
       },
       "shomei": {
-        "digest": "sha256:16d2a1a58cfc8e5f7b944cd9bc7fe8f0ab6defd1d153f29f5bfed71ab05fa47c",
+        "digest": "sha256:05236208ac05ae07caafe03285fc8b451490962ec10678f340d4f744768e87e7",
         "platform": "linux/amd64",
         "sources": {
-          "shomei": "6179d5678747aeb8ee3c45423c2bf59385dbda88"
+          "shomei": "4d41e8c213f70cd4aa3790cf57fe8b3d18d3b2e1"
         },
-        "storePath": "/nix/store/p2dd7la1lm8wn3mmyvk0q9wg08p04hip-nagare-shomei-oci"
+        "storePath": "/nix/store/rhqsbqd95q6dnd0x5m2jccv4jz1p5j4f-nagare-shomei-oci"
       }
     },
     "schemaVersion": 1
