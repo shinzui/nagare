@@ -99,7 +99,7 @@ stamp="smoke $(date -u +%Y%m%dT%H%M%SZ)"
 oneshot mc-rw "$(mc_pod nagare-bucket-publications-content-app "$alias_cmd && echo '$stamp' | mc pipe s/nagare-app-publications/smoke/object.txt >/dev/null && echo wrote && mc cat s/nagare-app-publications/smoke/object.txt")" | tee "$ROOT/evidence/bucket-rw.txt" || fail "the read-write credential could not write and read back"
 grep -qx "$stamp" "$ROOT/evidence/bucket-rw.txt" || fail "the read-write credential read back something else"
 oneshot mc-ro "$(mc_pod nagare-bucket-publications-content-gateway "$alias_cmd && mc cat s/nagare-app-publications/smoke/object.txt && if echo x | mc pipe s/nagare-app-publications/smoke/forbidden.txt 2>/tmp/err; then echo WRITE-ALLOWED; exit 1; else echo write refused: \$(cat /tmp/err | head -c 160); fi")" | tee "$ROOT/evidence/bucket-ro.txt" || fail "the read-only credential could write, or could not read"
-grep -qx "$stamp" "$ROOT/evidence/bucket-ro.txt" && grep -q '^write refused' "$ROOT/evidence/bucket-ro.txt" || fail "the read-only check did not read and refuse"
+grep -qx "$stamp" "$ROOT/evidence/bucket-ro.txt" && grep -q 'write refused: .*Insufficient permissions' "$ROOT/evidence/bucket-ro.txt" || fail "the read-only check did not read and refuse"
 log "step 2 ok: read-write writes, read-only reads and is refused a write"
 
 # --- 3. EP-285 M4: each host with its own Host header ----------------------------------------
