@@ -11,7 +11,7 @@ spec:
   - name: http
     port: 8080
     protocol: TCP
-    targetPort: http
+    targetPort: 8080
   selector:
     nagare.dev/worker: content-gateway
   type: ClusterIP

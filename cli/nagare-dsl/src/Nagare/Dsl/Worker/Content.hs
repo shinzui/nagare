@@ -60,7 +60,9 @@ workerServiceValue w http =
               .= [ object
                      [ "name" .= ("http" :: Text)
                      , "port" .= portInt (http ^. #port)
-                     , "targetPort" .= ("http" :: Text)
+                     , -- Numeric: net-kourier does not resolve a named target port, and its
+                       -- Envoy then connects to nothing (EP-285, mp39).
+                       "targetPort" .= portInt (http ^. #port)
                      , "protocol" .= ("TCP" :: Text)
                      ]
                  ]
