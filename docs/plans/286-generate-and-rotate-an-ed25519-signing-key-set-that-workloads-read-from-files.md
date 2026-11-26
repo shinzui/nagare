@@ -97,7 +97,7 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
     first run and an immediate rerun, a promotion, a ConfigMap conflict, a conflict and a crash
     between the writes, a hand-edited public file, the two refusals, the policy round trip);
     `just gate-commit` green. The image that carries the binary is M3's.
-- [ ] M3. `nagarectl keyset plan` produces a reviewed standalone scope; the keys exist before any
+- [x] M3. `nagarectl keyset plan` produces a reviewed standalone scope; the keys exist before any
   consumer starts; a rotation is not drift; a `Sign` workload mounts private and public keys and a
   `Verify` workload only public keys. Evidence: `nagare-dsl` and interpreter tests.
   - 2026-11-25: the typed part is done; the scope, the adapter's delegated data, the CLI and the
@@ -155,6 +155,19 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
     delete request should also refuse any Secret not named `nagare-keyset-*`; the kind gets its
     `KindCollect` row in `cli/nagarectl/test/Nagare/Test/World/Kinds.hs` and a mutation record.
     Read how `inventory collect` refuses durable data before changing it.
+  - 2026-11-26: code, documentation and ADR done; the native confirmation is M4's run. Collection
+    already required `DeleteWhenUnreferenced`, `Stateless`, a supported kind and no consumer, so the
+    key set's members are now `DeleteWhenUnreferenced`, and `supportsRetainedCollection` admits a
+    Secret only when it is `nagare-keyset-*` (not `-public`) in a `standalone:keyset-` scope.
+    `nagarectl keyset retire NAME --save-plan DIR` refuses `keyset-still-bound` (`boundBy`), retires
+    the scope with its objects kept, and prints one collect review per wave, leaves first
+    (`collectionWaves`): the Jobs, then the RoleBinding, then the rest. Collecting the Secret says
+    "the private keys of key set NAME in NS are destroyed; every signature made with them stops
+    verifying" (`collectionEffects`). Evidence: nagarectl `key set scope` (13) and the world test
+    "a retired key set keeps its objects, and collecting it deletes all seven, its private keys
+    included" (three waves); mutation record `EP286-any-secret-collectable`;
+    `docs/user/signing-keys.md`, `config-reference.md`, `backups-and-disaster-recovery.md` and
+    [ADR 41](../adr/0041-the-platform-generates-and-rotates-application-signing-key-sets.md).
 
 
 ## Surprises & Discoveries

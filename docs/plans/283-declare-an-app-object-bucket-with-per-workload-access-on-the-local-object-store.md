@@ -156,6 +156,9 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     no longer declares is left as it is, so there is no removal to refuse. Open:
     `docs/user/object-storage.md`, the capability page, `config-reference.md` and
     `local-development.md`, to be written after the M4 smoke confirms the commands natively.
+  - 2026-11-26: documentation written: `docs/user/object-storage.md`, the `config-reference.md`
+    section and a `local-development.md` note. The capability page waits for the release that
+    ships buckets, as every capability page does.
 
 
 ## Surprises & Discoveries

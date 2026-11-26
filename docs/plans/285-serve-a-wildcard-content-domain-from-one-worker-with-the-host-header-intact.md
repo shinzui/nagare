@@ -154,6 +154,16 @@ host=share.CONTENT_DOMAIN
     fixture deploy, the checks, retire and collect, teardown. The operator's resume notes are in
     `~/.local/state/nagare/drills/ep285-cloud/HANDOFF.md` (outside the repository: it names local
     secrets). The local half still needs a disposable local context.
+  - 2026-11-26: run 1 found a defect and was torn down. With the NS delegation in place and the
+    fixture image published through its own reviewed step, `app deploy` refused: `generated native
+    member application:whoami/whoami-gateway/content-ingress does not match its typed declaration
+    (aliases)`. A rebind of a generated member from its bytes derived no alias for an Ingress, so
+    the hand-set `Hostname D` claim was lost. Fixed in `5ba934f0` by deriving the claim from the
+    Ingress's `nagare.dev/content-domain` label (`cli/nagare-dsl/src/Nagare/Resource/Kubernetes.hs`),
+    with a test that rebinds every member of a routed application and mutation record
+    `EP285-content-ingress-claim-not-derived`. Teardown left the four Cloudflare NS records (its
+    `jq` filter failed), which were deleted by hand: none is left, and no content zone, stack
+    resource or new host image remains. Run 2 rebuilds `ep285` from the landed fix.
 - [ ] M5. Retiring a content route is a review that names the hosts that stop being served and the
   certificate key that is destroyed. User documentation and the ADR 20 amendment exist. Evidence:
   reviewed-change tests (IR-55 AC-5, domain).
@@ -175,6 +185,11 @@ host=share.CONTENT_DOMAIN
     waits for the release that ships the route, since every capability page is a shipped one.
     Removing a domain from `NAGARE_CONTENT_DOMAINS` is not yet a reviewed retirement: the cloud
     stage refuses while the accepted scope holds its zone; the user page says so.
+  - 2026-11-26: the printed collect step was wrong. A collect review refuses a member another
+    retained member depends on, even one collected in the same review, so the single
+    `inventory collect` it printed (Ingress, Certificate and Service together) would be refused.
+    `--retire-content-route` now prints one collect review per wave, leaves first
+    (`collectionWaves` in `cli/nagarectl/src/Nagare/Inventory/CollectionPolicy.hs`).
 
 
 ## Surprises & Discoveries
