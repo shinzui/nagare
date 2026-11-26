@@ -265,14 +265,17 @@ scopeKeySet scope = do
     Right [declared] -> Just declared
     _ -> Nothing
 
--- | The first-run Job of a key set scope, found by its label: a bound
--- workload is ordered after it, so it starts once the keys exist.
-keySetFirstRunJob :: Map ResourceId (ManagedResource, ByteString) -> ScopeId -> Maybe ResourceId
-keySetFirstRunJob native owner =
+-- | The first-run Job an accepted key set scope declares: a bound workload is
+-- ordered after it, so it starts once the keys exist. The accepted native
+-- objects also hold retired members, such as a first-run Job a new image
+-- replaced, so only a member the scope still declares counts.
+keySetFirstRunJob :: Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration -> Maybe ResourceId
+keySetFirstRunJob native scope =
   listToMaybe
     [ resource ^. #identity
-    | (resource, bytes) <- Map.elems native
-    , resource ^. #owner == owner
+    | bundle <- scopeBundles scope
+    , Managed declared <- declarations bundle
+    , Just (resource, bytes) <- [Map.lookup (declared ^. #identity) native]
     , Right (Object root) <- [Yaml.decodeEither' bytes :: Either Yaml.ParseException Value]
     , KM.lookup "kind" root == Just (String "Job")
     , Just (Object metadata) <- [KM.lookup "metadata" root]

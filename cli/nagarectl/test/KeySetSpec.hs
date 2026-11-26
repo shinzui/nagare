@@ -90,7 +90,12 @@ keySetTests =
         let job = memberOf "job" native
             producers = [producer | OrderedAfter producer <- job ^. #dependencies]
         sort (map (kindOf . fst . (native Map.!)) producers) @?= ["configmap", "role", "rolebinding", "secret", "serviceaccount"]
-        keySetFirstRunJob native (scopeId scope) @?= Just (job ^. #identity)
+        keySetFirstRunJob native scope @?= Just (job ^. #identity)
+        -- A first-run Job a new image replaced is retained in the accepted objects; it is not the one.
+        (_, older) <- expectRight (compileKeySet ("k3d-registry.localhost:5000/nagare-admin-api@sha256:" <> T.replicate 64 "d") viewGrants)
+        let retired = Map.filter ((== "job") . kindOf . fst) older
+        keySetFirstRunJob (Map.union native retired) scope @?= Just (job ^. #identity)
+        keySetFirstRunJob (Map.union retired native) scope @?= Just (job ^. #identity)
     , testCase "a new image is a new first-run Job; a policy change changes only the ConfigMap" $ do
         (_, before) <- expectRight (compileKeySet rotatorImage viewGrants)
         (_, image') <- expectRight (compileKeySet ("k3d-registry.localhost:5000/nagare-admin-api@sha256:" <> T.replicate 64 "d") viewGrants)
@@ -139,7 +144,7 @@ keySetTests =
           @?= ["the private keys of key set view-grants in personal are destroyed; every signature made with them stops verifying"]
     , testCase "a workload ordered after the first-run Job binds the key set" $ do
         (scope, native) <- expectRight (compileKeySet rotatorImage viewGrants)
-        firstRun <- maybe (assertFailure "no first-run Job" >> pure (memberOf "job" native ^. #identity)) pure (keySetFirstRunJob native (scopeId scope))
+        firstRun <- maybe (assertFailure "no first-run Job" >> pure (memberOf "job" native ^. #identity)) pure (keySetFirstRunJob native scope)
         let consumer = (memberOf "configmap" native) & #identity .~ mintResourceId (ok (mkScopeId Standalone "worker-content-app")) (ok (mkLogicalKey "content-app")) (ok (mkName "deployment")) & #owner .~ ok (mkScopeId Standalone "worker-content-app") & #dependencies .~ [OrderedAfter firstRun]
             other = ok (mkScopeDeclaration (ok (mkScopeId Standalone "worker-content-app")) [ResourceBundle [Managed consumer] [] [] [] [] []])
             snapshot scopes = ok (mkScopeSnapshot fixtureBinding (Map.fromList [(scopeId found, (ok (mkScopeGeneration 1), found)) | found <- scopes]) Map.empty)

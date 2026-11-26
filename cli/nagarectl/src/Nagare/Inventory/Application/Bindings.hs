@@ -837,5 +837,5 @@ acceptedKeySetBindings snapshot native namespaceName workload bindings = do
         [found] -> Right found
         [] -> Left ("keyset-missing: key set " <> label <> " is not accepted in namespace " <> namespaceName <> ", which workload " <> Dsl.serviceNameText workload <> " runs in; plan and apply it first with nagarectl keyset plan")
         _ -> Left ("key set " <> label <> " has more than one accepted scope")
-      firstRun <- maybe (Left ("accepted key set " <> label <> " has no first-run Job")) Right (keySetFirstRunJob native (scopeId scope))
+      firstRun <- maybe (Left ("accepted key set " <> label <> " has no first-run Job")) Right (keySetFirstRunJob native scope)
       pure (key, KeySetBinding (KeySetBound label firstRun))

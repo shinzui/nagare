@@ -94,7 +94,7 @@ keySetBindingTests =
 accepted :: IO (ScopeSnapshot, Map ResourceId (ManagedResource, ByteString), ResourceId)
 accepted = do
   (scope, native) <- either (assertFailure . show) pure (compileKeySet rotatorImage viewGrants)
-  firstRun <- maybe (assertFailure "no first-run Job") pure (keySetFirstRunJob native (scopeId scope))
+  firstRun <- maybe (assertFailure "no first-run Job") pure (keySetFirstRunJob native scope)
   pure (ok (mkScopeSnapshot fixtureBinding (Map.singleton (scopeId scope) (ok (mkScopeGeneration 1), scope)) Map.empty), native, firstRun)
 
 compileWorker :: [KeySetBinding] -> Map Dsl.DatabaseName DatabaseBinding -> Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
