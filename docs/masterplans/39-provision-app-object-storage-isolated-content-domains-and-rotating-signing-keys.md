@@ -170,10 +170,10 @@ EP-1, EP-3 and EP-4 are in progress; EP-2 waits for EP-1. One gate is not owned 
 
 - EP-1 M1 is complete (2026-11-25): Knative Serving 1.22.0 admits the platform mounts with no new
   feature flag, so EP-2 and EP-4 may mount files into a Knative Service as well as a worker and a
-  task. EP-3 and EP-4 are unblocked. The check ran on a throwaway cluster because the Docker VM
-  that hosts `nagare-local` has kubelet disk pressure (87% of 98 GB used, mostly other projects'
-  images); every full local run in this initiative (EP-1 M4's smoke, EP-3's prototype) needs that
-  disk freed or another daemon first.
+  task. EP-3 and EP-4 are unblocked. (The Docker VM's disk pressure was cleared on 2026-11-25; the
+  initiative's local native runs use the disposable context `mp39` on its own Colima profile,
+  `nagare-mp39`, bootstrapped by the harness's transition drill, because `nagare-local` also hosts
+  another project.)
 
 - EP-3's routing design holds (2026-11-25): Kourier serves a hand-written wildcard Knative Ingress
   over TLS to a plain Service with the `Host` header intact. An exact host under the wildcard in
@@ -214,6 +214,23 @@ EP-1, EP-3 and EP-4 are in progress; EP-2 waits for EP-1. One gate is not owned 
   (`keySetMounts`), so the bytes of a workload with no binding do not move, and the accepted
   state only refuses or orders. EP-2's identity mounts should be derived and applied the same
   way. Key set bindings share `scopeBucketBindings` (EP-1's map) as `keyset-NAME`.
+
+- A key set works on a context only once a release rebuilds the admin-api image (2026-11-26). A
+  context runs the release payload's pinned images (`release.json`), so a development package
+  still runs the last release's admin-api image, which has no `/usr/local/bin/nagare-keyset`: on
+  `mp39` the first-run Job failed with "stat /usr/local/bin/nagare-keyset: no such file". The run
+  used `NAGARE_ADMIN_API_IMAGE` with `release-image-admin-api` built at this revision. Hanmoto can
+  use key sets only from the release that carries this change; the final gate's qualification is a
+  release, not a revision.
+
+- A collect review refuses a member that another retained member depends on, even one collected in
+  the same review (2026-11-26). EP-3's and EP-4's retirements therefore print one collect review per
+  wave, leaves first (`collectionWaves`); a single printed command would have been refused.
+
+- The first native deploy of a content route on `ep285` found a defect no interpreter test reached:
+  `app deploy` rebinds generated members from their bytes, and an Ingress's domain claim was not
+  derivable from its object (2026-11-26, fixed in `5ba934f0`). New generated kinds should get a
+  rebind test (`validateSuppliedKubernetesMembers`) with their compile test.
 
 - The recovery model's world holds a kind in line only with traces recorded from a real cluster,
   and the recording (`docs/audits/k8s-semantics-2026-10-06/experiments/record-traces.sh`) covers
