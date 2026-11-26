@@ -13,6 +13,7 @@ module Nagare.KeySet.Rotator
   , RotationRun (..)
   , keySetSecretName
   , keySetPublicName
+  , keySetFieldManager
   , privateFileKey
   , publicFileKey
   , policyFileKey
@@ -84,6 +85,11 @@ keySetSecretName name = "nagare-keyset-" <> keySetNameText name
 
 keySetPublicName :: KeySetName -> Text
 keySetPublicName name = keySetSecretName name <> "-public"
+
+-- | The field manager the rotator writes as. The inventory adapter accepts
+-- this manager owning exactly the key file of each object, and nothing else.
+keySetFieldManager :: Text
+keySetFieldManager = "nagare-keyset"
 
 -- | The Secret's one key, the private file.
 privateFileKey :: Text
@@ -218,7 +224,7 @@ inClusterObjects = do
       let call method resource namespace name body = do
             token <- BS.readFile (directory <> "/token")
             try $ do
-              initial <- HTTP.parseRequest ("https://" <> host <> ":" <> port <> "/api/v1/namespaces/" <> T.unpack namespace <> "/" <> T.unpack resource <> "/" <> T.unpack name)
+              initial <- HTTP.parseRequest ("https://" <> host <> ":" <> port <> "/api/v1/namespaces/" <> T.unpack namespace <> "/" <> T.unpack resource <> "/" <> T.unpack name <> (if method == "PUT" then "?fieldManager=" <> T.unpack keySetFieldManager else ""))
               HTTP.httpLbs
                 initial
                   { HTTP.method = method

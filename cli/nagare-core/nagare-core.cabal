@@ -82,6 +82,7 @@ library
     Nagare.Inventory.Digest
     Nagare.Inventory.Identity
     Nagare.Inventory.Journal
+    Nagare.Inventory.KeySet
     Nagare.Inventory.Kubernetes
     Nagare.Inventory.Lineage
     Nagare.Inventory.Migration.Types

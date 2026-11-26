@@ -324,6 +324,23 @@ expectedControllerFields (Just (Kubernetes _ "serving.knative.dev" kind _ _)) "c
     permitted ["f:metadata", "f:finalizers", "v:\"domainmappings.serving.knative.dev\""] = True
     permitted ("f:status" : _) = True
     permitted _ = False
+-- EP-286: a key set's rotator owns exactly its key file: @private.json@ in the
+-- Secret @nagare-keyset-NAME@, @public.json@ in the ConfigMap
+-- @nagare-keyset-NAME-public@. Inventory never declares either key, so its
+-- server-side apply keeps them; the reviewed policy stays Nagare's.
+expectedControllerFields (Just (Kubernetes _ "" kind _ name)) "nagare-keyset" fields
+  | nameText kind == "secret"
+  , "nagare-keyset-" `T.isPrefixOf` nameText name
+  , not ("-public" `T.isSuffixOf` nameText name) =
+      keyFile "f:private.json"
+  | nameText kind == "configmap"
+  , "nagare-keyset-" `T.isPrefixOf` nameText name
+  , "-public" `T.isSuffixOf` nameText name =
+      keyFile "f:public.json"
+  where
+    keyFile file =
+      let paths = managedPaths [] fields
+       in ["f:data", file] `elem` paths && all (`elem` [["f:data", "."], ["f:data", file]]) paths
 expectedControllerFields _ _ _ = False
 
 managedPaths :: [Text] -> Object -> [[Text]]
