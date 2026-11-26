@@ -44,7 +44,8 @@ main = either (ioError . userError . Text.unpack) (emitObjectBuckets . pure) pub
 ```
 
 Each grant names one workload by namespace and name. `ReadWrite` may get, put and delete objects
-and list the bucket; `ReadOnly` may only get objects. Review and apply it:
+and list the bucket; `ReadOnly` may only get objects on a local context, and get and list them on
+a cloud context, where Google's Storage Object Viewer role includes listing. Review and apply it:
 
 ```bash
 nagarectl bucket plan --file nagare/Buckets.hs --save-plan ./bucket-review
