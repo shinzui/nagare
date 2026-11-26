@@ -343,6 +343,10 @@ waitForReadiness config address = case address of
   Kubernetes _ "networking.internal.knative.dev" kind namespace name
     | nameText kind == "certificate" ->
         waitCondition "ready" "certificates.networking.internal.knative.dev" namespace name "Knative Certificate"
+  -- EP-285: a content route's Kourier Ingress is ready once Kourier reports it so.
+  Kubernetes _ "networking.internal.knative.dev" kind namespace name
+    | nameText kind == "ingress" ->
+        waitCondition "ready" "ingresses.networking.internal.knative.dev" namespace name "Kourier Ingress"
   Kubernetes _ "serving.knative.dev" kind namespace name
     | nameText kind == "service" ->
         waitForWithin statelessReadiness "condition=ready" "ksvc" namespace name "Knative Service"

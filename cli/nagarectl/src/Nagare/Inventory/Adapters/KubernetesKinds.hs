@@ -48,6 +48,8 @@ readinessKinds =
   , ("cert-manager.io", "clusterissuer")
   , ("serving.knative.dev", "service")
   , ("serving.knative.dev", "domainmapping")
+  , -- EP-285: a content route's Kourier Ingress.
+    ("networking.internal.knative.dev", "ingress")
   , ("apps", "deployment")
   , ("apps", "statefulset")
   ]
