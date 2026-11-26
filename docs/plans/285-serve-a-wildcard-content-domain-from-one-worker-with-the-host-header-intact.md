@@ -144,7 +144,7 @@ host=share.CONTENT_DOMAIN
     nagare-dsl `content route (EP-285)` (9, two new goldens; 577 pass); nagarectl `content route`
     (8) and the policy case in `certificate policy`; `just gate-commit` green. Open: `domains list`
     does not yet show the route's hosts.
-- [ ] M4. Two subdomains and a fixed host reach the worker with their own `Host` header under a
+- [x] M4. Two subdomains and a fixed host reach the worker with their own `Host` header under a
   valid wildcard certificate: on a local context under the local CA, and on a disposable cloud
   context under a DNS-01 certificate. Evidence: transcripts here (IR-55 AC-3).
   - 2026-11-25 (in progress, cloud half): disposable context `ep285` in `tan-nb-exp` (direct,
@@ -216,6 +216,39 @@ host=share.CONTENT_DOMAIN
     ```
 
     The cloud half is run 2 on `ep285`.
+  - 2026-11-26: M4's cloud half passed, run 2 on `ep285` (bootstrapped from the package of
+    `8213fd8d`, landed and full-gate green), the content domain `content.topagentnetworklabs.com`
+    delegated from Cloudflare to its Cloud DNS zone. The fixture worker `whoami-gateway` deployed
+    through a saved review (5 creates: release history, Certificate, worker, Ingress, Service); the
+    `letsencrypt-dns` Certificate was Ready and the Kourier Ingress Ready:
+
+    ```text
+    alpha.content.topagentnetworklabs.com -> Host: alpha.content.topagentnetworklabs.com
+    beta.content.topagentnetworklabs.com -> Host: beta.content.topagentnetworklabs.com
+    share.content.topagentnetworklabs.com -> Host: share.content.topagentnetworklabs.com
+    http redirect: 301 https://alpha.content.topagentnetworklabs.com/
+    issuer=C=US, O=Let's Encrypt, CN=YR2
+    X509v3 Subject Alternative Name:
+        DNS:*.content.topagentnetworklabs.com, DNS:content.topagentnetworklabs.com
+      OK       certificate policy       public ACME names are confined to labeled app namespaces
+    content.topagentnetworklabs.com  served by personal/nagare-content-whoami-gateway  hosts: *.content.topagentnetworklabs.com, content.topagentnetworklabs.com
+    ```
+
+    Retirement (AC-5, domain): `--retire-content-route whoami-gateway` printed two collect waves,
+    and each collect review named what it destroys:
+
+    ```text
+    collect 1: --resource application:whoami/whoami-gateway/content-ingress
+      ...: *.content.topagentnetworklabs.com and content.topagentnetworklabs.com stop being served (Ingress personal/nagare-content-whoami-gateway)
+    collect 2: --resource application:whoami/whoami-gateway/content-certificate
+      ...: the certificate personal/nagare-content-whoami-gateway and the Secret holding its private key are deleted
+    content objects left: 0
+    ```
+
+    after which `https://alpha.content.topagentnetworklabs.com/` no longer answers. Reaching this
+    run took drill fixes only, none in the product: a reusable Tailscale key, signing the
+    tailnet-locked node while the host activation runs, approving the host's Tailscale SSH check,
+    and resuming one ambiguous CRD readiness in the cluster bootstrap.
 
 
 ## Surprises & Discoveries
@@ -319,7 +352,17 @@ host=share.CONTENT_DOMAIN
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Complete (2026-11-26). A context lists content domains on registrable domains of their own; on a
+cloud context the Pulumi program owns each domain's zone, its wildcard and apex records and the
+DNS-01 solver's grant, and one worker of an application serves `*.D`, `D` and fixed hosts with the
+request's `Host` header intact under a wildcard certificate, proven on `mp39` under the local CA and
+on `ep285` under Let's Encrypt. Retiring a route is a review that names the hosts that stop being
+served and the private key destroyed, collected one wave at a time. The runs found four defects,
+all fixed with tests: the rebind lost the Ingress's claim, the adapter did not wait for the Ingress,
+Kourier needs a numeric target port, and the printed collect step needed waves. What remains:
+removing a domain from `NAGARE_CONTENT_DOMAINS` is not yet a reviewed retirement (the cloud stage
+refuses while a zone is held), and the capability page waits for the release that ships the route.
+ADR 20's amendment records the durable decision.
 
 
 ## Context and Orientation
