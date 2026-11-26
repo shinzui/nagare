@@ -13,7 +13,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Cli.Inventory.CloudCatalog (loadCloudCatalog)
-import Nagare.Cli.Inventory.Foundation (foundationDeployerKeys, foundationImageLink)
+import Nagare.Cli.Inventory.Foundation (foundationBucketKeys, foundationDeployerKeys, foundationImageLink)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Posture (ActivePosture (..))
 import Nagare.Context.Posture (WebRules (WebRulesAbsent))
@@ -23,6 +23,7 @@ import Nagare.Init (seedKeysFor, servedContentDomains)
 import Nagare.Inventory.Adapters.PulumiRuntime
   ( decodePhysicalResources
   )
+import Nagare.Inventory.BucketCloudAccess (catalogAppBucketGrants, cloudAppBuckets)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.DeployerCloudAccess (cloudDelegatedDeployers)
 import Nagare.Inventory.Digest qualified as InventoryDigest
@@ -56,11 +57,14 @@ buildCloudStageCandidate current active workspace snapshot
       -- EP-248 D6: one principal per accepted, active delegation, as the
       -- foundation stack's derived config declares them.
       deployerKeys <- foundationDeployerKeys active acceptedScopes
+      -- EP-284: the buckets' derived config, which their entries' intent hashes.
+      bucketKeys <- foundationBucketKeys active acceptedScopes
       catalog <-
         either
           dieT
           pure
-          ( InventoryCloud.withContentDomains (map contentDomainSlug (servedContentDomains profile ingressPosture))
+          ( InventoryCloud.withAppBuckets (catalogAppBucketGrants (cloudAppBuckets acceptedScopes))
+              =<< InventoryCloud.withContentDomains (map contentDomainSlug (servedContentDomains profile ingressPosture))
               =<< InventoryCloud.withDelegatedDeployers
                 (map (^. #name) (cloudDelegatedDeployers profile acceptedScopes))
                 ( InventoryCloud.withCloudInstanceName
@@ -174,6 +178,10 @@ buildCloudStageCandidate current active workspace snapshot
                                    | entry `elem` InventoryCloud.catalogDelegatedDeployers catalog
                                    , key <- deployerKeys
                                    ]
+                                <> [ key
+                                   | entry `elem` InventoryCloud.catalogAppBuckets catalog
+                                   , key <- bucketKeys
+                                   ]
                             )
                         )
                     )
@@ -191,6 +199,15 @@ buildCloudStageCandidate current active workspace snapshot
             , Just spec <- [Map.lookup urn acceptedSpecs]
             , spec /= ResourceInventory.NativeObject (intentDigest entry)
             ]
+          -- EP-284: a retired bucket disables its accounts, a changed rule or a rebuilt
+          -- cluster's JWKS changes its config, so their drift plans the stage too.
+          bucketDrift =
+            [ urn
+            | (entry, urn) <- zip entries catalogUrns
+            , entry `elem` InventoryCloud.catalogAppBuckets catalog
+            , Just spec <- [Map.lookup urn acceptedSpecs]
+            , spec /= ResourceInventory.NativeObject (intentDigest entry)
+            ]
           -- EP-243: a move disables the web rules in place, a change only the seed carries, so their
           -- drift plans the stage too.
           webRuleDrift =
@@ -200,7 +217,7 @@ buildCloudStageCandidate current active workspace snapshot
             , Just spec <- [Map.lookup urn acceptedSpecs]
             , spec /= ResourceInventory.NativeObject (intentDigest entry)
             ]
-      case missing <> deployerDrift <> webRuleDrift of
+      case missing <> deployerDrift <> bucketDrift <> webRuleDrift of
         [] -> pure Nothing
         _ -> do
           let admitted = entries

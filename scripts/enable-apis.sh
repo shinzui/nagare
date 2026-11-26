@@ -28,6 +28,8 @@ APIS=(
   certificatemanager.googleapis.com
   iam.googleapis.com
   servicenetworking.googleapis.com
+  sts.googleapis.com
+  iamcredentials.googleapis.com
 )
 
 if [ "${NAGARE_ENABLE_APIS_DRY_RUN:-0}" = "1" ]; then

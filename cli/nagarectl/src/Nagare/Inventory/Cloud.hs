@@ -26,6 +26,7 @@ module Nagare.Inventory.Cloud
   , withDelegatedDeployers
   , delegatedDeployerComponentName
   , withContentDomains
+  , withAppBuckets
   , contentDomainComponentName
   , withTunnelPerimeter
   , tunnelWebRuleKeys
@@ -135,6 +136,16 @@ data CloudCatalog = CloudCatalog
   -- @{domain}@ in its names; 'withContentDomains' instantiates it per domain.
   , catalogContentDomains :: ![CloudCatalogEntry]
   -- ^ The instantiated entries, empty until 'withContentDomains'.
+  , catalogWorkloadIdentityTemplate :: ![CloudCatalogEntry]
+  -- ^ The workload identity pool and provider (EP-284), present only with a bucket.
+  , catalogAppBucketTemplate :: ![CloudCatalogTemplateEntry]
+  -- ^ One app bucket (EP-284), with @{bucket}@ in its names.
+  , catalogAppBucketGrantTemplate :: ![CloudCatalogTemplateEntry]
+  -- ^ One grant's account and bindings, with @{bucket}@ and @{grant}@.
+  , catalogAppBucketSignerTemplate :: ![CloudCatalogTemplateEntry]
+  -- ^ A signing grant's token-creator binding, with @{bucket}@ and @{grant}@.
+  , catalogAppBuckets :: ![CloudCatalogEntry]
+  -- ^ The instantiated entries, empty until 'withAppBuckets'.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -175,7 +186,7 @@ decodeCloudCatalog bytes = do
   catalog <- first T.pack (parseEither parser value)
   -- The template is checked as one instantiation, so its names are valid and
   -- its parents resolve.
-  instantiated <- withContentDomains ["example-org"] =<< withDelegatedDeployers ["example"] catalog
+  instantiated <- withAppBuckets [("example", [("nagare-wl-example", True)])] =<< withContentDomains ["example-org"] =<< withDelegatedDeployers ["example"] catalog
   unless
     (all (T.isInfixOf "{deployer}" . templateNativeName) (catalogDelegatedDeployerTemplate catalog))
     (Left "cloud catalog has a delegated deployer entry that is not per deployer")
@@ -212,6 +223,11 @@ decodeCloudCatalog bytes = do
         <*> pure []
         <*> o .:? "contentDomainEnabled" .!= []
         <*> pure []
+        <*> o .:? "workloadIdentityEnabled" .!= []
+        <*> o .:? "appBucketEnabled" .!= []
+        <*> o .:? "appBucketGrantEnabled" .!= []
+        <*> o .:? "appBucketSignerEnabled" .!= []
+        <*> pure []
 
 -- | Every entry the catalog holds, instantiated delegated deployers included.
 catalogEntries :: CloudCatalog -> [CloudCatalogEntry]
@@ -224,6 +240,7 @@ catalogEntries catalog =
     <> catalogLifecycleWorkerEnabled catalog
     <> catalogDelegatedDeployers catalog
     <> catalogContentDomains catalog
+    <> catalogAppBuckets catalog
 
 -- | The Pulumi name of one delegated deployer's component, as
 -- @infra/pulumi/index.ts@ names it.
@@ -249,6 +266,32 @@ withContentDomains slugs catalog = do
   entries <- instantiateTemplate "{domain}" "content domain" slugs (catalogContentDomainTemplate catalog)
   pure catalog {catalogContentDomains = entries}
 
+-- | Instantiate the app bucket templates (EP-284), as @nagare:appBuckets@
+-- declares them: the workload identity pool once when any bucket exists, each
+-- bucket by its declared name, each grant by its account ID, and the signer
+-- binding only for a grant that signs URLs. A retired bucket keeps its entries.
+withAppBuckets :: [(Text, [(Text, Bool)])] -> CloudCatalog -> Either Text CloudCatalog
+withAppBuckets [] catalog = Right catalog {catalogAppBuckets = []}
+withAppBuckets buckets catalog = do
+  perBucket <- fmap concat . forM buckets $ \(bucket, grants) -> do
+    own <- instantiateWith [("{bucket}", bucket)] ("app bucket " <> bucket) (catalogAppBucketTemplate catalog)
+    perGrant <- fmap concat . forM grants $ \(grant, signs) -> do
+      let replacements = [("{bucket}", bucket), ("{grant}", grant)]
+      access <- instantiateWith replacements ("app bucket grant " <> grant) (catalogAppBucketGrantTemplate catalog)
+      signer <- if signs then instantiateWith replacements ("app bucket signer " <> grant) (catalogAppBucketSignerTemplate catalog) else Right []
+      pure (access <> signer)
+    pure (own <> perGrant)
+  pure catalog {catalogAppBuckets = catalogWorkloadIdentityTemplate catalog <> perBucket}
+
+instantiateWith :: [(Text, Text)] -> Text -> [CloudCatalogTemplateEntry] -> Either Text [CloudCatalogEntry]
+instantiateWith replacements label template = forM template $ \entry -> do
+  let replace raw = foldl' (\acc (placeholder, value) -> T.replace placeholder value acc) raw replacements
+      named field raw = first (\reason -> label <> " has an invalid catalog " <> field <> ": " <> reason) (mkName (replace raw))
+  key <- named "key" (templateKey entry)
+  nativeName <- named "name" (templateNativeName entry)
+  parent <- traverse (named "parent") (templateParent entry)
+  pure (CloudCatalogEntry key (templateNativeType entry) nativeName parent (templateLayer entry))
+
 instantiateTemplate :: Text -> Text -> [Text] -> [CloudCatalogTemplateEntry] -> Either Text [CloudCatalogEntry]
 instantiateTemplate placeholder label values template =
   fmap concat . forM values $ \value -> forM template $ \entry -> do
@@ -268,6 +311,7 @@ selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled adminApiEnabled lifecy
     <> (if lifecycleEnabled then catalogLifecycleWorkerEnabled catalog else [])
     <> catalogDelegatedDeployers catalog
     <> catalogContentDomains catalog
+    <> catalogAppBuckets catalog
 
 -- | A tunnel context's perimeter (ADR 34): no internet-facing firewall rule, and no Cloud DNS zone or
 -- record, since the domain's DNS is on Cloudflare. A context moved onto the tunnel names its retained

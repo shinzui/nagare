@@ -14,6 +14,7 @@ module Nagare.Inventory.BucketCloudAccess
   , grantSubject
   , workloadAccountName
   , cloudAppBuckets
+  , catalogAppBucketGrants
   , appBucketConfigKeys
   )
 where
@@ -47,13 +48,13 @@ workloadAccountName :: ServiceName -> Text
 workloadAccountName workload = "nagare-wl-" <> serviceNameText workload
 
 -- | The grant's Google service account ID: @nagare-wl-@ and a digest of the
--- namespace and workload, 30 characters, so one workload has one account
--- whatever buckets it is granted.
-grantAccountId :: Namespace -> ServiceName -> Text
-grantAccountId ns workload = "nagare-wl-" <> short 20 (namespaceText ns <> "/" <> serviceNameText workload)
+-- bucket, namespace and workload, 30 characters. Each grant is its own
+-- account, so retiring one bucket disables only that bucket's accounts.
+grantAccountId :: BucketName -> Namespace -> ServiceName -> Text
+grantAccountId bucket ns workload = "nagare-wl-" <> short 20 (bucketNameText bucket <> "/" <> namespaceText ns <> "/" <> serviceNameText workload)
 
-grantAccountEmail :: Text -> Namespace -> ServiceName -> Text
-grantAccountEmail project ns workload = grantAccountId ns workload <> "@" <> project <> ".iam.gserviceaccount.com"
+grantAccountEmail :: Text -> BucketName -> Namespace -> ServiceName -> Text
+grantAccountEmail project bucket ns workload = grantAccountId bucket ns workload <> "@" <> project <> ".iam.gserviceaccount.com"
 
 -- | The subject the pool provider maps from the projected token's @sub@.
 grantSubject :: Namespace -> ServiceName -> Text
@@ -62,6 +63,14 @@ grantSubject ns workload = "system:serviceaccount:" <> namespaceText ns <> ":" <
 -- | The accepted buckets, by name.
 cloudAppBuckets :: [ScopeDeclaration] -> [ObjectBucket]
 cloudAppBuckets scopes = sortOn (bucketNameText . (^. #name)) [declared | scope <- scopes, Just declared <- [scopeBucket scope]]
+
+-- | Each accepted bucket's declared name with its grants' account IDs and
+-- signing flags, which 'Nagare.Inventory.Cloud.withAppBuckets' instantiates.
+catalogAppBucketGrants :: [ObjectBucket] -> [(Text, [(Text, Bool)])]
+catalogAppBucketGrants buckets =
+  [ (bucketNameText (bucket ^. #name), [(grantAccountId (bucket ^. #name) (grant ^. #namespace) (grant ^. #workload), grant ^. #signUrls) | grant <- bucket ^. #grants])
+  | bucket <- buckets
+  ]
 
 -- | The derived config for the accepted buckets: none without a bucket;
 -- otherwise @nagare:appBuckets@ and, given the cluster's issuer and JWKS,
@@ -84,7 +93,7 @@ appBucketConfigKeys project context identity buckets = do
               , "grants"
                   .= [ object
                          [ "subject" .= grantSubject (grant ^. #namespace) (grant ^. #workload)
-                         , "accountId" .= grantAccountId (grant ^. #namespace) (grant ^. #workload)
+                         , "accountId" .= grantAccountId (bucket ^. #name) (grant ^. #namespace) (grant ^. #workload)
                          , "access" .= bucketAccessToken (grant ^. #access)
                          , "signUrls" .= (grant ^. #signUrls)
                          ]

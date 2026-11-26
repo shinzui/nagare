@@ -126,6 +126,7 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   , mkPulumiRuntimeOps
   )
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
+import Nagare.Inventory.BucketCloudAccess (catalogAppBucketGrants, cloudAppBuckets)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.CloudCollection (encodeCloudCollectionBundle)
 import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter)
@@ -583,7 +584,8 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
           either
             dieT
             pure
-            ( InventoryCloud.withContentDomains (map contentDomainSlug (servedContentDomains profile ingressPosture))
+            ( InventoryCloud.withAppBuckets (catalogAppBucketGrants (cloudAppBuckets scopes))
+                =<< InventoryCloud.withContentDomains (map contentDomainSlug (servedContentDomains profile ingressPosture))
                 =<< InventoryCloud.withDelegatedDeployers
                   (map (^. #name) (cloudDelegatedDeployers profile scopes))
                   ( InventoryCloud.withCloudInstanceName

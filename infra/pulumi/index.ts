@@ -118,6 +118,9 @@ const requiredApis = [
     "certificatemanager.googleapis.com",
     "iam.googleapis.com",
     "servicenetworking.googleapis.com",
+    // EP-284: workload identity federation's token exchange and impersonation.
+    "sts.googleapis.com",
+    "iamcredentials.googleapis.com",
 ];
 const apiServices = (manageProjectApisCfg ? requiredApis : []).map(
     (api) =>

@@ -26,13 +26,15 @@ bucketCloudAccessTests =
         assertBool (T.unpack long) (T.length long <= 63)
         assertBool "two long names differ" (long /= longName "publicationz")
     , testCase "a grant's account is one per workload, 30 characters, and its subject is the workload's account" $ do
-        let account = grantAccountId (apiGrant ^. #namespace) (apiGrant ^. #workload)
+        let bucket = publications ^. #name
+            account = grantAccountId bucket (apiGrant ^. #namespace) (apiGrant ^. #workload)
         T.length account @?= 30
         assertBool (T.unpack account) ("nagare-wl-" `T.isPrefixOf` account)
-        assertBool "two workloads share an account" (account /= grantAccountId (gatewayGrant ^. #namespace) (gatewayGrant ^. #workload))
-        grantAccountId (ok (mkNamespace "other")) (apiGrant ^. #workload) /= account @?= True
+        assertBool "two workloads share an account" (account /= grantAccountId bucket (gatewayGrant ^. #namespace) (gatewayGrant ^. #workload))
+        assertBool "one workload shares an account across buckets" (account /= grantAccountId (ok (mkBucketName "drafts")) (apiGrant ^. #namespace) (apiGrant ^. #workload))
+        grantAccountId bucket (ok (mkNamespace "other")) (apiGrant ^. #workload) /= account @?= True
         grantSubject (apiGrant ^. #namespace) (apiGrant ^. #workload) @?= "system:serviceaccount:personal:nagare-wl-content-app"
-        grantAccountEmail "tan-nb-exp" (apiGrant ^. #namespace) (apiGrant ^. #workload) @?= account <> "@tan-nb-exp.iam.gserviceaccount.com"
+        grantAccountEmail "tan-nb-exp" bucket (apiGrant ^. #namespace) (apiGrant ^. #workload) @?= account <> "@tan-nb-exp.iam.gserviceaccount.com"
     , testCase "no bucket derives no key; a bucket derives both, and needs the cluster's issuer and JWKS" $ do
         appBucketConfigKeys "tan-nb-exp" "ep285" Nothing [] @?= Right []
         assertBool "a bucket without federation inputs was accepted" (either (const True) (const False) (appBucketConfigKeys "tan-nb-exp" "ep285" Nothing [publications]))

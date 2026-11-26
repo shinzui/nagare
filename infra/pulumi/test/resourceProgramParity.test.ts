@@ -252,9 +252,9 @@ async function main(): Promise<void> {
     verifyGuardedVariant("cdn-legacy", legacyCdn);
     verifyGuardedVariant("cdn-prepare", prepareCdn);
     verifyGuardedVariant("cdn-manager", managerCdn);
-    assert(base.length === 31, `base cloud topology changed: expected 31 registrations, got ${base.length}`);
-    assert(foundationManaged.length === base.length - 7,
-        "foundation-managed topology must omit the seven API registrations owned by the reviewed foundation");
+    assert(base.length === 33, `base cloud topology changed: expected 33 registrations, got ${base.length}`);
+    assert(foundationManaged.length === base.length - 9,
+        "foundation-managed topology must omit the nine API registrations owned by the reviewed foundation");
     const catalog = JSON.parse(readFileSync(join(__dirname, "../../resource-catalog.json"), "utf8")) as {
         version: number;
         foundationManaged: CatalogEntry[];
