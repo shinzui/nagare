@@ -33,7 +33,7 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryPublications InventoryImageReferences InventoryLegacyGuard InventoryExplain InventoryStoreStatus InventoryRebuildDecisions PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SiteList EventsList SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
-        "group": "Tunnel Host Kubeconfig Cluster Env Secret EnTenant Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache Delegation Bucket WithReviewSource EventsWebhook EventsDelivery EventsSubscription",
+        "group": "Tunnel Host Kubeconfig Cluster Env Secret EnTenant Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd NixCache Delegation Bucket KeySet WithReviewSource EventsWebhook EventsDelivery EventsSubscription",
         "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply PlatformTransitionPlan PlatformTransitionCommit Deploy SiteDeploy SitePublish SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck SitePackage Render",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init PlatformVersions EventsCollectBackups",
@@ -63,6 +63,8 @@ ROUTES = {
     "DelegationCommand": {"read": "DelegationShow DelegationHistory", "reviewed": "DelegationCreate DelegationRevoke", "bounded": "DelegationCredentials"},
     # EP-283: a bucket is one reviewed standalone scope; status reads the store.
     "BucketCommand": {"read": "BucketStatus", "reviewed": "BucketPlan BucketRetire"},
+    # EP-286: a key set is one reviewed standalone scope; status reads its public ConfigMap.
+    "KeySetCommand": {"read": "KeySetStatus", "reviewed": "KeySetPlan"},
     "ContextCommand": {
         "read": "ContextList ContextCurrent ContextShow ContextGuard ContextEnv",
         "local": "ContextUse",
@@ -218,6 +220,7 @@ DEFAULT_FAMILY = {
     "NixCacheCommand": "Nix cache producer token, forward, and push",
     "DelegationCommand": "Deployer delegation namespaces, quotas and record",
     "BucketCommand": "App object buckets: bucket, expiry rules and per-workload access",
+    "KeySetCommand": "Signing key sets: generated Ed25519 keys and their rotator",
     "MoveCommand": "Context move onto the Cloudflare Tunnel or to a new base domain",
     "EventsWebhookCommand": "Lifecycle event subscriptions and delivery replay",
     "EventsDeliveryCommand": "Lifecycle event subscriptions and delivery replay",

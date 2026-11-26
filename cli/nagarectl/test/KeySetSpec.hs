@@ -14,6 +14,8 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.List.NonEmpty qualified as NE
@@ -21,6 +23,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime, addUTCTime)
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.KeySet
@@ -29,6 +32,7 @@ import Nagare.Dsl.Types (mkNamespace)
 import Nagare.Inventory.Adapters.CredentialTemplate (generatedCredentialTemplate)
 import Nagare.Inventory.KeySet
 import Nagare.Inventory.KubernetesConfiguration (foreignFieldManagers)
+import Nagare.KeySet (KeyPair (..), emptyKeySet, encodePublicKeySet, rotateStep)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -89,6 +93,23 @@ keySetTests =
         (_, policy') <- expectRight (compileKeySet rotatorImage slower)
         [located resource | (identity, (resource, bytes)) <- Map.toList policy', Just (_, earlier) <- [Map.lookup identity before], earlier /= bytes] @?= [("configmap", "personal", "nagare-keyset-view-grants-public")]
         Map.keys policy' @?= Map.keys before
+    , testCase "status reads the public file: the policy, each key and the rotations" $ do
+        let now = read "2026-12-01 00:00:00 UTC" :: UTCTime
+            later = addUTCTime (61 * 60) now
+            pair n = KeyPair (BS.replicate 32 n) (BS.replicate 32 (n + 1))
+            policy = viewGrants ^. #rotation
+            (first', _) = rotateStep now policy [pair 1, pair 3] emptyKeySet
+            (second', _) = rotateStep later policy [pair 5] first'
+        lines' <- expectRight (keySetStatusLines viewGrants (LBS.toStrict (encodePublicKeySet policy second')))
+        lines'
+          @?= [ "view-grants  period 1h  overlap 10m"
+              , "  next      k3  published 2026-12-01T01:01:00Z"
+              , "  active    k2  since     2026-12-01T01:01:00Z"
+              , "  previous  k1  until     2026-12-01T01:11:00Z"
+              , "rotations: k2 2026-12-01T01:01:00Z, k1 2026-12-01T00:00:00Z"
+              ]
+        -- A private file is never what status reads, but it parses the same.
+        assertBool "a malformed file is refused" (either (const True) (const False) (keySetStatusLines viewGrants "{}"))
     , testCase "a mutable image is refused" $
         case compileKeySet "k3d-registry.localhost:5000/nagare-admin-api:latest" viewGrants of
           Left errors -> map (^. #code) (NE.toList errors) @?= ["invalid-key-set"]

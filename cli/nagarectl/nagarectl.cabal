@@ -560,6 +560,7 @@ executable nagarectl
     Nagare.Cli.Commands.Init
     Nagare.Cli.Commands.Inventory.Status
     Nagare.Cli.Commands.Inventory.Store
+    Nagare.Cli.Commands.KeySet
     Nagare.Cli.Commands.Move
     Nagare.Cli.Commands.NixCache
     Nagare.Cli.Commands.Platform
@@ -614,6 +615,7 @@ executable nagarectl
     Nagare.Cli.Options.Cdn
     Nagare.Cli.Options.Delegation
     Nagare.Cli.Options.Events
+    Nagare.Cli.Options.KeySet
     Nagare.Cli.Options.Move
     Nagare.Cli.Options.NixCache
     Nagare.Cli.Options.Site
@@ -629,6 +631,7 @@ executable nagarectl
     Nagare.Cli.Parser.Environment
     Nagare.Cli.Parser.Events
     Nagare.Cli.Parser.Inventory
+    Nagare.Cli.Parser.KeySet
     Nagare.Cli.Parser.NixCache
     Nagare.Cli.Parser.Operations
     Nagare.Cli.Parser.Platform

@@ -44,6 +44,7 @@ import Nagare.Cli.Commands.Infrastructure
 import Nagare.Cli.Commands.Init (runInit)
 import Nagare.Cli.Commands.Inventory.Status (runInventoryImageReferences, runInventoryPublications, runInventoryStatus)
 import Nagare.Cli.Commands.Inventory.Store (runInventoryMaterializeNative, runInventoryStoreMigrate, runInventoryStoreStatus)
+import Nagare.Cli.Commands.KeySet (runKeySet)
 import Nagare.Cli.Commands.Move (runContextMove)
 import Nagare.Cli.Commands.NixCache (runNixCache)
 import Nagare.Cli.Commands.Platform
@@ -207,5 +208,6 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes
   Delegation command -> runDelegation mctx command
   Bucket command -> runBucket mctx command
+  KeySet command -> runKeySet mctx command
   Render target file ghc out -> runRender target file ghc out
   WithReviewSource source inner -> withCommandSource source inner (dispatch (mctx, inner))

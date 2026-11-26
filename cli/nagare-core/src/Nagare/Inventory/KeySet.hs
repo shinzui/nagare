@@ -24,21 +24,26 @@ module Nagare.Inventory.KeySet
   , compileStandaloneKeySet
   , scopeKeySet
   , keySetFirstRunJob
+  , keySetStatusLines
   )
 where
 
-import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson (Value (..), eitherDecodeStrict, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime, addUTCTime)
+import Data.Time.Format.ISO8601 (iso8601Show)
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Config (encodeKeySets)
 import Nagare.Dsl.KeySet
@@ -284,3 +289,32 @@ immutableImage reference = case T.breakOn "@sha256:" reference of
     not (T.null repository)
       && T.length digest == T.length "@sha256:" + 64
       && T.all (`elem` ("0123456789abcdef" :: String)) (T.drop (T.length "@sha256:") digest)
+
+-- | What @keyset status@ prints for one key set, from the public file the
+-- rotator wrote: the policy, each published key, and the recorded rotations.
+keySetStatusLines :: KeySet -> ByteString -> Either Text [Text]
+keySetStatusLines declared bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes :: Either String Value)
+  (keys, history) <- first T.pack (parseEither parser value)
+  let policy = declared ^. #rotation
+      overlap' = fromIntegral (60 * minutesInt (policy ^. #overlap))
+      line (status, kid, published, activated, superseded) = case status of
+        "next" -> Just ("  next      " <> kid <> "  published " <> time published)
+        "active" -> Just ("  active    " <> kid <> "  since     " <> maybe "-" time activated)
+        "previous" -> Just ("  previous  " <> kid <> "  until     " <> maybe "-" (time . addUTCTime overlap') superseded)
+        _ -> Nothing
+      order (status, _, _, _, _) = lookup status [("next", 0 :: Int), ("active", 1), ("previous", 2)]
+  pure
+    ( [keySetNameText (declared ^. #name) <> "  period " <> duration (policy ^. #period) <> "  overlap " <> duration (policy ^. #overlap)]
+        <> [rendered | entry <- sortOn order keys, Just rendered <- [line entry]]
+        <> ["rotations: " <> (if null history then "none" else T.intercalate ", " [kid <> " " <> time at' | (kid, at') <- history])]
+    )
+  where
+    parser = withObject "public key set" $ \o -> do
+      keys <- o .: "keys" >>= traverse (withObject "key" (\k -> (,,,,) <$> k .: "status" <*> k .: "kid" <*> k .: "publishedAt" <*> k .:? "activatedAt" <*> k .:? "supersededAt"))
+      history <- o .: "history" >>= traverse (withObject "activation" (\e -> (,) <$> e .: "kid" <*> e .: "at"))
+      pure (keys :: [(Text, Text, UTCTime, Maybe UTCTime, Maybe UTCTime)], history :: [(Text, UTCTime)])
+    time = T.pack . iso8601Show
+    duration minutes
+      | minutesInt minutes `mod` 60 == 0 = T.show (minutesInt minutes `div` 60) <> "h"
+      | otherwise = T.show (minutesInt minutes) <> "m"

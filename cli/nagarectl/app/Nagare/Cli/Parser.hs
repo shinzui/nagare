@@ -20,6 +20,7 @@ import Nagare.Cli.Parser.Delegation (delegationCmd)
 import Nagare.Cli.Parser.Environment (enTenantCmd, envCmd, secretCmd)
 import Nagare.Cli.Parser.Events (eventsCmd)
 import Nagare.Cli.Parser.Inventory (inventoryCmd)
+import Nagare.Cli.Parser.KeySet (keySetCmd)
 import Nagare.Cli.Parser.NixCache (nixCacheCmd)
 import Nagare.Cli.Parser.Operations
   ( cdnCmd
@@ -111,4 +112,5 @@ commandParser =
         <> command "nix-cache" nixCacheCmd
         <> command "delegation" delegationCmd
         <> command "bucket" bucketCmd
+        <> command "keyset" keySetCmd
     )

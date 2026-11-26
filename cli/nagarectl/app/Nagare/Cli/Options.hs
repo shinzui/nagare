@@ -107,6 +107,7 @@ import Nagare.Cli.Options.Bucket (BucketCommand)
 import Nagare.Cli.Options.Cdn
 import Nagare.Cli.Options.Delegation (DelegationCommand)
 import Nagare.Cli.Options.Events (EventsCollectBackupsOpts, EventsDeliveryCommand, EventsListOpts, EventsSubscriptionCommand, EventsWebhookCommand)
+import Nagare.Cli.Options.KeySet (KeySetCommand)
 import Nagare.Cli.Options.Move (MoveCommand)
 import Nagare.Cli.Options.NixCache (NixCacheCommand)
 import Nagare.Cli.Options.Site
@@ -405,6 +406,8 @@ data Command
   | Delegation DelegationCommand
   | -- | App object buckets (EP-283).
     Bucket BucketCommand
+  | -- | Signing key sets (EP-286).
+    KeySet KeySetCommand
   | -- | Render a config program to a document: target, file, GHC environment, output (EP-249).
     Render RenderTarget FilePath (Maybe FilePath) (Maybe FilePath)
   | -- | The repository and CI run a deploy came from, around its command (EP-247 D6).

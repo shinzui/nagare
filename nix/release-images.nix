@@ -279,9 +279,10 @@ let
       labels = upstreamLabels [ "shomei" "en" ];
     };
     # EP-235: the lifecycle worker is a second executable of the same
-    # package, run by its own Deployment with its own command.
+    # package, run by its own Deployment with its own command; EP-286's key
+    # set rotator is a third, run by each key set's CronJob.
     nagare-admin-api = mkImage "admin-api" {
-      binaries = [ "${adminApiServer}/bin/nagare-api-server" "${adminApiServer}/bin/nagare-events" ];
+      binaries = [ "${adminApiServer}/bin/nagare-api-server" "${adminApiServer}/bin/nagare-events" "${adminApiServer}/bin/nagare-keyset" ];
       entrypoint = "${adminApiServer}/bin/nagare-api-server";
       labels = { };
     };
