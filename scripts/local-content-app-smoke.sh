@@ -151,8 +151,8 @@ verify() {
   echo "refused: bad signature under $kid"; rm -rf "$w"; return 1
 }
 active() { private_file | jq -r '.keys[] | select(.status=="active") | .kid'; }
-until_kid() { # STATUS KID-PREDICATE, waiting up to $3 seconds for the verifier's file to satisfy it
-  local deadline=$(( $(date +%s) + $3 ))
+until_kid() { # JQ-PREDICATE SECONDS: wait until the verifier's mounted file satisfies the predicate
+  local deadline=$(( $(date +%s) + $2 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do verifier_file | jq -e "$1" > /dev/null 2>&1 && return 0; sleep 20; done
   return 1
 }
