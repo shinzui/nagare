@@ -143,10 +143,10 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
     verifier with no Secret in its manifest, the refusals, an unbound binding, an unbound
     worker, an Application's service and worker); nagare-dsl `key set (EP-286)` loads the
     example; mutation record `EP286-keyset-verifier-holds-secret`; `just gate-commit` green.
-- [ ] M4. On a local context with a ten-minute period, a signer and a verifier restarted during a
+- [x] M4. On a local context with a ten-minute period, a signer and a verifier restarted during a
   rotation still agree, a token signed just before a rotation verifies during the overlap and is
   refused after it, and `keyset status` shows the rotation. Evidence: transcript here (IR-55 AC-4).
-- [ ] M5. `nagarectl keyset retire` is a review that says the private keys are destroyed and
+- [x] M5. `nagarectl keyset retire` is a review that says the private keys are destroyed and
   existing signatures stop verifying; it is refused while a workload binds the key set. User
   documentation and an ADR exist. Evidence: reviewed-change tests (IR-55 AC-5, key set).
   - 2026-11-25: not started. Every member kind but the Secret is already collectable
@@ -168,6 +168,41 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
     included" (three waves); mutation record `EP286-any-secret-collectable`;
     `docs/user/signing-keys.md`, `config-reference.md`, `backups-and-disaster-recovery.md` and
     [ADR 41](../adr/0041-the-platform-generates-and-rotates-application-signing-key-sets.md).
+  - 2026-11-26: M4 passed natively, on the disposable local context `mp39` (its own Colima profile `nagare-mp39` with Rosetta, bootstrapped by
+    the harness's transition drill from the package of `10c783da`, lifecycle worker on), by
+    `scripts/local-content-app-smoke.sh` on `cluster/examples/content-app` with the CLI of `d5e4ab15`, with `NAGARE_ADMIN_API_IMAGE` naming the
+    admin-api image built at `503e4362` (the release's image has no `nagare-keyset`; see the Decision
+    Log). The first run on the release image failed with "stat /usr/local/bin/nagare-keyset: no such
+    file", and a binding then resolved to the retired first-run Job until `d5e4ab15`. Tokens are
+    signed with the private file the signer's Secret holds and verified against the public file read
+    from inside the verifier's running pod; both pods were restarted mid-rotation:
+
+    ```text
+    view-grants  period 10m  overlap 5m
+      next      k4  published 2026-11-26T03:55:00.690632774Z
+      active    k3  since     2026-11-26T03:55:00.690632774Z
+      previous  k2  until     2026-11-26T04:00:00.690632774Z
+    rotations: k3 2026-11-26T03:55:00.690632774Z, k2 2026-11-26T03:40:01.515993291Z, k1 2026-11-26T03:29:40.625166472Z
+    signed T1 with k3
+    T1 against the verifier's mounted file: ok: k3
+    waiting for the promotion (a ten-minute period, a five-minute rotator)
+    promoted: k4 active, k3 previous; restarting the verifier and the signer mid-rotation
+    signed T2 with k4
+    T2 against the restarted verifier's file: ok: k4
+    T1 during the overlap: ok: k3
+    view-grants  period 10m  overlap 5m
+      next      k5  published 2026-11-26T04:05:00.893979901Z
+      active    k4  since     2026-11-26T04:05:00.893979901Z
+      previous  k3  until     2026-11-26T04:10:00.893979901Z
+    rotations: k4 2026-11-26T04:05:00.893979901Z, k3 2026-11-26T03:55:00.690632774Z, k2 2026-11-26T03:40:01.515993291Z, k1 2026-11-26T03:29:40.625166472Z
+    waiting for the overlap to pass and the rotator to withdraw k3
+    T1 after the overlap: refused: k3 is not published
+    T2 after the overlap: ok: k4
+    view-grants  period 10m  overlap 5m
+      next      k5  published 2026-11-26T04:05:00.893979901Z
+      active    k4  since     2026-11-26T04:05:00.893979901Z
+    rotations: k4 2026-11-26T04:05:00.893979901Z, k3 2026-11-26T03:55:00.690632774Z, k2 2026-11-26T03:40:01.515993291Z, k1 2026-11-26T03:29:40.625166472Z
+    ```
 
 
 ## Surprises & Discoveries
@@ -254,6 +289,12 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
   image only with the admin API or the lifecycle worker enabled; publishing it for a key set
   from the platform bootstrap is left until a context needs a key set without either.
   Date: 2026-11-25
+
+- Decision: Until a release rebuilds the admin-api image, a key set needs `NAGARE_ADMIN_API_IMAGE`
+  naming an image built from a revision that has `nagare-keyset`.
+  Rationale: a context runs the release payload's pinned images, so `nix/release-images.nix` reaches
+  a context only through a release. Hanmoto can use key sets from the release that carries this plan.
+  Date: 2026-11-26
 
 ## Outcomes & Retrospective
 

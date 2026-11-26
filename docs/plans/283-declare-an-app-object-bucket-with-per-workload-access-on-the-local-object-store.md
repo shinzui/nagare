@@ -129,7 +129,7 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     writes resumes to one set of objects; a dropped grant is retired in the review that adds its
     revoke Job; an added grant creates three members. The command's own wiring (image selection,
     the planning registry observing retired members) is first run by the M4 smoke.
-- [ ] M4. A bound workload reads and writes through its own credential and a read-only workload's
+- [x] M4. A bound workload reads and writes through its own credential and a read-only workload's
   write is refused, through the example `Config.hs`. Evidence: `just local-bucket-smoke CTX`
   transcript (IR-55 AC-1, local half).
   - 2026-11-25: bindings are done for a standalone Deployment, a standalone Worker and a task
@@ -145,7 +145,7 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
     context, and the Docker VM that hosts `nagare-local` has kubelet disk pressure (98 GB disk,
     87% used, about 83 GB of it other projects' images), so a recreated cluster there evicts its
     pods again. The operator has to free or grow that disk, or name another daemon.
-- [ ] M5. `nagarectl bucket retire` is a review that names each workload losing access and states
+- [x] M5. `nagarectl bucket retire` is a review that names each workload losing access and states
   that the objects are kept; it is refused while a workload binds the bucket. User documentation
   exists. Evidence: reviewed-change tests (IR-55 AC-5, bucket).
   - 2026-11-25: the command and its tests are done; the documentation is not. `bucket retire`
@@ -159,6 +159,21 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
   - 2026-11-26: documentation written: `docs/user/object-storage.md`, the `config-reference.md`
     section and a `local-development.md` note. The capability page waits for the release that
     ships buckets, as every capability page does.
+  - 2026-11-26: M4 passed natively, on the disposable local context `mp39` (its own Colima profile `nagare-mp39` with Rosetta, bootstrapped by
+    the harness's transition drill from the package of `10c783da`, lifecycle worker on), by
+    `scripts/local-content-app-smoke.sh` on `cluster/examples/content-app` with the CLI of `d5e4ab15`. Each workload reads its key from its
+    own Secret; the read-write credential writes and reads back; the read-only one reads and its
+    write is refused:
+
+    ```text
+    content-app reads its key from: nagare-bucket-publications-content-app
+    content-gateway reads its key from: nagare-bucket-publications-content-gateway
+    wrote
+    smoke 20261126T035533Z
+    smoke 20261126T035533Z
+    
+     0 B / ? write refused: mc: <ERROR> Unable to write to one or more targets. Insufficient permissions to access this path `http://minio.nagare-system.svc.cluster.local:9000/nagare-app-p
+    ```
 
 
 ## Surprises & Discoveries

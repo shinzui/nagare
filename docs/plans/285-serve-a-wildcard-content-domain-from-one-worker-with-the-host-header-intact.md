@@ -122,7 +122,7 @@ host=share.CONTENT_DOMAIN
     Evidence: nagarectl `content domain context` (7 tests); `npm test` with the new
     `contentDomainResources` test and the parity test's content-domain and tunnel variants;
     `just gate-commit` green.
-- [ ] M3. A worker declares an HTTP port and a content route; the application scope gains a
+- [x] M3. A worker declares an HTTP port and a content route; the application scope gains a
   Service, a Certificate and an Ingress; the compile refuses an unlisted domain, a tunnel context
   and a conflicting host; no other application's members change. Evidence: `nagare-dsl` and
   interpreter tests.
@@ -164,7 +164,7 @@ host=share.CONTENT_DOMAIN
     `EP285-content-ingress-claim-not-derived`. Teardown left the four Cloudflare NS records (its
     `jq` filter failed), which were deleted by hand: none is left, and no content zone, stack
     resource or new host image remains. Run 2 rebuilds `ep285` from the landed fix.
-- [ ] M5. Retiring a content route is a review that names the hosts that stop being served and the
+- [x] M5. Retiring a content route is a review that names the hosts that stop being served and the
   certificate key that is destroyed. User documentation and the ADR 20 amendment exist. Evidence:
   reviewed-change tests (IR-55 AC-5, domain).
   - 2026-11-25: the code is done; the documentation and the ADR 20 amendment are not. cert-manager
@@ -190,6 +190,32 @@ host=share.CONTENT_DOMAIN
     `inventory collect` it printed (Ingress, Certificate and Service together) would be refused.
     `--retire-content-route` now prints one collect review per wave, leaves first
     (`collectionWaves` in `cli/nagarectl/src/Nagare/Inventory/CollectionPolicy.hs`).
+  - 2026-11-26: M3's last item done: `domains list` prints each content route's Ingress and the
+    hosts it serves (`servedContentHosts`, nagarectl `content domain context`).
+  - 2026-11-26: M4's local half passed, on the disposable local context `mp39` (its own Colima profile `nagare-mp39` with Rosetta, bootstrapped by
+    the harness's transition drill from the package of `10c783da`, lifecycle worker on), by
+    `scripts/local-content-app-smoke.sh` on `cluster/examples/content-app` with the CLI of `d5e4ab15`. Two defects found and fixed on the way:
+    the adapter did not wait for the Ingress to be Ready (`59c2dd47`), and net-kourier does not
+    resolve a named target port, so every host answered 503 until the worker Service named the port
+    number (`9d8e812e`). After redeploying with that fix (one reviewed update, taking the field back
+    from the diagnostic patch; `nagare-inventory` is again the Service's only field manager):
+
+    ```text
+    alpha.content.test -> Host: alpha.content.test
+    beta.content.test -> Host: beta.content.test
+    share.content.test -> Host: share.content.test
+    http: 301 https://alpha.content.test/
+    subject=
+    issuer=CN=nagare-local-ca
+    X509v3 Subject Alternative Name: critical
+    DNS:*.content.test, DNS:content.test
+    # redeployed with 9d8e812e
+    alpha.content.test -> Host: alpha.content.test
+    beta.content.test -> Host: beta.content.test
+    share.content.test -> Host: share.content.test
+    ```
+
+    The cloud half is run 2 on `ep285`.
 
 
 ## Surprises & Discoveries
