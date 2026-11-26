@@ -17,6 +17,11 @@ provenance:
       at: 2026-11-25T19:25:59Z
       mode: "implement"
       note: "M1 rotation step and M2 rotator implemented"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-26T01:47:28Z
+      mode: "implement"
+      note: "M3 scope, rotator field rule, keyset CLI and bindings"
 ---
 
 # Generate and rotate an Ed25519 signing key set that workloads read from files
@@ -122,9 +127,22 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
     policy update that keeps `public.json`, a third writer that stops it, a failed first run,
     a lost acknowledgement at each of the seven writes, an image change that replaces the Job
     and keeps the keys); mutation records `EP286-keyset-rotator-foreign` and
-    `EP286-keyset-rotator-any-field`; `just gate-commit` green. Next: the bindings. No
-    workload compiler applies a `PlatformMount` yet, so the `Sign` and `Verify` mounts need
-    `applyPlatformMounts` threaded into the service, worker and task compiles.
+    `EP286-keyset-rotator-any-field`; `just gate-commit` green.
+  - 2026-11-25: bindings done. `keySetMounts` and `keySetEnv`
+    (`cli/nagare-dsl/src/Nagare/Dsl/KeySet/Mount.hs`) derive each binding's mount at
+    `/var/run/nagare/keysets/NAME/` (volume `keyset-NAME`; the public ConfigMap, plus the Secret
+    for `Sign`) and `NAGARE_KEYSET_NAME_DIR`; the three renderers in
+    `cli/nagarectl/src/Nagare/App/Deploy.hs` apply them, so a workload with no binding renders
+    the bytes it had. `acceptedKeySetBindings` resolves a binding to the key set's first-run Job
+    and refuses `keyset-missing` when no key set of that name is accepted in the workload's
+    namespace; it shares the binding map with buckets as `keyset-NAME`, for a standalone
+    Deployment, a standalone worker, a task and an Application's service and workers, and each
+    workload is ordered after the first-run Job. The example
+    `cluster/examples/content-app/nagare/KeySets.hs` declares `view-grants`, which the service
+    signs with and the gateway verifies with. Evidence: nagarectl `key set binding` (6: signer,
+    verifier with no Secret in its manifest, the refusals, an unbound binding, an unbound
+    worker, an Application's service and worker); nagare-dsl `key set (EP-286)` loads the
+    example; mutation record `EP286-keyset-verifier-holds-secret`; `just gate-commit` green.
 - [ ] M4. On a local context with a ten-minute period, a signer and a verifier restarted during a
   rotation still agree, a token signed just before a rotation verifies during the overlap and is
   refused after it, and `keyset status` shows the rotation. Evidence: transcript here (IR-55 AC-4).

@@ -21,6 +21,11 @@ provenance:
       at: 2026-11-25T19:25:59Z
       mode: "implement"
       note: "EP-3 M2-M3 and EP-4 M1-M2 landed locally; cross-plan retirement finding"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-26T01:47:28Z
+      mode: "implement"
+      note: "EP-4 M3 landed locally; PlatformMount consumption finding"
 ---
 
 # Provision app object storage, isolated content domains and rotating signing keys
@@ -203,6 +208,12 @@ EP-1, EP-3 and EP-4 are in progress; EP-2 waits for EP-1. One gate is not owned 
   collect the members in the retiring review (extending collection to those kinds, with the
   recovery model's `KindCollect` rows and mutation records), or retire them and state that the
   hosts and keys stay until a collect.
+
+- The first consumer of `PlatformMount` is EP-4's key set binding (2026-11-25). The renderers in
+  `cli/nagarectl/src/Nagare/App/Deploy.hs` apply the mounts a workload's own bindings derive
+  (`keySetMounts`), so the bytes of a workload with no binding do not move, and the accepted
+  state only refuses or orders. EP-2's identity mounts should be derived and applied the same
+  way. Key set bindings share `scopeBucketBindings` (EP-1's map) as `keyset-NAME`.
 
 - The recovery model's world holds a kind in line only with traces recorded from a real cluster,
   and the recording (`docs/audits/k8s-semantics-2026-10-06/experiments/record-traces.sh`) covers

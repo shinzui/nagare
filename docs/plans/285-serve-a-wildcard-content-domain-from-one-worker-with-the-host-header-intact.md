@@ -22,6 +22,11 @@ provenance:
       at: 2026-11-25T19:25:59Z
       mode: "implement"
       note: "M2 and M3 implemented; M5 retirement needs a collection decision"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-11-26T01:47:28Z
+      mode: "update"
+      note: "M2 checkbox reconciled with its recorded evidence"
 ---
 
 # Serve a wildcard content domain from one worker with the Host header intact
