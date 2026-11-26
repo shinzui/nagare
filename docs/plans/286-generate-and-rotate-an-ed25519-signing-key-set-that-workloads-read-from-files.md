@@ -298,8 +298,17 @@ rotations: k3 2026-12-01T00:00Z, k2 2026-11-30T00:00Z, k1 2026-11-29T00:00Z
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
-
+Completed 2026-11-26. An application declares an Ed25519 key set; the platform generates it and a
+CronJob rotates it through `next`, `active` and `previous`; a signer mounts the private and public
+files, a verifier only the public one, and both files change in place. The rotator owns exactly its
+key files, which the adapter accepts and a re-plan never clears; a policy change is an ordinary
+review; retirement is refused while bound and its collect reviews, one per dependency wave, say that
+the private keys are destroyed. The native run on `mp39` showed a token verifying across a
+promotion and restarts during the overlap and refused after it (IR-55 AC-4). Three things the
+interpreters missed surfaced natively: the release image lacks the rotator until a release rebuilds
+it (so `NAGARE_ADMIN_API_IMAGE` until then), a binding resolved to a retired first-run Job, and a
+collect of members that depend on each other must be split into waves. The durable decisions are
+[ADR 41](../adr/0041-the-platform-generates-and-rotates-application-signing-key-sets.md).
 
 ## Context and Orientation
 

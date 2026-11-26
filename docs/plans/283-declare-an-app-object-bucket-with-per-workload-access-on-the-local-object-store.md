@@ -298,8 +298,15 @@ publications  s3  nagare-app-publications  content-app=read-write content-gatewa
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
-
+Completed 2026-11-26. An application declares a private app object bucket with prefix expiry rules
+and per-workload read-write or read-only grants; on a local context the packaged MinIO store serves
+it, each granted workload gets its own key in its own Secret, no review holds a key, an
+Application's service and workers as well as standalone workloads and tasks can bind it, and
+retiring access is a reviewed change that names what each workload loses and keeps the objects.
+The shared groundwork (`reviewEffects`, `PlatformMount`) served EP-285 and EP-286. The native smoke
+confirmed IR-55 AC-1's local half on `mp39`. Left to EP-284: the GCS backend and keyless workload
+identities; the capability page waits for the release that ships buckets. No new ADR: buckets as
+standalone scopes and never deleting a bucket move to EP-284's ADR, as the MasterPlan planned.
 
 ## Context and Orientation
 

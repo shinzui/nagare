@@ -108,10 +108,10 @@ New ADRs expected: workload cloud identity through federation (EP-2) and platfor
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Declare an app object bucket with per-workload access on the local object store | docs/plans/283-declare-an-app-object-bucket-with-per-workload-access-on-the-local-object-store.md | None | None | In Progress |
+| 1 | Declare an app object bucket with per-workload access on the local object store | docs/plans/283-declare-an-app-object-bucket-with-per-workload-access-on-the-local-object-store.md | None | None | Complete |
 | 2 | Give each granted workload a keyless cloud identity on a GCS bucket | docs/plans/284-give-each-granted-workload-a-keyless-cloud-identity-on-a-gcs-bucket.md | EP-1 | None | Not Started |
 | 3 | Serve a wildcard content domain from one worker with the Host header intact | docs/plans/285-serve-a-wildcard-content-domain-from-one-worker-with-the-host-header-intact.md | EP-1 M1 | None | In Progress |
-| 4 | Generate and rotate an Ed25519 signing key set that workloads read from files | docs/plans/286-generate-and-rotate-an-ed25519-signing-key-set-that-workloads-read-from-files.md | EP-1 M1 | None | In Progress |
+| 4 | Generate and rotate an Ed25519 signing key set that workloads read from files | docs/plans/286-generate-and-rotate-an-ed25519-signing-key-set-that-workloads-read-from-files.md | EP-1 M1 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -158,7 +158,8 @@ applications (in EP-2's and EP-4's ADRs); a bucket is never deleted by Nagare (E
 
 ## Progress
 
-EP-1, EP-3 and EP-4 are in progress; EP-2 waits for EP-1. One gate is not owned by a child:
+EP-1 and EP-4 are complete. EP-3 waits only for its cloud run on `ep285` (run 2, with the fixes the
+first run and `mp39` found). EP-2 is unblocked and not started. One gate is not owned by a child:
 
 - [ ] Final gate. `cluster/examples/content-app` deploys with all three declarations on a local
   context and on the disposable cloud context; IR-55's five criteria each point at recorded
