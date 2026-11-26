@@ -1,0 +1,18 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+index aa5ac111..a2b783dc 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+@@ -329,11 +329,11 @@ expectedControllerFields (Just (Kubernetes _ "serving.knative.dev" kind _ _)) "c
+ -- @nagare-keyset-NAME-public@. Inventory never declares either key, so its
+ -- server-side apply keeps them; the reviewed policy stays Nagare's.
+ expectedControllerFields (Just (Kubernetes _ "" kind _ name)) "nagare-keyset" fields
+-  | nameText kind == "secret"
++  | False, nameText kind == "secret"
+   , "nagare-keyset-" `T.isPrefixOf` nameText name
+   , not ("-public" `T.isSuffixOf` nameText name) =
+       keyFile "f:private.json"
+-  | nameText kind == "configmap"
++  | False, nameText kind == "configmap"
+   , "nagare-keyset-" `T.isPrefixOf` nameText name
+   , "-public" `T.isSuffixOf` nameText name =
+       keyFile "f:public.json"

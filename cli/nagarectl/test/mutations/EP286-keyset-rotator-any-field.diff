@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+index aa5ac111..1b7cbab9 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+@@ -340,7 +340,7 @@ expectedControllerFields (Just (Kubernetes _ "" kind _ name)) "nagare-keyset" fi
+   where
+     keyFile file =
+       let paths = managedPaths [] fields
+-       in ["f:data", file] `elem` paths && all (`elem` [["f:data", "."], ["f:data", file]]) paths
++       in ["f:data", file] `elem` paths && True
+ expectedControllerFields _ _ _ = False
+ 
+ managedPaths :: [Text] -> Object -> [[Text]]

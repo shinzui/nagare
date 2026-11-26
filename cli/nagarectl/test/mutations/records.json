@@ -1252,5 +1252,17 @@
     "suite": "nagarectl",
     "pattern": "/another scope's host under the domain, or the domain itself, is refused by the composition/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP286-keyset-rotator-foreign",
+    "suite": "nagarectl",
+    "pattern": "/a policy change updates only the ConfigMap's policy and keeps the rotator's public file/ || /the rotator owning its key file is no foreign writer/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP286-keyset-rotator-any-field",
+    "suite": "nagarectl",
+    "pattern": "/the rotator owning any other field, or the other object's key, is foreign/",
+    "expect": "test-fails"
   }
 ]
