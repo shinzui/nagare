@@ -27,6 +27,7 @@ import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (webWorker)
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedKeySetBindings, compileApplicationDeployment, compileStandaloneWorkerWithDependencies)
 import Nagare.Inventory.KeySet (keySetFirstRunJob)
+import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
@@ -81,6 +82,7 @@ keySetBindingTests =
         secretsOf "deployment" @?= [[]]
         forM_ ["service", "deployment"] $ \kind ->
           assertBool (T.unpack kind <> " is ordered after the first-run Job") (any (\(objectKind, resource, _) -> objectKind == kind && OrderedAfter firstRun `elem` resource ^. #dependencies) objects)
+        validateSuppliedKubernetesMembers (map fst (Map.elems compiled)) compiled @?= Right ()
         either (map (^. #message) . NE.toList) (const []) (compileApplicationDeployment (input app))
           @?= ["database dependencies must cover exactly the workload bindings"]
     ]

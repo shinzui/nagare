@@ -42,6 +42,12 @@ keySetCmd =
                     (KeySetStatus <$> optional (strArgument (metavar "NAME" <> help "One key set; every accepted key set when omitted")) <**> helper)
                     (progDesc "Show each accepted key set's published keys and recorded rotations, read from its public file")
                 )
+              <> command
+                "retire"
+                ( info
+                    (KeySetRetire <$> strArgument (metavar "NAME") <*> strOption (long "save-plan" <> metavar "DIRECTORY" <> help "Directory to save the review in") <**> helper)
+                    (progDesc "Save a review that retires a key set no workload binds; the inventory collect review it prints then deletes its keys")
+                )
           )
           <**> helper
     )

@@ -55,7 +55,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.KeySet.Rotator (encodePolicy, keySetPublicName, keySetSecretName, policyFileKey, privateFileKey, publicFileKey)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
-import Nagare.Resource.Policy (DataPolicy (Stateless), DelegatedOperation (RefreshCredential), Delegation (..), LifecyclePolicy (Retain), Sensitivity (Private, Public, Secret))
+import Nagare.Resource.Policy (DataPolicy (Stateless), DelegatedOperation (RefreshCredential), Delegation (..), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private, Public, Secret))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -123,7 +123,7 @@ compileStandaloneKeySet input = do
                   , clusterId = input ^. #cluster
                   , inputObject = value
                   , objectDigest = contentDigest native
-                  , lifecyclePolicy = Retain
+                  , lifecyclePolicy = DeleteWhenUnreferenced
                   , inputDataPolicy = Stateless
                   , inputSensitivity = sensitivity
                   , sourceLocation = input ^. #source

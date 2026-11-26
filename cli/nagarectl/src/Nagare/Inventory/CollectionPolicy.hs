@@ -2,12 +2,15 @@
 -- native executor. Planning, read-only screening, and preparation must agree.
 module Nagare.Inventory.CollectionPolicy
   ( supportsRetainedCollection
+  , collectionWaves
   , requiresControllerCollection
   , retainedConsumerInert
   )
 where
 
 import Data.Generics.Labels ()
+import Data.List (partition)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.CloudCollection (cloudCollectionEligible)
@@ -31,6 +34,10 @@ supportsRetainedCollection declaration =
       (PulumiExecutor, _) -> cloudCollectionEligible declaration
       (CdnExecutor, DnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
       (CdnExecutor, CloudflareDnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
+      -- EP-286: of all Secrets, only a key set's own, whose keys a rebuilt
+      -- cluster generates anew, so its deletion loses nothing a review cannot say.
+      (KubernetesExecutor, Kubernetes _ "" kind (Just _) name)
+        | nameText kind == "secret" -> keySetSecret (nameText name)
       (KubernetesExecutor, Kubernetes _ "" kind (Just _) _) ->
         nameText kind `elem` ["configmap", "service", "persistentvolumeclaim", "serviceaccount"]
       -- Database and broker StatefulSets declare no durable data themselves:
@@ -50,6 +57,11 @@ supportsRetainedCollection declaration =
       (KubernetesExecutor, Kubernetes _ "networking.internal.knative.dev" kind (Just _) _) ->
         nameText kind == "ingress"
       _ -> False
+  where
+    keySetSecret name =
+      "standalone:keyset-" `T.isPrefixOf` scopeIdText (declaration ^. #owner)
+        && "nagare-keyset-" `T.isPrefixOf` name
+        && not ("-public" `T.isSuffixOf` name)
 
 -- | Knative does not block orphaning a DomainMapping's controller children, so
 -- an Orphan DELETE silently leaves its KIngress programming the shared gateway
@@ -59,3 +71,16 @@ requiresControllerCollection declaration =
   case (declaration ^. #executor, declaration ^. #address) of
     (KubernetesExecutor, Kubernetes _ "serving.knative.dev" kind (Just _) _) -> nameText kind == "domainmapping"
     _ -> False
+
+-- | The order in which retired members can be collected: a member is refused
+-- while another retained member depends on it, even one collected in the same
+-- review, so each wave holds the members no remaining member depends on, and
+-- each wave is its own collect review. A cycle is left as a last wave.
+collectionWaves :: [ManagedResource] -> [[ResourceId]]
+collectionWaves = go
+  where
+    go [] = []
+    go remaining =
+      let targets = Set.fromList [target | member <- remaining, target <- map dependencyProducer (member ^. #dependencies)]
+          (wave, rest) = partition (\member -> Set.notMember (member ^. #identity) targets) remaining
+       in if null wave then [map (^. #identity) remaining] else map (^. #identity) wave : go rest

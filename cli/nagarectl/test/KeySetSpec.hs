@@ -26,15 +26,21 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, addUTCTime)
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
+import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.KeySet
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkNamespace)
 import Nagare.Inventory.Adapters.CredentialTemplate (generatedCredentialTemplate)
+import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
+import Nagare.Inventory.Command.Effects (collectionEffects)
 import Nagare.Inventory.KeySet
 import Nagare.Inventory.KubernetesConfiguration (foreignFieldManagers)
+import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
+import Nagare.Inventory.ObjectBucket (boundBy)
 import Nagare.KeySet (KeyPair (..), emptyKeySet, encodePublicKeySet, rotateStep)
 import Nagare.Resource.Inventory
-import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced, Retain))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Test.Tasty
@@ -44,7 +50,7 @@ keySetTests :: TestTree
 keySetTests =
   testGroup
     "key set scope"
-    [ testCase "a key set is seven members in its namespace, all retained and stateless" $ do
+    [ testCase "a key set is seven members in its namespace, all stateless and collectable once retired" $ do
         (scope, native) <- expectRight (compileKeySet rotatorImage viewGrants)
         scopeIdText (scopeId scope) @?= "standalone:keyset-view-grants"
         sort [located resource | (resource, _) <- Map.elems native]
@@ -58,7 +64,7 @@ keySetTests =
             , ("serviceaccount", "personal", "nagare-keyset-view-grants")
             ]
         forM_ (Map.elems native) $ \(resource, _) -> do
-          resource ^. #lifecycle @?= Retain
+          resource ^. #lifecycle @?= DeleteWhenUnreferenced
           resource ^. #dataPolicy @?= Stateless
         scopeKeySet scope @?= Just viewGrants
     , testCase "no reviewed byte holds a key: the Secret has no data and the ConfigMap only the policy" $ do
@@ -110,10 +116,35 @@ keySetTests =
               ]
         -- A private file is never what status reads, but it parses the same.
         assertBool "a malformed file is refused" (either (const True) (const False) (keySetStatusLines viewGrants "{}"))
+    , testCase "every member rebinds from its own bytes" $ do
+        (_, native) <- expectRight (compileKeySet rotatorImage viewGrants)
+        validateSuppliedKubernetesMembers (map fst (Map.elems native)) native @?= Right ()
     , testCase "a mutable image is refused" $
         case compileKeySet "k3d-registry.localhost:5000/nagare-admin-api:latest" viewGrants of
           Left errors -> map (^. #code) (NE.toList errors) @?= ["invalid-key-set"]
           Right _ -> assertFailure "a mutable image compiled"
+    , testCase "once retired every member is collectable, and only a key set's own Secret among Secrets" $ do
+        (_, native) <- expectRight (compileKeySet rotatorImage viewGrants)
+        forM_ (Map.elems native) $ \(resource, _) -> assertBool (show (located resource)) (supportsRetainedCollection resource)
+        let secret = memberOf "secret" native
+            elsewhere = secret & #owner .~ ok (mkScopeId Standalone "bucket-view-grants")
+            otherName = secret & #address .~ Kubernetes clusterId "" (ok (mkName "secret")) (Just (ok (mkName "personal"))) (ok (mkName "app-secrets"))
+            retained = secret & #lifecycle .~ Retain
+        assertBool "a Secret in another scope is collectable" (not (supportsRetainedCollection elsewhere))
+        assertBool "another Secret of a key set scope is collectable" (not (supportsRetainedCollection otherName))
+        assertBool "a retained Secret is collectable" (not (supportsRetainedCollection retained))
+        (arguments, _) <- either (assertFailure . T.unpack) pure (collectionDeleteRequest (secret ^. #address) (ok (mkPhysicalIdentity "uid-1")) "7")
+        arguments @?= ["delete", "--raw", "/api/v1/namespaces/personal/secrets/nagare-keyset-view-grants", "-f", "-"]
+        map (^. #loses) (collectionEffects (map fst (Map.elems native)))
+          @?= ["the private keys of key set view-grants in personal are destroyed; every signature made with them stops verifying"]
+    , testCase "a workload ordered after the first-run Job binds the key set" $ do
+        (scope, native) <- expectRight (compileKeySet rotatorImage viewGrants)
+        firstRun <- maybe (assertFailure "no first-run Job" >> pure (memberOf "job" native ^. #identity)) pure (keySetFirstRunJob native (scopeId scope))
+        let consumer = (memberOf "configmap" native) & #identity .~ mintResourceId (ok (mkScopeId Standalone "worker-content-app")) (ok (mkLogicalKey "content-app")) (ok (mkName "deployment")) & #owner .~ ok (mkScopeId Standalone "worker-content-app") & #dependencies .~ [OrderedAfter firstRun]
+            other = ok (mkScopeDeclaration (ok (mkScopeId Standalone "worker-content-app")) [ResourceBundle [Managed consumer] [] [] [] [] []])
+            snapshot scopes = ok (mkScopeSnapshot fixtureBinding (Map.fromList [(scopeId found, (ok (mkScopeGeneration 1), found)) | found <- scopes]) Map.empty)
+        boundBy (snapshot [scope]) scope @?= []
+        boundBy (snapshot [scope, other]) scope @?= [consumer ^. #identity]
     , testGroup
         "the rotator's field ownership"
         [ testCase "the rotator owning its key file is no foreign writer" $ do

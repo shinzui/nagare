@@ -146,6 +146,7 @@ import Nagare.Inventory.Application
   , legacyApplicationReleaseImport
   , reviewedTaskImages
   )
+import Nagare.Inventory.CollectionPolicy (collectionWaves)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedAppNamespace, acceptedFoundationNamespace)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
@@ -588,12 +589,23 @@ runAppDeployPlan mctx params appOptions output = do
               candidate
               (databases <> routes)
               output
+            -- A member is refused while a retained member depends on it, so the route is
+            -- collected leaves first, one review per wave (the Ingress before its Certificate).
+            let retiredRoute =
+                  [ member
+                  | Just (_, owned) <- [Map.lookup (ResourceInventory.scopeId scope) (ResourceInventory.snapshotScopes snapshot)]
+                  , bundle <- ResourceInventory.scopeBundles owned
+                  , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                  , member ^. #identity `elem` routes
+                  ]
             unless (null routes) $
               TIO.hPutStrLn
                 stderr
-                ( "After this review is applied, delete the retired content route with:\n  nagarectl inventory collect "
-                    <> T.unwords ["--resource " <> Resource.resourceIdText resource | resource <- routes]
-                    <> " --out DIR"
+                ( "After this review is applied, delete the retired content route with one collect review per step, each applied before the next:"
+                    <> T.concat
+                      [ "\n  nagarectl inventory collect " <> T.unwords ["--resource " <> Resource.resourceIdText resource | resource <- wave] <> " --out DIR-" <> T.show step
+                      | (step, wave) <- zip [1 :: Int ..] (collectionWaves retiredRoute)
+                      ]
                 )
       (Just proposal, Just _) ->
         Inventory.planInventoryCandidateAdoptionWith

@@ -61,7 +61,7 @@ collectionKinds :: [(Text, Text)]
 collectionKinds =
   [ (group, kind)
   | (group, kinds) <-
-      [ ("", ["configmap", "service", "persistentvolumeclaim", "serviceaccount"])
+      [ ("", ["configmap", "secret", "service", "persistentvolumeclaim", "serviceaccount"])
       , ("apps", ["statefulset"])
       , ("rbac.authorization.k8s.io", ["role", "rolebinding"])
       , ("batch", ["cronjob", "job"])
@@ -74,7 +74,7 @@ collectionKinds =
 
 collectionPathPrefix :: Text -> Text -> Maybe String
 collectionPathPrefix "" kind
-  | kind `elem` ["configmap", "service", "persistentvolumeclaim", "serviceaccount"] = Just "/api/v1"
+  | kind `elem` ["configmap", "secret", "service", "persistentvolumeclaim", "serviceaccount"] = Just "/api/v1"
 collectionPathPrefix "apps" "statefulset" = Just "/apis/apps/v1"
 collectionPathPrefix "rbac.authorization.k8s.io" kind
   | kind `elem` ["role", "rolebinding"] = Just "/apis/rbac.authorization.k8s.io/v1"

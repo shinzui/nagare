@@ -64,7 +64,7 @@ ROUTES = {
     # EP-283: a bucket is one reviewed standalone scope; status reads the store.
     "BucketCommand": {"read": "BucketStatus", "reviewed": "BucketPlan BucketRetire"},
     # EP-286: a key set is one reviewed standalone scope; status reads its public ConfigMap.
-    "KeySetCommand": {"read": "KeySetStatus", "reviewed": "KeySetPlan"},
+    "KeySetCommand": {"read": "KeySetStatus", "reviewed": "KeySetPlan KeySetRetire"},
     "ContextCommand": {
         "read": "ContextList ContextCurrent ContextShow ContextGuard ContextEnv",
         "local": "ContextUse",

@@ -159,7 +159,8 @@ kindTable =
   , inLine ("batch", "job") fixed CanFail
   , inLine ("", "configmap") updatable NoReadiness
   , inLine ("", "service") updatable NoReadiness
-  , inLine ("", "secret") (migratable updatable) NoReadiness
+  , -- EP-286: a key set's Secret is collected with its scope.
+    inLine ("", "secret") (KindCollect : migratable updatable) NoReadiness
   , inLine ("", "persistentvolumeclaim") (migratable updatable) NoReadiness
   , inLine ("", "serviceaccount") fixed NoReadiness
   , inLine ("", "namespace") updatable NoReadiness

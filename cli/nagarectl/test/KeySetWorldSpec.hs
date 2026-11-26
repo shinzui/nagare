@@ -24,15 +24,18 @@ import KeySetSpec (compileKeySet, rotatorImage, viewGrants)
 import Nagare.Database.Secret (b64encode)
 import Nagare.Dsl.KeySet
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Adapter (AdapterRegistry, OperationAction (..), PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
+import Nagare.Inventory.Adapter (AdapterRegistry, ObservationSet, OperationAction (..), PlannedOperation (..), mkAdapterRegistry, observeWithRegistry)
+import Nagare.Inventory.CollectionPolicy (collectionWaves)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
-import Nagare.Inventory.Lifecycle (decideMemberRetirement)
+import Nagare.Inventory.KeySet (keySetScopeId)
+import Nagare.Inventory.Lifecycle (decideCollection, decideMemberRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status (kubernetesMembersForReview)
 import Nagare.Inventory.Store
 import Nagare.KeySet.Rotator (keySetFieldManager)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (RetirementIntent (RetainResources))
 import Nagare.Resource.Types
 import Nagare.Test.World.Adversary (Adversary, Boundary (..), Call (MutateCall), Fault (LostAcknowledgement), newAdversary)
 import Nagare.Test.World.ApiServer (ObjectKey (..), Outcome (Failed), Stored, patchUpdate)
@@ -123,6 +126,22 @@ keySetWorldTests =
         assertBool "the CronJob is updated" (UpdateResource `elem` changing proposal')
         Map.size <$> live run "job" >>= (@?= 2)
         dataOf run secretKey >>= (@?= Map.fromList [("private.json", String (b64 privateKey))])
+    , testCase "a retired key set keeps its objects, and collecting it deletes all seven, its private keys included" $ do
+        run <- newRun []
+        (native, _, result) <- plan run Map.empty rotatorImage viewGrants
+        converged result
+        rotate run
+        let owner = ok (keySetScopeId viewGrants)
+            members = Map.keys native
+        retired <- changed run native (RetireScope owner RetainResources NE.:| []) (decideMemberRetirement members)
+        converged retired
+        Map.member secretKey <$> live run "secret" >>= (@?= True)
+        -- One collect review per wave, leaves first: a member is refused while a retained member depends on it.
+        let waves = collectionWaves (map fst (Map.elems native))
+        length waves @?= 3
+        forM_ waves $ \wave -> changed run native (NE.fromList (map CollectRetained wave)) decideCollection >>= converged
+        forM_ ["secret", "configmap", "serviceaccount", "role", "rolebinding", "cronjob", "job"] $ \kind ->
+          Map.size <$> live run kind >>= (@?= 0)
     ]
   where
     secretKey = ObjectKey "" "secret" (Just "personal") "nagare-keyset-view-grants"
@@ -215,6 +234,28 @@ reviewedProposal run previous image' declared = do
   let executing = ok (mkAdapterRegistry [executor])
   result <- applyReviewed (store run) executing reviewed >>= expectRight
   pure (members, proposal', review, executing, result)
+
+-- | Review and apply one inventory change against the accepted state, with
+-- the lifecycle decisions it needs, as @keyset retire@ or @inventory collect@
+-- then @inventory apply@ do. The members are bound from their accepted bytes.
+changed :: Run -> Members -> NE.NonEmpty ScopeChange -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NE.NonEmpty PlanError) LifecycleDecisions) -> IO TransactionResult
+changed run accepted changes decide = do
+  history <- loadInventoryHistory (store run) >>= expectRight
+  let base = Map.map (\(revision, scope) -> (revisionGeneration revision, scope)) (historyAccepted history)
+      candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding base (historyReservations history))) changes)
+  planning <- loadInventoryPlanningHistory (store run) candidate >>= expectRight
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) accepted (world run) (adversary run)
+  let registry' = ok (mkAdapterRegistry [adapter])
+  observations <- observeWithRegistry registry' (requirementsByExecutor (observationRequirements candidate planning)) >>= expectRight
+  before <- readStoreSnapshot (store run) >>= expectRight
+  let proposal' = ok (planChanges candidate (ok (decide candidate planning observations)) planning observations)
+  review <- prepareReview registry' before proposal' >>= expectRight
+  _ <- publishReview (store run) review >>= expectRight
+  snapshot <- readStoreSnapshot (store run) >>= expectRight
+  reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot review)
+  reviewMembers <- kubernetesMembersForReview (store run) review accepted >>= expectRight
+  executor <- worldKubernetesAdapter (fixtureBinding ^. #identity) reviewMembers (world run) (adversary run)
+  applyReviewed (store run) (ok (mkAdapterRegistry [executor])) reviewed >>= expectRight
 
 converged :: TransactionResult -> Assertion
 converged = \case

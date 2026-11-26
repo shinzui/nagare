@@ -18,7 +18,7 @@ authority.
 | `NixCacheCommand` | 3 | none |
 | `DelegationCommand` | 5 | none |
 | `BucketCommand` | 3 | none |
-| `KeySetCommand` | 2 | none |
+| `KeySetCommand` | 3 | none |
 | `ContextCommand` | 11 | none |
 | `MoveCommand` | 7 | none |
 | `InfraCommand` | 5 | none |

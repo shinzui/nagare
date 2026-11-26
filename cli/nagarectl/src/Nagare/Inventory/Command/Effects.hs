@@ -82,5 +82,9 @@ collectionEffects = concatMap effect
       Kubernetes _ "cert-manager.io" kind namespace name
         | nameText kind == "certificate" ->
             [ReviewEffect (member ^. #identity) ("the certificate " <> located namespace name <> " and the Secret holding its private key are deleted")]
+      Kubernetes _ "" kind namespace name
+        | nameText kind == "secret"
+        , Just keySet <- T.stripPrefix "nagare-keyset-" (nameText name) ->
+            [ReviewEffect (member ^. #identity) ("the private keys of key set " <> keySet <> " in " <> maybe "" nameText namespace <> " are destroyed; every signature made with them stops verifying")]
       _ -> []
     located namespace name = maybe "" ((<> "/") . nameText) namespace <> nameText name

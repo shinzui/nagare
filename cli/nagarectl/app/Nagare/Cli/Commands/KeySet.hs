@@ -30,20 +30,24 @@ import Nagare.Dsl.KeySet
 import Nagare.Dsl.Load (loadKeySets, renderLoadError)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (namespaceText)
+import Nagare.Inventory.CollectionPolicy (collectionWaves)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Command.Effects (planInventoryCandidateWithEffects)
 import Nagare.Inventory.Components.ReleaseImage (releaseImagesOwner)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.KeySet
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
+import Nagare.Inventory.ObjectBucket (boundBy)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.KeySet.Rotator (keySetPublicName, publicFileKey)
 import Nagare.Platform.ReleaseImages (renderImageSelectionError, selectImage)
 import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Policy (RetirementIntent (RetainResources))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (ActiveTarget, Mode (Local), TargetProfile, contextNameText, registryPrefix)
 import System.Exit (ExitCode (..))
+import System.IO (stderr)
 import System.IO.Temp (withSystemTempDirectory)
 
 runKeySet :: Maybe String -> KeySetCommand -> IO ()
@@ -54,6 +58,20 @@ runKeySet mctx = \case
     active <- activeTarget mctx
     snapshot <- Inventory.loadTargetSnapshot active
     planKeySets active snapshot (T.pack (o ^. #file)) keySets (o ^. #savePlan)
+  KeySetRetire name output -> do
+    active <- activeTarget mctx
+    snapshot <- Inventory.loadTargetSnapshot active
+    scope <- maybe (dieT ("no accepted key set is named " <> T.pack name)) pure (lookup (T.pack name) [(label, found) | (label, (found, _)) <- acceptedKeySetScopes snapshot])
+    case boundBy snapshot scope of
+      [] -> pure ()
+      consumers -> dieT ("keyset-still-bound: key set " <> T.pack name <> " is bound by " <> T.intercalate ", " (map Resource.resourceIdText consumers) <> "; remove the binding and deploy first")
+    accepted <- loadAcceptedNative active snapshot
+    let owner = ResourceInventory.scopeId scope
+        members = Map.filter ((== owner) . (^. #owner) . fst) accepted
+    candidate <- either (dieT . renderErrors) pure (ResourceInventory.composeInventory snapshot (ResourceInventory.RetireScope owner RetainResources NE.:| []))
+    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    planInventoryCandidateWithEffects (inventoryPlanRegistryWithNative active workspace members) active candidate (Map.keys members) [] output
+    TIO.hPutStrLn stderr (collectSteps "the key set's objects, its private keys included," (collectionWaves (map fst (Map.elems members))))
   KeySetStatus selected -> do
     active <- activeTarget mctx
     snapshot <- Inventory.loadTargetSnapshotReadOnly active
@@ -84,8 +102,11 @@ publicFile body = case Aeson.decodeStrict body of
 
 -- | The accepted key sets by name.
 acceptedKeySets :: ResourceInventory.ScopeSnapshot -> [(Text, KeySet)]
-acceptedKeySets snapshot =
-  [ (keySetNameText (declared ^. #name), declared)
+acceptedKeySets snapshot = [(label, declared) | (label, (_, declared)) <- acceptedKeySetScopes snapshot]
+
+acceptedKeySetScopes :: ResourceInventory.ScopeSnapshot -> [(Text, (ResourceInventory.ScopeDeclaration, KeySet))]
+acceptedKeySetScopes snapshot =
+  [ (keySetNameText (declared ^. #name), (scope, declared))
   | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
   , Just declared <- [scopeKeySet scope]
   ]
@@ -161,6 +182,14 @@ loadAcceptedNative active snapshot = do
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
   fst <$> (InventoryStatus.loadAcceptedNative store history inventory >>= either dieT pure)
+
+-- | The collect reviews that delete retired members, one per wave, in order.
+collectSteps :: Text -> [[Resource.ResourceId]] -> Text
+collectSteps what waves =
+  "After this review is applied, delete "
+    <> what
+    <> " with one collect review per step, each applied before the next:"
+    <> T.concat ["\n  nagarectl inventory collect " <> T.unwords ["--resource " <> Resource.resourceIdText resource | resource <- wave] <> " --out DIR-" <> T.show step | (step, wave) <- zip [1 :: Int ..] waves]
 
 renderErrors :: NE.NonEmpty Resource.InventoryError -> Text
 renderErrors = T.intercalate "; " . map (\err -> err ^. #code <> ": " <> err ^. #message) . NE.toList
