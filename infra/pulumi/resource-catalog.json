@@ -81,5 +81,22 @@
     {"type": "gcp:dns/dnsManagedZoneIamMember:DnsManagedZoneIamMember", "name": "nagare-content-{domain}-iam-dns-zone", "parent": "nagare-content-{domain}", "layer": 23},
     {"type": "gcp:dns/recordSet:RecordSet", "name": "nagare-content-{domain}-apex", "parent": "nagare-content-{domain}", "layer": 23},
     {"type": "gcp:dns/recordSet:RecordSet", "name": "nagare-content-{domain}-wildcard", "parent": "nagare-content-{domain}", "layer": 23}
+  ],
+  "workloadIdentityEnabled": [
+    {"type": "nagare:env:NagareWorkloadIdentity", "name": "nagare-workload-identity", "parent": null, "layer": 24},
+    {"type": "gcp:iam/workloadIdentityPool:WorkloadIdentityPool", "name": "nagare-workload-identity-pool", "parent": "nagare-workload-identity", "layer": 25},
+    {"type": "gcp:iam/workloadIdentityPoolProvider:WorkloadIdentityPoolProvider", "name": "nagare-workload-identity-provider", "parent": "nagare-workload-identity", "layer": 26}
+  ],
+  "appBucketEnabled": [
+    {"type": "nagare:env:NagareAppBucket", "name": "nagare-bucket-{bucket}", "parent": null, "layer": 27},
+    {"type": "gcp:storage/bucket:Bucket", "name": "nagare-bucket-{bucket}-bucket", "parent": "nagare-bucket-{bucket}", "layer": 28}
+  ],
+  "appBucketGrantEnabled": [
+    {"type": "gcp:serviceaccount/account:Account", "name": "nagare-bucket-{bucket}-{grant}-sa", "parent": "nagare-bucket-{bucket}", "layer": 28},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-bucket-{bucket}-{grant}-access", "parent": "nagare-bucket-{bucket}", "layer": 29},
+    {"type": "gcp:serviceaccount/iAMMember:IAMMember", "name": "nagare-bucket-{bucket}-{grant}-federation", "parent": "nagare-bucket-{bucket}", "layer": 29}
+  ],
+  "appBucketSignerEnabled": [
+    {"type": "gcp:serviceaccount/iAMMember:IAMMember", "name": "nagare-bucket-{bucket}-{grant}-signer", "parent": "nagare-bucket-{bucket}", "layer": 29}
   ]
 }

@@ -24,6 +24,19 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
     if (variant.includes("lifecycle-worker")) config["nagare:enableLifecycleWorker"] = "true";
     if (variant.includes("content-domain")) config["nagare:contentDomains"] = "example.org";
+    if (variant.includes("app-bucket")) {
+        config["nagare:workloadIdentity"] = JSON.stringify({ issuer: "https://kubernetes.default.svc.cluster.local", jwks: { keys: [{ kty: "RSA", alg: "RS256", use: "sig", kid: "k1", n: "AQAB", e: "AQAB" }] } });
+        config["nagare:appBuckets"] = JSON.stringify([{
+            name: "publications",
+            bucket: "example-project-dev-publications",
+            retired: false,
+            expire: [{ prefix: "staging/", afterDays: 1 }],
+            grants: [
+                { subject: "system:serviceaccount:personal:nagare-wl-api", accountId: "nagare-wl-signer", access: "read-write", signUrls: true },
+                { subject: "system:serviceaccount:personal:nagare-wl-gateway", accountId: "nagare-wl-reader", access: "read-only", signUrls: false },
+            ],
+        }]);
+    }
     if (variant.includes("delegated-deployer")) {
         config["nagare:delegatedDeployers"] = JSON.stringify([
             { name: "example", accountId: "nagare-deployer-example", imageRepository: "us-west1-docker.pkg.dev/example-project/example-images" },
@@ -176,6 +189,7 @@ async function main(): Promise<void> {
     const foundationManagedDeployer = runVariant("foundation-managed-delegated-deployer");
     const foundationManagedLifecycleWorker = runVariant("foundation-managed-lifecycle-worker");
     const foundationManagedContentDomain = runVariant("foundation-managed-content-domain");
+    const foundationManagedAppBucket = runVariant("foundation-managed-app-bucket");
     // ADR 34: a tunnel context keeps only the IAP SSH rule and declares no Cloud DNS.
     const tunnel = runVariant("foundation-managed-image-tunnel");
     const tunnelNames = names(tunnel);
@@ -232,6 +246,7 @@ async function main(): Promise<void> {
     verifyGuardedVariant("foundation-managed-delegated-deployer", foundationManagedDeployer);
     verifyGuardedVariant("foundation-managed-lifecycle-worker", foundationManagedLifecycleWorker);
     verifyGuardedVariant("foundation-managed-content-domain", foundationManagedContentDomain);
+    verifyGuardedVariant("foundation-managed-app-bucket", foundationManagedAppBucket);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
@@ -250,6 +265,10 @@ async function main(): Promise<void> {
         delegatedDeployerEnabled: CatalogEntry[];
         lifecycleWorkerEnabled: CatalogEntry[];
         contentDomainEnabled: CatalogEntry[];
+        workloadIdentityEnabled: CatalogEntry[];
+        appBucketEnabled: CatalogEntry[];
+        appBucketGrantEnabled: CatalogEntry[];
+        appBucketSignerEnabled: CatalogEntry[];
     };
     assert(catalog.version === 1, "cloud resource catalog version changed");
     const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
@@ -341,7 +360,42 @@ async function main(): Promise<void> {
     let tunnelRefused = false;
     try { runVariant("foundation-managed-image-tunnel-content-domain"); } catch { tunnelRefused = true; }
     assert(tunnelRefused, "a tunnel context declared a content domain");
-    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled, deployerEntries, catalog.lifecycleWorkerEnabled, contentEntries);
+    // EP-284: the pool is one section, present only with a bucket. The bucket section is a template
+    // instantiated per nagare:appBuckets entry with its name for {bucket}; the grant section per grant
+    // of that bucket with its accountId for {grant}; the signer section only for a grant that signs.
+    // An existing context adds a bucket later, so these layers sit above every other section's, and
+    // the pool's below the buckets', whose federation grants name it.
+    const instantiate = (entries: CatalogEntry[], values: Record<string, string>) => entries.map((entry) => {
+        const fill = (raw: string) => Object.entries(values).reduce((text, [placeholder, value]) => text.split(`{${placeholder}}`).join(value), raw);
+        return { ...entry, key: fill(entry.key ?? entry.name), name: fill(entry.name), parent: entry.parent === null ? null : fill(entry.parent) };
+    });
+    assert(catalog.appBucketEnabled.every((entry) => entry.name.includes("{bucket}")), "an app bucket catalog entry is not per bucket");
+    assert(catalog.appBucketGrantEnabled.concat(catalog.appBucketSignerEnabled).every((entry) => entry.name.includes("{bucket}") && entry.name.includes("{grant}")),
+        "an app bucket grant catalog entry is not per bucket and grant");
+    const bucketEntries = catalog.workloadIdentityEnabled.concat(
+        instantiate(catalog.appBucketEnabled, { bucket: "publications" }),
+        instantiate(catalog.appBucketGrantEnabled, { bucket: "publications", grant: "nagare-wl-signer" }),
+        instantiate(catalog.appBucketSignerEnabled, { bucket: "publications", grant: "nagare-wl-signer" }),
+        instantiate(catalog.appBucketGrantEnabled, { bucket: "publications", grant: "nagare-wl-reader" }),
+    );
+    const bucketNames = catalog.foundationManaged.concat(bucketEntries).map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeBucketNames = foundationManagedAppBucket.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(bucketNames) === JSON.stringify(nativeBucketNames),
+        "reviewed cloud app bucket catalog differs from registrations in the actual Pulumi program");
+    const bucketFloor = Math.min(...bucketEntries.map((entry) => entry.layer));
+    assert(bucketFloor > Math.max(...otherLayers, ...catalog.adminApiReaderEnabled.map((entry) => entry.layer), ...deployerEntries.map((entry) => entry.layer), ...catalog.lifecycleWorkerEnabled.map((entry) => entry.layer), ...contentEntries.map((entry) => entry.layer)),
+        "an app bucket layer is not above every other catalog layer");
+    assert(Math.max(...catalog.workloadIdentityEnabled.map((entry) => entry.layer)) < Math.min(...bucketEntries.filter((entry) => entry.name.startsWith("nagare-bucket-")).map((entry) => entry.layer)),
+        "a workload identity layer is not below every app bucket layer");
+    assert(JSON.stringify(runOutputs("foundation-managed-app-bucket")) === JSON.stringify(baseOutputs), "an app bucket changes the stack outputs");
+    for (const [label, registrations] of Object.entries({ base, foundationManaged, foundationManagedContentDomain, tunnel })) {
+        assert(!registrations.some(({ pulumiName }) => pulumiName.startsWith("nagare-bucket-") || pulumiName.startsWith("nagare-workload-identity")), `${label} declares an app bucket or pool`);
+    }
+    // Buckets apply to a tunnel context too.
+    const tunnelBucket = runVariant("foundation-managed-image-tunnel-app-bucket");
+    assert(JSON.stringify([...names(tunnelBucket)].filter((key) => !names(tunnel).has(key)).sort()) === JSON.stringify(nativeBucketNames.filter((key) => !catalogNames.includes(key))),
+        "a tunnel context does not declare the same app bucket resources");
+    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled, deployerEntries, catalog.lifecycleWorkerEnabled, contentEntries, bucketEntries);
     const byKey = new Map(allEntries.map((entry) => [entry.key ?? entry.name, entry]));
     assert(byKey.size === allEntries.length, "cloud catalog has duplicate logical keys");
     for (const entry of allEntries) {

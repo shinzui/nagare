@@ -6,6 +6,8 @@ import { NagareAdminApiReader } from "./src/components/NagareAdminApiReader";
 import { NagareLifecycleWorker } from "./src/components/NagareLifecycleWorker";
 import { NagareDelegatedDeployer, delegatedRepositoryId, parseDelegatedDeployers } from "./src/components/NagareDelegatedDeployer";
 import { NagareContentDomain, contentDomainSlug, parseContentDomains } from "./src/components/NagareContentDomain";
+import { NagareWorkloadIdentity, parseWorkloadIdentity, workloadIdentityPoolId } from "./src/components/NagareWorkloadIdentity";
+import { NagareAppBucket, appBucketComponentName, parseAppBuckets } from "./src/components/NagareAppBucket";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
@@ -64,6 +66,12 @@ const retainedDnsNameCfg = cfg.get("retainedDnsName") || undefined;
 // NAGARE_CONTENT_DOMAINS and never on a tunnel context; absent, so an existing stack previews unchanged.
 const contentDomainsCfg = parseContentDomains(cfg.get("contentDomains"));
 if (tunnelCfg && contentDomainsCfg.length > 0) throw new Error("a tunnel context serves no content domain");
+// EP-284: the accepted app buckets and the cluster issuer their workloads federate through. nagarectl
+// derives both on every cloud context, tunnel or direct, and the identity only while a bucket exists;
+// absent, so an existing stack previews unchanged.
+const appBucketsCfg = parseAppBuckets(cfg.get("appBuckets"));
+const workloadIdentityCfg = parseWorkloadIdentity(cfg.get("workloadIdentity"));
+if (appBucketsCfg.length > 0 && workloadIdentityCfg === undefined) throw new Error("nagare:appBuckets needs nagare:workloadIdentity");
 // EP-243: set only while a move has disabled the web rules; absent, the rules are unchanged.
 const webRulesDisabledCfg = cfg.getBoolean("webRulesDisabled") ?? false;
 
@@ -207,6 +215,29 @@ for (const domain of contentDomainsCfg) {
         vmAddress: perimeter.publicIp,
         serviceAccountEmail: perimeter.serviceAccountEmail,
     }, { dependsOn: apiServices });
+}
+
+// No stack output, as the content domains have none: a new output would change every existing
+// stack's preview. With no bucket there is no pool either. The pool is named after the context,
+// which is the stack.
+if (appBucketsCfg.length > 0 && workloadIdentityCfg !== undefined) {
+    const projectNumber = gcp.organizations.getProjectOutput({ projectId: gcpProject }).number;
+    const identity = shouldDeclareResource("nagare:env:NagareWorkloadIdentity", "nagare-workload-identity") ? new NagareWorkloadIdentity("nagare-workload-identity", {
+        gcpProject,
+        projectNumber,
+        context: pulumi.getStack(),
+        config: workloadIdentityCfg,
+    }, { dependsOn: apiServices }) : undefined;
+    for (const entry of appBucketsCfg) {
+        const name = appBucketComponentName(entry.name);
+        if (shouldDeclareResource("nagare:env:NagareAppBucket", name)) new NagareAppBucket(name, {
+            gcpProject,
+            region,
+            projectNumber,
+            poolId: workloadIdentityPoolId(pulumi.getStack()),
+            entry,
+        }, { dependsOn: identity === undefined ? apiServices : [...apiServices, identity] });
+    }
 }
 
 // Integration Point 1 — the stable core stack-output names. The exported
