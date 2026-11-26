@@ -1264,5 +1264,11 @@
     "suite": "nagarectl",
     "pattern": "/the rotator owning any other field, or the other object's key, is foreign/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP286-keyset-verifier-holds-secret",
+    "suite": "nagarectl",
+    "pattern": "/a verifier mounts only the public file and its manifest never names the key set's Secret/ || /an Application's service signs and its worker verifies, each after the first run/",
+    "expect": "test-fails"
   }
 ]
