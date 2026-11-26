@@ -174,6 +174,8 @@ All four child plans are complete, and so is the final gate:
     and the three content hosts in one deploy of the example). IR-55's criteria: AC-1 EP-283 M4
     and EP-284 M2/M4; AC-2 EP-284 M4; AC-3 EP-285 M4 (both halves); AC-4 EP-286 M4; AC-5 EP-283
     M5, EP-284 M5, EP-285 M5 (cloud transcript) and EP-286 M5.
+    Hanmoto learns the revision from IR-55's resolution (`mori://shinzui/hanmoto` filed it and
+    reads it through Mori): qualify `8e6a26a2` or later. No Hanmoto session was running to message.
 
 
 ## Surprises & Discoveries
