@@ -28,7 +28,8 @@ PORT = int(os.environ.get("PORT", os.environ.get("WHOAMI_PORT_NUMBER", "8080")))
 
 
 def client():
-    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/devstorage.read_write"])
+    # cloud-platform: signing calls IAM signBlob, which a storage-only scope refuses.
+    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     project = ACCOUNT.split("@", 1)[1].split(".", 1)[0] if "@" in ACCOUNT else None
     return storage.Client(project=project, credentials=credentials), credentials
 
