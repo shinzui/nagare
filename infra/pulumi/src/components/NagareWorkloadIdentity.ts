@@ -72,6 +72,15 @@ export function parseWorkloadIdentity(raw: string | undefined): WorkloadIdentity
     return { issuer: value.issuer, jwks: { keys } };
 }
 
+// The JWKS as Google stores it. The provider re-serializes the uploaded JWKS in its own
+// layout (protobuf JSON: two-space indent, `[{ ... }, { ... }]`) and reads it back so, so
+// sending any other spelling of the same keys is a perpetual diff on `oidc.jwksJson`.
+export function googleJwksJson(jwks: { keys: Record<string, unknown>[] }): string {
+    const key = (k: Record<string, unknown>) =>
+        Object.entries(k).map(([field, value]) => `    ${JSON.stringify(field)}: ${JSON.stringify(value)}`).join(",\n");
+    return `{\n  "keys": [{\n${jwks.keys.map(key).join("\n  }, {\n")}\n  }]\n}`;
+}
+
 export class NagareWorkloadIdentity extends pulumi.ComponentResource {
     public readonly poolId: string;
     public readonly audience: pulumi.Output<string>;
@@ -98,7 +107,7 @@ export class NagareWorkloadIdentity extends pulumi.ComponentResource {
             oidc: {
                 issuerUri: args.config.issuer,
                 allowedAudiences: [this.audience],
-                jwksJson: JSON.stringify(args.config.jwks),
+                jwksJson: googleJwksJson(args.config.jwks),
             },
         }, { parent: this });
 

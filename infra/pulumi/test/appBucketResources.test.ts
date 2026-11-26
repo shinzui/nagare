@@ -122,7 +122,7 @@ async function main(): Promise<void> {
     }
     const pulumi: Pulumi = await import("@pulumi/pulumi");
     const { NagareAppBucket, parseAppBuckets } = await import("../src/components/NagareAppBucket");
-    const { parseWorkloadIdentity, workloadIdentityPoolId } = await import("../src/components/NagareWorkloadIdentity");
+    const { googleJwksJson, parseWorkloadIdentity, workloadIdentityPoolId } = await import("../src/components/NagareWorkloadIdentity");
 
     const program = runVariant("buckets");
     const pool = program.filter((r) => r.type === "gcp:iam/workloadIdentityPool:WorkloadIdentityPool");
@@ -139,6 +139,11 @@ async function main(): Promise<void> {
     assert(same(oidc.allowedAudiences, [`https://iam.googleapis.com/${poolPath}/providers/kubernetes`]), "the provider does not allow exactly its own audience");
     assert(same(JSON.parse(String(oidc.jwksJson)), jwks), "the provider's uploaded JWKS is not the cluster's, with only Google's JWK fields");
     assert(oidc.jwksUri === undefined, "the provider fetches its keys instead of using the uploaded JWKS");
+    // Google stores the JWKS in its own layout and reads it back so (seen on ep285); any other
+    // spelling is a perpetual diff on oidc.jwksJson.
+    assert(oidc.jwksJson === '{\n  "keys": [{\n    "kty": "RSA",\n    "alg": "RS256",\n    "use": "sig",\n    "kid": "k1",\n    "n": "AQAB-modulus",\n    "e": "AQAB"\n  }]\n}', "the uploaded JWKS is not in the layout Google stores");
+    const two = googleJwksJson({ keys: [{ kty: "RSA", kid: "a" }, { kty: "RSA", kid: "b" }] });
+    assert(two === '{\n  "keys": [{\n    "kty": "RSA",\n    "kid": "a"\n  }, {\n    "kty": "RSA",\n    "kid": "b"\n  }]\n}' && same(JSON.parse(two), { keys: [{ kty: "RSA", kid: "a" }, { kty: "RSA", kid: "b" }] }), "two keys are not laid out as Google stores them");
 
     const bucket = program.filter((r) => r.type === "gcp:storage/bucket:Bucket" && r.name === "nagare-bucket-publications-bucket");
     assert(bucket.length === 1, "the program does not create the app bucket");
