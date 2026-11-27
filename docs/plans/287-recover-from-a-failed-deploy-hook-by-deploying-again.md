@@ -59,11 +59,19 @@ of it is left accepted and unconverged.
       converges the third attempt with both failed Jobs kept. The retirement is planned on the
       direct path and the plain `--save-plan` path; a deploy with `--retire-database`,
       `--retire-content-route` or a legacy release import leaves it to the next deploy.
-- [ ] M4: native confirmation on a disposable local context: a hook that exits non-zero, then the
-      same `app deploy` with the hook fixed. Evidence: the two command transcripts and
-      `inventory status --json`.
-- [ ] `just mutation-check REV BASE` green, ADR 26 amended, `docs/user/deploying-apps.md` updated.
-
+- [x] M4 (2026-11-26): native confirmation on the disposable local context `ep287` (Colima profile
+      `nagare-ep287`, `mode=local`), with a release-only hook that exits 1 until a fixed time, so
+      the deploy command is identical each time. Release v2 at `b1ab3f90`: the first
+      `app deploy` exits 1 with `tx-79bc74b0…` stopped and v1 still serving; `inventory status
+      --json` shows the application and hook scopes unconverged. The same command then closes
+      that transaction, runs the hook as Job `…-hook-131ae3ea175f` beside the failed
+      `…-hook-fb04dcb6970e` (same UID, now a retained member), and converges in 14 s; status shows
+      26 of 26 scopes converged, no active transaction and one retained resource. A third run
+      plans no operation. Release v3 at `6ee95b50` repeats it: the failing deploy stops in 12 s
+      and the same command converges in 8 s. Transcripts and status documents are in
+      `~/.local/state/nagare/drills/ep287/evidence/`.
+- [x] `just mutation-check` selects no record for M3 (`b1ab3f90`, base `a329abfc`); ADR 26 amended;
+      `docs/user/deploying-apps.md` updated.
 
 ## Surprises & Discoveries
 
@@ -75,6 +83,10 @@ of it is left accepted and unconverged.
   `PrepareRefused … "Kubernetes Job has a terminal failure"`
   (`cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs:244`). A same-tag retry is
   impossible today, which is the case a database-side fix needs.
+- 2026-11-26: M4's first failing deploy took 5 minutes to stop although its Job failed in 2
+  seconds: the adapter waited for `condition=complete`, which a failed Job never reaches. The wait
+  now also asks whether the Job failed (`waitForReadiness` in
+  `cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs`); the outcome and its recovery are unchanged.
 
 
 ## Decision Log
@@ -112,7 +124,14 @@ of it is left accepted and unconverged.
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Recovering from a failed pre-deploy hook is now `app deploy` again, with the same tag or a new
+one: the deploy closes its own application's stopped transaction under ADR 26's unchanged
+admission, runs the hook as a new attempt in a new Job, and retires the failed attempt's scope
+with its Job retained, so nothing is left unconverged and nothing is deleted. A failed hook also
+stops its deploy within seconds. What remains: a hook that runs longer than five minutes still
+stops as ambiguous at the adapter's fixed wait, and the retained failed Jobs stay until someone
+collects them. The decision that a deploy may close its own application's stopped deploy, and only
+that, is recorded as an amendment to ADR 26.
 
 
 ## Context and Orientation

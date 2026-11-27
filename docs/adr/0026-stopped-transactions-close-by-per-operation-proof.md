@@ -123,6 +123,20 @@ the running adapter cannot prove still blocks close until it is attested. A tran
 `rollbackSupportedFrom` is empty, and v0.16.0's first intranet run stopped on one whose own payload could never resume it (F141). Only a finalizing transition refuses.
 
 
+## Amendment, 2026-11-26: a deploy closes its own application's stopped deploy
+
+Recovering from a failed pre-deploy hook needed a manual `inventory close`, and afterwards the
+same tag could never be deployed again and the hook's scope stayed unconverged
+([EP-287](../plans/287-recover-from-a-failed-deploy-hook-by-deploying-again.md)). `app deploy` now
+runs that close itself when the stopped review changed only this application's scope and its own
+pre-deploy hook scopes, a hook scope being proven by its Job's ordering after a member of the
+application. Close is called unchanged: every condition of decision 2 stands, the scopes keep the
+desired revision, and nothing is written to a provider. Any other stopped transaction refuses as
+before, and `--dry-run` closes nothing. The deploy then runs its hooks under a new attempt, a new
+Job and scope beside the failed one, and retires the failed attempt's scope with its Job retained;
+deletion stays the separate reviewed collection.
+
+
 ## Planned amendment (2026-11-20) — Scope of the proposed stateless apply exception
 
 Status (2026-11-21): EP-274 left MasterPlan 37 when the operator limited it to release engineering, and
