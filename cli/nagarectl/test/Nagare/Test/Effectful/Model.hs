@@ -153,9 +153,9 @@ modelRequest root fault request = do
               if fault == AfterWrite
                 then pure (Left "write committed; acknowledgement lost")
                 else pure (success owned)
-    ["wait", "--for=condition=complete", token, "--namespace", "default", "--timeout=300s"] -> do
+    ["wait", "--for=condition=complete", token, "--namespace", "default", "--timeout=10s"] -> do
       -- Waiting advances virtual time; it does not fabricate completion.
-      writeWorld root world {virtualSeconds = virtualSeconds world + 300}
+      writeWorld root world {virtualSeconds = virtualSeconds world + 10}
       if fault == WaitTimeout
         then pure (failure "injected readiness timeout")
         else pure $ case Map.lookup (T.pack token) (objects world) of
@@ -164,6 +164,8 @@ modelRequest root fault request = do
                 == toJSON [object ["type" .= ("Complete" :: Text), "status" .= ("True" :: Text)]] ->
                 success value
           _ -> failure "Job is present but has not completed"
+    -- No modeled Job fails: the wait's check for a failed Job finds none.
+    ["wait", "--for=condition=failed", _, "--namespace", "default", "--timeout=0s"] -> pure (failure "Job has not failed")
     _ -> fail ("unsupported modeled request: " <> show args)
 
 -- The workload model finishes only after the ACTUAL rendered download command
