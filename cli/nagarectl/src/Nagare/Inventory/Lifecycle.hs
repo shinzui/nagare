@@ -7,6 +7,7 @@ module Nagare.Inventory.Lifecycle
   , decodeAdoptionInput
   , decideAdoption
   , decideRetirement
+  , decideScopeRetirements
   , decideMemberRetirement
   , decideCollection
   , decideRetirementAndCollection
@@ -136,6 +137,13 @@ decideRetirement ::
   Either (NonEmpty PlanError) LifecycleDecisions
 decideRetirement candidate history observations =
   validateLifecycleDecisions candidate history observations (retirementProposals candidate history observations)
+
+-- | 'decideRetirement' when the candidate retires a scope, and no decisions otherwise, so a
+-- command's ordinary review may also retire a scope it supersedes (EP-287).
+decideScopeRetirements :: CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions
+decideScopeRetirements candidate history observations
+  | null [() | RetireScope _ _ <- NE.toList (candidateChanges candidate)] = Right noLifecycleDecisions
+  | otherwise = decideRetirement candidate history observations
 
 -- | Members a review drops from their scope, each retained by its own retirement decision against its
 -- fresh observation (`inventory plan --retain-resource`; EP-246's route retirement).

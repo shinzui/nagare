@@ -2,6 +2,9 @@
 module Nagare.Inventory.Application.Tasks
   ( compileApplicationHooks
   , ownStoppedDeploy
+  , failedHookScopes
+  , spentHookScope
+  , hookScopeMembers
   , compileApplicationTasks
   , compileTaskMembers
   )
@@ -282,19 +285,47 @@ compileApplicationHooks app appOwner rollout attempt taskBindings cluster taskNa
 -- scope it changes is the application's own, or a pre-deploy hook scope whose
 -- Job is ordered after a member of the application. Only then may a new
 -- deploy of the application end the review's stopped transaction itself.
-ownStoppedDeploy :: (Eq revision) => ScopeId -> (ScopeId -> Maybe ScopeDeclaration) -> Map ScopeId revision -> Map ScopeId revision -> Bool
-ownStoppedDeploy app declared base desired = not (null changed) && all own changed
+ownStoppedDeploy :: (Eq revision) => ScopeId -> (ScopeId -> [ManagedResource]) -> Map ScopeId revision -> Map ScopeId revision -> Bool
+ownStoppedDeploy app members base desired = not (null changed) && all own changed
   where
     changed = Map.keys (Map.filterWithKey (\scope revision -> Map.lookup scope base /= Just revision) desired) <> Map.keys (Map.difference base desired)
-    own scope = scope == app || (hook scope && maybe False ofApp (declared scope))
-    hook scope = scopeKind scope == Standalone && "app-hook-" `T.isPrefixOf` nameText (scopeName scope)
-    ofApp declaration =
-      or
-        [ (scopeIdText app <> "/") `T.isPrefixOf` resourceIdText after
-        | bundle <- scopeBundles declaration
-        , Managed member <- declarations bundle
-        , OrderedAfter after <- member ^. #dependencies
-        ]
+    own scope = scope == app || hookScopeOf app scope (members scope)
+
+-- | Whether a scope is a pre-deploy hook scope of this application: its Job is
+-- ordered after a member of the application.
+hookScopeOf :: ScopeId -> ScopeId -> [ManagedResource] -> Bool
+hookScopeOf app scope members =
+  scopeKind scope == Standalone
+    && "app-hook-" `T.isPrefixOf` nameText (scopeName scope)
+    && or [(scopeIdText app <> "/") `T.isPrefixOf` resourceIdText after | member <- members, OrderedAfter after <- member ^. #dependencies]
+
+-- | A scope's managed members as the store holds them: accepted, or retained
+-- once a later deploy retired the scope.
+hookScopeMembers :: Map ScopeId (revision, ScopeDeclaration) -> [ManagedResource] -> ScopeId -> [ManagedResource]
+hookScopeMembers accepted retained scope =
+  [member | Just (_, declaration) <- [Map.lookup scope accepted], bundle <- scopeBundles declaration, Managed member <- declarations bundle]
+    <> filter ((== scope) . (^. #owner)) retained
+
+-- | Whether an earlier deploy spent this hook scope without completing it: a
+-- closed failed run left it accepted and unconverged, or a later deploy retired
+-- it and its failed Job is retained under the scope's Job name. A deploy of the
+-- same tag then runs its hooks under the next attempt.
+spentHookScope :: (Eq revision) => Map ScopeId (revision, declaration) -> Map ScopeId revision -> [ScopeId] -> ScopeId -> Bool
+spentHookScope accepted converged retainedOwners hook =
+  maybe False (\(revision, _) -> Map.lookup hook converged /= Just revision) (Map.lookup hook accepted)
+    || hook `elem` retainedOwners
+
+-- | The application's hook scopes that a closed failed deploy left accepted and
+-- unconverged, other than the ones this deploy declares. A deploy retires them,
+-- retaining their Jobs, so a recovered application leaves no unconverged scope.
+failedHookScopes :: (Eq revision) => ScopeId -> Map ScopeId (revision, ScopeDeclaration) -> Map ScopeId revision -> [ScopeId] -> [ScopeId]
+failedHookScopes app accepted converged declared =
+  [ scope
+  | (scope, (revision, _)) <- Map.toList accepted
+  , scope `notElem` declared
+  , hookScopeOf app scope (hookScopeMembers accepted [] scope)
+  , Map.lookup scope converged /= Just revision
+  ]
 
 compileTaskMembers ::
   ScopeId ->

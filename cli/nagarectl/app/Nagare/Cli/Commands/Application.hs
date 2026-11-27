@@ -146,9 +146,11 @@ import Nagare.Inventory.Application
   , compileServiceActionScope
   , contentRouteRetirements
   , databaseRecoveryBindings
+  , failedHookScopes
   , hookTriggerOverrides
   , legacyApplicationReleaseImport
   , reviewedTaskImages
+  , spentHookScope
   )
 import Nagare.Inventory.CollectionPolicy (collectionWaves)
 import Nagare.Inventory.Command qualified as Inventory
@@ -159,6 +161,7 @@ import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Policy (RetirementIntent (RetainResources))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Static.Release
@@ -519,8 +522,12 @@ runAppDeployPlan mctx params appOptions output = do
     either
       (dieT . T.pack . show)
       pure
-      -- A hook scope a closed failed run left accepted and unconverged is retried under a new attempt.
-      (compileApplicationRetry (\hook -> maybe False (\(revision, _) -> Map.lookup hook (InventoryPlan.historyConverged history) /= Just revision) (Map.lookup hook (InventoryPlan.historyAccepted history))) input)
+      -- A hook scope a closed failed run left accepted and unconverged, or whose retained Job an
+      -- earlier recovery left behind, is retried under a new attempt.
+      ( compileApplicationRetry
+          (spentHookScope (InventoryPlan.historyAccepted history) (InventoryPlan.historyConverged history) (map ((^. #owner) . snd) (Map.elems (InventoryPlan.historyRetained history))))
+          input
+      )
   (scope, hookScopes) <- case scopes of
     appScope : hooks -> pure (appScope, hooks)
     [] -> dieT "reviewed application compiler produced no scope"
@@ -532,6 +539,16 @@ runAppDeployPlan mctx params appOptions output = do
           snapshot
           ( ResourceInventory.ReplaceScope scope
               NE.:| map ResourceInventory.ReplaceScope hookScopes
+                -- EP-287: this deploy supersedes the application's earlier failed hook scopes; their Jobs stay.
+                <> [ ResourceInventory.RetireScope failed RetainResources
+                   | isNothing adoption && null (appOptions ^. #retireDatabases) && null (appOptions ^. #retireContentRoutes)
+                   , failed <-
+                       failedHookScopes
+                         (ResourceInventory.scopeId scope)
+                         (InventoryPlan.historyAccepted history)
+                         (InventoryPlan.historyConverged history)
+                         (map ResourceInventory.scopeId hookScopes)
+                   ]
           )
       )
   forM_ adoption (validateInlineReleaseAdoption scope (appConfigMapName releaseSubject))

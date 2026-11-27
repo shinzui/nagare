@@ -147,7 +147,9 @@ tasks wait for completion. Retrying the same accepted tag verifies the completed
 Job rather than rerunning it. When a hook fails, the release before it keeps
 serving and the recovery is `app deploy` again, with the same tag or a new one:
 the deploy closes its own stopped transaction and runs the hook as a new
-attempt, in a new Job beside the failed one, which is kept for inspection. A
+attempt, in a new Job beside the failed one, which is kept for inspection. The
+deploy also retires the failed attempt's hook scope, keeping its Job, so `inventory status` shows no
+unconverged scope once the application has recovered. A
 stopped transaction that is not this application's deploy still refuses. A later tag leaves the old hook scope in accepted
 history. Changing the hook or its effects under the same tag refuses; choose a
 new tag. A hook may bind an app database through its `appDatabases`; when the app database names

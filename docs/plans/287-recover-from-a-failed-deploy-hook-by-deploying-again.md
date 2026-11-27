@@ -51,9 +51,14 @@ of it is left accepted and unconverged.
       application or a review that changes another scope (assertions in the same-tag test of
       `cli/nagarectl/test/ReleaseOnlyHookWorldSpec.hs`). The command path
       (`stoppedOwnDeploy` in `cli/nagarectl/app/Nagare/Cli/Application/Inputs.hs`, then `runInventoryClose`) has no test of its own; M4 runs it.
-- [ ] M3: a converged deploy leaves no accepted, unconverged hook scope of that application; the
-      failed Jobs keep their UIDs. Evidence: the BUG-10 test's last two assertions inverted, with
-      its three follow-ups (corrected release, rollback, another application) still converging.
+- [x] M3 (2026-11-26): a converged deploy leaves no accepted, unconverged hook scope of that
+      application; the failed Jobs keep their UIDs. Evidence: `ReleaseOnlyHookWorldSpec`: the BUG-10
+      test now asserts no scope is left unconverged while its three follow-ups (corrected release,
+      rollback, another application) still converge; the same-tag test asserts the same after the
+      retry; a new test fails the hook twice, closes each stop as the application's own deploy, and
+      converges the third attempt with both failed Jobs kept. The retirement is planned on the
+      direct path and the plain `--save-plan` path; a deploy with `--retire-database`,
+      `--retire-content-route` or a legacy release import leaves it to the next deploy.
 - [ ] M4: native confirmation on a disposable local context: a hook that exits non-zero, then the
       same `app deploy` with the hook fixed. Evidence: the two command transcripts and
       `inventory status --json`.

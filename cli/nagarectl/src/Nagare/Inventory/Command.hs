@@ -478,8 +478,8 @@ tryPlanInventoryCollectionWith registryFor target resource output = do
 -- | Plan a freshly compiled component candidate with native member bytes held
 -- by the caller. Publication still retains those bytes in the private review.
 planInventoryCandidateWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
-planInventoryCandidateWith registryFor =
-  planInventoryCandidateWithDecider registryFor (\_ _ -> Right noLifecycleDecisions)
+planInventoryCandidateWith registryFor target candidate =
+  planInventoryCandidateWithDecider registryFor (decideScopeRetirements candidate) target candidate
 
 -- | 'planInventoryCandidateWith' against an inventory the command already
 -- opened (EP-212).
@@ -566,7 +566,7 @@ convergeInventoryCandidateResult ::
   CompositionCandidate ->
   IO (ContentDigest, TransactionResult)
 convergeInventoryCandidateResult planningRegistry executionRegistry target candidate = do
-  (store, _, digest) <- prepareInventoryCandidateWithDecider planningRegistry (\_ _ -> Right noLifecycleDecisions) target candidate
+  (store, _, digest) <- prepareInventoryCandidateWithDecider planningRegistry (decideScopeRetirements candidate) target candidate
   requireTransitionOwner store
   bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))

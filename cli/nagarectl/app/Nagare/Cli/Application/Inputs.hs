@@ -42,6 +42,7 @@ import Nagare.Inventory.Application
   , acceptedBucketBindings
   , acceptedDatabaseBindings
   , acceptedKeySetBindings
+  , hookScopeMembers
   , ownStoppedDeploy
   )
 import Nagare.Inventory.Command qualified as Inventory
@@ -253,6 +254,6 @@ stoppedOwnDeploy active app = do
         pure $ case (loaded, history) of
           (Right bundle, Right accepted)
             | let document = InventoryPlan.reviewBundleDocument bundle
-            , ownStoppedDeploy app (\scope -> snd <$> Map.lookup scope (InventoryPlan.historyAccepted accepted)) (InventoryPlan.reviewBaseRevisions document) (InventoryPlan.reviewDesiredRevisions document) ->
+            , ownStoppedDeploy app (hookScopeMembers (InventoryPlan.historyAccepted accepted) (map snd (Map.elems (InventoryPlan.historyRetained accepted)))) (InventoryPlan.reviewBaseRevisions document) (InventoryPlan.reviewDesiredRevisions document) ->
                 Just (transaction, Resource.digestText review)
           _ -> Nothing
