@@ -46,6 +46,18 @@ inventoryKubernetesReadinessTests =
         case calls of
           [("wait" : "--for=condition=ready" : target : _)] -> target @?= "certificates.networking.internal.knative.dev/routing-serving-certs"
           other -> assertFailure ("expected one kubectl wait, got " <> show other)
+    , testCase "a failed Job ends its readiness wait at once instead of waiting out the timeout" $ do
+        asked <- newIORef []
+        let answer request = do
+              modifyIORef' asked (<> [request ^. #arguments])
+              pure (Right (if "--for=condition=failed" `elem` (request ^. #arguments) then ExitSuccess else ExitFailure 1, "", ""))
+            config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (ok (mkContextId "context-1")) "readiness" (pure (Right ())))
+            address = Kubernetes extraId "batch" (ok (mkName "job")) (Just (ok (mkName "personal"))) (ok (mkName "migrate-hook"))
+        waitForReadiness config address >>= \case
+          AdapterEffectAmbiguous reason -> reason @?= "Kubernetes Job failed; reobserve before retry"
+          _ -> assertFailure "a failed Job did not stop the wait"
+        calls <- readIORef asked
+        map (take 2) calls @?= [["wait", "--for=condition=complete"], ["wait", "--for=condition=failed"]]
     , testCase "a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70)" $ do
         -- RES-4 §2 (E5): during a bad-image update of one replica the old
         -- ReplicaSet keeps Available=True, and the controller has observed the

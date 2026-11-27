@@ -331,8 +331,7 @@ supportedUpdateAddress _ = False
 waitForReadiness :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
 waitForReadiness config address = case address of
   Kubernetes _ "batch" kind namespace name
-    | nameText kind == "job" ->
-        waitCondition "complete" "job" namespace name "Job"
+    | nameText kind == "job" -> waitForJob namespace name (30 :: Int)
   Kubernetes _ "apiextensions.k8s.io" kind namespace name
     | nameText kind == "customresourcedefinition" ->
         waitCondition "established" "crd" namespace name "CustomResourceDefinition"
@@ -379,6 +378,17 @@ waitForReadiness config address = case address of
   where
     waitCondition condition = waitFor ("condition=" <> condition)
     waitFor = waitForWithin "300s"
+    -- A Job that failed never completes, so each ten seconds of waiting also asks whether it
+    -- failed: a failed pre-deploy hook stops its deploy at once, not after the whole wait.
+    waitForJob namespace name rounds =
+      waitForWithin "10s" "condition=complete" "job" namespace name "Job" >>= \case
+        AdapterEffectCompleted -> pure AdapterEffectCompleted
+        waiting ->
+          waitForWithin "0s" "condition=failed" "job" namespace name "Job" >>= \case
+            AdapterEffectCompleted -> pure (AdapterEffectAmbiguous "Kubernetes Job failed; reobserve before retry")
+            _
+              | rounds <= 1 -> pure waiting
+              | otherwise -> waitForJob namespace name (rounds - 1)
     waitForWithin within for kind namespace name label = do
       result <-
         invoke
