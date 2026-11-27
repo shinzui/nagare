@@ -6,7 +6,7 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -46,18 +46,36 @@ inventoryKubernetesReadinessTests =
         case calls of
           [("wait" : "--for=condition=ready" : target : _)] -> target @?= "certificates.networking.internal.knative.dev/routing-serving-certs"
           other -> assertFailure ("expected one kubectl wait, got " <> show other)
-    , testCase "a failed Job ends its readiness wait at once instead of waiting out the timeout" $ do
-        asked <- newIORef []
-        let answer request = do
-              modifyIORef' asked (<> [request ^. #arguments])
-              pure (Right (if "--for=condition=failed" `elem` (request ^. #arguments) then ExitSuccess else ExitFailure 1, "", ""))
-            config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (ok (mkContextId "context-1")) "readiness" (pure (Right ())))
-            address = Kubernetes extraId "batch" (ok (mkName "job")) (Just (ok (mkName "personal"))) (ok (mkName "migrate-hook"))
-        waitForReadiness config address >>= \case
-          AdapterEffectAmbiguous reason -> reason @?= "Kubernetes Job failed; reobserve before retry"
-          _ -> assertFailure "a failed Job did not stop the wait"
-        calls <- readIORef asked
-        map (take 2) calls @?= [["wait", "--for=condition=complete"], ["wait", "--for=condition=failed"]]
+    , testCase "a Job's readiness wait ends on the Job's own verdict: a running Job outlasts five minutes, one that never starts stops there, a failure stops at once, and so does a Job that cannot be read" $ do
+        let address = Kubernetes extraId "batch" (ok (mkName "job")) (Just (ok (mkName "personal"))) (ok (mkName "migrate-hook"))
+            notYet = Right (ExitFailure 1, "", "error: timed out waiting for the condition on jobs/migrate-hook")
+            completeWaits = filter (elem "--for=condition=complete")
+            job status = Right (ExitSuccess, "{\"status\":" <> status <> "}", "")
+            waited answerFor = do
+              asked <- newIORef []
+              let answer request = do
+                    earlier <- atomicModifyIORef' asked (\calls -> (calls <> [request ^. #arguments], calls))
+                    pure (answerFor (length (completeWaits earlier)) (request ^. #arguments))
+                  config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (ok (mkContextId "context-1")) "readiness" (pure (Right ())))
+              (,) <$> waitForReadiness config address <*> readIORef asked
+            answering status done n arguments
+              | take 1 arguments == ["get"] = job status
+              | n >= done && "--for=condition=complete" `elem` arguments = Right (ExitSuccess, "", "")
+              | otherwise = notYet
+        -- A migration that takes ten minutes with its pod running: sixty unmet ten-second rounds, then Complete.
+        (slow, slowCalls) <- waited (answering "{\"active\":1,\"ready\":1}" 60)
+        slow @?= AdapterEffectCompleted
+        length (completeWaits slowCalls) @?= 61
+        -- A Job whose pod never becomes ready stops after five minutes of rounds.
+        (stuck, stuckCalls) <- waited (answering "{\"active\":1}" 60)
+        stuck @?= AdapterEffectAmbiguous "Kubernetes Job did not prove readiness; reobserve before retry"
+        length (completeWaits stuckCalls) @?= 30
+        (failed, failedCalls) <- waited (\_ arguments -> if "--for=condition=failed" `elem` arguments then Right (ExitSuccess, "", "") else notYet)
+        failed @?= AdapterEffectAmbiguous "Kubernetes Job failed; reobserve before retry"
+        map (take 2) failedCalls @?= [["wait", "--for=condition=complete"], ["wait", "--for=condition=failed"]]
+        (gone, goneCalls) <- waited (\_ _ -> Right (ExitFailure 1, "", "Error from server (NotFound): jobs.batch \"migrate-hook\" not found"))
+        gone @?= AdapterEffectAmbiguous "Kubernetes Job did not prove readiness; reobserve before retry"
+        length goneCalls @?= 1
     , testCase "a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70)" $ do
         -- RES-4 §2 (E5): during a bad-image update of one replica the old
         -- ReplicaSet keeps Available=True, and the controller has observed the

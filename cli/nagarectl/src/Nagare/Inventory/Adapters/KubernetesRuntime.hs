@@ -331,7 +331,7 @@ supportedUpdateAddress _ = False
 waitForReadiness :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
 waitForReadiness config address = case address of
   Kubernetes _ "batch" kind namespace name
-    | nameText kind == "job" -> waitForJob namespace name (30 :: Int)
+    | nameText kind == "job" -> waitForJob namespace name
   Kubernetes _ "apiextensions.k8s.io" kind namespace name
     | nameText kind == "customresourcedefinition" ->
         waitCondition "established" "crd" namespace name "CustomResourceDefinition"
@@ -378,17 +378,37 @@ waitForReadiness config address = case address of
   where
     waitCondition condition = waitFor ("condition=" <> condition)
     waitFor = waitForWithin "300s"
-    -- A Job that failed never completes, so each ten seconds of waiting also asks whether it
-    -- failed: a failed pre-deploy hook stops its deploy at once, not after the whole wait.
-    waitForJob namespace name rounds =
-      waitForWithin "10s" "condition=complete" "job" namespace name "Job" >>= \case
-        AdapterEffectCompleted -> pure AdapterEffectCompleted
-        waiting ->
-          waitForWithin "0s" "condition=failed" "job" namespace name "Job" >>= \case
-            AdapterEffectCompleted -> pure (AdapterEffectAmbiguous "Kubernetes Job failed; reobserve before retry")
-            _
-              | rounds <= 1 -> pure waiting
-              | otherwise -> waitForJob namespace name (rounds - 1)
+    -- A Job ends on its own verdict, Complete or Failed (its backoff limit or deadline), however
+    -- long it runs: a slow migration is not a stop, and a failed hook stops its deploy at once.
+    -- Past five minutes the wait goes on only while the Job has a ready pod, so a Job that never
+    -- starts (an image that cannot be pulled) still stops. Any answer other than "not yet" (the
+    -- Job is gone, the API refused) ends the wait unproven.
+    waitForJob = waitForJobFrom (0 :: Int)
+    waitForJobFrom rounds namespace name = do
+      let ask condition within =
+            invoke config (["wait", "--for=condition=" <> condition, "job/" <> T.unpack (nameText name)] <> namespaceArgs namespace <> ["--timeout=" <> within]) ""
+          notYet message = any (`T.isInfixOf` T.pack message) ["timed out waiting for the condition", "condition not met"]
+          unproven = AdapterEffectAmbiguous "Kubernetes Job did not prove readiness; reobserve before retry"
+          running =
+            invoke config (["get", "job", T.unpack (nameText name)] <> namespaceArgs namespace <> ["-o", "json"]) "" <&> \case
+              Right (ExitSuccess, output, _)
+                | Just (Object job) <- decodeStrict (TE.encodeUtf8 (T.pack output))
+                , Just (Object status) <- KM.lookup "status" job
+                , Just (Number ready) <- KM.lookup "ready" status ->
+                    ready >= 1
+              _ -> False
+      ask "complete" "10s" >>= \case
+        Right (ExitSuccess, _, _) -> pure AdapterEffectCompleted
+        Right (_, _, message)
+          | notYet message ->
+              ask "failed" "0s" >>= \case
+                Right (ExitSuccess, _, _) -> pure (AdapterEffectAmbiguous "Kubernetes Job failed; reobserve before retry")
+                Right (_, _, message')
+                  | notYet message' -> do
+                      continue <- if rounds < 29 then pure True else running
+                      if continue then waitForJobFrom (rounds + 1) namespace name else pure unproven
+                _ -> pure unproven
+        _ -> pure unproven
     waitForWithin within for kind namespace name label = do
       result <-
         invoke

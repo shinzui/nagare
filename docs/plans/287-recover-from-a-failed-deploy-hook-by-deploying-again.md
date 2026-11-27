@@ -128,9 +128,8 @@ Recovering from a failed pre-deploy hook is now `app deploy` again, with the sam
 one: the deploy closes its own application's stopped transaction under ADR 26's unchanged
 admission, runs the hook as a new attempt in a new Job, and retires the failed attempt's scope
 with its Job retained, so nothing is left unconverged and nothing is deleted. A failed hook also
-stops its deploy within seconds. What remains: a hook that runs longer than five minutes still
-stops as ambiguous at the adapter's fixed wait, and the retained failed Jobs stay until someone
-collects them. The decision that a deploy may close its own application's stopped deploy, and only
+stops its deploy within seconds, and a slow one is waited for until the Job's own verdict while its
+pod is running; only a Job with no ready pod after five minutes stops unproven. What remains: the retained failed Jobs stay until someone collects them. The decision that a deploy may close its own application's stopped deploy, and only
 that, is recorded as an amendment to ADR 26.
 
 

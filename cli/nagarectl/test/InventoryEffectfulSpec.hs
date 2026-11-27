@@ -43,7 +43,7 @@ inventoryEffectfulTests =
     "effectful restore pilot"
     [ testCase "lost write acknowledgement resumes saved review without creating twice" (recoverScenario AfterWrite)
     , testCase "failure before write retries once after reopening history" (recoverScenario BeforeWrite)
-    , testCase "readiness timeout uses virtual time and resumes the original Job" (recoverScenario WaitTimeout)
+    , testCase "a readiness wait that ends unproven uses virtual time and resumes the original Job" (recoverScenario WaitTimeout)
     , testCase "changed source identity after interruption refuses recovery" changedSource
     , testCase "actual rendered download rejects missing generations and corrupt bytes" downloadFailures
     , testCase "unmodeled effects fail instead of reporting synthetic success" $
@@ -117,7 +117,7 @@ recoverScenario fault = withSystemTempDirectory "nagare-effectful-restore" $ \ro
   (_, bundle, transaction) <- start root fault
   initial <- readWorld root
   createCount initial @?= if fault == BeforeWrite then 0 else 1
-  when (fault == WaitTimeout) (virtualSeconds initial @?= 300)
+  when (fault == WaitTimeout) (virtualSeconds initial @?= 10)
   let sourceBefore = Map.filterWithKey (\key _ -> not ("job/" `T.isPrefixOf` key)) (objects initial)
   -- Reopen the filesystem store, reload immutable native inputs, and construct
   -- a new handler. Only durable history and the separate external world survive.
